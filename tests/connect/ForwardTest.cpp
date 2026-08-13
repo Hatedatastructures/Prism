@@ -6,18 +6,16 @@
  * 其逻辑已在 TunnelTest 中通过集成方式覆盖。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/settings/settings.hpp>
-#include <prism/net/connection/dialer/dialer.hpp>
-#include <prism/net/connection/tunnel/forward/basic.hpp>
-#include <prism/net/connection/tunnel/tunnel.hpp>
-#include <prism/resource/session.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/protocol/common/form.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/connection/target.hpp>
+#include <prism/net/connection/tunnel/forward/basic.hpp>
+#include <prism/net/connection/tunnel/tunnel.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/common/form.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
 
@@ -26,6 +24,7 @@
 #include <string_view>
 
 #include "common/MockTransport.hpp"
+#include <gtest/gtest.h>
 
 namespace
 {

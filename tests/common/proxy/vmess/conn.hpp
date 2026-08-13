@@ -18,12 +18,6 @@
 
 #pragma once
 
-#include <common/core/byte_span.hpp>
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/proxy/vmess/codec.hpp>
-#include <common/proxy/vmess/types.hpp>
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
@@ -40,9 +34,14 @@
 #include <utility>
 #include <vector>
 
+#include <common/core/byte_span.hpp>
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/proxy/vmess/codec.hpp>
+#include <common/proxy/vmess/types.hpp>
+
 namespace psmtest::vmess
 {
-
 
     /**
      * @class client
@@ -53,8 +52,7 @@ namespace psmtest::vmess
      * 或通过 async_send_datagram / async_receive_datagram 收发
      * UDP 数据报。
      */
-    class conn : public psmtest::transmission,
-                 public std::enable_shared_from_this<conn>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn>
     {
     public:
         /**
@@ -63,8 +61,7 @@ namespace psmtest::vmess
          * @param cfg 客户端配置
          * @details 接管底层传输所有权，调用者不应再使用原指针。
          */
-        explicit conn(std::array<std::uint8_t, 16> uuid)
-            : uuid_(uuid)
+        explicit conn(std::array<std::uint8_t, 16> uuid) : uuid_(uuid)
         {
         }
 
@@ -88,7 +85,7 @@ namespace psmtest::vmess
          * @warning 未握手或已结束时返回 0 并置 ec
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -130,7 +127,7 @@ namespace psmtest::vmess
          * @warning 未握手时返回 0 并置 ec
          */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -172,7 +169,9 @@ namespace psmtest::vmess
         void close() override
         {
             if (next_layer_)
+            {
                 next_layer_->close();
+            }
         }
 
         /**
@@ -182,7 +181,9 @@ namespace psmtest::vmess
         void cancel() override
         {
             if (next_layer_)
+            {
                 next_layer_->cancel();
+            }
         }
 
         /**
@@ -222,8 +223,7 @@ namespace psmtest::vmess
          * @warning 调用前必须确保 next_layer_ 已建立连接
          */
         [[nodiscard]] auto write_handshake(shared_transmission upstream, const address &target,
-                                      command cmd = command::tcp)
-        -> net::awaitable<error>
+                                           command cmd = command::tcp) -> net::awaitable<error>
         {
             next_layer_ = std::move(upstream);
             // 1. 生成随机参数
@@ -231,18 +231,23 @@ namespace psmtest::vmess
             std::array<std::uint8_t, 16> iv{};
             std::array<std::uint8_t, 16> key{};
             for (auto &b : iv)
+            {
                 b = static_cast<std::uint8_t>(rd() & 0xFF);
+            }
             for (auto &b : key)
+            {
                 b = static_cast<std::uint8_t>(rd() & 0xFF);
+            }
             const auto v = static_cast<std::uint8_t>(rd() & 0xFF);
             const auto p = static_cast<std::uint8_t>(rd() % 16);
             std::array<std::uint8_t, 4> random4{};
             for (auto &b : random4)
+            {
                 b = static_cast<std::uint8_t>(rd() & 0xFF);
-            const auto time_sec =
-                std::chrono::duration_cast<std::chrono::seconds>(
-                    std::chrono::system_clock::now().time_since_epoch())
-                    .count();
+            }
+            const auto time_sec = std::chrono::duration_cast<std::chrono::seconds>(
+                                      std::chrono::system_clock::now().time_since_epoch())
+                                      .count();
 
             // 2. 构造请求头明文并密封
             request_header hdr;
@@ -256,12 +261,16 @@ namespace psmtest::vmess
             const auto sealed = seal_auth_header(cmd_key, auth_header_input{plain, time_sec, random4});
             const auto auth_id = create_auth_id(time_sec, random4);
             if (co_await send_bytes(sealed))
+            {
                 co_return error::io_error;
+            }
 
             // 3. 读取 18 字节响应长度块
             std::array<std::uint8_t, 18> len_enc{};
             if (co_await recv_exact(std::span<std::uint8_t>(len_enc)))
+            {
                 co_return error::io_error;
+            }
 
             // 4. 派生响应密钥并解密长度字段
             const auto resp_body_key = detail::sha256(key);
@@ -278,13 +287,17 @@ namespace psmtest::vmess
             std::memcpy(rliv.data(), resp_len_iv.data(), 12);
             const auto len_plain = detail::aes_gcm_open(detail::open_input{rlk, rliv, len_enc, auth_id});
             if (len_plain.size() != 2)
+            {
                 co_return error::bad_auth;
+            }
             const auto resp_len = static_cast<std::size_t>(len_plain[0]) << 8 | len_plain[1];
 
             // 5. 读取响应头密文并校验验证字节
             std::vector<std::uint8_t> resp_enc(resp_len);
             if (co_await recv_exact(resp_enc))
+            {
                 co_return error::io_error;
+            }
             const auto resp_key = kdf(resp_key16, kdf_resp_key);
             const auto resp_iv = kdf(resp_iv16, kdf_resp_iv);
             std::array<std::uint8_t, 16> rk{};
@@ -293,9 +306,13 @@ namespace psmtest::vmess
             std::memcpy(riv.data(), resp_iv.data(), 12);
             response_header rh;
             if (open_response_header(rk, resp_header_parse_input{riv, resp_enc, auth_id}, rh) != error::none)
+            {
                 co_return error::bad_auth;
+            }
             if (rh.version != v)
+            {
                 co_return error::bad_auth;
+            }
 
             // 6. 派生分块密钥（body_key = KDF(request_key, request_nonce)）
             const auto body_key = kdf(key, iv);
@@ -319,15 +336,18 @@ namespace psmtest::vmess
          * @warning 仅在 handshake() 使用 command::udp 后调用；数据报
          * 模式与流式模式互斥，同一会话不可混用
          */
-        [[nodiscard]] auto async_send_datagram(std::span<const std::uint8_t> payload)
-        -> net::awaitable<error>
+        [[nodiscard]] auto async_send_datagram(std::span<const std::uint8_t> payload) -> net::awaitable<error>
         {
             if (!handshaken_)
+            {
                 co_return error::not_open;
+            }
             std::vector<std::uint8_t> out(payload.size() + chunk_encryptor::overhead);
             const auto n = enc_->seal(payload, out);
             if (n == 0)
+            {
                 co_return error::bad_length;
+            }
             const auto wire = std::span<const std::uint8_t>(out.data(), n);
             co_return co_await send_bytes(wire) ? error::io_error : error::none;
         }
@@ -341,18 +361,25 @@ namespace psmtest::vmess
          * @warning 仅在 handshake() 使用 command::udp 后调用；数据报
          * 模式与流式模式互斥，同一会话不可混用
          */
-        [[nodiscard]] auto async_receive_datagram(std::vector<std::uint8_t> &payload)
-        -> net::awaitable<error>
+        [[nodiscard]] auto async_receive_datagram(std::vector<std::uint8_t> &payload) -> net::awaitable<error>
         {
             if (!handshaken_)
+            {
                 co_return error::not_open;
+            }
             if (eof_)
+            {
                 co_return error::unexpected_eof;
+            }
             const auto err = co_await read_chunk();
             if (err != error::none)
+            {
                 co_return err;
+            }
             if (eof_)
+            {
                 co_return error::unexpected_eof;
+            }
             payload = std::move(plain_rx_);
             plain_off_ = 0;
             co_return error::none;
@@ -367,23 +394,29 @@ namespace psmtest::vmess
          * 派生分块密钥。认证失败不发送响应，静默断开。
          */
         [[nodiscard]] auto read_handshake(shared_transmission upstream)
-        -> net::awaitable<std::pair<error, message>>
+            -> net::awaitable<std::pair<error, message>>
         {
             next_layer_ = std::move(upstream);
             message out;
             auto err = co_await read_request(out);
             if (err != error::none)
+            {
                 co_return std::pair{err, message{}};
+            }
 
             // 命令校验（tcp/udp/mux 合法）
             const auto cmd = static_cast<command>(out.cmd);
             if (cmd != command::tcp && cmd != command::udp && cmd != command::mux)
+            {
                 co_return std::pair{error::bad_message, message{}};
+            }
 
             // 发送 AEAD 响应头
             err = co_await send_success(out);
             if (err != error::none)
+            {
                 co_return std::pair{err, message{}};
+            }
 
             // 派生分块密钥（body_key = KDF(request_key, request_nonce) 前 16 字节）
             const auto body_key = kdf(out.request_key, out.request_nonce);
@@ -416,13 +449,14 @@ namespace psmtest::vmess
          * 剩余密文 → 组装解析（cmdKey 解密失败即 UUID 不匹配）→
          * 显式 UUID 校验。
          */
-        [[nodiscard]] auto read_request(message &out)
-        -> net::awaitable<error>
+        [[nodiscard]] auto read_request(message &out) -> net::awaitable<error>
         {
             // 1. 读取认证头前缀（16 AuthID + 18 LenEnc + 8 Nonce = 42 字节）
             std::array<std::uint8_t, 42> prefix{};
             if (co_await recv_exact(std::span<std::uint8_t>(prefix)))
+            {
                 co_return error::io_error;
+            }
 
             // 2. 解密长度字段，确定请求头密文总长
             const auto cmd_key = cmd_key_from_uuid(uuid_);
@@ -435,16 +469,20 @@ namespace psmtest::vmess
             std::memcpy(lk.data(), len_key.data(), 16);
             std::array<std::uint8_t, 12> liv{};
             std::memcpy(liv.data(), len_iv.data(), 12);
-            const auto len_plain = detail::aes_gcm_open(detail::open_input{
-                lk, liv, std::span<const std::uint8_t>(prefix).subspan(16, 18), auth_id});
+            const auto len_plain = detail::aes_gcm_open(
+                detail::open_input{lk, liv, std::span<const std::uint8_t>(prefix).subspan(16, 18), auth_id});
             if (len_plain.size() != 2)
+            {
                 co_return error::bad_auth;
+            }
             const auto length = static_cast<std::size_t>(len_plain[0]) << 8 | len_plain[1];
 
             // 3. 读取请求头密文（length + 16 tag）
             std::vector<std::uint8_t> body_enc(length + 16);
             if (co_await recv_exact(body_enc))
+            {
                 co_return error::io_error;
+            }
 
             // 4. 组装完整认证头，复用 handshake 的 parser 解析
             std::vector<std::uint8_t> full;
@@ -455,12 +493,16 @@ namespace psmtest::vmess
             std::error_code pec;
             p.put(boost::asio::const_buffer(full.data(), full.size()), pec);
             if (pec || !p.is_done())
+            {
                 co_return error::bad_auth;
+            }
 
             // 5. UUID 校验（AEAD 解密成功即隐含 cmdKey 匹配，此处显式确认）
             out = p.get();
             if (out.uuid != uuid_)
+            {
                 co_return error::bad_auth;
+            }
             co_return error::none;
         }
 
@@ -498,7 +540,8 @@ namespace psmtest::vmess
             const std::array<std::uint8_t, 2> resp_len_plain{
                 static_cast<std::uint8_t>(resp_enc.size() >> 8),
                 static_cast<std::uint8_t>(resp_enc.size() & 0xFF)};
-            const auto len_enc = detail::aes_gcm_seal(detail::seal_input{rlk, rliv, resp_len_plain, auth_id_});
+            const auto len_enc =
+                detail::aes_gcm_seal(detail::seal_input{rlk, rliv, resp_len_plain, auth_id_});
 
             std::vector<std::uint8_t> resp;
             resp.reserve(len_enc.size() + resp_enc.size());
@@ -513,18 +556,21 @@ namespace psmtest::vmess
          * @details 块格式：[2B 长度密文 + 16B tag][载荷密文 + 16B tag]。
          * 解密失败（tag 校验）返回 bad_auth。
          */
-        [[nodiscard]] auto read_chunk()
-        -> net::awaitable<error>
+        [[nodiscard]] auto read_chunk() -> net::awaitable<error>
         {
             // 1. 读取 18 字节块头（长度密文 + 16 tag）
             std::array<std::uint8_t, 18> head{};
             if (co_await recv_exact(std::span<std::uint8_t>(head)))
+            {
                 co_return error::unexpected_eof;
+            }
 
             // 2. 解密长度字段
             auto len = dec_->open_len(head);
             if (!len)
+            {
                 co_return len.error();
+            }
             if (*len == 0) // 结束块
             {
                 eof_ = true;
@@ -534,11 +580,15 @@ namespace psmtest::vmess
             // 3. 读取载荷密文（len + 16 tag）并解密
             std::vector<std::uint8_t> enc(*len + 16);
             if (co_await recv_exact(enc))
+            {
                 co_return error::unexpected_eof;
+            }
             std::vector<std::uint8_t> plain(*len);
             const auto err = dec_->open_payload(enc, plain);
             if (err != error::none)
+            {
                 co_return err;
+            }
 
             // 4. 存入待读缓冲
             plain_rx_ = std::move(plain);
@@ -551,8 +601,7 @@ namespace psmtest::vmess
          * @param buf 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto recv_exact(std::span<std::uint8_t> buf)
-        -> net::awaitable<bool>
+        [[nodiscard]] auto recv_exact(std::span<std::uint8_t> buf) -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < buf.size())
@@ -560,7 +609,9 @@ namespace psmtest::vmess
                 std::error_code ec;
                 const auto n = co_await next_layer_->async_read_some(as_bytes(buf.subspan(done)), ec);
                 if (ec || n == 0)
+                {
                     co_return true;
+                }
                 done += n;
             }
             co_return false;
@@ -571,8 +622,7 @@ namespace psmtest::vmess
          * @param data 数据
          * @return true = 失败
          */
-        [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-        -> net::awaitable<bool>
+        [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())
@@ -580,22 +630,24 @@ namespace psmtest::vmess
                 std::error_code ec;
                 const auto n = co_await next_layer_->async_write_some(as_bytes(data.subspan(done)), ec);
                 if (ec)
+                {
                     co_return true;
+                }
                 done += n;
             }
             co_return false;
         }
 
-        shared_transmission next_layer_;          ///< 底层传输（独占所有权）
-        std::array<std::uint8_t, 16> auth_id_{};  ///< 请求 AuthID（响应 AAD）
-        message parsed_{};                        ///< 服务端握手解析结果
-        std::array<std::uint8_t, 16> uuid_;        ///< 协议 UUID（凭据）
-        std::optional<chunk_encryptor> enc_;      ///< 分块加密器（发送侧）
-        std::optional<chunk_decryptor> dec_;      ///< 分块解密器（接收侧）
-        std::vector<std::uint8_t> plain_rx_;      ///< 解密后明文缓冲
-        std::size_t plain_off_{0};                ///< 明文缓冲消费偏移
-        bool handshaken_{false};                  ///< 握手完成标志
-        bool eof_{false};                         ///< 已读到结束块 / 对端关闭
+        shared_transmission next_layer_;         ///< 底层传输（独占所有权）
+        std::array<std::uint8_t, 16> auth_id_{}; ///< 请求 AuthID（响应 AAD）
+        message parsed_{};                       ///< 服务端握手解析结果
+        std::array<std::uint8_t, 16> uuid_;      ///< 协议 UUID（凭据）
+        std::optional<chunk_encryptor> enc_;     ///< 分块加密器（发送侧）
+        std::optional<chunk_decryptor> dec_;     ///< 分块解密器（接收侧）
+        std::vector<std::uint8_t> plain_rx_;     ///< 解密后明文缓冲
+        std::size_t plain_off_{0};               ///< 明文缓冲消费偏移
+        bool handshaken_{false};                 ///< 握手完成标志
+        bool eof_{false};                        ///< 已读到结束块 / 对端关闭
     };
 
     /// 流连接共享指针

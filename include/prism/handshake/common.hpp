@@ -19,7 +19,6 @@
 #include <optional>
 #include <span>
 
-
 namespace net = boost::asio;
 
 namespace psm::handshake::common
@@ -51,8 +50,7 @@ namespace psm::handshake::common
      * @param encrypted_len 加密后载荷长度
      * @return 5 字节附加数据
      */
-    [[nodiscard]] inline auto record_ad(std::uint16_t encrypted_len) noexcept
-        -> std::array<std::uint8_t, 5>
+    [[nodiscard]] inline auto record_ad(std::uint16_t encrypted_len) noexcept -> std::array<std::uint8_t, 5>
     {
         return {{0x17,       // CONTENT_TYPE_APPLICATION_DATA
                  0x03, 0x03, // TLS 1.2 version
@@ -70,8 +68,7 @@ namespace psm::handshake::common
     {
         for (std::size_t i = 0; i < data.size(); ++i)
         {
-            data[i] = static_cast<std::byte>(
-                static_cast<std::uint8_t>(data[i]) ^ key[i % key.size()]);
+            data[i] = static_cast<std::byte>(static_cast<std::uint8_t>(data[i]) ^ key[i % key.size()]);
         }
     }
 
@@ -85,7 +82,7 @@ namespace psm::handshake::common
      * @return 完整 TLS 帧数据，读取失败时返回 std::nullopt
      */
     [[nodiscard]] auto read_tls_frame(net::ip::tcp::socket &sock, std::error_code &ec,
-                            net::steady_timer *deadline = nullptr)
+                                      net::steady_timer *deadline = nullptr)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 
     /**
@@ -94,7 +91,7 @@ namespace psm::handshake::common
      *          内部调用 tls::record::read(transmission&) 重载。
      */
     [[nodiscard]] auto read_tls_frame(transport::transmission &trans, std::error_code &ec,
-                            net::steady_timer *deadline = nullptr)
+                                      net::steady_timer *deadline = nullptr)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 
 } // namespace psm::handshake::common

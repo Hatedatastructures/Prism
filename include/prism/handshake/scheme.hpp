@@ -17,12 +17,12 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/memory/pool.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/net/connection/types.hpp>
-#include <prism/resource/session.hpp>
 #include <prism/handshake/challenge.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/resource/session.hpp>
 
 #include <boost/asio.hpp>
 
@@ -30,7 +30,6 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
-
 
 namespace psm::connect
 {
@@ -115,7 +114,7 @@ namespace psm::handshake
     struct handshake_result
     {
         shared_transmission transport;            ///< 最终传输层
-        psm::connect::protocol_type detected;         ///< 检测到的内层协议
+        psm::connect::protocol_type detected;     ///< 检测到的内层协议
         memory::vector<std::byte> preread;        ///< 内层预读数据
         fault::code error = fault::code::success; ///< 错误码
         memory::string scheme;                    ///< 成功执行的方案名
@@ -130,12 +129,11 @@ namespace psm::handshake
      */
     struct handshake_context
     {
-        shared_transmission transport;                                ///< 传输层（合并 inbound 语义）
-        psm::resource::session *session{nullptr};          ///< 会话资源
-        std::shared_ptr<void> session_keepalive;                      ///< session 保活
-        memory::vector<std::byte> preread;                            ///< 预读数据（ClientHello 等）
+        shared_transmission transport;            ///< 传输层（合并 inbound 语义）
+        psm::resource::session *session{nullptr}; ///< 会话资源
+        std::shared_ptr<void> session_keepalive;  ///< session 保活
+        memory::vector<std::byte> preread;        ///< 预读数据（ClientHello 等）
     };
-
 
     // 方案基类
 
@@ -160,40 +158,46 @@ namespace psm::handshake
 
         // === 身份 ===
 
-        /// 方案名称（用于日志）
-        [[nodiscard]] virtual auto name() const noexcept
-            -> std::string_view = 0;
+        /**
+         * 方案名称（用于日志）
+         */
+        [[nodiscard]] virtual auto name() const noexcept -> std::string_view = 0;
 
-        /// 检测层级（0-2），Tier 0 有独占特征，Tier 2 依赖 SNI
-        [[nodiscard]] virtual auto tier() const noexcept
-            -> std::uint8_t
+        /**
+         * 检测层级（0-2），Tier 0 有独占特征，Tier 2 依赖 SNI
+         */
+        [[nodiscard]] virtual auto tier() const noexcept -> std::uint8_t
         {
             return 2; // 默认 Tier 2（模糊）
         }
 
-        /// 是否有独占特征（命中时跳过其他方案）
-        [[nodiscard]] virtual auto unique() const noexcept
-            -> bool
+        /**
+         * 是否有独占特征（命中时跳过其他方案）
+         */
+        [[nodiscard]] virtual auto unique() const noexcept -> bool
         {
             return false; // 默认无独占特征
         }
 
-        /// 方案执行分类（facade 返回 transport，stack 内部管理流）
-        [[nodiscard]] virtual auto category() const noexcept
-            -> scheme_category
+        /**
+         * 方案执行分类（facade 返回 transport，stack 内部管理流）
+         */
+        [[nodiscard]] virtual auto category() const noexcept -> scheme_category
         {
             return scheme_category::facade;
         }
 
         // === 配置 ===
 
-        /// 判断此方案是否在当前配置下启用
-        [[nodiscard]] virtual auto active(const psm::settings &cfg) const noexcept
-            -> bool = 0;
+        /**
+         * 判断此方案是否在当前配置下启用
+         */
+        [[nodiscard]] virtual auto active(const psm::settings &cfg) const noexcept -> bool = 0;
 
-        /// 获取 SNI 白名单
-        [[nodiscard]] virtual auto snis(const psm::settings & /*cfg*/) const
-            -> memory::vector<memory::string>
+        /**
+         * 获取 SNI 白名单
+         */
+        [[nodiscard]] virtual auto snis(const psm::settings & /*cfg*/) const -> memory::vector<memory::string>
         {
             return {}; // 默认无 SNI 白名单
         }
@@ -226,8 +230,9 @@ namespace psm::handshake
          * @details 涉及 HMAC 验证或解密，延迟执行。
          * 例如 ShadowTLS HMAC 验证、AnyTLS ECH 解密。
          */
-        [[nodiscard]] virtual auto verify(const hello_features & /*features*/, std::span<const std::byte> /*raw*/, const psm::settings & /*cfg*/) const
-            -> verify_result
+        [[nodiscard]] virtual auto verify(const hello_features & /*features*/,
+                                          std::span<const std::byte> /*raw*/,
+                                          const psm::settings & /*cfg*/) const -> verify_result
         {
             // 默认：不支持详细检测
             return {.score = 0, .solo_flag = 0, .note = "no verify"};
@@ -242,8 +247,7 @@ namespace psm::handshake
          * @details 无 ClientHello 独占特征，依赖 SNI 匹配。
          * 例如 Restls、TrustTunnel、Native。
          */
-        [[nodiscard]] virtual auto guess(const psm::settings & /*cfg*/) const
-            -> verify_result
+        [[nodiscard]] virtual auto guess(const psm::settings & /*cfg*/) const -> verify_result
         {
             // 默认：返回权重分
             return {.score = weight(), .solo_flag = 0, .note = "guess"};
@@ -256,8 +260,7 @@ namespace psm::handshake
          * @param ctx 执行上下文（传输层、预读数据、配置、路由器、会话）
          * @return 处理结果
          */
-        [[nodiscard]] virtual auto handshake(handshake_context ctx)
-            -> net::awaitable<handshake_result> = 0;
+        [[nodiscard]] virtual auto handshake(handshake_context ctx) -> net::awaitable<handshake_result> = 0;
 
         /**
          * @brief 可选:挑战-响应阶段(RFC-065 探测防御)
@@ -265,8 +268,7 @@ namespace psm::handshake
          *          需要挑战的方案(如 Reality)覆盖此方法。
          *          executor 在认证失败 + should_challenge 时调用。
          */
-        [[nodiscard]] virtual auto challenge(handshake_context /*ctx*/)
-            -> net::awaitable<challenge_result>
+        [[nodiscard]] virtual auto challenge(handshake_context /*ctx*/) -> net::awaitable<challenge_result>
         {
             co_return challenge_result{};
         }
@@ -274,21 +276,23 @@ namespace psm::handshake
     protected:
         std::shared_ptr<diagnose::context> prefix_; ///< trace 前缀
 
-        /// 权重分（Tier 2 使用）
-        [[nodiscard]] virtual auto weight() const noexcept
-            -> std::uint16_t
+        /**
+         * 权重分（Tier 2 使用）
+         */
+        [[nodiscard]] virtual auto weight() const noexcept -> std::uint16_t
         {
             return 100;
         }
 
         /// 辅助方法：将任意范围的字符串转换为 SNI 白名单
         template <typename StringRange>
-        [[nodiscard]] static auto make_sni_list(const StringRange &names)
-            -> memory::vector<memory::string>
+        [[nodiscard]] static auto make_sni_list(const StringRange &names) -> memory::vector<memory::string>
         {
             memory::vector<memory::string> result;
             for (const auto &name : names)
+            {
                 result.push_back(memory::string(name));
+            }
             return result;
         }
     };

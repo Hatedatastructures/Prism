@@ -11,11 +11,8 @@
 namespace psm::handshake::ws
 {
 
-    transport::transport(psm::transport::shared_transmission next_layer,
-                         const memory::resource_pointer mr)
-        : next_layer_(std::move(next_layer))
-        , mr_(mr)
-        , frame_buf_(mr_)
+    transport::transport(psm::transport::shared_transmission next_layer, const memory::resource_pointer mr)
+        : next_layer_(std::move(next_layer)), mr_(mr), frame_buf_(mr_)
     {
     }
 
@@ -65,8 +62,7 @@ namespace psm::handshake::ws
                             std::error_code w_ec;
                             co_await next_layer_->async_write_some(pong, w_ec);
                             // 消费该帧后继续
-                            raw.erase(raw.begin(),
-                                      raw.begin() + static_cast<std::ptrdiff_t>(total));
+                            raw.erase(raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>(total));
                             continue;
                         }
 
@@ -75,17 +71,14 @@ namespace psm::handshake::ws
                             header.opcode != static_cast<std::uint8_t>(codec::opcode::continuation))
                         {
                             // 未知控制帧：跳过载荷
-                            raw.erase(raw.begin(),
-                                      raw.begin() + static_cast<std::ptrdiff_t>(total));
+                            raw.erase(raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>(total));
                             continue;
                         }
 
                         // 提取载荷
-                        frame_buf_.assign(
-                            raw.begin() + static_cast<std::ptrdiff_t>(header.header_len),
-                            raw.begin() + static_cast<std::ptrdiff_t>(total));
-                        raw.erase(raw.begin(),
-                                  raw.begin() + static_cast<std::ptrdiff_t>(total));
+                        frame_buf_.assign(raw.begin() + static_cast<std::ptrdiff_t>(header.header_len),
+                                          raw.begin() + static_cast<std::ptrdiff_t>(total));
+                        raw.erase(raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>(total));
 
                         // 客户端掩码去掩码
                         if (header.masked)
@@ -93,8 +86,7 @@ namespace psm::handshake::ws
                             for (std::size_t i = 0; i < frame_buf_.size(); ++i)
                             {
                                 frame_buf_[i] = static_cast<std::byte>(
-                                    static_cast<std::uint8_t>(frame_buf_[i])
-                                    ^ header.mask[i % 4]);
+                                    static_cast<std::uint8_t>(frame_buf_[i]) ^ header.mask[i % 4]);
                             }
                         }
                         frame_offset_ = 0;
@@ -145,7 +137,9 @@ namespace psm::handshake::ws
 
         co_await psm::transport::async_write(*next_layer_, frame, ec);
         if (ec)
+        {
             co_return 0;
+        }
         co_return buffer.size();
     }
 
@@ -153,14 +147,18 @@ namespace psm::handshake::ws
     {
         closed_ = true;
         if (next_layer_)
+        {
             next_layer_->close();
+        }
     }
 
     void transport::cancel()
     {
         closed_ = true;
         if (next_layer_)
+        {
             next_layer_->cancel();
+        }
     }
 
 } // namespace psm::handshake::ws

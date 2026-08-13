@@ -20,9 +20,10 @@
 #include <prism/net/transport/unreliable.hpp>
 
 // Connect 子模块
+// clang-format off
 #include <prism/net/connection/dialer/dialer.hpp>
+// clang-format on
 #include <prism/net/connection/dialer/racer.hpp>
-#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/connection/outbound/dial.hpp>
 #include <prism/net/connection/outbound/direct.hpp>
 #include <prism/net/connection/tunnel/forward/basic.hpp>

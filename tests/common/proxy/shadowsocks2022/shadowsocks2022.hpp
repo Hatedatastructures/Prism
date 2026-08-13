@@ -12,22 +12,21 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/core/transport/udp_transmission.hpp>
-#include <common/proxy/shadowsocks2022/conn.hpp>
-#include <common/proxy/shadowsocks2022/dgram.hpp>
-#include <common/proxy/shadowsocks2022/types.hpp>
-
-#include <openssl/evp.h>
-
 #include <boost/asio/awaitable.hpp>
+#include <openssl/evp.h>
 
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <tuple>
 #include <utility>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/core/transport/udp_transmission.hpp>
+#include <common/proxy/shadowsocks2022/conn.hpp>
+#include <common/proxy/shadowsocks2022/dgram.hpp>
+#include <common/proxy/shadowsocks2022/types.hpp>
 
 namespace psmtest::shadowsocks2022
 {
@@ -67,9 +66,12 @@ namespace psmtest::shadowsocks2022
     // 工具
     // =========================================================================
 
-    /// 密码派生 16 字节 PSK（测试库约定：SHA256 前 16 字节）
-    [[nodiscard]] inline auto derive_psk(std::string_view password)
-    -> std::array<std::uint8_t, 16>
+    /**
+     * @brief 密码派生 16 字节 PSK（测试库约定：SHA256 前 16 字节）
+     * @param password 密码
+     * @return 16 字节 PSK
+     */
+    [[nodiscard]] inline auto derive_psk(std::string_view password) -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 32> hash{};
         unsigned int len = 0;
@@ -92,12 +94,11 @@ namespace psmtest::shadowsocks2022
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       const ss::address &target)
-    -> net::awaitable<std::pair<error, shared_conn>>
+        -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(cfg.password);
         const auto err = co_await c->write_handshake(std::move(upstream), target);
-        co_return std::pair{err, err == error::none ? shared_conn(std::move(c))
-                                                    : shared_conn{}};
+        co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
 
     /**
@@ -114,7 +115,9 @@ namespace psmtest::shadowsocks2022
     {
         auto udp = std::make_shared<udp_transmission>(ex);
         if (!udp->connect(remote))
+        {
             return nullptr;
+        }
         return std::make_shared<dgram>(std::move(udp), derive_psk(cfg.password));
     }
 
@@ -125,7 +128,7 @@ namespace psmtest::shadowsocks2022
      * @return 错误码、解析的请求与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-    -> net::awaitable<std::tuple<error, ss::message, shared_conn>>
+        -> net::awaitable<std::tuple<error, ss::message, shared_conn>>
     {
         auto c = std::make_shared<conn>(cfg.password);
         auto [err, req] = co_await c->read_handshake(std::move(upstream));
@@ -146,7 +149,9 @@ namespace psmtest::shadowsocks2022
     {
         auto udp = std::make_shared<udp_transmission>(ex);
         if (!udp->bind(port))
+        {
             return nullptr;
+        }
         return std::make_shared<dgram>(std::move(udp), derive_psk(cfg.password));
     }
 

@@ -50,13 +50,17 @@ namespace psmtest::trusttunnel
         {
         }
 
-        /// @brief 获取执行器（委托底层传输）
+        /**
+         * @brief 获取执行器（委托底层传输）
+         */
         [[nodiscard]] auto executor() const -> net::any_io_executor override
         {
             return next_layer_->executor();
         }
 
-        /// @brief 传输类型（TCP 承载数据报）
+        /**
+         * @brief 传输类型（TCP 承载数据报）
+         */
         [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             return type::udp;
@@ -150,14 +154,18 @@ namespace psmtest::trusttunnel
             co_return error::none;
         }
 
-        /// @brief 透传读取（底层原样）
+        /**
+         * @brief 透传读取（底层原样）
+         */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
 
-        /// @brief 透传写入（底层原样）
+        /**
+         * @brief 透传写入（底层原样）
+         */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
                                             std::error_code &ec)
         -> net::awaitable<std::size_t> override
@@ -165,37 +173,49 @@ namespace psmtest::trusttunnel
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
 
-        /// @brief 关闭底层传输
+        /**
+         * @brief 关闭底层传输
+         */
         void close() override
         {
             next_layer_->close();
         }
 
-        /// @brief 取消挂起操作
+        /**
+         * @brief 取消挂起操作
+         */
         void cancel() override
         {
             next_layer_->cancel();
         }
 
-        /// @brief 获取底层传输（装饰器链导航）
+        /**
+         * @brief 获取底层传输（装饰器链导航）
+         */
         [[nodiscard]] auto next_layer() noexcept -> psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 获取底层传输（const 版本）
+        /**
+         * @brief 获取底层传输（const 版本）
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 释放底层传输所有权
+        /**
+         * @brief 释放底层传输所有权
+         */
         [[nodiscard]] auto release() -> shared_transmission override
         {
             return std::move(next_layer_);
         }
 
-        /// @brief 获取底层传输
+        /**
+         * @brief 获取底层传输
+         */
         [[nodiscard]] auto stream() const noexcept -> shared_transmission
         {
             return next_layer_;

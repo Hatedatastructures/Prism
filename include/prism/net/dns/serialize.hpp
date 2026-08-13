@@ -14,7 +14,6 @@
 
 #include <glaze/glaze.hpp>
 
-
 // ============================================================================
 // protocol
 // ============================================================================
@@ -22,11 +21,9 @@
 template <>
 struct glz::meta<psm::dns::protocol>
 {
-    static constexpr auto value = glz::enumerate(
-        "udp", psm::dns::protocol::udp,
-        "tcp", psm::dns::protocol::tcp,
-        "tls", psm::dns::protocol::tls,
-        "https", psm::dns::protocol::https);
+    static constexpr auto value =
+        glz::enumerate("udp", psm::dns::protocol::udp, "tcp", psm::dns::protocol::tcp, "tls",
+                       psm::dns::protocol::tls, "https", psm::dns::protocol::https);
 };
 
 // ============================================================================
@@ -36,10 +33,8 @@ struct glz::meta<psm::dns::protocol>
 template <>
 struct glz::meta<psm::dns::mode>
 {
-    static constexpr auto value = glz::enumerate(
-        "fastest", psm::dns::mode::fastest,
-        "first", psm::dns::mode::first,
-        "fallback", psm::dns::mode::fallback);
+    static constexpr auto value = glz::enumerate("fastest", psm::dns::mode::fastest, "first",
+                                                 psm::dns::mode::first, "fallback", psm::dns::mode::fallback);
 };
 
 // ============================================================================
@@ -50,6 +45,7 @@ template <>
 struct glz::meta<psm::dns::server>
 {
     using T = psm::dns::server;
+    // clang-format off
     static constexpr auto value = glz::object(
         "address", &T::address,
         "protocol", &T::protocol,
@@ -58,6 +54,7 @@ struct glz::meta<psm::dns::server>
         "timeout_ms", &T::timeout_ms,
         "http_path", &T::http_path,
         "no_check_certificate", &T::skip_cert_check);
+    // clang-format on
 };
 
 // ============================================================================
@@ -68,9 +65,11 @@ template <>
 struct glz::meta<psm::dns::address_rule>
 {
     using T = psm::dns::address_rule;
+    // clang-format off
     static constexpr auto value = glz::object(
         "domain", &T::domain,
         "negative", &T::negative);
+    // clang-format on
 };
 
 // ============================================================================
@@ -81,9 +80,11 @@ template <>
 struct glz::meta<psm::dns::cname_rule>
 {
     using T = psm::dns::cname_rule;
+    // clang-format off
     static constexpr auto value = glz::object(
         "domain", &T::domain,
         "target", &T::target);
+    // clang-format on
 };
 
 // ============================================================================
@@ -94,6 +95,7 @@ template <>
 struct glz::meta<psm::dns::config>
 {
     using T = psm::dns::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "servers", &T::servers,
         "mode", &T::mode,
@@ -108,4 +110,5 @@ struct glz::meta<psm::dns::config>
         "address_rules", &T::address_rules,
         "cname_rules", &T::cname_rules,
         "disable_ipv6", &T::disable_ipv6);
+    // clang-format on
 };

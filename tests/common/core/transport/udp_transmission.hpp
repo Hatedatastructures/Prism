@@ -11,9 +11,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/ip/udp.hpp>
@@ -25,6 +22,9 @@
 #include <span>
 #include <string>
 #include <utility>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
 
 namespace psmtest
 {
@@ -43,8 +43,7 @@ namespace psmtest
          * @brief 构造函数（叶子节点，包一层 executor 构造）
          * @param ex 执行器
          */
-        explicit udp_transmission(net::any_io_executor ex)
-            : udp_(ex)
+        explicit udp_transmission(net::any_io_executor ex) : udp_(ex)
         {
         }
 
@@ -57,8 +56,7 @@ namespace psmtest
         {
             boost::system::error_code ec;
             const auto host = remote.substr(0, remote.find(':'));
-            const auto port =
-                static_cast<unsigned short>(std::stoi(remote.substr(remote.find(':') + 1)));
+            const auto port = static_cast<unsigned short>(std::stoi(remote.substr(remote.find(':') + 1)));
             udp_.connect(net::ip::udp::endpoint(net::ip::make_address(host), port), ec);
             return !ec;
         }
@@ -75,7 +73,10 @@ namespace psmtest
             return !ec;
         }
 
-        /// @brief 获取执行器
+        /**
+         * @brief 获取执行器
+         * @return 关联的执行器
+         */
         [[nodiscard]] auto executor() const -> net::any_io_executor override
         {
             return udp_.get_executor();
@@ -91,9 +92,9 @@ namespace psmtest
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code bec;
-            const auto n = co_await udp_.async_receive(
-                net::buffer(buffer.data(), buffer.size()),
-                boost::asio::redirect_error(boost::asio::use_awaitable, bec));
+            const auto n =
+                co_await udp_.async_receive(net::buffer(buffer.data(), buffer.size()),
+                                            boost::asio::redirect_error(boost::asio::use_awaitable, bec));
             ec = bec;
             co_return n;
         }
@@ -108,28 +109,35 @@ namespace psmtest
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code bec;
-            const auto n = co_await udp_.async_send(
-                net::buffer(buffer.data(), buffer.size()),
-                boost::asio::redirect_error(boost::asio::use_awaitable, bec));
+            const auto n =
+                co_await udp_.async_send(net::buffer(buffer.data(), buffer.size()),
+                                         boost::asio::redirect_error(boost::asio::use_awaitable, bec));
             ec = bec;
             co_return n;
         }
 
-        /// @brief 关闭 socket
+        /**
+         * @brief 关闭 socket
+         */
         void close() override
         {
             boost::system::error_code ec;
             udp_.close(ec);
         }
 
-        /// @brief 取消挂起操作
+        /**
+         * @brief 取消挂起操作
+         */
         void cancel() override
         {
             boost::system::error_code ec;
             udp_.cancel(ec);
         }
 
-        /// @brief 获取底层 UDP socket
+        /**
+         * @brief 获取底层 UDP socket
+         * @return 底层 UDP socket 引用
+         */
         [[nodiscard]] auto socket() noexcept -> net::ip::udp::socket &
         {
             return udp_;

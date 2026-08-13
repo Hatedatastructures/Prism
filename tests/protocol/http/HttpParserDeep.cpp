@@ -7,9 +7,8 @@
  *          通过 #include 源文件覆盖编译行。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
+#include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 
@@ -60,8 +59,7 @@ namespace
     {
         EXPECT_TRUE(iequals("Hello", "hello")) << "iequals: case insensitive";
         EXPECT_TRUE(iequals("HOST", "host")) << "iequals: HOST == host";
-        EXPECT_TRUE(iequals("Proxy-Authorization", "proxy-authorization"))
-            << "iequals: mixed case header";
+        EXPECT_TRUE(iequals("Proxy-Authorization", "proxy-authorization")) << "iequals: mixed case header";
     }
 
     TEST(HttpParserDeep, IequalsDifferentLength)
@@ -113,36 +111,29 @@ namespace
 
     TEST(HttpParserDeep, IequalsPrefixMatch)
     {
-        EXPECT_TRUE(iequals_prefix("Basic abc", "Basic "))
-            << "iequals_prefix: Basic match";
+        EXPECT_TRUE(iequals_prefix("Basic abc", "Basic ")) << "iequals_prefix: Basic match";
         EXPECT_TRUE(iequals_prefix("basic dGVzdDp0ZXN0", "basic "))
             << "iequals_prefix: lowercase basic match";
-        EXPECT_TRUE(iequals_prefix("BASIC test", "Basic "))
-            << "iequals_prefix: BASIC match";
+        EXPECT_TRUE(iequals_prefix("BASIC test", "Basic ")) << "iequals_prefix: BASIC match";
     }
 
     TEST(HttpParserDeep, IequalsPrefixSameSize)
     {
         EXPECT_TRUE(!iequals_prefix("Basic", "Basic"))
             << "iequals_prefix: same size -> false (str must be > prefix)";
-        EXPECT_TRUE(!iequals_prefix("abc", "abc"))
-            << "iequals_prefix: equal length -> false";
+        EXPECT_TRUE(!iequals_prefix("abc", "abc")) << "iequals_prefix: equal length -> false";
     }
 
     TEST(HttpParserDeep, IequalsPrefixShorterStr)
     {
-        EXPECT_TRUE(!iequals_prefix("Basi", "Basic "))
-            << "iequals_prefix: shorter str -> false";
-        EXPECT_TRUE(!iequals_prefix("", "Basic "))
-            << "iequals_prefix: empty str -> false";
+        EXPECT_TRUE(!iequals_prefix("Basi", "Basic ")) << "iequals_prefix: shorter str -> false";
+        EXPECT_TRUE(!iequals_prefix("", "Basic ")) << "iequals_prefix: empty str -> false";
     }
 
     TEST(HttpParserDeep, IequalsPrefixMismatch)
     {
-        EXPECT_TRUE(!iequals_prefix("Digest user", "Basic "))
-            << "iequals_prefix: different scheme -> false";
-        EXPECT_TRUE(!iequals_prefix("NTLM token", "Basic "))
-            << "iequals_prefix: NTLM != Basic -> false";
+        EXPECT_TRUE(!iequals_prefix("Digest user", "Basic ")) << "iequals_prefix: different scheme -> false";
+        EXPECT_TRUE(!iequals_prefix("NTLM token", "Basic ")) << "iequals_prefix: NTLM != Basic -> false";
     }
 
     // ─── parse_req 边缘分支 ───────────────────────
@@ -153,8 +144,7 @@ namespace
         const char *raw = "NOSPACE\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_EQ(ec, psm::fault::code::parse_error)
-            << "parse_req: no space at all -> parse_error";
+        EXPECT_EQ(ec, psm::fault::code::parse_error) << "parse_req: no space at all -> parse_error";
     }
 
     TEST(HttpParserDeep, ParseReqSpaceAfterLineEnd)
@@ -163,8 +153,7 @@ namespace
         const char *raw = "TEST\r\n X\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_EQ(ec, psm::fault::code::parse_error)
-            << "parse_req: space after line_end -> parse_error";
+        EXPECT_EQ(ec, psm::fault::code::parse_error) << "parse_req: space after line_end -> parse_error";
     }
 
     TEST(HttpParserDeep, ParseReqSecondSpaceAfterLineEnd)
@@ -183,10 +172,8 @@ namespace
         const char *raw = "GET / HTTP/1.1\r\nX-BadHeader\r\nHost: ok\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_EQ(ec, psm::fault::code::success)
-            << "parse_req: header no colon -> success";
-        EXPECT_EQ(req.host, "ok")
-            << "parse_req: header no colon -> host still parsed";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_req: header no colon -> success";
+        EXPECT_EQ(req.host, "ok") << "parse_req: header no colon -> host still parsed";
     }
 
     TEST(HttpParserDeep, ParseReqHeaderEmptyLineMidBlock)
@@ -195,10 +182,8 @@ namespace
         const char *raw = "GET / HTTP/1.1\r\nHost: x\r\n\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_EQ(ec, psm::fault::code::success)
-            << "parse_req: empty mid line -> success";
-        EXPECT_EQ(req.host, "x")
-            << "parse_req: empty mid line -> host still parsed";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_req: empty mid line -> success";
+        EXPECT_EQ(req.host, "x") << "parse_req: empty mid line -> host still parsed";
     }
 
     TEST(HttpParserDeep, ParseReqSingleHeaderNoCrlfAfter)
@@ -207,10 +192,8 @@ namespace
         const char *raw = "GET / HTTP/1.1\r\nHost: test\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_EQ(ec, psm::fault::code::success)
-            << "parse_req: single header -> success";
-        EXPECT_EQ(req.host, "test")
-            << "parse_req: single header -> host";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_req: single header -> success";
+        EXPECT_EQ(req.host, "test") << "parse_req: single header -> host";
     }
 
     TEST(HttpParserDeep, ParseReqMultipleHeaders)
@@ -220,12 +203,9 @@ namespace
                           "User-Agent: test\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_EQ(ec, psm::fault::code::success)
-            << "parse_req: multiple headers -> success";
-        EXPECT_EQ(req.host, "example.com")
-            << "parse_req: multi header -> host";
-        EXPECT_EQ(req.authorization, "Basic abc")
-            << "parse_req: multi header -> auth";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_req: multiple headers -> success";
+        EXPECT_EQ(req.host, "example.com") << "parse_req: multi header -> host";
+        EXPECT_EQ(req.authorization, "Basic abc") << "parse_req: multi header -> auth";
     }
 
     TEST(HttpParserDeep, ParseReqHeaderWhitespaceTrim)
@@ -234,10 +214,8 @@ namespace
         const char *raw = "GET / HTTP/1.1\r\nHost: \t example.com \t\r\n\r\n";
         proxy_request req;
         auto ec = parse_req(raw, req);
-        EXPECT_EQ(ec, psm::fault::code::success)
-            << "parse_req: whitespace trim -> success";
-        EXPECT_EQ(req.host, "example.com")
-            << "parse_req: whitespace trim -> host trimmed";
+        EXPECT_EQ(ec, psm::fault::code::success) << "parse_req: whitespace trim -> success";
+        EXPECT_EQ(req.host, "example.com") << "parse_req: whitespace trim -> host trimmed";
     }
 
     // ─── rel_path 额外分支 ─────────────────────────
@@ -250,8 +228,7 @@ namespace
 
     TEST(HttpParserDeep, RelPathHttpRoot)
     {
-        EXPECT_EQ(rel_path("http://host/"), "/")
-            << "rel_path: http root path";
+        EXPECT_EQ(rel_path("http://host/"), "/") << "rel_path: http root path";
     }
 
     TEST(HttpParserDeep, RelPathRelativeWithSlash)

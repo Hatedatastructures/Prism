@@ -11,20 +11,20 @@
  * 7. std 错误码双向转换 (to_code)
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/fault/compatible.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/diagnose/log.hpp>
 
-#include <gtest/gtest.h>
+#include <boost/asio/error.hpp>
+#include <boost/system/error_code.hpp>
 
 #include <string>
 #include <string_view>
 #include <system_error>
 
-#include <boost/asio/error.hpp>
-#include <boost/system/error_code.hpp>
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -36,8 +36,7 @@ namespace
         {
             const auto c = static_cast<psm::fault::code>(i);
             const std::string_view desc = psm::fault::describe(c);
-            ASSERT_FALSE(desc.empty())
-                << "describe(code=" << i << ") returned empty string";
+            ASSERT_FALSE(desc.empty()) << "describe(code=" << i << ") returned empty string";
         }
 
         // success 码：代表操作成功的唯一正例
@@ -45,8 +44,7 @@ namespace
             << "describe(success) != 'success'";
 
         // eof 码：代表连接正常关闭（对端 EOF）
-        EXPECT_EQ(psm::fault::describe(psm::fault::code::eof), "eof")
-            << "describe(eof) != 'eof'";
+        EXPECT_EQ(psm::fault::describe(psm::fault::code::eof), "eof") << "describe(eof) != 'eof'";
 
         // timeout 码：代表异步操作超时
         EXPECT_EQ(psm::fault::describe(psm::fault::code::timeout), "timeout")
@@ -56,17 +54,13 @@ namespace
     TEST(FaultTest, SucceededFailed)
     {
         // success 是唯一使 succeeded 返回 true 的码
-        EXPECT_TRUE(psm::fault::succeeded(psm::fault::code::success))
-            << "succeeded(success) should be true";
+        EXPECT_TRUE(psm::fault::succeeded(psm::fault::code::success)) << "succeeded(success) should be true";
         // success 不应被视为失败
-        EXPECT_FALSE(psm::fault::failed(psm::fault::code::success))
-            << "failed(success) should be false";
+        EXPECT_FALSE(psm::fault::failed(psm::fault::code::success)) << "failed(success) should be false";
 
         // eof 属于失败码，表示非正常结束
-        EXPECT_FALSE(psm::fault::succeeded(psm::fault::code::eof))
-            << "succeeded(eof) should be false";
-        EXPECT_TRUE(psm::fault::failed(psm::fault::code::eof))
-            << "failed(eof) should be true";
+        EXPECT_FALSE(psm::fault::succeeded(psm::fault::code::eof)) << "succeeded(eof) should be false";
+        EXPECT_TRUE(psm::fault::failed(psm::fault::code::eof)) << "failed(eof) should be true";
 
         // parse_error 属于失败码，表示协议解析出错
         EXPECT_FALSE(psm::fault::succeeded(psm::fault::code::parse_error))
@@ -85,8 +79,8 @@ namespace
             const std::string_view desc = psm::fault::describe(c);
             const std::string &cached = psm::fault::cached_message(c);
 
-            EXPECT_EQ(desc, cached)
-                << "cached_message(code=" << i << ")='" << cached << "' != describe()='" << desc << "'";
+            EXPECT_EQ(desc, cached) << "cached_message(code=" << i << ")='" << cached << "' != describe()='"
+                                    << desc << "'";
         }
     }
 
@@ -94,23 +88,20 @@ namespace
     {
         // 显式构造：eof 的数值应为 3，类别名为 psm::fault
         const std::error_code ec = psm::fault::make_error_code(psm::fault::code::eof);
-        EXPECT_EQ(ec.value(), 3)
-            << "make_error_code(eof).value()=" << ec.value() << ", expected 3";
+        EXPECT_EQ(ec.value(), 3) << "make_error_code(eof).value()=" << ec.value() << ", expected 3";
         EXPECT_TRUE(std::string_view(ec.category().name()) == "psm::fault")
             << "category name='" << ec.category().name() << "', expected 'psm::fault'";
 
         // 隐式转换：code 枚举应能直接赋值给 std::error_code
         const std::error_code ec2 = psm::fault::code::timeout;
-        EXPECT_EQ(ec2.value(), 11)
-            << "implicit conversion: timeout value=" << ec2.value() << ", expected 11";
+        EXPECT_EQ(ec2.value(), 11) << "implicit conversion: timeout value=" << ec2.value() << ", expected 11";
     }
 
     TEST(FaultTest, MakeErrorCodeBoost)
     {
         // 验证 Boost 错误码的数值和类别与 std 版本一致
         const boost::system::error_code ec = boost::system::make_error_code(psm::fault::code::eof);
-        EXPECT_EQ(ec.value(), 3)
-            << "boost make_error_code(eof).value()=" << ec.value() << ", expected 3";
+        EXPECT_EQ(ec.value(), 3) << "boost make_error_code(eof).value()=" << ec.value() << ", expected 3";
         EXPECT_TRUE(std::string_view(ec.category().name()) == "psm::fault")
             << "boost category name='" << ec.category().name() << "', expected 'psm::fault'";
     }
@@ -127,14 +118,14 @@ namespace
         // 将 asio::eof 映射为 fault::eof，统一 EOF 语义
         const psm::fault::code eof_code = psm::fault::to_code(boost::asio::error::eof);
         EXPECT_EQ(eof_code, psm::fault::code::eof)
-            << "asio::eof -> code=" << static_cast<int>(eof_code)
-            << ", expected eof(" << static_cast<int>(psm::fault::code::eof) << ")";
+            << "asio::eof -> code=" << static_cast<int>(eof_code) << ", expected eof("
+            << static_cast<int>(psm::fault::code::eof) << ")";
 
         // 将 asio::operation_aborted 映射为 fault::canceled
         const psm::fault::code abort_code = psm::fault::to_code(boost::asio::error::operation_aborted);
         EXPECT_EQ(abort_code, psm::fault::code::canceled)
-            << "asio::operation_aborted -> code=" << static_cast<int>(abort_code)
-            << ", expected canceled(" << static_cast<int>(psm::fault::code::canceled) << ")";
+            << "asio::operation_aborted -> code=" << static_cast<int>(abort_code) << ", expected canceled("
+            << static_cast<int>(psm::fault::code::canceled) << ")";
     }
 
     TEST(FaultTest, ToCodeStdRoundTrip)
@@ -149,13 +140,14 @@ namespace
         // 将 std 超时错误映射为 fault::timeout
         const psm::fault::code timeout_code = psm::fault::to_code(std::make_error_code(std::errc::timed_out));
         EXPECT_EQ(timeout_code, psm::fault::code::timeout)
-            << "errc::timed_out -> code=" << static_cast<int>(timeout_code)
-            << ", expected timeout(" << static_cast<int>(psm::fault::code::timeout) << ")";
+            << "errc::timed_out -> code=" << static_cast<int>(timeout_code) << ", expected timeout("
+            << static_cast<int>(psm::fault::code::timeout) << ")";
 
         // 将 std 取消错误映射为 fault::canceled
-        const psm::fault::code cancel_code = psm::fault::to_code(std::make_error_code(std::errc::operation_canceled));
+        const psm::fault::code cancel_code =
+            psm::fault::to_code(std::make_error_code(std::errc::operation_canceled));
         EXPECT_EQ(cancel_code, psm::fault::code::canceled)
-            << "errc::operation_canceled -> code=" << static_cast<int>(cancel_code)
-            << ", expected canceled(" << static_cast<int>(psm::fault::code::canceled) << ")";
+            << "errc::operation_canceled -> code=" << static_cast<int>(cancel_code) << ", expected canceled("
+            << static_cast<int>(psm::fault::code::canceled) << ")";
     }
 } // namespace

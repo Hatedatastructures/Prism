@@ -8,9 +8,9 @@
 
 #pragma once
 
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/fault/handling.hpp>
-#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/transport/adapter/connector.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -22,7 +22,6 @@
 #include <memory>
 #include <span>
 #include <system_error>
-
 
 namespace psm::transport
 {
@@ -56,8 +55,7 @@ namespace psm::transport
          * TLS 流必须已完成握手。
          * @param ssl_stream TLS 流的共享指针
          */
-        explicit encrypted(shared_stream ssl_stream)
-            : ssl_stream_(std::move(ssl_stream))
+        explicit encrypted(shared_stream ssl_stream) : ssl_stream_(std::move(ssl_stream))
         {
         }
 
@@ -65,8 +63,7 @@ namespace psm::transport
          * @brief 获取传输层类型
          * @return type::tcp TLS 始终基于 TCP
          */
-        [[nodiscard]] auto transport_type() const noexcept
-            -> type override
+        [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             return type::tcp;
         }
@@ -80,6 +77,10 @@ namespace psm::transport
             return nullptr;
         }
 
+        /**
+         * @brief 获取内层传输（const 版本）
+         * @return nullptr encrypted 持有 ssl::stream 而非 transmission*
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return nullptr;
@@ -108,8 +109,8 @@ namespace psm::transport
         {
             boost::system::error_code sys_ec;
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
-            const auto n = co_await ssl_stream_->async_read_some(
-                net::buffer(buffer.data(), buffer.size()), token);
+            const auto n =
+                co_await ssl_stream_->async_read_some(net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
         }
@@ -127,8 +128,8 @@ namespace psm::transport
         {
             boost::system::error_code sys_ec;
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
-            const auto n = co_await ssl_stream_->async_write_some(
-                net::buffer(buffer.data(), buffer.size()), token);
+            const auto n =
+                co_await ssl_stream_->async_write_some(net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
         }
@@ -164,8 +165,7 @@ namespace psm::transport
          * @details 返回内部 TLS 流的引用，用于直接操作 TLS 层。
          * @return stream_type& TLS 流引用
          */
-        [[nodiscard]] auto stream() noexcept
-            -> stream_type &
+        [[nodiscard]] auto stream() noexcept -> stream_type &
         {
             return *ssl_stream_;
         }
@@ -175,8 +175,7 @@ namespace psm::transport
          * @details 返回内部 TLS 流的常量引用，用于只读访问。
          * @return const stream_type& TLS 流常量引用
          */
-        [[nodiscard]] auto stream() const noexcept
-            -> const stream_type &
+        [[nodiscard]] auto stream() const noexcept -> const stream_type &
         {
             return *ssl_stream_;
         }
@@ -186,8 +185,7 @@ namespace psm::transport
          * @details 将内部持有的 TLS 流共享指针移动返回，调用后对象不再持有流。
          * @return shared_stream TLS 流共享指针
          */
-        [[nodiscard]] auto release()
-            -> shared_stream
+        [[nodiscard]] auto release() -> shared_stream
         {
             return std::move(ssl_stream_);
         }
@@ -220,4 +218,4 @@ namespace psm::transport
     {
         return std::make_shared<encrypted>(std::move(ssl_stream));
     }
-}
+} // namespace psm::transport

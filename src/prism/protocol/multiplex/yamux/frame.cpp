@@ -5,8 +5,7 @@
 namespace psm::multiplex::yamux
 {
 
-    auto build_header(const frame_header &hdr) noexcept
-        -> std::array<std::byte, frame_hdrsize>
+    auto build_header(const frame_header &hdr) noexcept -> std::array<std::byte, frame_hdrsize>
     {
         return {
             // 版本号（1 字节）
@@ -29,8 +28,7 @@ namespace psm::multiplex::yamux
         };
     }
 
-    auto parse_header(const std::span<const std::byte> buffer) noexcept
-        -> std::optional<frame_header>
+    auto parse_header(const std::span<const std::byte> buffer) noexcept -> std::optional<frame_header>
     {
         if (buffer.size() < frame_hdrsize)
         {
@@ -53,30 +51,23 @@ namespace psm::multiplex::yamux
         case message_type::data:
         case message_type::window_update:
         case message_type::ping:
-        case message_type::go_away:
-            break;
-        default:
-            return std::nullopt;
+        case message_type::go_away: break;
+        default: return std::nullopt;
         }
 
         // 标志位（2 字节大端序）
-        hdr.flag = static_cast<flags>(
-            static_cast<std::uint16_t>(buffer[2]) << 8 |
-            static_cast<std::uint16_t>(buffer[3]));
+        hdr.flag = static_cast<flags>(static_cast<std::uint16_t>(buffer[2]) << 8 |
+                                      static_cast<std::uint16_t>(buffer[3]));
 
         // 流 ID（4 字节大端序）
-        hdr.stream_id =
-            static_cast<std::uint32_t>(buffer[4]) << 24 |
-            static_cast<std::uint32_t>(buffer[5]) << 16 |
-            static_cast<std::uint32_t>(buffer[6]) << 8 |
-            static_cast<std::uint32_t>(buffer[7]);
+        hdr.stream_id = static_cast<std::uint32_t>(buffer[4]) << 24 |
+                        static_cast<std::uint32_t>(buffer[5]) << 16 |
+                        static_cast<std::uint32_t>(buffer[6]) << 8 | static_cast<std::uint32_t>(buffer[7]);
 
         // 载荷长度（4 字节大端序）
-        hdr.length =
-            static_cast<std::uint32_t>(buffer[8]) << 24 |
-            static_cast<std::uint32_t>(buffer[9]) << 16 |
-            static_cast<std::uint32_t>(buffer[10]) << 8 |
-            static_cast<std::uint32_t>(buffer[11]);
+        hdr.length = static_cast<std::uint32_t>(buffer[8]) << 24 |
+                     static_cast<std::uint32_t>(buffer[9]) << 16 |
+                     static_cast<std::uint32_t>(buffer[10]) << 8 | static_cast<std::uint32_t>(buffer[11]);
 
         return hdr;
     }
@@ -103,8 +94,7 @@ namespace psm::multiplex::yamux
         return build_header(hdr);
     }
 
-    auto build_goaway(const away_code code) noexcept
-        -> std::array<std::byte, frame_hdrsize>
+    auto build_goaway(const away_code code) noexcept -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};
         hdr.type = message_type::go_away;
@@ -114,8 +104,8 @@ namespace psm::multiplex::yamux
         return build_header(hdr);
     }
 
-    auto build_data(const flags f, const std::uint32_t stream_id, const std::span<const std::byte> payload) noexcept
-        -> data_frame
+    auto build_data(const flags f, const std::uint32_t stream_id,
+                    const std::span<const std::byte> payload) noexcept -> data_frame
     {
         frame_header hdr{};
         hdr.type = message_type::data;
@@ -131,8 +121,7 @@ namespace psm::multiplex::yamux
         return build_data(flags::syn, stream_id, payload);
     }
 
-    auto build_fin(const std::uint32_t stream_id) noexcept
-        -> std::array<std::byte, frame_hdrsize>
+    auto build_fin(const std::uint32_t stream_id) noexcept -> std::array<std::byte, frame_hdrsize>
     {
         frame_header hdr{};
         hdr.type = message_type::data;

@@ -13,13 +13,10 @@
 #include <optional>
 #include <span>
 
-
 namespace psm::handshake::anytls
 {
 
-
     constexpr std::size_t frame_header_size = 7;
-
 
     /**
      * @enum command
@@ -31,19 +28,18 @@ namespace psm::handshake::anytls
      */
     enum class command : std::uint8_t
     {
-        waste = 0x00,            // 丢弃（padding）
-        syn = 0x01,              // 创建新流（C→S）
-        psh = 0x02,              // 数据推送（双向）
-        fin = 0x03,              // 关闭流（双向）
-        settings = 0x04,         // 客户端 Settings（C→S）
-        alert = 0x05,            // 告警/错误
-        update_padding = 0x06,   // 更新 padding 方案（S→C）
-        synack = 0x07,           // 流打开确认（S→C，v2+）
-        heart_req = 0x08,        // 心跳请求
-        heart_resp = 0x09,       // 心跳响应
-        server_settings = 0x0A   ///< 服务端 Settings（S→C，v2+）
+        waste = 0x00,          // 丢弃（padding）
+        syn = 0x01,            // 创建新流（C→S）
+        psh = 0x02,            // 数据推送（双向）
+        fin = 0x03,            // 关闭流（双向）
+        settings = 0x04,       // 客户端 Settings（C→S）
+        alert = 0x05,          // 告警/错误
+        update_padding = 0x06, // 更新 padding 方案（S→C）
+        synack = 0x07,         // 流打开确认（S→C，v2+）
+        heart_req = 0x08,      // 心跳请求
+        heart_resp = 0x09,     // 心跳响应
+        server_settings = 0x0A ///< 服务端 Settings（S→C，v2+）
     }; // enum class command
-
 
     /**
      * @struct frame_header
@@ -59,8 +55,7 @@ namespace psm::handshake::anytls
          * @brief 序列化帧头到字节数组
          * @return 7 字节序列化结果
          */
-        [[nodiscard]] auto serialize() const
-            -> std::array<std::uint8_t, frame_header_size>
+        [[nodiscard]] auto serialize() const -> std::array<std::uint8_t, frame_header_size>
         {
             std::array<std::uint8_t, frame_header_size> buf{};
             buf[0] = static_cast<std::uint8_t>(cmd);
@@ -78,8 +73,7 @@ namespace psm::handshake::anytls
          * @param data 至少 7 字节的缓冲区
          * @return 解析后的帧头
          */
-        [[nodiscard]] static auto parse(std::span<const std::uint8_t> data)
-            -> std::optional<frame_header>
+        [[nodiscard]] static auto parse(std::span<const std::uint8_t> data) -> std::optional<frame_header>
         {
             if (data.size() < frame_header_size)
             {
@@ -89,10 +83,8 @@ namespace psm::handshake::anytls
             hdr.cmd = static_cast<command>(data[0]);
             hdr.stream_id = (static_cast<std::uint32_t>(data[1]) << 24) |
                             (static_cast<std::uint32_t>(data[2]) << 16) |
-                            (static_cast<std::uint32_t>(data[3]) << 8) |
-                            static_cast<std::uint32_t>(data[4]);
-            hdr.length = (static_cast<std::uint16_t>(data[5]) << 8) |
-                         static_cast<std::uint16_t>(data[6]);
+                            (static_cast<std::uint32_t>(data[3]) << 8) | static_cast<std::uint32_t>(data[4]);
+            hdr.length = (static_cast<std::uint16_t>(data[5]) << 8) | static_cast<std::uint16_t>(data[6]);
             return hdr;
         }
     }; // struct frame_header

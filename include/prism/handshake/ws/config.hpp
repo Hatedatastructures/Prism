@@ -22,7 +22,10 @@ namespace psm::handshake::ws
         memory::vector<memory::string> server_names; ///< SNI 白名单
         memory::string path{"/"};                    ///< WebSocket 升级路径
 
-        /// 是否启用
+        /**
+         * @brief 是否启用
+         * @return 是否启用
+         */
         [[nodiscard]] auto enabled() const noexcept -> bool
         {
             return !server_names.empty();

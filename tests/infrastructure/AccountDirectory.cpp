@@ -4,9 +4,10 @@
  * @details 测试账户目录的 upsert、连接限制、lease RAII、多凭据别名等核心逻辑。
  */
 
-#include <prism/user/directory.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/user/directory.hpp>
+
 #include <gtest/gtest.h>
 
 namespace user = psm::user;

@@ -1,6 +1,6 @@
 #include <prism/crypto/hkdf.hpp>
-#include <prism/diagnose/diagnose.hpp>
 #include <prism/diagnose/context.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -13,15 +13,14 @@ using namespace psm::diagnose;
 namespace psm::crypto
 {
 
-
     auto hmac_sha256(const std::span<const std::uint8_t> key, const std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> result{};
 
         std::uint32_t mac_len = 0;
-        const auto *ret = HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
-             data.data(), data.size(), result.data(), &mac_len);
+        const auto *ret = HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), data.data(),
+                               data.size(), result.data(), &mac_len);
 
         if (!ret)
         {
@@ -30,7 +29,6 @@ namespace psm::crypto
 
         return result;
     }
-
 
     auto hmac_sha512(const std::span<const std::uint8_t> key, const std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, sha512_len>
@@ -38,8 +36,8 @@ namespace psm::crypto
         std::array<std::uint8_t, sha512_len> result{};
 
         std::uint32_t mac_len = 0;
-        const auto *ret = HMAC(EVP_sha512(), key.data(), static_cast<int>(key.size()),
-             data.data(), data.size(), result.data(), &mac_len);
+        const auto *ret = HMAC(EVP_sha512(), key.data(), static_cast<int>(key.size()), data.data(),
+                               data.size(), result.data(), &mac_len);
 
         if (!ret)
         {
@@ -48,7 +46,6 @@ namespace psm::crypto
 
         return result;
     }
-
 
     auto hkdf_extract(const std::span<const std::uint8_t> salt, const std::span<const std::uint8_t> ikm)
         -> std::array<std::uint8_t, sha256_len>
@@ -61,9 +58,8 @@ namespace psm::crypto
         return hmac_sha256(salt, ikm);
     }
 
-
-    auto hkdf_expand(const std::span<const std::uint8_t> prk, const std::span<const std::uint8_t> info, const std::size_t length)
-        -> std::pair<fault::code, std::vector<std::uint8_t>>
+    auto hkdf_expand(const std::span<const std::uint8_t> prk, const std::span<const std::uint8_t> info,
+                     const std::size_t length) -> std::pair<fault::code, std::vector<std::uint8_t>>
     {
         if (length > 255 * sha256_len)
         {
@@ -118,9 +114,7 @@ namespace psm::crypto
         return {fault::code::success, std::move(result)};
     }
 
-
-    auto expand_label(const expand_params params)
-        -> std::pair<fault::code, std::vector<std::uint8_t>>
+    auto expand_label(const expand_params params) -> std::pair<fault::code, std::vector<std::uint8_t>>
     {
         const auto &secret = params.secret;
         const auto &label = params.label;
@@ -162,15 +156,12 @@ namespace psm::crypto
         return hkdf_expand(secret, {label_buf.data(), pos}, length);
     }
 
-
-    auto sha256(const std::span<const std::uint8_t> data)
-        -> std::array<std::uint8_t, sha256_len>
+    auto sha256(const std::span<const std::uint8_t> data) -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> hash{};
         ::SHA256(data.data(), data.size(), hash.data());
         return hash;
     }
-
 
     auto sha256(const std::span<const std::uint8_t> data1, const std::span<const std::uint8_t> data2)
         -> std::array<std::uint8_t, sha256_len>
@@ -203,9 +194,8 @@ namespace psm::crypto
         return hash;
     }
 
-
-    auto sha256(const std::span<const std::uint8_t> data1, const std::span<const std::uint8_t> data2, const std::span<const std::uint8_t> data3)
-        -> std::array<std::uint8_t, sha256_len>
+    auto sha256(const std::span<const std::uint8_t> data1, const std::span<const std::uint8_t> data2,
+                const std::span<const std::uint8_t> data3) -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> hash{};
 

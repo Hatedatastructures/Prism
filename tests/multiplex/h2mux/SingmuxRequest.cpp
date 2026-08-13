@@ -16,10 +16,12 @@ namespace
     {
         std::vector<std::byte> out;
         for (const auto b : list)
+        {
             out.push_back(static_cast<std::byte>(b));
+        }
         return out;
     }
-}
+} // namespace
 
 TEST(SingmuxRequest, TcpDomain)
 {
@@ -27,7 +29,9 @@ TEST(SingmuxRequest, TcpDomain)
     auto data = bytes_of({0x00, 0x00, 0x03, 11});
     const std::string domain = "example.com";
     for (const auto c : domain)
+    {
         data.push_back(static_cast<std::byte>(c));
+    }
     data.push_back(std::byte{0x01});
     data.push_back(std::byte{0xBB});
 
@@ -61,7 +65,9 @@ TEST(SingmuxRequest, UdpPacketAddrDomain)
     auto data = bytes_of({0x00, 0x03, 0x03, 7});
     const std::string domain = "dns.com";
     for (const auto c : domain)
+    {
         data.push_back(static_cast<std::byte>(c));
+    }
     data.push_back(std::byte{0x01});
     data.push_back(std::byte{0x35});
 
@@ -78,7 +84,9 @@ TEST(SingmuxRequest, Ipv6Address)
     // flags=0，addrType=0x04 IPv6（16 字节），port 8080
     auto data = bytes_of({0x00, 0x00, 0x04});
     for (int i = 0; i < 16; ++i)
+    {
         data.push_back(static_cast<std::byte>(i));
+    }
     data.push_back(std::byte{0x1F});
     data.push_back(std::byte{0x90});
 

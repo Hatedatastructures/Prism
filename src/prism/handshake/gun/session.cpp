@@ -3,9 +3,9 @@
  * @brief gRPC (gun) HTTP/2 会话实现
  */
 
-#include <prism/handshake/gun/session.hpp>
-#include <prism/handshake/gun/codec.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/gun/codec.hpp>
+#include <prism/handshake/gun/session.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -18,15 +18,9 @@ namespace psm::handshake::gun
 {
 
     session::session(psm::transport::shared_transmission transport, const config &cfg,
-                     const memory::resource_pointer mr,
-                     std::shared_ptr<diagnose::context> prefix)
-        : transport_(std::move(transport))
-        , config_(cfg)
-        , mr_(mr)
-        , prefix_(std::move(prefix))
-        , request_path_(mr_)
-        , frame_buf_(mr_)
-        , wait_timer_(transport_->executor())
+                     const memory::resource_pointer mr, std::shared_ptr<diagnose::context> prefix)
+        : transport_(std::move(transport)), config_(cfg), mr_(mr), prefix_(std::move(prefix)),
+          request_path_(mr_), frame_buf_(mr_), wait_timer_(transport_->executor())
     {
         // 流匹配超时 15 秒：防非匹配客户端长期占用会话（DoS）
         wait_timer_.expires_after(std::chrono::seconds(15));
@@ -45,27 +39,31 @@ namespace psm::handshake::gun
     {
         active_.store(true, std::memory_order_release);
         auto self = shared_from_this();
-        auto task = [self]() -> net::awaitable<void>
-        {
-            co_await self->frame_loop();
-        };
-        net::co_spawn(transport_->executor(), std::move(task), [self](const std::exception_ptr &ep)
-        {
-            if (ep)
-            {
-                diagnose::debug(self->prefix_, "gun session loop error");
-            }
-        });
+        auto task = [self]() -> net::awaitable<void> { co_await self->frame_loop(); };
+        net::co_spawn(transport_->executor(), std::move(task),
+                      [self](const std::exception_ptr &ep)
+                      {
+                          if (ep)
+                          {
+                              diagnose::debug(self->prefix_, "gun session loop error");
+                          }
+                      });
     }
 
     void session::close()
     {
         if (!active_.exchange(false, std::memory_order_acq_rel))
+        {
             return;
+        }
         if (transport_)
+        {
             transport_->close();
+        }
         if (gun_transport_)
+        {
             gun_transport_->close();
+        }
         wait_timer_.cancel();
     }
 
@@ -90,7 +88,9 @@ namespace psm::handshake::gun
 
         const std::int32_t rv = nghttp2_session_server_new3(&session_, callbacks, this, option, nullptr);
         if (option)
+        {
             nghttp2_option_del(option);
+        }
         nghttp2_session_callbacks_del(callbacks);
 
         if (rv != 0)
@@ -131,8 +131,8 @@ namespace psm::handshake::gun
                 break;
             }
 
-            const auto recv_len = nghttp2_session_mem_recv(
-                session_, reinterpret_cast<const uint8_t *>(recv_buf.data()), n);
+            const auto recv_len =
+                nghttp2_session_mem_recv(session_, reinterpret_cast<const uint8_t *>(recv_buf.data()), n);
             if (recv_len < 0)
             {
                 diagnose::debug(prefix_, "gun: nghttp2 recv error: {}",
@@ -158,12 +158,13 @@ namespace psm::handshake::gun
             const std::uint8_t *data = nullptr;
             const auto len = nghttp2_session_mem_send(session_, &data);
             if (len <= 0)
+            {
                 break;
+            }
 
             std::error_code write_ec;
-            co_await psm::transport::async_write(*transport_,
-                std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(data), len),
+            co_await psm::transport::async_write(
+                *transport_, std::span<const std::byte>(reinterpret_cast<const std::byte *>(data), len),
                 write_ec);
             if (write_ec)
             {
@@ -181,14 +182,16 @@ namespace psm::handshake::gun
         const char *te = "trailers";
         nghttp2_nv hdrs[] = {
             {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
-             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_str)), 7, 3, NGHTTP2_NV_FLAG_NONE},
+             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_str)), 7, 3,
+             NGHTTP2_NV_FLAG_NONE},
             {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>("content-type")),
-             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(content_type)), 12, 17, NGHTTP2_NV_FLAG_NONE},
+             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(content_type)), 12, 17,
+             NGHTTP2_NV_FLAG_NONE},
             {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>("te")),
              const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(te)), 2, 8, NGHTTP2_NV_FLAG_NONE},
         };
-        const auto rc = nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE,
-                                               stream_id, nullptr, hdrs, 3, nullptr);
+        const auto rc =
+            nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE, stream_id, nullptr, hdrs, 3, nullptr);
         if (rc != 0)
         {
             diagnose::warn(prefix_, "gun: submit grpc headers failed: {}", nghttp2_strerror(rc));
@@ -216,8 +219,7 @@ namespace psm::handshake::gun
     auto session::on_begin_headers(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
     {
         auto *self = static_cast<session *>(user_data);
-        if (frame->hd.type != NGHTTP2_HEADERS ||
-            frame->headers.cat != NGHTTP2_HCAT_REQUEST)
+        if (frame->hd.type != NGHTTP2_HEADERS || frame->headers.cat != NGHTTP2_HCAT_REQUEST)
         {
             return 0;
         }
@@ -227,14 +229,12 @@ namespace psm::handshake::gun
         return 0;
     }
 
-    auto session::on_header(nghttp2_session *, const nghttp2_frame *frame,
-                            const uint8_t *name, const size_t namelen,
-                            const uint8_t *value, const size_t valuelen,
-                            uint8_t, void *user_data) -> int
+    auto session::on_header(nghttp2_session *, const nghttp2_frame *frame, const uint8_t *name,
+                            const size_t namelen, const uint8_t *value, const size_t valuelen, uint8_t,
+                            void *user_data) -> int
     {
         auto *self = static_cast<session *>(user_data);
-        if (frame->hd.type != NGHTTP2_HEADERS ||
-            frame->headers.cat != NGHTTP2_HCAT_REQUEST)
+        if (frame->hd.type != NGHTTP2_HEADERS || frame->headers.cat != NGHTTP2_HCAT_REQUEST)
         {
             return 0;
         }
@@ -251,7 +251,9 @@ namespace psm::handshake::gun
             self->request_path_.clear();
             self->request_path_.reserve(hvalue.size());
             for (const auto c : hvalue)
+            {
                 self->request_path_.push_back(static_cast<std::byte>(c));
+            }
         }
         else if (hname == "content-type")
         {
@@ -263,8 +265,7 @@ namespace psm::handshake::gun
     auto session::on_frame_recv(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
     {
         auto *self = static_cast<session *>(user_data);
-        if (frame->hd.type != NGHTTP2_HEADERS ||
-            frame->headers.cat != NGHTTP2_HCAT_REQUEST ||
+        if (frame->hd.type != NGHTTP2_HEADERS || frame->headers.cat != NGHTTP2_HCAT_REQUEST ||
             self->stream_accepted_)
         {
             return 0;
@@ -274,14 +275,14 @@ namespace psm::handshake::gun
         const std::string_view path(reinterpret_cast<const char *>(self->request_path_.data()),
                                     self->request_path_.size());
         const std::string_view expected(self->config_.path.data(), self->config_.path.size());
-        const bool path_ok = path == expected
-            || (!self->config_.service_name.empty() && path == "/" + self->config_.service_name + "/Tun");
+        const bool path_ok = path == expected || (!self->config_.service_name.empty() &&
+                                                  path == "/" + self->config_.service_name + "/Tun");
 
         if (!self->request_is_post_ || !self->request_is_grpc_ || !path_ok)
         {
             // 不匹配：RST 该流
-            nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE,
-                                      frame->hd.stream_id, NGHTTP2_REFUSED_STREAM);
+            nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE, frame->hd.stream_id,
+                                      NGHTTP2_REFUSED_STREAM);
             return 0;
         }
 
@@ -289,8 +290,8 @@ namespace psm::handshake::gun
 
         // 建立 gun 传输
         auto self_ptr = self->shared_from_this();
-        auto write_fn = [self_ptr, stream_id = frame->hd.stream_id](memory::vector<std::byte> frame)
-            -> net::awaitable<void>
+        auto write_fn = [self_ptr, stream_id = frame->hd.stream_id](
+                            memory::vector<std::byte> frame) -> net::awaitable<void>
         {
             // 提交 DATA 帧（数据源生命周期绑定 pending_data_，防 nghttp2 延迟读取悬垂）
             co_await self_ptr->submit_data_frame(stream_id, std::move(frame));
@@ -315,8 +316,8 @@ namespace psm::handshake::gun
         return 0;
     }
 
-    auto session::on_data(nghttp2_session *, uint8_t, const int32_t stream_id,
-                          const uint8_t *data, const size_t len, void *user_data) -> int
+    auto session::on_data(nghttp2_session *, uint8_t, const int32_t stream_id, const uint8_t *data,
+                          const size_t len, void *user_data) -> int
     {
         auto *self = static_cast<session *>(user_data);
         if (stream_id != self->matched_stream_ || !self->gun_transport_)
@@ -325,14 +326,12 @@ namespace psm::handshake::gun
         }
 
         // 累积 gun 帧并解帧
-        self->frame_buf_.insert(self->frame_buf_.end(),
-                                reinterpret_cast<const std::byte *>(data),
+        self->frame_buf_.insert(self->frame_buf_.end(), reinterpret_cast<const std::byte *>(data),
                                 reinterpret_cast<const std::byte *>(data) + len);
         if (!self->process_data(self->frame_buf_))
         {
             // 非法帧或通道拥塞：RST 流并终止会话，避免静默丢数据
-            nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE,
-                                      stream_id, NGHTTP2_INTERNAL_ERROR);
+            nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE, stream_id, NGHTTP2_INTERNAL_ERROR);
             self->close();
             return NGHTTP2_ERR_CALLBACK_FAILURE;
         }
@@ -371,8 +370,8 @@ namespace psm::handshake::gun
                 break;
             }
             const auto data_begin = offset + header.header_len;
-            if (!gun_transport_ || !gun_transport_->push(
-                    std::span<const std::byte>(payload.data() + data_begin, header.payload_len)))
+            if (!gun_transport_ || !gun_transport_->push(std::span<const std::byte>(
+                                       payload.data() + data_begin, header.payload_len)))
             {
                 // 通道拥塞或已关闭：宁可断流不丢数据
                 diagnose::debug(prefix_, "gun: data push failed (congested or closed)");
@@ -418,8 +417,8 @@ namespace psm::handshake::gun
     }
 
     auto session::read_data_source(nghttp2_session *, const int32_t stream_id, uint8_t *buf,
-                                   const size_t length, uint32_t *data_flags,
-                                   nghttp2_data_source *source, void *user_data) -> ssize_t
+                                   const size_t length, uint32_t *data_flags, nghttp2_data_source *source,
+                                   void *user_data) -> ssize_t
     {
         auto *self = static_cast<session *>(user_data);
         auto it = self->pending_data_.find(stream_id);
@@ -446,8 +445,8 @@ namespace psm::handshake::gun
         return static_cast<ssize_t>(to_copy);
     }
 
-    auto session::on_stream_close(nghttp2_session *, const int32_t stream_id,
-                                  uint32_t, void *user_data) -> int
+    auto session::on_stream_close(nghttp2_session *, const int32_t stream_id, uint32_t, void *user_data)
+        -> int
     {
         auto *self = static_cast<session *>(user_data);
         // 流关闭后数据源不再被读取，释放避免泄漏

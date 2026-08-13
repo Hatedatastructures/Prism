@@ -9,7 +9,6 @@
 
 #include <cstdint>
 
-
 namespace psm::multiplex::yamux
 {
 
@@ -23,15 +22,15 @@ namespace psm::multiplex::yamux
      */
     struct config
     {
-        std::uint32_t max_streams = 32;                // 单个 mux 会话最大并发流数
-        std::uint32_t buffer_size = 4096;              // 每流读取缓冲区大小（字节）
-        std::uint32_t initial_window = 256 * 1024;     // 初始流窗口大小（字节），控制单流发送量
-        bool enable_ping = true;                       // 是否启用心跳
-        std::uint32_t ping_interval = 30000;        // 心跳间隔（毫秒）
-        std::uint32_t open_timeout = 30000;  // 流打开超时（毫秒）
-        std::uint32_t close_timeout = 30000; // 流关闭超时（毫秒）
-        std::uint32_t udp_idle = 60000;     // UDP 管道空闲超时（毫秒），超时自动关闭
-        std::uint32_t max_dgram = 65535;        // UDP 数据报最大长度（字节）
+        std::uint32_t max_streams = 32;            // 单个 mux 会话最大并发流数
+        std::uint32_t buffer_size = 4096;          // 每流读取缓冲区大小（字节）
+        std::uint32_t initial_window = 256 * 1024; // 初始流窗口大小（字节），控制单流发送量
+        bool enable_ping = true;                   // 是否启用心跳
+        std::uint32_t ping_interval = 30000;       // 心跳间隔（毫秒）
+        std::uint32_t open_timeout = 30000;        // 流打开超时（毫秒）
+        std::uint32_t close_timeout = 30000;       // 流关闭超时（毫秒）
+        std::uint32_t udp_idle = 60000;            // UDP 管道空闲超时（毫秒），超时自动关闭
+        std::uint32_t max_dgram = 65535;           // UDP 数据报最大长度（字节）
     }; // struct config
 
 } // namespace psm::multiplex::yamux

@@ -1,15 +1,13 @@
-#include <prism/handshake/recognition/routes.hpp>
-
-#include <prism/settings/settings.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/recognition/routes.hpp>
+#include <prism/settings/settings.hpp>
 
 using namespace psm::diagnose;
 
 namespace psm::recognition
 {
 
-    auto route_table::build(const psm::settings &cfg)
-        -> route_table
+    auto route_table::build(const psm::settings &cfg) -> route_table
     {
         route_table table;
 
@@ -62,11 +60,12 @@ namespace psm::recognition
         return table;
     }
 
-    auto route_table::lookup(std::string_view sni) const
-        -> memory::vector<memory::string>
+    auto route_table::lookup(std::string_view sni) const -> memory::vector<memory::string>
     {
         if (sni.empty())
+        {
             return {};
+        }
 
         auto key = memory::string(sni);
         auto it = route_map_.find(key);
@@ -78,18 +77,18 @@ namespace psm::recognition
         return {};
     }
 
-    auto route_table::matches_any(std::string_view sni) const
-        -> bool
+    auto route_table::matches_any(std::string_view sni) const -> bool
     {
         if (sni.empty())
+        {
             return false;
+        }
 
         auto key = memory::string(sni);
         return route_map_.find(key) != route_map_.end();
     }
 
-    auto route_table::registered_snis() const
-        -> memory::vector<memory::string>
+    auto route_table::registered_snis() const -> memory::vector<memory::string>
     {
         memory::vector<memory::string> snis;
         for (const auto &[sni, _] : route_map_)
@@ -99,8 +98,7 @@ namespace psm::recognition
         return snis;
     }
 
-    auto route_table::empty() const noexcept
-        -> bool
+    auto route_table::empty() const noexcept -> bool
     {
         return route_map_.empty();
     }
@@ -108,7 +106,9 @@ namespace psm::recognition
     void route_table::add_route(std::string_view sni, std::string_view scheme_name)
     {
         if (sni.empty())
+        {
             return;
+        }
 
         auto key = memory::string(sni);
         auto value = memory::string(scheme_name);
@@ -119,7 +119,9 @@ namespace psm::recognition
             for (const auto &existing : it->second)
             {
                 if (existing == value)
+                {
                     return;
+                }
             }
             it->second.push_back(value);
         }

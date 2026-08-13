@@ -1,13 +1,12 @@
-#include <prism/handshake/shadowtls/scheme.hpp>
-
-#include <prism/net/connection/util.hpp>
-#include <prism/net/connection/types.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/handshake/recognition/probe/analyzer.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/handshake/shadowtls/handshake.hpp>
+#include <prism/handshake/shadowtls/scheme.hpp>
 #include <prism/handshake/shadowtls/transport.hpp>
 #include <prism/handshake/shadowtls/util/auth.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/net/connection/util.hpp>
 #include <prism/net/transport/preview.hpp>
 #include <prism/net/transport/reliable.hpp>
 #include <prism/net/transport/snapshot.hpp>
@@ -19,51 +18,38 @@ namespace psm::handshake::shadowtls
 
     using hello_features = protocol::tls::hello_features;
 
-    auto scheme::active(const psm::settings &cfg) const noexcept
-        -> bool
+    auto scheme::active(const psm::settings &cfg) const noexcept -> bool
     {
         const auto &st_cfg = cfg.stealth.shadowtls;
         if (st_cfg.version == 3)
+        {
             return !st_cfg.users.empty() && !st_cfg.handshake_dest.empty() && !st_cfg.server_names.empty();
+        }
         return !st_cfg.password.empty() && !st_cfg.handshake_dest.empty() && !st_cfg.server_names.empty();
     }
 
-
-    auto scheme::name() const noexcept
-        -> std::string_view
+    auto scheme::name() const noexcept -> std::string_view
     {
         return "shadowtls";
     }
 
-
-    auto scheme::snis(const psm::settings &cfg) const
-        -> memory::vector<memory::string>
+    auto scheme::snis(const psm::settings &cfg) const -> memory::vector<memory::string>
     {
         return make_sni_list(cfg.stealth.shadowtls.server_names);
     }
 
-
-    auto scheme::sniff(std::uint32_t bitmap,
-                       const hello_features & /*features*/) const
-        -> sniff_result
+    auto scheme::sniff(std::uint32_t bitmap, const hello_features & /*features*/) const -> sniff_result
     {
         if (recognition::tls::has_feature(bitmap, recognition::tls::feature_bit::nonstd_session))
         {
-            return {
-                .hit = true,
-                .solo = false,
-                .hint = 150,
-                .note = "non-standard session_id length"};
+            return {.hit = true, .solo = false, .hint = 150, .note = "non-standard session_id length"};
         }
 
         return {.hit = false};
     }
 
-
-    auto scheme::verify(const hello_features &features,
-                         std::span<const std::byte> raw,
-                         const psm::settings &cfg) const
-        -> verify_result
+    auto scheme::verify(const hello_features &features, std::span<const std::byte> raw,
+                        const psm::settings &cfg) const -> verify_result
     {
         const auto &st_cfg = cfg.stealth.shadowtls;
 
@@ -74,14 +60,15 @@ namespace psm::handshake::shadowtls
                 for (const auto &user : st_cfg.users)
                 {
                     if (user.password.empty())
+                    {
                         continue;
+                    }
                     if (verify_client_hello(raw, user.password))
                     {
                         diagnose::debug(prefix_, "HMAC verified, user: {}", user.name);
-                        return {
-                            .score = 900,
-                            .solo_flag = 0xFFFF,
-                            .note = memory::string("HMAC verified, user: ") + memory::string(user.name)};
+                        return {.score = 900,
+                                .solo_flag = 0xFFFF,
+                                .note = memory::string("HMAC verified, user: ") + memory::string(user.name)};
                     }
                 }
             }
@@ -90,10 +77,7 @@ namespace psm::handshake::shadowtls
                 if (verify_client_hello(raw, st_cfg.password))
                 {
                     diagnose::debug(prefix_, "HMAC verified (v2)");
-                    return {
-                        .score = 900,
-                        .solo_flag = 0xFFFF,
-                        .note = "HMAC verified"};
+                    return {.score = 900, .solo_flag = 0xFFFF, .note = "HMAC verified"};
                 }
             }
         }
@@ -101,9 +85,7 @@ namespace psm::handshake::shadowtls
         return {.score = 50, .solo_flag = 0, .note = "HMAC not verified"};
     }
 
-
-    auto scheme::handshake(handshake::handshake_context ctx)
-        -> net::awaitable<handshake::handshake_result>
+    auto scheme::handshake(handshake::handshake_context ctx) -> net::awaitable<handshake::handshake_result>
     {
         handshake::handshake_result result;
 
@@ -114,15 +96,10 @@ namespace psm::handshake::shadowtls
         }
 
         handshake_detail detail;
-        auto hs_result = co_await handshake::shadowtls::handshake(
-            handshake::shadowtls::handshake_opts{
-                ctx.transport,
-                ctx.session->worker->process->cfg->stealth.shadowtls,
-                ctx.session->worker->outbound.get(),
-                std::move(ctx.preread),
-                detail,
-                ctx.session->trace,
-                ctx.session->trace});
+        auto hs_result = co_await handshake::shadowtls::handshake(handshake::shadowtls::handshake_opts{
+            ctx.transport, ctx.session->worker->process->cfg->stealth.shadowtls,
+            ctx.session->worker->outbound.get(), std::move(ctx.preread), detail, ctx.session->trace,
+            ctx.session->trace});
 
         if (fault::succeeded(hs_result.error) && !detail.client_firstframe.empty())
         {
@@ -130,9 +107,8 @@ namespace psm::handshake::shadowtls
             constexpr std::size_t local_tls_hdrsize = 5;
             if (first_frame.size() > local_tls_hdrsize)
             {
-                auto payload = std::span<const std::byte>(
-                    first_frame.data() + local_tls_hdrsize,
-                    first_frame.size() - local_tls_hdrsize);
+                auto payload = std::span<const std::byte>(first_frame.data() + local_tls_hdrsize,
+                                                          first_frame.size() - local_tls_hdrsize);
 
                 diagnose::debug(prefix_, "first_frame TLS header stripped, payload_size={}", payload.size());
 
@@ -144,10 +120,8 @@ namespace psm::handshake::shadowtls
                     shadowtls_handover{
                         detail.matched_password,
                         std::span<const std::byte>(detail.server_random.data(), detail.server_random.size()),
-                        std::span<const std::byte>(),
-                        std::move(detail.hmac_write_ctx),
-                        std::move(detail.hmac_read_ctx)
-                    });
+                        std::span<const std::byte>(), std::move(detail.hmac_write_ctx),
+                        std::move(detail.hmac_read_ctx)});
 
                 result.transport = shadowtls_trans;
                 result.scheme = "shadowtls";

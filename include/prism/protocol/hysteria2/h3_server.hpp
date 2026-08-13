@@ -15,14 +15,14 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
 
-#include <nghttp3/nghttp3.h>
-#include <ngtcp2/ngtcp2.h>
-
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <span>
 #include <string_view>
+
+#include <nghttp3/nghttp3.h>
+#include <ngtcp2/ngtcp2.h>
 
 namespace psm::protocol::hysteria2::h3
 {
@@ -33,9 +33,11 @@ namespace psm::protocol::hysteria2::h3
      */
     struct out_packet
     {
-        std::int64_t stream_id{0};           ///< 目标 QUIC 流
-        memory::vector<std::byte> data;      ///< 待发字节
-        explicit out_packet(memory::resource_pointer mr) : data(mr) {}
+        std::int64_t stream_id{0};      ///< 目标 QUIC 流
+        memory::vector<std::byte> data; ///< 待发字节
+        explicit out_packet(memory::resource_pointer mr) : data(mr)
+        {
+        }
     };
 
     /**
@@ -47,7 +49,15 @@ namespace psm::protocol::hysteria2::h3
     class server : public std::enable_shared_from_this<server>
     {
     public:
+        /**
+         * @brief 构造函数
+         * @param mr 内存资源
+         */
         explicit server(memory::resource_pointer mr);
+
+        /**
+         * @brief 析构函数，释放 nghttp3 连接状态
+         */
         ~server() noexcept;
 
         server(const server &) = delete;
@@ -67,8 +77,8 @@ namespace psm::protocol::hysteria2::h3
          * @param fin 是否为流末尾
          * @return 协议处理是否成功（失败即连接错误，应断开）
          */
-        [[nodiscard]] auto feed(std::int64_t stream_id, std::span<const std::byte> data,
-                                bool fin) -> fault::code;
+        [[nodiscard]] auto feed(std::int64_t stream_id, std::span<const std::byte> data, bool fin)
+            -> fault::code;
 
         /**
          * @brief 收集待发数据（nghttp3 → QUIC 流）
@@ -84,15 +94,25 @@ namespace psm::protocol::hysteria2::h3
          */
         void add_write_offset(std::int64_t stream_id, std::size_t len);
 
-        /// 认证请求头是否已接收完整（end_headers 已触发）
+        /**
+         * @brief 认证请求头是否已接收完整（end_headers 已触发）
+         * @return 是否已接收完整
+         */
         [[nodiscard]] auto auth_headers_complete() const noexcept -> bool;
 
+        /** @brief 获取认证请求方法（:method） */
         [[nodiscard]] auto method() const noexcept -> std::string_view;
+        /** @brief 获取认证请求路径（:path） */
         [[nodiscard]] auto path() const noexcept -> std::string_view;
+        /** @brief 获取认证凭据（Hysteria-Auth 头） */
         [[nodiscard]] auto auth() const noexcept -> std::string_view;
+        /** @brief 获取客户端声明的接收速率（Hysteria-CC-RX 头） */
         [[nodiscard]] auto rx() const noexcept -> std::uint64_t;
 
-        /// 认证请求所在流 ID（首个出现 HEADERS 的 bidi 流）
+        /**
+         * @brief 认证请求所在流 ID（首个出现 HEADERS 的 bidi 流）
+         * @return 认证请求流 ID
+         */
         [[nodiscard]] auto auth_stream_id() const noexcept -> std::int64_t;
 
         /**
@@ -101,46 +121,59 @@ namespace psm::protocol::hysteria2::h3
          */
         [[nodiscard]] auto submit_auth_response() -> fault::code;
 
-        /// 释放 nghttp3 连接状态
+        /**
+         * @brief 释放 nghttp3 连接状态
+         */
         void close();
 
+        /**
+         * @brief 获取底层 nghttp3 连接指针
+         * @return nghttp3_conn* 原生连接指针
+         */
         [[nodiscard]] auto native() const noexcept -> nghttp3_conn *
         {
             return conn_;
         }
 
     private:
+        /** @brief nghttp3 回调：流开始接收头字段 */
         static auto cb_begin_headers(nghttp3_conn *conn, int64_t stream_id, void *user_data,
                                      void *stream_user_data) -> int;
-        static auto cb_recv_header(nghttp3_conn *conn, int64_t stream_id, int32_t token,
-                                   nghttp3_rcbuf *name, nghttp3_rcbuf *value, uint8_t flags,
-                                   void *user_data, void *stream_user_data) -> int;
-        static auto cb_end_headers(nghttp3_conn *conn, int64_t stream_id, int fin,
-                                   void *user_data, void *stream_user_data) -> int;
-        static auto cb_recv_data(nghttp3_conn *conn, int64_t stream_id, const uint8_t *data,
-                                 size_t datalen, void *user_data,
-                                 void *stream_user_data) -> int;
-        static auto cb_stop_sending(nghttp3_conn *conn, int64_t stream_id,
-                                    uint64_t app_error_code, void *user_data,
-                                    void *stream_user_data) -> int;
+        /** @brief nghttp3 回调：接收单个头字段 */
+        static auto cb_recv_header(nghttp3_conn *conn, int64_t stream_id, int32_t token, nghttp3_rcbuf *name,
+                                   nghttp3_rcbuf *value, uint8_t flags, void *user_data,
+                                   void *stream_user_data) -> int;
+        /** @brief nghttp3 回调：头字段接收完毕（end_headers） */
+        static auto cb_end_headers(nghttp3_conn *conn, int64_t stream_id, int fin, void *user_data,
+                                   void *stream_user_data) -> int;
+        /** @brief nghttp3 回调：接收请求体数据 */
+        static auto cb_recv_data(nghttp3_conn *conn, int64_t stream_id, const uint8_t *data, size_t datalen,
+                                 void *user_data, void *stream_user_data) -> int;
+        /** @brief nghttp3 回调：对端停止发送 */
+        static auto cb_stop_sending(nghttp3_conn *conn, int64_t stream_id, uint64_t app_error_code,
+                                    void *user_data, void *stream_user_data) -> int;
+        /** @brief nghttp3 回调：流结束（fin） */
         static auto cb_end_stream(nghttp3_conn *conn, int64_t stream_id, void *user_data,
                                   void *stream_user_data) -> int;
+        /** @brief nghttp3 随机数回调（密钥材料生成） */
         static void cb_rand(uint8_t *dest, size_t destlen);
 
-        /// 当前微秒时间戳（ngtcp2/nghttp3 共用）
+        /**
+         * 当前微秒时间戳（ngtcp2/nghttp3 共用）
+         */
         [[nodiscard]] static auto now_tstamp() -> std::uint64_t;
 
-        nghttp3_conn *conn_{nullptr};        ///< nghttp3 连接状态
-        memory::resource_pointer mr_{};      ///< 内存资源
-        std::int64_t ctrl_stream_{-1};       ///< 服务器控制流
-        std::int64_t enc_stream_{-1};        ///< 服务器 QPACK encoder 流
-        std::int64_t dec_stream_{-1};        ///< 服务器 QPACK decoder 流
-        std::int64_t auth_stream_{-1};       ///< 认证请求流
-        bool headers_done_{false};           ///< 认证头接收完整
-        memory::string method_;              ///< :method
-        memory::string path_;                ///< :path
-        memory::string auth_;                ///< Hysteria-Auth 头
-        std::uint64_t rx_{0};                ///< Hysteria-CC-RX 头
+        nghttp3_conn *conn_{nullptr};   ///< nghttp3 连接状态
+        memory::resource_pointer mr_{}; ///< 内存资源
+        std::int64_t ctrl_stream_{-1};  ///< 服务器控制流
+        std::int64_t enc_stream_{-1};   ///< 服务器 QPACK encoder 流
+        std::int64_t dec_stream_{-1};   ///< 服务器 QPACK decoder 流
+        std::int64_t auth_stream_{-1};  ///< 认证请求流
+        bool headers_done_{false};      ///< 认证头接收完整
+        memory::string method_;         ///< :method
+        memory::string path_;           ///< :path
+        memory::string auth_;           ///< Hysteria-Auth 头
+        std::uint64_t rx_{0};           ///< Hysteria-CC-RX 头
     };
 
 } // namespace psm::protocol::hysteria2::h3

@@ -1,17 +1,16 @@
-#include <prism/runtime/session/session.hpp>
-
-#include <prism/settings/settings.hpp>
-#include <prism/foundation/foundation.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/code.hpp>
-#include <prism/net/connection/tunnel/tunnel.hpp>
-#include <prism/net/connection/tunnel/tunnel_relay.hpp>
-#include <prism/protocol/handler.hpp>
-#include <prism/net/connection/types.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/handshake/recognition/recognition.hpp>
 #include <prism/handshake/scheme.hpp>
-#include <prism/user/stats/traffic.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/net/connection/tunnel/tunnel.hpp>
+#include <prism/net/connection/tunnel/tunnel_relay.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/net/transport/reliable.hpp>
+#include <prism/protocol/handler.hpp>
+#include <prism/runtime/session/session.hpp>
+#include <prism/settings/settings.hpp>
+#include <prism/user/stats/traffic.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
@@ -26,8 +25,7 @@ namespace psm::runtime::session
 
     namespace net = boost::asio;
 
-    session::session(session_params params)
-        : res_(std::move(params.res))
+    session::session(session_params params) : res_(std::move(params.res))
     {
         if (res_->conn == 0)
         {
@@ -36,9 +34,13 @@ namespace psm::runtime::session
             // session_resources 内部 conn_id_ 是 const，需要重新构造
             // 这里通过 set_meta 链路同步 meta.conn 即可
             if (auto meta = res_->meta)
+            {
                 meta->conn_id = cid;
+            }
             if (auto trace = res_->trace)
+            {
                 trace->conn = cid;
+            }
         }
         else if (auto meta = res_->meta)
         {
@@ -63,16 +65,14 @@ namespace psm::runtime::session
             {
                 if (auto trace = self->res_->trace)
                 {
-                    diagnose::error(*trace,
-                        "unhandled exception in diversion: {}", e.what());
+                    diagnose::error(*trace, "unhandled exception in diversion: {}", e.what());
                 }
             }
             catch (...)
             {
                 if (auto trace = self->res_->trace)
                 {
-                    diagnose::error(*trace,
-                        "unknown exception in diversion");
+                    diagnose::error(*trace, "unknown exception in diversion");
                 }
             }
             self->release_resources();
@@ -81,7 +81,9 @@ namespace psm::runtime::session
         auto completion = [self = this->shared_from_this()](const std::exception_ptr &ep) noexcept
         {
             if (!ep)
+            {
                 return;
+            }
             auto trace = self->res_->trace;
             try
             {
@@ -90,20 +92,23 @@ namespace psm::runtime::session
             catch (const ::psm::exception::deviant &e)
             {
                 if (trace)
-                    diagnose::error(*trace,
-                        "abnormal exception: {}", e.dump());
+                {
+                    diagnose::error(*trace, "abnormal exception: {}", e.dump());
+                }
             }
             catch (const std::exception &e)
             {
                 if (trace)
-                    diagnose::error(*trace,
-                        "standard exception: {}", e.what());
+                {
+                    diagnose::error(*trace, "standard exception: {}", e.what());
+                }
             }
             catch (...)
             {
                 if (trace)
-                    diagnose::error(*trace,
-                        "unknown exception type");
+                {
+                    diagnose::error(*trace, "unknown exception type");
+                }
             }
             self->release_resources();
         };
@@ -114,22 +119,32 @@ namespace psm::runtime::session
     auto session::close() -> void
     {
         if (state_ != state::active)
+        {
             return;
+        }
         state_ = state::closing;
 
         if (auto trace = res_->trace)
+        {
             diagnose::debug(*trace, "session closing");
+        }
 
         if (res_->inbound)
+        {
             res_->inbound->cancel();
+        }
         if (res_->outbound)
+        {
             res_->outbound->cancel();
+        }
     }
 
     auto session::release_resources() noexcept -> void
     {
         if (state_ == state::closed)
+        {
             return;
+        }
         state_ = state::closed;
 
         res_->worker->traffic.on_disconnect(res_->detected);
@@ -155,7 +170,9 @@ namespace psm::runtime::session
             callback();
         }
         if (auto trace = res_->trace)
+        {
             diagnose::debug(*trace, "session closed");
+        }
     }
 
     auto session::diversion() -> net::awaitable<void>
@@ -165,18 +182,19 @@ namespace psm::runtime::session
         if (!res_->inbound)
         {
             if (trace)
-                diagnose::warn(trace,
-                    "diversion aborted: missing inbound transmission");
+            {
+                diagnose::warn(trace, "diversion aborted: missing inbound transmission");
+            }
             co_return;
         }
 
         if (auto meta = res_->meta)
         {
             if (trace)
-                diagnose::access(trace,
-                    "session established, {} -> {}",
-                    meta->src.address().to_string(),
-                    meta->dst.address().to_string());
+            {
+                diagnose::access(trace, "session established, {} -> {}", meta->src.address().to_string(),
+                                 meta->dst.address().to_string());
+            }
         }
         else if (trace)
         {
@@ -184,19 +202,18 @@ namespace psm::runtime::session
         }
 
         // 1. 完整识别流程
-        handshake_deadline_ = std::make_unique<net::steady_timer>(
-            res_->inbound->executor(), std::chrono::seconds(30));
+        handshake_deadline_ =
+            std::make_unique<net::steady_timer>(res_->inbound->executor(), std::chrono::seconds(30));
 
         auto deadline_expired = [this]() -> net::awaitable<bool>
         {
             boost::system::error_code ec;
-            co_await handshake_deadline_->async_wait(
-                net::redirect_error(net::use_awaitable, ec));
+            co_await handshake_deadline_->async_wait(net::redirect_error(net::use_awaitable, ec));
             co_return true;
         };
 
-        auto do_recognize = [this, self = this->shared_from_this()]()
-            -> net::awaitable<recognition::recognize_result>
+        auto do_recognize =
+            [this, self = this->shared_from_this()]() -> net::awaitable<recognition::recognize_result>
         {
             ::psm::handshake::handshake_context st_opts;
             st_opts.transport = res_->inbound;
@@ -227,8 +244,7 @@ namespace psm::runtime::session
             res_->inbound->cancel();
             if (trace)
             {
-                diagnose::warn(trace,
-                    "handshake deadline exceeded, aborting");
+                diagnose::warn(trace, "handshake deadline exceeded, aborting");
             }
             co_return;
         }
@@ -236,20 +252,24 @@ namespace psm::runtime::session
         if (!result.success)
         {
             if (trace)
-                diagnose::warn(trace,
-                    "recognition failed: {}", fault::describe(result.error));
+            {
+                diagnose::warn(trace, "recognition failed: {}", fault::describe(result.error));
+            }
             co_return;
         }
 
         res_->detected = result.detected;
         auto proto_view = psm::connect::to_string_view(result.detected);
         if (trace)
+        {
             std::strncpy(trace->proto, proto_view.data(), sizeof(trace->proto) - 1);
+        }
         res_->worker->traffic.on_protocol_detected(result.detected);
 
         if (trace)
-            diagnose::debug(trace,
-                "recognized as {}", proto_view);
+        {
+            diagnose::debug(trace, "recognized as {}", proto_view);
+        }
 
         // 2. 更新传输层
         res_->inbound = std::move(result.transport);
@@ -257,13 +277,13 @@ namespace psm::runtime::session
         if (!res_->inbound)
         {
             if (trace)
-                diagnose::debug(trace,
-                    "connection handled by stack scheme");
+            {
+                diagnose::debug(trace, "connection handled by stack scheme");
+            }
             co_return;
         }
 
-        auto preread_span = std::span<const std::byte>(
-            result.preread.data(), result.preread.size());
+        auto preread_span = std::span<const std::byte>(result.preread.data(), result.preread.size());
 
         // 3. 分发到协议处理器
         psm::protocol::handler_params h_params(*res_, preread_span);
@@ -285,7 +305,9 @@ namespace psm::runtime::session
             t_opts.detected = res_->detected;
             t_opts.lease = &res_->lease;
             if (res_->worker->process->cfg->stealth.pad.enabled())
+            {
                 t_opts.pad_cfg = &res_->worker->process->cfg->stealth.pad;
+            }
             connect::tunnel_relay relay{std::move(t_opts)};
             co_await relay.run();
         }

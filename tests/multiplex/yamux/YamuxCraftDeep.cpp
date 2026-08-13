@@ -7,16 +7,15 @@
  *          直接构造 craft（final 类）对象验证核心逻辑。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/dns/resolver.hpp>
+#include <prism/protocol/multiplex/yamux/control.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
 #include "common/MockTransport.hpp"
-
-#include <prism/net/connection/dialer/dialer.hpp>
-#include <prism/net/dns/resolver.hpp>
-#include <prism/protocol/multiplex/yamux/control.hpp>
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -110,7 +109,6 @@ namespace
         EXPECT_TRUE(fx.transport->is_closed()) << "close: transport closed";
     }
 
-
     // ─── drop / drop ─────────
 
     TEST(YamuxCraftDeep, RemoveDuctNonexistent)
@@ -154,7 +152,6 @@ namespace
         fx.craft_obj->close();
         fx.craft_obj->drop(42);
     }
-
 
     TEST(YamuxCraftDeep, DestructorCallsClose)
     {

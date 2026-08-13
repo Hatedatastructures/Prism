@@ -15,10 +15,10 @@
  */
 #pragma once
 
-#include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/multiplex/egress.hpp>
 #include <prism/diagnose/context.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/multiplex/egress.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
@@ -26,7 +26,6 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
-
 
 namespace psm::multiplex
 {
@@ -41,11 +40,11 @@ namespace psm::multiplex
      */
     struct stream_options
     {
-        std::uint32_t stream_id{0};            ///< 流标识符，由 mux 协议分配
-        transport::shared_transmission target; ///< 已连接的目标传输层
-        std::shared_ptr<egress> egress;        ///< 会话层出口（数据回传通道）
-        std::uint32_t buffer_size{4096};       ///< 单次读取缓冲区大小
-        memory::resource_pointer mr = {};      ///< PMR 内存资源
+        std::uint32_t stream_id{0};                ///< 流标识符，由 mux 协议分配
+        transport::shared_transmission target;     ///< 已连接的目标传输层
+        std::shared_ptr<egress> egress;            ///< 会话层出口（数据回传通道）
+        std::uint32_t buffer_size{4096};           ///< 单次读取缓冲区大小
+        memory::resource_pointer mr = {};          ///< PMR 内存资源
         std::shared_ptr<diagnose::context> prefix; ///< 日志前缀
     };
 
@@ -62,8 +61,8 @@ namespace psm::multiplex
      */
     class stream : public std::enable_shared_from_this<stream>
     {
-        using channel_type = net::experimental::concurrent_channel<
-            void(boost::system::error_code, memory::vector<std::byte>)>;
+        using channel_type =
+            net::experimental::concurrent_channel<void(boost::system::error_code, memory::vector<std::byte>)>;
 
     public:
         /**
@@ -89,8 +88,7 @@ namespace psm::multiplex
          * @param data 来自 mux 数据帧的数据（所有权转移）
          * @return 异步操作，通道满时挂起（背压）
          */
-        auto on_data(memory::vector<std::byte> data)
-            -> net::awaitable<void>;
+        auto on_data(memory::vector<std::byte> data) -> net::awaitable<void>;
 
         /**
          * @brief 处理 mux 端 FIN，触发半关闭
@@ -121,26 +119,24 @@ namespace psm::multiplex
          *          读后经 egress->send 回传。target EOF 时通知
          *          会话层半关闭并退出。
          */
-        auto target_readloop()
-            -> net::awaitable<void>;
+        auto target_readloop() -> net::awaitable<void>;
 
         /**
          * @brief target 写循环：会话层 → target（客户端上传方向）
          * @details 从 write_channel_ 取数据写入 target，通道关闭时退出，
          *          写失败时关闭整个管道。
          */
-        auto target_writeloop()
-            -> net::awaitable<void>;
+        auto target_writeloop() -> net::awaitable<void>;
 
-        std::uint32_t id_{0};                          ///< 流标识符
-        std::weak_ptr<egress> egress_;                 ///< 会话层出口弱引用（防循环）
-        memory::resource_pointer mr_{};                ///< PMR 内存资源
-        transport::shared_transmission target_;        ///< 已连接的目标传输层
+        std::uint32_t id_{0};                       ///< 流标识符
+        std::weak_ptr<egress> egress_;              ///< 会话层出口弱引用（防循环）
+        memory::resource_pointer mr_{};             ///< PMR 内存资源
+        transport::shared_transmission target_;     ///< 已连接的目标传输层
         std::shared_ptr<diagnose::context> prefix_; ///< 日志前缀
-        bool closed_ = false;                          ///< 关闭标志（close 幂等）
-        std::size_t read_size_ = 0;                    ///< 单次读取上限（≤ 帧载荷上限）
+        bool closed_ = false;                       ///< 关闭标志（close 幂等）
+        std::size_t read_size_ = 0;                 ///< 单次读取上限（≤ 帧载荷上限）
 
-        std::atomic<bool> mux_closed_{false};   ///< mux 端已半关闭（on_fin 置位）
+        std::atomic<bool> mux_closed_{false};    ///< mux 端已半关闭（on_fin 置位）
         std::atomic<bool> target_closed_{false}; ///< target 端已半关闭（EOF 置位）
 
         channel_type write_channel_; ///< 上传方向写通道（有界背压）
@@ -151,8 +147,7 @@ namespace psm::multiplex
      * @param opts 构造参数
      * @return stream 的共享指针
      */
-    [[nodiscard]] inline auto make_stream(stream_options opts)
-        -> std::shared_ptr<stream>
+    [[nodiscard]] inline auto make_stream(stream_options opts) -> std::shared_ptr<stream>
     {
         return std::make_shared<stream>(std::move(opts));
     }

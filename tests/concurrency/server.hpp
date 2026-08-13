@@ -1,10 +1,11 @@
 #pragma once
 
-#include <string_view>
-#include <thread>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio.hpp>
-#include <prism/diagnose/diagnose.hpp>
+
+#include <string_view>
+#include <thread>
 
 #include "conversation.hpp"
 
@@ -21,8 +22,7 @@ namespace srv
     {
     public:
         server(const config &cfg)
-            : io_context_(static_cast<int>(cfg.threads)),
-              acceptor_(io_context_),
+            : io_context_(static_cast<int>(cfg.threads)), acceptor_(io_context_),
               response_delay_(cfg.response_delay)
         {
             boost::asio::ip::tcp::endpoint endpoint{boost::asio::ip::tcp::v4(), cfg.port};
@@ -50,7 +50,7 @@ namespace srv
         boost::asio::awaitable<void> AcceptLoop()
         {
             while (true)
-            {   // 死循环获取 socket
+            { // 死循环获取 socket
                 boost::system::error_code ec;
                 auto socket = co_await acceptor_.async_accept(
                     boost::asio::redirect_error(boost::asio::use_awaitable, ec));
@@ -62,7 +62,7 @@ namespace srv
                 }
 
                 psm::diagnose::debug("[server] 新连接: {}:{}", socket.remote_endpoint().address().to_string(),
-                                  socket.remote_endpoint().port());
+                                     socket.remote_endpoint().port());
 
                 const auto session = std::make_shared<conversation>(std::move(socket), response_delay_);
                 session->start();
@@ -73,4 +73,4 @@ namespace srv
         boost::asio::ip::tcp::acceptor acceptor_;
         std::chrono::milliseconds response_delay_;
     };
-}
+} // namespace srv

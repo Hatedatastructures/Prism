@@ -10,8 +10,8 @@
  * 6. 辅助结构体与枚举测试
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/h2mux/control.hpp>
 
 #include <array>
@@ -60,19 +60,19 @@ TEST(H2mux, Nghttp2CallbackRegistration)
     nghttp2_session_callbacks_new(&callbacks);
 
     // 注册与 craft 相同的五组回调
-    nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks,
-        [](nghttp2_session *, const nghttp2_frame *, void *) -> int { return 0; });
+    nghttp2_session_callbacks_set_on_begin_headers_callback(
+        callbacks, [](nghttp2_session *, const nghttp2_frame *, void *) -> int { return 0; });
     nghttp2_session_callbacks_set_on_header_callback(callbacks,
-        [](nghttp2_session *, const nghttp2_frame *,
-           const uint8_t *, size_t, const uint8_t *, size_t,
-           uint8_t, void *) -> int { return 0; });
-    nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks,
-        [](nghttp2_session *, const nghttp2_frame *, void *) -> int { return 0; });
-    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks,
-        [](nghttp2_session *, uint8_t, int32_t,
-           const uint8_t *, size_t, void *) -> int { return 0; });
-    nghttp2_session_callbacks_set_on_stream_close_callback(callbacks,
-        [](nghttp2_session *, int32_t, uint32_t, void *) -> int { return 0; });
+                                                     [](nghttp2_session *, const nghttp2_frame *,
+                                                        const uint8_t *, size_t, const uint8_t *, size_t,
+                                                        uint8_t, void *) -> int { return 0; });
+    nghttp2_session_callbacks_set_on_frame_recv_callback(
+        callbacks, [](nghttp2_session *, const nghttp2_frame *, void *) -> int { return 0; });
+    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(
+        callbacks,
+        [](nghttp2_session *, uint8_t, int32_t, const uint8_t *, size_t, void *) -> int { return 0; });
+    nghttp2_session_callbacks_set_on_stream_close_callback(
+        callbacks, [](nghttp2_session *, int32_t, uint32_t, void *) -> int { return 0; });
 
     nghttp2_session *session = nullptr;
     const int rv = nghttp2_session_server_new(&session, callbacks, nullptr);
@@ -121,29 +121,27 @@ TEST(H2mux, ConnectResponseHeaders)
 {
     // 模拟 respond_connect 构造 200 响应
     const auto status_200 = std::string_view("200");
-    nghttp2_nv hdrs_200[] = {
-        {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
-         const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_200.data())),
-         7, 3, NGHTTP2_NV_FLAG_NONE}};
+    nghttp2_nv hdrs_200[] = {{const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
+                              const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_200.data())), 7,
+                              3, NGHTTP2_NV_FLAG_NONE}};
 
     EXPECT_EQ(hdrs_200[0].namelen, 7) << ":status name length == 7";
     EXPECT_EQ(hdrs_200[0].valuelen, 3) << "200 value length == 3";
-    EXPECT_TRUE(std::string_view(reinterpret_cast<const char *>(hdrs_200[0].name),
-                                   hdrs_200[0].namelen) == ":status")
+    EXPECT_TRUE(std::string_view(reinterpret_cast<const char *>(hdrs_200[0].name), hdrs_200[0].namelen) ==
+                ":status")
         << ":status header name correct";
-    EXPECT_TRUE(std::string_view(reinterpret_cast<const char *>(hdrs_200[0].value),
-                                   hdrs_200[0].valuelen) == "200")
+    EXPECT_TRUE(std::string_view(reinterpret_cast<const char *>(hdrs_200[0].value), hdrs_200[0].valuelen) ==
+                "200")
         << "200 header value correct";
 
     // 模拟 407 响应
     const auto status_407 = std::string_view("407");
-    nghttp2_nv hdrs_407[] = {
-        {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
-         const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_407.data())),
-         7, 3, NGHTTP2_NV_FLAG_NONE}};
+    nghttp2_nv hdrs_407[] = {{const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
+                              const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_407.data())), 7,
+                              3, NGHTTP2_NV_FLAG_NONE}};
 
-    EXPECT_TRUE(std::string_view(reinterpret_cast<const char *>(hdrs_407[0].value),
-                                   hdrs_407[0].valuelen) == "407")
+    EXPECT_TRUE(std::string_view(reinterpret_cast<const char *>(hdrs_407[0].value), hdrs_407[0].valuelen) ==
+                "407")
         << "407 header value correct";
 }
 
@@ -165,13 +163,11 @@ TEST(H2mux, Nghttp2RespondConnect)
 
     // 模拟 respond_connect(stream_id=1, status=200)
     const char *status_str = "200";
-    nghttp2_nv hdrs[] = {
-        {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
-         const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_str)),
-         7, 3, NGHTTP2_NV_FLAG_NONE}};
+    nghttp2_nv hdrs[] = {{const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
+                          const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_str)), 7, 3,
+                          NGHTTP2_NV_FLAG_NONE}};
 
-    rv = nghttp2_submit_headers(session, NGHTTP2_FLAG_NONE,
-                                     1, nullptr, hdrs, 1, nullptr);
+    rv = nghttp2_submit_headers(session, NGHTTP2_FLAG_NONE, 1, nullptr, hdrs, 1, nullptr);
     EXPECT_EQ(rv, 0) << "nghttp2_submit_headers for CONNECT 200 returns 0";
 
     // 获取待发送数据（SETTINGS + HEADERS 帧均产生输出）
@@ -194,8 +190,7 @@ TEST(H2mux, Nghttp2RespondConnect)
 TEST(H2mux, DataFrameDispatch)
 {
     // 模拟 h2_pending_ 映射
-    psm::memory::unordered_map<std::uint32_t, h2_pending_entry> h2_pending(
-        psm::memory::current_resource());
+    psm::memory::unordered_map<std::uint32_t, h2_pending_entry> h2_pending(psm::memory::current_resource());
 
     // stream 1: TrustTunnel 模式，地址已解析
     h2_pending_entry entry1;
@@ -268,8 +263,7 @@ TEST(H2mux, DataFrameDispatch)
  */
 TEST(H2mux, StreamCloseHandling)
 {
-    psm::memory::unordered_map<std::uint32_t, h2_pending_entry> h2_pending(
-        psm::memory::current_resource());
+    psm::memory::unordered_map<std::uint32_t, h2_pending_entry> h2_pending(psm::memory::current_resource());
     psm::memory::unordered_map<std::uint32_t, bool> ducts(psm::memory::current_resource());
     psm::memory::unordered_map<std::uint32_t, bool> parcels(psm::memory::current_resource());
 
@@ -359,12 +353,9 @@ TEST(H2mux, WaitFirstConnectStateLogic)
     EXPECT_TRUE(first_connect_resolved) << "after first connect: resolved flag set";
     EXPECT_TRUE(!first_connect.authority.empty()) << "after first connect: authority non-empty";
     EXPECT_EQ(first_connect.stream_id, 1) << "after first connect: stream_id == 1";
-    EXPECT_EQ(first_connect.authority, "target.example.com:443")
-        << "after first connect: authority matches";
-    EXPECT_EQ(first_connect.host, "target.example.com")
-        << "after first connect: host matches";
-    EXPECT_EQ(first_connect.proxy_auth, "Basic dGVzdDpwYXNz")
-        << "after first connect: proxy_auth matches";
+    EXPECT_EQ(first_connect.authority, "target.example.com:443") << "after first connect: authority matches";
+    EXPECT_EQ(first_connect.host, "target.example.com") << "after first connect: host matches";
+    EXPECT_EQ(first_connect.proxy_auth, "Basic dGVzdDpwYXNz") << "after first connect: proxy_auth matches";
 
     // 模拟 wait_first_connect 返回逻辑（已 resolved + authority 非空）
     std::optional<h2_headers> result;
@@ -394,8 +385,7 @@ TEST(H2mux, WaitFirstConnectStateLogic)
     {
         empty_result = std::move(empty_auth);
     }
-    EXPECT_TRUE(!empty_result.has_value())
-        << "wait_first_connect returns nullopt when authority is empty";
+    EXPECT_TRUE(!empty_result.has_value()) << "wait_first_connect returns nullopt when authority is empty";
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -462,12 +452,10 @@ TEST(H2mux, H2PendingEntryStruct)
     EXPECT_EQ(entry.connecting, true) << "h2_pending_entry connecting assigned";
 }
 
-
 TEST(H2mux, AddressResolverCallback)
 {
     // TrustTunnel resolver: 从 authority 解析 host:port
-    address_resolver trusttunnel_resolver =
-        [](int32_t stream_id, const h2_headers &headers) -> stream_info
+    address_resolver trusttunnel_resolver = [](int32_t stream_id, const h2_headers &headers) -> stream_info
     {
         stream_info info;
         const auto &auth = headers.authority;
@@ -525,11 +513,8 @@ TEST(H2mux, AddressResolverCallback)
     EXPECT_EQ(result3.port, 443) << "TrustTunnel resolver default port == 443";
 
     // sing-mux resolver: 返回 valid=false（等待 DATA 帧）
-    address_resolver singmux_resolver =
-        [](int32_t, const h2_headers &) -> stream_info
-    {
-        return stream_info{};
-    };
+    address_resolver singmux_resolver = [](int32_t, const h2_headers &) -> stream_info
+    { return stream_info{}; };
 
     auto result4 = singmux_resolver(7, hdr1);
     EXPECT_EQ(result4.valid, false) << "sing-mux resolver returns valid=false";

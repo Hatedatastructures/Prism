@@ -10,8 +10,8 @@
  * 6. WindowUpdate 帧通过 TCP socket pair 的实际传输与解析
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/yamux/control.hpp>
 
 #include <boost/asio.hpp>
@@ -43,7 +43,8 @@ namespace
         auto old_val = window.send_window.load(std::memory_order_acquire);
         while (old_val >= payload_size)
         {
-            if (window.send_window.compare_exchange_weak(old_val, old_val - payload_size, std::memory_order_acq_rel))
+            if (window.send_window.compare_exchange_weak(old_val, old_val - payload_size,
+                                                         std::memory_order_acq_rel))
             {
                 return true;
             }
@@ -67,7 +68,8 @@ namespace
             {
                 new_val = std::numeric_limits<std::uint32_t>::max();
             }
-        } while (!window.send_window.compare_exchange_weak(old_val, new_val, std::memory_order_acq_rel));
+        }
+        while (!window.send_window.compare_exchange_weak(old_val, new_val, std::memory_order_acq_rel));
     }
 
     /**
@@ -75,9 +77,8 @@ namespace
      * @details 累加 consumed 到 recv_consumed，达到 initial_window/2 时返回 true
      * （应发送 WindowUpdate）并重置计数器，否则返回 false。
      */
-    [[nodiscard]] auto check_recv_window_threshold(yamux::stream_window &window,
-                                                    std::uint32_t consumed,
-                                                    std::uint32_t initial_window) -> bool
+    [[nodiscard]] auto check_recv_window_threshold(yamux::stream_window &window, std::uint32_t consumed,
+                                                   std::uint32_t initial_window) -> bool
     {
         const auto total = window.recv_consumed.fetch_add(consumed, std::memory_order_acq_rel) + consumed;
         if (total >= initial_window / 2)
@@ -109,10 +110,12 @@ TEST(YamuxWindow, WindowExhaustionBlocksWrite)
         EXPECT_TRUE(try_acquire_window(window, 60)) << "WindowExhaustion: acquire 60/100 bytes succeeds";
         EXPECT_EQ(window.send_window.load(), 40) << "WindowExhaustion: remaining window is 40";
 
-        EXPECT_TRUE(try_acquire_window(window, 40)) << "WindowExhaustion: acquire 40/40 bytes succeeds (full drain)";
+        EXPECT_TRUE(try_acquire_window(window, 40))
+            << "WindowExhaustion: acquire 40/40 bytes succeeds (full drain)";
         EXPECT_EQ(window.send_window.load(), 0) << "WindowExhaustion: window is 0 (exhausted)";
 
-        EXPECT_TRUE(!try_acquire_window(window, 1)) << "WindowExhaustion: acquire 1 byte fails when window is 0";
+        EXPECT_TRUE(!try_acquire_window(window, 1))
+            << "WindowExhaustion: acquire 1 byte fails when window is 0";
     }
 
     // 初始窗口 (256KB) 恰好耗尽
@@ -120,10 +123,12 @@ TEST(YamuxWindow, WindowExhaustionBlocksWrite)
         yamux::stream_window window(ioc.get_executor());
         constexpr auto initial = yamux::default_window; // 262144
 
-        EXPECT_TRUE(try_acquire_window(window, initial)) << "WindowExhaustion: acquire full 256KB initial window succeeds";
+        EXPECT_TRUE(try_acquire_window(window, initial))
+            << "WindowExhaustion: acquire full 256KB initial window succeeds";
         EXPECT_EQ(window.send_window.load(), 0) << "WindowExhaustion: window is 0 after full 256KB drain";
 
-        EXPECT_TRUE(!try_acquire_window(window, 1)) << "WindowExhaustion: cannot acquire 1 more byte after full drain";
+        EXPECT_TRUE(!try_acquire_window(window, 1))
+            << "WindowExhaustion: cannot acquire 1 more byte after full drain";
     }
 
     // 超过初始窗口的请求应立即失败
@@ -131,7 +136,8 @@ TEST(YamuxWindow, WindowExhaustionBlocksWrite)
         yamux::stream_window window(ioc.get_executor());
         constexpr auto initial = yamux::default_window;
 
-        EXPECT_TRUE(!try_acquire_window(window, initial + 1)) << "WindowExhaustion: request exceeding initial window fails immediately";
+        EXPECT_TRUE(!try_acquire_window(window, initial + 1))
+            << "WindowExhaustion: request exceeding initial window fails immediately";
     }
 }
 
@@ -156,13 +162,15 @@ TEST(YamuxWindow, WindowRecoveryResumesWrite)
     EXPECT_EQ(window.send_window.load(), 1024) << "WindowRecovery: window restored to 1024";
 
     // 恢复后写入成功
-    EXPECT_TRUE(try_acquire_window(window, 512)) << "WindowRecovery: acquire 512 bytes succeeds after recovery";
+    EXPECT_TRUE(try_acquire_window(window, 512))
+        << "WindowRecovery: acquire 512 bytes succeeds after recovery";
     EXPECT_EQ(window.send_window.load(), 512) << "WindowRecovery: remaining window is 512";
 
     // 多次 WindowUpdate 累加
     apply_window_update(window, 100);
     apply_window_update(window, 200);
-    EXPECT_EQ(window.send_window.load(), 812) << "WindowRecovery: multiple updates accumulate (512+100+200=812)";
+    EXPECT_EQ(window.send_window.load(), 812)
+        << "WindowRecovery: multiple updates accumulate (512+100+200=812)";
 
     // 耗尽->恢复->耗尽->恢复循环
     window.send_window.store(0, std::memory_order_release);
@@ -170,7 +178,8 @@ TEST(YamuxWindow, WindowRecoveryResumesWrite)
 
     apply_window_update(window, 256 * 1024);
     EXPECT_EQ(window.send_window.load(), 256 * 1024) << "WindowRecovery: cycle - restored to 256KB";
-    EXPECT_TRUE(try_acquire_window(window, 256 * 1024)) << "WindowRecovery: cycle - can acquire full 256KB after recovery";
+    EXPECT_TRUE(try_acquire_window(window, 256 * 1024))
+        << "WindowRecovery: cycle - can acquire full 256KB after recovery";
 }
 
 // ---------- Test 3: Delta clamping ----------
@@ -227,11 +236,10 @@ TEST(YamuxWindow, DeltaClamping)
         EXPECT_TRUE(parsed_zero.has_value() && parsed_zero->length == 0)
             << "DeltaClamping: WindowUpdate delta=0 round-trip correct";
 
-        auto frame_max = yamux::build_winupd(
-            yamux::flags::none, 1, std::numeric_limits<std::uint32_t>::max());
+        auto frame_max =
+            yamux::build_winupd(yamux::flags::none, 1, std::numeric_limits<std::uint32_t>::max());
         auto parsed_max = yamux::parse_header(frame_max);
-        EXPECT_TRUE(parsed_max.has_value() &&
-            parsed_max->length == std::numeric_limits<std::uint32_t>::max())
+        EXPECT_TRUE(parsed_max.has_value() && parsed_max->length == std::numeric_limits<std::uint32_t>::max())
             << "DeltaClamping: WindowUpdate delta=uint32_max round-trip correct";
     }
 }
@@ -248,15 +256,14 @@ TEST(YamuxWindow, RecvConsumedAutoWindowUpdate)
 {
     net::io_context ioc;
     constexpr auto initial = yamux::default_window; // 262144
-    constexpr auto threshold = initial / 2;                 // 131072
+    constexpr auto threshold = initial / 2;         // 131072
 
     // 小量消费不触发
     {
         yamux::stream_window window(ioc.get_executor());
         EXPECT_TRUE(!check_recv_window_threshold(window, 1024, initial))
             << "RecvAuto: 1024 bytes does not trigger (below threshold)";
-        EXPECT_EQ(window.recv_consumed.load(), 1024)
-            << "RecvAuto: recv_consumed accumulated to 1024";
+        EXPECT_EQ(window.recv_consumed.load(), 1024) << "RecvAuto: recv_consumed accumulated to 1024";
     }
 
     // 累积到阈值触发
@@ -272,8 +279,7 @@ TEST(YamuxWindow, RecvConsumedAutoWindowUpdate)
 
         triggered = check_recv_window_threshold(window, 1072, initial);
         EXPECT_TRUE(triggered) << "RecvAuto: 131072 bytes (exact threshold) triggers";
-        EXPECT_EQ(window.recv_consumed.load(), 0)
-            << "RecvAuto: recv_consumed reset to 0 after trigger";
+        EXPECT_EQ(window.recv_consumed.load(), 0) << "RecvAuto: recv_consumed reset to 0 after trigger";
     }
 
     // 单次大量消费直接触发
@@ -281,8 +287,7 @@ TEST(YamuxWindow, RecvConsumedAutoWindowUpdate)
         yamux::stream_window window(ioc.get_executor());
         EXPECT_TRUE(check_recv_window_threshold(window, initial, initial))
             << "RecvAuto: single 256KB consumption triggers immediately";
-        EXPECT_EQ(window.recv_consumed.load(), 0)
-            << "RecvAuto: recv_consumed reset after large trigger";
+        EXPECT_EQ(window.recv_consumed.load(), 0) << "RecvAuto: recv_consumed reset after large trigger";
     }
 
     // 多轮触发
@@ -296,8 +301,7 @@ TEST(YamuxWindow, RecvConsumedAutoWindowUpdate)
                 ++trigger_count;
             }
         }
-        EXPECT_EQ(trigger_count, 4)
-            << "RecvAuto: 4 rounds of (threshold+1) triggers 4 WindowUpdates";
+        EXPECT_EQ(trigger_count, 4) << "RecvAuto: 4 rounds of (threshold+1) triggers 4 WindowUpdates";
     }
 
     // 精确阈值边界：threshold - 1 不触发，再加 1 触发
@@ -325,7 +329,8 @@ TEST(YamuxWindow, WindowSignalBlockAndWake)
 
     std::atomic<bool> woke_up{false};
 
-    net::co_spawn(ioc.get_executor(),
+    net::co_spawn(
+        ioc.get_executor(),
         [signal, &woke_up]() -> net::awaitable<void>
         {
             boost::system::error_code ec;
@@ -342,8 +347,7 @@ TEST(YamuxWindow, WindowSignalBlockAndWake)
     // 模拟 WindowUpdate 到达：cancel 唤醒
     signal->cancel();
     ioc.run();
-    EXPECT_TRUE(woke_up.load(std::memory_order_acquire))
-        << "WindowSignal: coroutine woke up after cancel";
+    EXPECT_TRUE(woke_up.load(std::memory_order_acquire)) << "WindowSignal: coroutine woke up after cancel";
 }
 
 /**
@@ -357,7 +361,8 @@ TEST(YamuxWindow, WindowSignalNoSpuriousWake)
 
     std::atomic<bool> woke_up{false};
 
-    net::co_spawn(ioc.get_executor(),
+    net::co_spawn(
+        ioc.get_executor(),
         [signal = window.window_signal, &woke_up]() -> net::awaitable<void>
         {
             boost::system::error_code ec;
@@ -367,8 +372,7 @@ TEST(YamuxWindow, WindowSignalNoSpuriousWake)
         net::detached);
 
     ioc.poll();
-    EXPECT_TRUE(!woke_up.load(std::memory_order_acquire))
-        << "WindowSignalNoSpurious: no wake without cancel";
+    EXPECT_TRUE(!woke_up.load(std::memory_order_acquire)) << "WindowSignalNoSpurious: no wake without cancel";
 }
 
 // ---------- Test 6: WindowUpdate frame over TCP socket pair ----------
@@ -383,8 +387,7 @@ TEST(YamuxWindow, WindowUpdateFrameOverSocketPair)
     net::io_context ioc;
 
     boost::system::error_code ec;
-    net::ip::tcp::acceptor acceptor(ioc,
-        net::ip::tcp::endpoint(net::ip::make_address_v4("127.0.0.1"), 0));
+    net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::make_address_v4("127.0.0.1"), 0));
     auto ep = acceptor.local_endpoint();
 
     net::ip::tcp::socket client_sock(ioc);
@@ -416,18 +419,14 @@ TEST(YamuxWindow, WindowUpdateFrameOverSocketPair)
         ASSERT_TRUE(parsed.has_value()) << "SocketPair: WindowUpdate header parse succeeded";
         EXPECT_TRUE(parsed->type == yamux::message_type::window_update)
             << "SocketPair: WindowUpdate type == window_update";
-        EXPECT_TRUE(parsed->flag == yamux::flags::none)
-            << "SocketPair: WindowUpdate flag == none";
-        EXPECT_TRUE(parsed->stream_id == test_stream_id)
-            << "SocketPair: WindowUpdate stream_id == 42";
-        EXPECT_TRUE(parsed->length == test_delta)
-            << "SocketPair: WindowUpdate delta == 65536";
+        EXPECT_TRUE(parsed->flag == yamux::flags::none) << "SocketPair: WindowUpdate flag == none";
+        EXPECT_TRUE(parsed->stream_id == test_stream_id) << "SocketPair: WindowUpdate stream_id == 42";
+        EXPECT_TRUE(parsed->length == test_delta) << "SocketPair: WindowUpdate delta == 65536";
     }
 
     // --- 场景 2: WindowUpdate(SYN, stream_id=1, delta=256KB) 模拟流打开 ---
     {
-        auto syn_frame = yamux::build_winupd(
-            yamux::flags::syn, 1, yamux::default_window);
+        auto syn_frame = yamux::build_winupd(yamux::flags::syn, 1, yamux::default_window);
 
         boost::system::error_code write_ec;
         net::write(client_sock, net::buffer(syn_frame.data(), syn_frame.size()), write_ec);
@@ -444,8 +443,7 @@ TEST(YamuxWindow, WindowUpdateFrameOverSocketPair)
             << "SocketPair: SYN type == window_update";
         EXPECT_TRUE(yamux::has_flag(syn_parsed->flag, yamux::flags::syn))
             << "SocketPair: SYN frame has SYN flag";
-        EXPECT_TRUE(syn_parsed->stream_id == 1)
-            << "SocketPair: SYN frame stream_id == 1";
+        EXPECT_TRUE(syn_parsed->stream_id == 1) << "SocketPair: SYN frame stream_id == 1";
         EXPECT_TRUE(syn_parsed->length == yamux::default_window)
             << "SocketPair: SYN frame delta == 256KB (initial window)";
     }
@@ -470,8 +468,7 @@ TEST(YamuxWindow, WindowUpdateFrameOverSocketPair)
             << "SocketPair: ACK type == window_update";
         EXPECT_TRUE(yamux::has_flag(ack_parsed->flag, yamux::flags::ack))
             << "SocketPair: ACK frame has ACK flag";
-        EXPECT_TRUE(ack_parsed->stream_id == 1)
-            << "SocketPair: ACK frame stream_id == 1";
+        EXPECT_TRUE(ack_parsed->stream_id == 1) << "SocketPair: ACK frame stream_id == 1";
         EXPECT_TRUE(ack_parsed->length == server_window)
             << "SocketPair: ACK frame delta == 512KB (server window)";
     }

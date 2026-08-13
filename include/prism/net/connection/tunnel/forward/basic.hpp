@@ -6,13 +6,12 @@
  */
 #pragma once
 
-#include <prism/resource/session.hpp>
+#include <prism/diagnose/context.hpp>
 #include <prism/net/connection/target.hpp>
 #include <prism/net/transport/transmission.hpp>
-#include <prism/diagnose/context.hpp>
+#include <prism/resource/session.hpp>
 
 #include <boost/asio.hpp>
-
 
 namespace psm::connect
 {
@@ -26,19 +25,17 @@ namespace psm::connect
      */
     struct forward_options
     {
-        std::string_view label;                             ///< 协议标签
-        const psm::connect::target &target;                     ///< 目标地址
-        shared_transmission inbound;                        ///< 入站传输
-        std::shared_ptr<diagnose::context> trace;        ///< 日志前缀
+        std::string_view label;                   ///< 协议标签
+        const psm::connect::target &target;       ///< 目标地址
+        shared_transmission inbound;              ///< 入站传输
+        std::shared_ptr<diagnose::context> trace; ///< 日志前缀
 
-        forward_options(std::string_view l, const psm::connect::target &t,
-                        shared_transmission in)
+        forward_options(std::string_view l, const psm::connect::target &t, shared_transmission in)
             : label(l), target(t), inbound(std::move(in))
         {
         }
 
-        forward_options(std::string_view l, const psm::connect::target &t,
-                        shared_transmission in,
+        forward_options(std::string_view l, const psm::connect::target &t, shared_transmission in,
                         std::shared_ptr<diagnose::context> tr)
             : label(l), target(t), inbound(std::move(in)), trace(std::move(tr))
         {

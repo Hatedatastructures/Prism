@@ -6,14 +6,13 @@
  *          通过 #include 源文件获取匿名命名空间函数。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/foundation/foundation.hpp>
-#include <prism/crypto/x25519.hpp>
 #include <prism/crypto/hkdf.hpp>
+#include <prism/crypto/x25519.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/protocol/tls/types.hpp>
 
 #include "../../src/prism/handshake/reality/handshake.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -34,12 +33,16 @@ namespace
         msg.push_back(0x03);
         // Random (32 bytes)
         for (int i = 0; i < 32; ++i)
+        {
             msg.push_back(static_cast<std::uint8_t>(i));
+        }
         // Session ID length = 32
         msg.push_back(32);
         // Session ID
         for (int i = 0; i < 32; ++i)
+        {
             msg.push_back(static_cast<std::uint8_t>(i + 0xA0));
+        }
         // Cipher suites length = 2
         msg.push_back(0x00);
         msg.push_back(0x02);
@@ -85,7 +88,9 @@ namespace
         msg.push_back(0x20);
         // Key exchange data
         for (std::size_t i = 0; i < 32; ++i)
+        {
             msg.push_back(keypair.public_key[i]);
+        }
 
         // Fill in extensions length
         std::size_t ext_total = msg.size() - ext_len_pos - 2;
@@ -111,19 +116,18 @@ namespace
         // 填充足够大的 enc_hs_plain（模拟 EE + Cert + CertVerify + Finished）
         sh_result.enc_hs_plain.resize(100);
         for (std::size_t i = 0; i < sh_result.enc_hs_plain.size(); ++i)
+        {
             sh_result.enc_hs_plain[i] = static_cast<std::uint8_t>(i);
+        }
         // shello_msg 不能为空
         sh_result.shello_msg = chello_raw;
         sh_result.shello_record.assign(chello_raw.begin(), chello_raw.end());
         sh_result.ccs_record.assign(5, std::uint8_t{0});
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_EQ(ec, psm::fault::code::success)
-            << "derive_encrypt_fin: success with valid inputs";
-        EXPECT_GE(sh_result.enc_hs_record.size(), 0)
-            << "derive_encrypt_fin: encrypted record produced";
-        EXPECT_GE(sh_result.enc_hs_plain.size(), 36)
-            << "derive_encrypt_fin: plaintext updated";
+        EXPECT_EQ(ec, psm::fault::code::success) << "derive_encrypt_fin: success with valid inputs";
+        EXPECT_GE(sh_result.enc_hs_record.size(), 0) << "derive_encrypt_fin: encrypted record produced";
+        EXPECT_GE(sh_result.enc_hs_plain.size(), 36) << "derive_encrypt_fin: plaintext updated";
     }
 
     TEST(RealityHandshakeDeep2, DeriveAndEncryptFinishedPlaintextTooShort)
@@ -139,8 +143,7 @@ namespace
         sh_result.shello_msg = chello_raw;
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_EQ(ec, psm::fault::code::kdferr)
-            << "derive_encrypt_fin: too short -> kdferr";
+        EXPECT_EQ(ec, psm::fault::code::kdferr) << "derive_encrypt_fin: too short -> kdferr";
     }
 
     TEST(RealityHandshakeDeep2, DeriveAndEncryptFinishedExactMinSize)
@@ -154,14 +157,15 @@ namespace
         // 刚好 36 字节 = FINISHED_MSG_SIZE
         sh_result.enc_hs_plain.resize(36);
         for (std::size_t i = 0; i < 36; ++i)
+        {
             sh_result.enc_hs_plain[i] = static_cast<std::uint8_t>(i);
+        }
         sh_result.shello_msg = chello_raw;
         sh_result.shello_record.assign(chello_raw.begin(), chello_raw.end());
         sh_result.ccs_record.assign(5, std::uint8_t{0});
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_EQ(ec, psm::fault::code::success)
-            << "derive_encrypt_fin: exact min size success";
+        EXPECT_EQ(ec, psm::fault::code::success) << "derive_encrypt_fin: exact min size success";
     }
 
     TEST(RealityHandshakeDeep2, DeriveAndEncryptFinished35Bytes)
@@ -177,8 +181,7 @@ namespace
         sh_result.shello_msg = chello_raw;
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_EQ(ec, psm::fault::code::kdferr)
-            << "derive_encrypt_fin: 35 bytes -> kdferr";
+        EXPECT_EQ(ec, psm::fault::code::kdferr) << "derive_encrypt_fin: 35 bytes -> kdferr";
     }
 
     TEST(RealityHandshakeDeep2, DeriveAndEncryptFinishedEmptyPlaintext)
@@ -192,8 +195,7 @@ namespace
         sh_result.shello_msg = chello_raw;
 
         auto ec = derive_and_encrypt_finished(keys, sh_result, chello_raw, nullptr);
-        EXPECT_EQ(ec, psm::fault::code::kdferr)
-            << "derive_encrypt_fin: empty plaintext -> kdferr";
+        EXPECT_EQ(ec, psm::fault::code::kdferr) << "derive_encrypt_fin: empty plaintext -> kdferr";
     }
 
     // ─── negotiate_tls ───────────────────────────
@@ -209,9 +211,13 @@ namespace
         features.session_id_len = 32;
         features.session_id.resize(32);
         for (int i = 0; i < 32; ++i)
+        {
             features.session_id[i] = static_cast<std::uint8_t>(i + 0xA0);
+        }
         for (std::size_t i = 0; i < 32; ++i)
+        {
             features.x25519_key[i] = keypair.public_key[i];
+        }
         features.versions.push_back(tls::VERSION_TLS13);
         features.raw_msg = chello_raw;
         features.server_name = psm::memory::string("example.com");
@@ -221,7 +227,9 @@ namespace
         auth_res.authenticated = true;
         auth_res.server_ephkey = psm::crypto::generate_keypair();
         for (std::size_t i = 0; i < 32; ++i)
+        {
             auth_res.auth_key[i] = static_cast<std::uint8_t>(i);
+        }
 
         // 创建 dummy steady_timer
         net::io_context ioc;
@@ -229,16 +237,11 @@ namespace
 
         auto result = negotiate_tls(features, auth_res, timer, nullptr);
         EXPECT_TRUE(result.done) << "negotiate_tls: success -> done=true";
-        EXPECT_EQ(result.result.error, psm::fault::code::success)
-            << "negotiate_tls: no error";
-        EXPECT_EQ(result.keys.master_secret.size(), 32)
-            << "negotiate_tls: master_secret 32 bytes";
-        EXPECT_TRUE(!result.sh_result.shello_record.empty())
-            << "negotiate_tls: shello_record produced";
-        EXPECT_TRUE(!result.sh_result.enc_hs_record.empty())
-            << "negotiate_tls: enc_hs_record produced";
-        EXPECT_TRUE(!result.shared_secret.empty())
-            << "negotiate_tls: shared_secret produced";
+        EXPECT_EQ(result.result.error, psm::fault::code::success) << "negotiate_tls: no error";
+        EXPECT_EQ(result.keys.master_secret.size(), 32) << "negotiate_tls: master_secret 32 bytes";
+        EXPECT_TRUE(!result.sh_result.shello_record.empty()) << "negotiate_tls: shello_record produced";
+        EXPECT_TRUE(!result.sh_result.enc_hs_record.empty()) << "negotiate_tls: enc_hs_record produced";
+        EXPECT_TRUE(!result.shared_secret.empty()) << "negotiate_tls: shared_secret produced";
     }
 
     TEST(RealityHandshakeDeep2, NegotiateTlsX25519Failure)
@@ -266,8 +269,7 @@ namespace
         auto result = negotiate_tls(features, auth_res, timer, nullptr);
         // 全零公钥可能成功也可能失败，取决于 BoringSSL 实现
         // 但我们主要验证 negotiate_tls 不崩溃并返回有效结果
-        EXPECT_TRUE(!result.done || result.done)
-            << "negotiate_tls: zero key handled without crash";
+        EXPECT_TRUE(!result.done || result.done) << "negotiate_tls: zero key handled without crash";
     }
 
     TEST(RealityHandshakeDeep2, NegotiateTlsGenerateShelloFailure)
@@ -278,7 +280,10 @@ namespace
         tls::hello_features features;
         features.has_x25519 = true;
         features.raw_msg.resize(4); // 太短的 raw_msg
-        for (auto &b : features.raw_msg) b = 0;
+        for (auto &b : features.raw_msg)
+        {
+            b = 0;
+        }
         features.session_id_len = 0;
 
         auth_result auth_res;
@@ -304,9 +309,13 @@ namespace
         features.session_id_len = 32;
         features.session_id.resize(32);
         for (int i = 0; i < 32; ++i)
+        {
             features.session_id[i] = static_cast<std::uint8_t>(i + 0xB0);
+        }
         for (std::size_t i = 0; i < 32; ++i)
+        {
             features.x25519_key[i] = keypair.public_key[i];
+        }
         features.versions.push_back(tls::VERSION_TLS13);
         features.raw_msg = chello_raw;
 
@@ -314,7 +323,9 @@ namespace
         auth_res.authenticated = true;
         auth_res.server_ephkey = psm::crypto::generate_keypair();
         for (std::size_t i = 0; i < 32; ++i)
+        {
             auth_res.auth_key[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         net::io_context ioc;
         net::steady_timer timer(ioc);

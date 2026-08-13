@@ -12,8 +12,8 @@
  */
 #pragma once
 
-#include <prism/foundation/fault/compatible.hpp>
 #include <prism/diagnose/context.hpp>
+#include <prism/foundation/fault/compatible.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
@@ -25,7 +25,6 @@
 #include <system_error>
 #include <utility>
 
-
 namespace psm::transport
 {
 
@@ -34,13 +33,22 @@ namespace psm::transport
     namespace detail
     {
 
-        [[nodiscard]] inline auto to_ec(const std::error_code &ec)
-            -> boost::system::error_code
+        /**
+         * @brief 将项目错误码转换为 Boost.System 错误码
+         * @details 用于 completion-handler 桥接路径中向 handler 传递错误。
+         * @param ec 项目错误码
+         * @return 对应的 Boost.System 错误码
+         */
+        [[nodiscard]] inline auto to_ec(const std::error_code &ec) -> boost::system::error_code
         {
             if (!ec)
+            {
                 return {};
+            }
             if (ec.category() == psm::fault::category())
+            {
                 return {ec.value(), boost::system::category()};
+            }
             return {ec.value(), boost::system::generic_category()};
         }
     } // namespace detail
@@ -83,8 +91,11 @@ namespace psm::transport
             prefix_ = std::move(p);
         }
 
-        [[nodiscard]] auto prefix() const noexcept
-            -> std::shared_ptr<diagnose::context>
+        /**
+         * @brief 获取 trace 前缀
+         * @return 日志上下文指针
+         */
+        [[nodiscard]] auto prefix() const noexcept -> std::shared_ptr<diagnose::context>
         {
             return prefix_;
         }
@@ -94,12 +105,13 @@ namespace psm::transport
          * @details 默认沿 next_layer() 链委托到底层。叶子节点必须覆写返回真实类型。
          * @return type 传输类型（tcp 或 udp）
          */
-        [[nodiscard]] virtual auto transport_type() const noexcept
-            -> type
+        [[nodiscard]] virtual auto transport_type() const noexcept -> type
         {
             auto *n = next_layer();
             if (n)
+            {
                 return n->transport_type();
+            }
             return type::tcp;
         }
 
@@ -113,8 +125,7 @@ namespace psm::transport
          * @brief 获取关联的执行器（兼容 Asio Concept）
          * @return executor_type 执行器
          */
-        [[nodiscard]] auto get_executor() const
-            -> executor_type
+        [[nodiscard]] auto get_executor() const -> executor_type
         {
             return executor();
         }
@@ -149,10 +160,13 @@ namespace psm::transport
          * @param buffer 目标缓冲区
          * @param handler 完成处理器
          */
-        virtual void async_read_some(std::span<std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+        virtual void
+        async_read_some(std::span<std::byte> buffer,
+                        net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
         {
             auto ex = executor();
-            net::co_spawn(ex,
+            net::co_spawn(
+                ex,
                 [this, buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
                 {
                     std::error_code ec;
@@ -168,10 +182,13 @@ namespace psm::transport
          * @param buffer 源数据缓冲区
          * @param handler 完成处理器
          */
-        virtual void async_write_some(std::span<const std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+        virtual void
+        async_write_some(std::span<const std::byte> buffer,
+                         net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
         {
             auto ex = executor();
-            net::co_spawn(ex,
+            net::co_spawn(
+                ex,
                 [this, buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
                 {
                     std::error_code ec;
@@ -199,8 +216,7 @@ namespace psm::transport
          * 被包装的内层传输。叶子节点（reliable、unreliable）返回 nullptr。
          * @return transmission* 内层传输指针，叶子节点返回 nullptr
          */
-        [[nodiscard]] virtual auto next_layer() noexcept
-            -> transmission *
+        [[nodiscard]] virtual auto next_layer() noexcept -> transmission *
         {
             return nullptr;
         }
@@ -209,8 +225,7 @@ namespace psm::transport
          * @brief 获取内层传输（const 版本）
          * @return const transmission* 内层传输指针，叶子节点返回 nullptr
          */
-        [[nodiscard]] virtual auto next_layer() const noexcept
-            -> const transmission *
+        [[nodiscard]] virtual auto next_layer() const noexcept -> const transmission *
         {
             return nullptr;
         }
@@ -224,8 +239,7 @@ namespace psm::transport
          * @return T* 目标类型指针，找不到返回 nullptr
          */
         template <typename T>
-        [[nodiscard]] auto lowest_layer() noexcept
-            -> T *
+        [[nodiscard]] auto lowest_layer() noexcept -> T *
         {
             auto *current = this;
             while (auto *n = current->next_layer())
@@ -241,8 +255,7 @@ namespace psm::transport
          * @return const T* 目标类型指针，找不到返回 nullptr
          */
         template <typename T>
-        [[nodiscard]] auto lowest_layer() const noexcept
-            -> const T *
+        [[nodiscard]] auto lowest_layer() const noexcept -> const T *
         {
             const auto *current = this;
             while (const auto *n = current->next_layer())
@@ -260,7 +273,6 @@ namespace psm::transport
      * @brief 传输层智能指针类型
      */
     using shared_transmission = std::shared_ptr<transmission>;
-
 
     /**
      * @brief 完整写入操作（自由函数）

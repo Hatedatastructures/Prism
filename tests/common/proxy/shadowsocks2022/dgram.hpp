@@ -17,12 +17,6 @@
 
 #pragma once
 
-#include <common/core/byte_span.hpp>
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/proxy/shadowsocks2022/codec.hpp>
-#include <common/proxy/shadowsocks2022/types.hpp>
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
@@ -33,6 +27,12 @@
 #include <span>
 #include <utility>
 #include <vector>
+
+#include <common/core/byte_span.hpp>
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/proxy/shadowsocks2022/codec.hpp>
+#include <common/proxy/shadowsocks2022/types.hpp>
 
 namespace psmtest::shadowsocks2022
 {
@@ -47,8 +47,7 @@ namespace psmtest::shadowsocks2022
      * 编解码（codec.hpp 纯函数）。由工厂（connect_packet /
      * accept_packet）创建。
      */
-    class dgram : public psmtest::transmission,
-                  public std::enable_shared_from_this<dgram>
+    class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram>
     {
     public:
         /**
@@ -61,13 +60,17 @@ namespace psmtest::shadowsocks2022
         {
         }
 
-        /// @brief 获取执行器（委托底层传输）
+        /**
+         * @brief 获取执行器（委托底层传输）
+         */
         [[nodiscard]] auto executor() const -> net::any_io_executor override
         {
             return next_layer_->executor();
         }
 
-        /// @brief 传输类型（数据报）
+        /**
+         * @brief 传输类型（数据报）
+         */
         [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             return type::udp;
@@ -79,14 +82,14 @@ namespace psmtest::shadowsocks2022
          * @param payload 载荷
          * @return 错误码
          */
-        [[nodiscard]] auto async_send_to(const ss::address &dest,
-                                         std::span<const std::uint8_t> payload)
-        -> net::awaitable<error>
+        [[nodiscard]] auto async_send_to(const ss::address &dest, std::span<const std::uint8_t> payload)
+            -> net::awaitable<error>
         {
-            const auto packet = ss::build_udp_packet(ss::udp_build_input{
-                key_, ++packet_id_, &dest, payload});
+            const auto packet = ss::build_udp_packet(ss::udp_build_input{key_, ++packet_id_, &dest, payload});
             if (packet.empty())
+            {
                 co_return error::bad_length;
+            }
             std::error_code ec;
             const auto n = co_await next_layer_->async_write_some(as_bytes(packet), ec);
             co_return (ec || n != packet.size()) ? error::io_error : error::none;
@@ -98,77 +101,94 @@ namespace psmtest::shadowsocks2022
          * @param payload 输出载荷
          * @return 错误码
          */
-        [[nodiscard]] auto async_receive_from(ss::address &src,
-                                              std::vector<std::uint8_t> &payload)
-        -> net::awaitable<error>
+        [[nodiscard]] auto async_receive_from(ss::address &src, std::vector<std::uint8_t> &payload)
+            -> net::awaitable<error>
         {
             std::array<std::uint8_t, 64 * 1024> buf{};
             std::error_code ec;
-            const auto n = co_await next_layer_->async_read_some(
-                as_bytes(std::span<std::uint8_t>(buf)), ec);
+            const auto n = co_await next_layer_->async_read_some(as_bytes(std::span<std::uint8_t>(buf)), ec);
             if (ec)
+            {
                 co_return error::io_error;
+            }
             if (n == 0)
+            {
                 co_return error::unexpected_eof;
-            co_return ss::parse_udp_packet(ss::udp_parse_input{
-                key_, std::span<const std::uint8_t>(buf.data(), n), &src, &payload});
+            }
+            co_return ss::parse_udp_packet(
+                ss::udp_parse_input{key_, std::span<const std::uint8_t>(buf.data(), n), &src, &payload});
         }
 
-        /// @brief 透传读取（底层数据报原样）
+        /**
+         * @brief 透传读取（底层数据报原样）
+         */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
 
-        /// @brief 透传写入（底层数据报原样）
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
-                                            std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+        /**
+         * @brief 透传写入（底层数据报原样）
+         */
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
 
-        /// @brief 关闭底层传输
+        /**
+         * @brief 关闭底层传输
+         */
         void close() override
         {
             next_layer_->close();
         }
 
-        /// @brief 取消挂起操作
+        /**
+         * @brief 取消挂起操作
+         */
         void cancel() override
         {
             next_layer_->cancel();
         }
 
-        /// @brief 获取底层传输（装饰器链导航）
+        /**
+         * @brief 获取底层传输（装饰器链导航）
+         */
         [[nodiscard]] auto next_layer() noexcept -> psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 获取底层传输（const 版本）
+        /**
+         * @brief 获取底层传输（const 版本）
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 释放底层传输所有权
+        /**
+         * @brief 释放底层传输所有权
+         */
         [[nodiscard]] auto release() -> shared_transmission override
         {
             return std::move(next_layer_);
         }
 
-        /// @brief 获取底层传输
+        /**
+         * @brief 获取底层传输
+         */
         [[nodiscard]] auto stream() const noexcept -> shared_transmission
         {
             return next_layer_;
         }
 
     private:
-        shared_transmission next_layer_;         ///< 底层数据报传输（独占所有权）
-        std::array<std::uint8_t, 16> key_;       ///< UDP 密钥（PSK 派生）
-        std::uint64_t packet_id_{0};             ///< 发包递增计数（nonce 派生）
+        shared_transmission next_layer_;   ///< 底层数据报传输（独占所有权）
+        std::array<std::uint8_t, 16> key_; ///< UDP 密钥（PSK 派生）
+        std::uint64_t packet_id_{0};       ///< 发包递增计数（nonce 派生）
     };
 
     /// 包连接共享指针

@@ -12,16 +12,15 @@
 #pragma once
 
 #include <boost/asio.hpp>
-
-#include <openssl/ssl.h>
 #include <openssl/bio.h>
-#include <openssl/x509.h>
-#include <openssl/evp.h>
 #include <openssl/err.h>
+#include <openssl/evp.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
 
 #include <array>
-#include <vector>
 #include <cstring>
+#include <vector>
 
 namespace psm::testing
 {
@@ -36,8 +35,7 @@ namespace psm::testing
          * @details 使用 BoringSSL 在内存中完成 TLS 握手，
          * 将原始 TLS 记录通过 BIO 写入 TCP socket。
          */
-        static auto run(net::ip::tcp::acceptor &acceptor, int max_connections = 1)
-            -> net::awaitable<void>
+        static auto run(net::ip::tcp::acceptor &acceptor, int max_connections = 1) -> net::awaitable<void>
         {
             // 创建 SSL_CTX
             auto *ssl_ctx = SSL_CTX_new(TLS_method());
@@ -108,7 +106,9 @@ namespace psm::testing
 
                             n = BIO_read(write_bio, buf.data(), static_cast<int>(buf.size()));
                             if (n <= 0)
+                            {
                                 break;
+                            }
                         }
 
                         if (n > 0)
@@ -117,7 +117,9 @@ namespace psm::testing
                             co_await net::async_write(socket, net::buffer(buf.data(), n),
                                                       net::redirect_error(net::use_awaitable, ec));
                             if (ec)
+                            {
                                 break;
+                            }
                         }
                     }
                 };
@@ -130,11 +132,12 @@ namespace psm::testing
                 {
                     boost::system::error_code read_ec;
                     auto n = co_await socket.async_read_some(
-                        net::buffer(recv_buf),
-                        net::redirect_error(net::use_awaitable, read_ec));
+                        net::buffer(recv_buf), net::redirect_error(net::use_awaitable, read_ec));
 
                     if (read_ec || n == 0)
+                    {
                         break;
+                    }
 
                     // 将收到的数据写入 read_bio（SSL 会读取）
                     BIO_write(read_bio, recv_buf.data(), static_cast<int>(n));

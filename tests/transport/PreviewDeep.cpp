@@ -6,14 +6,12 @@
  *          next_layer、wrap_with_preview 以及 completion-handler 重载。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-
-#include <gtest/gtest.h>
-#include "common/MockTransport.hpp"
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/net/transport/preview.cpp"
+#include "common/MockTransport.hpp"
+#include <gtest/gtest.h>
 
 using psm::testing::MockTransport;
 
@@ -128,8 +126,7 @@ namespace
     TEST(PreviewDeep, TransportTypeNullInner)
     {
         preview p(nullptr, std::span<const std::byte>{});
-        EXPECT_EQ(p.transport_type(), transmission::type::tcp)
-            << "transport_type: null inner -> tcp";
+        EXPECT_EQ(p.transport_type(), transmission::type::tcp) << "transport_type: null inner -> tcp";
     }
 
     TEST(PreviewDeep, TransportTypeValidInner)
@@ -137,8 +134,7 @@ namespace
         auto mock = make_mock();
         preview p(shared_transmission(mock), std::span<const std::byte>{});
         // MockTransport 使用默认 transport_type() → 沿 next_layer 链，最终返回 tcp
-        EXPECT_EQ(p.transport_type(), transmission::type::tcp)
-            << "transport_type: mock inner -> tcp";
+        EXPECT_EQ(p.transport_type(), transmission::type::tcp) << "transport_type: mock inner -> tcp";
     }
 
     // ─── next_layer() 测试 ────────────────────
@@ -213,12 +209,12 @@ namespace
         bool called = false;
 
         p.async_read_some(std::span<std::byte>{buf, 4},
-            [&](boost::system::error_code ec, std::size_t n)
-            {
-                result_ec = ec;
-                result_n = n;
-                called = true;
-            });
+                          [&](boost::system::error_code ec, std::size_t n)
+                          {
+                              result_ec = ec;
+                              result_n = n;
+                              called = true;
+                          });
 
         EXPECT_TRUE(called) << "completion_read: handler called immediately with preread";
         EXPECT_TRUE(!result_ec) << "completion_read: no error";
@@ -238,7 +234,7 @@ namespace
         std::byte buf1[4]{};
         bool called1 = false;
         p.async_read_some(std::span<std::byte>{buf1, 4},
-            [&](boost::system::error_code, std::size_t) { called1 = true; });
+                          [&](boost::system::error_code, std::size_t) { called1 = true; });
         EXPECT_TRUE(called1) << "completion_read_exhaust: first read done";
 
         // 第二次读 → preread 已耗尽，委托给 mock inner
@@ -247,7 +243,11 @@ namespace
         bool called2 = false;
         boost::system::error_code result_ec2;
         p.async_read_some(std::span<std::byte>{buf2, 4},
-            [&](boost::system::error_code ec, std::size_t) { result_ec2 = ec; called2 = true; });
+                          [&](boost::system::error_code ec, std::size_t)
+                          {
+                              result_ec2 = ec;
+                              called2 = true;
+                          });
 
         // 注入数据让 mock 完成
         mock->inject_read(std::vector<std::byte>(2, std::byte{0x55}));
@@ -267,12 +267,12 @@ namespace
         bool called = false;
 
         p.async_read_some(std::span<std::byte>{buf, 4},
-            [&](boost::system::error_code ec, std::size_t n)
-            {
-                result_ec = ec;
-                result_n = n;
-                called = true;
-            });
+                          [&](boost::system::error_code ec, std::size_t n)
+                          {
+                              result_ec = ec;
+                              result_n = n;
+                              called = true;
+                          });
 
         EXPECT_TRUE(called) << "completion_read_null: handler called";
         EXPECT_NE(result_ec.value(), 0) << "completion_read_null: error set";
@@ -291,12 +291,12 @@ namespace
         bool called = false;
 
         p.async_write_some(std::span<const std::byte>{data, 1},
-            [&](boost::system::error_code ec, std::size_t n)
-            {
-                result_ec = ec;
-                result_n = n;
-                called = true;
-            });
+                           [&](boost::system::error_code ec, std::size_t n)
+                           {
+                               result_ec = ec;
+                               result_n = n;
+                               called = true;
+                           });
 
         EXPECT_TRUE(called) << "completion_write_null: handler called";
         EXPECT_NE(result_ec.value(), 0) << "completion_write_null: error set";
@@ -314,12 +314,12 @@ namespace
         bool called = false;
 
         p.async_write_some(std::span<const std::byte>{data, 2},
-            [&](boost::system::error_code ec, std::size_t n)
-            {
-                result_ec = ec;
-                result_n = n;
-                called = true;
-            });
+                           [&](boost::system::error_code ec, std::size_t n)
+                           {
+                               result_ec = ec;
+                               result_n = n;
+                               called = true;
+                           });
 
         // mock 的 async_write_some 需要 io_context run
         mock->get_io_context().run();

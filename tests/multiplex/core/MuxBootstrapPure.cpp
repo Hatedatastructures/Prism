@@ -7,8 +7,8 @@
  *          此处仅验证同步可测的纯逻辑。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/bootstrap.hpp>
 
 #include <gtest/gtest.h>
@@ -36,14 +36,10 @@ namespace
         {
             switch (p)
             {
-            case pt::smux:
-                return 0;
-            case pt::yamux:
-                return 1;
-            case pt::h2mux:
-                return 2;
-            default:
-                return -1;
+            case pt::smux: return 0;
+            case pt::yamux: return 1;
+            case pt::h2mux: return 2;
+            default: return -1;
             }
         };
         EXPECT_EQ(classify(pt::smux), 0) << "protocol_type: switch smux -> 0";

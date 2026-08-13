@@ -20,7 +20,7 @@ namespace
         return {0x12, 0x3e, 0x45, 0x67, 0xe8, 0x9b, 0x12, 0xd3,
                 0xa4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00};
     }
-}
+} // namespace
 
 TEST(VmessKdf, ParseUuid)
 {
@@ -61,7 +61,9 @@ TEST(VmessKdf, KdfSinglePath)
     EXPECT_EQ(result.size(), 32);
     bool non_zero = false;
     for (const auto byte : result)
+    {
         non_zero = non_zero || byte != 0;
+    }
     EXPECT_TRUE(non_zero);
 }
 
@@ -73,15 +75,16 @@ TEST(VmessKdf, KdfMatchesSingVmess)
     const auto cmd = cmd_key_from_uuid(test_uuid());
     const auto auth_key = kdf(std::span<const std::uint8_t>(cmd), "AES Auth ID Encryption");
 
-    constexpr std::array<std::uint8_t, 16> expected{
-        0xdc, 0x12, 0x10, 0x5a, 0xd8, 0x3e, 0x8d, 0x0f,
-        0x2b, 0x07, 0xe1, 0xe8, 0xad, 0x02, 0xa6, 0x6d};
+    constexpr std::array<std::uint8_t, 16> expected{0xdc, 0x12, 0x10, 0x5a, 0xd8, 0x3e, 0x8d, 0x0f,
+                                                    0x2b, 0x07, 0xe1, 0xe8, 0xad, 0x02, 0xa6, 0x6d};
     bool match = std::equal(auth_key.begin(), auth_key.begin() + 16, expected.begin());
     if (!match)
     {
         std::fprintf(stderr, "got: ");
         for (std::size_t i = 0; i < 16; ++i)
+        {
             std::fprintf(stderr, "%02x", auth_key[i]);
+        }
         std::fprintf(stderr, "\n");
     }
     EXPECT_TRUE(match);

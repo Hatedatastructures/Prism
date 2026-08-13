@@ -1,12 +1,11 @@
-#include <prism/handshake/reality/util/response.hpp>
-
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/hkdf.hpp>
 #include <prism/crypto/x25519.hpp>
-#include <prism/protocol/tls/record.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/handshake/common.hpp>
 #include <prism/handshake/reality/util/keygen.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/reality/util/response.hpp>
+#include <prism/protocol/tls/record.hpp>
 
 #include <openssl/asn1.h>
 #include <openssl/bio.h>
@@ -38,9 +37,8 @@ namespace psm::handshake::reality
             return msg;
         }
 
-
-        auto build_server_hello_body(const tls::hello_features &client_hello, std::span<const std::uint8_t> eph_pub)
-            -> memory::vector<std::uint8_t>
+        auto build_server_hello_body(const tls::hello_features &client_hello,
+                                     std::span<const std::uint8_t> eph_pub) -> memory::vector<std::uint8_t>
         {
             memory::vector<std::uint8_t> body;
             body.reserve(128);
@@ -84,15 +82,12 @@ namespace psm::handshake::reality
             return body;
         }
 
-
-        auto build_encrypted_extensions()
-            -> memory::vector<std::uint8_t>
+        auto build_encrypted_extensions() -> memory::vector<std::uint8_t>
         {
             memory::vector<std::uint8_t> body;
             tls::write_u16(body, 0);
             return body;
         }
-
 
         auto generate_reality_certificate(std::span<const std::uint8_t> auth_key)
             -> std::pair<memory::vector<std::uint8_t>, crypto::ed25519_keypair>
@@ -113,9 +108,8 @@ namespace psm::handshake::reality
             }
             ERR_clear_error();
 
-            auto *pkey = EVP_PKEY_from_raw_public_key(
-                EVP_pkey_ed25519(),
-                ed_keypair.public_key.data(), ed_keypair.public_key.size());
+            auto *pkey = EVP_PKEY_from_raw_public_key(EVP_pkey_ed25519(), ed_keypair.public_key.data(),
+                                                      ed_keypair.public_key.size());
             if (!pkey)
             {
                 auto err = ERR_get_error();
@@ -138,7 +132,7 @@ namespace psm::handshake::reality
             auto *name = X509_NAME_new();
             // 安全：OpenSSL X509 API 要求 uint8_t*，字符串字面量仅读取，不修改
             X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-                                        reinterpret_cast<const std::uint8_t *>("Reality"), -1, -1, 0);
+                                       reinterpret_cast<const std::uint8_t *>("Reality"), -1, -1, 0);
             X509_set_subject_name(x509, name);
             X509_set_issuer_name(x509, name);
             X509_NAME_free(name);
@@ -156,9 +150,9 @@ namespace psm::handshake::reality
             auto *outer_alg = const_cast<X509_ALGOR *>(outer_alg_const);
             X509_ALGOR_set0(outer_alg, const_cast<ASN1_OBJECT *>(ed25519_obj), V_ASN1_UNDEF, nullptr);
 
-            const auto hmac_sig = crypto::hmac_sha512(
-                auth_key,
-                std::span<const std::uint8_t>(ed_keypair.public_key.data(), ed_keypair.public_key.size()));
+            const auto hmac_sig =
+                crypto::hmac_sha512(auth_key, std::span<const std::uint8_t>(ed_keypair.public_key.data(),
+                                                                            ed_keypair.public_key.size()));
             ERR_clear_error();
             auto sig_rc = X509_set1_signature_value(x509, hmac_sig.data(), hmac_sig.size());
             if (sig_rc != 1)
@@ -173,8 +167,7 @@ namespace psm::handshake::reality
                 char *data = nullptr;
                 const auto len = BIO_get_mem_data(bio, &data);
                 // 安全：BIO 返回 char* 指向内部内存，转为 uint8_t 用于提取 DER 证书
-                cert_der.insert(cert_der.end(),
-                                reinterpret_cast<std::uint8_t *>(data),
+                cert_der.insert(cert_der.end(), reinterpret_cast<std::uint8_t *>(data),
                                 reinterpret_cast<std::uint8_t *>(data + len));
                 BIO_free(bio);
             }
@@ -183,9 +176,9 @@ namespace psm::handshake::reality
             return {std::move(cert_der), std::move(ed_keypair)};
         }
 
-
-        auto build_certificate(std::span<const std::uint8_t> cert_chain_der, std::span<const std::uint8_t> auth_key, crypto::ed25519_keypair &out_ed_keypair)
-            -> memory::vector<std::uint8_t>
+        auto build_certificate(std::span<const std::uint8_t> cert_chain_der,
+                               std::span<const std::uint8_t> auth_key,
+                               crypto::ed25519_keypair &out_ed_keypair) -> memory::vector<std::uint8_t>
         {
             memory::vector<std::uint8_t> cert_der;
             if (!auth_key.empty())
@@ -212,8 +205,8 @@ namespace psm::handshake::reality
             return body;
         }
 
-
-        auto build_certificate_verify(const crypto::ed25519_keypair &ed_keypair, std::span<const std::uint8_t> transcript_hash)
+        auto build_certificate_verify(const crypto::ed25519_keypair &ed_keypair,
+                                      std::span<const std::uint8_t> transcript_hash)
             -> memory::vector<std::uint8_t>
         {
             static constexpr std::string_view context = "TLS 1.3, server CertificateVerify";
@@ -222,14 +215,15 @@ namespace psm::handshake::reality
             memory::vector<std::uint8_t> message;
             message.reserve(padding_len + context.size() + 1 + transcript_hash.size());
             for (std::size_t i = 0; i < padding_len; ++i)
+            {
                 message.push_back(0x20);
+            }
             message.insert(message.end(), context.begin(), context.end());
             message.push_back(0x00);
             message.insert(message.end(), transcript_hash.begin(), transcript_hash.end());
 
             std::array<std::uint8_t, 64> signature{};
-            ED25519_sign(signature.data(), message.data(), message.size(),
-                         ed_keypair.private_key.data());
+            ED25519_sign(signature.data(), message.data(), message.size(), ed_keypair.private_key.data());
 
             memory::vector<std::uint8_t> body;
             tls::write_u16(body, tls::SIG_ED25519);
@@ -239,7 +233,6 @@ namespace psm::handshake::reality
             return body;
         }
     } // namespace
-
 
     auto make_record(const std::uint8_t content_type, const std::span<const std::uint8_t> payload)
         -> memory::vector<std::uint8_t>
@@ -255,9 +248,7 @@ namespace psm::handshake::reality
         return result;
     }
 
-
-    auto encrypt_record(const encrypt_params &params)
-        -> std::pair<fault::code, memory::vector<std::uint8_t>>
+    auto encrypt_record(const encrypt_params &params) -> std::pair<fault::code, memory::vector<std::uint8_t>>
     {
         memory::vector<std::uint8_t> inner;
         inner.reserve(params.plaintext.size() + 1);
@@ -284,9 +275,7 @@ namespace psm::handshake::reality
         return {fault::code::success, std::move(record)};
     }
 
-
-    auto generate_shello(const hello_request &req)
-        -> std::pair<fault::code, shello_result>
+    auto generate_shello(const hello_request &req) -> std::pair<fault::code, shello_result>
     {
         shello_result result;
 
@@ -308,35 +297,26 @@ namespace psm::handshake::reality
         const auto cert_msg = make_handshake_message(tls::HS_CERTIFICATE, cert_body);
         plaintext.insert(plaintext.end(), cert_msg.begin(), cert_msg.end());
 
-        const auto cv_transcript = crypto::sha256(
-            req.chello_msg,
-            {result.shello_msg.data(), result.shello_msg.size()},
-            {plaintext.data(), plaintext.size()});
+        const auto cv_transcript =
+            crypto::sha256(req.chello_msg, {result.shello_msg.data(), result.shello_msg.size()},
+                           {plaintext.data(), plaintext.size()});
 
         const auto cv_body = build_certificate_verify(ed_keypair, cv_transcript);
         const auto cv_msg = make_handshake_message(tls::HS_CERTIFICATE_VERIFY, cv_body);
         plaintext.insert(plaintext.end(), cv_msg.begin(), cv_msg.end());
 
-        const auto transcript_for_finished = crypto::sha256(
-            req.chello_msg,
-            {result.shello_msg.data(), result.shello_msg.size()},
-            plaintext);
-        const auto verify_data = compute_verify(
-            req.handshake_keys.server_finkey, transcript_for_finished);
+        const auto transcript_for_finished =
+            crypto::sha256(req.chello_msg, {result.shello_msg.data(), result.shello_msg.size()}, plaintext);
+        const auto verify_data = compute_verify(req.handshake_keys.server_finkey, transcript_for_finished);
 
-        const auto finished_msg = make_handshake_message(
-            tls::HS_FINISHED, verify_data);
+        const auto finished_msg = make_handshake_message(tls::HS_FINISHED, verify_data);
         plaintext.insert(plaintext.end(), finished_msg.begin(), finished_msg.end());
 
         result.enc_hs_plain = plaintext;
 
-        auto [enc_ec, encrypted_record] = encrypt_record(
-            encrypt_params{
-                req.handshake_keys.server_hskey,
-                req.handshake_keys.server_hsiv,
-                0,
-                tls::CT_HANDSHAKE,
-                plaintext});
+        auto [enc_ec, encrypted_record] =
+            encrypt_record(encrypt_params{req.handshake_keys.server_hskey, req.handshake_keys.server_hsiv, 0,
+                                          tls::CT_HANDSHAKE, plaintext});
 
         if (fault::failed(enc_ec))
         {

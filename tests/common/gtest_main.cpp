@@ -3,8 +3,9 @@
  * @brief Google Test 全局入口 — 初始化 PMR 内存池 + spdlog 日志
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+
 #include <gtest/gtest.h>
 
 int main(int argc, char **argv)

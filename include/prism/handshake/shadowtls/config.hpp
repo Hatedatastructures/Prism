@@ -11,7 +11,6 @@
 
 #include <cstdint>
 
-
 namespace psm::handshake::shadowtls
 {
 
@@ -35,13 +34,13 @@ namespace psm::handshake::shadowtls
      */
     struct config
     {
-        std::int32_t version{3};                              ///< 协议版本 (2 或 3)
+        std::int32_t version{3};                     ///< 协议版本 (2 或 3)
         memory::string password;                     ///< v2 兼容密码
         memory::vector<user> users;                  ///< v3 多用户
         memory::string handshake_dest;               ///< 握手后端目标 host:port
         memory::vector<memory::string> server_names; ///< SNI 白名单
         bool strict_mode{true};                      ///< 严格模式：仅 TLS 1.3
-        std::uint32_t hs_timeout{5000};    ///< 握手超时（毫秒）
+        std::uint32_t hs_timeout{5000};              ///< 握手超时（毫秒）
 
         /**
          * @brief 检查配置是否启用
@@ -49,11 +48,12 @@ namespace psm::handshake::shadowtls
          * @details v3 需要 users + handshake_dest + server_names
          *          v2 需要 password + handshake_dest + server_names
          */
-        [[nodiscard]] auto enabled() const noexcept
-            -> bool
+        [[nodiscard]] auto enabled() const noexcept -> bool
         {
             if (version == 3)
+            {
                 return !users.empty() && !handshake_dest.empty() && !server_names.empty();
+            }
             return !password.empty() && !handshake_dest.empty() && !server_names.empty();
         }
     };

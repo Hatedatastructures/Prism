@@ -25,7 +25,10 @@ namespace psm::handshake::xhttp
         bool stream_up{true};                        ///< 允许 stream-up 模式
         bool packet_up{true};                        ///< 允许 packet-up 模式
 
-        /// 是否启用
+        /**
+         * @brief 是否启用
+         * @return 是否启用
+         */
         [[nodiscard]] auto enabled() const noexcept -> bool
         {
             return !server_names.empty();

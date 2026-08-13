@@ -5,9 +5,9 @@
  */
 #pragma once
 
-#include <prism/resource/session.hpp>
-#include <prism/net/transport/transmission.hpp>
 #include <prism/net/connection/types.hpp>
+#include <prism/net/transport/transmission.hpp>
+#include <prism/resource/session.hpp>
 
 #include <boost/asio.hpp>
 
@@ -15,15 +15,20 @@
 
 namespace psm
 {
-    namespace account { class lease; }
-    namespace stats::traffic { class traffic_state; }
-}
+    namespace account
+    {
+        class lease;
+    }
+    namespace stats::traffic
+    {
+        class traffic_state;
+    }
+} // namespace psm
 
 namespace psm::transport
 {
     struct pad_config;
 }
-
 
 namespace psm::connect
 {
@@ -37,8 +42,8 @@ namespace psm::connect
      */
     enum class write_policy : std::uint8_t
     {
-        partial,  ///< 部分写入，使用 async_write_some
-        complete  ///< 完整写入，使用 async_write 确保全部数据写入
+        partial, ///< 部分写入，使用 async_write_some
+        complete ///< 完整写入，使用 async_write 确保全部数据写入
     };
 
     /**
@@ -50,22 +55,23 @@ namespace psm::connect
     struct tunnel_options
     {
         std::shared_ptr<psm::diagnose::context> trace;
-        shared_transmission inbound;                            ///< 入站流对象
-        shared_transmission outbound;                           ///< 出站流对象
-        write_policy policy{write_policy::complete};            ///< 写入策略
-        const transport::pad_config *pad_cfg{nullptr};          ///< 填充配置
-        stats::traffic::traffic_state *traffic{nullptr};        ///< 流量统计（替代 ctx.worker_ctx.traffic）
-        user::lease *lease{nullptr};                         ///< 账户租约（替代 ctx.account_lease）
+        shared_transmission inbound;                     ///< 入站流对象
+        shared_transmission outbound;                    ///< 出站流对象
+        write_policy policy{write_policy::complete};     ///< 写入策略
+        const transport::pad_config *pad_cfg{nullptr};   ///< 填充配置
+        stats::traffic::traffic_state *traffic{nullptr}; ///< 流量统计（替代 ctx.worker_ctx.traffic）
+        user::lease *lease{nullptr};                     ///< 账户租约（替代 ctx.account_lease）
 
         /// 兼容旧测试：{inbound, outbound, buffer_size, policy}
-        tunnel_options(shared_transmission in, shared_transmission out,
-                       std::uint32_t buf_size, write_policy pol = write_policy::complete)
-            : inbound(std::move(in)), outbound(std::move(out)),
-              policy(pol), buffer_size(buf_size) {}
+        tunnel_options(shared_transmission in, shared_transmission out, std::uint32_t buf_size,
+                       write_policy pol = write_policy::complete)
+            : inbound(std::move(in)), outbound(std::move(out)), policy(pol), buffer_size(buf_size)
+        {
+        }
 
         tunnel_options() = default;
         connect::protocol_type detected{};
-        std::uint32_t buffer_size{0};                            ///< 缓冲区大小（替代 ctx.buffer_size）
+        std::uint32_t buffer_size{0}; ///< 缓冲区大小（替代 ctx.buffer_size）
     };
 
     /**

@@ -1,17 +1,15 @@
-#include <prism/net/dns/resolver.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/dns/detail/cache.hpp>
 #include <prism/net/dns/detail/coalescer.hpp>
 #include <prism/net/dns/detail/rules.hpp>
 #include <prism/net/dns/detail/utility.hpp>
-#include <boost/asio/co_spawn.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/net/dns/resolver.hpp>
 
+#include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <algorithm>
 #include <cctype>
-#include <cstdint>
 #include <numeric>
 #include <optional>
 
@@ -25,28 +23,27 @@ namespace psm::dns
     class resolver::impl
     {
     public:
-        explicit impl(net::io_context &ioc, config cfg, memory::resource_pointer mr = memory::current_resource())
-            : ioc_(ioc),
-              config_(std::move(cfg)),
-              mr_(mr ? mr : memory::current_resource()),
-              upstream_(ioc_, mr_), cache_([&]
-              {
-                  detail::cache_options opts;
-                  opts.mr = mr_;
-                  opts.ttl = config_.cache_ttl;
-                  opts.max_entries = config_.cache_size;
-                  if (config_.serve_stale)
-                  {
-                      opts.stale = detail::stale_policy::serve;
-                  }
-                  else
-                  {
-                      opts.stale = detail::stale_policy::discard;
-                  }
-                  return opts;
-              }()),
-              rules_(mr_), coalescer_(mr_),
-              alive_(std::make_shared<std::atomic<bool>>(true)),
+        explicit impl(net::io_context &ioc, config cfg,
+                      memory::resource_pointer mr = memory::current_resource())
+            : ioc_(ioc), config_(std::move(cfg)), mr_(mr ? mr : memory::current_resource()),
+              upstream_(ioc_, mr_), cache_(
+                                        [&]
+                                        {
+                                            detail::cache_options opts;
+                                            opts.mr = mr_;
+                                            opts.ttl = config_.cache_ttl;
+                                            opts.max_entries = config_.cache_size;
+                                            if (config_.serve_stale)
+                                            {
+                                                opts.stale = detail::stale_policy::serve;
+                                            }
+                                            else
+                                            {
+                                                opts.stale = detail::stale_policy::discard;
+                                            }
+                                            return opts;
+                                        }()),
+              rules_(mr_), coalescer_(mr_), alive_(std::make_shared<std::atomic<bool>>(true)),
               eviction_timer_(ioc_)
         {
             if (!config_.servers.empty())
@@ -133,7 +130,8 @@ namespace psm::dns
             }
             else
             {
-                auto [r4, r6] = co_await (query_pipeline(host, detail::qtype::a) && query_pipeline(host, detail::qtype::aaaa));
+                auto [r4, r6] = co_await (query_pipeline(host, detail::qtype::a) &&
+                                          query_pipeline(host, detail::qtype::aaaa));
                 result4 = std::move(r4);
                 result6 = std::move(r6);
             }
@@ -158,8 +156,7 @@ namespace psm::dns
             co_return std::make_pair(fault::code::success, std::move(endpoints));
         }
 
-        [[nodiscard]] auto ipv6_disabled() const noexcept
-            -> bool
+        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool
         {
             return config_.disable_ipv6;
         }
@@ -178,7 +175,8 @@ namespace psm::dns
 
             if (!ips4.empty())
             {
-                co_return std::make_pair(fault::code::success, net::ip::udp::endpoint(ips4.front(), port_num));
+                co_return std::make_pair(fault::code::success,
+                                         net::ip::udp::endpoint(ips4.front(), port_num));
             }
 
             if (!config_.disable_ipv6)
@@ -186,7 +184,8 @@ namespace psm::dns
                 auto [ec6, ips6] = co_await query_pipeline(host, detail::qtype::aaaa);
                 if (!ips6.empty())
                 {
-                    co_return std::make_pair(fault::code::success, net::ip::udp::endpoint(ips6.front(), port_num));
+                    co_return std::make_pair(fault::code::success,
+                                             net::ip::udp::endpoint(ips6.front(), port_num));
                 }
             }
 
@@ -202,15 +201,21 @@ namespace psm::dns
                 boost::system::error_code ec;
                 co_await eviction_timer_.async_wait(net::redirect_error(net::use_awaitable, ec));
                 if (ec == net::error::operation_aborted || !alive_->load())
+                {
                     co_return;
+                }
                 cache_.evict_expired();
             }
         }
 
-        /// @brief IP 过滤：移除黑名单和类型不匹配的 IP，返回过滤后的列表
-        [[nodiscard]] auto filter_ips(
-            const memory::vector<net::ip::address> &ips,
-            const detail::qtype qt) const -> memory::vector<net::ip::address>
+        /**
+         * @brief IP 过滤：移除黑名单和类型不匹配的 IP，返回过滤后的列表
+         * @param ips 待过滤的 IP 列表
+         * @param qt 查询类型（决定保留 IPv4 还是 IPv6）
+         * @return 过滤后的 IP 列表
+         */
+        [[nodiscard]] auto filter_ips(const memory::vector<net::ip::address> &ips,
+                                      const detail::qtype qt) const -> memory::vector<net::ip::address>
         {
             memory::vector<net::ip::address> filtered(mr_);
             filtered.reserve(ips.size());
@@ -226,11 +231,13 @@ namespace psm::dns
             return filtered;
         }
 
-        /// @brief TTL 钳制 + 缓存存储（成功/失败/空结果三条路径）
-        void store_cache(
-            const memory::string &qname,
-            const detail::qtype qt,
-            const query_result &result)
+        /**
+         * @brief TTL 钳制 + 缓存存储（成功/失败/空结果三条路径）
+         * @param qname 查询域名
+         * @param qt 查询类型
+         * @param result 查询结果
+         */
+        void store_cache(const memory::string &qname, const qtype qt, const query_result &result)
         {
             if (!config_.cache_enabled)
             {
@@ -249,8 +256,7 @@ namespace psm::dns
                     cache_.put({qname, qt, result.ips, ttl});
                 }
             }
-            else if (fault::failed(result.error) ||
-                     (fault::succeeded(result.error) && result.ips.empty()))
+            else if (fault::failed(result.error) || (fault::succeeded(result.error) && result.ips.empty()))
             {
                 cache_.put_negative(qname, qt, config_.negative_ttl);
             }
@@ -274,7 +280,8 @@ namespace psm::dns
                 if (!rule->addresses.empty())
                 {
                     diagnose::debug("{} -> static address ({} IPs)", qname, rule->addresses.size());
-                    return std::make_pair(fault::code::success, memory::vector<net::ip::address>(rule->addresses));
+                    return std::make_pair(fault::code::success,
+                                          memory::vector<net::ip::address>(rule->addresses));
                 }
             }
             return std::nullopt;
@@ -377,8 +384,8 @@ namespace psm::dns
 
             if (fault::succeeded(result.error))
             {
-                diagnose::debug("{} -> {} IPs in {}ms via {}",
-                             qname, result.ips.size(), result.rtt_ms, result.server_addr);
+                diagnose::debug("{} -> {} IPs in {}ms via {}", qname, result.ips.size(), result.rtt_ms,
+                                result.server_addr);
             }
             else
             {
@@ -393,10 +400,7 @@ namespace psm::dns
             -> memory::string
         {
             memory::string result(domain, mr);
-            auto to_lower = [](std::uint8_t ch)
-            {
-                return static_cast<char>(std::tolower(ch));
-            };
+            auto to_lower = [](std::uint8_t ch) { return static_cast<char>(std::tolower(ch)); };
             std::transform(result.begin(), result.end(), result.begin(), to_lower);
             while (!result.empty() && result.back() == '.')
             {
@@ -405,8 +409,7 @@ namespace psm::dns
             return result;
         }
 
-        [[nodiscard]] auto is_blacklisted(const net::ip::address &ip) const
-            -> bool
+        [[nodiscard]] auto is_blacklisted(const net::ip::address &ip) const -> bool
         {
             if (ip.is_v4())
             {
@@ -460,8 +463,8 @@ namespace psm::dns
 
             return false;
         }
-    private:
 
+    private:
         net::io_context &ioc_;
         memory::resource_pointer mr_;
         config config_;
@@ -498,21 +501,17 @@ namespace psm::dns
         co_return co_await impl_->resolve_udp(host, port);
     }
 
-    auto resolver::ipv6_disabled() const noexcept
-        -> bool
+    auto resolver::ipv6_disabled() const noexcept -> bool
     {
         return impl_->ipv6_disabled();
     }
 
-
-    auto resolver::is_blacklisted(const net::ip::address &addr) const noexcept
-        -> bool
+    auto resolver::is_blacklisted(const net::ip::address &addr) const noexcept -> bool
     {
         return impl_->is_blacklisted(addr);
     }
 
-    auto resolver::normalize(std::string_view domain, memory::resource_pointer mr) noexcept
-        -> memory::string
+    auto resolver::normalize(std::string_view domain, memory::resource_pointer mr) noexcept -> memory::string
     {
         return impl::normalize(domain, mr ? mr : memory::current_resource());
     }

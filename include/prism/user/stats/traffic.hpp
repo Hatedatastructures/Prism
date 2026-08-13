@@ -16,7 +16,6 @@
 #include <memory>
 #include <vector>
 
-
 namespace psm::stats::traffic
 {
 
@@ -29,10 +28,10 @@ namespace psm::stats::traffic
      */
     struct alignas(64) protocol_slot
     {
-        std::atomic<std::uint64_t> connections{0};      ///< 历史总连接数（仅增不减）
-        std::atomic<std::uint64_t> active{0};           ///< 当前活跃连接数
-        std::atomic<std::uint64_t> uplink_bytes{0};     ///< 上行总字节数
-        std::atomic<std::uint64_t> downlink_bytes{0};   ///< 下行总字节数
+        std::atomic<std::uint64_t> connections{0};    ///< 历史总连接数（仅增不减）
+        std::atomic<std::uint64_t> active{0};         ///< 当前活跃连接数
+        std::atomic<std::uint64_t> uplink_bytes{0};   ///< 上行总字节数
+        std::atomic<std::uint64_t> downlink_bytes{0}; ///< 下行总字节数
     };
 
     /**
@@ -101,8 +100,7 @@ namespace psm::stats::traffic
          * @brief 获取当前计数器快照
          * @return 包含所有字段松散一致值的快照
          */
-        [[nodiscard]] auto snapshot() const noexcept
-            -> traffic_snapshot;
+        [[nodiscard]] auto snapshot() const noexcept -> traffic_snapshot;
 
         /**
          * @brief 归零所有计数器
@@ -133,18 +131,17 @@ namespace psm::stats::traffic
          * @details 遍历 COW 注册表中的每个实例，读取其 snapshot()
          * 并逐字段累加。返回的快照为所有 worker 的聚合值。
          */
-        [[nodiscard]] static auto aggregate() noexcept
-            -> traffic_snapshot;
+        [[nodiscard]] static auto aggregate() noexcept -> traffic_snapshot;
 
     private:
-        std::atomic<std::uint64_t> total_connections_{0};              ///< 全局总连接数
-        std::atomic<std::uint64_t> total_active_{0};                   ///< 全局活跃连接数
-        std::atomic<std::uint64_t> total_uplink_{0};                   ///< 全局上行字节
-        std::atomic<std::uint64_t> total_downlink_{0};                 ///< 全局下行字节
+        std::atomic<std::uint64_t> total_connections_{0}; ///< 全局总连接数
+        std::atomic<std::uint64_t> total_active_{0};      ///< 全局活跃连接数
+        std::atomic<std::uint64_t> total_uplink_{0};      ///< 全局上行字节
+        std::atomic<std::uint64_t> total_downlink_{0};    ///< 全局下行字节
 
-        protocol_slot protocols_[slot_count];                 ///< 按 protocol_type 索引的协议槽位数组
+        protocol_slot protocols_[slot_count]; ///< 按 protocol_type 索引的协议槽位数组
 
-        std::atomic<std::uint64_t> auth_success_{0};                   ///< 认证成功次数
-        std::atomic<std::uint64_t> auth_failure_{0};                   ///< 认证失败次数
+        std::atomic<std::uint64_t> auth_success_{0}; ///< 认证成功次数
+        std::atomic<std::uint64_t> auth_failure_{0}; ///< 认证失败次数
     };
 } // namespace psm::stats::traffic

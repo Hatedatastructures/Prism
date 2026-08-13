@@ -1,7 +1,6 @@
-#include <prism/handshake/shadowtls/util/auth.hpp>
-
-#include <prism/handshake/shadowtls/util/constants.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/shadowtls/util/auth.hpp>
+#include <prism/handshake/shadowtls/util/constants.hpp>
 
 #include <openssl/crypto.h>
 #include <openssl/hmac.h>
@@ -23,19 +22,15 @@ namespace psm::handshake::shadowtls
         std::uint32_t len = 0;
 
         // 安全：SSL HMAC API 要求 uint8_t*，byte 数据仅读取用于计算
-        HMAC(EVP_sha1(),
-             key.data(), static_cast<int>(key.size()),
-             reinterpret_cast<const std::uint8_t *>(data), data_len,
-             md.data(), &len);
+        HMAC(EVP_sha1(), key.data(), static_cast<int>(key.size()),
+             reinterpret_cast<const std::uint8_t *>(data), data_len, md.data(), &len);
 
         std::array<std::uint8_t, 4> result{};
         std::memcpy(result.data(), md.data(), hmac_size);
         return result;
     }
 
-
-    auto verify_client_hello(std::span<const std::byte> client_hello, const std::string_view password)
-        -> bool
+    auto verify_client_hello(std::span<const std::byte> client_hello, const std::string_view password) -> bool
     {
         // 最小长度检查: TLS Header(5) + Handshake Header(4) + Version(2) +
         //   Random(32) + SessionID Length(1) + SessionID(32) = 76
@@ -71,24 +66,25 @@ namespace psm::handshake::shadowtls
         }
 
         // 将 SessionID 中的 HMAC 部分（最后 4 字节）填 0
-        constexpr std::size_t hmac_offset_in_data = session_id_len_idx + 1 + tls_session_id_sz - hmac_size - tls_hdrsize;
+        constexpr std::size_t hmac_offset_in_data =
+            session_id_len_idx + 1 + tls_session_id_sz - hmac_size - tls_hdrsize;
         std::memset(hmac_data.data() + hmac_offset_in_data, 0, hmac_size);
 
         // 安全：将 uint8_t HMAC 数据数组转为 byte 指针传给 compute_hmac，二进制兼容
-        const auto expected = compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
+        const auto expected =
+            compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
 
         constexpr std::size_t client_hmac_offset = session_id_len_idx + 1 + tls_session_id_sz - hmac_size;
         std::array<std::uint8_t, 4> client_tag{};
         std::memcpy(client_tag.data(), raw + client_hmac_offset, hmac_size);
 
         {
-            diagnose::debug("verify_client_hello: data_size={}, hmac_offset={}, ch_size={}",
-                data_size, hmac_offset_in_data, client_hello.size());
+            diagnose::debug("verify_client_hello: data_size={}, hmac_offset={}, ch_size={}", data_size,
+                            hmac_offset_in_data, client_hello.size());
         }
 
         return CRYPTO_memcmp(expected.data(), client_tag.data(), hmac_size) == 0;
     }
-
 
     auto verify_frame_hmac(const verify_input &in) -> bool
     {
@@ -122,9 +118,8 @@ namespace psm::handshake::shadowtls
         return CRYPTO_memcmp(md.data(), client_hmac.data(), hmac_size) == 0;
     }
 
-
-    auto compute_write_hmac(const std::string_view password, const std::span<const std::byte> server_random, const std::span<const std::byte> payload)
-        -> std::array<std::uint8_t, 4>
+    auto compute_write_hmac(const std::string_view password, const std::span<const std::byte> server_random,
+                            const std::span<const std::byte> payload) -> std::array<std::uint8_t, 4>
     {
         // HMAC-SHA1(password, serverRandom + "S" + payload)[:4]
         // 参照 sing-shadowtls hmacAdd（含 "S" 标签，用于 post-handshake 写入）
@@ -154,15 +149,14 @@ namespace psm::handshake::shadowtls
         return result;
     }
 
-
-    auto compute_write_key(const std::string_view password,const std::span<const std::byte> server_random)
+    auto compute_write_key(const std::string_view password, const std::span<const std::byte> server_random)
         -> memory::vector<std::uint8_t>
     {
         // SHA256(password + serverRandom)
         SHA256_CTX sha_ctx;
         SHA256_Init(&sha_ctx);
         SHA256_Update(&sha_ctx, password.data(), password.size());
-        SHA256_Update(&sha_ctx, server_random.data(),server_random.size());
+        SHA256_Update(&sha_ctx, server_random.data(), server_random.size());
 
         memory::vector<std::uint8_t> key(SHA256_DIGEST_LENGTH, memory::current_resource());
         SHA256_Final(key.data(), &sha_ctx);

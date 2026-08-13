@@ -21,10 +21,10 @@ namespace psm::protocol::hysteria2::h3
 {
 
     /// Hysteria2 认证相关常量
-    inline constexpr std::uint64_t frame_headers = 0x01;    ///< HTTP/3 HEADERS 帧类型
-    inline constexpr std::uint64_t frame_data = 0x00;       ///< HTTP/3 DATA 帧类型
-    inline constexpr std::uint64_t frame_settings = 0x04;   ///< HTTP/3 SETTINGS 帧类型
-    inline constexpr std::uint16_t status_auth_ok = 233;    ///< Hysteria2 认证成功状态码
+    inline constexpr std::uint64_t frame_headers = 0x01;  ///< HTTP/3 HEADERS 帧类型
+    inline constexpr std::uint64_t frame_data = 0x00;     ///< HTTP/3 DATA 帧类型
+    inline constexpr std::uint64_t frame_settings = 0x04; ///< HTTP/3 SETTINGS 帧类型
+    inline constexpr std::uint16_t status_auth_ok = 233;  ///< Hysteria2 认证成功状态码
 
     /**
      * @struct auth_request
@@ -32,14 +32,13 @@ namespace psm::protocol::hysteria2::h3
      */
     struct auth_request
     {
-        memory::string method;    ///< :method
-        memory::string host;      ///< :authority
-        memory::string path;      ///< :path
-        memory::string auth;      ///< Hysteria-Auth 头
-        std::uint64_t rx{0};      ///< Hysteria-CC-RX 头
+        memory::string method; ///< :method
+        memory::string host;   ///< :authority
+        memory::string path;   ///< :path
+        memory::string auth;   ///< Hysteria-Auth 头
+        std::uint64_t rx{0};   ///< Hysteria-CC-RX 头
 
-        explicit auth_request(memory::resource_pointer mr)
-            : method(mr), host(mr), path(mr), auth(mr)
+        explicit auth_request(memory::resource_pointer mr) : method(mr), host(mr), path(mr), auth(mr)
         {
         }
     };
@@ -64,8 +63,7 @@ namespace psm::protocol::hysteria2::h3
      * @details 输出完整 HTTP/3 HEADERS 帧：
      *          [frame type varint=1][length varint][QPACK 块]
      */
-    [[nodiscard]] auto encode_auth_response(std::uint16_t status, bool udp_enabled,
-                                            std::uint64_t rx, std::span<std::byte> out)
-        -> std::size_t;
+    [[nodiscard]] auto encode_auth_response(std::uint16_t status, bool udp_enabled, std::uint64_t rx,
+                                            std::span<std::byte> out) -> std::size_t;
 
 } // namespace psm::protocol::hysteria2::h3

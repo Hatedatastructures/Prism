@@ -26,10 +26,8 @@
 #include <span>
 #include <string_view>
 
-
 namespace psm::handshake::restls
 {
-
 
     constexpr std::size_t tls_hdrsize = 5;
     constexpr std::size_t tls_rndsize = 32;
@@ -51,8 +49,8 @@ namespace psm::handshake::restls
      */
     enum class flow_direction : std::uint8_t
     {
-        to_server,  ///< 客户端到服务端方向
-        to_client   ///< 服务端到客户端方向
+        to_server, ///< 客户端到服务端方向
+        to_client  ///< 服务端到客户端方向
     };
 
     // Restls 密钥派生上下文
@@ -61,13 +59,12 @@ namespace psm::handshake::restls
     // Restls 命令（2 字节 big-endian，第一字节是 type）
     //   ActNoop:    [0x00, 0x00]   — 无操作
     //   ActResponse:[0x01, count]  — 要求对端回 count 个 random-response 帧
-    constexpr std::uint8_t  cmd_type_noop     = 0x00;
-    constexpr std::uint8_t  cmd_type_response = 0x01;
-    constexpr std::uint16_t cmd_data = 0x0000;  // 兼容旧代码：等价于 ActNoop
+    constexpr std::uint8_t cmd_type_noop = 0x00;
+    constexpr std::uint8_t cmd_type_response = 0x01;
+    constexpr std::uint16_t cmd_data = 0x0000; // 兼容旧代码：等价于 ActNoop
 
     // magic 字符串用于随机响应帧
     constexpr std::string_view randresp_magic = "restls-random-response";
-
 
     /**
      * @brief 从密码派生 RestlsSecret
@@ -76,8 +73,7 @@ namespace psm::handshake::restls
      * @param password 认证密码
      * @return 32 字节 RestlsSecret
      */
-    [[nodiscard]] inline auto derive_secret(std::string_view password)
-        -> std::array<std::uint8_t, 32>
+    [[nodiscard]] inline auto derive_secret(std::string_view password) -> std::array<std::uint8_t, 32>
     {
         const auto material = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(password.data()), password.size());
@@ -85,7 +81,6 @@ namespace psm::handshake::restls
         psm::crypto::derive_key(secret_ctx, material, secret);
         return secret;
     }
-
 
     /**
      * @brief 计算服务端认证掩码
@@ -96,9 +91,8 @@ namespace psm::handshake::restls
      * @param server_random TLS ServerHello 中的 server_random（32 字节）
      * @return 16 字节认证掩码
      */
-    [[nodiscard]] inline auto compute_server_mask(
-        std::span<const std::uint8_t, 32> secret,
-        std::span<const std::uint8_t, 32> server_random)
+    [[nodiscard]] inline auto compute_server_mask(std::span<const std::uint8_t, 32> secret,
+                                                  std::span<const std::uint8_t, 32> server_random)
         -> std::array<std::uint8_t, hs_maclen>
     {
         auto hasher = psm::crypto::keyed_hasher(secret);
@@ -108,7 +102,6 @@ namespace psm::handshake::restls
         return mask;
     }
 
-
     /**
      * @brief compute_auth_mac 的输入参数集
      * @details 将 compute_auth_mac 的 7 个参数聚合为单一结构体，
@@ -116,13 +109,13 @@ namespace psm::handshake::restls
      */
     struct auth_mac_input
     {
-        std::span<const std::uint8_t, 32> secret;          ///< RestlsSecret（32 字节）
-        std::span<const std::uint8_t, 32> server_random;   ///< TLS server_random（32 字节）
-        flow_direction direction;                           ///< 数据流方向
-        std::uint64_t counter;                              ///< 记录计数器
-        std::span<const std::uint8_t> client_finished;     ///< 客户端 Finished 消息（仅首次 c2s，否则为空）
-        std::span<const std::uint8_t> tls_header;          ///< TLS 记录头（5 字节）
-        std::span<const std::uint8_t> payload_after_mac;   ///< auth_mac 之后的所有数据
+        std::span<const std::uint8_t, 32> secret;        ///< RestlsSecret（32 字节）
+        std::span<const std::uint8_t, 32> server_random; ///< TLS server_random（32 字节）
+        flow_direction direction;                        ///< 数据流方向
+        std::uint64_t counter;                           ///< 记录计数器
+        std::span<const std::uint8_t> client_finished;   ///< 客户端 Finished 消息（仅首次 c2s，否则为空）
+        std::span<const std::uint8_t> tls_header;        ///< TLS 记录头（5 字节）
+        std::span<const std::uint8_t> payload_after_mac; ///< auth_mac 之后的所有数据
     };
 
     /**
@@ -132,13 +125,13 @@ namespace psm::handshake::restls
      */
     struct mask_input
     {
-        std::span<const std::uint8_t, 32> secret;          ///< RestlsSecret（32 字节）
-        std::span<const std::uint8_t, 32> server_random;   ///< TLS server_random（32 字节）
-        flow_direction direction;                           ///< 数据流方向
-        std::uint64_t counter;                              ///< 记录计数器
-        std::span<const std::uint8_t> plaintext_sample;    ///< 明文数据样本（从 appdata_offset 开始，最多 32 字节）
+        std::span<const std::uint8_t, 32> secret;        ///< RestlsSecret（32 字节）
+        std::span<const std::uint8_t, 32> server_random; ///< TLS server_random（32 字节）
+        flow_direction direction;                        ///< 数据流方向
+        std::uint64_t counter;                           ///< 记录计数器
+        std::span<const std::uint8_t>
+            plaintext_sample; ///< 明文数据样本（从 appdata_offset 开始，最多 32 字节）
     };
-
 
     /**
      * @brief 计算应用数据认证 MAC
@@ -201,7 +194,6 @@ namespace psm::handshake::restls
         return mac;
     }
 
-
     /**
      * @brief 计算数据掩码
      * @details 使用 BLAKE3 keyed mode 计算每条记录的 XOR 掩码，
@@ -218,8 +210,7 @@ namespace psm::handshake::restls
      * @param input 掩码输入参数集
      * @return 4 字节 XOR 掩码
      */
-    [[nodiscard]] inline auto compute_mask(const mask_input &input)
-        -> std::array<std::uint8_t, mask_len>
+    [[nodiscard]] inline auto compute_mask(const mask_input &input) -> std::array<std::uint8_t, mask_len>
     {
         auto hasher = psm::crypto::keyed_hasher(input.secret);
 
@@ -258,7 +249,6 @@ namespace psm::handshake::restls
         return mask;
     }
 
-
     /**
      * @brief 用掩码对数据进行就地 XOR
      * @details 将 data 从 offset 开始与 mask 循环异或。
@@ -267,10 +257,8 @@ namespace psm::handshake::restls
      * @param mask XOR 掩码
      * @param offset data 中的起始偏移
      */
-    inline void xor_with_mask(
-        std::span<std::uint8_t> data,
-        std::span<const std::uint8_t> mask,
-        std::size_t offset = 0) noexcept
+    inline void xor_with_mask(std::span<std::uint8_t> data, std::span<const std::uint8_t> mask,
+                              std::size_t offset = 0) noexcept
     {
         for (std::size_t i = offset; i < data.size(); ++i)
         {

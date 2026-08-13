@@ -1,5 +1,5 @@
-#include <prism/net/transport/encrypted.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/net/transport/encrypted.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
 

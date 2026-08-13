@@ -3,11 +3,10 @@
  * @brief SS2022 Beast 风格组件测试
  */
 
-#include <common/proxy/shadowsocks2022/shadowsocks2022.hpp>
-
-#include <gtest/gtest.h>
-
 #include <ctime>
+
+#include <common/proxy/shadowsocks2022/shadowsocks2022.hpp>
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -44,7 +43,7 @@ namespace
     TEST(Shadow2022Beast, WrongPskRejected)
     {
         constexpr std::array<std::uint8_t, 16> wrong{0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8,
-                                                      0xF7, 0xF6, 0xF5, 0xF4, 0xF3, 0xF2, 0xF1, 0xF0};
+                                                     0xF7, 0xF6, 0xF5, 0xF4, 0xF3, 0xF2, 0xF1, 0xF0};
         shadowsocks2022::message msg;
         msg.dst.type = shadowsocks2022::address_type::ipv4;
         msg.dst.host = "127.0.0.1";

@@ -5,17 +5,17 @@
  * 密钥长度计算等功能，覆盖正常路径和各类边界条件。
  */
 
-#include <prism/protocol/shadowsocks/shadowsocks.hpp>
-#include <prism/protocol/shadowsocks/codec/framing.hpp>
-#include <prism/protocol/shadowsocks/util/salts.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/crypto/aead.hpp>
-#include <prism/crypto/blake3.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/foundation/foundation.hpp>
+#include <prism/crypto/blake3.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
+#include <prism/protocol/shadowsocks/config.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
+#include <prism/protocol/shadowsocks/shadowsocks.hpp>
+#include <prism/protocol/shadowsocks/util/salts.hpp>
+
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -24,7 +24,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
 
 #include <gtest/gtest.h>
 
@@ -42,7 +41,9 @@ TEST(Shadowsocks, SaltPoolInsertAndCheck)
     std::array<std::uint8_t, 16> salt{};
     std::mt19937 rng(42);
     for (auto &b : salt)
+    {
         b = static_cast<std::uint8_t>(rng());
+    }
 
     EXPECT_TRUE(pool.check_and_insert(salt)) << "first insert should return true";
 }
@@ -55,7 +56,7 @@ TEST(Shadowsocks, SaltPoolDuplicateReplay)
     psm::protocol::shadowsocks::salt_pool pool(60);
 
     std::array<std::uint8_t, 16> salt = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                                          0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10};
+                                         0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10};
 
     ASSERT_TRUE(pool.check_and_insert(salt)) << "first insert should return true";
     EXPECT_TRUE(!pool.check_and_insert(salt)) << "duplicate salt should return false";
@@ -70,7 +71,7 @@ TEST(Shadowsocks, SaltPoolExpiry)
     psm::protocol::shadowsocks::salt_pool pool(1);
 
     std::array<std::uint8_t, 16> salt = {0xAA, 0xBB, 0xCC, 0xDD, 0xAA, 0xBB, 0xCC, 0xDD,
-                                          0xAA, 0xBB, 0xCC, 0xDD, 0xAA, 0xBB, 0xCC, 0xDD};
+                                         0xAA, 0xBB, 0xCC, 0xDD, 0xAA, 0xBB, 0xCC, 0xDD};
 
     ASSERT_TRUE(pool.check_and_insert(salt)) << "first insert should return true";
     EXPECT_TRUE(!pool.check_and_insert(salt)) << "immediate retry should return false";
@@ -93,7 +94,8 @@ TEST(Shadowsocks, SaltPoolCleanup)
     {
         std::array<std::uint8_t, 16> salt{};
         salt[0] = i;
-        ASSERT_TRUE(pool.check_and_insert(salt)) << "salt " << std::to_string(i) << " should insert successfully";
+        ASSERT_TRUE(pool.check_and_insert(salt))
+            << "salt " << std::to_string(i) << " should insert successfully";
     }
 
     // cleanup 对未过期的条目不应删除
@@ -104,7 +106,8 @@ TEST(Shadowsocks, SaltPoolCleanup)
     {
         std::array<std::uint8_t, 16> salt{};
         salt[0] = i;
-        EXPECT_TRUE(!pool.check_and_insert(salt)) << "salt " << std::to_string(i) << " should still be rejected after cleanup";
+        EXPECT_TRUE(!pool.check_and_insert(salt))
+            << "salt " << std::to_string(i) << " should still be rejected after cleanup";
     }
 }
 
@@ -140,8 +143,9 @@ TEST(Shadowsocks, FormatParseAddressPortIPv6)
 {
     // [atyp=0x04][::1 16 bytes][port=80 BE]
     std::array<std::uint8_t, 19> buf{};
-    buf[0] = 0x04;                         // atyp = IPv6
-    buf[17] = 0x00; buf[18] = 0x50;        // port = 80
+    buf[0] = 0x04; // atyp = IPv6
+    buf[17] = 0x00;
+    buf[18] = 0x50; // port = 80
 
     auto [ec, result] = psm::protocol::shadowsocks::format::parse_addr_port(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse failed: " << psm::fault::describe(ec);
@@ -234,6 +238,8 @@ TEST(Shadowsocks, FormatKeySaltLength)
 {
     using cm = psm::protocol::shadowsocks::cipher_method;
 
-    EXPECT_EQ(psm::protocol::shadowsocks::format::keysalt_len(cm::aes_128_gcm), 16) << "AES-128-GCM keysalt_len should be 16";
-    EXPECT_EQ(psm::protocol::shadowsocks::format::keysalt_len(cm::aes_256_gcm), 32) << "AES-256-GCM keysalt_len should be 32";
+    EXPECT_EQ(psm::protocol::shadowsocks::format::keysalt_len(cm::aes_128_gcm), 16)
+        << "AES-128-GCM keysalt_len should be 16";
+    EXPECT_EQ(psm::protocol::shadowsocks::format::keysalt_len(cm::aes_256_gcm), 32)
+        << "AES-256-GCM keysalt_len should be 32";
 }

@@ -6,17 +6,17 @@
  *          rules_engine 的 add_addr_rule/add_neg_rule/add_cname/match 全分支。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include <boost/asio.hpp>
+
 #include <any>
 #include <cstdint>
 #include <optional>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 #define private public
 #include <prism/net/dns/detail/rules.hpp>
@@ -29,8 +29,8 @@ namespace
 {
     namespace dns = psm::dns::detail;
     namespace net = boost::asio;
-    using psm::memory::vector;
     using psm::memory::string;
+    using psm::memory::vector;
 
     // ─── split_labels 边界 ──────────────────────────
 

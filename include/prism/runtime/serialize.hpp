@@ -14,60 +14,73 @@
 
 #include <glaze/glaze.hpp>
 
-
 template <>
 struct glz::meta<psm::runtime::endpoint>
 {
     using T = psm::runtime::endpoint;
+    // clang-format off
     static constexpr auto value = glz::object("host", &T::host, "port", &T::port);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::runtime::limit>
 {
     using T = psm::runtime::limit;
+    // clang-format off
     static constexpr auto value = glz::object("blacklist", &T::blacklist);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::runtime::certificate>
 {
     using T = psm::runtime::certificate;
+    // clang-format off
     static constexpr auto value = glz::object("key", &T::key, "cert", &T::cert);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::runtime::authentication::user>
 {
     using T = psm::runtime::authentication::user;
+    // clang-format off
     static constexpr auto value = glz::object(
         "password", &T::password, "uuid", &T::uuid, "max_connections", &T::max_connections);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::runtime::authentication>
 {
     using T = psm::runtime::authentication;
+    // clang-format off
     static constexpr auto value = glz::object("users", &T::users);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::runtime::buffer>
 {
     using T = psm::runtime::buffer;
+    // clang-format off
     static constexpr auto value = glz::object("size", &T::size);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::runtime::protocol::config>
 {
     using T = psm::runtime::protocol::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "socks5",       &T::socks5,
         "trojan",       &T::trojan,
         "vless",        &T::vless,
         "shadowsocks",  &T::shadowsocks,
         "vmess",        &T::vmess);
+    // clang-format on
 };
 
 // ============================================================================
@@ -78,6 +91,7 @@ template <>
 struct glz::meta<psm::protocol::socks5::config>
 {
     using T = psm::protocol::socks5::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "enable_tcp",        &T::enable_tcp,
         "enable_udp",        &T::enable_udp,
@@ -86,57 +100,67 @@ struct glz::meta<psm::protocol::socks5::config>
         "udp_idle_timeout",  &T::idle_timeout,
         "udp_max_datagram",  &T::max_dgram,
         "enable_auth",       &T::enable_auth);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::protocol::trojan::config>
 {
     using T = psm::protocol::trojan::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "enable_tcp",        &T::enable_tcp,
         "enable_udp",        &T::enable_udp,
         "udp_idle_timeout",  &T::idle_timeout,
         "udp_max_datagram",  &T::max_dgram);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::protocol::vless::config>
 {
     using T = psm::protocol::vless::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "enable_udp",        &T::enable_udp,
         "udp_idle_timeout",  &T::idle_timeout,
         "udp_max_datagram",  &T::max_dgram);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::protocol::shadowsocks::config>
 {
     using T = psm::protocol::shadowsocks::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "psk",               &T::psk,
         "method",            &T::method,
         "enable_tcp",        &T::enable_tcp,
         "enable_udp",        &T::enable_udp,
         "udp_idle_timeout",  &T::idle_timeout);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::protocol::vmess::config>
 {
     using T = psm::protocol::vmess::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "enable_tcp",        &T::enable_tcp,
         "enable_udp",        &T::enable_udp,
         "enable_mux",        &T::enable_mux,
         "udp_idle_timeout",  &T::idle_timeout,
         "udp_max_datagram",  &T::max_dgram);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::runtime::stealth::config>
 {
     using T = psm::runtime::stealth::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "reality",      &T::reality,
         "shadowtls",    &T::shadowtls,
@@ -152,12 +176,14 @@ struct glz::meta<psm::runtime::stealth::config>
         "native_tls",   &T::native_tls,
         "pad",          &T::pad,
         "probe",        &T::probe);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::runtime::config>
 {
     using T = psm::runtime::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "limit",           &T::limits,
         "positive",        &T::positive,
@@ -166,4 +192,5 @@ struct glz::meta<psm::runtime::config>
         "authentication",  &T::auth,
         "camouflage",      &T::camouflage,
         "reverse_map",     &T::reverse_map);
+    // clang-format on
 };

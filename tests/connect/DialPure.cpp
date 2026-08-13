@@ -4,9 +4,8 @@
  * @details 覆盖 racer.cpp 中 address_racer 构造函数与竞速上下文。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/connection/dialer/dialer.hpp>
 
 #include <gtest/gtest.h>
@@ -26,11 +25,9 @@ namespace
     TEST(DialPure, RacerConstructor)
     {
         net::io_context ioc;
-        connect::address_racer racer([](const auto &)
-            -> net::awaitable<std::pair<psm::fault::code, connect::shared_transmission>>
-        {
-            co_return std::make_pair(psm::fault::code::success, connect::shared_transmission{});
-        });
+        connect::address_racer racer(
+            [](const auto &) -> net::awaitable<std::pair<psm::fault::code, connect::shared_transmission>>
+            { co_return std::make_pair(psm::fault::code::success, connect::shared_transmission{}); });
         EXPECT_TRUE(true) << "racer: constructor with dial callback";
     }
 

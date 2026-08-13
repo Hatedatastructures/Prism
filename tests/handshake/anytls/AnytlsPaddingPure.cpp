@@ -4,10 +4,10 @@
  * @details 测试 parse_range / compute_md5_hex / random_in_range
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
+
 #include "../../src/prism/handshake/anytls/padding.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {

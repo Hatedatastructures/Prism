@@ -7,8 +7,6 @@
  *          和检测是否为 TLS 1.3 握手。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/shadowtls/util/constants.hpp>
 
@@ -17,6 +15,8 @@
 #include <cstring>
 #include <optional>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 // 拉入源文件中 anonymous namespace 的函数定义
 // 注意：必须在所有头文件之后 include
@@ -41,7 +41,7 @@ namespace
         std::vector<std::byte> buf;
 
         // TLS 记录头: content_type(1) + version(2) + length(2)
-        buf.push_back(std::byte{content_handshake});  // 0x16
+        buf.push_back(std::byte{content_handshake}); // 0x16
         buf.push_back(std::byte{0x03});
         buf.push_back(std::byte{0x03}); // legacy version
 
@@ -204,7 +204,7 @@ namespace
     TEST(ShadowtlsHandshakePure, ExtractRandomExactMinSize)
     {
         std::vector<std::byte> buf(43, std::byte{0x00});
-        buf[0] = std::byte{content_handshake}; // 0x16
+        buf[0] = std::byte{content_handshake};   // 0x16
         buf[5] = std::byte{hs_type_serverhello}; // 0x02
         // 偏移 11-42 填充 0x55
         for (std::size_t i = 11; i < 43; ++i)

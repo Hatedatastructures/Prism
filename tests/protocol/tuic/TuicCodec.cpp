@@ -5,9 +5,9 @@
 
 #include <prism/protocol/tuic/codec.hpp>
 
-#include <gtest/gtest.h>
-
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -26,7 +26,7 @@ namespace
     {
         return std::vector<std::uint8_t>(list);
     }
-}
+} // namespace
 
 TEST(TuicCodec, VarintKnownValues)
 {
@@ -68,7 +68,9 @@ TEST(TuicCodec, ParseConnectDomain)
     std::vector<std::uint8_t> buf{0x05, 0x01, 0x00, 11};
     const std::string_view domain = "example.com";
     for (const auto c : domain)
+    {
         buf.push_back(static_cast<std::uint8_t>(c));
+    }
     buf.push_back(0x01);
     buf.push_back(0xBB);
 
@@ -101,7 +103,7 @@ TEST(TuicCodec, ParsePacketWithAddress)
 {
     // VER TYPE ASSOC(2) PKT(2) TOTAL(1) ID(1) SIZE(2) ATYP(1) ADDR(4) PORT(2) DATA
     std::vector<std::uint8_t> buf{0x05, 0x02, 0x00, 0x01, 0x00, 0x02, 0x01, 0x00, 0x00, 0x03,
-                                  0x01, 10, 0, 0, 1, 0x00, 0x35, 'a', 'b', 'c'};
+                                  0x01, 10,   0,    0,    1,    0x00, 0x35, 'a',  'b',  'c'};
     packet_frame frame;
     ASSERT_TRUE(parse_packet(buf, frame));
     EXPECT_EQ(frame.assoc_id, 1);
@@ -116,8 +118,7 @@ TEST(TuicCodec, ParsePacketWithAddress)
 TEST(TuicCodec, ParsePacketNoAddress)
 {
     // 非首片：ATYP=0xFF，无地址
-    std::vector<std::uint8_t> buf{0x05, 0x02, 0x00, 0x01, 0x00, 0x02, 0x02, 0x01, 0x00, 0x02,
-                                  0xFF, 'x', 'y'};
+    std::vector<std::uint8_t> buf{0x05, 0x02, 0x00, 0x01, 0x00, 0x02, 0x02, 0x01, 0x00, 0x02, 0xFF, 'x', 'y'};
     packet_frame frame;
     ASSERT_TRUE(parse_packet(buf, frame));
     EXPECT_EQ(frame.frag_total, 2);

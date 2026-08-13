@@ -38,8 +38,7 @@ namespace psmtest
      * @param s uint8_t 视图
      * @return byte 视图（大小不变）
      */
-    [[nodiscard]] inline auto as_bytes(std::span<const std::uint8_t> s) noexcept
-        -> std::span<const std::byte>
+    [[nodiscard]] inline auto as_bytes(std::span<const std::uint8_t> s) noexcept -> std::span<const std::byte>
     {
         return {reinterpret_cast<const std::byte *>(s.data()), s.size()};
     }
@@ -59,8 +58,7 @@ namespace psmtest
      * @param s byte 视图
      * @return uint8_t 视图（大小不变）
      */
-    [[nodiscard]] inline auto as_u8(std::span<const std::byte> s) noexcept
-        -> std::span<const std::uint8_t>
+    [[nodiscard]] inline auto as_u8(std::span<const std::byte> s) noexcept -> std::span<const std::uint8_t>
     {
         return {reinterpret_cast<const std::uint8_t *>(s.data()), s.size()};
     }
@@ -70,8 +68,7 @@ namespace psmtest
      * @param s 字符串
      * @return uint8_t 视图（size() 个元素）
      */
-    [[nodiscard]] inline auto as_u8_span(const std::string &s) noexcept
-        -> std::span<const std::uint8_t>
+    [[nodiscard]] inline auto as_u8_span(const std::string &s) noexcept -> std::span<const std::uint8_t>
     {
         return {reinterpret_cast<const std::uint8_t *>(s.data()), s.size()};
     }
@@ -81,8 +78,7 @@ namespace psmtest
      * @param s 字符串视图
      * @return uint8_t 视图（size() 个元素）
      */
-    [[nodiscard]] inline auto as_u8_span(std::string_view s) noexcept
-        -> std::span<const std::uint8_t>
+    [[nodiscard]] inline auto as_u8_span(std::string_view s) noexcept -> std::span<const std::uint8_t>
     {
         return {reinterpret_cast<const std::uint8_t *>(s.data()), s.size()};
     }
@@ -120,8 +116,7 @@ namespace psmtest
      * @param s 字符串
      * @return byte 视图（size() 个元素）
      */
-    [[nodiscard]] inline auto as_bytes_span(const std::string &s) noexcept
-        -> std::span<const std::byte>
+    [[nodiscard]] inline auto as_bytes_span(const std::string &s) noexcept -> std::span<const std::byte>
     {
         return as_bytes(as_u8_span(s));
     }
@@ -131,8 +126,7 @@ namespace psmtest
      * @param s 字符串视图
      * @return byte 视图（size() 个元素）
      */
-    [[nodiscard]] inline auto as_bytes_span(std::string_view s) noexcept
-        -> std::span<const std::byte>
+    [[nodiscard]] inline auto as_bytes_span(std::string_view s) noexcept -> std::span<const std::byte>
     {
         return as_bytes(as_u8_span(s));
     }
@@ -170,8 +164,7 @@ namespace psmtest
      * @param s uint8_t 视图
      * @return string_view（size() 个字符）
      */
-    [[nodiscard]] inline auto as_str_view(std::span<const std::uint8_t> s) noexcept
-        -> std::string_view
+    [[nodiscard]] inline auto as_str_view(std::span<const std::uint8_t> s) noexcept -> std::string_view
     {
         return {reinterpret_cast<const char *>(s.data()), s.size()};
     }
@@ -181,8 +174,7 @@ namespace psmtest
      * @param s byte 视图
      * @return string_view（size() 个字符）
      */
-    [[nodiscard]] inline auto as_str_view(std::span<const std::byte> s) noexcept
-        -> std::string_view
+    [[nodiscard]] inline auto as_str_view(std::span<const std::byte> s) noexcept -> std::string_view
     {
         return as_str_view(as_u8(s));
     }

@@ -10,12 +10,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/stealth/reality/codec.hpp>
-#include <common/stealth/reality/conn.hpp>
-#include <common/stealth/reality/types.hpp>
-
 #include <boost/asio/awaitable.hpp>
 
 #include <array>
@@ -24,6 +18,12 @@
 #include <string>
 #include <tuple>
 #include <utility>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/stealth/reality/codec.hpp>
+#include <common/stealth/reality/conn.hpp>
+#include <common/stealth/reality/types.hpp>
 
 namespace psmtest::reality
 {
@@ -73,12 +73,11 @@ namespace psmtest::reality
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       std::span<const std::uint8_t> peer_public_key,
                                       const handshake_params &params)
-    -> net::awaitable<std::pair<error, shared_conn>>
+        -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.private_key);
         const auto err = co_await c->write_handshake(peer_public_key, params);
-        co_return std::pair{err, err == error::none ? shared_conn(std::move(c))
-                                                    : shared_conn{}};
+        co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
 
     /**
@@ -92,13 +91,12 @@ namespace psmtest::reality
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg,
                                      std::span<const std::uint8_t> peer_public_key,
                                      const handshake_params &params)
-    -> net::awaitable<std::tuple<error, std::array<std::uint8_t, max_short_id_len>, shared_conn>>
+        -> net::awaitable<std::tuple<error, std::array<std::uint8_t, max_short_id_len>, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.private_key);
         std::array<std::uint8_t, max_short_id_len> short_id{};
         const auto err = co_await c->read_handshake(peer_public_key, params, short_id);
-        co_return std::tuple{err, short_id,
-                             err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
+        co_return std::tuple{err, short_id, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
 
 } // namespace psmtest::reality

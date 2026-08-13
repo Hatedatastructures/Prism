@@ -12,20 +12,18 @@
  */
 #pragma once
 
-#include <prism/foundation/fault/handling.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/handling.hpp>
 #include <prism/net/transport/transmission.hpp>
-
-#include <cassert>
 
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
 
 #include <array>
+#include <cassert>
 #include <memory>
 #include <optional>
 #include <utility>
-
 
 namespace psm::transport
 {
@@ -62,8 +60,7 @@ namespace psm::transport
          * 不打开，需要在后续调用 open 或 accept 后才能使用。
          * @param executor 执行器，用于初始化 socket
          */
-        explicit reliable(net::any_io_executor executor)
-            : socket_(executor)
+        explicit reliable(net::any_io_executor executor) : socket_(executor)
         {
         }
 
@@ -73,8 +70,7 @@ namespace psm::transport
          * Socket 必须已打开并连接。
          * @param socket 已构造的 TCP socket
          */
-        explicit reliable(socket_type socket)
-            : socket_(std::move(socket))
+        explicit reliable(socket_type socket) : socket_(std::move(socket))
         {
         }
 
@@ -82,8 +78,7 @@ namespace psm::transport
          * @brief 获取传输层类型
          * @return type::tcp 可靠传输始终为 TCP
          */
-        [[nodiscard]] auto transport_type() const noexcept
-            -> type override
+        [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             return type::tcp;
         }
@@ -107,6 +102,10 @@ namespace psm::transport
             return nullptr;
         }
 
+        /**
+         * @brief 获取内层传输（const 版本）
+         * @return nullptr reliable 是叶子节点，没有内层
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return nullptr;
@@ -126,8 +125,8 @@ namespace psm::transport
         {
             boost::system::error_code sys_ec;
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
-            const auto n = co_await native_socket().async_read_some(
-                net::buffer(buffer.data(), buffer.size()), token);
+            const auto n =
+                co_await native_socket().async_read_some(net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
         }
@@ -139,10 +138,11 @@ namespace psm::transport
          * @param buffer 目标缓冲区
          * @param handler 完成处理器
          */
-        void async_read_some(std::span<std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
+        void async_read_some(
+            std::span<std::byte> buffer,
+            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
         {
-            native_socket().async_read_some(
-                net::buffer(buffer.data(), buffer.size()), std::move(handler));
+            native_socket().async_read_some(net::buffer(buffer.data(), buffer.size()), std::move(handler));
         }
 
         /**
@@ -152,10 +152,11 @@ namespace psm::transport
          * @param buffer 源数据缓冲区
          * @param handler 完成处理器
          */
-        void async_write_some(std::span<const std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
+        void async_write_some(
+            std::span<const std::byte> buffer,
+            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
         {
-            native_socket().async_write_some(
-                net::buffer(buffer.data(), buffer.size()), std::move(handler));
+            native_socket().async_write_some(net::buffer(buffer.data(), buffer.size()), std::move(handler));
         }
 
         /**
@@ -172,8 +173,8 @@ namespace psm::transport
         {
             boost::system::error_code sys_ec;
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
-            const auto n = co_await native_socket().async_write_some(
-                net::buffer(buffer.data(), buffer.size()), token);
+            const auto n =
+                co_await native_socket().async_write_some(net::buffer(buffer.data(), buffer.size()), token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
         }
@@ -224,8 +225,7 @@ namespace psm::transport
          * @return socket_type& socket 引用
          * @note 用于需要直接操作 socket 的场景（如设置 TCP_NODELAY）。
          */
-        [[nodiscard]] auto native_socket() noexcept
-            -> socket_type &
+        [[nodiscard]] auto native_socket() noexcept -> socket_type &
         {
             assert(socket_.has_value());
             return *socket_;
@@ -236,8 +236,7 @@ namespace psm::transport
          * @details 返回底层 TCP socket 的常量引用，用于只读访问。
          * @return const socket_type& socket 常量引用
          */
-        [[nodiscard]] auto native_socket() const noexcept
-            -> const socket_type &
+        [[nodiscard]] auto native_socket() const noexcept -> const socket_type &
         {
             assert(socket_.has_value());
             return *socket_;
@@ -250,8 +249,7 @@ namespace psm::transport
          * @return socket_type socket（可能已移动），池连接或无 socket 时返回 std::nullopt
          * @warning 调用后 reliable transport 不再可用
          */
-        [[nodiscard]] auto release_socket() noexcept
-            -> std::optional<socket_type>
+        [[nodiscard]] auto release_socket() noexcept -> std::optional<socket_type>
         {
             if (socket_)
             {
@@ -264,7 +262,7 @@ namespace psm::transport
         }
 
     private:
-        std::optional<socket_type> socket_;      // socket 存储
+        std::optional<socket_type> socket_; // socket 存储
     };
 
     /**
@@ -274,7 +272,7 @@ namespace psm::transport
      * @param executor 执行器
      * @return shared_transmission 创建的 reliable 实例
      */
-    [[nodiscard]] inline shared_transmission make_reliable(const net::any_io_executor& executor)
+    [[nodiscard]] inline shared_transmission make_reliable(const net::any_io_executor &executor)
     {
         return std::make_shared<reliable>(executor);
     }

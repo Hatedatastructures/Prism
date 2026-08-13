@@ -3,27 +3,29 @@
  * @brief ShadowTLS v3 测试
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/handshake/shadowtls/util/auth.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/handshake/shadowtls/util/auth.hpp>
 
 #include <openssl/hmac.h>
 
-#include <sstream>
 #include <cstring>
 #include <iomanip>
 #include <span>
+#include <sstream>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace
 {
-    template<typename T>
+    template <typename T>
     auto BytesToHex(const std::span<T> bytes) -> std::string
     {
         std::ostringstream oss;
         for (auto b : bytes)
+        {
             oss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(b);
+        }
         return oss.str();
     }
 
@@ -34,7 +36,9 @@ namespace
         const std::string password = "test_password";
         std::array<std::byte, 64> data{};
         for (std::size_t i = 0; i < data.size(); ++i)
+        {
             data[i] = static_cast<std::byte>(i);
+        }
 
         const auto hmac1 = compute_hmac(password, data.data(), data.size());
         const auto hmac2 = compute_hmac(password, data.data(), data.size());
@@ -52,7 +56,9 @@ namespace
         const std::string password = "test_password";
         std::array<std::byte, 32> server_random{};
         for (std::size_t i = 0; i < server_random.size(); ++i)
+        {
             server_random[i] = static_cast<std::byte>(0xA0 + i);
+        }
 
         const auto write_key = compute_write_key(password, server_random);
 
@@ -73,11 +79,15 @@ namespace
         const std::string password = "test_password";
         std::array<std::byte, 32> server_random{};
         for (std::size_t i = 0; i < server_random.size(); ++i)
+        {
             server_random[i] = static_cast<std::byte>(i);
+        }
 
         std::array<std::byte, 16> payload{};
         for (std::size_t i = 0; i < payload.size(); ++i)
+        {
             payload[i] = static_cast<std::byte>(0x10 + i);
+        }
 
         // compute_write_hmac：服务端→客户端方向，不含后缀
         const auto write_hmac = compute_write_hmac(password, server_random, payload);
@@ -86,7 +96,7 @@ namespace
         // verify_frame_hmac 使用 "C" 标签（客户端→服务端方向）
         // 两者标签不同，write_hmac 不应该通过 verify
         EXPECT_TRUE(!verify_frame_hmac(verify_input{password, server_random, payload, write_hmac}))
-              << "Write HMAC ('S' tag) should fail against verify ('C' tag)";
+            << "Write HMAC ('S' tag) should fail against verify ('C' tag)";
 
         // 手动构建含 "C" 标签的客户端 HMAC（参照 sing-shadowtls hmacVerify）
         // HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
@@ -105,7 +115,7 @@ namespace
         std::memcpy(read_hmac.data(), md.data(), 4);
 
         EXPECT_TRUE(verify_frame_hmac(verify_input{password, server_random, payload, read_hmac}))
-              << "Frame HMAC verification with correct client HMAC ('C' tag)";
+            << "Frame HMAC verification with correct client HMAC ('C' tag)";
     }
 
     TEST(Shadowtls, ClientHelloVerification)
@@ -115,21 +125,19 @@ namespace
         const std::string password = "test_password";
 
         std::array<std::byte, 10> short_data{};
-        EXPECT_TRUE(!verify_client_hello(short_data, password))
-              << "ClientHello rejects short data";
+        EXPECT_TRUE(!verify_client_hello(short_data, password)) << "ClientHello rejects short data";
 
         std::array<std::byte, 80> fake_hello{};
         fake_hello[0] = std::byte{0x00};
-        EXPECT_TRUE(!verify_client_hello(fake_hello, password))
-              << "ClientHello rejects wrong record type";
+        EXPECT_TRUE(!verify_client_hello(fake_hello, password)) << "ClientHello rejects wrong record type";
     }
 
     TEST(Shadowtls, VerifyClientHelloTooShort)
     {
         std::vector<std::byte> short_buf(50, std::byte{0x16});
         EXPECT_TRUE(!psm::handshake::shadowtls::verify_client_hello(
-                  std::span<const std::byte>{short_buf.data(), short_buf.size()}, "password"))
-              << "verify_client_hello: too short -> false";
+            std::span<const std::byte>{short_buf.data(), short_buf.size()}, "password"))
+            << "verify_client_hello: too short -> false";
     }
 
     TEST(Shadowtls, VerifyClientHelloWrongContentType)
@@ -139,8 +147,8 @@ namespace
         buf[5] = std::byte{0x01};
         buf[43] = std::byte{32};
         EXPECT_TRUE(!psm::handshake::shadowtls::verify_client_hello(
-                  std::span<const std::byte>{buf.data(), buf.size()}, "password"))
-              << "verify_client_hello: wrong content type -> false";
+            std::span<const std::byte>{buf.data(), buf.size()}, "password"))
+            << "verify_client_hello: wrong content type -> false";
     }
 
     TEST(Shadowtls, VerifyClientHelloWrongHandshakeType)
@@ -150,8 +158,8 @@ namespace
         buf[5] = std::byte{0x02}; // ServerHello, not ClientHello
         buf[43] = std::byte{32};
         EXPECT_TRUE(!psm::handshake::shadowtls::verify_client_hello(
-                  std::span<const std::byte>{buf.data(), buf.size()}, "password"))
-              << "verify_client_hello: wrong handshake type -> false";
+            std::span<const std::byte>{buf.data(), buf.size()}, "password"))
+            << "verify_client_hello: wrong handshake type -> false";
     }
 
     TEST(Shadowtls, VerifyClientHelloWrongSessionIdLen)
@@ -161,8 +169,8 @@ namespace
         buf[5] = std::byte{0x01};
         buf[43] = std::byte{16}; // not 32
         EXPECT_TRUE(!psm::handshake::shadowtls::verify_client_hello(
-                  std::span<const std::byte>{buf.data(), buf.size()}, "password"))
-              << "verify_client_hello: wrong session_id_len -> false";
+            std::span<const std::byte>{buf.data(), buf.size()}, "password"))
+            << "verify_client_hello: wrong session_id_len -> false";
     }
 
 } // namespace

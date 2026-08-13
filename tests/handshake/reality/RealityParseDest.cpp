@@ -5,10 +5,10 @@
  *          IPv6 [::1]:443 格式、普通 host:port、无效端口。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/reality/handshake.hpp>
+
+#include <gtest/gtest.h>
 
 namespace
 {

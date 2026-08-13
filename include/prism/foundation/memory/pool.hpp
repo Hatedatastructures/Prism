@@ -11,7 +11,6 @@
 
 #include <cstdint>
 
-
 namespace psm::memory
 {
 
@@ -228,8 +227,7 @@ namespace psm::memory
          * @details 使用栈缓冲区和线程局部池作为上游资源，
          * 实现无锁性能最大化。
          */
-        explicit frame_arena()
-            : resource_(buffer_, sizeof(buffer_), system::local_pool())
+        explicit frame_arena() : resource_(buffer_, sizeof(buffer_), system::local_pool())
         {
         }
 
@@ -237,14 +235,20 @@ namespace psm::memory
          * @brief 获取内存资源指针
          * @return 内存资源指针，可用于创建 PMR 容器
          */
-        [[nodiscard]] auto get() -> resource_pointer { return &resource_; }
+        [[nodiscard]] auto get() -> resource_pointer
+        {
+            return &resource_;
+        }
 
         /**
          * @brief 重置分配器
          * @details 释放所有已分配内存，重置游标到初始位置。
          * 调用后之前分配的所有内存均失效。
          */
-        void reset() { resource_.release(); }
+        void reset()
+        {
+            resource_.release();
+        }
 
     private:
         // 内部缓冲覆盖典型 mux 地址头，避免解析时穿透到上游池

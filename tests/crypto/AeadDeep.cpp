@@ -6,9 +6,6 @@
  *          移动语义、increment_nonce 溢出、null ctx 错误路径。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
@@ -17,6 +14,8 @@
 #include <cstring>
 #include <span>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #define private public
 #include <prism/crypto/aead.hpp>
@@ -345,7 +344,10 @@ namespace
         // 用 seal_ctx 的 nonce 手动构造 open_input
         auto nonce_copy = seal_ctx.nonce();
         std::vector<std::uint8_t> decrypted(plaintext.size());
-        psm::crypto::open_input open_in{decrypted, ciphertext, {nonce_copy.data(), seal_ctx.nonce_length()}, {}};
+        psm::crypto::open_input open_in{decrypted,
+                                        ciphertext,
+                                        {nonce_copy.data(), seal_ctx.nonce_length()},
+                                        {}};
         auto rc = open_ctx.open(open_in);
         EXPECT_EQ(rc, code::crypto_error) << "wrong key: open fails";
     }

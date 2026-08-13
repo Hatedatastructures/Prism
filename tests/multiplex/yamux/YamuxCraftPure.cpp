@@ -6,8 +6,8 @@
  *          验证 12 字节大端序编码正确性和往返一致性。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/yamux/frame.hpp>
 
 #include <gtest/gtest.h>
@@ -60,16 +60,16 @@ namespace
     TEST(YamuxCraftPure, ParseHeaderBasic)
     {
         std::array<std::byte, 12> buf{};
-        buf[0] = std::byte{0x00}; // version
-        buf[1] = std::byte{0x01}; // type=window_update
-        buf[2] = std::byte{0x00}; // flags 高字节
-        buf[3] = std::byte{0x02}; // flags 低字节 = ack
-        buf[4] = std::byte{0x00}; // stream_id[0]
-        buf[5] = std::byte{0x00}; // stream_id[1]
-        buf[6] = std::byte{0x01}; // stream_id[2]
-        buf[7] = std::byte{0x00}; // stream_id[3] => 256
-        buf[8] = std::byte{0x00}; // length[0]
-        buf[9] = std::byte{0x04}; // length[1]
+        buf[0] = std::byte{0x00};  // version
+        buf[1] = std::byte{0x01};  // type=window_update
+        buf[2] = std::byte{0x00};  // flags 高字节
+        buf[3] = std::byte{0x02};  // flags 低字节 = ack
+        buf[4] = std::byte{0x00};  // stream_id[0]
+        buf[5] = std::byte{0x00};  // stream_id[1]
+        buf[6] = std::byte{0x01};  // stream_id[2]
+        buf[7] = std::byte{0x00};  // stream_id[3] => 256
+        buf[8] = std::byte{0x00};  // length[0]
+        buf[9] = std::byte{0x04};  // length[1]
         buf[10] = std::byte{0x00}; // length[2]
         buf[11] = std::byte{0x00}; // length[3] => 0x040000 = 262144
 
@@ -260,7 +260,8 @@ namespace
         EXPECT_TRUE(hdr->type == yamux::message_type::go_away) << "build_goaway: type=go_away";
         EXPECT_TRUE(hdr->flag == yamux::flags::none) << "build_goaway: flag=none";
         EXPECT_TRUE(hdr->stream_id == 0) << "build_goaway: stream_id=0";
-        EXPECT_TRUE(hdr->length == static_cast<std::uint32_t>(yamux::away_code::protocol_error)) << "build_goaway: length=protocol_error";
+        EXPECT_TRUE(hdr->length == static_cast<std::uint32_t>(yamux::away_code::protocol_error))
+            << "build_goaway: length=protocol_error";
     }
 
     // ─── build_data 测试 ───────────────────────────
@@ -303,8 +304,8 @@ namespace
 
     TEST(YamuxCraftPure, BuildSyn)
     {
-        std::array<std::byte, 4> addr_data = {
-            std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
+        std::array<std::byte, 4> addr_data = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03},
+                                              std::byte{0x04}};
 
         auto frame = yamux::build_syn(3, addr_data);
         auto hdr = yamux::parse_header(frame.header);
@@ -356,9 +357,8 @@ namespace
     {
         yamux::frame_header original{};
         original.type = yamux::message_type::data;
-        original.flag = static_cast<yamux::flags>(
-            static_cast<std::uint16_t>(yamux::flags::syn) |
-            static_cast<std::uint16_t>(yamux::flags::fin));
+        original.flag = static_cast<yamux::flags>(static_cast<std::uint16_t>(yamux::flags::syn) |
+                                                  static_cast<std::uint16_t>(yamux::flags::fin));
         original.stream_id = 0xFFFFFFFF;
         original.length = 0xFFFFFFFF;
 
@@ -370,9 +370,8 @@ namespace
         EXPECT_TRUE(decoded->length == 0xFFFFFFFF) << "max values: length=max";
 
         // syn+fin 组合标志位
-        const auto combined = static_cast<yamux::flags>(
-            static_cast<std::uint16_t>(yamux::flags::syn) |
-            static_cast<std::uint16_t>(yamux::flags::fin));
+        const auto combined = static_cast<yamux::flags>(static_cast<std::uint16_t>(yamux::flags::syn) |
+                                                        static_cast<std::uint16_t>(yamux::flags::fin));
         EXPECT_TRUE(yamux::has_flag(combined, yamux::flags::syn)) << "max values: 包含 syn";
         EXPECT_TRUE(yamux::has_flag(combined, yamux::flags::fin)) << "max values: 包含 fin";
         EXPECT_TRUE(decoded->flag == combined) << "max values: flag=syn|fin";
@@ -384,9 +383,8 @@ namespace
     {
         const auto none = yamux::flags::none;
         const auto syn = yamux::flags::syn;
-        const auto syn_fin = static_cast<yamux::flags>(
-            static_cast<std::uint16_t>(yamux::flags::syn) |
-            static_cast<std::uint16_t>(yamux::flags::fin));
+        const auto syn_fin = static_cast<yamux::flags>(static_cast<std::uint16_t>(yamux::flags::syn) |
+                                                       static_cast<std::uint16_t>(yamux::flags::fin));
 
         EXPECT_TRUE(!yamux::has_flag(none, yamux::flags::syn)) << "has_flag: none 不含 syn";
         EXPECT_TRUE(yamux::has_flag(syn, yamux::flags::syn)) << "has_flag: syn 含 syn";

@@ -1,8 +1,7 @@
-#include <prism/handshake/reality/util/auth.hpp>
-
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/hkdf.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/reality/util/auth.hpp>
 
 #include <openssl/crypto.h>
 
@@ -16,36 +15,43 @@ namespace psm::handshake::reality
 
     namespace tls = psm::protocol::tls;
 
-
-    auto match_sni(const std::string_view sni, const memory::vector<memory::string> &server_names)
-        -> bool
+    auto match_sni(const std::string_view sni, const memory::vector<memory::string> &server_names) -> bool
     {
         if (sni.empty())
+        {
             return false;
+        }
 
         for (const auto &name : server_names)
         {
             if (name == sni)
+            {
                 return true;
+            }
         }
         return false;
     }
 
-
-    auto match_shortid(const std::span<const std::uint8_t> short_id, const memory::vector<memory::string> &allowed_short_ids)
-        -> bool
+    auto match_shortid(const std::span<const std::uint8_t> short_id,
+                       const memory::vector<memory::string> &allowed_short_ids) -> bool
     {
         for (const auto &allowed : allowed_short_ids)
         {
             if (allowed.empty())
+            {
                 return true;
+            }
 
             if (allowed.size() % 2 != 0)
+            {
                 continue;
+            }
 
             const auto allowed_bytes = hex_decode(allowed);
             if (allowed_bytes.empty())
+            {
                 continue;
+            }
 
             if (short_id.size() >= allowed_bytes.size() &&
                 CRYPTO_memcmp(short_id.data(), allowed_bytes.data(), allowed_bytes.size()) == 0)
@@ -56,12 +62,9 @@ namespace psm::handshake::reality
         return false;
     }
 
-
-    auto verify_client_hello(const config &cfg, const tls::hello_features &client_hello)
-        -> fault::code
+    auto verify_client_hello(const config &cfg, const tls::hello_features &client_hello) -> fault::code
     {
-        if (!client_hello.server_name.empty() &&
-            !match_sni(client_hello.server_name, cfg.server_names))
+        if (!client_hello.server_name.empty() && !match_sni(client_hello.server_name, cfg.server_names))
         {
             return fault::code::badsni;
         }
@@ -93,8 +96,8 @@ namespace psm::handshake::reality
         return fault::code::success;
     }
 
-
-    auto authenticate(const config &cfg, const tls::hello_features &client_hello, const std::span<const std::uint8_t> decoded_privkey)
+    auto authenticate(const config &cfg, const tls::hello_features &client_hello,
+                      const std::span<const std::uint8_t> decoded_privkey)
         -> std::pair<fault::code, auth_result>
     {
         auth_result result{};
@@ -127,17 +130,16 @@ namespace psm::handshake::reality
 
         // HKDF-Extract: 以 ClientHello.random 前 20 字节为 salt，X25519 共享密钥为 IKM
         // 派生出伪随机密钥 PRK，用于后续的认证密钥扩展
-        const auto prk = crypto::hkdf_extract(
-            std::span<const std::uint8_t>(client_hello.random.data(), 20),
-            std::span<const std::uint8_t>(shared_secret.data(), shared_secret.size()));
+        const auto prk =
+            crypto::hkdf_extract(std::span<const std::uint8_t>(client_hello.random.data(), 20),
+                                 std::span<const std::uint8_t>(shared_secret.data(), shared_secret.size()));
 
         // HKDF-Expand: 以 PRK 为输入，info 为 "REALITY"，扩展出 32 字节认证密钥
         // 用于后续 AEAD 解密 ClientHello.session_id 中嵌入的认证数据
         constexpr std::array<std::uint8_t, 7> reality_info{'R', 'E', 'A', 'L', 'I', 'T', 'Y'};
-        const auto [expand_ec, auth_key_vec] = crypto::hkdf_expand(
-            std::span<const std::uint8_t>(prk.data(), prk.size()),
-            std::span<const std::uint8_t>(reality_info.data(), reality_info.size()),
-            32);
+        const auto [expand_ec, auth_key_vec] =
+            crypto::hkdf_expand(std::span<const std::uint8_t>(prk.data(), prk.size()),
+                                std::span<const std::uint8_t>(reality_info.data(), reality_info.size()), 32);
 
         if (fault::failed(expand_ec))
         {
@@ -193,12 +195,12 @@ namespace psm::handshake::reality
         return {fault::code::success, result};
     }
 
-
-    auto hex_decode(const std::string_view hex)
-        -> memory::vector<std::uint8_t>
+    auto hex_decode(const std::string_view hex) -> memory::vector<std::uint8_t>
     {
         if (hex.empty())
+        {
             return {};
+        }
 
         memory::vector<std::uint8_t> bytes;
         bytes.reserve(hex.size() / 2);
@@ -208,22 +210,28 @@ namespace psm::handshake::reality
             const auto hi = hex_digit(hex[i]);
             const auto lo = hex_digit(hex[i + 1]);
             if (hi < 0 || lo < 0)
+            {
                 return {};
+            }
             bytes.push_back(static_cast<std::uint8_t>((hi << 4) | lo));
         }
         return bytes;
     }
 
-
-    auto hex_digit(const char c)
-        -> std::int32_t
+    auto hex_digit(const char c) -> std::int32_t
     {
         if (c >= '0' && c <= '9')
+        {
             return c - '0';
+        }
         if (c >= 'a' && c <= 'f')
+        {
             return c - 'a' + 10;
+        }
         if (c >= 'A' && c <= 'F')
+        {
             return c - 'A' + 10;
+        }
         return -1;
     }
 } // namespace psm::handshake::reality

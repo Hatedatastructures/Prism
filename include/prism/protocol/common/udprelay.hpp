@@ -8,13 +8,13 @@
 
 #pragma once
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/foundation/fault/handling.hpp>
-#include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/common/address.hpp>
-#include <prism/net/connection/target.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/net/connection/target.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/common/address.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -24,7 +24,6 @@
 #include <functional>
 #include <string_view>
 #include <tuple>
-
 
 namespace psm::protocol::common
 {
@@ -36,7 +35,7 @@ namespace psm::protocol::common
      * @brief UDP 流量通知回调类型
      * @details 使用函数指针 + void* 避免热路径堆分配
      */
-    using traffic_callback = void(*)(void *ctx, std::uint64_t up, std::uint64_t down) noexcept;
+    using traffic_callback = void (*)(void *ctx, std::uint64_t up, std::uint64_t down) noexcept;
 
     /**
      * @struct loop_cfg (文档注释引用旧名)
@@ -46,11 +45,11 @@ namespace psm::protocol::common
      */
     struct loop_cfg
     {
-        net::steady_timer &idle_timer;      // 空闲超时计时器
-        std::uint32_t idle_timeout;         // 空闲超时时间（秒）
-        std::uint32_t max_datagram;         // 最大数据报长度
+        net::steady_timer &idle_timer;        // 空闲超时计时器
+        std::uint32_t idle_timeout;           // 空闲超时时间（秒）
+        std::uint32_t max_datagram;           // 最大数据报长度
         traffic_callback on_traffic{nullptr}; // 流量通知回调
-        void *traffic_ctx{nullptr};         // 回调上下文
+        void *traffic_ctx{nullptr};           // 回调上下文
     };
 
     /**
@@ -66,8 +65,7 @@ namespace psm::protocol::common
         memory::vector<std::byte> response; // 响应缓冲区
 
         explicit udp_buffers(const std::size_t max_datagram)
-            : recv(max_datagram, memory::current_resource()),
-              send(memory::current_resource()),
+            : recv(max_datagram, memory::current_resource()), send(memory::current_resource()),
               response(max_datagram, memory::current_resource())
         {
         }
@@ -81,7 +79,7 @@ namespace psm::protocol::common
      */
     struct relay_opts
     {
-        net::ip::udp::socket &udp_socket;  ///< UDP socket 引用，延迟打开并复用
+        net::ip::udp::socket &udp_socket;        ///< UDP socket 引用，延迟打开并复用
         const net::ip::udp::endpoint &target_ep; ///< 目标端点
         std::span<const std::byte> payload;      ///< 载荷数据
         udp_buffers &buf;                        ///< 缓冲区集合
@@ -112,7 +110,8 @@ namespace psm::protocol::common
         }
 
         auto token = net::redirect_error(net::use_awaitable, udp_ec);
-        co_await opts.udp_socket.async_send_to(net::buffer(opts.payload.data(), opts.payload.size()), opts.target_ep, token);
+        co_await opts.udp_socket.async_send_to(net::buffer(opts.payload.data(), opts.payload.size()),
+                                               opts.target_ep, token);
         if (udp_ec)
         {
             diagnose::debug("Send failed: {}", udp_ec.message());
@@ -143,9 +142,9 @@ namespace psm::protocol::common
     template <typename BuildFn, typename UdpFrame>
     struct resp_ctx
     {
-        const net::ip::udp::endpoint &sender_ep;       // UDP 响应来源端点
-        std::size_t resp_n;                            // 响应数据长度
-        std::decay_t<BuildFn> build_fn;                // UDP 帧构建函数
+        const net::ip::udp::endpoint &sender_ep; // UDP 响应来源端点
+        std::size_t resp_n;                      // 响应数据长度
+        std::decay_t<BuildFn> build_fn;          // UDP 帧构建函数
     };
 
     /**
@@ -161,9 +160,11 @@ namespace psm::protocol::common
     template <typename ParseFn, typename BuildFn, typename UdpFrame, typename UdpParseResult>
     struct frame_ctx
     {
-        std::decay_t<ParseFn> parse_fn;  // UDP 数据包解析函数
-        std::decay_t<BuildFn> build_fn;  // UDP 帧构建函数
-        std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)> route_cb; // 路由回调
+        std::decay_t<ParseFn> parse_fn; // UDP 数据包解析函数
+        std::decay_t<BuildFn> build_fn; // UDP 帧构建函数
+        std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view,
+                                                                                     std::string_view)>
+            route_cb; // 路由回调
     };
 
     /**
@@ -178,11 +179,8 @@ namespace psm::protocol::common
      * 根据 sender_ep 的地址族自动选择 IPv4/IPv6 地址类型
      */
     template <typename BuildFn, typename UdpFrame>
-    [[nodiscard]] auto send_frame(
-        transport::transmission &transport,
-        const resp_ctx<BuildFn, UdpFrame> &ctx,
-        udp_buffers &buf)
-            -> net::awaitable<bool>
+    [[nodiscard]] auto send_frame(transport::transmission &transport, const resp_ctx<BuildFn, UdpFrame> &ctx,
+                                  udp_buffers &buf) -> net::awaitable<bool>
     {
         buf.send.clear();
         UdpFrame frame;
@@ -222,11 +220,9 @@ namespace psm::protocol::common
      * 该模板合并了 Trojan 和 VLESS 中完全相同的 UDP 帧循环逻辑
      */
     template <typename ParseFn, typename BuildFn, typename UdpFrame, typename UdpParseResult>
-    [[nodiscard]] auto frame_loop(
-        transport::transmission &tls_transport,
-        frame_ctx<ParseFn, BuildFn, UdpFrame, UdpParseResult> frame_ctx,
-        loop_cfg config)
-            -> net::awaitable<void>
+    [[nodiscard]] auto frame_loop(transport::transmission &tls_transport,
+                                  frame_ctx<ParseFn, BuildFn, UdpFrame, UdpParseResult> frame_ctx,
+                                  loop_cfg config) -> net::awaitable<void>
     {
         using boost::asio::experimental::awaitable_operators::operator||;
 
@@ -239,12 +235,10 @@ namespace psm::protocol::common
         {
             config.idle_timer.expires_after(std::chrono::seconds(config.idle_timeout));
 
-            auto do_read = [&]()
-                -> net::awaitable<std::size_t>
+            auto do_read = [&]() -> net::awaitable<std::size_t>
             {
                 std::error_code ec;
-                const auto n = co_await tls_transport.async_read_some(
-                    {buf.recv.data(), buf.recv.size()}, ec);
+                const auto n = co_await tls_transport.async_read_some({buf.recv.data(), buf.recv.size()}, ec);
                 if (ec || n == 0)
                 {
                     co_return 0;
@@ -286,7 +280,8 @@ namespace psm::protocol::common
 
             const auto target_host = addr_to_str(parsed.destination_address, memory::current_resource());
             char port_buf[8];
-            const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), parsed.destination_port);
+            const auto [port_end, port_ec] =
+                std::to_chars(port_buf, port_buf + sizeof(port_buf), parsed.destination_port);
             const std::string_view target_port(port_buf, std::distance(port_buf, port_end));
 
             auto [route_ec, target_ep] = co_await frame_ctx.route_cb(target_host, target_port);
@@ -296,7 +291,8 @@ namespace psm::protocol::common
                 continue;
             }
 
-            const auto payload = std::span<const std::byte>(buf.recv.data() + parsed.payload_offset, parsed.payload_size);
+            const auto payload =
+                std::span<const std::byte>(buf.recv.data() + parsed.payload_offset, parsed.payload_size);
             auto [relay_ec, resp_n, sender_ep] = co_await relay_packet({udp_socket, target_ep, payload, buf});
             if (fault::failed(relay_ec))
             {
@@ -306,9 +302,7 @@ namespace psm::protocol::common
             uplink_bytes += static_cast<std::uint64_t>(payload.size());
 
             if (!co_await send_frame<BuildFn, UdpFrame>(
-                    tls_transport,
-                    resp_ctx<BuildFn, UdpFrame>{sender_ep, resp_n, frame_ctx.build_fn},
-                    buf))
+                    tls_transport, resp_ctx<BuildFn, UdpFrame>{sender_ep, resp_n, frame_ctx.build_fn}, buf))
             {
                 if (config.on_traffic)
                 {

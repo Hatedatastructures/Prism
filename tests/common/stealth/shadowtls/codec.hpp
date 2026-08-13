@@ -12,9 +12,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/stealth/shadowtls/types.hpp>
-
 #include <openssl/crypto.h>
 #include <openssl/hmac.h>
 #include <openssl/sha.h>
@@ -27,14 +24,17 @@
 #include <string_view>
 #include <vector>
 
+#include <common/core/error.hpp>
+#include <common/stealth/shadowtls/types.hpp>
+
 namespace psmtest::shadowtls
 {
 
     /// session_id 生成输入（password + client_hello + 输出 sid）
     struct session_id_input
     {
-        std::string_view password;             ///< 密码
-        std::span<const std::uint8_t> client_hello;  ///< 不含 TLS 头的握手数据
+        std::string_view password;                             ///< 密码
+        std::span<const std::uint8_t> client_hello;            ///< 不含 TLS 头的握手数据
         std::span<std::uint8_t, tls_session_id_sz> session_id; ///< 输出 sid（32B）
     };
 
@@ -51,12 +51,16 @@ namespace psmtest::shadowtls
         const auto &client_hello = in.client_hello;
         auto &session_id = in.session_id;
         if (client_hello.size() < session_id_start + tls_session_id_sz)
+        {
             return error::bad_length;
+        }
 
         // HMAC-SHA1(password, client_hello[:sidStart] + sessionID + client_hello[sidEnd:])[:4]
         HMAC_CTX *ctx = HMAC_CTX_new();
         if (!ctx)
+        {
             return error::io_error;
+        }
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
         HMAC_Update(ctx, client_hello.data(), session_id_start);
         HMAC_Update(ctx, session_id.data(), tls_session_id_sz);
@@ -80,19 +84,23 @@ namespace psmtest::shadowtls
      * HMAC-SHA1(password, hello[5:] 且 session_id 末尾 4 字节置零)[:4] == session_id 末尾 4 字节。
      */
     [[nodiscard]] inline auto verify_client_hello(std::string_view password,
-                                                  std::span<const std::byte> client_hello)
-        -> bool
+                                                  std::span<const std::byte> client_hello) -> bool
     {
-        constexpr std::size_t min_len =
-            tls_hdrsize + 1 + 3 + 2 + tls_rnd_size + 1 + tls_session_id_sz;
+        constexpr std::size_t min_len = tls_hdrsize + 1 + 3 + 2 + tls_rnd_size + 1 + tls_session_id_sz;
         if (client_hello.size() < min_len)
+        {
             return false;
+        }
         const auto *raw = reinterpret_cast<const std::uint8_t *>(client_hello.data());
         if (raw[0] != 0x16 || raw[tls_hdrsize] != hs_type_clienthello)
+        {
             return false;
+        }
         const std::size_t sid_len_idx = tls_hdrsize + 1 + 3 + 2 + tls_rnd_size;
         if (raw[sid_len_idx] != tls_session_id_sz)
+        {
             return false;
+        }
 
         // 构造 HMAC 数据：hello[5:] 且 session_id 末尾 4 字节置零
         const std::size_t data_size = client_hello.size() - tls_hdrsize;
@@ -104,7 +112,9 @@ namespace psmtest::shadowtls
         // 期望 HMAC
         HMAC_CTX *ctx = HMAC_CTX_new();
         if (!ctx)
+        {
             return false;
+        }
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
         HMAC_Update(ctx, hmac_data.data(), hmac_data.size());
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
@@ -120,10 +130,10 @@ namespace psmtest::shadowtls
     /// 帧 HMAC 输入（password + server_random + tag + payload）
     struct frame_hmac_input
     {
-        std::string_view password;                 ///< 密码
+        std::string_view password;                   ///< 密码
         std::span<const std::uint8_t> server_random; ///< 32 字节 server random
-        char tag{'C'};                             ///< 标签（'C' 客户端 / 'S' 服务端）
-        std::span<const std::uint8_t> payload;     ///< 载荷
+        char tag{'C'};                               ///< 标签（'C' 客户端 / 'S' 服务端）
+        std::span<const std::uint8_t> payload;       ///< 载荷
     };
 
     /**
@@ -131,12 +141,13 @@ namespace psmtest::shadowtls
      * @param in 输入
      * @return 4 字节 HMAC
      */
-    [[nodiscard]] inline auto frame_hmac(const frame_hmac_input &in)
-    -> std::array<std::uint8_t, hmac_size>
+    [[nodiscard]] inline auto frame_hmac(const frame_hmac_input &in) -> std::array<std::uint8_t, hmac_size>
     {
         HMAC_CTX *ctx = HMAC_CTX_new();
         if (!ctx)
+        {
             return {};
+        }
         HMAC_Init_ex(ctx, in.password.data(), static_cast<int>(in.password.size()), EVP_sha1(), nullptr);
         HMAC_Update(ctx, in.server_random.data(), in.server_random.size());
         const auto tag_byte = static_cast<std::uint8_t>(in.tag);
@@ -158,9 +169,8 @@ namespace psmtest::shadowtls
      * @param server_random 32 字节 server random
      * @return SHA256(password + serverRandom)
      */
-    [[nodiscard]] inline auto kdf(std::string_view password,
-                                  std::span<const std::uint8_t> server_random)
-    -> std::array<std::uint8_t, 32>
+    [[nodiscard]] inline auto kdf(std::string_view password, std::span<const std::uint8_t> server_random)
+        -> std::array<std::uint8_t, 32>
     {
         SHA256_CTX ctx;
         SHA256_Init(&ctx);
@@ -179,9 +189,13 @@ namespace psmtest::shadowtls
     inline auto xor_slice(std::span<std::uint8_t> data, std::span<const std::uint8_t> key) -> void
     {
         if (key.empty())
+        {
             return;
+        }
         for (std::size_t i = 0; i < data.size(); ++i)
+        {
             data[i] ^= key[i % key.size()];
+        }
     }
 
 } // namespace psmtest::shadowtls

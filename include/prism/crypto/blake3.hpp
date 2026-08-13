@@ -20,7 +20,6 @@
 
 #include <blake3.h>
 
-
 namespace psm::crypto
 {
 
@@ -33,7 +32,8 @@ namespace psm::crypto
      * @param material 输入密钥材料
      * @param out 输出缓冲区，其大小决定派生密钥长度
      */
-    void derive_key(std::string_view context, std::span<const std::uint8_t> material, std::span<std::uint8_t> out);
+    void derive_key(std::string_view context, std::span<const std::uint8_t> material,
+                    std::span<std::uint8_t> out);
 
     /**
      * @brief BLAKE3 密钥派生（返回 vector 版本）
@@ -44,8 +44,8 @@ namespace psm::crypto
      * @param out_len 输出密钥长度
      * @return 派生出的密钥字节
      */
-    [[nodiscard]] auto derive_key(std::string_view context, std::span<const std::uint8_t> material, std::size_t out_len)
-        -> std::vector<std::uint8_t>;
+    [[nodiscard]] auto derive_key(std::string_view context, std::span<const std::uint8_t> material,
+                                  std::size_t out_len) -> std::vector<std::uint8_t>;
 
     /**
      * @brief 初始化 BLAKE3 keyed hasher
@@ -56,8 +56,7 @@ namespace psm::crypto
      * @param key 密钥，必须恰好 32 字节（BLAKE3_KEY_LEN）
      * @return 已初始化的 blake3_hasher（值类型，可直接使用）
      */
-    [[nodiscard]] auto keyed_hasher(std::span<const std::uint8_t> key)
-        -> blake3_hasher;
+    [[nodiscard]] auto keyed_hasher(std::span<const std::uint8_t> key) -> blake3_hasher;
 
     /**
      * @brief BLAKE3 密钥化哈希（便捷函数）
@@ -76,6 +75,5 @@ namespace psm::crypto
      * @param data 待哈希数据
      * @return 32 字节哈希值
      */
-    [[nodiscard]] auto hash(std::span<const std::uint8_t> data)
-        -> std::array<std::uint8_t, 32>;
+    [[nodiscard]] auto hash(std::span<const std::uint8_t> data) -> std::array<std::uint8_t, 32>;
 } // namespace psm::crypto

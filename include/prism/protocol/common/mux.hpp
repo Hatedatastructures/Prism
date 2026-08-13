@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <string_view>
 
-
 namespace psm::protocol
 {
 
@@ -19,8 +18,8 @@ namespace psm::protocol
      */
     enum class mux_switch : std::uint8_t
     {
-        off,  ///< 禁用多路复用
-        on    ///< 启用多路复用
+        off, ///< 禁用多路复用
+        on   ///< 启用多路复用
     };
 
     /**
@@ -31,11 +30,12 @@ namespace psm::protocol
      * @details 检测目标主机名是否以 ".mux.sing-box.arpa" 结尾，
      * 这是 Mihomo/sing-box 兼容的 mux 多路复用标记地址。
      */
-    [[nodiscard]] inline auto is_mux_target(std::string_view host, mux_switch mux) noexcept
-        -> bool
+    [[nodiscard]] inline auto is_mux_target(std::string_view host, mux_switch mux) noexcept -> bool
     {
         if (mux != mux_switch::on)
+        {
             return false;
+        }
         constexpr std::string_view suffix = ".mux.sing-box.arpa";
         return host.size() >= suffix.size() && host.substr(host.size() - suffix.size()) == suffix;
     }

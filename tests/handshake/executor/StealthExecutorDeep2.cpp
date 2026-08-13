@@ -6,17 +6,16 @@
  *          覆盖 executor.cpp 未覆盖的行 52-56, 66, 75, 78-82, 235。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 
 #include "common/MockTransport.hpp"
+#include <gtest/gtest.h>
 
 // ── 关键：在 connect/util.hpp 等传递依赖之前，先以 private=open 包含 snapshot + executor ──
 // 这样 snapshot.hpp 的 #pragma once 会确保 private 成员对外开放
 #define private public
-#include <prism/net/transport/snapshot.hpp>
 #include <prism/handshake/executor.hpp>
+#include <prism/net/transport/snapshot.hpp>
 #undef private
 
 #include <prism/handshake/native.hpp>

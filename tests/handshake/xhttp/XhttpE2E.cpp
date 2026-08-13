@@ -11,18 +11,18 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/xhttp/session.hpp>
 #include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/transport/adapter/connector.hpp>
 #include <prism/net/transport/encrypted.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/net/transport/adapter/connector.hpp>
 
-#include <nghttp2/nghttp2.h>
+#include <openssl/evp.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
-#include <openssl/evp.h>
-
-#include <gtest/gtest.h>
 
 #include <memory>
+
+#include <gtest/gtest.h>
+#include <nghttp2/nghttp2.h>
 
 namespace
 {
@@ -36,8 +36,11 @@ namespace
     {
         auto *pkey_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
         EVP_PKEY *pkey = nullptr;
-        if (pkey_ctx && EVP_PKEY_keygen_init(pkey_ctx) > 0 && EVP_PKEY_CTX_set_rsa_keygen_bits(pkey_ctx, 2048) > 0)
+        if (pkey_ctx && EVP_PKEY_keygen_init(pkey_ctx) > 0 &&
+            EVP_PKEY_CTX_set_rsa_keygen_bits(pkey_ctx, 2048) > 0)
+        {
             EVP_PKEY_keygen(pkey_ctx, &pkey);
+        }
         EVP_PKEY_CTX_free(pkey_ctx);
         ASSERT_NE(pkey, nullptr);
 
@@ -72,18 +75,18 @@ namespace
         bool got_200{false};
     };
 
-    auto on_client_send(nghttp2_session *, const uint8_t *data, const size_t len, int, void *user_data) -> ssize_t
+    auto on_client_send(nghttp2_session *, const uint8_t *data, const size_t len, int, void *user_data)
+        -> ssize_t
     {
         auto *ctx = static_cast<client_ctx *>(user_data);
-        ctx->outbound.insert(ctx->outbound.end(),
-                             reinterpret_cast<const std::byte *>(data),
+        ctx->outbound.insert(ctx->outbound.end(), reinterpret_cast<const std::byte *>(data),
                              reinterpret_cast<const std::byte *>(data) + len);
         return static_cast<ssize_t>(len);
     }
 
     auto on_client_header(nghttp2_session *, const nghttp2_frame *frame, const uint8_t *name,
-                          const size_t namelen, const uint8_t *value, const size_t valuelen,
-                          uint8_t, void *user_data) -> int
+                          const size_t namelen, const uint8_t *value, const size_t valuelen, uint8_t,
+                          void *user_data) -> int
     {
         auto *ctx = static_cast<client_ctx *>(user_data);
         if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_RESPONSE)
@@ -91,17 +94,18 @@ namespace
             const std::string_view n(reinterpret_cast<const char *>(name), namelen);
             const std::string_view v(reinterpret_cast<const char *>(value), valuelen);
             if (n == ":status" && v == "200")
+            {
                 ctx->got_200 = true;
+            }
         }
         return 0;
     }
 
-    auto on_client_data(nghttp2_session *, uint8_t, const int32_t, const uint8_t *data,
-                        const size_t len, void *user_data) -> int
+    auto on_client_data(nghttp2_session *, uint8_t, const int32_t, const uint8_t *data, const size_t len,
+                        void *user_data) -> int
     {
         auto *ctx = static_cast<client_ctx *>(user_data);
-        ctx->received.insert(ctx->received.end(),
-                             reinterpret_cast<const std::byte *>(data),
+        ctx->received.insert(ctx->received.end(), reinterpret_cast<const std::byte *>(data),
                              reinterpret_cast<const std::byte *>(data) + len);
         return 0;
     }
@@ -112,8 +116,8 @@ namespace
         std::size_t offset{0};
     };
 
-    auto source_read_cb(nghttp2_session *, int32_t, uint8_t *buf, const size_t length,
-                        uint32_t *data_flags, nghttp2_data_source *source, void *) -> ssize_t
+    auto source_read_cb(nghttp2_session *, int32_t, uint8_t *buf, const size_t length, uint32_t *data_flags,
+                        nghttp2_data_source *source, void *) -> ssize_t
     {
         auto *ds = static_cast<data_source *>(source->ptr);
         const auto remaining = ds->buf->size() - ds->offset;
@@ -128,8 +132,8 @@ namespace
         return static_cast<ssize_t>(to_copy);
     }
 
-    net::awaitable<void> DoXhttpClient(std::shared_ptr<ssl_stream_t> ssl_stream,
-                                       const std::string &payload, std::shared_ptr<bool> ok)
+    net::awaitable<void> DoXhttpClient(std::shared_ptr<ssl_stream_t> ssl_stream, const std::string &payload,
+                                       std::shared_ptr<bool> ok)
     {
         boost::system::error_code hs_ec;
         co_await ssl_stream->async_handshake(net::ssl::stream_base::client,
@@ -155,25 +159,27 @@ namespace
         const std::string path = "/";
         const std::string authority = "example.com";
         nva[0] = {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":method")),
-                  const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(method.data())),
-                  7, method.size(), NGHTTP2_NV_FLAG_NONE};
+                  const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(method.data())), 7, method.size(),
+                  NGHTTP2_NV_FLAG_NONE};
         nva[1] = {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":path")),
-                  const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(path.data())),
-                  5, path.size(), NGHTTP2_NV_FLAG_NONE};
+                  const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(path.data())), 5, path.size(),
+                  NGHTTP2_NV_FLAG_NONE};
         nva[2] = {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":authority")),
-                  const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(authority.data())),
-                  10, authority.size(), NGHTTP2_NV_FLAG_NONE};
+                  const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(authority.data())), 10,
+                  authority.size(), NGHTTP2_NV_FLAG_NONE};
 
         std::vector<std::byte> body;
         for (const auto c : payload)
+        {
             body.push_back(static_cast<std::byte>(c));
+        }
 
         std::unique_ptr<data_source> src = std::make_unique<data_source>(data_source{&body, 0});
         nghttp2_data_provider dp;
         dp.source.ptr = src.get();
         dp.read_callback = source_read_cb;
-        const auto stream_id = nghttp2_submit_request(ctx.session, nullptr, nva.data(), nva.size(),
-                                                      &dp, &ctx);
+        const auto stream_id =
+            nghttp2_submit_request(ctx.session, nullptr, nva.data(), nva.size(), &dp, &ctx);
         if (stream_id < 0)
         {
             *ok = false;
@@ -205,13 +211,16 @@ namespace
         while (ctx.received.size() < payload.size() && std::chrono::steady_clock::now() < deadline)
         {
             std::error_code r_ec;
-            const auto n = co_await ssl_stream->async_read_some(net::buffer(buf.data(), buf.size()),
-                                                                net::redirect_error(net::use_awaitable, hs_ec));
+            const auto n = co_await ssl_stream->async_read_some(
+                net::buffer(buf.data(), buf.size()), net::redirect_error(net::use_awaitable, hs_ec));
             if (hs_ec || n == 0)
+            {
                 break;
-            if (nghttp2_session_mem_recv(ctx.session,
-                                         reinterpret_cast<const uint8_t *>(buf.data()), n) < 0)
+            }
+            if (nghttp2_session_mem_recv(ctx.session, reinterpret_cast<const uint8_t *>(buf.data()), n) < 0)
+            {
                 break;
+            }
             if (!ctx.outbound.empty())
             {
                 auto pending = std::move(ctx.outbound);
@@ -219,13 +228,15 @@ namespace
                 co_await ssl_stream->async_write_some(net::buffer(pending.data(), pending.size()),
                                                       net::redirect_error(net::use_awaitable, hs_ec));
                 if (hs_ec)
+                {
                     break;
+                }
             }
         }
 
-        *ok = ctx.got_200
-            && ctx.received.size() >= payload.size()
-            && std::string_view(reinterpret_cast<const char *>(ctx.received.data()), payload.size()) == payload;
+        *ok =
+            ctx.got_200 && ctx.received.size() >= payload.size() &&
+            std::string_view(reinterpret_cast<const char *>(ctx.received.data()), payload.size()) == payload;
 
         nghttp2_session_del(ctx.session);
         co_return;
@@ -235,8 +246,8 @@ namespace
                                        net::ssl::context &ssl_ctx, const std::string &payload,
                                        std::shared_ptr<bool> server_ok)
     {
-        auto [ssl_ec, ssl_stream, recovered] = co_await psm::transport::encrypted::ssl_handshake(
-            std::move(raw_trans), ssl_ctx);
+        auto [ssl_ec, ssl_stream, recovered] =
+            co_await psm::transport::encrypted::ssl_handshake(std::move(raw_trans), ssl_ctx);
         if (psm::fault::failed(ssl_ec) || !ssl_stream)
         {
             *server_ok = false;
@@ -294,44 +305,53 @@ TEST(XhttpE2E, StreamOneEcho)
     std::shared_ptr<ssl_stream_t> client_ssl;
     auto pair_ready = std::make_shared<bool>(false);
 
-    net::co_spawn(ioc, [&]() -> net::awaitable<void>
-    {
-        auto sock = co_await acceptor.async_accept(net::use_awaitable);
-        server_raw = psm::transport::make_reliable(std::move(sock));
-        *pair_ready = true;
-    }, net::detached);
-    net::co_spawn(ioc, [&]() -> net::awaitable<void>
-    {
-        tcp::socket sock(ioc);
-        co_await sock.async_connect(ep, net::use_awaitable);
-        auto trans = psm::transport::make_reliable(std::move(sock));
-        client_ssl = std::make_shared<ssl_stream_t>(connector(trans), client_ctx);
-    }, net::detached);
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
+        {
+            auto sock = co_await acceptor.async_accept(net::use_awaitable);
+            server_raw = psm::transport::make_reliable(std::move(sock));
+            *pair_ready = true;
+        },
+        net::detached);
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
+        {
+            tcp::socket sock(ioc);
+            co_await sock.async_connect(ep, net::use_awaitable);
+            auto trans = psm::transport::make_reliable(std::move(sock));
+            client_ssl = std::make_shared<ssl_stream_t>(connector(trans), client_ctx);
+        },
+        net::detached);
 
     const std::string payload = "xhttp stream-one echo";
     auto client_ok = std::make_shared<bool>(false);
     auto server_ok = std::make_shared<bool>(false);
 
-    net::co_spawn(ioc, [&]() -> net::awaitable<void>
-    {
-        while (!*pair_ready || !client_ssl)
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
         {
-            net::steady_timer t(ioc);
-            t.expires_after(std::chrono::milliseconds(10));
-            co_await t.async_wait(net::use_awaitable);
-        }
-        net::co_spawn(ioc, DoXhttpClient(client_ssl, payload, client_ok), net::detached);
-        net::co_spawn(ioc, DoXhttpServer(server_raw, ssl_ctx, payload, server_ok), net::detached);
+            while (!*pair_ready || !client_ssl)
+            {
+                net::steady_timer t(ioc);
+                t.expires_after(std::chrono::milliseconds(10));
+                co_await t.async_wait(net::use_awaitable);
+            }
+            net::co_spawn(ioc, DoXhttpClient(client_ssl, payload, client_ok), net::detached);
+            net::co_spawn(ioc, DoXhttpServer(server_raw, ssl_ctx, payload, server_ok), net::detached);
 
-        net::steady_timer done(ioc);
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
-        while ((!*client_ok || !*server_ok) && std::chrono::steady_clock::now() < deadline)
-        {
-            done.expires_after(std::chrono::milliseconds(20));
-            co_await done.async_wait(net::use_awaitable);
-        }
-        ioc.stop();
-    }, net::detached);
+            net::steady_timer done(ioc);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+            while ((!*client_ok || !*server_ok) && std::chrono::steady_clock::now() < deadline)
+            {
+                done.expires_after(std::chrono::milliseconds(20));
+                co_await done.async_wait(net::use_awaitable);
+            }
+            ioc.stop();
+        },
+        net::detached);
 
     ioc.run();
     EXPECT_TRUE(*server_ok) << "xhttp: server echo";

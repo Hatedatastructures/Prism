@@ -4,11 +4,10 @@
  * @details 测试 verify_basic_auth / resolve_stream_target
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/handshake/trusttunnel/scheme.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {

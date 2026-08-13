@@ -3,16 +3,16 @@
  * @brief Reality/Restls/ShadowTLS 方案纯接口测试
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/settings/settings.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/reality/scheme.hpp>
 #include <prism/handshake/restls/scheme.hpp>
-#include <prism/handshake/shadowtls/scheme.hpp>
 #include <prism/handshake/scheme.hpp>
+#include <prism/handshake/shadowtls/scheme.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -39,8 +39,7 @@ namespace
     TEST(StealthFacadeSchemes, RealityCategory)
     {
         psm::handshake::reality::scheme s;
-        EXPECT_EQ(s.category(), psm::handshake::scheme_category::facade)
-            << "reality: category=facade";
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::facade) << "reality: category=facade";
     }
 
     TEST(StealthFacadeSchemes, RealityActiveDisabled)
@@ -120,8 +119,7 @@ namespace
     TEST(StealthFacadeSchemes, RestlsCategory)
     {
         psm::handshake::restls::scheme s;
-        EXPECT_EQ(s.category(), psm::handshake::scheme_category::facade)
-            << "restls: category=facade";
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::facade) << "restls: category=facade";
     }
 
     TEST(StealthFacadeSchemes, RestlsActiveDisabled)
@@ -199,8 +197,7 @@ namespace
     TEST(StealthFacadeSchemes, ShadowtlsCategory)
     {
         psm::handshake::shadowtls::scheme s;
-        EXPECT_EQ(s.category(), psm::handshake::scheme_category::facade)
-            << "shadowtls: category=facade";
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::facade) << "shadowtls: category=facade";
     }
 
     TEST(StealthFacadeSchemes, ShadowtlsActiveV3Disabled)

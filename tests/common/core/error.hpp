@@ -14,8 +14,8 @@
 #include <boost/system/error_code.hpp>
 #include <boost/system/system_error.hpp>
 
-#include <system_error>
 #include <string>
+#include <system_error>
 
 namespace psmtest
 {
@@ -78,58 +78,46 @@ namespace psmtest
             {
                 switch (static_cast<error>(ev))
                 {
-                    case error::none:
-                        return "no error";
-                    case error::need_more:
-                        return "need more data";
-                    case error::unexpected_eof:
-                        return "unexpected end of stream";
-                    case error::bad_length:
-                        return "bad message length";
-                    case error::bad_magic:
-                        return "bad magic or version";
-                    case error::bad_auth:
-                        return "authentication failed";
-                    case error::auth_failed:
-                        return "authentication failed";
-                    case error::version_mismatch:
-                        return "version mismatch";
-                    case error::not_supported:
-                        return "not supported";
-                    case error::bad_message:
-                        return "malformed message";
-                    case error::bad_address:
-                        return "invalid target address";
-                    case error::not_open:
-                        return "stream not open";
-                    case error::canceled:
-                        return "operation canceled";
-                    case error::timeout:
-                        return "operation timed out";
-                    case error::broken_pipe:
-                        return "broken pipe";
-                    case error::protocol_error:
-                        return "protocol state error";
-                    case error::kdf_error:
-                        return "key derivation failed";
-                    case error::unsupported:
-                        return "unsupported feature";
-                    case error::io_error:
-                        return "io error";
+                case error::none: return "no error";
+                case error::need_more: return "need more data";
+                case error::unexpected_eof: return "unexpected end of stream";
+                case error::bad_length: return "bad message length";
+                case error::bad_magic: return "bad magic or version";
+                case error::bad_auth: return "authentication failed";
+                case error::auth_failed: return "authentication failed";
+                case error::version_mismatch: return "version mismatch";
+                case error::not_supported: return "not supported";
+                case error::bad_message: return "malformed message";
+                case error::bad_address: return "invalid target address";
+                case error::not_open: return "stream not open";
+                case error::canceled: return "operation canceled";
+                case error::timeout: return "operation timed out";
+                case error::broken_pipe: return "broken pipe";
+                case error::protocol_error: return "protocol state error";
+                case error::kdf_error: return "key derivation failed";
+                case error::unsupported: return "unsupported feature";
+                case error::io_error: return "io error";
                 }
                 return "unknown protocol error";
             }
         };
     } // namespace detail
 
-    /// 获取协议库错误分类器
+    /**
+     * @brief 获取协议库错误分类器
+     * @return 协议库错误分类器（const 引用）
+     */
     [[nodiscard]] inline auto error_category() noexcept -> const boost::system::error_category &
     {
         static const detail::protocol_category category;
         return category;
     }
 
-    /// 构造协议错误码（Beast 风格：make_error_code 重载支持）
+    /**
+     * @brief 构造协议错误码（Beast 风格：make_error_code 重载支持）
+     * @param e 协议错误枚举值
+     * @return 对应的 boost::system::error_code
+     */
     [[nodiscard]] inline auto make_error_code(error e) noexcept -> boost::system::error_code
     {
         return {static_cast<int>(e), error_category()};

@@ -24,7 +24,9 @@ namespace psm::handshake::ws::codec
 
         const auto encoded_len = ((digest.size() + 2) / 3) * 4;
         if (encoded_len != out.size())
+        {
             return false;
+        }
         EVP_EncodeBlock(reinterpret_cast<std::uint8_t *>(out.data()), digest.data(),
                         static_cast<int>(digest.size()));
         return true;
@@ -33,7 +35,9 @@ namespace psm::handshake::ws::codec
     auto parse_frame_header(const std::span<const std::byte> in, frame_header &header) -> bool
     {
         if (in.size() < 2)
+        {
             return false;
+        }
 
         const auto b0 = static_cast<std::uint8_t>(in[0]);
         const auto b1 = static_cast<std::uint8_t>(in[1]);
@@ -47,18 +51,24 @@ namespace psm::handshake::ws::codec
         if (len == 126)
         {
             if (in.size() < offset + 2)
+            {
                 return false;
-            len = (static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[offset])) << 8)
-                | static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[offset + 1]));
+            }
+            len = (static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[offset])) << 8) |
+                  static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[offset + 1]));
             offset += 2;
         }
         else if (len == 127)
         {
             if (in.size() < offset + 8)
+            {
                 return false;
+            }
             len = 0;
             for (std::size_t i = 0; i < 8; ++i)
+            {
                 len = (len << 8) | static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[offset + i]));
+            }
             offset += 8;
         }
         header.payload_len = len;
@@ -66,7 +76,9 @@ namespace psm::handshake::ws::codec
         if (header.masked)
         {
             if (in.size() < offset + 4)
+            {
                 return false;
+            }
             std::memcpy(header.mask.data(), in.data() + offset, 4);
             offset += 4;
         }
@@ -81,12 +93,18 @@ namespace psm::handshake::ws::codec
         const auto len = payload.size();
         std::size_t header_len = 2;
         if (len >= 126 && len <= 0xFFFF)
+        {
             header_len += 2;
+        }
         else if (len > 0xFFFF)
+        {
             header_len += 8;
+        }
 
         if (out.size() < header_len + len)
+        {
             return 0;
+        }
 
         const auto b0 = static_cast<std::uint8_t>(static_cast<std::uint8_t>(op)) | (fin ? 0x80 : 0x00);
         out[0] = static_cast<std::byte>(b0);
@@ -106,7 +124,9 @@ namespace psm::handshake::ws::codec
         {
             out[1] = std::byte{127};
             for (int i = 7; i >= 0; --i)
+            {
                 out[offset++] = static_cast<std::byte>((len >> (8 * i)) & 0xFF);
+            }
         }
 
         std::memcpy(out.data() + offset, payload.data(), len);

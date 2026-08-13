@@ -10,18 +10,17 @@
  *          0x05 = tuic 认证。
  */
 
-#include <prism/runtime/front/quic_gateway.hpp>
-
-#include <prism/user/directory.hpp>
-#include <prism/resource/session.hpp>
-#include <prism/protocol/handler.hpp>
-#include <prism/protocol/tuic/handler.hpp>
-#include <prism/protocol/tuic/codec.hpp>
-#include <prism/protocol/vmess/codec/kdf.hpp>
-#include <prism/runtime/session/session.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/protocol/handler.hpp>
+#include <prism/protocol/tuic/codec.hpp>
+#include <prism/protocol/tuic/handler.hpp>
+#include <prism/protocol/vmess/codec/kdf.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/runtime/front/quic_gateway.hpp>
+#include <prism/runtime/session/session.hpp>
+#include <prism/user/directory.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -39,9 +38,7 @@ namespace psm::runtime::front
 
     quic_gateway::quic_gateway(const psm::settings &cfg, balancer &dispatcher,
                                psm::memory::vector<std::shared_ptr<psm::resource::worker>> workers)
-        : cfg_(cfg)
-        , dispatcher_(dispatcher)
-        , workers_(std::move(workers))
+        : cfg_(cfg), dispatcher_(dispatcher), workers_(std::move(workers))
     {
     }
 
@@ -51,22 +48,22 @@ namespace psm::runtime::front
         const auto addr = net::ip::make_address(ep.host);
         socket_ = std::make_shared<udp::socket>(ioc_, udp::endpoint(addr, ep.port));
 
-        net::co_spawn(ioc_, [self = shared_from_this()]() -> net::awaitable<void>
-                      {
-                          co_await self->receive_loop();
-                      }, net::detached);
+        net::co_spawn(
+            ioc_, [self = shared_from_this()]() -> net::awaitable<void> { co_await self->receive_loop(); },
+            net::detached);
 
-        thread_ = std::make_unique<std::thread>([this]()
-        {
-            try
+        thread_ = std::make_unique<std::thread>(
+            [this]()
             {
-                ioc_.run();
-            }
-            catch (const std::exception &e)
-            {
-                diagnose::error("quic gateway exception: {}", e.what());
-            }
-        });
+                try
+                {
+                    ioc_.run();
+                }
+                catch (const std::exception &e)
+                {
+                    diagnose::error("quic gateway exception: {}", e.what());
+                }
+            });
         diagnose::info("quic gateway listening on udp {}:{}", ep.host, ep.port);
     }
 
@@ -80,17 +77,17 @@ namespace psm::runtime::front
         }
         ioc_.stop();
         if (thread_ && thread_->joinable())
+        {
             thread_->join();
+        }
     }
 
     auto quic_gateway::conn_key(const udp::endpoint &ep) noexcept -> std::uint64_t
     {
         const auto bytes = ep.address().to_v4().to_bytes();
-        return (static_cast<std::uint64_t>(bytes[0]) << 40)
-            | (static_cast<std::uint64_t>(bytes[1]) << 32)
-            | (static_cast<std::uint64_t>(bytes[2]) << 24)
-            | (static_cast<std::uint64_t>(bytes[3]) << 16)
-            | static_cast<std::uint64_t>(ep.port());
+        return (static_cast<std::uint64_t>(bytes[0]) << 40) | (static_cast<std::uint64_t>(bytes[1]) << 32) |
+               (static_cast<std::uint64_t>(bytes[2]) << 24) | (static_cast<std::uint64_t>(bytes[3]) << 16) |
+               static_cast<std::uint64_t>(ep.port());
     }
 
     auto quic_gateway::pick_worker(const udp::endpoint &peer) -> std::shared_ptr<psm::resource::worker>
@@ -106,11 +103,12 @@ namespace psm::runtime::front
         {
             boost::system::error_code ec;
             udp::endpoint from;
-            const auto n = co_await socket_->async_receive_from(
-                net::buffer(buf.data(), buf.size()), from,
-                net::redirect_error(net::use_awaitable, ec));
+            const auto n = co_await socket_->async_receive_from(net::buffer(buf.data(), buf.size()), from,
+                                                                net::redirect_error(net::use_awaitable, ec));
             if (ec || closed_)
+            {
                 break;
+            }
             co_await on_packet(from, std::span<const std::byte>(buf.data(), n));
         }
     }
@@ -119,7 +117,9 @@ namespace psm::runtime::front
         -> net::awaitable<void>
     {
         if (data.empty())
+        {
             co_return;
+        }
         const auto key = conn_key(from);
         auto it = conns_.find(key);
         if (it == conns_.end())
@@ -143,13 +143,18 @@ namespace psm::runtime::front
             auto conn = state.conn;
             conn->on_stream = [self = shared_from_this(), key](quic::shared_stream stream)
             {
-                net::co_spawn(self->ioc_, [self, key, stream]() -> net::awaitable<void>
-                {
-                    auto it = self->conns_.find(key);
-                    if (it == self->conns_.end())
-                        co_return;
-                    co_await self->on_stream(it->second, std::move(stream));
-                }, net::detached);
+                net::co_spawn(
+                    self->ioc_,
+                    [self, key, stream]() -> net::awaitable<void>
+                    {
+                        auto it = self->conns_.find(key);
+                        if (it == self->conns_.end())
+                        {
+                            co_return;
+                        }
+                        co_await self->on_stream(it->second, std::move(stream));
+                    },
+                    net::detached);
             };
             conns_.emplace(key, std::move(state));
             co_await conn->handle_datagram(from, data);
@@ -158,8 +163,7 @@ namespace psm::runtime::front
         co_await it->second.conn->handle_datagram(from, data);
     }
 
-    auto quic_gateway::on_stream(connection_state &state, quic::shared_stream stream)
-        -> net::awaitable<void>
+    auto quic_gateway::on_stream(connection_state &state, quic::shared_stream stream) -> net::awaitable<void>
     {
         const auto h2_enabled = cfg_.stealth.hysteria2.enabled();
         const auto tuic_enabled = cfg_.stealth.tuic.enabled();
@@ -184,9 +188,10 @@ namespace psm::runtime::front
                     // h3 控制流 / QPACK 流 → 喂 nghttp3（内部按流类型分发）
                     start_h3(state);
                     if (!state.h3)
+                    {
                         co_return;
-                    co_spawn(ioc_, h3_read_stream(state, std::move(stream), first, true),
-                             net::detached);
+                    }
+                    co_spawn(ioc_, h3_read_stream(state, std::move(stream), first, true), net::detached);
                 }
                 else if (fb == 0x05 && tuic_enabled)
                 {
@@ -235,9 +240,10 @@ namespace psm::runtime::front
             state.auth_started = true;
             start_h3(state);
             if (!state.h3)
+            {
                 co_return;
-            co_spawn(ioc_, h3_read_stream(state, std::move(stream), first, true),
-                     net::detached);
+            }
+            co_spawn(ioc_, h3_read_stream(state, std::move(stream), first, true), net::detached);
             co_return;
         }
 
@@ -249,19 +255,24 @@ namespace psm::runtime::front
         else if (state.type == psm::connect::protocol_type::tuic)
         {
             if (stream->is_uni())
+            {
                 co_await launch_udp_channel(state, std::move(stream));
+            }
             else
+            {
                 co_await launch_handler(state, std::move(stream));
+            }
         }
     }
 
     void quic_gateway::start_h3(connection_state &state)
     {
         if (state.h3)
+        {
             return;
+        }
 
-        state.h3 = std::make_shared<psm::protocol::hysteria2::h3::server>(
-            psm::memory::current_resource());
+        state.h3 = std::make_shared<psm::protocol::hysteria2::h3::server>(psm::memory::current_resource());
         auto conn = state.conn;
         if (!state.h3->init([conn]() -> std::int64_t { return conn->open_uni_stream(); }))
         {
@@ -279,16 +290,20 @@ namespace psm::runtime::front
         auto self = shared_from_this();
         auto it = self->conns_.find(key);
         if (it == self->conns_.end())
+        {
             co_return;
+        }
         auto &state = it->second;
 
         while (!state.authenticated)
         {
             boost::system::error_code ec;
-            auto [stream_id, data, fin] = co_await state.h3_queue->async_receive(
-                net::redirect_error(net::use_awaitable, ec));
+            auto [stream_id, data, fin] =
+                co_await state.h3_queue->async_receive(net::redirect_error(net::use_awaitable, ec));
             if (ec)
+            {
                 break;
+            }
 
             if (state.h3->feed(stream_id, data, fin) != psm::fault::code::success)
             {
@@ -339,21 +354,24 @@ namespace psm::runtime::front
                 break;
             }
             for (auto &pkt : out)
+            {
                 co_await state.conn->write_stream_data(pkt.stream_id, pkt.data);
+            }
         }
 
         // 认证完成：分发认证期间缓存的流
         if (state.authenticated)
         {
             for (auto &[s, fb] : state.pending)
+            {
                 co_await launch_handler(state, std::move(s), std::span<const std::byte>(&fb, 1));
+            }
             state.pending.clear();
         }
     }
 
     auto quic_gateway::h3_read_stream(connection_state &state, quic::shared_stream stream,
-                                      const std::byte first, const bool has_first)
-        -> net::awaitable<void>
+                                      const std::byte first, const bool has_first) -> net::awaitable<void>
     {
         auto *queue = state.h3_queue.get();
         const auto sid = stream->id();
@@ -409,8 +427,8 @@ namespace psm::runtime::front
         }
 
         const auto *p = reinterpret_cast<const std::uint8_t *>(buf.data());
-        auto ok = p[0] == psm::protocol::tuic::version
-            && p[1] == static_cast<std::uint8_t>(psm::protocol::tuic::command::authenticate);
+        auto ok = p[0] == psm::protocol::tuic::version &&
+                  p[1] == static_cast<std::uint8_t>(psm::protocol::tuic::command::authenticate);
 
         if (ok)
         {
@@ -421,9 +439,9 @@ namespace psm::runtime::front
             {
                 // 配置 uuid 为 36 字符十六进制，转 16 字节原始比较
                 std::array<std::uint8_t, 16> raw{};
-                if (psm::protocol::vmess::codec::parse_uuid(
-                        std::string_view(u.uuid.data(), u.uuid.size()), raw)
-                    && std::memcmp(raw.data(), p + 2, 16) == 0)
+                if (psm::protocol::vmess::codec::parse_uuid(std::string_view(u.uuid.data(), u.uuid.size()),
+                                                            raw) &&
+                    std::memcmp(raw.data(), p + 2, 16) == 0)
                 {
                     password = std::string_view(u.password.data(), u.password.size());
                     break;
@@ -440,9 +458,8 @@ namespace psm::runtime::front
                 auto *ssl = state.conn->native_ssl();
                 std::array<std::uint8_t, 32> expected{};
                 if (!ssl || SSL_export_keying_material(
-                                ssl, expected.data(), expected.size(),
-                                reinterpret_cast<const char *>(p + 2), 16,
-                                reinterpret_cast<const unsigned char *>(password.data()),
+                                ssl, expected.data(), expected.size(), reinterpret_cast<const char *>(p + 2),
+                                16, reinterpret_cast<const unsigned char *>(password.data()),
                                 static_cast<int>(password.size()), 1) != 1)
                 {
                     diagnose::warn("quic gateway: tuic exporter unavailable");
@@ -480,16 +497,19 @@ namespace psm::runtime::front
         for (auto &[s, fb] : state.pending)
         {
             if (s->is_uni())
+            {
                 co_await launch_udp_channel(state, std::move(s));
+            }
             else
+            {
                 co_await launch_handler(state, std::move(s), std::span<const std::byte>(&fb, 1));
+            }
         }
         state.pending.clear();
     }
 
     auto quic_gateway::launch_handler(connection_state &state, quic::shared_stream stream,
-                                      const std::span<const std::byte> preread)
-        -> net::awaitable<void>
+                                      const std::span<const std::byte> preread) -> net::awaitable<void>
     {
         auto worker = pick_worker(state.conn->peer_endpoint());
 
@@ -499,8 +519,8 @@ namespace psm::runtime::front
         const auto peer = state.conn->peer_endpoint();
         if (peer.address().is_v4())
         {
-            meta->src = net::ip::tcp::endpoint(
-                net::ip::address_v4(peer.address().to_v4().to_bytes()), peer.port());
+            meta->src =
+                net::ip::tcp::endpoint(net::ip::address_v4(peer.address().to_v4().to_bytes()), peer.port());
         }
 
         psm::resource::session::options opts;
@@ -518,8 +538,7 @@ namespace psm::runtime::front
         auto handler = psm::protocol::make_protocol_handler(state.type, std::move(params));
         if (!handler)
         {
-            diagnose::warn("quic gateway: no handler for {}",
-                           psm::connect::to_string_view(state.type));
+            diagnose::warn("quic gateway: no handler for {}", psm::connect::to_string_view(state.type));
             stream->close();
             state.conn->close();
             co_return;
@@ -540,8 +559,8 @@ namespace psm::runtime::front
         const auto peer = state.conn->peer_endpoint();
         if (peer.address().is_v4())
         {
-            meta->src = net::ip::tcp::endpoint(
-                net::ip::address_v4(peer.address().to_v4().to_bytes()), peer.port());
+            meta->src =
+                net::ip::tcp::endpoint(net::ip::address_v4(peer.address().to_v4().to_bytes()), peer.port());
         }
 
         psm::resource::session::options opts;

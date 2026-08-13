@@ -15,8 +15,8 @@
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <span>
@@ -42,8 +42,8 @@ namespace psm::protocol::vmess::codec
         if constexpr (std::is_convertible_v<Path, std::string_view>)
         {
             const std::string_view sv(path);
-            return std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t *>(sv.data()), sv.size());
+            return std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(sv.data()),
+                                                 sv.size());
         }
         else
         {
@@ -54,28 +54,34 @@ namespace psm::protocol::vmess::codec
     namespace detail
     {
 
-        /// 标准 HMAC-SHA256
+        /**
+         * 标准 HMAC-SHA256
+         */
         [[nodiscard]] inline auto hmac_sha256(const std::span<const std::uint8_t> key,
                                               const std::span<const std::uint8_t> msg)
             -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> out{};
             unsigned int len = 0;
-            HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
-                 msg.data(), msg.size(), out.data(), &len);
+            HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), msg.data(), msg.size(), out.data(),
+                 &len);
             return out;
         }
 
-        /// 路径段填充到 64 字节并与掩码异或（对齐 Go hmac copyPad：
-        /// copy 一次 key，剩余字节按 0 填充后再异或掩码）
-        [[nodiscard]] inline auto xor_pad(const std::span<const std::uint8_t> path,
-                                          const std::uint8_t mask) -> std::array<std::uint8_t, 64>
+        /**
+         * @brief 路径段填充到 64 字节并与掩码异或（对齐 Go hmac copyPad）
+         * @details copy 一次 key，剩余字节按 0 填充后再异或掩码
+         */
+        [[nodiscard]] inline auto xor_pad(const std::span<const std::uint8_t> path, const std::uint8_t mask)
+            -> std::array<std::uint8_t, 64>
         {
             std::array<std::uint8_t, 64> out{};
             const auto n = std::min(path.size(), out.size());
             std::ranges::copy(path.first(n), out.begin());
             for (auto &b : out)
+            {
                 b ^= mask;
+            }
             return out;
         }
 
@@ -107,8 +113,7 @@ namespace psm::protocol::vmess::codec
             const auto prev = h;
             const auto ipad = detail::xor_pad(path, 0x36);
             const auto opad = detail::xor_pad(path, 0x5C);
-            h = [prev, ipad, opad](const std::span<const std::uint8_t> msg)
-                -> std::array<std::uint8_t, 32>
+            h = [prev, ipad, opad](const std::span<const std::uint8_t> msg) -> std::array<std::uint8_t, 32>
             {
                 std::vector<std::uint8_t> inner_in(64 + msg.size());
                 std::ranges::copy(ipad, inner_in.begin());
@@ -152,15 +157,23 @@ namespace psm::protocol::vmess::codec
     [[nodiscard]] inline auto parse_uuid(const std::string_view uuid, std::span<std::uint8_t, 16> out) -> bool
     {
         if (uuid.size() != 36)
+        {
             return false;
+        }
         auto nibble = [](const char c) -> int
         {
             if (c >= '0' && c <= '9')
+            {
                 return c - '0';
+            }
             if (c >= 'a' && c <= 'f')
+            {
                 return c - 'a' + 10;
+            }
             if (c >= 'A' && c <= 'F')
+            {
                 return c - 'A' + 10;
+            }
             return -1;
         };
         std::size_t pos = 0;
@@ -172,11 +185,15 @@ namespace psm::protocol::vmess::codec
                 continue;
             }
             if (i + 1 >= uuid.size())
+            {
                 return false;
+            }
             const int hi = nibble(uuid[i]);
             const int lo = nibble(uuid[i + 1]);
             if (hi < 0 || lo < 0)
+            {
                 return false;
+            }
             out[pos++] = static_cast<std::uint8_t>((hi << 4) | lo);
             i += 2;
         }

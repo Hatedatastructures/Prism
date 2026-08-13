@@ -19,13 +19,17 @@ namespace
                     const net::strand<net::any_io_executor> &strand)
     {
         auto buf = std::make_shared<std::array<char, 65536>>();
-        sock->async_read_some(net::buffer(*buf),
-            net::bind_executor(strand, [sock, buf, strand](const boost::system::error_code &ec, std::size_t)
-            {
-                if (ec)
-                    return;
-                start_read(sock, strand);
-            }));
+        sock->async_read_some(
+            net::buffer(*buf),
+            net::bind_executor(strand,
+                               [sock, buf, strand](const boost::system::error_code &ec, std::size_t)
+                               {
+                                   if (ec)
+                                   {
+                                       return;
+                                   }
+                                   start_read(sock, strand);
+                               }));
     }
 } // namespace
 
@@ -35,31 +39,34 @@ auto main(int argc, char **argv) -> int
     const auto threads = argc > 2 ? std::stoi(argv[2]) : 8;
 
     net::io_context ioc;
-    net::ip::tcp::acceptor acc(ioc,
-        net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), port));
+    net::ip::tcp::acceptor acc(ioc, net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), port));
 
     auto accept_loop = [&](auto &&self) -> void
     {
         acc.async_accept(ioc,
-            [&](const boost::system::error_code &ec, net::ip::tcp::socket sock)
-            {
-                if (!ec)
-                {
-                    auto strand = std::make_shared<net::strand<net::any_io_executor>>(
-                        net::make_strand(sock.get_executor()));
-                    start_read(std::make_shared<net::ip::tcp::socket>(std::move(sock)), *strand);
-                }
-                self(self);
-            });
+                         [&](const boost::system::error_code &ec, net::ip::tcp::socket sock)
+                         {
+                             if (!ec)
+                             {
+                                 auto strand = std::make_shared<net::strand<net::any_io_executor>>(
+                                     net::make_strand(sock.get_executor()));
+                                 start_read(std::make_shared<net::ip::tcp::socket>(std::move(sock)), *strand);
+                             }
+                             self(self);
+                         });
     };
     accept_loop(accept_loop);
 
     std::vector<std::thread> pool;
     pool.reserve(threads);
     for (int i = 0; i < threads; ++i)
+    {
         pool.emplace_back([&ioc] { ioc.run(); });
+    }
 
     std::cerr << "blackhole listening on " << port << ", threads=" << threads << "\n";
     for (auto &t : pool)
+    {
         t.join();
+    }
 }

@@ -6,14 +6,15 @@
  *          transport_type()、next_layer()。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 
 #include <boost/asio.hpp>
+
 #include <cstdint>
 #include <cstring>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 #define private public
 #include <prism/handshake/restls/transport.hpp>
@@ -38,14 +39,12 @@ namespace
             server_random[i] = static_cast<std::uint8_t>(32 - i);
         }
 
-        restls_handover handover{
-            std::span<const std::uint8_t, 32>(secret),
-            std::span<const std::uint8_t, 32>(server_random),
-            {},
-            script_engine("300"),
-            {},
-            tls_version::v13
-        };
+        restls_handover handover{std::span<const std::uint8_t, 32>(secret),
+                                 std::span<const std::uint8_t, 32>(server_random),
+                                 {},
+                                 script_engine("300"),
+                                 {},
+                                 tls_version::v13};
 
         restls_transport transport(std::move(sock), std::move(handover));
 
@@ -71,14 +70,12 @@ namespace
         std::array<std::uint8_t, 32> server_random{};
         std::vector<std::uint8_t> cf = {0x10, 0x20, 0x30, 0x40, 0x50};
 
-        restls_handover handover{
-            std::span<const std::uint8_t, 32>(secret),
-            std::span<const std::uint8_t, 32>(server_random),
-            std::span<const std::uint8_t>(cf),
-            script_engine("300"),
-            {},
-            tls_version::v12
-        };
+        restls_handover handover{std::span<const std::uint8_t, 32>(secret),
+                                 std::span<const std::uint8_t, 32>(server_random),
+                                 std::span<const std::uint8_t>(cf),
+                                 script_engine("300"),
+                                 {},
+                                 tls_version::v12};
 
         restls_transport transport(std::move(sock), std::move(handover));
 
@@ -97,14 +94,12 @@ namespace
         std::array<std::uint8_t, 32> server_random{};
         std::byte init_bytes[] = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
 
-        restls_handover handover{
-            std::span<const std::uint8_t, 32>(secret),
-            std::span<const std::uint8_t, 32>(server_random),
-            {},
-            script_engine("300"),
-            std::span<const std::byte>(init_bytes),
-            tls_version::v13
-        };
+        restls_handover handover{std::span<const std::uint8_t, 32>(secret),
+                                 std::span<const std::uint8_t, 32>(server_random),
+                                 {},
+                                 script_engine("300"),
+                                 std::span<const std::byte>(init_bytes),
+                                 tls_version::v13};
 
         restls_transport transport(std::move(sock), std::move(handover));
 
@@ -121,14 +116,12 @@ namespace
         std::array<std::uint8_t, 32> secret{};
         std::array<std::uint8_t, 32> server_random{};
 
-        restls_handover handover{
-            std::span<const std::uint8_t, 32>(secret),
-            std::span<const std::uint8_t, 32>(server_random),
-            {},
-            script_engine("300"),
-            {},
-            tls_version::v13
-        };
+        restls_handover handover{std::span<const std::uint8_t, 32>(secret),
+                                 std::span<const std::uint8_t, 32>(server_random),
+                                 {},
+                                 script_engine("300"),
+                                 {},
+                                 tls_version::v13};
 
         restls_transport transport(std::move(sock), std::move(handover));
 
@@ -144,14 +137,12 @@ namespace
         std::array<std::uint8_t, 32> secret{};
         std::array<std::uint8_t, 32> server_random{};
 
-        restls_handover handover{
-            std::span<const std::uint8_t, 32>(secret),
-            std::span<const std::uint8_t, 32>(server_random),
-            {},
-            script_engine("300"),
-            {},
-            tls_version::v13
-        };
+        restls_handover handover{std::span<const std::uint8_t, 32>(secret),
+                                 std::span<const std::uint8_t, 32>(server_random),
+                                 {},
+                                 script_engine("300"),
+                                 {},
+                                 tls_version::v13};
 
         restls_transport transport(std::move(sock), std::move(handover));
         transport.close();
@@ -168,14 +159,12 @@ namespace
         std::array<std::uint8_t, 32> secret{};
         std::array<std::uint8_t, 32> server_random{};
 
-        restls_handover handover{
-            std::span<const std::uint8_t, 32>(secret),
-            std::span<const std::uint8_t, 32>(server_random),
-            {},
-            script_engine("300"),
-            {},
-            tls_version::v13
-        };
+        restls_handover handover{std::span<const std::uint8_t, 32>(secret),
+                                 std::span<const std::uint8_t, 32>(server_random),
+                                 {},
+                                 script_engine("300"),
+                                 {},
+                                 tls_version::v13};
 
         restls_transport transport(std::move(sock), std::move(handover));
         try

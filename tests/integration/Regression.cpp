@@ -7,18 +7,18 @@
  * 3. Trojan lease 持有和释放 (user::directory)
  */
 
-#include <prism/net/connection/types.hpp>
-#include <prism/net/connection/target.hpp>
-#include <prism/handshake/recognition/target.hpp>
-#include <prism/handshake/recognition/probe/analyzer.hpp>
-#include <prism/user/directory.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
+#include <prism/handshake/recognition/probe/analyzer.hpp>
+#include <prism/handshake/recognition/target.hpp>
+#include <prism/net/connection/target.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/user/directory.hpp>
 
 #include <string>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 /**
  * @brief 测试 IPv6 host:port 解析
@@ -79,16 +79,14 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string http_request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
         auto result = psm::recognition::probe::detect_tls(http_request);
-        EXPECT_EQ(result, psm::connect::protocol_type::http)
-            << "HTTP detection";
+        EXPECT_EQ(result, psm::connect::protocol_type::http) << "HTTP detection";
     }
 
     // 部分数据也能通过前缀 "GET " 识别为 HTTP
     {
         std::string partial_data = "GET ";
         auto result = psm::recognition::probe::detect_tls(partial_data);
-        EXPECT_EQ(result, psm::connect::protocol_type::http)
-            << "partial HTTP detection";
+        EXPECT_EQ(result, psm::connect::protocol_type::http) << "partial HTTP detection";
     }
 
     // 数据过短且无已知前缀，返回 unknown（等待更多数据）
@@ -103,8 +101,7 @@ TEST(Regression, InnerProtocolDetection)
     {
         std::string long_data(70, 'b');
         auto result = psm::recognition::probe::detect_tls(long_data);
-        EXPECT_EQ(result, psm::connect::protocol_type::unknown)
-            << "long unrecognized data should be unknown";
+        EXPECT_EQ(result, psm::connect::protocol_type::unknown) << "long unrecognized data should be unknown";
     }
 
     // 模拟 Trojan 协议特征：56 字节哈希 + \r\n + CRLF
@@ -115,8 +112,7 @@ TEST(Regression, InnerProtocolDetection)
         trojan_like[58] = 0x01;
         trojan_like[59] = 0x01;
         auto result = psm::recognition::probe::detect_tls(trojan_like);
-        EXPECT_EQ(result, psm::connect::protocol_type::trojan)
-            << "Trojan detection";
+        EXPECT_EQ(result, psm::connect::protocol_type::trojan) << "Trojan detection";
     }
 
     // 同样长度但 CRLF 位置不是有效 Trojan 格式，返回 unknown
@@ -124,8 +120,7 @@ TEST(Regression, InnerProtocolDetection)
         std::string invalid_trojan(60, 'a');
         invalid_trojan[56] = 'x';
         auto result = psm::recognition::probe::detect_tls(invalid_trojan);
-        EXPECT_EQ(result, psm::connect::protocol_type::unknown)
-            << "invalid Trojan should be unknown";
+        EXPECT_EQ(result, psm::connect::protocol_type::unknown) << "invalid Trojan should be unknown";
     }
 }
 

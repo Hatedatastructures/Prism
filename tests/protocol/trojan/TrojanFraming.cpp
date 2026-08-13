@@ -4,16 +4,14 @@
  * @details 测试 parse_credential、parse_crlf、parse_cmd_atyp、build_udp_pkt、parse_udp_pkt。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/protocol/trojan/codec/framing.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/protocol/trojan/codec/framing.hpp>
 
 #include <array>
 #include <cstdint>
 #include <cstring>
 #include <span>
-
 
 #include <gtest/gtest.h>
 
@@ -106,7 +104,7 @@ namespace
         psm::memory::vector<std::byte> out(psm::memory::current_resource());
         psm::protocol::trojan::format::udp_routed frame;
         psm::protocol::common::ipv6_address addr{};
-        addr.bytes = {{0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1}}; // ::1
+        addr.bytes = {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}}; // ::1
         frame.destination_address = addr;
         frame.destination_port = 8080;
 

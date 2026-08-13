@@ -11,7 +11,6 @@
 
 #include <prism/foundation/memory/container.hpp>
 
-
 namespace psm::handshake::reality
 {
 
@@ -26,17 +25,18 @@ namespace psm::handshake::reality
      */
     struct config
     {
-        memory::string dest;                         // 目标伪装网站（host:port 格式），如 "www.microsoft.com:443"
-        memory::vector<memory::string> server_names; // 允许的 SNI 列表，如 ["www.microsoft.com", "www.apple.com"]
-        memory::string private_key;                  // X25519 静态私钥（base64 编码，32 字节原始数据）
-        memory::vector<memory::string> short_ids;    // 短 ID 列表（hex 编码，最长 16 字节），空字符串 "" 表示接受任意 short ID
+        memory::string dest; // 目标伪装网站（host:port 格式），如 "www.microsoft.com:443"
+        memory::vector<memory::string>
+            server_names;           // 允许的 SNI 列表，如 ["www.microsoft.com", "www.apple.com"]
+        memory::string private_key; // X25519 静态私钥（base64 编码，32 字节原始数据）
+        memory::vector<memory::string>
+            short_ids; // 短 ID 列表（hex 编码，最长 16 字节），空字符串 "" 表示接受任意 short ID
 
         /**
          * @brief 检查 Reality 是否已启用
          * @return 配置完整返回 true
          */
-        [[nodiscard]] auto enabled() const noexcept
-            -> bool
+        [[nodiscard]] auto enabled() const noexcept -> bool
         {
             return !dest.empty() && !private_key.empty() && !server_names.empty();
         }

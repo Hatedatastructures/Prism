@@ -8,15 +8,15 @@
  *          以及 resolve() 空服务器路径和 query_via 的错误分类逻辑。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/net/dns/config.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/net/dns/config.hpp>
 
 #include <gtest/gtest.h>
 
 #define private public
 #include <prism/net/dns/upstream.hpp>
+
 #include "../../src/prism/net/dns/upstream.cpp"
 #undef private
 
@@ -153,12 +153,14 @@ namespace
         dns::query_result result(psm::memory::current_resource());
 
         auto coro = [&]() -> net::awaitable<void>
-        {
-            result = co_await ups.resolve("example.com", dns::qtype::a);
-        };
+        { result = co_await ups.resolve("example.com", dns::qtype::a); };
 
-        net::co_spawn(ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
+        net::co_spawn(ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          ioc.stop();
+                      });
         ioc.run();
 
         if (ep)
@@ -197,12 +199,14 @@ namespace
         dns::query_result result(psm::memory::current_resource());
 
         auto coro = [&]() -> net::awaitable<void>
-        {
-            result = co_await ups.resolve("example.com", dns::qtype::a);
-        };
+        { result = co_await ups.resolve("example.com", dns::qtype::a); };
 
-        net::co_spawn(ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
+        net::co_spawn(ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          ioc.stop();
+                      });
         ioc.run();
 
         if (ep)
@@ -243,12 +247,14 @@ namespace
         dns::query_result result(psm::memory::current_resource());
 
         auto coro = [&]() -> net::awaitable<void>
-        {
-            result = co_await ups.resolve("example.com", dns::qtype::a);
-        };
+        { result = co_await ups.resolve("example.com", dns::qtype::a); };
 
-        net::co_spawn(ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
+        net::co_spawn(ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          ioc.stop();
+                      });
         ioc.run();
 
         if (ep)

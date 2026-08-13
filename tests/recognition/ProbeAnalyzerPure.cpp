@@ -3,15 +3,16 @@
  * @brief 协议检测纯函数测试 — detect/is_http_request/detect_tls
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/net/connection/types.hpp>
-#include <prism/handshake/recognition/probe/analyzer.hpp>
 #include <prism/diagnose/log.hpp>
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
+#include <prism/handshake/recognition/probe/analyzer.hpp>
+#include <prism/net/connection/types.hpp>
 
 #include <cstdint>
 #include <cstring>
 #include <string>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -24,38 +25,32 @@ namespace
 
     TEST(ProbeAnalyzerPure, DetectEmpty)
     {
-        EXPECT_EQ(detect(""), protocol_type::unknown)
-            << "detect: empty -> unknown";
+        EXPECT_EQ(detect(""), protocol_type::unknown) << "detect: empty -> unknown";
     }
 
     TEST(ProbeAnalyzerPure, DetectSocks5)
     {
         const char data[] = "\x05\x01\x00";
-        EXPECT_EQ(detect({data, 3}), protocol_type::socks5)
-            << "detect: 0x05 -> socks5";
+        EXPECT_EQ(detect({data, 3}), protocol_type::socks5) << "detect: 0x05 -> socks5";
     }
 
     TEST(ProbeAnalyzerPure, DetectTls)
     {
         const char data[] = "\x16\x03\x01";
-        EXPECT_EQ(detect({data, 3}), protocol_type::tls)
-            << "detect: 0x16 0x03 -> tls";
+        EXPECT_EQ(detect({data, 3}), protocol_type::tls) << "detect: 0x16 0x03 -> tls";
     }
 
     TEST(ProbeAnalyzerPure, DetectTlsSingleByte)
     {
         const char data[] = "\x16";
         // 单字节 0x16 不够两字节 → 不是 TLS，也不是 HTTP/SOCKS5 → shadowsocks
-        EXPECT_EQ(detect({data, 1}), protocol_type::shadowsocks)
-            << "detect: 0x16 alone -> shadowsocks";
+        EXPECT_EQ(detect({data, 1}), protocol_type::shadowsocks) << "detect: 0x16 alone -> shadowsocks";
     }
 
     TEST(ProbeAnalyzerPure, DetectHttp)
     {
-        EXPECT_EQ(detect("GET / HTTP/1.1\r\n"), protocol_type::http)
-            << "detect: GET -> http";
-        EXPECT_EQ(detect("POST /api HTTP/1.1\r\n"), protocol_type::http)
-            << "detect: POST -> http";
+        EXPECT_EQ(detect("GET / HTTP/1.1\r\n"), protocol_type::http) << "detect: GET -> http";
+        EXPECT_EQ(detect("POST /api HTTP/1.1\r\n"), protocol_type::http) << "detect: POST -> http";
         EXPECT_EQ(detect("CONNECT example.com:443 HTTP/1.1\r\n"), protocol_type::http)
             << "detect: CONNECT -> http";
     }
@@ -64,8 +59,7 @@ namespace
     {
         // 任意不匹配已知协议的数据
         const char data[] = "\x01\x02\x03\x04";
-        EXPECT_EQ(detect({data, 4}), protocol_type::shadowsocks)
-            << "detect: random bytes -> shadowsocks";
+        EXPECT_EQ(detect({data, 4}), protocol_type::shadowsocks) << "detect: random bytes -> shadowsocks";
     }
 
     // ─── is_http_request() ─────────────────────────
@@ -94,8 +88,7 @@ namespace
 
     TEST(ProbeAnalyzerPure, DetectTlsInnerHttp)
     {
-        EXPECT_EQ(detect_tls("GET / HTTP/1.1\r\n"), protocol_type::http)
-            << "detect_tls: GET -> http";
+        EXPECT_EQ(detect_tls("GET / HTTP/1.1\r\n"), protocol_type::http) << "detect_tls: GET -> http";
     }
 
     TEST(ProbeAnalyzerPure, DetectTlsInnerVless)
@@ -182,10 +175,8 @@ namespace
 
     TEST(ProbeAnalyzerPure, DetectTlsInnerShortData)
     {
-        EXPECT_EQ(detect_tls(""), protocol_type::unknown)
-            << "detect_tls: empty -> unknown";
-        EXPECT_EQ(detect_tls("\x00"), protocol_type::unknown)
-            << "detect_tls: 1 byte -> unknown";
+        EXPECT_EQ(detect_tls(""), protocol_type::unknown) << "detect_tls: empty -> unknown";
+        EXPECT_EQ(detect_tls("\x00"), protocol_type::unknown) << "detect_tls: 1 byte -> unknown";
     }
 
     TEST(ProbeAnalyzerPure, DetectTlsInnerSixtyPlusUnknown)

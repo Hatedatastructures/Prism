@@ -18,7 +18,6 @@
 #include <type_traits>
 #include <utility>
 
-
 namespace psm::transformer::json
 {
 
@@ -41,8 +40,7 @@ namespace psm::transformer::json
      * @return true 序列化成功，false 序列化失败
      */
     template <typename StructureObject>
-    [[nodiscard]] auto serialize(const StructureObject &value, memory::string &out)
-        -> bool
+    [[nodiscard]] auto serialize(const StructureObject &value, memory::string &out) -> bool
     {
         out.clear();
         using write_result = decltype(glz::write_json(value, out));
@@ -104,7 +102,8 @@ namespace psm::transformer::json
      * @return 序列化后的 JSON 字符串
      */
     template <typename StructureObject>
-    [[nodiscard]] auto serialize(const StructureObject &value, const memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] auto serialize(const StructureObject &value,
+                                 const memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
         memory::string out(mr);
@@ -125,14 +124,14 @@ namespace psm::transformer::json
      * 避免破坏原对象状态。
      */
     template <typename StructureObject>
-    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value)
-        -> bool
+    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value) -> bool
     {
         using read_result = decltype(glz::read_json(value, json_data));
 
         if constexpr (std::is_same_v<read_result, glz::error_ctx>)
         {
-            if constexpr (std::is_default_constructible_v<StructureObject> && std::is_move_assignable_v<StructureObject>)
+            if constexpr (std::is_default_constructible_v<StructureObject> &&
+                          std::is_move_assignable_v<StructureObject>)
             {
                 StructureObject temp;
                 if (const auto ec = glz::read_json(temp, json_data))
@@ -150,7 +149,8 @@ namespace psm::transformer::json
         }
         else
         {
-            if constexpr (std::is_default_constructible_v<StructureObject> && std::is_move_assignable_v<StructureObject>)
+            if constexpr (std::is_default_constructible_v<StructureObject> &&
+                          std::is_move_assignable_v<StructureObject>)
             {
                 StructureObject temp;
                 glz::read_json(temp, json_data);
@@ -174,14 +174,15 @@ namespace psm::transformer::json
      * @return true 反序列化成功，false 反序列化失败
      */
     template <typename StructureObject>
-    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value, glz::error_ctx &out_ec)
-        -> bool
+    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value,
+                                   glz::error_ctx &out_ec) -> bool
     {
         using read_result = decltype(glz::read_json(value, json_data));
 
         if constexpr (std::is_same_v<read_result, glz::error_ctx>)
         {
-            if constexpr (std::is_default_constructible_v<StructureObject> && std::is_move_assignable_v<StructureObject>)
+            if constexpr (std::is_default_constructible_v<StructureObject> &&
+                          std::is_move_assignable_v<StructureObject>)
             {
                 StructureObject temp;
                 out_ec = glz::read_json(temp, json_data);
@@ -199,7 +200,8 @@ namespace psm::transformer::json
         }
         else
         {
-            if constexpr (std::is_default_constructible_v<StructureObject> && std::is_move_assignable_v<StructureObject>)
+            if constexpr (std::is_default_constructible_v<StructureObject> &&
+                          std::is_move_assignable_v<StructureObject>)
             {
                 StructureObject temp;
                 glz::read_json(temp, json_data);
@@ -252,17 +254,26 @@ namespace psm::transformer::json
                 local_ec = glz::read_json(temp, json_data);
                 if (local_ec)
                 {
-                    if (out_ec_ptr) *out_ec_ptr = local_ec;
+                    if (out_ec_ptr)
+                    {
+                        *out_ec_ptr = local_ec;
+                    }
                     return false;
                 }
                 value = std::move(temp);
-                if (out_ec_ptr) *out_ec_ptr = local_ec;
+                if (out_ec_ptr)
+                {
+                    *out_ec_ptr = local_ec;
+                }
                 return true;
             }
             else
             {
                 local_ec = glz::read_json(value, json_data);
-                if (out_ec_ptr) *out_ec_ptr = local_ec;
+                if (out_ec_ptr)
+                {
+                    *out_ec_ptr = local_ec;
+                }
                 return !local_ec;
             }
         }
@@ -275,13 +286,19 @@ namespace psm::transformer::json
                 StructureObject temp(mr);
                 glz::read_json(temp, json_data);
                 value = std::move(temp);
-                if (out_ec_ptr) *out_ec_ptr = {};
+                if (out_ec_ptr)
+                {
+                    *out_ec_ptr = {};
+                }
                 return true;
             }
             else
             {
                 glz::read_json(value, json_data);
-                if (out_ec_ptr) *out_ec_ptr = {};
+                if (out_ec_ptr)
+                {
+                    *out_ec_ptr = {};
+                }
                 return true;
             }
         }
@@ -296,8 +313,8 @@ namespace psm::transformer::json
      * @return true 反序列化成功，false 反序列化失败
      */
     template <typename StructureObject>
-    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value, memory::resource_pointer mr)
-        -> bool
+    [[nodiscard]] auto deserialize(const std::string_view json_data, StructureObject &value,
+                                   memory::resource_pointer mr) -> bool
     {
         glz::error_ctx ignored_ec{};
         return deserialize(json_data, value, parse_opts{mr, &ignored_ec});

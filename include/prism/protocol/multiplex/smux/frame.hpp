@@ -15,7 +15,6 @@
 #include <optional>
 #include <span>
 
-
 namespace psm::multiplex::smux
 {
 
@@ -71,10 +70,10 @@ namespace psm::multiplex::smux
      */
     struct parsed_address
     {
-        memory::string host;      // 目标主机（IPv4/IPv6/域名）
-        std::uint16_t port = 0;   // 目标端口
-        std::size_t offset = 0;   // 地址结束位置，相对于原始 buffer
-        bool is_udp = false;      // 是否为 UDP 流（Flags bit0）
+        memory::string host;                         // 目标主机（IPv4/IPv6/域名）
+        std::uint16_t port = 0;                      // 目标端口
+        std::size_t offset = 0;                      // 地址结束位置，相对于原始 buffer
+        bool is_udp = false;                         // 是否为 UDP 流（Flags bit0）
         addr_mode addr = addr_mode::length_prefixed; // 地址编码模式（Flags bit1）
     };
 
@@ -117,8 +116,7 @@ namespace psm::multiplex::smux
      * @param data 包含 [Length 2B BE][Payload] 的字节序列
      * @return 解析结果，nullopt 表示数据不足或格式错误
      */
-    [[nodiscard]] auto parse_prefixed(std::span<const std::byte> data)
-        -> std::optional<udp_prefixed>;
+    [[nodiscard]] auto parse_prefixed(std::span<const std::byte> data) -> std::optional<udp_prefixed>;
 
     /**
      * @struct datagram_params
@@ -127,9 +125,9 @@ namespace psm::multiplex::smux
      */
     struct datagram_params
     {
-        std::string_view host;                  ///< 目标主机
-        std::uint16_t port = 0;                 ///< 目标端口
-        std::span<const std::byte> payload;     ///< 数据负载
+        std::string_view host;              ///< 目标主机
+        std::uint16_t port = 0;             ///< 目标端口
+        std::span<const std::byte> payload; ///< 数据负载
     };
 
     /**
@@ -164,8 +162,7 @@ namespace psm::multiplex::smux
      * @param data 包含帧头的字节序列（至少 8 字节）
      * @return 解析成功的帧头，或 nullopt（校验失败）
      */
-    [[nodiscard]] auto deserialization(std::span<const std::byte> data)
-        -> std::optional<frame_header>;
+    [[nodiscard]] auto deserialization(std::span<const std::byte> data) -> std::optional<frame_header>;
 
     /**
      * @brief 构建 DATA (PSH) 帧字节序列
@@ -183,8 +180,7 @@ namespace psm::multiplex::smux
      * @return 8 字节 SYN 帧头（无 payload）
      * @details 帧格式：[Version 1B][Cmd=SYN 1B][Length=0 2B LE][StreamID 4B LE]
      */
-    [[nodiscard]] auto make_syn(std::uint32_t stream_id)
-        -> std::array<std::byte, frame_hdrsize>;
+    [[nodiscard]] auto make_syn(std::uint32_t stream_id) -> std::array<std::byte, frame_hdrsize>;
 
     /**
      * @brief 构建 FIN 帧字节序列
@@ -192,7 +188,6 @@ namespace psm::multiplex::smux
      * @return 8 字节 FIN 帧头（无 payload）
      * @details 帧格式：[Version 1B][Cmd=FIN 1B][Length=0 2B LE][StreamID 4B LE]
      */
-    [[nodiscard]] auto make_fin(std::uint32_t stream_id)
-        -> std::array<std::byte, frame_hdrsize>;
+    [[nodiscard]] auto make_fin(std::uint32_t stream_id) -> std::array<std::byte, frame_hdrsize>;
 
 } // namespace psm::multiplex::smux

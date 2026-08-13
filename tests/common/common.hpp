@@ -35,8 +35,7 @@ namespace psm_test
     class byte_reader
     {
     public:
-        explicit byte_reader(const view data) noexcept
-            : data_(data)
+        explicit byte_reader(const view data) noexcept : data_(data)
         {
         }
 
@@ -58,85 +57,132 @@ namespace psm_test
         [[nodiscard]] auto peek(const std::size_t n) const noexcept -> view
         {
             if (off_ + n > data_.size())
+            {
                 return {};
+            }
             return data_.subspan(off_, n);
         }
 
-        /// 读取 n 字节（不足返回空）
+        /**
+         * @brief 读取 n 字节（不足返回空）
+         * @param n 读取字节数
+         * @return 读取到的数据视图（不足返回空）
+         */
         [[nodiscard]] auto read(const std::size_t n) -> view
         {
             const auto v = peek(n);
             if (!v.empty())
+            {
                 off_ += n;
+            }
             return v;
         }
 
-        /// 读取 1 字节（失败返回 false）
+        /**
+         * @brief 读取 1 字节（失败返回 false）
+         * @param out 输出字节值
+         * @return 成功返回 true
+         */
         auto read_u8(std::uint8_t &out) -> bool
         {
             const auto v = read(1);
             if (v.empty())
+            {
                 return false;
+            }
             out = v[0];
             return true;
         }
 
-        /// 读取大端序 16 位
+        /**
+         * @brief 读取大端序 16 位
+         * @param out 输出 16 位值
+         * @return 成功返回 true
+         */
         auto read_u16(std::uint16_t &out) -> bool
         {
             const auto v = read(2);
             if (v.empty())
+            {
                 return false;
+            }
             out = static_cast<std::uint16_t>((v[0] << 8) | v[1]);
             return true;
         }
 
-        /// 读取大端序 32 位
+        /**
+         * @brief 读取大端序 32 位
+         * @param out 输出 32 位值
+         * @return 成功返回 true
+         */
         auto read_u32(std::uint32_t &out) -> bool
         {
             const auto v = read(4);
             if (v.empty())
+            {
                 return false;
-            out = static_cast<std::uint32_t>(v[0]) << 24
-                | static_cast<std::uint32_t>(v[1]) << 16
-                | static_cast<std::uint32_t>(v[2]) << 8
-                | static_cast<std::uint32_t>(v[3]);
+            }
+            out = static_cast<std::uint32_t>(v[0]) << 24 | static_cast<std::uint32_t>(v[1]) << 16 |
+                  static_cast<std::uint32_t>(v[2]) << 8 | static_cast<std::uint32_t>(v[3]);
             return true;
         }
 
-        /// 读取大端序 64 位
+        /**
+         * @brief 读取大端序 64 位
+         * @param out 输出 64 位值
+         * @return 成功返回 true
+         */
         auto read_u64(std::uint64_t &out) -> bool
         {
             std::uint32_t hi = 0, lo = 0;
             if (!read_u32(hi) || !read_u32(lo))
+            {
                 return false;
+            }
             out = (static_cast<std::uint64_t>(hi) << 32) | lo;
             return true;
         }
 
-        /// 读取 QUIC varint（RFC 9000，首字节高 2 位定长）
+        /**
+         * @brief 读取 QUIC varint（RFC 9000，首字节高 2 位定长）
+         * @param out 输出解析值
+         * @return 成功返回 true
+         */
         auto read_quic_varint(std::uint64_t &out) -> bool
         {
             std::uint8_t b = 0;
             if (!read_u8(b))
+            {
                 return false;
+            }
             const auto len = std::size_t{1} << (b >> 6);
             std::uint64_t v = b & 0x3F;
             const auto rest = read(len - 1);
             if (rest.size() != len - 1)
+            {
                 return false;
+            }
             for (const auto c : rest)
+            {
                 v = (v << 8) | c;
+            }
             out = v;
             return true;
         }
 
-        /// 读取 HPACK 风格 varint（prefix 位前缀 + 7 位续字节）
+        /**
+         * @brief 读取 HPACK 风格 varint（prefix 位前缀 + 7 位续字节）
+         * @param prefix 前缀位宽
+         * @param out 输出解析值
+         * @return 成功返回 true
+         */
         auto read_hpack_varint(const std::uint8_t prefix, std::uint64_t &out) -> bool
         {
             std::uint8_t b = 0;
             if (!read_u8(b))
+            {
                 return false;
+            }
             const std::uint64_t mask = (1ULL << prefix) - 1;
             std::uint64_t v = b & mask;
             if (v < mask)
@@ -148,23 +194,35 @@ namespace psm_test
             for (;;)
             {
                 if (!read_u8(b))
+                {
                     return false;
+                }
                 v += static_cast<std::uint64_t>(b & 0x7F) << shift;
                 if ((b & 0x80) == 0)
+                {
                     break;
+                }
                 shift += 7;
                 if (shift >= 64)
+                {
                     return false;
+                }
             }
             out = v;
             return true;
         }
 
-        /// 跳过 n 字节（不足返回 false）
+        /**
+         * @brief 跳过 n 字节（不足返回 false）
+         * @param n 跳过字节数
+         * @return 成功返回 true
+         */
         auto skip(const std::size_t n) -> bool
         {
             if (off_ + n > data_.size())
+            {
                 return false;
+            }
             off_ += n;
             return true;
         }
@@ -210,7 +268,10 @@ namespace psm_test
             data_.insert(data_.end(), v.begin(), v.end());
         }
 
-        /// 写入 QUIC varint
+        /**
+         * @brief 写入 QUIC varint
+         * @param v 待写入值
+         */
         void write_quic_varint(const std::uint64_t v)
         {
             if (v < (1ULL << 6))
@@ -234,9 +295,13 @@ namespace psm_test
             }
         }
 
-        /// 写入 HPACK 风格 varint（prefix 位前缀）
-        void write_hpack_varint(const std::uint8_t prefix, const std::uint8_t pattern,
-                                const std::uint64_t v)
+        /**
+         * @brief 写入 HPACK 风格 varint（prefix 位前缀）
+         * @param prefix 前缀位宽
+         * @param pattern 前缀模式位
+         * @param v 待写入值
+         */
+        void write_hpack_varint(const std::uint8_t prefix, const std::uint8_t pattern, const std::uint64_t v)
         {
             const std::uint64_t mask = (1ULL << prefix) - 1;
             if (v < mask)
@@ -254,14 +319,20 @@ namespace psm_test
             write_u8(static_cast<std::uint8_t>(rest));
         }
 
-        /// 写入长度前缀字符串（16 位大端长度）
+        /**
+         * @brief 写入长度前缀字符串（16 位大端长度）
+         * @param s 待写入字符串
+         */
         void write_len16_string(const std::string_view s)
         {
             write_u16(static_cast<std::uint16_t>(s.size()));
             write_bytes(s);
         }
 
-        /// 写入 QUIC varint 长度前缀字符串
+        /**
+         * @brief 写入 QUIC varint 长度前缀字符串
+         * @param s 待写入字符串
+         */
         void write_varint_string(const std::string_view s)
         {
             write_quic_varint(s.size());
@@ -282,28 +353,42 @@ namespace psm_test
         void write_u64(const std::uint64_t v)
         {
             for (int i = 7; i >= 0; --i)
+            {
                 write_u8(static_cast<std::uint8_t>(v >> (i * 8)));
+            }
         }
 
         buffer data_;
     };
 
-    /// 解析 host:port 字符串（最后冒号分隔）
+    /**
+     * @brief 解析 host:port 字符串（最后冒号分隔）
+     * @param s 待解析字符串
+     * @param host 输出主机名
+     * @param port 输出端口
+     * @return 解析成功返回 true
+     */
     [[nodiscard]] inline auto split_host_port(const std::string_view s, std::string &host,
                                               std::uint16_t &port) -> bool
     {
         const auto colon = s.find_last_of(':');
         if (colon == std::string_view::npos || colon + 1 >= s.size())
+        {
             return false;
+        }
         host.assign(s.data(), colon);
         std::uint32_t p = 0;
         for (std::size_t i = colon + 1; i < s.size(); ++i)
         {
             if (s[i] < '0' || s[i] > '9')
+            {
                 return false;
+            }
             p = p * 10 + static_cast<std::uint32_t>(s[i] - '0');
             if (p > 65535)
+            {
                 return false;
+            }
         }
         port = static_cast<std::uint16_t>(p);
         return true;
@@ -320,7 +405,11 @@ namespace psm_test
     namespace detail
     {
 
-        /// 点分 IPv4 字符串 → 4 字节
+        /**
+         * @brief 点分 IPv4 字符串 → 4 字节
+         * @param host 点分 IPv4 字符串
+         * @return 4 字节 IPv4 地址
+         */
         inline auto ipv4_bytes(const std::string_view host) -> std::array<std::uint8_t, 4>
         {
             std::array<std::uint8_t, 4> out{};
@@ -331,7 +420,9 @@ namespace psm_test
                 {
                     std::uint32_t v = 0;
                     for (std::size_t j = start; j < i; ++j)
+                    {
                         v = v * 10 + static_cast<std::uint32_t>(host[j] - '0');
+                    }
                     out[n++] = static_cast<std::uint8_t>(v);
                     start = i + 1;
                 }
@@ -339,7 +430,11 @@ namespace psm_test
             return out;
         }
 
-        /// 冒分 IPv6 字符串 → 16 字节（不支持 :: 压缩）
+        /**
+         * @brief 冒分 IPv6 字符串 → 16 字节（不支持 :: 压缩）
+         * @param host 冒分 IPv6 字符串
+         * @return 16 字节 IPv6 地址
+         */
         inline auto ipv6_bytes(const std::string_view host) -> std::array<std::uint8_t, 16>
         {
             std::array<std::uint8_t, 16> out{};
@@ -352,8 +447,7 @@ namespace psm_test
                     for (std::size_t j = start; j < i; ++j)
                     {
                         const char c = host[j];
-                        v = static_cast<std::uint16_t>(
-                            v * 16 + (c >= 'a' ? c - 'a' + 10 : c - '0'));
+                        v = static_cast<std::uint16_t>(v * 16 + (c >= 'a' ? c - 'a' + 10 : c - '0'));
                     }
                     out[n++] = static_cast<std::uint8_t>(v >> 8);
                     out[n++] = static_cast<std::uint8_t>(v & 0xFF);
@@ -363,14 +457,20 @@ namespace psm_test
             return out;
         }
 
-        /// IPv6 字节 → 冒分字符串
+        /**
+         * @brief IPv6 字节 → 冒分字符串
+         * @param v 16 字节 IPv6 地址
+         * @return 冒分字符串
+         */
         inline auto join_ipv6(const view v) -> std::string
         {
             std::string s;
             for (std::size_t i = 0; i < v.size(); i += 2)
             {
                 if (i > 0)
+                {
                     s.push_back(':');
+                }
                 char buf[5];
                 std::snprintf(buf, sizeof(buf), "%x", (v[i] << 8) | v[i + 1]);
                 s += buf;
@@ -381,17 +481,25 @@ namespace psm_test
         inline auto hex_val(const char c) -> std::uint8_t
         {
             if (c >= '0' && c <= '9')
+            {
                 return static_cast<std::uint8_t>(c - '0');
+            }
             if (c >= 'a' && c <= 'f')
+            {
                 return static_cast<std::uint8_t>(c - 'a' + 10);
+            }
             return static_cast<std::uint8_t>(c - 'A' + 10);
         }
 
     } // namespace detail
 
-    /// 编码主机（ATYP + ADDR，不含 PORT）
-    inline auto encode_host(byte_writer &out, const std::uint8_t type, const std::string_view host)
-        -> void
+    /**
+     * @brief 编码主机（ATYP + ADDR，不含 PORT）
+     * @param out 输出写入器
+     * @param type 地址类型（atyp 常量）
+     * @param host 主机名
+     */
+    inline auto encode_host(byte_writer &out, const std::uint8_t type, const std::string_view host) -> void
     {
         out.write_u8(type);
         if (type == atyp::ipv4)
@@ -409,48 +517,64 @@ namespace psm_test
         }
     }
 
-    /// 解析主机（ATYP + ADDR，不含 PORT）
+    /**
+     * @brief 解析主机（ATYP + ADDR，不含 PORT）
+     * @param in 输入读取器
+     * @param type 输出地址类型
+     * @param host 输出主机名
+     * @return 解析成功返回 true
+     */
     inline auto parse_host(byte_reader &in, std::uint8_t &type, std::string &host) -> bool
     {
         if (!in.read_u8(type))
+        {
             return false;
+        }
         switch (type)
         {
-        case atyp::ipv4:
-        {
+        case atyp::ipv4: {
             const auto v = in.read(4);
             if (v.size() != 4)
+            {
                 return false;
-            host = std::to_string(v[0]) + "." + std::to_string(v[1]) + "."
-                + std::to_string(v[2]) + "." + std::to_string(v[3]);
+            }
+            host = std::to_string(v[0]) + "." + std::to_string(v[1]) + "." + std::to_string(v[2]) + "." +
+                   std::to_string(v[3]);
             break;
         }
-        case atyp::ipv6:
-        {
+        case atyp::ipv6: {
             const auto v = in.read(16);
             if (v.size() != 16)
+            {
                 return false;
+            }
             host = detail::join_ipv6(v);
             break;
         }
-        case atyp::domain:
-        {
+        case atyp::domain: {
             std::uint8_t len = 0;
             if (!in.read_u8(len))
+            {
                 return false;
+            }
             const auto v = in.read(len);
             if (v.size() != len)
+            {
                 return false;
+            }
             host.assign(reinterpret_cast<const char *>(v.data()), v.size());
             break;
         }
-        default:
-            return false;
+        default: return false;
         }
         return true;
     }
 
-    /// 解析 36 字符 UUID（含连字符）为 16 字节
+    /**
+     * @brief 解析 36 字符 UUID（含连字符）为 16 字节
+     * @param hex 36 字符 UUID 字符串
+     * @return 16 字节 UUID
+     */
     [[nodiscard]] inline auto parse_uuid(const std::string_view hex) -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 16> out{};
@@ -460,16 +584,26 @@ namespace psm_test
         for (const char c : hex)
         {
             if (c == '-')
+            {
                 continue;
+            }
             std::uint8_t d = 0;
             if (c >= '0' && c <= '9')
+            {
                 d = static_cast<std::uint8_t>(c - '0');
+            }
             else if (c >= 'a' && c <= 'f')
+            {
                 d = static_cast<std::uint8_t>(c - 'a' + 10);
+            }
             else if (c >= 'A' && c <= 'F')
+            {
                 d = static_cast<std::uint8_t>(c - 'A' + 10);
+            }
             else
+            {
                 continue;
+            }
             if (hi)
             {
                 nibble = static_cast<std::uint8_t>(d << 4);
@@ -484,14 +618,20 @@ namespace psm_test
         return out;
     }
 
-    /// UUID 格式化为字符串（测试/日志用）
+    /**
+     * @brief UUID 格式化为字符串（测试/日志用）
+     * @param uuid 16 字节 UUID
+     * @return 格式化字符串
+     */
     [[nodiscard]] inline auto uuid_string(const std::span<const std::uint8_t> uuid) -> std::string
     {
         std::string s;
         for (std::size_t i = 0; i < uuid.size(); ++i)
         {
             if (i == 4 || i == 6 || i == 8 || i == 10)
+            {
                 s.push_back('-');
+            }
             const auto b = uuid[i];
             s.push_back("0123456789abcdef"[b >> 4]);
             s.push_back("0123456789abcdef"[b & 0x0F]);

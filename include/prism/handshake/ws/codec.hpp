@@ -49,11 +49,11 @@ namespace psm::handshake::ws::codec
      */
     struct frame_header
     {
-        bool fin{false};              ///< FIN 标志
-        std::uint8_t opcode{0};       ///< 帧类型
-        bool masked{false};           ///< 是否掩码
-        std::uint64_t payload_len{0}; ///< 载荷长度
-        std::size_t header_len{0};    ///< 帧头总长度（含 mask key）
+        bool fin{false};                    ///< FIN 标志
+        std::uint8_t opcode{0};             ///< 帧类型
+        bool masked{false};                 ///< 是否掩码
+        std::uint64_t payload_len{0};       ///< 载荷长度
+        std::size_t header_len{0};          ///< 帧头总长度（含 mask key）
         std::array<std::uint8_t, 4> mask{}; ///< 掩码键（masked 时有效）
     };
 

@@ -1,12 +1,11 @@
-#include <prism/handshake/shadowtls/handshake.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/code.hpp>
-#include <prism/net/transport/reliable.hpp>
-#include <prism/protocol/tls/record.hpp>
 #include <prism/handshake/common.hpp>
+#include <prism/handshake/shadowtls/handshake.hpp>
 #include <prism/handshake/shadowtls/util/auth.hpp>
 #include <prism/handshake/shadowtls/util/constants.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/protocol/tls/record.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -28,597 +27,580 @@ namespace psm::handshake::shadowtls
     namespace
     {
 
-
-    auto extract_random(std::span<const std::byte> server_hello)
-        -> std::optional<std::array<std::byte, tls_rndsize>>
-    {
-        if (server_hello.size() < tls_hdrsize + 1 + 3 + 2 + tls_rndsize)
+        auto extract_random(std::span<const std::byte> server_hello)
+            -> std::optional<std::array<std::byte, tls_rndsize>>
         {
-            return std::nullopt;
+            if (server_hello.size() < tls_hdrsize + 1 + 3 + 2 + tls_rndsize)
+            {
+                return std::nullopt;
+            }
+
+            // 安全：将 byte 缓冲区转为 uint8_t 解析 TLS ServerHello 头部做验证，二进制兼容
+            const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
+            if (raw[0] != content_handshake || raw[5] != hs_type_serverhello)
+            {
+                return std::nullopt;
+            }
+
+            std::array<std::byte, tls_rndsize> server_random{};
+            std::memcpy(server_random.data(), raw + tls_hdrsize + 1 + 3 + 2, tls_rndsize);
+            return server_random;
         }
 
-        // 安全：将 byte 缓冲区转为 uint8_t 解析 TLS ServerHello 头部做验证，二进制兼容
-        const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
-        if (raw[0] != content_handshake || raw[5] != hs_type_serverhello)
+        auto is_tls13_hello(std::span<const std::byte> server_hello) -> bool
         {
-            return std::nullopt;
-        }
+            if (server_hello.size() < session_id_len_idx)
+            {
+                return false;
+            }
 
-        std::array<std::byte, tls_rndsize> server_random{};
-        std::memcpy(server_random.data(), raw + tls_hdrsize + 1 + 3 + 2, tls_rndsize);
-        return server_random;
-    }
+            // 安全：将 byte 缓冲区转为 uint8_t 解析 TLS ServerHello 做版本检测，二进制兼容
+            const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
+            std::size_t offset = session_id_len_idx + 1;
+            const std::uint8_t session_id_len = raw[session_id_len_idx];
+            offset += session_id_len;
 
+            if (offset + 3 > server_hello.size())
+            {
+                return false;
+            }
+            offset += 3; // 密码套件(2) + legacy_compression_method(1)
 
-    auto is_tls13_hello(std::span<const std::byte> server_hello) -> bool
-    {
-        if (server_hello.size() < session_id_len_idx)
-        {
-            return false;
-        }
-
-        // 安全：将 byte 缓冲区转为 uint8_t 解析 TLS ServerHello 做版本检测，二进制兼容
-        const auto *raw = reinterpret_cast<const std::uint8_t *>(server_hello.data());
-        std::size_t offset = session_id_len_idx + 1;
-        const std::uint8_t session_id_len = raw[session_id_len_idx];
-        offset += session_id_len;
-
-        if (offset + 3 > server_hello.size())
-            return false;
-        offset += 3; // 密码套件(2) + legacy_compression_method(1)
-
-        if (offset + 2 > server_hello.size())
-            return false;
-        const std::uint16_t ext_list_len =
-            (static_cast<std::uint16_t>(raw[offset]) << 8) | raw[offset + 1];
-        offset += 2;
-
-        const std::size_t ext_end = offset + ext_list_len;
-        while (offset + 4 <= ext_end && offset < server_hello.size())
-        {
-            const std::uint16_t ext_type =
+            if (offset + 2 > server_hello.size())
+            {
+                return false;
+            }
+            const std::uint16_t ext_list_len =
                 (static_cast<std::uint16_t>(raw[offset]) << 8) | raw[offset + 1];
-            const std::uint16_t ext_len =
-                (static_cast<std::uint16_t>(raw[offset + 2]) << 8) | raw[offset + 3];
-            offset += 4;
+            offset += 2;
 
-            if (ext_type == ext_supported_versions && ext_len == 2)
+            const std::size_t ext_end = offset + ext_list_len;
+            while (offset + 4 <= ext_end && offset < server_hello.size())
             {
-                if (offset + 2 <= server_hello.size())
+                const std::uint16_t ext_type =
+                    (static_cast<std::uint16_t>(raw[offset]) << 8) | raw[offset + 1];
+                const std::uint16_t ext_len =
+                    (static_cast<std::uint16_t>(raw[offset + 2]) << 8) | raw[offset + 3];
+                offset += 4;
+
+                if (ext_type == ext_supported_versions && ext_len == 2)
                 {
-                    const std::uint16_t version =
-                        (static_cast<std::uint16_t>(raw[offset]) << 8) | raw[offset + 1];
-                    return version == tls_ver13;
-                }
-            }
-            offset += ext_len;
-        }
-        return false;
-    }
-
-
-    struct hmac_read_args
-    {
-        transport::shared_transmission client_trans;
-        transport::shared_transmission backend_trans;
-        std::string_view password;
-        std::span<const std::byte> server_random;
-        std::shared_ptr<HMAC_CTX> &hmac_verify_out;
-        std::shared_ptr<diagnose::context> trace;
-    };
-
-    struct backend_relay_args
-    {
-        transport::shared_transmission backend_trans;
-        transport::shared_transmission client_trans;
-        std::string_view password;
-        std::span<const std::byte> server_random;
-        std::shared_ptr<HMAC_CTX> &hmac_out;
-        std::shared_ptr<diagnose::context> trace;
-    };
-
-    struct relay_args
-    {
-        transport::shared_transmission client_trans;
-        transport::shared_transmission backend_trans;
-        const config &cfg;
-        std::string_view password;
-        std::span<const std::byte> server_hello;
-        std::shared_ptr<diagnose::context> trace;
-    };
-
-    struct modified_frame_args
-    {
-        transport::shared_transmission client_trans;
-        const std::shared_ptr<HMAC_CTX> &hmac_main;
-        std::span<std::byte> payload;
-        std::size_t frame_idx;
-        std::span<const std::uint8_t> write_key;
-        std::shared_ptr<diagnose::context> trace;
-    };
-
-    struct passthrough_frame_args
-    {
-        transport::shared_transmission client_trans;
-        std::span<const std::byte> frame;
-        const std::uint8_t *raw;
-        std::size_t frame_idx;
-        std::shared_ptr<diagnose::context> trace;
-    };
-
-
-    auto read_hmac_match(const hmac_read_args &args)
-        -> net::awaitable<std::optional<memory::vector<std::byte>>>
-    {
-        // 安全：SSL HMAC API 要求 unsigned char*，byte span 数据仅读取，不修改
-        auto sr_data = reinterpret_cast<const std::uint8_t *>(args.server_random.data());
-        constexpr std::uint8_t tag_c = 'C';
-
-        while (true)
-        {
-            std::error_code frame_ec;
-            auto frame_opt = co_await common::read_tls_frame(*args.client_trans, frame_ec);
-            if (frame_ec || !frame_opt)
-            {
-                diagnose::debug(args.trace, "read_tls_frame from client returned nullopt");
-                co_return std::nullopt;
-            }
-
-            auto &frame = *frame_opt;
-            // 安全：将 byte 帧缓冲区转为 uint8_t 检查 TLS 内容类型并提取 HMAC，二进制兼容
-            const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
-            if (raw[0] == content_appdata &&
-                frame.size() > tls_hmac_hdrsize)
-            {
-                std::array<std::uint8_t, 4> client_hmac{};
-                std::memcpy(client_hmac.data(), raw + tls_hdrsize, hmac_size);
-
-                auto payload = std::span<const std::byte>(
-                    frame.data() + tls_hmac_hdrsize,
-                    frame.size() - tls_hmac_hdrsize);
-
-                std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
-                std::uint32_t md_len = 0;
-                {
-                    HMAC_CTX *h = HMAC_CTX_new();
-                    HMAC_Init_ex(h, args.password.data(), static_cast<int>(args.password.size()), EVP_sha1(), nullptr);
-                    HMAC_Update(h, sr_data, args.server_random.size());
-                    HMAC_Update(h, &tag_c, 1);
-                    // 安全：SSL HMAC API 要求 unsigned char*，payload 数据仅读取
-                    HMAC_Update(h, reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
-                    HMAC_Final(h, md.data(), &md_len);
-                    HMAC_CTX_free(h);
-                }
-
-                const bool match = CRYPTO_memcmp(md.data(), client_hmac.data(), hmac_size) == 0;
-
-                if (match)
-                {
-                    diagnose::debug(args.trace, "client first frame HMAC matched, payload_size={}", payload.size());
-
-                    auto hmac_verify = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
-                    if (hmac_verify)
+                    if (offset + 2 <= server_hello.size())
                     {
-                        auto pwd_data = args.password.data();
-                        auto pwd_len = static_cast<int>(args.password.size());
-                        HMAC_Init_ex(hmac_verify.get(), pwd_data, pwd_len, EVP_sha1(), nullptr);
-                        HMAC_Update(hmac_verify.get(), sr_data, args.server_random.size());
-                        HMAC_Update(hmac_verify.get(), &tag_c, 1);
-                        HMAC_Update(hmac_verify.get(),
-                                    // 安全：SSL HMAC API 要求 unsigned char*，payload 数据仅读取
-                                    reinterpret_cast<const std::uint8_t *>(payload.data()),
+                        const std::uint16_t version =
+                            (static_cast<std::uint16_t>(raw[offset]) << 8) | raw[offset + 1];
+                        return version == tls_ver13;
+                    }
+                }
+                offset += ext_len;
+            }
+            return false;
+        }
+
+        struct hmac_read_args
+        {
+            transport::shared_transmission client_trans;
+            transport::shared_transmission backend_trans;
+            std::string_view password;
+            std::span<const std::byte> server_random;
+            std::shared_ptr<HMAC_CTX> &hmac_verify_out;
+            std::shared_ptr<diagnose::context> trace;
+        };
+
+        struct backend_relay_args
+        {
+            transport::shared_transmission backend_trans;
+            transport::shared_transmission client_trans;
+            std::string_view password;
+            std::span<const std::byte> server_random;
+            std::shared_ptr<HMAC_CTX> &hmac_out;
+            std::shared_ptr<diagnose::context> trace;
+        };
+
+        struct relay_args
+        {
+            transport::shared_transmission client_trans;
+            transport::shared_transmission backend_trans;
+            const config &cfg;
+            std::string_view password;
+            std::span<const std::byte> server_hello;
+            std::shared_ptr<diagnose::context> trace;
+        };
+
+        struct modified_frame_args
+        {
+            transport::shared_transmission client_trans;
+            const std::shared_ptr<HMAC_CTX> &hmac_main;
+            std::span<std::byte> payload;
+            std::size_t frame_idx;
+            std::span<const std::uint8_t> write_key;
+            std::shared_ptr<diagnose::context> trace;
+        };
+
+        struct passthrough_frame_args
+        {
+            transport::shared_transmission client_trans;
+            std::span<const std::byte> frame;
+            const std::uint8_t *raw;
+            std::size_t frame_idx;
+            std::shared_ptr<diagnose::context> trace;
+        };
+
+        auto read_hmac_match(const hmac_read_args &args)
+            -> net::awaitable<std::optional<memory::vector<std::byte>>>
+        {
+            // 安全：SSL HMAC API 要求 unsigned char*，byte span 数据仅读取，不修改
+            auto sr_data = reinterpret_cast<const std::uint8_t *>(args.server_random.data());
+            constexpr std::uint8_t tag_c = 'C';
+
+            while (true)
+            {
+                std::error_code frame_ec;
+                auto frame_opt = co_await common::read_tls_frame(*args.client_trans, frame_ec);
+                if (frame_ec || !frame_opt)
+                {
+                    diagnose::debug(args.trace, "read_tls_frame from client returned nullopt");
+                    co_return std::nullopt;
+                }
+
+                auto &frame = *frame_opt;
+                // 安全：将 byte 帧缓冲区转为 uint8_t 检查 TLS 内容类型并提取 HMAC，二进制兼容
+                const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
+                if (raw[0] == content_appdata && frame.size() > tls_hmac_hdrsize)
+                {
+                    std::array<std::uint8_t, 4> client_hmac{};
+                    std::memcpy(client_hmac.data(), raw + tls_hdrsize, hmac_size);
+
+                    auto payload = std::span<const std::byte>(frame.data() + tls_hmac_hdrsize,
+                                                              frame.size() - tls_hmac_hdrsize);
+
+                    std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
+                    std::uint32_t md_len = 0;
+                    {
+                        HMAC_CTX *h = HMAC_CTX_new();
+                        HMAC_Init_ex(h, args.password.data(), static_cast<int>(args.password.size()),
+                                     EVP_sha1(), nullptr);
+                        HMAC_Update(h, sr_data, args.server_random.size());
+                        HMAC_Update(h, &tag_c, 1);
+                        // 安全：SSL HMAC API 要求 unsigned char*，payload 数据仅读取
+                        HMAC_Update(h, reinterpret_cast<const std::uint8_t *>(payload.data()),
                                     payload.size());
-                        HMAC_Update(hmac_verify.get(), client_hmac.data(), hmac_size);
-                        args.hmac_verify_out = hmac_verify;
-                        diagnose::debug(args.trace, "initialized hmac_verify for transport phase");
+                        HMAC_Final(h, md.data(), &md_len);
+                        HMAC_CTX_free(h);
                     }
 
-                    memory::vector<std::byte> result(frame.size() - hmac_size);
-                    std::memcpy(result.data(), raw, tls_hdrsize);
-                    std::memcpy(result.data() + tls_hdrsize,
-                                frame.data() + tls_hmac_hdrsize,
-                                frame.size() - tls_hmac_hdrsize);
-                    co_return result;
+                    const bool match = CRYPTO_memcmp(md.data(), client_hmac.data(), hmac_size) == 0;
+
+                    if (match)
+                    {
+                        diagnose::debug(args.trace, "client first frame HMAC matched, payload_size={}",
+                                        payload.size());
+
+                        auto hmac_verify = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
+                        if (hmac_verify)
+                        {
+                            auto pwd_data = args.password.data();
+                            auto pwd_len = static_cast<int>(args.password.size());
+                            HMAC_Init_ex(hmac_verify.get(), pwd_data, pwd_len, EVP_sha1(), nullptr);
+                            HMAC_Update(hmac_verify.get(), sr_data, args.server_random.size());
+                            HMAC_Update(hmac_verify.get(), &tag_c, 1);
+                            HMAC_Update(hmac_verify.get(),
+                                        // 安全：SSL HMAC API 要求 unsigned char*，payload 数据仅读取
+                                        reinterpret_cast<const std::uint8_t *>(payload.data()),
+                                        payload.size());
+                            HMAC_Update(hmac_verify.get(), client_hmac.data(), hmac_size);
+                            args.hmac_verify_out = hmac_verify;
+                            diagnose::debug(args.trace, "initialized hmac_verify for transport phase");
+                        }
+
+                        memory::vector<std::byte> result(frame.size() - hmac_size);
+                        std::memcpy(result.data(), raw, tls_hdrsize);
+                        std::memcpy(result.data() + tls_hdrsize, frame.data() + tls_hmac_hdrsize,
+                                    frame.size() - tls_hmac_hdrsize);
+                        co_return result;
+                    }
+                }
+
+                diagnose::debug(args.trace, "forwarding client frame to backend, type=0x{:02x}, size={}",
+                                raw[0], frame.size());
+                std::error_code write_ec;
+                co_await transport::async_write(
+                    *args.backend_trans, std::span<const std::byte>(frame.data(), frame.size()), write_ec);
+
+                if (write_ec)
+                {
+                    diagnose::warn(args.trace, "write to backend failed: {}", write_ec.message());
+                    co_return std::nullopt;
                 }
             }
+        }
 
-            diagnose::debug(args.trace, "forwarding client frame to backend, type=0x{:02x}, size={}", raw[0], frame.size());
+        auto send_modified(const modified_frame_args &args) -> net::awaitable<bool>
+        {
+            // 安全：将 byte payload 转为 uint8_t 指针用于 HMAC 更新，二进制兼容类型
+            HMAC_Update(args.hmac_main.get(), reinterpret_cast<const std::uint8_t *>(args.payload.data()),
+                        args.payload.size());
+
+            std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
+            std::uint32_t md_len = 0;
+            {
+                HMAC_CTX *hmac_copy = HMAC_CTX_new();
+                HMAC_CTX_copy(hmac_copy, args.hmac_main.get());
+                HMAC_Final(hmac_copy, md.data(), &md_len);
+                HMAC_CTX_free(hmac_copy);
+            }
+
+            std::array<std::uint8_t, 4> hmac_tag{};
+            std::memcpy(hmac_tag.data(), md.data(), hmac_size);
+
+            const std::uint16_t new_payload_len = static_cast<std::uint16_t>(hmac_size + args.payload.size());
+            memory::vector<std::byte> hmac_payload(new_payload_len);
+            std::memcpy(hmac_payload.data(), hmac_tag.data(), hmac_size);
+            std::memcpy(hmac_payload.data() + hmac_size, args.payload.data(), args.payload.size());
+
+            auto frame = ::psm::tls::record::builder()
+                             .type(content_appdata)
+                             .version(0x0303)
+                             .payload(hmac_payload)
+                             .build();
+            auto frame_bytes = frame.serialize();
+
             std::error_code write_ec;
             co_await transport::async_write(
-                *args.backend_trans,
-                std::span<const std::byte>(frame.data(), frame.size()),
+                *args.client_trans, std::span<const std::byte>(frame_bytes.data(), frame_bytes.size()),
                 write_ec);
-
             if (write_ec)
             {
-                diagnose::warn(args.trace, "write to backend failed: {}", write_ec.message());
-                co_return std::nullopt;
+                diagnose::warn(args.trace, "write to client failed: {}", write_ec.message());
+                co_return false;
             }
-        }
-    }
 
-
-    auto send_modified(const modified_frame_args &args)
-        -> net::awaitable<bool>
-    {
-        // 安全：将 byte payload 转为 uint8_t 指针用于 HMAC 更新，二进制兼容类型
-        HMAC_Update(args.hmac_main.get(), reinterpret_cast<const std::uint8_t *>(args.payload.data()), args.payload.size());
-
-        std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
-        std::uint32_t md_len = 0;
-        {
-            HMAC_CTX *hmac_copy = HMAC_CTX_new();
-            HMAC_CTX_copy(hmac_copy, args.hmac_main.get());
-            HMAC_Final(hmac_copy, md.data(), &md_len);
-            HMAC_CTX_free(hmac_copy);
+            diagnose::debug(args.trace, "sent modified frame #{} to client, new_size={}", args.frame_idx,
+                            frame_bytes.size());
+            co_return true;
         }
 
-        std::array<std::uint8_t, 4> hmac_tag{};
-        std::memcpy(hmac_tag.data(), md.data(), hmac_size);
-
-        const std::uint16_t new_payload_len = static_cast<std::uint16_t>(hmac_size + args.payload.size());
-        memory::vector<std::byte> hmac_payload(new_payload_len);
-        std::memcpy(hmac_payload.data(), hmac_tag.data(), hmac_size);
-        std::memcpy(hmac_payload.data() + hmac_size, args.payload.data(), args.payload.size());
-
-        auto frame = ::psm::tls::record::builder()
-                         .type(content_appdata)
-                         .version(0x0303)
-                         .payload(hmac_payload)
-                         .build();
-        auto frame_bytes = frame.serialize();
-
-        std::error_code write_ec;
-        co_await transport::async_write(
-            *args.client_trans,
-            std::span<const std::byte>(frame_bytes.data(), frame_bytes.size()),
-            write_ec);
-        if (write_ec)
+        auto send_passthrough(const passthrough_frame_args &args) -> net::awaitable<bool>
         {
-            diagnose::warn(args.trace, "write to client failed: {}", write_ec.message());
-            co_return false;
-        }
-
-        diagnose::debug(args.trace, "sent modified frame #{} to client, new_size={}", args.frame_idx, frame_bytes.size());
-        co_return true;
-    }
-
-
-    auto send_passthrough(const passthrough_frame_args &args)
-        -> net::awaitable<bool>
-    {
-        std::error_code write_ec;
-        co_await transport::async_write(
-            *args.client_trans,
-            std::span<const std::byte>(args.frame.data(), args.frame.size()),
-            write_ec);
-        if (write_ec)
-        {
-            diagnose::warn(args.trace, "write passthrough failed: {}", write_ec.message());
-            co_return false;
-        }
-
-        diagnose::debug(args.trace, "sent passthrough frame #{} to client, type=0x{:02x}, size={}",
-                   args.frame_idx, args.raw[0], args.frame.size());
-        co_return true;
-    }
-
-
-    auto relay_modified(const backend_relay_args &args)
-        -> net::awaitable<void>
-    {
-        auto write_key = compute_write_key(args.password, args.server_random);
-
-        // 安全：SSL HMAC API 要求 unsigned char*，server_random byte 数据仅读取
-        auto sr_bytes = reinterpret_cast<const std::uint8_t *>(args.server_random.data());
-
-        auto hmac_main = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
-        if (!hmac_main)
-        {
-            diagnose::debug(args.trace, "failed to create HMAC_CTX");
-            co_return;
-        }
-
-        HMAC_Init_ex(hmac_main.get(), args.password.data(), static_cast<int>(args.password.size()), EVP_sha1(), nullptr);
-        HMAC_Update(hmac_main.get(), sr_bytes, args.server_random.size());
-
-        std::size_t frame_count = 0;
-
-        diagnose::debug(args.trace, "initialized cumulative HMAC with serverRandom");
-
-        while (true)
-        {
-            std::error_code frame_ec;
-            auto frame_opt = co_await common::read_tls_frame(*args.backend_trans, frame_ec);
-            if (frame_ec || !frame_opt)
+            std::error_code write_ec;
+            co_await transport::async_write(*args.client_trans,
+                                            std::span<const std::byte>(args.frame.data(), args.frame.size()),
+                                            write_ec);
+            if (write_ec)
             {
-                diagnose::debug(args.trace, "backend closed (nullopt), total_frames={}", frame_count);
-                args.hmac_out = hmac_main;
+                diagnose::warn(args.trace, "write passthrough failed: {}", write_ec.message());
+                co_return false;
+            }
+
+            diagnose::debug(args.trace, "sent passthrough frame #{} to client, type=0x{:02x}, size={}",
+                            args.frame_idx, args.raw[0], args.frame.size());
+            co_return true;
+        }
+
+        auto relay_modified(const backend_relay_args &args) -> net::awaitable<void>
+        {
+            auto write_key = compute_write_key(args.password, args.server_random);
+
+            // 安全：SSL HMAC API 要求 unsigned char*，server_random byte 数据仅读取
+            auto sr_bytes = reinterpret_cast<const std::uint8_t *>(args.server_random.data());
+
+            auto hmac_main = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
+            if (!hmac_main)
+            {
+                diagnose::debug(args.trace, "failed to create HMAC_CTX");
                 co_return;
             }
 
-            auto &frame = *frame_opt;
-            // 安全：将 byte 帧缓冲区转为 uint8_t 检查 TLS 内容类型，二进制兼容
-            const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
+            HMAC_Init_ex(hmac_main.get(), args.password.data(), static_cast<int>(args.password.size()),
+                         EVP_sha1(), nullptr);
+            HMAC_Update(hmac_main.get(), sr_bytes, args.server_random.size());
 
-            diagnose::debug(args.trace, "read backend frame #{}: type=0x{:02x}, size={}",
-                        frame_count, raw[0], frame.size());
+            std::size_t frame_count = 0;
 
-            if (raw[0] == content_appdata && frame.size() > tls_hdrsize)
+            diagnose::debug(args.trace, "initialized cumulative HMAC with serverRandom");
+
+            while (true)
             {
-                auto payload = std::span<std::byte>(
-                    frame.data() + tls_hdrsize, frame.size() - tls_hdrsize);
-
-                diagnose::debug(args.trace, "frame #{} is ApplicationData, payload_size={}", frame_count, payload.size());
-
-                common::xor_key(payload, write_key);
-
-                bool ok = co_await send_modified(
-                    modified_frame_args{args.client_trans, hmac_main, payload, frame_count, write_key});
-                if (!ok)
+                std::error_code frame_ec;
+                auto frame_opt = co_await common::read_tls_frame(*args.backend_trans, frame_ec);
+                if (frame_ec || !frame_opt)
                 {
+                    diagnose::debug(args.trace, "backend closed (nullopt), total_frames={}", frame_count);
                     args.hmac_out = hmac_main;
                     co_return;
+                }
+
+                auto &frame = *frame_opt;
+                // 安全：将 byte 帧缓冲区转为 uint8_t 检查 TLS 内容类型，二进制兼容
+                const auto *raw = reinterpret_cast<const std::uint8_t *>(frame.data());
+
+                diagnose::debug(args.trace, "read backend frame #{}: type=0x{:02x}, size={}", frame_count,
+                                raw[0], frame.size());
+
+                if (raw[0] == content_appdata && frame.size() > tls_hdrsize)
+                {
+                    auto payload =
+                        std::span<std::byte>(frame.data() + tls_hdrsize, frame.size() - tls_hdrsize);
+
+                    diagnose::debug(args.trace, "frame #{} is ApplicationData, payload_size={}", frame_count,
+                                    payload.size());
+
+                    common::xor_key(payload, write_key);
+
+                    bool ok = co_await send_modified(
+                        modified_frame_args{args.client_trans, hmac_main, payload, frame_count, write_key});
+                    if (!ok)
+                    {
+                        args.hmac_out = hmac_main;
+                        co_return;
+                    }
+                }
+                else
+                {
+                    bool ok = co_await send_passthrough(
+                        passthrough_frame_args{args.client_trans, frame, raw, frame_count});
+                    if (!ok)
+                    {
+                        args.hmac_out = hmac_main;
+                        co_return;
+                    }
+                }
+
+                ++frame_count;
+            }
+        }
+
+        struct auth_info
+        {
+            memory::string matched_user;
+            std::string_view password;
+        };
+
+        struct backend_result
+        {
+            memory::vector<std::byte> server_hello;
+            fault::code error = fault::code::success;
+        };
+
+        struct relay_outputs
+        {
+            memory::vector<std::byte> first_frame;
+            std::shared_ptr<HMAC_CTX> hmac_verify_ctx;
+            std::array<std::byte, 32> server_random;
+        };
+
+        auto verify_client(const config &cfg, std::span<const std::byte> client_hello,
+                           std::shared_ptr<diagnose::context> trace) -> std::optional<auth_info>
+        {
+            auth_info auth;
+
+            if (cfg.version == 3)
+            {
+                for (const auto &u : cfg.users)
+                {
+                    if (u.password.empty())
+                    {
+                        continue;
+                    }
+                    if (verify_client_hello(client_hello, u.password))
+                    {
+                        auth.matched_user = u.name;
+                        auth.password = u.password;
+                        break;
+                    }
                 }
             }
             else
             {
-                bool ok = co_await send_passthrough(
-                    passthrough_frame_args{args.client_trans, frame, raw, frame_count});
-                if (!ok)
+                if (!cfg.password.empty() && verify_client_hello(client_hello, cfg.password))
                 {
-                    args.hmac_out = hmac_main;
-                    co_return;
+                    auth.matched_user = "default";
+                    auth.password = cfg.password;
                 }
             }
 
-            ++frame_count;
-        }
-    }
-
-
-    struct auth_info
-    {
-        memory::string matched_user;
-        std::string_view password;
-    };
-
-    struct backend_result
-    {
-        memory::vector<std::byte> server_hello;
-        fault::code error = fault::code::success;
-    };
-
-    struct relay_outputs
-    {
-        memory::vector<std::byte> first_frame;
-        std::shared_ptr<HMAC_CTX> hmac_verify_ctx;
-        std::array<std::byte, 32> server_random;
-    };
-
-    auto verify_client(const config &cfg, std::span<const std::byte> client_hello, std::shared_ptr<diagnose::context> trace)
-        -> std::optional<auth_info>
-    {
-        auth_info auth;
-
-        if (cfg.version == 3)
-        {
-            for (const auto &u : cfg.users)
+            if (auth.matched_user.empty())
             {
-                if (u.password.empty())
-                    continue;
-                if (verify_client_hello(client_hello, u.password))
+                diagnose::debug(trace, "ClientHello HMAC verification failed");
+                return std::nullopt;
+            }
+
+            diagnose::debug(trace, "Client authenticated (user: {})", auth.matched_user);
+            return auth;
+        }
+
+        struct backend_opts
+        {
+            transport::shared_transmission client_trans;
+            transport::shared_transmission backend_trans;
+            const config &cfg;
+            memory::vector<std::byte> &client_hello;
+            std::shared_ptr<diagnose::context> trace;
+        };
+
+        auto connect_backend(const backend_opts &opts) -> net::awaitable<backend_result>
+        {
+            backend_result res;
+
+            memory::string backend_host(opts.cfg.handshake_dest.begin(), opts.cfg.handshake_dest.end());
+            std::uint16_t backend_port = 443;
+            if (auto pos = backend_host.find(':'); pos != memory::string::npos)
+            {
+                const auto port_sv = std::string_view(backend_host).substr(pos + 1);
+                std::uint16_t port_tmp = 0;
+                const auto [ptr, fc_ec] =
+                    std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), port_tmp);
+                if (fc_ec != std::errc())
                 {
-                    auth.matched_user = u.name;
-                    auth.password = u.password;
-                    break;
+                    diagnose::error(opts.trace, "invalid backend port: {}", port_sv);
+                    res.error = fault::code::bad_message;
+                    co_return res;
+                }
+                backend_port = port_tmp;
+                backend_host = backend_host.substr(0, pos);
+            }
+
+            diagnose::debug(opts.trace, "connecting to backend: {}:{}", backend_host, backend_port);
+
+            // TODO(P5): shadowtls 当前用裸 tcp::resolver + net::async_connect 直连后端，
+            // 绕过 connection_pool/DNS gateway/IPv6 策略。原因是 backend_trans 由调用方
+            // 提供（已有 socket），与 outbound::dial 返回新 transport 的语义不匹配。
+            // 待 P5 分层修复（handshake_context 重构）时统一改造。
+            auto executor = opts.client_trans->executor();
+            net::ip::tcp::resolver resolver(executor);
+            auto endpoints = co_await resolver.async_resolve(backend_host, std::to_string(backend_port));
+
+            auto &backend_sock = opts.backend_trans->lowest_layer<transport::reliable>()->native_socket();
+
+            boost::system::error_code connect_ec;
+            auto connected_endpoint = co_await net::async_connect(
+                backend_sock, endpoints, net::redirect_error(net::use_awaitable, connect_ec));
+            (void)connected_endpoint;
+
+            if (connect_ec)
+            {
+                diagnose::warn(opts.trace, "Backend connection failed: {}", connect_ec.message());
+                res.error = fault::code::connection_refused;
+                co_return res;
+            }
+
+            diagnose::debug(opts.trace, "backend connected");
+
+            {
+                std::error_code write_ec;
+                co_await transport::async_write(
+                    *opts.backend_trans,
+                    std::span<const std::byte>(opts.client_hello.data(), opts.client_hello.size()), write_ec);
+                if (write_ec)
+                {
+                    diagnose::warn(opts.trace, "write ClientHello to backend failed: {}", write_ec.message());
+                    res.error = fault::code::connection_refused;
+                    co_return res;
                 }
             }
-        }
-        else
-        {
-            if (!cfg.password.empty() && verify_client_hello(client_hello, cfg.password))
+
+            diagnose::debug(opts.trace, "sent ClientHello to backend");
+
+            std::error_code server_hello_ec;
+            auto server_hello_opt = co_await common::read_tls_frame(*opts.backend_trans, server_hello_ec);
+            if (server_hello_ec || !server_hello_opt)
             {
-                auth.matched_user = "default";
-                auth.password = cfg.password;
-            }
-        }
-
-        if (auth.matched_user.empty())
-        {
-            diagnose::debug(trace, "ClientHello HMAC verification failed");
-            return std::nullopt;
-        }
-
-        diagnose::debug(trace, "Client authenticated (user: {})", auth.matched_user);
-        return auth;
-    }
-
-
-    struct backend_opts
-    {
-        transport::shared_transmission client_trans;
-        transport::shared_transmission backend_trans;
-        const config &cfg;
-        memory::vector<std::byte> &client_hello;
-        std::shared_ptr<diagnose::context> trace;
-    };
-
-    auto connect_backend(const backend_opts &opts)
-        -> net::awaitable<backend_result>
-    {
-        backend_result res;
-
-        memory::string backend_host(opts.cfg.handshake_dest.begin(), opts.cfg.handshake_dest.end());
-        std::uint16_t backend_port = 443;
-        if (auto pos = backend_host.find(':'); pos != memory::string::npos)
-        {
-            const auto port_sv = std::string_view(backend_host).substr(pos + 1);
-            std::uint16_t port_tmp = 0;
-            const auto [ptr, fc_ec] = std::from_chars(port_sv.data(), port_sv.data() + port_sv.size(), port_tmp);
-            if (fc_ec != std::errc())
-            {
-                diagnose::error(opts.trace, "invalid backend port: {}", port_sv);
-                res.error = fault::code::bad_message;
-                co_return res;
-            }
-            backend_port = port_tmp;
-            backend_host = backend_host.substr(0, pos);
-        }
-
-        diagnose::debug(opts.trace, "connecting to backend: {}:{}", backend_host, backend_port);
-
-        // TODO(P5): shadowtls 当前用裸 tcp::resolver + net::async_connect 直连后端，
-        // 绕过 connection_pool/DNS gateway/IPv6 策略。原因是 backend_trans 由调用方
-        // 提供（已有 socket），与 outbound::dial 返回新 transport 的语义不匹配。
-        // 待 P5 分层修复（handshake_context 重构）时统一改造。
-        auto executor = opts.client_trans->executor();
-        net::ip::tcp::resolver resolver(executor);
-        auto endpoints = co_await resolver.async_resolve(backend_host, std::to_string(backend_port));
-
-        auto &backend_sock = opts.backend_trans->lowest_layer<transport::reliable>()->native_socket();
-
-        boost::system::error_code connect_ec;
-        auto connected_endpoint = co_await net::async_connect(
-            backend_sock, endpoints,
-            net::redirect_error(net::use_awaitable, connect_ec));
-        (void)connected_endpoint;
-
-        if (connect_ec)
-        {
-            diagnose::warn(opts.trace, "Backend connection failed: {}", connect_ec.message());
-            res.error = fault::code::connection_refused;
-            co_return res;
-        }
-
-        diagnose::debug(opts.trace, "backend connected");
-
-        {
-            std::error_code write_ec;
-            co_await transport::async_write(
-                *opts.backend_trans,
-                std::span<const std::byte>(opts.client_hello.data(), opts.client_hello.size()),
-                write_ec);
-            if (write_ec)
-            {
-                diagnose::warn(opts.trace, "write ClientHello to backend failed: {}", write_ec.message());
+                diagnose::debug(opts.trace, "Failed to read ServerHello from backend");
                 res.error = fault::code::connection_refused;
                 co_return res;
             }
-        }
 
-        diagnose::debug(opts.trace, "sent ClientHello to backend");
+            diagnose::debug(opts.trace, "received ServerHello from backend, size={}",
+                            server_hello_opt->size());
 
-        std::error_code server_hello_ec;
-        auto server_hello_opt = co_await common::read_tls_frame(*opts.backend_trans, server_hello_ec);
-        if (server_hello_ec || !server_hello_opt)
-        {
-            diagnose::debug(opts.trace, "Failed to read ServerHello from backend");
-            res.error = fault::code::connection_refused;
+            {
+                std::error_code write_ec;
+                co_await transport::async_write(
+                    *opts.client_trans,
+                    std::span<const std::byte>(server_hello_opt->data(), server_hello_opt->size()), write_ec);
+                if (write_ec)
+                {
+                    diagnose::warn(opts.trace, "write ServerHello to client failed: {}", write_ec.message());
+                    res.error = fault::code::connection_refused;
+                    co_return res;
+                }
+            }
+
+            diagnose::debug(opts.trace, "sent ServerHello to client");
+
+            res.server_hello = std::move(*server_hello_opt);
             co_return res;
         }
 
-        diagnose::debug(opts.trace, "received ServerHello from backend, size={}", server_hello_opt->size());
-
+        auto run_relay(const relay_args &args) -> net::awaitable<std::optional<relay_outputs>>
         {
-            std::error_code write_ec;
-            co_await transport::async_write(
-                *opts.client_trans,
-                std::span<const std::byte>(server_hello_opt->data(), server_hello_opt->size()),
-                write_ec);
-            if (write_ec)
+            auto server_random_opt = extract_random(args.server_hello);
+            if (!server_random_opt)
             {
-                diagnose::warn(opts.trace, "write ServerHello to client failed: {}", write_ec.message());
-                res.error = fault::code::connection_refused;
-                co_return res;
+                diagnose::debug(args.trace, "Failed to extract ServerRandom");
+                co_return std::nullopt;
             }
+
+            auto server_random_span =
+                std::span<const std::byte>(server_random_opt->data(), server_random_opt->size());
+
+            if (args.cfg.strict_mode && !is_tls13_hello(args.server_hello))
+            {
+                diagnose::debug(args.trace, "Backend does not support TLS 1.3, strict mode enabled");
+                co_return std::nullopt;
+            }
+
+            diagnose::debug(args.trace, "ServerRandom extracted, TLS1.3={}",
+                            is_tls13_hello(args.server_hello));
+
+            // 双工转发：用 awaitable_operators::operator|| 并发跑两个方向，
+            // 任意一个完成即取消另一个。同步等待全部退出后再返回，保证
+            // handshake() 返回时无 detached 协程残留、无悬挂引用。
+            // client_sock 仍为引用：reliable transport 的 socket 生命周期由 ctx.inbound 管理，
+            // 覆盖整个 handshake 协程。
+            std::shared_ptr<HMAC_CTX> hmac_out;
+            std::shared_ptr<HMAC_CTX> hmac_verify_ctx;
+            std::optional<memory::vector<std::byte>> first_frame_opt;
+
+            using boost::asio::experimental::awaitable_operators::operator||;
+
+            auto backend_to_client = [&]() -> net::awaitable<void>
+            {
+                co_await relay_modified(backend_relay_args{args.backend_trans, args.client_trans,
+                                                           args.password, server_random_span, hmac_out});
+            };
+
+            auto client_to_backend = [&]() -> net::awaitable<void>
+            {
+                hmac_read_args read_args{args.client_trans, args.backend_trans, args.password,
+                                         server_random_span, hmac_verify_ctx};
+                first_frame_opt = co_await read_hmac_match(read_args);
+            };
+
+            co_await (backend_to_client() || client_to_backend());
+
+            {
+                args.backend_trans->close();
+                diagnose::debug(args.trace, "backend transport closed");
+            }
+
+            diagnose::debug(args.trace, "closed backend socket");
+
+            if (!first_frame_opt || !hmac_verify_ctx)
+            {
+                diagnose::debug(args.trace, "HMAC match failed during handshake relay");
+                co_return std::nullopt;
+            }
+
+            diagnose::debug(args.trace, "Handshake complete, first_frame_size={}", first_frame_opt->size());
+
+            co_return relay_outputs{std::move(*first_frame_opt), std::move(hmac_verify_ctx),
+                                    *server_random_opt};
         }
-
-        diagnose::debug(opts.trace, "sent ServerHello to client");
-
-        res.server_hello = std::move(*server_hello_opt);
-        co_return res;
-    }
-
-
-    auto run_relay(const relay_args &args)
-        -> net::awaitable<std::optional<relay_outputs>>
-    {
-        auto server_random_opt = extract_random(args.server_hello);
-        if (!server_random_opt)
-        {
-            diagnose::debug(args.trace, "Failed to extract ServerRandom");
-            co_return std::nullopt;
-        }
-
-        auto server_random_span = std::span<const std::byte>(
-            server_random_opt->data(), server_random_opt->size());
-
-        if (args.cfg.strict_mode && !is_tls13_hello(args.server_hello))
-        {
-            diagnose::debug(args.trace, "Backend does not support TLS 1.3, strict mode enabled");
-            co_return std::nullopt;
-        }
-
-        diagnose::debug(args.trace, "ServerRandom extracted, TLS1.3={}",
-                    is_tls13_hello(args.server_hello));
-
-        // 双工转发：用 awaitable_operators::operator|| 并发跑两个方向，
-        // 任意一个完成即取消另一个。同步等待全部退出后再返回，保证
-        // handshake() 返回时无 detached 协程残留、无悬挂引用。
-        // client_sock 仍为引用：reliable transport 的 socket 生命周期由 ctx.inbound 管理，
-        // 覆盖整个 handshake 协程。
-        std::shared_ptr<HMAC_CTX> hmac_out;
-        std::shared_ptr<HMAC_CTX> hmac_verify_ctx;
-        std::optional<memory::vector<std::byte>> first_frame_opt;
-
-        using boost::asio::experimental::awaitable_operators::operator||;
-
-        auto backend_to_client = [&]() -> net::awaitable<void>
-        {
-            co_await relay_modified(
-                backend_relay_args{args.backend_trans, args.client_trans,
-                                   args.password, server_random_span, hmac_out});
-        };
-
-        auto client_to_backend = [&]() -> net::awaitable<void>
-        {
-            hmac_read_args read_args{
-                args.client_trans, args.backend_trans, args.password,
-                server_random_span, hmac_verify_ctx};
-            first_frame_opt = co_await read_hmac_match(read_args);
-        };
-
-        co_await (backend_to_client() || client_to_backend());
-
-        {
-            args.backend_trans->close();
-            diagnose::debug(args.trace, "backend transport closed");
-        }
-
-        diagnose::debug(args.trace, "closed backend socket");
-
-        if (!first_frame_opt || !hmac_verify_ctx)
-        {
-            diagnose::debug(args.trace, "HMAC match failed during handshake relay");
-            co_return std::nullopt;
-        }
-
-        diagnose::debug(args.trace, "Handshake complete, first_frame_size={}", first_frame_opt->size());
-
-        co_return relay_outputs{
-            std::move(*first_frame_opt),
-            std::move(hmac_verify_ctx),
-            *server_random_opt
-        };
-    }
-
 
     } // namespace
 
-
-    auto handshake(handshake_opts opts)
-        -> net::awaitable<handshake::handshake_result>
+    auto handshake(handshake_opts opts) -> net::awaitable<handshake::handshake_result>
     {
         const auto prefix_ = opts.prefix;
         auto &cfg = opts.cfg;
@@ -637,7 +619,8 @@ namespace psm::handshake::shadowtls
 
         auto executor = opts.inbound->executor();
 
-        auto auth = verify_client(cfg, std::span<const std::byte>(opts.client_hello.data(), opts.client_hello.size()), opts.trace);
+        auto auth = verify_client(
+            cfg, std::span<const std::byte>(opts.client_hello.data(), opts.client_hello.size()), opts.trace);
         if (!auth)
         {
             result.error = fault::code::auth_failed;
@@ -649,8 +632,7 @@ namespace psm::handshake::shadowtls
         {
         }
 
-        auto backend_trans = std::make_shared<transport::reliable>(
-            net::ip::tcp::socket(executor));
+        auto backend_trans = std::make_shared<transport::reliable>(net::ip::tcp::socket(executor));
         auto backend = co_await connect_backend(
             backend_opts{opts.inbound, backend_trans, cfg, opts.client_hello, prefix_});
         if (backend.error != fault::code::success)
@@ -661,8 +643,8 @@ namespace psm::handshake::shadowtls
 
         result.polluted = true;
 
-        auto server_hello_span = std::span<const std::byte>(
-            backend.server_hello.data(), backend.server_hello.size());
+        auto server_hello_span =
+            std::span<const std::byte>(backend.server_hello.data(), backend.server_hello.size());
         auto relay = co_await run_relay(
             relay_args{opts.inbound, backend_trans, cfg, auth->password, server_hello_span, prefix_});
         if (!relay)

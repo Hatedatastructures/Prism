@@ -5,9 +5,9 @@
  *          通过 #include 源文件覆盖编译行。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
+
+#include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
 #include "../../src/prism/handshake/reality/util/keygen.cpp"
@@ -36,8 +36,14 @@ namespace
         // 填充非空 ClientHello 和 ServerHello
         psm::memory::vector<std::uint8_t> chello(psm::memory::current_resource());
         psm::memory::vector<std::uint8_t> shello(psm::memory::current_resource());
-        for (std::size_t i = 0; i < 64; ++i) chello.push_back(static_cast<std::uint8_t>(i));
-        for (std::size_t i = 0; i < 64; ++i) shello.push_back(static_cast<std::uint8_t>(i + 64));
+        for (std::size_t i = 0; i < 64; ++i)
+        {
+            chello.push_back(static_cast<std::uint8_t>(i));
+        }
+        for (std::size_t i = 0; i < 64; ++i)
+        {
+            shello.push_back(static_cast<std::uint8_t>(i + 64));
+        }
 
         auto [ec, keys] = derive_hs_keys(shared_secret, chello, shello);
         EXPECT_EQ(ec, psm::fault::code::success) << "derive_hs: with messages success";
@@ -154,7 +160,10 @@ namespace
         bool any_nonzero = false;
         for (auto b : verify)
         {
-            if (b != 0) any_nonzero = true;
+            if (b != 0)
+            {
+                any_nonzero = true;
+            }
         }
         EXPECT_TRUE(any_nonzero) << "compute_verify: non-zero output for non-zero input";
     }

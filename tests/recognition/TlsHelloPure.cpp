@@ -4,11 +4,10 @@
  * @details 测试 from(record) 重载 + 内部解析器边界条件
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/tls/hello.hpp>
 #include <prism/protocol/tls/record.hpp>
-#include <prism/diagnose/log.hpp>
-#include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 
@@ -85,20 +84,21 @@ namespace
     TEST(TlsHelloPure, FromRecord)
     {
         auto raw = build_valid_hello();
-        std::array<std::byte, 5> hdr = {
-            std::byte{raw[0]},
-            std::byte{raw[1]}, std::byte{raw[2]},
-            std::byte{raw[3]}, std::byte{raw[4]}};
+        std::array<std::byte, 5> hdr = {std::byte{raw[0]}, std::byte{raw[1]}, std::byte{raw[2]},
+                                        std::byte{raw[3]}, std::byte{raw[4]}};
 
         psm::memory::vector<std::byte> payload(raw.size() - 5);
         for (std::size_t i = 5; i < raw.size(); ++i)
+        {
             payload[i - 5] = std::byte{raw[i]};
+        }
 
-        auto rec = psm::tls::record::builder()
-                       .type(static_cast<std::uint8_t>(hdr[0]))
-                       .version((static_cast<std::uint16_t>(hdr[1]) << 8) | static_cast<std::uint16_t>(hdr[2]))
-                       .payload(payload)
-                       .build();
+        auto rec =
+            psm::tls::record::builder()
+                .type(static_cast<std::uint8_t>(hdr[0]))
+                .version((static_cast<std::uint16_t>(hdr[1]) << 8) | static_cast<std::uint16_t>(hdr[2]))
+                .payload(payload)
+                .build();
 
         auto [ec, ch] = psm::tls::client_hello::from(rec);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "from(record): success";
@@ -269,11 +269,7 @@ namespace
     TEST(TlsHelloPure, FromRecordBadPayload)
     {
         psm::memory::vector<std::byte> garbage(10, std::byte{0xFF});
-        auto rec = psm::tls::record::builder()
-                       .type(0x17)
-                       .version(0x0303)
-                       .payload(garbage)
-                       .build();
+        auto rec = psm::tls::record::builder().type(0x17).version(0x0303).payload(garbage).build();
 
         auto [ec, ch] = psm::tls::client_hello::from(rec);
         EXPECT_TRUE(psm::fault::failed(ec)) << "from(record) bad payload: fails";

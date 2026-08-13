@@ -52,13 +52,23 @@ namespace psmtest::mux::yamux
         rst = 0x0008,
     };
 
-    /// 标志位按位与
+    /**
+     * @brief 标志位按位与
+     * @param a 左操作数
+     * @param b 右操作数
+     * @return 按位与结果
+     */
     [[nodiscard]] constexpr auto operator&(flags a, flags b) noexcept -> flags
     {
         return static_cast<flags>(static_cast<std::uint16_t>(a) & static_cast<std::uint16_t>(b));
     }
 
-    /// 检查标志组合
+    /**
+     * @brief 检查标志组合
+     * @param f 标志组合
+     * @param flag 待检查标志
+     * @return true = 包含该标志
+     */
     [[nodiscard]] constexpr auto has_flag(flags f, flags flag) noexcept -> bool
     {
         return (f & flag) != flags::none;
@@ -85,7 +95,10 @@ namespace psmtest::mux::yamux
         /// 长度字段（Data = 载荷长，WinUpd = 窗口增量，Ping = ping id，GoAway = 原因码）
         std::uint32_t length{0};
 
-        /// 是否会话级消息
+        /**
+         * @brief 是否会话级消息
+         * @return true = 会话级消息
+         */
         [[nodiscard]] auto is_session() const noexcept -> bool
         {
             return stream_id == 0;

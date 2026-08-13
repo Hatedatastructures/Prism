@@ -12,14 +12,13 @@
  */
 #pragma once
 
-#include <prism/user/directory.hpp>
-#include <prism/user/entry.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
+#include <prism/user/directory.hpp>
+#include <prism/user/entry.hpp>
 
 #include <cstddef>
 #include <string_view>
-
 
 namespace psm
 {
@@ -68,8 +67,7 @@ namespace psm
          * 头字段。解析过程不分配内存，所有 string_view 直接指向输入缓冲区。
          * 请求行格式为 "METHOD TARGET HTTP/version\r\n"，头字段以 "\r\n\r\n" 结束。
          */
-        [[nodiscard]] auto parse_req(std::string_view raw_data, proxy_request &out)
-            -> fault::code;
+        [[nodiscard]] auto parse_req(std::string_view raw_data, proxy_request &out) -> fault::code;
 
         /**
          * @brief 从绝对 URI 中提取相对路径
@@ -79,8 +77,7 @@ namespace psm
          * @details 将代理场景中的绝对 URI（如 "http://example.com/path?q=1"）
          * 转换为源站所需的相对路径（如 "/path?q=1"），用于正向代理转发。
          */
-        [[nodiscard]] auto rel_path(std::string_view target)
-            -> std::string_view;
+        [[nodiscard]] auto rel_path(std::string_view target) -> std::string_view;
 
         /**
          * @struct auth_result

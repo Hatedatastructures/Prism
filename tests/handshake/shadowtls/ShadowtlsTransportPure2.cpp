@@ -4,11 +4,10 @@
  * @details 通过 #include 源文件访问匿名命名空间中的 compute_write_key 函数。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/handshake/shadowtls/transport.cpp"
+#include <gtest/gtest.h>
 
 using psm::handshake::shadowtls::compute_write_key;
 
@@ -19,7 +18,9 @@ namespace
         const char *password = "test_password";
         std::array<std::byte, 32> server_random{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             server_random[i] = static_cast<std::byte>(i);
+        }
 
         auto key = compute_write_key(password, server_random);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: size=32";
@@ -28,7 +29,12 @@ namespace
         auto key2 = compute_write_key(password, server_random);
         bool identical = true;
         for (std::size_t i = 0; i < 32; ++i)
-            if (key[i] != key2[i]) identical = false;
+        {
+            if (key[i] != key2[i])
+            {
+                identical = false;
+            }
+        }
         EXPECT_TRUE(identical) << "compute_write_key: deterministic";
     }
 
@@ -37,7 +43,9 @@ namespace
         std::string_view password;
         std::array<std::byte, 32> server_random{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             server_random[i] = static_cast<std::byte>(i);
+        }
 
         auto key = compute_write_key(password, server_random);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: empty password -> size=32";
@@ -56,14 +64,21 @@ namespace
     {
         std::array<std::byte, 32> server_random{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             server_random[i] = static_cast<std::byte>(i);
+        }
 
         auto key1 = compute_write_key("password_a", server_random);
         auto key2 = compute_write_key("password_b", server_random);
 
         bool different = false;
         for (std::size_t i = 0; i < 32; ++i)
-            if (key1[i] != key2[i]) different = true;
+        {
+            if (key1[i] != key2[i])
+            {
+                different = true;
+            }
+        }
         EXPECT_TRUE(different) << "compute_write_key: different passwords -> different keys";
     }
 
@@ -82,7 +97,12 @@ namespace
 
         bool different = false;
         for (std::size_t i = 0; i < 32; ++i)
-            if (key1[i] != key2[i]) different = true;
+        {
+            if (key1[i] != key2[i])
+            {
+                different = true;
+            }
+        }
         EXPECT_TRUE(different) << "compute_write_key: different random -> different keys";
     }
 

@@ -16,7 +16,7 @@ namespace
     {
         return psm::memory::string(s.data(), s.size());
     }
-}
+} // namespace
 
 TEST(XhttpSchemeDeep, SchemeName)
 {

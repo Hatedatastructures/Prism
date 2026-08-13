@@ -57,11 +57,11 @@ namespace psm::protocol::vmess
      */
     enum class option : std::uint8_t
     {
-        chunk_stream = 0x01,          ///< 分块流
-        connection_reuse = 0x02,      ///< 连接复用
-        chunk_masking = 0x04,         ///< 长度掩码
-        global_padding = 0x08,        ///< 全局填充
-        authenticated_length = 0x10,  ///< 认证长度
+        chunk_stream = 0x01,         ///< 分块流
+        connection_reuse = 0x02,     ///< 连接复用
+        chunk_masking = 0x04,        ///< 长度掩码
+        global_padding = 0x08,       ///< 全局填充
+        authenticated_length = 0x10, ///< 认证长度
     };
 
     /**
@@ -70,12 +70,12 @@ namespace psm::protocol::vmess
      */
     enum class security : std::uint8_t
     {
-        legacy = 0x01,             ///< AES-128-CFB（旧式）
-        auto_ = 0x02,              ///< 自动选择
-        aes_128_gcm = 0x03,        ///< AES-128-GCM
-        chacha20_poly1305 = 0x04,  ///< ChaCha20-Poly1305
-        none = 0x05,               ///< 无加密
-        zero = 0x06,               ///< 零加密
+        legacy = 0x01,            ///< AES-128-CFB（旧式）
+        auto_ = 0x02,             ///< 自动选择
+        aes_128_gcm = 0x03,       ///< AES-128-GCM
+        chacha20_poly1305 = 0x04, ///< ChaCha20-Poly1305
+        none = 0x05,              ///< 无加密
+        zero = 0x06,              ///< 零加密
     };
 
     /**

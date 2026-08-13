@@ -6,9 +6,9 @@
  *          通过 #include 源文件覆盖编译行。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
+
+#include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
 #include "../../src/prism/handshake/shadowtls/transport.cpp"
@@ -24,7 +24,9 @@ namespace
         const char *password = "test_password";
         std::array<std::byte, 32> server_random{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             server_random[i] = std::byte{i};
+        }
 
         auto key = compute_write_key(password, server_random);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: size=32";
@@ -35,14 +37,21 @@ namespace
         const char *password = "mypassword";
         std::array<std::byte, 32> server_random{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             server_random[i] = std::byte{i + 1};
+        }
 
         auto k1 = compute_write_key(password, server_random);
         auto k2 = compute_write_key(password, server_random);
         EXPECT_EQ(k1.size(), k2.size()) << "compute_write_key: same sizes";
         bool identical = true;
         for (std::size_t i = 0; i < k1.size(); ++i)
-            if (k1[i] != k2[i]) identical = false;
+        {
+            if (k1[i] != k2[i])
+            {
+                identical = false;
+            }
+        }
         EXPECT_TRUE(identical) << "compute_write_key: deterministic";
     }
 
@@ -74,7 +83,12 @@ namespace
         // 非全零
         bool all_zero = true;
         for (auto b : key)
-            if (b != 0) all_zero = false;
+        {
+            if (b != 0)
+            {
+                all_zero = false;
+            }
+        }
         EXPECT_TRUE(!all_zero) << "compute_write_key: empty password -> non-zero key";
     }
 
@@ -90,7 +104,9 @@ namespace
         std::string long_pw(256, 'A');
         std::array<std::byte, 32> server_random{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             server_random[i] = std::byte{i};
+        }
 
         auto key = compute_write_key(long_pw, server_random);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: long password -> size=32";

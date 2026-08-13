@@ -3,18 +3,17 @@
  * @brief WebSocket 伪装方案实现
  */
 
-#include <prism/handshake/ws/scheme.hpp>
-#include <prism/handshake/ws/codec.hpp>
-#include <prism/handshake/ws/transport.hpp>
-
-#include <prism/settings/settings.hpp>
-#include <prism/net/connection/util.hpp>
-#include <prism/resource/session.hpp>
-#include <prism/foundation/fault/handling.hpp>
-#include <prism/net/connection/types.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/handshake/ws/codec.hpp>
+#include <prism/handshake/ws/scheme.hpp>
+#include <prism/handshake/ws/transport.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/net/connection/util.hpp>
 #include <prism/net/transport/encrypted.hpp>
 #include <prism/net/transport/preview.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
 #include <openssl/ssl.h>
@@ -40,9 +39,14 @@ namespace psm::handshake::ws
             memory::string host;
         };
 
-        /// 逐行解析 HTTP/1.1 请求头（CRLF 结尾）
-        [[nodiscard]] auto parse_http_request(const std::span<const std::byte> data,
-                                              http_request &out) -> bool
+        /**
+         * @brief 逐行解析 HTTP/1.1 请求头（CRLF 结尾）
+         * @param data 请求头原始字节序列
+         * @param out 解析结果输出
+         * @return 是否解析成功
+         */
+        [[nodiscard]] auto parse_http_request(const std::span<const std::byte> data, http_request &out)
+            -> bool
         {
             const std::string_view text(reinterpret_cast<const char *>(data.data()), data.size());
             std::size_t line_start = 0;
@@ -53,8 +57,8 @@ namespace psm::handshake::ws
             {
                 const auto line_end = text.find("\r\n", line_start);
                 const auto line = (line_end == std::string_view::npos)
-                    ? text.substr(line_start)
-                    : text.substr(line_start, line_end - line_start);
+                                      ? text.substr(line_start)
+                                      : text.substr(line_start, line_end - line_start);
 
                 if (line.empty())
                 {
@@ -66,11 +70,13 @@ namespace psm::handshake::ws
                 {
                     // 请求行：GET /path HTTP/1.1
                     if (line.rfind("GET ", 0) == 0)
+                    {
                         out.is_get = true;
+                    }
                     const auto first_space = line.find(' ');
                     const auto second_space = (first_space == std::string_view::npos)
-                        ? std::string_view::npos
-                        : line.find(' ', first_space + 1);
+                                                  ? std::string_view::npos
+                                                  : line.find(' ', first_space + 1);
                     if (first_space != std::string_view::npos && second_space != std::string_view::npos)
                     {
                         out.path.assign(line.substr(first_space + 1, second_space - first_space - 1));
@@ -80,22 +86,34 @@ namespace psm::handshake::ws
                 {
                     const auto colon = line.find(':');
                     if (colon == std::string_view::npos)
+                    {
                         return false;
+                    }
                     const auto name = line.substr(0, colon);
                     auto value = line.substr(colon + 1);
                     while (!value.empty() && value.front() == ' ')
+                    {
                         value.remove_prefix(1);
+                    }
 
                     if (name == "Upgrade" && value == "websocket")
+                    {
                         out.is_upgrade = true;
+                    }
                     else if (name == "Sec-WebSocket-Key")
+                    {
                         out.sec_key.assign(value);
+                    }
                     else if (name == "Host")
+                    {
                         out.host.assign(value);
+                    }
                 }
 
                 if (line_end == std::string_view::npos)
+                {
                     break;
+                }
                 line_start = line_end + 2;
                 ++line_count;
             }
@@ -115,22 +133,17 @@ namespace psm::handshake::ws
         return cfg.stealth.ws.enabled();
     }
 
-    auto scheme::snis(const psm::settings &cfg) const
-        -> memory::vector<memory::string>
+    auto scheme::snis(const psm::settings &cfg) const -> memory::vector<memory::string>
     {
         return make_sni_list(cfg.stealth.ws.server_names);
     }
 
     auto scheme::guess(const psm::settings &cfg) const -> verify_result
     {
-        return {
-            .score = 100,
-            .solo_flag = 0,
-            .note = "ws: rely on SNI match"};
+        return {.score = 100, .solo_flag = 0, .note = "ws: rely on SNI match"};
     }
 
-    auto scheme::handshake(handshake::handshake_context ctx)
-        -> net::awaitable<handshake::handshake_result>
+    auto scheme::handshake(handshake::handshake_context ctx) -> net::awaitable<handshake::handshake_result>
     {
         handshake::handshake_result result;
 
@@ -174,8 +187,8 @@ namespace psm::handshake::ws
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
         auto clean_inbound = psm::transport::wrap_with_preview(std::move(raw), preread_span);
 
-        auto [ssl_ec, ssl_stream, recovered] = co_await psm::transport::encrypted::ssl_handshake(
-            std::move(clean_inbound), *ws_ssl_ctx);
+        auto [ssl_ec, ssl_stream, recovered] =
+            co_await psm::transport::encrypted::ssl_handshake(std::move(clean_inbound), *ws_ssl_ctx);
 
         if (fault::failed(ssl_ec) || !ssl_stream)
         {
@@ -198,10 +211,14 @@ namespace psm::handshake::ws
             std::error_code read_ec;
             const auto n = co_await encrypted_trans->async_read_some(chunk, read_ec);
             if (read_ec || n == 0)
+            {
                 break;
+            }
             http_buf.insert(http_buf.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
             if (!parse_http_request(http_buf, req))
+            {
                 break;
+            }
             if (req.valid)
             {
                 upgrade_ok = true;
@@ -246,9 +263,9 @@ namespace psm::handshake::ws
         response.append("\r\n\r\n");
 
         std::error_code w_ec;
-        co_await psm::transport::async_write(*encrypted_trans,
-            std::span<const std::byte>(
-                reinterpret_cast<const std::byte *>(response.data()), response.size()),
+        co_await psm::transport::async_write(
+            *encrypted_trans,
+            std::span<const std::byte>(reinterpret_cast<const std::byte *>(response.data()), response.size()),
             w_ec);
         if (w_ec)
         {
@@ -258,12 +275,13 @@ namespace psm::handshake::ws
         }
 
         // 升级成功：HTTP 请求之后的字节（首个 WS 帧粘包）经 preview 回放
-        const std::string_view http_text(
-            reinterpret_cast<const char *>(http_buf.data()), http_buf.size());
+        const std::string_view http_text(reinterpret_cast<const char *>(http_buf.data()), http_buf.size());
         const auto header_end = http_text.find("\r\n\r\n");
         std::size_t consumed = http_buf.size();
         if (header_end != std::string_view::npos)
+        {
             consumed = header_end + 4;
+        }
 
         psm::transport::shared_transmission ws_next = encrypted_trans;
         if (consumed < http_buf.size())

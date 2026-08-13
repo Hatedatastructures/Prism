@@ -10,13 +10,13 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/stealth/gun/types.hpp>
-
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
+
+#include <common/core/error.hpp>
+#include <common/stealth/gun/types.hpp>
 
 namespace psmtest::gun
 {
@@ -27,20 +27,23 @@ namespace psmtest::gun
      * @param out 输出缓冲区
      * @return 写入字节数
      */
-    [[nodiscard]] inline auto encode_varint(std::uint32_t value, std::span<std::uint8_t> out)
-    -> std::size_t
+    [[nodiscard]] inline auto encode_varint(std::uint32_t value, std::span<std::uint8_t> out) -> std::size_t
     {
         std::uint32_t v = value;
         std::size_t n = 0;
         while (v >= 0x80)
         {
             if (n >= out.size())
+            {
                 return 0;
+            }
             out[n++] = static_cast<std::uint8_t>((v & 0x7F) | 0x80);
             v >>= 7;
         }
         if (n >= out.size())
+        {
             return 0;
+        }
         out[n++] = static_cast<std::uint8_t>(v);
         return n;
     }
@@ -51,8 +54,8 @@ namespace psmtest::gun
      * @param value 输出数值
      * @return 消耗字节数，0 = 数据不足或非法
      */
-    [[nodiscard]] inline auto decode_varint(std::span<const std::uint8_t> in,
-                                            std::uint32_t &value) -> std::size_t
+    [[nodiscard]] inline auto decode_varint(std::span<const std::uint8_t> in, std::uint32_t &value)
+        -> std::size_t
     {
         std::uint32_t v = 0;
         for (std::size_t i = 0; i < in.size() && i < max_varint_len; ++i)
@@ -81,12 +84,10 @@ namespace psmtest::gun
      * @param payload 帧载荷
      * @return 帧字节 [0x00][u32 BE len][0x0A][uvarint][payload]
      */
-    [[nodiscard]] inline auto encode_frame(std::span<const std::uint8_t> payload)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto encode_frame(std::span<const std::uint8_t> payload) -> std::vector<std::uint8_t>
     {
         std::array<std::uint8_t, max_varint_len> varint_buf{};
-        const auto varint_len = encode_varint(static_cast<std::uint32_t>(payload.size()),
-                                              varint_buf);
+        const auto varint_len = encode_varint(static_cast<std::uint32_t>(payload.size()), varint_buf);
         std::vector<std::uint8_t> out;
         out.reserve(header_fixed_len + varint_len + payload.size());
         out.push_back(0x00);
@@ -107,21 +108,25 @@ namespace psmtest::gun
      * @param header 输出帧头信息
      * @return true = 解析成功（数据不足或长度非法返回 false）
      */
-    [[nodiscard]] inline auto parse_frame_header(std::span<const std::uint8_t> in,
-                                                 frame_header &header) -> bool
+    [[nodiscard]] inline auto parse_frame_header(std::span<const std::uint8_t> in, frame_header &header)
+        -> bool
     {
         if (in.size() < header_fixed_len + 1)
+        {
             return false;
+        }
         if (in[0] != 0x00 || in[5] != 0x0A)
+        {
             return false;
-        const auto total = static_cast<std::uint32_t>(in[1]) << 24 |
-                           static_cast<std::uint32_t>(in[2]) << 16 |
-                           static_cast<std::uint32_t>(in[3]) << 8 |
-                           static_cast<std::uint32_t>(in[4]);
+        }
+        const auto total = static_cast<std::uint32_t>(in[1]) << 24 | static_cast<std::uint32_t>(in[2]) << 16 |
+                           static_cast<std::uint32_t>(in[3]) << 8 | static_cast<std::uint32_t>(in[4]);
         std::uint32_t plen = 0;
         const auto vlen = decode_varint(in.subspan(header_fixed_len), plen);
         if (vlen == 0 || total != 1 + vlen + plen)
+        {
             return false;
+        }
         header.payload_len = plen;
         header.header_len = header_fixed_len + vlen;
         return true;

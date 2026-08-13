@@ -5,19 +5,18 @@
  *          包括标准 host:port、IPv6、默认端口、空字符串及无效端口等边界情况。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 
 #include <cstdint>
 #include <string>
 #include <string_view>
 
+#include <gtest/gtest.h>
+
 // parse_dest 在命名命名空间中声明，链接时由 prism 静态库提供定义
 namespace psm::handshake::reality
 {
-    [[nodiscard]] auto parse_dest(std::string_view dest, std::string &host, std::uint16_t &port)
-        -> bool;
+    [[nodiscard]] auto parse_dest(std::string_view dest, std::string &host, std::uint16_t &port) -> bool;
 } // namespace psm::handshake::reality
 
 namespace

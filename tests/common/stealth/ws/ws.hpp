@@ -10,12 +10,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/stealth/ws/codec.hpp>
-#include <common/stealth/ws/conn.hpp>
-#include <common/stealth/ws/types.hpp>
-
 #include <boost/asio/awaitable.hpp>
 
 #include <cstddef>
@@ -23,6 +17,12 @@
 #include <string>
 #include <tuple>
 #include <utility>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/stealth/ws/codec.hpp>
+#include <common/stealth/ws/conn.hpp>
+#include <common/stealth/ws/types.hpp>
 
 namespace psmtest::ws
 {
@@ -64,12 +64,11 @@ namespace psmtest::ws
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg)
-    -> net::awaitable<std::pair<error, shared_conn>>
+        -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream));
         const auto err = co_await c->write_handshake(cfg.key, cfg.host);
-        co_return std::pair{err, err == error::none ? shared_conn(std::move(c))
-                                                    : shared_conn{}};
+        co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
 
     /**
@@ -79,7 +78,7 @@ namespace psmtest::ws
      * @return 错误码、客户端 Key 与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-    -> net::awaitable<std::tuple<error, std::string, shared_conn>>
+        -> net::awaitable<std::tuple<error, std::string, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream));
         std::string key;

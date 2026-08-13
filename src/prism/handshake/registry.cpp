@@ -1,10 +1,9 @@
-#include <prism/handshake/registry.hpp>
-
 #include <prism/handshake/anytls/scheme.hpp>
 #include <prism/handshake/ech/scheme.hpp>
 #include <prism/handshake/gun/scheme.hpp>
 #include <prism/handshake/native.hpp>
 #include <prism/handshake/reality/scheme.hpp>
+#include <prism/handshake/registry.hpp>
 #include <prism/handshake/restls/scheme.hpp>
 #include <prism/handshake/shadowtls/scheme.hpp>
 #include <prism/handshake/trusttunnel/scheme.hpp>
@@ -33,8 +32,7 @@ namespace psm::handshake
         reg.add(std::make_shared<native::native>());
     }
 
-    auto scheme_registry::instance()
-        -> scheme_registry &
+    auto scheme_registry::instance() -> scheme_registry &
     {
         static scheme_registry reg;
         return reg;
@@ -45,22 +43,19 @@ namespace psm::handshake
         schemes_.push_back(std::move(scheme));
     }
 
-    auto scheme_registry::all() const
-        -> const std::vector<shared_scheme> &
+    auto scheme_registry::all() const -> const std::vector<shared_scheme> &
     {
         return schemes_;
     }
 
-    auto scheme_registry::find(const std::string_view name) const
-        -> shared_scheme
+    auto scheme_registry::find(const std::string_view name) const -> shared_scheme
     {
-        auto iffunctor = [name](const auto &s)
-        {
-            return s->name() == name;
-        };
+        auto iffunctor = [name](const auto &s) { return s->name() == name; };
         const auto it = std::ranges::find_if(schemes_, iffunctor);
         if (it != schemes_.end())
+        {
             return *it;
+        }
         return nullptr;
     }
 

@@ -1,13 +1,13 @@
-#include <prism/protocol/shadowsocks/handler/conn.hpp>
 #include <prism/crypto/base64.hpp>
 #include <prism/crypto/blake3.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <prism/protocol/common/address.hpp>
 #include <prism/protocol/shadowsocks/codec/framing.hpp>
+#include <prism/protocol/shadowsocks/handler/conn.hpp>
 #include <prism/protocol/shadowsocks/util/cast.hpp>
-#include <prism/diagnose/log.hpp>
-#include <prism/net/transport/transmission.hpp>
 
 #include <openssl/rand.h>
 
@@ -26,33 +26,30 @@ namespace psm::protocol::shadowsocks
         using util::as_u8;
 
         // byte vector -> uint8_t 可写 span，用于 AEAD 解密输出
-        [[nodiscard]] auto as_u8_mut(std::vector<std::byte> &v) noexcept
-            -> std::span<std::uint8_t>
+        [[nodiscard]] auto as_u8_mut(std::vector<std::byte> &v) noexcept -> std::span<std::uint8_t>
         {
             // 安全：字节 vector 转 uint8_t span，内存表示相同
             return {reinterpret_cast<std::uint8_t *>(v.data()), v.size()};
         }
 
         // PMR byte vector → uint8_t 可写 span，用于 AEAD 解密输出
-        [[nodiscard]] auto as_u8_mut(memory::vector<std::byte> &v) noexcept
-            -> std::span<std::uint8_t>
+        [[nodiscard]] auto as_u8_mut(memory::vector<std::byte> &v) noexcept -> std::span<std::uint8_t>
         {
             // 安全：PMR 字节 vector 转 uint8_t span，内存表示相同
             return {reinterpret_cast<std::uint8_t *>(v.data()), v.size()};
         }
 
         // 任意连续容器 -> const byte span，用于 scatter-gather 写入
-        [[nodiscard]] auto to_bytes(const auto &c) noexcept
-            -> std::span<const std::byte>
+        [[nodiscard]] auto to_bytes(const auto &c) noexcept -> std::span<const std::byte>
         {
             return std::as_bytes(std::span{c});
         }
 
     } // namespace
 
-    conn::conn(transport::shared_transmission next_layer, const config &cfg,
-                 std::shared_ptr<salt_pool> salts)
-        : next_layer_(std::move(next_layer)), config_(cfg), salt_pool_(std::move(salts)), psk_(memory::current_resource())
+    conn::conn(transport::shared_transmission next_layer, const config &cfg, std::shared_ptr<salt_pool> salts)
+        : next_layer_(std::move(next_layer)), config_(cfg), salt_pool_(std::move(salts)),
+          psk_(memory::current_resource())
     {
         const auto [ec, psk_bytes] = format::decode_psk(config_.psk);
         if (ec != fault::code::success)
@@ -66,13 +63,10 @@ namespace psm::protocol::shadowsocks
         key_salt_len_ = format::keysalt_len(method_);
     }
 
-
-    auto conn::executor() const
-        -> executor_type
+    auto conn::executor() const -> executor_type
     {
         return next_layer_->executor();
     }
-
 
     void conn::close()
     {
@@ -82,7 +76,6 @@ namespace psm::protocol::shadowsocks
         }
     }
 
-
     void conn::cancel()
     {
         if (next_layer_)
@@ -90,7 +83,6 @@ namespace psm::protocol::shadowsocks
             next_layer_->cancel();
         }
     }
-
 
     auto conn::derive_aead_context(const std::span<const std::uint8_t> salt) const
         -> std::unique_ptr<crypto::aead_context>
@@ -108,26 +100,17 @@ namespace psm::protocol::shadowsocks
         crypto::aead_cipher cipher;
         switch (method_)
         {
-        case cipher_method::aes_128_gcm:
-            cipher = crypto::aead_cipher::aes_128_gcm;
-            break;
-        case cipher_method::aes_256_gcm:
-            cipher = crypto::aead_cipher::aes_256_gcm;
-            break;
-        case cipher_method::chacha20_poly1305:
-            cipher = crypto::aead_cipher::chacha20_poly1305;
-            break;
+        case cipher_method::aes_128_gcm: cipher = crypto::aead_cipher::aes_128_gcm; break;
+        case cipher_method::aes_256_gcm: cipher = crypto::aead_cipher::aes_256_gcm; break;
+        case cipher_method::chacha20_poly1305: cipher = crypto::aead_cipher::chacha20_poly1305; break;
         }
 
         return std::make_unique<crypto::aead_context>(cipher, std::span(key));
     }
 
-
-    auto conn::read_fixed_hdr() const
-        -> net::awaitable<std::tuple<fault::code, std::uint16_t, std::int64_t>>
+    auto conn::read_fixed_hdr() const -> net::awaitable<std::tuple<fault::code, std::uint16_t, std::int64_t>>
     {
-        constexpr auto fail = [](const fault::code ec)
-            -> std::tuple<fault::code, std::uint16_t, std::int64_t>
+        constexpr auto fail = [](const fault::code ec) -> std::tuple<fault::code, std::uint16_t, std::int64_t>
         { return {ec, 0, 0}; };
 
         std::error_code ec;
@@ -142,18 +125,17 @@ namespace psm::protocol::shadowsocks
         }
 
         // 记录已读原始字节（供 VMess 回退重放）
-        fallback_raw_.insert(fallback_raw_.end(),
-                             reinterpret_cast<const std::byte *>(client_salt_.data()),
+        fallback_raw_.insert(fallback_raw_.end(), reinterpret_cast<const std::byte *>(client_salt_.data()),
                              reinterpret_cast<const std::byte *>(client_salt_.data() + client_salt_.size()));
         fallback_raw_.insert(fallback_raw_.end(), header_enc.begin(), header_enc.end());
 
         // AEAD 解密
         std::array<std::uint8_t, fixed_hdr_plain> header_plain{};
-        if (const auto r = decrypt_ctx_->open(header_plain, as_u8(header_enc));
-            r != fault::code::success)
+        if (const auto r = decrypt_ctx_->open(header_plain, as_u8(header_enc)); r != fault::code::success)
         {
-            diagnose::warn(prefix_, "decrypt fixed header failed: {} (expected {} plain bytes, got {} enc bytes)",
-                        fault::describe(r), fixed_hdr_plain, fixed_hdr_size);
+            diagnose::warn(prefix_,
+                           "decrypt fixed header failed: {} (expected {} plain bytes, got {} enc bytes)",
+                           fault::describe(r), fixed_hdr_plain, fixed_hdr_size);
             co_return fail(fault::code::auth_failed);
         }
         // 验证请求类型
@@ -181,8 +163,8 @@ namespace psm::protocol::shadowsocks
         }
         if (diff > config_.timestamp_window)
         {
-            diagnose::warn(prefix_, "timestamp expired: client_ts={}, server_ts={}, diff={}s",
-                        client_ts, now, diff);
+            diagnose::warn(prefix_, "timestamp expired: client_ts={}, server_ts={}, diff={}s", client_ts, now,
+                           diff);
             co_return fail(fault::code::timestamp_expired);
         }
 
@@ -192,9 +174,7 @@ namespace psm::protocol::shadowsocks
         co_return std::tuple{fault::code::success, var_header_len, now};
     }
 
-
-    auto conn::read_var_hdr(const std::uint16_t var_header_len, request &req)
-        -> net::awaitable<fault::code>
+    auto conn::read_var_hdr(const std::uint16_t var_header_len, request &req) -> net::awaitable<fault::code>
     {
         std::error_code ec;
 
@@ -220,8 +200,8 @@ namespace psm::protocol::shadowsocks
         }
 
         // 解析地址和端口
-        const auto [addr_ec, addr_result] = format::parse_addr_port(
-            std::span<const std::uint8_t>(var_header_plain));
+        const auto [addr_ec, addr_result] =
+            format::parse_addr_port(std::span<const std::uint8_t>(var_header_plain));
         if (addr_ec != fault::code::success)
         {
             diagnose::warn(prefix_, "address parse failed: {}", fault::describe(addr_ec));
@@ -242,12 +222,14 @@ namespace psm::protocol::shadowsocks
         std::size_t offset = addr_result.offset;
         if (offset + 2 <= var_header_plain.size())
         {
-            const auto padding_len = static_cast<std::uint16_t>(var_header_plain[offset] << 8 | var_header_plain[offset + 1]);
+            const auto padding_len =
+                static_cast<std::uint16_t>(var_header_plain[offset] << 8 | var_header_plain[offset + 1]);
             offset += 2;
 
             if (offset + padding_len > var_header_plain.size())
             {
-                diagnose::error(prefix_, "padding_len ({}) exceeds remaining data ({})", padding_len, var_header_plain.size() - offset);
+                diagnose::error(prefix_, "padding_len ({}) exceeds remaining data ({})", padding_len,
+                                var_header_plain.size() - offset);
                 co_return fault::code::protocol_error;
             }
             offset += padding_len;
@@ -262,7 +244,6 @@ namespace psm::protocol::shadowsocks
 
         co_return fault::code::success;
     }
-
 
     auto conn::send_response(const std::span<const std::uint8_t> client_salt, const std::int64_t server_ts)
         -> net::awaitable<fault::code>
@@ -298,10 +279,8 @@ namespace psm::protocol::shadowsocks
         resp_fixed_plain[9 + key_salt_len_ + 1] = 0;
 
         // AEAD 加密响应固定头
-        memory::vector<std::uint8_t> resp_fixed_enc(
-            crypto::aead_context::seal_size(resp_fixed_plain_len));
-        if (const auto r = encrypt_ctx_->seal(resp_fixed_enc, resp_fixed_plain);
-            r != fault::code::success)
+        memory::vector<std::uint8_t> resp_fixed_enc(crypto::aead_context::seal_size(resp_fixed_plain_len));
+        if (const auto r = encrypt_ctx_->seal(resp_fixed_enc, resp_fixed_plain); r != fault::code::success)
         {
             diagnose::error(prefix_, "encrypt response fixed header failed");
             co_return fault::code::crypto_error;
@@ -316,8 +295,7 @@ namespace psm::protocol::shadowsocks
         // 总：16(salt) + 43 + 16 = 75B
         static_assert(aead_tag_len == 16);
         std::array<std::uint8_t, aead_tag_len> empty_payload_enc{};
-        if (const auto r = encrypt_ctx_->seal(empty_payload_enc, {});
-            r != fault::code::success)
+        if (const auto r = encrypt_ctx_->seal(empty_payload_enc, {}); r != fault::code::success)
         {
             diagnose::error(prefix_, "encrypt empty payload chunk failed");
             co_return fault::code::crypto_error;
@@ -345,9 +323,7 @@ namespace psm::protocol::shadowsocks
         co_return fault::code::success;
     }
 
-
-    auto conn::handshake()
-        -> net::awaitable<std::pair<fault::code, request>>
+    auto conn::handshake() -> net::awaitable<std::pair<fault::code, request>>
     {
         request req;
         req.method = method_;
@@ -362,14 +338,17 @@ namespace psm::protocol::shadowsocks
         net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
         auto on_deadline = [this](const boost::system::error_code &ec)
         {
-            if (!ec) next_layer_->cancel();
+            if (!ec)
+            {
+                next_layer_->cancel();
+            }
         };
         deadline.async_wait(std::move(on_deadline));
 
         std::error_code ec;
 
         diagnose::debug(prefix_, "handshake start: method={}, key_salt_len={}, psk_size={}",
-                    static_cast<int>(method_), key_salt_len_, psk_.size());
+                        static_cast<int>(method_), key_salt_len_, psk_.size());
 
         // 1. 读取 client salt
         memory::vector<std::uint8_t> client_salt(key_salt_len_);
@@ -432,15 +411,11 @@ namespace psm::protocol::shadowsocks
         co_return std::pair{fault::code::success, req};
     }
 
-
-    auto conn::acknowledge()
-        -> net::awaitable<fault::code>
+    auto conn::acknowledge() -> net::awaitable<fault::code>
     {
         co_return co_await send_response(
-            std::span<const std::uint8_t>(client_salt_.data(), client_salt_.size()),
-            handshake_ts_);
+            std::span<const std::uint8_t>(client_salt_.data(), client_salt_.size()), handshake_ts_);
     }
-
 
     auto conn::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -478,9 +453,13 @@ namespace psm::protocol::shadowsocks
         if (ec)
         {
             if (ec == fault::code::eof || ec == fault::code::canceled)
+            {
                 diagnose::debug(prefix_, "async_read_some: client disconnected");
+            }
             else
+            {
                 diagnose::warn(prefix_, "async_read_some: fetch_chunk failed: {}", ec.message());
+            }
             co_return 0;
         }
 
@@ -502,9 +481,7 @@ namespace psm::protocol::shadowsocks
         co_return n;
     }
 
-
-    auto conn::fetch_chunk(std::error_code &ec)
-        -> net::awaitable<void>
+    auto conn::fetch_chunk(std::error_code &ec) -> net::awaitable<void>
     {
         // 读取加密长度块（18 字节）
         co_await transport::async_read(*next_layer_, length_buf_, ec);
@@ -515,8 +492,7 @@ namespace psm::protocol::shadowsocks
 
         // 解密长度
         std::array<std::uint8_t, 2> len_plain{};
-        if (const auto r = decrypt_ctx_->open(len_plain, as_u8(length_buf_));
-            r != fault::code::success)
+        if (const auto r = decrypt_ctx_->open(len_plain, as_u8(length_buf_)); r != fault::code::success)
         {
             ec = std::make_error_code(std::errc::protocol_error);
             co_return;
@@ -550,13 +526,11 @@ namespace psm::protocol::shadowsocks
         }
     }
 
-
     auto conn::async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         co_return co_await send_chunk(buffer, ec);
     }
-
 
     auto conn::send_chunk(const std::span<const std::byte> data, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -564,17 +538,15 @@ namespace psm::protocol::shadowsocks
         ec.clear();
         const auto chunk_len = std::min(data.size(), static_cast<std::size_t>(max_chunk_size));
 
-        diagnose::debug(prefix_, "send_chunk: chunk_len={}, data_size={}, conn={}",
-            chunk_len, data.size(), reinterpret_cast<void*>(this));
+        diagnose::debug(prefix_, "send_chunk: chunk_len={}, data_size={}, conn={}", chunk_len, data.size(),
+                        reinterpret_cast<void *>(this));
 
         // 加密长度块
-        std::array len_plain{
-            static_cast<std::uint8_t>(chunk_len >> 8 & 0xFF),
-            static_cast<std::uint8_t>(chunk_len & 0xFF)};
+        std::array len_plain{static_cast<std::uint8_t>(chunk_len >> 8 & 0xFF),
+                             static_cast<std::uint8_t>(chunk_len & 0xFF)};
 
         std::array<std::uint8_t, len_block_size> len_enc{};
-        if (const auto r = encrypt_ctx_->seal(len_enc, len_plain);
-            r != fault::code::success)
+        if (const auto r = encrypt_ctx_->seal(len_enc, len_plain); r != fault::code::success)
         {
             diagnose::warn(prefix_, "encrypt length block failed");
             ec = std::make_error_code(std::errc::protocol_error);
@@ -591,8 +563,9 @@ namespace psm::protocol::shadowsocks
             co_return 0;
         }
 
-        diagnose::debug(prefix_, "send_chunk: len_enc_size={}, payload_enc_size={}, calling transport::async_write",
-                    len_enc.size(), payload_enc_buf_.size());
+        diagnose::debug(prefix_,
+                        "send_chunk: len_enc_size={}, payload_enc_size={}, calling transport::async_write",
+                        len_enc.size(), payload_enc_buf_.size());
 
         // 合并写入：加密长度块 + 加密 payload
         const std::size_t chunk_total = len_enc.size() + payload_enc_buf_.size();
@@ -603,7 +576,9 @@ namespace psm::protocol::shadowsocks
 
         auto ec_msg = ec.message();
         if (!ec_msg.empty() && (ec_msg.back() == '\n' || ec_msg.back() == '\r'))
+        {
             ec_msg = ec_msg.substr(0, ec_msg.find_first_of("\r\n"));
+        }
         std::size_t logged_len;
         if (ec)
         {
@@ -613,8 +588,8 @@ namespace psm::protocol::shadowsocks
         {
             logged_len = chunk_len;
         }
-        diagnose::debug(prefix_, "send_chunk: transport::async_write completed, ec={}, returned {}",
-                    ec_msg, logged_len);
+        diagnose::debug(prefix_, "send_chunk: transport::async_write completed, ec={}, returned {}", ec_msg,
+                        logged_len);
 
         std::size_t sent;
         if (ec)

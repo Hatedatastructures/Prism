@@ -8,14 +8,12 @@
  */
 #pragma once
 
-#include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/shadowsocks/handler/conn.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/protocol/shadowsocks/codec/packet.hpp>
+#include <prism/protocol/shadowsocks/config.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
+#include <prism/protocol/shadowsocks/handler/conn.hpp>
 #include <prism/protocol/shadowsocks/util/datagram.hpp>
 #include <prism/protocol/shadowsocks/util/replay.hpp>
 #include <prism/protocol/shadowsocks/util/salts.hpp>
 #include <prism/protocol/shadowsocks/util/tracker.hpp>
-
-

@@ -8,13 +8,11 @@
  * 测试在纯帧编解码层面进行，不需要完整的 craft/core 会话。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-#include <prism/protocol/multiplex/smux/frame.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/smux/control.hpp>
+#include <prism/protocol/multiplex/smux/frame.hpp>
 #include <prism/protocol/multiplex/yamux/frame.hpp>
-
-#include <gtest/gtest.h>
 
 #include <algorithm>
 #include <array>
@@ -26,6 +24,8 @@
 #include <span>
 #include <vector>
 
+#include <gtest/gtest.h>
+
 using namespace psm::multiplex;
 
 // ============================================================
@@ -35,207 +35,198 @@ using namespace psm::multiplex;
 namespace
 {
 
-/**
+    /**
  * @brief 构造 smux 帧头（小端序，8 字节）
  */
-[[nodiscard]] auto make_smux_header(smux::command cmd, std::uint16_t length,
-                                    std::uint32_t stream_id) -> std::array<std::byte, 8>
-{
-    return {
-        std::byte{smux::protocol_version},
-        static_cast<std::byte>(cmd),
-        static_cast<std::byte>(length & 0xFF),
-        static_cast<std::byte>(length >> 8),
-        static_cast<std::byte>(stream_id & 0xFF),
-        static_cast<std::byte>(stream_id >> 8 & 0xFF),
-        static_cast<std::byte>(stream_id >> 16 & 0xFF),
-        static_cast<std::byte>(stream_id >> 24 & 0xFF),
-    };
-}
+    [[nodiscard]] auto make_smux_header(smux::command cmd, std::uint16_t length, std::uint32_t stream_id)
+        -> std::array<std::byte, 8>
+    {
+        return {
+            std::byte{smux::protocol_version},
+            static_cast<std::byte>(cmd),
+            static_cast<std::byte>(length & 0xFF),
+            static_cast<std::byte>(length >> 8),
+            static_cast<std::byte>(stream_id & 0xFF),
+            static_cast<std::byte>(stream_id >> 8 & 0xFF),
+            static_cast<std::byte>(stream_id >> 16 & 0xFF),
+            static_cast<std::byte>(stream_id >> 24 & 0xFF),
+        };
+    }
 
-/**
+    /**
  * @brief 构造 yamux 帧头（大端序，12 字节）
  */
-[[nodiscard]] auto make_yamux_header(yamux::message_type type, yamux::flags flag,
-                                     std::uint32_t stream_id, std::uint32_t length)
-    -> std::array<std::byte, 12>
-{
-    return {
-        std::byte{yamux::protocol_version},
-        static_cast<std::byte>(type),
-        static_cast<std::byte>(static_cast<std::uint16_t>(flag) >> 8 & 0xFF),
-        static_cast<std::byte>(static_cast<std::uint16_t>(flag) & 0xFF),
-        std::byte{stream_id >> 24 & 0xFF},
-        std::byte{stream_id >> 16 & 0xFF},
-        std::byte{stream_id >> 8 & 0xFF},
-        std::byte{stream_id & 0xFF},
-        std::byte{length >> 24 & 0xFF},
-        std::byte{length >> 16 & 0xFF},
-        std::byte{length >> 8 & 0xFF},
-        std::byte{length & 0xFF},
-    };
-}
+    [[nodiscard]] auto make_yamux_header(yamux::message_type type, yamux::flags flag, std::uint32_t stream_id,
+                                         std::uint32_t length) -> std::array<std::byte, 12>
+    {
+        return {
+            std::byte{yamux::protocol_version},
+            static_cast<std::byte>(type),
+            static_cast<std::byte>(static_cast<std::uint16_t>(flag) >> 8 & 0xFF),
+            static_cast<std::byte>(static_cast<std::uint16_t>(flag) & 0xFF),
+            std::byte{stream_id >> 24 & 0xFF},
+            std::byte{stream_id >> 16 & 0xFF},
+            std::byte{stream_id >> 8 & 0xFF},
+            std::byte{stream_id & 0xFF},
+            std::byte{length >> 24 & 0xFF},
+            std::byte{length >> 16 & 0xFF},
+            std::byte{length >> 8 & 0xFF},
+            std::byte{length & 0xFF},
+        };
+    }
 
-/**
+    /**
  * @brief 构造 smux SYN+PSH+FIN 三帧序列（模拟流生命周期）
  * @param stream_id 流标识符
  * @param payload 数据载荷
  * @param out 输出缓冲区
  */
-void build_smux_stream_frames(std::uint32_t stream_id, std::span<const std::byte> payload,
-                              std::vector<std::byte> &out)
-{
-    // SYN 帧（8 字节）
-    auto syn = make_smux_header(smux::command::syn, 0, stream_id);
-    out.insert(out.end(), syn.begin(), syn.end());
-
-    // PSH 帧（分块，每块不超过 max_frame_length）
-    constexpr std::size_t chunk_size = smux::max_frame_length;
-    std::size_t offset = 0;
-    while (offset < payload.size())
+    void build_smux_stream_frames(std::uint32_t stream_id, std::span<const std::byte> payload,
+                                  std::vector<std::byte> &out)
     {
-        const auto remaining = payload.size() - offset;
-        const auto len = static_cast<std::uint16_t>(std::min(chunk_size, remaining));
-        auto psh = make_smux_header(smux::command::push, len, stream_id);
-        out.insert(out.end(), psh.begin(), psh.end());
-        out.insert(out.end(), payload.data() + offset, payload.data() + offset + len);
-        offset += len;
+        // SYN 帧（8 字节）
+        auto syn = make_smux_header(smux::command::syn, 0, stream_id);
+        out.insert(out.end(), syn.begin(), syn.end());
+
+        // PSH 帧（分块，每块不超过 max_frame_length）
+        constexpr std::size_t chunk_size = smux::max_frame_length;
+        std::size_t offset = 0;
+        while (offset < payload.size())
+        {
+            const auto remaining = payload.size() - offset;
+            const auto len = static_cast<std::uint16_t>(std::min(chunk_size, remaining));
+            auto psh = make_smux_header(smux::command::push, len, stream_id);
+            out.insert(out.end(), psh.begin(), psh.end());
+            out.insert(out.end(), payload.data() + offset, payload.data() + offset + len);
+            offset += len;
+        }
+
+        // FIN 帧（8 字节）
+        auto fin = make_smux_header(smux::command::fin, 0, stream_id);
+        out.insert(out.end(), fin.begin(), fin.end());
     }
 
-    // FIN 帧（8 字节）
-    auto fin = make_smux_header(smux::command::fin, 0, stream_id);
-    out.insert(out.end(), fin.begin(), fin.end());
-}
-
-/**
+    /**
  * @brief 构造 yamux Data(SYN)+Data+Data(FIN) 三帧序列
  * @param stream_id 流标识符
  * @param payload 数据载荷
  * @param out 输出缓冲区
  */
-void build_yamux_stream_frames(std::uint32_t stream_id, std::span<const std::byte> payload,
-                               std::vector<std::byte> &out)
-{
-    // Data(SYN) 帧（12 字节帧头）
-    auto syn = yamux::build_syn(stream_id, {});
-    out.insert(out.end(), syn.header.begin(), syn.header.end());
-
-    // Data 帧分块（yamux Data 最大载荷取决于窗口，这里用 32KB 分块）
-    constexpr std::size_t chunk_size = 32768;
-    std::size_t offset = 0;
-    while (offset < payload.size())
+    void build_yamux_stream_frames(std::uint32_t stream_id, std::span<const std::byte> payload,
+                                   std::vector<std::byte> &out)
     {
-        const auto remaining = payload.size() - offset;
-        const auto len = std::min(chunk_size, remaining);
-        auto chunk_span = payload.subspan(offset, len);
-        auto data_frame = yamux::build_data(yamux::flags::none, stream_id, chunk_span);
-        out.insert(out.end(), data_frame.header.begin(), data_frame.header.end());
-        out.insert(out.end(), data_frame.payload.begin(), data_frame.payload.end());
-        offset += len;
+        // Data(SYN) 帧（12 字节帧头）
+        auto syn = yamux::build_syn(stream_id, {});
+        out.insert(out.end(), syn.header.begin(), syn.header.end());
+
+        // Data 帧分块（yamux Data 最大载荷取决于窗口，这里用 32KB 分块）
+        constexpr std::size_t chunk_size = 32768;
+        std::size_t offset = 0;
+        while (offset < payload.size())
+        {
+            const auto remaining = payload.size() - offset;
+            const auto len = std::min(chunk_size, remaining);
+            auto chunk_span = payload.subspan(offset, len);
+            auto data_frame = yamux::build_data(yamux::flags::none, stream_id, chunk_span);
+            out.insert(out.end(), data_frame.header.begin(), data_frame.header.end());
+            out.insert(out.end(), data_frame.payload.begin(), data_frame.payload.end());
+            offset += len;
+        }
+
+        // Data(FIN) 帧（12 字节帧头，无载荷）
+        auto fin = yamux::build_fin(stream_id);
+        out.insert(out.end(), fin.begin(), fin.end());
     }
 
-    // Data(FIN) 帧（12 字节帧头，无载荷）
-    auto fin = yamux::build_fin(stream_id);
-    out.insert(out.end(), fin.begin(), fin.end());
-}
-
-/**
+    /**
  * @brief 从缓冲区解析 smux 帧序列，返回流 ID 集合和总数据量
  */
-struct smux_parse_result
-{
-    std::size_t total_frames = 0;
-    std::size_t open_count = 0;  // SYN 帧数
-    std::size_t close_count = 0; // FIN 帧数
-    std::uint64_t data_bytes = 0;
-};
-
-[[nodiscard]] auto parse_smux_stream(std::span<const std::byte> data) -> smux_parse_result
-{
-    smux_parse_result result;
-    std::size_t pos = 0;
-
-    while (pos + smux::frame_hdrsize <= data.size())
+    struct smux_parse_result
     {
-        auto hdr = smux::deserialization(data.subspan(pos));
-        if (!hdr)
-        {
-            break;
-        }
-        ++result.total_frames;
+        std::size_t total_frames = 0;
+        std::size_t open_count = 0;  // SYN 帧数
+        std::size_t close_count = 0; // FIN 帧数
+        std::uint64_t data_bytes = 0;
+    };
 
-        switch (hdr->cmd)
+    [[nodiscard]] auto parse_smux_stream(std::span<const std::byte> data) -> smux_parse_result
+    {
+        smux_parse_result result;
+        std::size_t pos = 0;
+
+        while (pos + smux::frame_hdrsize <= data.size())
         {
-        case smux::command::syn:
-            ++result.open_count;
-            break;
-        case smux::command::fin:
-            ++result.close_count;
-            break;
-        case smux::command::push:
-            result.data_bytes += hdr->length;
-            break;
-        default:
-            break;
+            auto hdr = smux::deserialization(data.subspan(pos));
+            if (!hdr)
+            {
+                break;
+            }
+            ++result.total_frames;
+
+            switch (hdr->cmd)
+            {
+            case smux::command::syn: ++result.open_count; break;
+            case smux::command::fin: ++result.close_count; break;
+            case smux::command::push: result.data_bytes += hdr->length; break;
+            default: break;
+            }
+
+            pos += smux::frame_hdrsize + hdr->length;
         }
 
-        pos += smux::frame_hdrsize + hdr->length;
+        return result;
     }
 
-    return result;
-}
-
-/**
+    /**
  * @brief 从缓冲区解析 yamux 帧序列，返回流统计
  */
-struct yamux_parse_result
-{
-    std::size_t total_frames = 0;
-    std::size_t open_count = 0;  // SYN 帧数
-    std::size_t close_count = 0; // FIN 帧数
-    std::uint64_t data_bytes = 0;
-};
-
-[[nodiscard]] auto parse_yamux_stream(std::span<const std::byte> data) -> yamux_parse_result
-{
-    yamux_parse_result result;
-    std::size_t pos = 0;
-
-    while (pos + yamux::frame_hdrsize <= data.size())
+    struct yamux_parse_result
     {
-        auto hdr = yamux::parse_header(data.subspan(pos));
-        if (!hdr)
-        {
-            break;
-        }
-        ++result.total_frames;
+        std::size_t total_frames = 0;
+        std::size_t open_count = 0;  // SYN 帧数
+        std::size_t close_count = 0; // FIN 帧数
+        std::uint64_t data_bytes = 0;
+    };
 
-        // Data 帧
-        if (hdr->type == yamux::message_type::data)
+    [[nodiscard]] auto parse_yamux_stream(std::span<const std::byte> data) -> yamux_parse_result
+    {
+        yamux_parse_result result;
+        std::size_t pos = 0;
+
+        while (pos + yamux::frame_hdrsize <= data.size())
         {
-            if (yamux::has_flag(hdr->flag, yamux::flags::syn))
+            auto hdr = yamux::parse_header(data.subspan(pos));
+            if (!hdr)
             {
-                ++result.open_count;
+                break;
             }
-            if (yamux::has_flag(hdr->flag, yamux::flags::fin))
+            ++result.total_frames;
+
+            // Data 帧
+            if (hdr->type == yamux::message_type::data)
             {
-                ++result.close_count;
+                if (yamux::has_flag(hdr->flag, yamux::flags::syn))
+                {
+                    ++result.open_count;
+                }
+                if (yamux::has_flag(hdr->flag, yamux::flags::fin))
+                {
+                    ++result.close_count;
+                }
+                if (!yamux::has_flag(hdr->flag, yamux::flags::syn) &&
+                    !yamux::has_flag(hdr->flag, yamux::flags::fin))
+                {
+                    result.data_bytes += hdr->length;
+                }
             }
-            if (!yamux::has_flag(hdr->flag, yamux::flags::syn) &&
-                !yamux::has_flag(hdr->flag, yamux::flags::fin))
-            {
-                result.data_bytes += hdr->length;
-            }
+
+            // Data 帧有载荷，其他帧只有帧头
+            const std::size_t payload_size = (hdr->type == yamux::message_type::data) ? hdr->length : 0;
+            pos += yamux::frame_hdrsize + payload_size;
         }
 
-        // Data 帧有载荷，其他帧只有帧头
-        const std::size_t payload_size =
-            (hdr->type == yamux::message_type::data) ? hdr->length : 0;
-        pos += yamux::frame_hdrsize + payload_size;
+        return result;
     }
-
-    return result;
-}
 
 } // namespace
 
@@ -327,8 +318,7 @@ TEST(MuxStress, SmuxConcurrent32Streams)
     // 所有流同时发送数据
     for (std::uint32_t i = 1; i <= num_streams; ++i)
     {
-        auto psh = make_smux_header(smux::command::push,
-                                    static_cast<std::uint16_t>(payload_per_stream), i);
+        auto psh = make_smux_header(smux::command::push, static_cast<std::uint16_t>(payload_per_stream), i);
         buffer.insert(buffer.end(), psh.begin(), psh.end());
         buffer.insert(buffer.end(), payload.begin(), payload.end());
     }
@@ -419,7 +409,7 @@ TEST(MuxStress, YamuxConcurrent32Streams)
 TEST(MuxStress, SmuxLargeTransfer100MB)
 {
     constexpr std::uint64_t total_size = 100ULL * 1024 * 1024; // 100 MB
-    constexpr std::size_t chunk_size = 64 * 1024;               // 64 KB
+    constexpr std::size_t chunk_size = 64 * 1024;              // 64 KB
 
     // smux max_frame_length = 65535，64KB = 65536 超出 uint16 范围
     // 因此使用 65535 作为实际分块大小
@@ -494,7 +484,7 @@ TEST(MuxStress, SmuxLargeTransfer100MB)
 TEST(MuxStress, YamuxLargeTransfer100MB)
 {
     constexpr std::uint64_t total_size = 100ULL * 1024 * 1024; // 100 MB
-    constexpr std::size_t chunk_size = 64 * 1024;               // 64 KB
+    constexpr std::size_t chunk_size = 64 * 1024;              // 64 KB
 
     std::vector<std::byte> pattern(chunk_size);
     for (std::size_t i = 0; i < chunk_size; ++i)
@@ -617,8 +607,8 @@ TEST(MuxStress, MixedProtocolStress)
         // 先尝试 smux（8 字节帧头）
         if (pos + smux::frame_hdrsize <= buffer.size())
         {
-            auto shdr = smux::deserialization(
-                std::span<const std::byte>(buffer.data() + pos, smux::frame_hdrsize));
+            auto shdr =
+                smux::deserialization(std::span<const std::byte>(buffer.data() + pos, smux::frame_hdrsize));
             if (shdr)
             {
                 ++smux_frame_count;
@@ -630,13 +620,12 @@ TEST(MuxStress, MixedProtocolStress)
         // 再尝试 yamux（12 字节帧头）
         if (pos + yamux::frame_hdrsize <= buffer.size())
         {
-            auto yhdr = yamux::parse_header(
-                std::span<const std::byte>(buffer.data() + pos, yamux::frame_hdrsize));
+            auto yhdr =
+                yamux::parse_header(std::span<const std::byte>(buffer.data() + pos, yamux::frame_hdrsize));
             if (yhdr)
             {
                 ++yamux_frame_count;
-                const std::size_t payload_len =
-                    (yhdr->type == yamux::message_type::data) ? yhdr->length : 0;
+                const std::size_t payload_len = (yhdr->type == yamux::message_type::data) ? yhdr->length : 0;
                 pos += yamux::frame_hdrsize + payload_len;
                 continue;
             }
@@ -650,8 +639,8 @@ TEST(MuxStress, MixedProtocolStress)
         << std::format("mixed smux frames={} expected={}", smux_frame_count, expected_smux_frames);
     EXPECT_EQ(yamux_frame_count, expected_yamux_frames)
         << std::format("mixed yamux frames={} expected={}", yamux_frame_count, expected_yamux_frames);
-    EXPECT_EQ(pos, buffer.size())
-        << std::format("mixed buffer fully parsed: pos={} size={}", pos, buffer.size());
+    EXPECT_EQ(pos, buffer.size()) << std::format("mixed buffer fully parsed: pos={} size={}", pos,
+                                                 buffer.size());
 }
 
 // ============================================================
@@ -685,8 +674,7 @@ TEST(MuxStress, SmuxPayloadIntegrity)
             all_ok = false;
             continue;
         }
-        auto hdr = smux::deserialization(
-            std::span<const std::byte>(frame.data(), smux::frame_hdrsize));
+        auto hdr = smux::deserialization(std::span<const std::byte>(frame.data(), smux::frame_hdrsize));
         if (!hdr || hdr->cmd != smux::command::push || hdr->stream_id != i)
         {
             all_ok = false;
@@ -731,8 +719,7 @@ TEST(MuxStress, YamuxPayloadIntegrity)
         auto frame = yamux::build_data(yamux::flags::none, i, original);
 
         // 解析帧头
-        auto hdr = yamux::parse_header(
-            std::span<const std::byte>(frame.header.data(), frame.header.size()));
+        auto hdr = yamux::parse_header(std::span<const std::byte>(frame.header.data(), frame.header.size()));
         if (!hdr || hdr->type != yamux::message_type::data || hdr->stream_id != i)
         {
             all_ok = false;

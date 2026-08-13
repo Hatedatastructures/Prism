@@ -10,23 +10,25 @@
 
 #include <glaze/glaze.hpp>
 
-
 template <>
 struct glz::meta<psm::multiplex::smux::config>
 {
     using T = psm::multiplex::smux::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "max_streams",          &T::max_streams,
         "buffer_size",          &T::buffer_size,
         "keepalive_interval",   &T::keepalive_interval,
         "udp_idle_timeout",     &T::idle_timeout,
         "udp_max_dgram",        &T::max_dgram);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::multiplex::yamux::config>
 {
     using T = psm::multiplex::yamux::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "max_streams",          &T::max_streams,
         "buffer_size",          &T::buffer_size,
@@ -37,12 +39,14 @@ struct glz::meta<psm::multiplex::yamux::config>
         "stream_close_timeout", &T::close_timeout,
         "udp_idle_timeout",     &T::udp_idle,
         "udp_max_dgram",        &T::max_dgram);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::multiplex::h2mux::config>
 {
     using T = psm::multiplex::h2mux::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "max_streams",     &T::max_streams,
         "buffer_size",     &T::buffer_size,
@@ -50,15 +54,18 @@ struct glz::meta<psm::multiplex::h2mux::config>
         "idle_timeout",    &T::idle_timeout,
         "udp_idle_timeout",&T::udp_idle,
         "udp_max_dgram",   &T::max_dgram);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::multiplex::config>
 {
     using T = psm::multiplex::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "enabled", &T::enabled,
         "smux",    &T::smux,
         "yamux",   &T::yamux,
         "h2mux",   &T::h2mux);
+    // clang-format on
 };

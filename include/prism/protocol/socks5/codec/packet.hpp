@@ -13,7 +13,6 @@
 #include <prism/protocol/common/form.hpp>
 #include <prism/protocol/socks5/constants.hpp>
 
-
 namespace psm::protocol::socks5
 {
 
@@ -54,9 +53,10 @@ namespace psm::protocol::socks5
      * 使用 inet_ntop 进行格式化，域名直接返回原始内容。支持
      * 自定义内存分配器，适用于日志记录和调试输出场景。
      */
-    [[nodiscard]] inline auto to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto to_string(const address &addr,
+                                        memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
         return protocol::common::addr_to_str(addr, mr);
     }
-}
+} // namespace psm::protocol::socks5

@@ -16,15 +16,14 @@
  *          target_readloop 中可能还有引用 mr_ 的挂起操作。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include "common/MockTransport.hpp"
-
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
 #include <prism/protocol/multiplex/multiplexer.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
+
+#include "common/MockTransport.hpp"
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -41,13 +40,11 @@ namespace
         std::uint32_t last_fin_id_ = 0;
         mutable bool send_data_called_ = false;
 
-        explicit TestCore(multiplex::multiplexer_options opts)
-            : multiplexer(std::move(opts))
+        explicit TestCore(multiplex::multiplexer_options opts) : multiplexer(std::move(opts))
         {
         }
 
-        auto send(std::uint32_t, psm::memory::vector<std::byte>)
-            -> net::awaitable<void> override
+        auto send(std::uint32_t, psm::memory::vector<std::byte>) -> net::awaitable<void> override
         {
             send_data_called_ = true;
             co_return;
@@ -94,13 +91,12 @@ namespace
             multiplex::multiplexer_options opts{mux_transport, nullptr, g_cfg, nullptr};
             core_obj = std::make_shared<TestCore>(std::move(opts));
 
-            duct_obj = multiplex::make_stream(multiplex::stream_options{
-                .stream_id = 42,
-                .target = target_transport,
-                .egress = core_obj,
-                .buffer_size = buffer_size,
-                .mr = nullptr,
-                .prefix = nullptr});
+            duct_obj = multiplex::make_stream(multiplex::stream_options{.stream_id = 42,
+                                                                        .target = target_transport,
+                                                                        .egress = core_obj,
+                                                                        .buffer_size = buffer_size,
+                                                                        .mr = nullptr,
+                                                                        .prefix = nullptr});
         }
 
         ~DuctFixture()
@@ -149,13 +145,12 @@ namespace
         auto c = std::make_shared<TestCore>(std::move(opts));
 
         psm::memory::unsynchronized_pool mr;
-        auto d = multiplex::make_stream(multiplex::stream_options{
-            .stream_id = 1,
-            .target = tgt_t,
-            .egress = c,
-            .buffer_size = 4096,
-            .mr = &mr,
-            .prefix = nullptr});
+        auto d = multiplex::make_stream(multiplex::stream_options{.stream_id = 1,
+                                                                  .target = tgt_t,
+                                                                  .egress = c,
+                                                                  .buffer_size = 4096,
+                                                                  .mr = &mr,
+                                                                  .prefix = nullptr});
         EXPECT_TRUE(d->stream_id() == 1) << "constructor: with mr -> stream_id = 1";
     }
 
@@ -239,7 +234,7 @@ namespace
         fx.duct_obj->close();
         auto &mock_ioc = fx.target_transport->get_io_context();
         net::co_spawn(mock_ioc, fx.duct_obj->on_data(psm::memory::vector<std::byte>{}),
-            [&](std::exception_ptr) {});
+                      [&](std::exception_ptr) {});
         mock_ioc.restart();
         mock_ioc.run_one();
     }

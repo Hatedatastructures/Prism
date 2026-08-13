@@ -20,7 +20,6 @@
 #include <utility>
 #include <vector>
 
-
 namespace psm::crypto
 {
 
@@ -76,8 +75,8 @@ namespace psm::crypto
      * T(N) = HMAC-SHA256(PRK, T(N-1) || info || N)
      * Output = T(1) || T(2) || ... || T(N)
      */
-    [[nodiscard]] auto hkdf_expand(std::span<const std::uint8_t> prk, std::span<const std::uint8_t> info, std::size_t length)
-        -> std::pair<fault::code, std::vector<std::uint8_t>>;
+    [[nodiscard]] auto hkdf_expand(std::span<const std::uint8_t> prk, std::span<const std::uint8_t> info,
+                                   std::size_t length) -> std::pair<fault::code, std::vector<std::uint8_t>>;
 
     /**
      * @struct expand_label_params
@@ -87,9 +86,9 @@ namespace psm::crypto
     struct expand_params
     {
         std::span<const std::uint8_t> secret;  ///< 输入密钥
-        std::string_view label;                 ///< 标签（如 "key", "iv", "finished"）
-        std::span<const std::uint8_t> context;  ///< 上下文数据（通常是 transcript hash）
-        std::size_t length = 0;                 ///< 输出长度
+        std::string_view label;                ///< 标签（如 "key", "iv", "finished"）
+        std::span<const std::uint8_t> context; ///< 上下文数据（通常是 transcript hash）
+        std::size_t length = 0;                ///< 输出长度
     };
 
     /**
@@ -110,8 +109,7 @@ namespace psm::crypto
      * @return 32 字节 SHA-256 哈希值
      * @details 计算 SHA-256(data)，用于 TLS 1.3 transcript hash。
      */
-    [[nodiscard]] auto sha256(std::span<const std::uint8_t> data)
-        -> std::array<std::uint8_t, sha256_len>;
+    [[nodiscard]] auto sha256(std::span<const std::uint8_t> data) -> std::array<std::uint8_t, sha256_len>;
 
     /**
      * @brief SHA-256 哈希（两个数据块拼接）
@@ -132,6 +130,6 @@ namespace psm::crypto
      * @return 32 字节 SHA-256 哈希值
      * @details 计算 SHA-256(data1 || data2 || data3)，用于 TLS 1.3 transcript hash。
      */
-    [[nodiscard]] auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2, std::span<const std::uint8_t> data3)
-        -> std::array<std::uint8_t, sha256_len>;
+    [[nodiscard]] auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2,
+                              std::span<const std::uint8_t> data3) -> std::array<std::uint8_t, sha256_len>;
 } // namespace psm::crypto

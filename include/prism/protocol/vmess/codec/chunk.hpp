@@ -38,7 +38,10 @@ namespace psm::protocol::vmess::codec
     public:
         explicit shake_stream(std::span<const std::uint8_t> seed);
 
-        /// 读取下一段 XOF 输出（一次性返回内部缓冲剩余段）
+        /**
+         * @brief 读取下一段 XOF 输出（一次性返回内部缓冲剩余段）
+         * @return 下一段 XOF 输出
+         */
         [[nodiscard]] auto next() -> std::span<const std::uint8_t>;
 
     private:
@@ -82,9 +85,9 @@ namespace psm::protocol::vmess::codec
 
     private:
         stream_params params_;
-        std::unique_ptr<shake_stream> mask_stream_;    ///< 掩码派生流
-        std::unique_ptr<shake_stream> padding_stream_; ///< 填充派生流
-        std::uint16_t nonce_count_{0};                 ///< AEAD nonce 计数
+        std::unique_ptr<shake_stream> mask_stream_;                    ///< 掩码派生流
+        std::unique_ptr<shake_stream> padding_stream_;                 ///< 填充派生流
+        std::uint16_t nonce_count_{0};                                 ///< AEAD nonce 计数
         std::unique_ptr<EVP_AEAD_CTX, void (*)(EVP_AEAD_CTX *)> aead_; ///< 数据加密上下文
     };
 
@@ -107,7 +110,11 @@ namespace psm::protocol::vmess::codec
         [[nodiscard]] auto write_chunk(std::span<const std::byte> data, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
-        /// 刷新并完成写流（写 len=0 终止块）
+        /**
+         * @brief 刷新并完成写流（写 len=0 终止块）
+         * @param ec 错误码输出
+         * @return 写入字节数
+         */
         [[nodiscard]] auto finish(std::error_code &ec) -> net::awaitable<std::size_t>;
 
     private:

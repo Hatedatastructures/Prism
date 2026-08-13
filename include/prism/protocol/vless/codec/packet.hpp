@@ -15,7 +15,6 @@
 
 #include <array>
 
-
 namespace psm::protocol::vless
 {
 
@@ -34,9 +33,9 @@ namespace psm::protocol::vless
     struct request
     {
         std::array<std::uint8_t, 16> uuid;                           // 用户 UUID（16 字节原始数据）
-        command cmd;                                            // 命令类型
+        command cmd;                                                 // 命令类型
         std::uint16_t port;                                          // 目标端口，主机字节序
-        address destination_address;                            // 目标地址
+        address destination_address;                                 // 目标地址
         psm::protocol::form transport = psm::protocol::form::stream; // 传输形式，由命令类型决定
     };
 
@@ -47,9 +46,10 @@ namespace psm::protocol::vless
      * @param mr 内存资源指针
      * @return memory::string 地址字符串
      */
-    [[nodiscard]] inline auto to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto to_string(const address &addr,
+                                        memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
         return protocol::common::addr_to_str(addr, mr);
     }
-}
+} // namespace psm::protocol::vless

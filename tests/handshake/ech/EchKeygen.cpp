@@ -6,9 +6,9 @@
 
 #include <prism/handshake/ech/util/keygen.hpp>
 
-#include <gtest/gtest.h>
-
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -18,7 +18,7 @@ namespace
     using psm::handshake::ech::generate_keypair;
     using psm::handshake::ech::keypair_from_private;
     using psm::handshake::ech::make_ech_keys;
-}
+} // namespace
 
 TEST(EchKeygen, GenerateKeypair)
 {
@@ -29,7 +29,9 @@ TEST(EchKeygen, GenerateKeypair)
     // 私钥 32 字节
     bool non_zero = false;
     for (const auto b : kp.private_key)
+    {
         non_zero = non_zero || b != 0;
+    }
     EXPECT_TRUE(non_zero) << "private key non-zero";
 
     // ECHConfig 非空
@@ -45,9 +47,8 @@ TEST(EchKeygen, KeypairFromPrivateRoundtrip)
 
     // 从私钥恢复配置
     ech_keypair restored;
-    const auto ec = keypair_from_private(
-        std::span<const std::uint8_t, 32>(generated.private_key.data(), 32),
-        "example.com", 64, restored);
+    const auto ec = keypair_from_private(std::span<const std::uint8_t, 32>(generated.private_key.data(), 32),
+                                         "example.com", 64, restored);
     ASSERT_EQ(ec, psm::fault::code::success);
     EXPECT_EQ(restored.private_key, generated.private_key);
     // config_id 不同（restored 固定 0）但结构应一致
@@ -59,8 +60,7 @@ TEST(EchKeygen, MakeEchKeys)
     ech_keypair kp;
     ASSERT_EQ(generate_keypair("example.com", 64, kp), psm::fault::code::success);
 
-    auto *keys = make_ech_keys(
-        std::span<const std::uint8_t, 32>(kp.private_key.data(), 32), kp.ech_config);
+    auto *keys = make_ech_keys(std::span<const std::uint8_t, 32>(kp.private_key.data(), 32), kp.ech_config);
     ASSERT_NE(keys, nullptr);
     SSL_ECH_KEYS_free(keys);
 }
@@ -68,8 +68,8 @@ TEST(EchKeygen, MakeEchKeys)
 TEST(EchKeygen, Base64Roundtrip)
 {
     const std::string data = "hello ech keys";
-    const auto encoded = base64_encode(std::span<const std::uint8_t>(
-        reinterpret_cast<const std::uint8_t *>(data.data()), data.size()));
+    const auto encoded = base64_encode(
+        std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(data.data()), data.size()));
     EXPECT_FALSE(encoded.empty());
 
     psm::memory::vector<std::uint8_t> decoded;

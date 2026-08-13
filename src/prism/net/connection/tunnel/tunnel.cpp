@@ -1,13 +1,12 @@
-#include <prism/net/connection/tunnel/tunnel.hpp>
-
-#include <prism/user/entry.hpp>
-#include <prism/net/connection/util.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/memory/pool.hpp>
-#include <prism/user/stats/traffic.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/net/connection/tunnel/tunnel.hpp>
+#include <prism/net/connection/util.hpp>
 #include <prism/net/transport/pad.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/user/entry.hpp>
+#include <prism/user/stats/traffic.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
@@ -38,8 +37,7 @@ namespace psm::connect
         // 单向转发循环：从 from 持续读取数据写入 to
         // 支持 complete（全量写）和 partial（可能分片写）两种策略
         // 每次成功读写后重置空闲定时器，超时则双向关闭
-        auto relay_loop(relay_options opts)
-            -> net::awaitable<void>
+        auto relay_loop(relay_options opts) -> net::awaitable<void>
         {
             const bool is_download = (opts.idx == 1);
             const auto *dir = "upload";
@@ -108,8 +106,7 @@ namespace psm::connect
 
     } // anonymous namespace
 
-    auto tunnel(tunnel_options opts)
-        -> net::awaitable<void>
+    auto tunnel(tunnel_options opts) -> net::awaitable<void>
     {
         auto inbound = std::move(opts.inbound);
         auto outbound = std::move(opts.outbound);
@@ -152,16 +149,12 @@ namespace psm::connect
         idle_timer->expires_after(idle_timeout);
         idle_timer->async_wait(idle_handler);
 
-        relay_options state{
-            policy, total_bytes,
-            idle_timer, idle_handler, idle_timeout,
-            inbound, outbound, left, 0};
+        relay_options state{policy,   total_bytes, idle_timer, idle_handler, idle_timeout, inbound,
+                            outbound, left,        0};
 
         using boost::asio::experimental::awaitable_operators::operator||;
-        auto mirror = relay_options{
-            policy, total_bytes,
-            idle_timer, idle_handler, idle_timeout,
-            outbound, inbound, right, 1};
+        auto mirror = relay_options{policy,  total_bytes, idle_timer, idle_handler, idle_timeout, outbound,
+                                    inbound, right,       1};
         co_await (relay_loop(state) || relay_loop(std::move(mirror)));
 
         // 取消空闲超时定时器
@@ -170,16 +163,15 @@ namespace psm::connect
         const auto end_time = std::chrono::steady_clock::now();
         if (const auto up = total_bytes[0], down = total_bytes[1]; up > 0 || down > 0)
         {
-            diagnose::access(opts.trace, "Transfer: up={}B down={}B, {}ms",
-                                                        up, down,
-                                                        std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
+            diagnose::access(
+                opts.trace, "Transfer: up={}B down={}B, {}ms", up, down,
+                std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count());
         }
 
         // 刷写流量统计并累加账户用量
         if (opts.traffic)
         {
-            opts.traffic->flush_traffic(
-                opts.detected, total_bytes[0], total_bytes[1]);
+            opts.traffic->flush_traffic(opts.detected, total_bytes[0], total_bytes[1]);
         }
 
         if (opts.lease)

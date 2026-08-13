@@ -6,9 +6,9 @@
  *          通过 #include 源文件覆盖编译行。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
+
+#include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
 #include "../../src/prism/handshake/reality/util/auth.cpp"

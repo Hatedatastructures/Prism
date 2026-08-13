@@ -7,30 +7,29 @@
  *          此测试覆盖其依赖的类型定义和配置对象。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/protocol/trojan/handler/handler.hpp>
-#include <prism/protocol/trojan/config.hpp>
-#include <prism/protocol/trojan/codec/packet.hpp>
-#include <prism/protocol/trojan/constants.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/protocol/trojan/codec/packet.hpp>
+#include <prism/protocol/trojan/config.hpp>
+#include <prism/protocol/trojan/constants.hpp>
+#include <prism/protocol/trojan/handler/handler.hpp>
 
 #include <array>
 #include <cstdint>
 #include <cstring>
 
-
 #include <gtest/gtest.h>
 
 namespace
 {
-    using psm::protocol::trojan::command;
+    using psm::protocol::trojan::address;
     using psm::protocol::trojan::address_type;
+    using psm::protocol::trojan::command;
     using psm::protocol::trojan::config;
-    using psm::protocol::trojan::request;
+    using psm::protocol::trojan::domain_address;
     using psm::protocol::trojan::ipv4_address;
     using psm::protocol::trojan::ipv6_address;
-    using psm::protocol::trojan::domain_address;
-    using psm::protocol::trojan::address;
+    using psm::protocol::trojan::request;
     using psm::protocol::trojan::to_string;
 
     TEST(TrojanProcessPure, ConfigDefaults)
@@ -44,22 +43,16 @@ namespace
 
     TEST(TrojanProcessPure, CommandEnumValues)
     {
-        EXPECT_EQ(static_cast<std::uint8_t>(command::connect), 0x01)
-            << "command: connect=0x01";
-        EXPECT_EQ(static_cast<std::uint8_t>(command::udp_associate), 0x03)
-            << "command: udp_associate=0x03";
-        EXPECT_EQ(static_cast<std::uint8_t>(command::mux), 0x7f)
-            << "command: mux=0x7f";
+        EXPECT_EQ(static_cast<std::uint8_t>(command::connect), 0x01) << "command: connect=0x01";
+        EXPECT_EQ(static_cast<std::uint8_t>(command::udp_associate), 0x03) << "command: udp_associate=0x03";
+        EXPECT_EQ(static_cast<std::uint8_t>(command::mux), 0x7f) << "command: mux=0x7f";
     }
 
     TEST(TrojanProcessPure, AddressTypeEnumValues)
     {
-        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv4), 0x01)
-            << "address_type: ipv4=0x01";
-        EXPECT_EQ(static_cast<std::uint8_t>(address_type::domain), 0x03)
-            << "address_type: domain=0x03";
-        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv6), 0x04)
-            << "address_type: ipv6=0x04";
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv4), 0x01) << "address_type: ipv4=0x01";
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::domain), 0x03) << "address_type: domain=0x03";
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv6), 0x04) << "address_type: ipv6=0x04";
     }
 
     TEST(TrojanProcessPure, RequestConstruction)

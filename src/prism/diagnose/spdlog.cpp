@@ -14,7 +14,6 @@
 #include <shared_mutex>
 #include <vector>
 
-
 namespace psm::diagnose
 {
 
@@ -72,8 +71,7 @@ namespace psm::diagnose
             return spdlog::level::info;
         }
 
-        [[nodiscard]] auto build_log_path(const config &cfg)
-            -> std::filesystem::path
+        [[nodiscard]] auto build_log_path(const config &cfg) -> std::filesystem::path
         {
             if (cfg.path_name.empty())
             {
@@ -118,8 +116,7 @@ namespace psm::diagnose
         return prefix;
     }
 
-    auto recorder() noexcept
-        -> std::shared_ptr<spdlog::logger>
+    auto recorder() noexcept -> std::shared_ptr<spdlog::logger>
     {
         // 使用 atomic load 替代 shared_mutex，减少热路径锁开销
         // logger 指针仅在 init/shutdown 时变更（极少操作）
@@ -179,10 +176,8 @@ namespace psm::diagnose
         if (effective_cfg.enable_file)
         {
             sinks.emplace_back(std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
-                log_path.string(),
-                static_cast<std::size_t>(effective_cfg.max_size),
-                static_cast<std::size_t>(effective_cfg.max_files),
-                true));
+                log_path.string(), static_cast<std::size_t>(effective_cfg.max_size),
+                static_cast<std::size_t>(effective_cfg.max_files), true));
         }
 
         if (effective_cfg.enable_console)
@@ -205,14 +200,12 @@ namespace psm::diagnose
         {
             logger_name = std::string(effective_cfg.trace_name.c_str());
         }
-        auto logger = std::make_shared<spdlog::async_logger>(
-            logger_name,
-            sinks.begin(),
-            sinks.end(),
-            spdlog::thread_pool(),
-            spdlog::async_overflow_policy::overrun_oldest);
+        auto logger = std::make_shared<spdlog::async_logger>(logger_name, sinks.begin(), sinks.end(),
+                                                             spdlog::thread_pool(),
+                                                             spdlog::async_overflow_policy::overrun_oldest);
 
-        const auto log_level = parse_spdlog_level({effective_cfg.log_level.data(), effective_cfg.log_level.size()});
+        const auto log_level =
+            parse_spdlog_level({effective_cfg.log_level.data(), effective_cfg.log_level.size()});
         logger->set_level(log_level);
         // 关键：异步 logger 必须显式 flush_on，否则 buffer 不会自动刷盘，
         // taskkill /F 或异常终止时会丢失所有日志
@@ -280,4 +273,4 @@ namespace psm::diagnose
         {
         }
     }
-}
+} // namespace psm::diagnose

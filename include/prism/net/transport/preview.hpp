@@ -23,7 +23,6 @@
 #include <span>
 #include <system_error>
 
-
 namespace psm::transport
 {
 
@@ -63,6 +62,10 @@ namespace psm::transport
             return inner_.get();
         }
 
+        /**
+         * @brief 获取内层传输（const 版本）
+         * @return const transmission* 内层传输指针
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return inner_.get();
@@ -72,11 +75,12 @@ namespace psm::transport
          * @brief 报告内部传输是否可靠
          * @return 若内部传输可靠则返回 true，否则返回 false
          */
-        [[nodiscard]] auto transport_type() const noexcept
-            -> type override
+        [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             if (inner_)
+            {
                 return inner_->transport_type();
+            }
             return type::tcp;
         }
 
@@ -113,7 +117,9 @@ namespace psm::transport
          * @param buffer 目标缓冲区
          * @param handler 完成处理器
          */
-        void async_read_some(std::span<std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
+        void async_read_some(
+            std::span<std::byte> buffer,
+            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
 
         /**
          * @brief Completion-handler 风格异步写入
@@ -121,7 +127,9 @@ namespace psm::transport
          * @param buffer 源数据缓冲区
          * @param handler 完成处理器
          */
-        void async_write_some(std::span<const std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
+        void async_write_some(
+            std::span<const std::byte> buffer,
+            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
 
         /**
          * @brief 完整写入操作
@@ -154,8 +162,10 @@ namespace psm::transport
          * @brief 获取内部传输对象
          * @return 内部传输的 shared_ptr
          */
-        [[nodiscard]] auto inner() const noexcept
-            -> shared_transmission { return inner_; }
+        [[nodiscard]] auto inner() const noexcept -> shared_transmission
+        {
+            return inner_;
+        }
 
     private:
         shared_transmission inner_;                // 内部传输对象

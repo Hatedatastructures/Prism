@@ -1,6 +1,5 @@
-#include <prism/protocol/multiplex/datagram.hpp>
-
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/protocol/multiplex/datagram.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -12,28 +11,19 @@ namespace psm::multiplex
 {
 
     datagram::datagram(datagram_options opts)
-        : id_(opts.stream_id),
-          egress_(std::move(opts.egress)),
-          resolve_(std::move(opts.resolve)),
-          emit_(std::move(opts.emit)),
-          executor_(std::move(opts.executor)),
-          idle_timeout_(opts.idle_timeout),
-          max_dgram_(opts.max_dgram),
-          mr_(opts.mr),
-          prefix_(std::move(opts.prefix)),
+        : id_(opts.stream_id), egress_(std::move(opts.egress)), resolve_(std::move(opts.resolve)),
+          emit_(std::move(opts.emit)), executor_(std::move(opts.executor)), idle_timeout_(opts.idle_timeout),
+          max_dgram_(opts.max_dgram), mr_(opts.mr), prefix_(std::move(opts.prefix)),
 
-          idle_timer_(executor_),
-          recv_buffer_(opts.mr)
+          idle_timer_(executor_), recv_buffer_(opts.mr)
     {
         recv_buffer_.resize(max_dgram_);
     }
-
 
     datagram::~datagram() noexcept
     {
         close();
     }
-
 
     void datagram::start()
     {
@@ -41,19 +31,17 @@ namespace psm::multiplex
 
         auto self = shared_from_this();
         net::co_spawn(executor_, idle_loop(),
-            [self](const std::exception_ptr &ep)
-            {
-                if (ep)
-                {
-                    diagnose::debug(self->prefix_, "stream {} UDP idle loop error", self->id_);
-                }
-                self->close();
-            });
+                      [self](const std::exception_ptr &ep)
+                      {
+                          if (ep)
+                          {
+                              diagnose::debug(self->prefix_, "stream {} UDP idle loop error", self->id_);
+                          }
+                          self->close();
+                      });
     }
 
-
-    auto datagram::idle_loop()
-        -> net::awaitable<void>
+    auto datagram::idle_loop() -> net::awaitable<void>
     {
         while (!closed_)
         {
@@ -70,15 +58,12 @@ namespace psm::multiplex
         diagnose::debug(prefix_, "stream {} UDP idle timeout", id_);
     }
 
-
     void datagram::touch_timer()
     {
         idle_timer_.expires_after(std::chrono::milliseconds(idle_timeout_));
     }
 
-
-    auto datagram::ensure_socket(const net::ip::udp::endpoint::protocol_type protocol)
-        -> net::awaitable<bool>
+    auto datagram::ensure_socket(const net::ip::udp::endpoint::protocol_type protocol) -> net::awaitable<bool>
     {
         if (egress_socket_ && socket_protocol_ == protocol)
         {
@@ -109,10 +94,8 @@ namespace psm::multiplex
         }
     }
 
-
     auto datagram::send_to(const std::string_view host, const std::uint16_t port,
-                           const std::span<const std::byte> payload)
-        -> net::awaitable<void>
+                           const std::span<const std::byte> payload) -> net::awaitable<void>
     {
         if (closed_)
         {
@@ -123,8 +106,8 @@ namespace psm::multiplex
         // 解析目标端点
         char port_buf[8];
         const auto [port_end, port_ec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), port);
-        const auto [code, target_ep] = co_await resolve_(
-            host, std::string_view(port_buf, port_end - port_buf));
+        const auto [code, target_ep] =
+            co_await resolve_(host, std::string_view(port_buf, port_end - port_buf));
         if (code != fault::code::success)
         {
             co_return;
@@ -153,21 +136,17 @@ namespace psm::multiplex
         // 发送数据报（不等待响应）
         boost::system::error_code ec;
         auto token = net::redirect_error(net::use_awaitable, ec);
-        co_await egress_socket_->async_send_to(net::buffer(payload.data(), payload.size()),
-                                               target_ep, token);
+        co_await egress_socket_->async_send_to(net::buffer(payload.data(), payload.size()), target_ep, token);
         if (ec)
         {
-            diagnose::debug(prefix_, "stream {} UDP send to {}:{} failed: {}",
-                         id_, host, port, ec.message());
+            diagnose::debug(prefix_, "stream {} UDP send to {}:{} failed: {}", id_, host, port, ec.message());
         }
         else
         {
         }
     }
 
-
-    auto datagram::recv_loop()
-        -> net::awaitable<void>
+    auto datagram::recv_loop() -> net::awaitable<void>
     {
         try
         {
@@ -188,7 +167,6 @@ namespace psm::multiplex
                     }
                     break;
                 }
-
 
                 // 提取响应来源地址和负载，回传会话层
                 memory::string reply_host(sender_ep.address().to_string().c_str(), mr_);
@@ -211,7 +189,6 @@ namespace psm::multiplex
         }
         recv_running_.store(false, std::memory_order_release);
     }
-
 
     void datagram::close()
     {

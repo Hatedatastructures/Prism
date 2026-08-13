@@ -9,9 +9,9 @@
 
 #pragma once
 
-#include <prism/user/entry.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/memory/pool.hpp>
+#include <prism/user/entry.hpp>
 
 #include <atomic>
 #include <cstddef>
@@ -19,7 +19,6 @@
 #include <string_view>
 #include <utility>
 #include <vector>
-
 
 namespace psm::user
 {
@@ -46,14 +45,22 @@ namespace psm::user
         {
             using is_transparent = void;
 
-            [[nodiscard]] auto operator()(const std::string_view value) const noexcept
-                -> std::size_t
+            /**
+             * @brief 计算 string_view 键的哈希值
+             * @param value 键值
+             * @return 哈希值
+             */
+            [[nodiscard]] auto operator()(const std::string_view value) const noexcept -> std::size_t
             {
                 return std::hash<std::string_view>{}(value);
             }
 
-            [[nodiscard]] auto operator()(const memory::string &value) const noexcept
-                -> std::size_t
+            /**
+             * @brief 计算 memory::string 键的哈希值
+             * @param value 键值
+             * @return 哈希值
+             */
+            [[nodiscard]] auto operator()(const memory::string &value) const noexcept -> std::size_t
             {
                 return std::hash<std::string_view>{}(std::string_view(value));
             }
@@ -69,18 +76,36 @@ namespace psm::user
         {
             using is_transparent = void;
 
+            /**
+             * @brief 比较 memory::string 与 string_view 是否相等
+             * @param left 左键值
+             * @param right 右键值
+             * @return 相等返回 true
+             */
             [[nodiscard]] auto operator()(const memory::string &left, std::string_view right) const noexcept
                 -> bool
             {
                 return std::string_view(left) == right;
             }
 
-            [[nodiscard]] auto operator()(const memory::string &left, const memory::string &right) const noexcept
-                -> bool
+            /**
+             * @brief 比较两个 memory::string 是否相等
+             * @param left 左键值
+             * @param right 右键值
+             * @return 相等返回 true
+             */
+            [[nodiscard]] auto operator()(const memory::string &left,
+                                          const memory::string &right) const noexcept -> bool
             {
                 return left == right;
             }
 
+            /**
+             * @brief 比较 string_view 与 memory::string 是否相等
+             * @param left 左键值
+             * @param right 右键值
+             * @return 相等返回 true
+             */
             [[nodiscard]] auto operator()(std::string_view left, const memory::string &right) const noexcept
                 -> bool
             {
@@ -136,8 +161,7 @@ namespace psm::user
          * @return 账户条目共享指针，未找到返回 nullptr
          * @note 无锁读取，返回的指针可安全跨线程使用
          */
-        [[nodiscard]] auto find(std::string_view credential) const noexcept
-            -> std::shared_ptr<entry>;
+        [[nodiscard]] auto find(std::string_view credential) const noexcept -> std::shared_ptr<entry>;
 
         /**
          * @brief 枚举全部账户凭证
@@ -146,11 +170,11 @@ namespace psm::user
          * @details 用于需要遍历全部账户的场景（如 VMess 认证头
          *          逆推用户）。快照式返回，安全跨线程使用。
          */
-        [[nodiscard]] auto enumerate(std::vector<std::string_view> &out) const
-            -> std::size_t;
+        [[nodiscard]] auto enumerate(std::vector<std::string_view> &out) const -> std::size_t;
 
     private:
-        using unordered_map = memory::unordered_map<memory::string, std::shared_ptr<entry>, string_hash, string_equal>;
+        using unordered_map =
+            memory::unordered_map<memory::string, std::shared_ptr<entry>, string_hash, string_equal>;
 
         /**
          * @brief 写时复制更新映射表
@@ -172,7 +196,8 @@ namespace psm::user
             {
                 auto next = std::allocate_shared<unordered_map>(allocator_, *current);
                 update_fn(*next);
-                if (entries_ptr_.compare_exchange_strong(current, next, std::memory_order_release, std::memory_order_acquire))
+                if (entries_ptr_.compare_exchange_strong(current, next, std::memory_order_release,
+                                                         std::memory_order_acquire))
                 {
                     return;
                 }
@@ -192,8 +217,8 @@ namespace psm::user
      * max_connections 为 0 表示无连接限制。成功时自动递增
      * 活跃连接数。
      */
-    [[nodiscard]] inline auto try_acquire(const directory &accounts, const std::string_view credential) noexcept
-        -> lease
+    [[nodiscard]] inline auto try_acquire(const directory &accounts,
+                                          const std::string_view credential) noexcept -> lease
     {
         auto entry_ptr = accounts.find(credential);
         if (!entry_ptr)

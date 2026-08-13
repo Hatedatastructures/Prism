@@ -5,18 +5,18 @@
  * 覆盖正常解析和各种边界条件（截断缓冲区、无效字段、扩展解析等）。
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/tls/hello.hpp>
 #include <prism/protocol/tls/record.hpp>
-#include <prism/diagnose/log.hpp>
-#include <prism/foundation/foundation.hpp>
-#include <gtest/gtest.h>
 
 #include <array>
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -66,12 +66,16 @@ namespace
 
             // Random (32 bytes)
             for (int i = 0; i < 32; ++i)
+            {
                 hs_body.push_back(static_cast<std::uint8_t>(i));
+            }
 
             // SessionID
             hs_body.push_back(session_id_len);
             for (std::size_t i = 0; i < session_id_len; ++i)
+            {
                 hs_body.push_back(i < session_id.size() ? session_id[i] : static_cast<std::uint8_t>(i));
+            }
 
             // CipherSuites
             write_u16(hs_body, 2);
@@ -92,7 +96,7 @@ namespace
                     const auto &name = sni_value;
                     std::vector<std::uint8_t> sni_ext;
                     write_u16(sni_ext, static_cast<std::uint16_t>(1 + 2 + name.size())); // list length
-                    sni_ext.push_back(0x00); // host_name type
+                    sni_ext.push_back(0x00);                                             // host_name type
                     write_u16(sni_ext, static_cast<std::uint16_t>(name.size()));
                     sni_ext.insert(sni_ext.end(), name.begin(), name.end());
 
@@ -121,7 +125,9 @@ namespace
                     std::vector<std::uint8_t> sv_ext;
                     sv_ext.push_back(static_cast<std::uint8_t>(version_list.size() * 2));
                     for (auto v : version_list)
+                    {
                         write_u16(sv_ext, v);
+                    }
 
                     write_u16(ext_data, psm::protocol::tls::EXT_SUPPORTED_VERSIONS);
                     write_u16(ext_data, static_cast<std::uint16_t>(sv_ext.size()));
@@ -295,8 +301,8 @@ namespace
         hs_body.push_back(0x03);
         hs_body.push_back(0x03);
         hs_body.insert(hs_body.end(), 32, 0x00); // random
-        hs_body.push_back(0x00); // session_id_len = 0
-        write_u16(hs_body, 3); // cipher_len = 3 (odd)
+        hs_body.push_back(0x00);                 // session_id_len = 0
+        write_u16(hs_body, 3);                   // cipher_len = 3 (odd)
         hs_body.push_back(0x13);
         hs_body.push_back(0x01);
         hs_body.push_back(0x00);
@@ -365,9 +371,13 @@ namespace
         write_u16(ks_ext, hybrid_key_len);
         // Fill with 0x42 for first 32 bytes (X25519 key), rest zeros
         for (std::size_t i = 0; i < 32; ++i)
+        {
             ks_ext.push_back(0x42);
+        }
         for (std::size_t i = 32; i < hybrid_key_len; ++i)
+        {
             ks_ext.push_back(0x00);
+        }
 
         // Inject into the raw buffer by rebuilding extensions
         // Find supported_versions extension position in raw and insert before it
@@ -405,12 +415,14 @@ namespace
 
         // Build full ClientHello
         std::vector<std::uint8_t> hs_body;
-        hs_body.push_back(0x03); hs_body.push_back(0x03); // version
+        hs_body.push_back(0x03);
+        hs_body.push_back(0x03);                 // version
         hs_body.insert(hs_body.end(), 32, 0x00); // random
-        hs_body.push_back(0x00); // session_id_len
-        write_u16(hs_body, 2); // cipher_len
+        hs_body.push_back(0x00);                 // session_id_len
+        write_u16(hs_body, 2);                   // cipher_len
         write_u16(hs_body, psm::protocol::tls::CIPHER_AES_128_GCM_SHA256);
-        hs_body.push_back(1); hs_body.push_back(0x00); // compression
+        hs_body.push_back(1);
+        hs_body.push_back(0x00); // compression
 
         write_u16(hs_body, static_cast<std::uint16_t>(ext_block.size()));
         hs_body.insert(hs_body.end(), ext_block.begin(), ext_block.end());
@@ -477,8 +489,8 @@ namespace
         hs_body.push_back(0x03);
         hs_body.push_back(0x03);
         hs_body.insert(hs_body.end(), 32, 0x00); // random
-        hs_body.push_back(0x00); // session_id_len = 0
-        write_u16(hs_body, 2); // cipher_len = 2
+        hs_body.push_back(0x00);                 // session_id_len = 0
+        write_u16(hs_body, 2);                   // cipher_len = 2
         write_u16(hs_body, psm::protocol::tls::CIPHER_AES_128_GCM_SHA256);
         hs_body.push_back(0xFF); // comp_len = 255，远超剩余数据
 

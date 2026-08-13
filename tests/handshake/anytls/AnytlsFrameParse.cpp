@@ -3,8 +3,6 @@
  * @brief AnyTLS 帧头 parse/serialize/roundtrip 测试
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/anytls/mux/frame.hpp>
 
@@ -13,6 +11,8 @@
 #include <cstring>
 #include <span>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -58,10 +58,9 @@ namespace
 
     TEST(AnytlsFrameParse, SerializeAllCommands)
     {
-        for (auto cmd : {command::waste, command::syn, command::psh, command::fin,
-                         command::settings, command::alert, command::update_padding,
-                         command::synack, command::heart_req, command::heart_resp,
-                         command::server_settings})
+        for (auto cmd : {command::waste, command::syn, command::psh, command::fin, command::settings,
+                         command::alert, command::update_padding, command::synack, command::heart_req,
+                         command::heart_resp, command::server_settings})
         {
             frame_header hdr;
             hdr.cmd = cmd;
@@ -69,17 +68,15 @@ namespace
             hdr.length = 0;
             auto ser = hdr.serialize();
             EXPECT_EQ(ser.size(), frame_header_size) << "serialize: 7 bytes";
-            EXPECT_EQ(ser[0], static_cast<std::uint8_t>(cmd))
-                << "serialize: cmd byte correct";
+            EXPECT_EQ(ser[0], static_cast<std::uint8_t>(cmd)) << "serialize: cmd byte correct";
         }
     }
 
     TEST(AnytlsFrameParse, RoundtripAllCommands)
     {
-        for (auto cmd : {command::waste, command::syn, command::psh, command::fin,
-                         command::settings, command::alert, command::update_padding,
-                         command::synack, command::heart_req, command::heart_resp,
-                         command::server_settings})
+        for (auto cmd : {command::waste, command::syn, command::psh, command::fin, command::settings,
+                         command::alert, command::update_padding, command::synack, command::heart_req,
+                         command::heart_resp, command::server_settings})
         {
             frame_header hdr;
             hdr.cmd = cmd;

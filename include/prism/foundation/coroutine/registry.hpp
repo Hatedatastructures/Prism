@@ -28,7 +28,6 @@
 #include <string_view>
 #include <utility>
 
-
 namespace psm::coroutine
 {
     namespace net = boost::asio;
@@ -118,8 +117,7 @@ namespace psm::coroutine
          * @brief 构造注册表
          * @param ioc 关联的 io_context，用于 co_spawn
          */
-        explicit task_registry(net::io_context &ioc) noexcept
-            : ioc_(ioc), tokens_(memory::current_resource())
+        explicit task_registry(net::io_context &ioc) noexcept : ioc_(ioc), tokens_(memory::current_resource())
         {
         }
 
@@ -153,8 +151,8 @@ namespace psm::coroutine
          *       真实 graceful shutdown 应在调用前确保 ioc_.stop() 已发出且
          *       worker 线程已 join。
          */
-        [[nodiscard]] auto cancel_and_wait(
-            std::chrono::milliseconds timeout = std::chrono::seconds(5)) -> bool;
+        [[nodiscard]] auto cancel_and_wait(std::chrono::milliseconds timeout = std::chrono::seconds(5))
+            -> bool;
 
         /**
          * @brief 获取统计快照
@@ -188,13 +186,8 @@ namespace psm::coroutine
         tokens_.push_back(token);
         ++total_spawned_;
 
-        net::co_spawn(
-            ioc_,
-            std::forward<Coro>(coro),
-            [token](const std::exception_ptr &) noexcept
-            {
-                token->release();
-            });
+        net::co_spawn(ioc_, std::forward<Coro>(coro),
+                      [token](const std::exception_ptr &) noexcept { token->release(); });
     }
 
 } // namespace psm::coroutine

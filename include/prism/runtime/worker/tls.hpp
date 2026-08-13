@@ -18,7 +18,6 @@
 #include <memory>
 #include <string_view>
 
-
 namespace psm::runtime::worker::tls
 {
 
@@ -51,6 +50,5 @@ namespace psm::runtime::worker::tls
      * @throws exception::protocol 证书或私钥加载失败时抛出
      * @throws std::exception 其他初始化异常
      */
-    [[nodiscard]] auto make(const runtime::config &cfg)
-        -> shared_context;
-}
+    [[nodiscard]] auto make(const runtime::config &cfg) -> shared_context;
+} // namespace psm::runtime::worker::tls

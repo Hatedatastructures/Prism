@@ -4,12 +4,13 @@
  * @details 测试 recognition::parse、resolve(proxy_request)、resolve(host:port) 等函数。
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/recognition/target.hpp>
-#include <prism/diagnose/log.hpp>
-#include <gtest/gtest.h>
 
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace
 {

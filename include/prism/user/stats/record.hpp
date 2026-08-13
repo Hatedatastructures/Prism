@@ -6,12 +6,11 @@
  */
 #pragma once
 
+#include <prism/foundation/memory/container.hpp>
 #include <prism/user/directory.hpp>
 #include <prism/user/entry.hpp>
-#include <prism/foundation/memory/container.hpp>
 
 #include <cstdint>
-
 
 namespace psm::stats::account
 {
@@ -23,11 +22,11 @@ namespace psm::stats::account
      */
     struct account_snapshot
     {
-        memory::string credential;             ///< 账户凭证哈希
-        std::uint64_t uplink_bytes{0};         ///< 上行总字节数
-        std::uint64_t downlink_bytes{0};       ///< 下行总字节数
-        std::uint32_t active_connections{0};   ///< 当前活跃连接数
-        std::uint32_t max_connections{0};      ///< 最大允许连接数
+        memory::string credential;           ///< 账户凭证哈希
+        std::uint64_t uplink_bytes{0};       ///< 上行总字节数
+        std::uint64_t downlink_bytes{0};     ///< 下行总字节数
+        std::uint32_t active_connections{0}; ///< 当前活跃连接数
+        std::uint32_t max_connections{0};    ///< 最大允许连接数
     };
 
     /**
@@ -38,7 +37,8 @@ namespace psm::stats::account
      * @note 遍历 dir 内部 map，对每个 entry 读三个原子计数器的
      * relaxed 值，构造快照返回。零写入，纯观察者。
      */
-    [[nodiscard]] inline auto collect(const psm::user::directory &dir, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto collect(const psm::user::directory &dir,
+                                      memory::resource_pointer mr = memory::current_resource())
         -> memory::vector<account_snapshot>
     {
         memory::vector<account_snapshot> result(mr);

@@ -3,14 +3,14 @@
  * @brief Stats 模块扩展测试 — counter/gauge/traffic_state/worker_load 分支覆盖
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/connection/types.hpp>
 #include <prism/user/stats/stats.hpp>
-#include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
 
 #include <cstdint>
+
+#include <gtest/gtest.h>
 
 namespace
 {

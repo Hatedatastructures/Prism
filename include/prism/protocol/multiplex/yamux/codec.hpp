@@ -18,7 +18,6 @@
 #include <span>
 #include <string_view>
 
-
 namespace psm::multiplex::yamux
 {
 
@@ -35,35 +34,30 @@ namespace psm::multiplex::yamux
         /**
          * @brief 获取帧头长度（固定 12 字节）
          */
-        [[nodiscard]] auto header_size() const noexcept
-            -> std::size_t override;
+        [[nodiscard]] auto header_size() const noexcept -> std::size_t override;
 
         /**
          * @brief 解析 yamux 帧头
          * @param header 12 字节帧头
          * @return 帧元信息（类型映射为语义分类，flags 保留供 control 分发）
          */
-        [[nodiscard]] auto decode_header(std::span<const std::byte> header)
-            -> frame_meta override;
+        [[nodiscard]] auto decode_header(std::span<const std::byte> header) -> frame_meta override;
 
         /**
          * @brief 构造 Data 帧（12 字节帧头 + 载荷）
          */
-        [[nodiscard]] auto encode_data(std::uint32_t stream_id,
-                                       std::span<const std::byte> payload)
+        [[nodiscard]] auto encode_data(std::uint32_t stream_id, std::span<const std::byte> payload)
             -> memory::vector<std::byte> override;
 
         /**
          * @brief 构造 Data(FIN) 帧（仅帧头）
          */
-        [[nodiscard]] auto encode_fin(std::uint32_t stream_id)
-            -> memory::vector<std::byte> override;
+        [[nodiscard]] auto encode_fin(std::uint32_t stream_id) -> memory::vector<std::byte> override;
 
         /**
          * @brief 获取协议名称
          */
-        [[nodiscard]] auto type_name() const noexcept
-            -> std::string_view override;
+        [[nodiscard]] auto type_name() const noexcept -> std::string_view override;
     };
 
 } // namespace psm::multiplex::yamux

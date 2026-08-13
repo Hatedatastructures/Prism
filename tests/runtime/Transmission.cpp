@@ -5,17 +5,18 @@
  * 验证构造、异步读写、关闭、远端端点等操作的正确性。
  */
 
-#include <prism/net/transport/transmission.hpp>
-#include <prism/net/transport/reliable.hpp>
-#include <prism/net/transport/unreliable.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/transmission.hpp>
+#include <prism/net/transport/unreliable.hpp>
 
 #include <array>
 #include <chrono>
 #include <memory>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace net = boost::asio;
 
@@ -83,8 +84,7 @@ namespace
         auto reliable = psm::transport::make_reliable(executor);
 
         // 确保构造后的 executor 与传入的相同
-        EXPECT_TRUE(reliable->executor() == executor)
-            << "executor mismatch";
+        EXPECT_TRUE(reliable->executor() == executor) << "executor mismatch";
     }
 
     /**
@@ -99,8 +99,7 @@ namespace
         // 从已有 socket 构造 reliable 传输层，验证所有权转移后 executor 一致性
         auto reliable = psm::transport::make_reliable(std::move(socket));
 
-        EXPECT_TRUE(reliable->executor() == executor)
-            << "executor mismatch";
+        EXPECT_TRUE(reliable->executor() == executor) << "executor mismatch";
     }
 
     /**
@@ -144,15 +143,18 @@ namespace
                 << std::format("echo mismatch: got {} bytes", n);
         };
 
-        net::co_spawn(ioc, coro(), [&ioc, &ep](const std::exception_ptr &e)
-        {
-            ep = e;
-            ioc.stop();
-        });
+        net::co_spawn(ioc, coro(),
+                      [&ioc, &ep](const std::exception_ptr &e)
+                      {
+                          ep = e;
+                          ioc.stop();
+                      });
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
     }
 
     /**
@@ -167,7 +169,8 @@ namespace
         // 在随机端口上创建监听器
         net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         auto local_endpoint = acceptor.local_endpoint();
-        auto connect_endpoint = net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), local_endpoint.port());
+        auto connect_endpoint =
+            net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), local_endpoint.port());
 
         // 标记服务端是否检测到关闭后的读取错误
         auto server_close_detected = std::make_shared<bool>(false);
@@ -175,35 +178,38 @@ namespace
         std::exception_ptr ep;
 
         // 服务端协程：accept 后立即关闭 reliable，验证关闭后读取返回错误
-        net::co_spawn(ioc, [&acceptor, server_close_detected]() -> net::awaitable<void>
-        {
-            boost::system::error_code accept_ec;
-            auto accept_token = net::redirect_error(net::use_awaitable, accept_ec);
-            // 等待客户端连接
-            auto socket = co_await acceptor.async_accept(accept_token);
-            if (accept_ec)
+        net::co_spawn(
+            ioc,
+            [&acceptor, server_close_detected]() -> net::awaitable<void>
             {
-                co_return;
-            }
+                boost::system::error_code accept_ec;
+                auto accept_token = net::redirect_error(net::use_awaitable, accept_ec);
+                // 等待客户端连接
+                auto socket = co_await acceptor.async_accept(accept_token);
+                if (accept_ec)
+                {
+                    co_return;
+                }
 
-            // 不再接受更多连接，关闭监听器
-            acceptor.close();
-            // 将已连接的 socket 包装为 reliable 传输层
-            auto transport = psm::transport::make_reliable(std::move(socket));
+                // 不再接受更多连接，关闭监听器
+                acceptor.close();
+                // 将已连接的 socket 包装为 reliable 传输层
+                auto transport = psm::transport::make_reliable(std::move(socket));
 
-            // 主动关闭传输层
-            transport->close();
+                // 主动关闭传输层
+                transport->close();
 
-            // 关闭后尝试读取，预期会返回错误
-            std::array<std::byte, 1024> buffer{};
-            std::error_code ec;
-            co_await transport->async_read_some(std::span(buffer), ec);
+                // 关闭后尝试读取，预期会返回错误
+                std::array<std::byte, 1024> buffer{};
+                std::error_code ec;
+                co_await transport->async_read_some(std::span(buffer), ec);
 
-            if (ec)
-            {
-                *server_close_detected = true;
-            }
-        }, net::detached);
+                if (ec)
+                {
+                    *server_close_detected = true;
+                }
+            },
+            net::detached);
 
         // 客户端协程
         auto client_coro = [&]() -> net::awaitable<void>
@@ -224,21 +230,23 @@ namespace
             }
 
             // 验证错误码为常见的关闭类型：EOF、连接重置或操作中止
-            EXPECT_TRUE(ec == net::error::eof ||
-                        ec == net::error::connection_reset ||
+            EXPECT_TRUE(ec == net::error::eof || ec == net::error::connection_reset ||
                         ec == net::error::operation_aborted)
                 << std::format("ReliableClose: unexpected client error {}", ec.message());
         };
 
-        net::co_spawn(ioc, client_coro(), [&ioc, &ep](const std::exception_ptr &e)
-        {
-            ep = e;
-            ioc.stop();
-        });
+        net::co_spawn(ioc, client_coro(),
+                      [&ioc, &ep](const std::exception_ptr &e)
+                      {
+                          ep = e;
+                          ioc.stop();
+                      });
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
 
         // 服务端和客户端都必须检测到关闭
         EXPECT_TRUE(*server_close_detected) << "server_close not detected";
@@ -255,12 +263,10 @@ namespace
         auto unreliable = std::make_shared<psm::transport::unreliable>(executor);
 
         // 验证构造后的 executor 与传入的一致
-        EXPECT_TRUE(unreliable->executor() == executor)
-            << "executor mismatch";
+        EXPECT_TRUE(unreliable->executor() == executor) << "executor mismatch";
 
         // 新构造的 unreliable 尚未设置远端，应为空
-        EXPECT_TRUE(!unreliable->remote_endpoint().has_value())
-            << "remote_endpoint should be nullopt";
+        EXPECT_TRUE(!unreliable->remote_endpoint().has_value()) << "remote_endpoint should be nullopt";
     }
 
     /**
@@ -281,9 +287,7 @@ namespace
         auto remote_opt = unreliable->remote_endpoint();
         ASSERT_TRUE(remote_opt.has_value()) << "remote_endpoint should have value";
 
-        EXPECT_TRUE(remote_opt->address() == endpoint.address())
-            << "address mismatch";
-        EXPECT_TRUE(remote_opt->port() == endpoint.port())
-            << "port mismatch";
+        EXPECT_TRUE(remote_opt->address() == endpoint.address()) << "address mismatch";
+        EXPECT_TRUE(remote_opt->port() == endpoint.port()) << "port mismatch";
     }
 } // namespace

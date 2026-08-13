@@ -24,7 +24,6 @@
 #include <string>
 #include <string_view>
 
-
 namespace psm::handshake::shadowtls
 {
 
@@ -81,8 +80,8 @@ namespace psm::handshake::shadowtls
      * @param payload 修改后的 payload
      * @return 4 字节 HMAC 标签
      */
-    [[nodiscard]] auto compute_write_hmac(std::string_view password, std::span<const std::byte> server_random, std::span<const std::byte> payload)
-        -> std::array<std::uint8_t, 4>;
+    [[nodiscard]] auto compute_write_hmac(std::string_view password, std::span<const std::byte> server_random,
+                                          std::span<const std::byte> payload) -> std::array<std::uint8_t, 4>;
 
     /**
      * @brief 生成写入密钥（XOR 加密用）

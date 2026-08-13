@@ -12,13 +12,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/proxy/vmess/codec.hpp>
-#include <common/proxy/vmess/conn.hpp>
-#include <common/proxy/vmess/dgram.hpp>
-#include <common/proxy/vmess/types.hpp>
-
 #include <boost/asio/awaitable.hpp>
 
 #include <array>
@@ -26,6 +19,13 @@
 #include <memory>
 #include <tuple>
 #include <utility>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/proxy/vmess/codec.hpp>
+#include <common/proxy/vmess/conn.hpp>
+#include <common/proxy/vmess/dgram.hpp>
+#include <common/proxy/vmess/types.hpp>
 
 namespace psmtest::vmess
 {
@@ -69,14 +69,12 @@ namespace psmtest::vmess
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
-                                      const address &target,
-                                      command cmd = command::tcp)
-    -> net::awaitable<std::pair<error, shared_conn>>
+                                      const address &target, command cmd = command::tcp)
+        -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(cfg.uuid);
         const auto err = co_await c->write_handshake(std::move(upstream), target, cmd);
-        co_return std::pair{err, err == error::none ? shared_conn(std::move(c))
-                                                    : shared_conn{}};
+        co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
 
     /**
@@ -86,13 +84,15 @@ namespace psmtest::vmess
      * @param target 目标地址
      * @return 错误码与包连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto connect_packet(shared_transmission upstream,
-                                             const client_config &cfg, const address &target)
-    -> net::awaitable<std::pair<error, shared_dgram>>
+    [[nodiscard]] inline auto connect_packet(shared_transmission upstream, const client_config &cfg,
+                                             const address &target)
+        -> net::awaitable<std::pair<error, shared_dgram>>
     {
         auto [err, conn] = co_await connect(std::move(upstream), cfg, target, command::udp);
         if (err != error::none)
+        {
             co_return std::pair{err, shared_dgram{}};
+        }
         co_return std::pair{error::none, std::make_shared<dgram>(std::move(conn))};
     }
 
@@ -103,7 +103,7 @@ namespace psmtest::vmess
      * @return 错误码、解析的请求与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-    -> net::awaitable<std::tuple<error, message, shared_conn>>
+        -> net::awaitable<std::tuple<error, message, shared_conn>>
     {
         auto c = std::make_shared<conn>(cfg.uuid);
         auto [err, req] = co_await c->read_handshake(std::move(upstream));
@@ -118,13 +118,14 @@ namespace psmtest::vmess
      * @return 错误码、解析的请求与包连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept_packet(shared_transmission upstream, const server_config &cfg)
-    -> net::awaitable<std::tuple<error, message, shared_dgram>>
+        -> net::awaitable<std::tuple<error, message, shared_dgram>>
     {
         auto [err, req, conn] = co_await accept(std::move(upstream), cfg);
         if (err != error::none)
+        {
             co_return std::tuple{err, std::move(req), shared_dgram{}};
-        co_return std::tuple{error::none, std::move(req),
-                             std::make_shared<dgram>(std::move(conn))};
+        }
+        co_return std::tuple{error::none, std::move(req), std::make_shared<dgram>(std::move(conn))};
     }
 
 } // namespace psmtest::vmess

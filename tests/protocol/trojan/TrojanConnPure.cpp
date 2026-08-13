@@ -4,23 +4,21 @@
  * @details 测试 validate_command/parse_address_from_buffer/verify_credential/parse_request_target
  */
 
-#include <prism/foundation/foundation.hpp>
-#include "../src/prism/protocol/trojan/handler/conn.cpp"
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
-
+#include "../src/prism/protocol/trojan/handler/conn.cpp"
 #include <gtest/gtest.h>
 
 namespace
 {
-    using psm::protocol::trojan::validate_command;
-    using psm::protocol::trojan::parse_address_from_buffer;
-    using psm::protocol::trojan::verify_credential;
-    using psm::protocol::trojan::parse_request_target;
-    using psm::protocol::trojan::command;
     using psm::protocol::trojan::address_type;
+    using psm::protocol::trojan::command;
     using psm::protocol::trojan::config;
+    using psm::protocol::trojan::parse_address_from_buffer;
+    using psm::protocol::trojan::parse_request_target;
+    using psm::protocol::trojan::validate_command;
+    using psm::protocol::trojan::verify_credential;
 
     TEST(TrojanConnPure, ValidateCommandConnectAllowed)
     {
@@ -135,7 +133,9 @@ namespace
     {
         std::vector<std::uint8_t> buf(58, 'a');
         for (int i = 0; i < 56; ++i)
+        {
             buf[i] = static_cast<std::uint8_t>('0' + (i % 10));
+        }
         buf[56] = '\r';
         buf[57] = '\n';
 
@@ -149,7 +149,9 @@ namespace
     {
         std::vector<std::uint8_t> buf(58, 0);
         for (int i = 0; i < 56; ++i)
+        {
             buf[i] = static_cast<std::uint8_t>('a' + (i % 6));
+        }
         buf[56] = '\r';
         buf[57] = '\n';
 
@@ -169,13 +171,14 @@ namespace
     {
         std::vector<std::uint8_t> buf(58, 0);
         for (int i = 0; i < 56; ++i)
+        {
             buf[i] = static_cast<std::uint8_t>('a' + (i % 6));
+        }
         buf[56] = '\r';
         buf[57] = '\n';
 
         std::array<char, 56> cred{};
-        auto verifier = [](std::string_view) -> bool
-        { return false; };
+        auto verifier = [](std::string_view) -> bool { return false; };
         auto ec = verify_credential(buf, verifier, cred);
         EXPECT_EQ(ec, psm::fault::code::auth_failed) << "verify_cred: verifier rejects";
     }
@@ -184,7 +187,9 @@ namespace
     {
         std::vector<std::uint8_t> buf(58, 0);
         for (int i = 0; i < 56; ++i)
+        {
             buf[i] = static_cast<std::uint8_t>('a' + (i % 6));
+        }
         buf[56] = '\n';
         buf[57] = '\r';
 

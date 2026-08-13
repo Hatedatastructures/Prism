@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <span>
 
-
 namespace psm::handshake
 {
 
@@ -60,8 +59,7 @@ namespace psm::handshake
     /**
      * @brief 验证挑战响应(纯函数)
      */
-    [[nodiscard]] auto verify_challenge(
-        const challenge_token &expected,
-        std::span<const std::byte> response) noexcept -> bool;
+    [[nodiscard]] auto verify_challenge(const challenge_token &expected,
+                                        std::span<const std::byte> response) noexcept -> bool;
 
 } // namespace psm::handshake

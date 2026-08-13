@@ -15,7 +15,6 @@
 
 #include <array>
 
-
 namespace psm::protocol::trojan
 {
 
@@ -35,10 +34,10 @@ namespace psm::protocol::trojan
      */
     struct request
     {
-        command cmd;                                            // 命令类型
+        command cmd;                                                 // 命令类型
         std::uint16_t port;                                          // 目标端口，网络字节序
-        address destination_address;                            // 目标地址
-        std::array<char, 56> credential;                        // 用户凭据，56 字节 SHA224 哈希
+        address destination_address;                                 // 目标地址
+        std::array<char, 56> credential;                             // 用户凭据，56 字节 SHA224 哈希
         psm::protocol::form transport = psm::protocol::form::stream; // 传输形式，由命令类型决定
     };
 
@@ -50,9 +49,10 @@ namespace psm::protocol::trojan
      * @param mr 内存资源指针，默认为全局资源
      * @return memory::string 地址字符串
      */
-    [[nodiscard]] inline auto to_string(const address &addr, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto to_string(const address &addr,
+                                        memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
         return protocol::common::addr_to_str(addr, mr);
     }
-}
+} // namespace psm::protocol::trojan

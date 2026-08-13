@@ -3,12 +3,12 @@
  * @brief Restls 伪装方案测试
  */
 
-#include <gtest/gtest.h>
-
+#include <prism/foundation/foundation.hpp>
 #include <prism/handshake/restls/config.hpp>
 #include <prism/handshake/restls/crypto.hpp>
 #include <prism/handshake/shadowtls/util/constants.hpp>
-#include <prism/foundation/foundation.hpp>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -43,7 +43,8 @@ namespace
         EXPECT_EQ(tls_hdrsize, 5) << "TLS header size is 5 bytes";
         EXPECT_EQ(tls_rndsize, 32) << "TLS random size is 32 bytes";
         EXPECT_EQ(psm::handshake::shadowtls::content_handshake, 0x16) << "Handshake content type is 0x16";
-        EXPECT_EQ(psm::handshake::shadowtls::content_appdata, 0x17) << "Application data content type is 0x17";
+        EXPECT_EQ(psm::handshake::shadowtls::content_appdata, 0x17)
+            << "Application data content type is 0x17";
         constexpr std::size_t auth_tag_size = 4;
         EXPECT_EQ(auth_tag_size, 4) << "Auth tag size is 4 bytes";
     }

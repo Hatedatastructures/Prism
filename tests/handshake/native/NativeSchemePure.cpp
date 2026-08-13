@@ -5,19 +5,18 @@
  *          handshake() 是异步协程，此处仅覆盖同步可测路径。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/handshake.hpp>
 #include <prism/settings/settings.hpp>
+
+#include <gtest/gtest.h>
 
 namespace
 {
     TEST(NativeSchemePure, NativeName)
     {
         psm::handshake::native::native scheme;
-        EXPECT_EQ(scheme.name(), std::string_view("native"))
-            << "native: name() == 'native'";
+        EXPECT_EQ(scheme.name(), std::string_view("native")) << "native: name() == 'native'";
     }
 
     TEST(NativeSchemePure, NativeActiveDisabled)
@@ -59,8 +58,7 @@ namespace
     TEST(NativeSchemePure, NativeCategory)
     {
         psm::handshake::native::native scheme;
-        EXPECT_EQ(scheme.category(), psm::handshake::scheme_category::facade)
-            << "native: category=facade";
+        EXPECT_EQ(scheme.category(), psm::handshake::scheme_category::facade) << "native: category=facade";
     }
 
     TEST(NativeSchemePure, NativeUnique)

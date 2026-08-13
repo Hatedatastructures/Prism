@@ -48,10 +48,9 @@ namespace psm::connect
 
     auto route_table::stats() const noexcept -> route_stats
     {
-        return route_stats{
-            reverse_hits_.load(std::memory_order_relaxed),
-            reverse_misses_.load(std::memory_order_relaxed),
-            forward_uses_.load(std::memory_order_relaxed)};
+        return route_stats{reverse_hits_.load(std::memory_order_relaxed),
+                           reverse_misses_.load(std::memory_order_relaxed),
+                           forward_uses_.load(std::memory_order_relaxed)};
     }
 
 } // namespace psm::connect

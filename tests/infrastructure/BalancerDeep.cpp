@@ -5,24 +5,22 @@
  *          覆盖 mix_hash、score、refresh_state、select、构造函数、size。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/runtime/front/balancer.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
     namespace front = psm::runtime::front;
     using front::balancer;
     using front::distribute_config;
-    using psm::stats::worker_snapshot;
     using psm::memory::vector;
+    using psm::stats::worker_snapshot;
 
     // 创建一个固定负载快照的 worker_binding
-    auto make_binding(worker_snapshot snap)
-        -> balancer::worker_binding
+    auto make_binding(worker_snapshot snap) -> balancer::worker_binding
     {
         return {
             .dispatch = [](front::tcp::socket) {},
@@ -38,7 +36,9 @@ namespace
         distribute_config cfg;
         vector<balancer::worker_binding> bindings;
         for (int i = 0; i < 4; ++i)
+        {
             bindings.push_back(make_binding({}));
+        }
 
         balancer b(std::move(bindings), cfg);
 
@@ -53,7 +53,9 @@ namespace
         distribute_config cfg;
         vector<balancer::worker_binding> bindings;
         for (int i = 0; i < 8; ++i)
+        {
             bindings.push_back(make_binding({}));
+        }
 
         balancer b(std::move(bindings), cfg);
 
@@ -61,8 +63,7 @@ namespace
         auto r1 = b.select(1);
         auto r2 = b.select(999999);
         // 不强制不等，但统计上不同值大概率选不同 worker
-        EXPECT_TRUE(r1.worker_index < 8 && r2.worker_index < 8)
-                     << "mix_hash: both results in valid range";
+        EXPECT_TRUE(r1.worker_index < 8 && r2.worker_index < 8) << "mix_hash: both results in valid range";
     }
 
     // ─── score（通过 select 间接测试）──
@@ -111,7 +112,9 @@ namespace
         distribute_config cfg;
         vector<balancer::worker_binding> bindings;
         for (int i = 0; i < 4; ++i)
+        {
             bindings.push_back(make_binding({}));
+        }
 
         balancer b(std::move(bindings), cfg);
         EXPECT_EQ(b.size(), 4) << "constructor: 4 bindings -> size=4";
@@ -258,7 +261,7 @@ namespace
     TEST(BalancerDeep, ScoreZeroCapacity)
     {
         distribute_config cfg;
-        cfg.session_capacity = 0;   // 会被 std::max(1, 0) 修正为 1
+        cfg.session_capacity = 0; // 会被 std::max(1, 0) 修正为 1
         cfg.pending_capacity = 0;
         cfg.lag_cap = 0;
 
@@ -291,7 +294,9 @@ namespace
         distribute_config cfg;
         vector<balancer::worker_binding> bindings;
         for (int i = 0; i < 4; ++i)
+        {
             bindings.push_back(make_binding({}));
+        }
 
         balancer b(std::move(bindings), cfg);
 
@@ -307,7 +312,9 @@ namespace
         for (int i = 0; i < 4; ++i)
         {
             if (counts[i] < 50)
+            {
                 distributed = false;
+            }
         }
         EXPECT_TRUE(distributed) << "distribution: 1000 selects across 4 workers -> roughly uniform";
     }

@@ -13,9 +13,9 @@
 #pragma once
 
 #include <prism/foundation/memory/container.hpp>
-#include <prism/net/transport/transmission.hpp>
 #include <prism/handshake/scheme.hpp>
 #include <prism/handshake/shadowtls/config.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <openssl/hmac.h>
@@ -23,7 +23,6 @@
 #include <cstddef>
 #include <memory>
 #include <vector>
-
 
 namespace psm::outbound
 {
@@ -40,7 +39,10 @@ namespace psm::handshake::shadowtls
     /// HMAC 上下文删除器
     struct hmac_ctx_deleter
     {
-        void operator()(HMAC_CTX *ctx) const { HMAC_CTX_free(ctx); }
+        void operator()(HMAC_CTX *ctx) const
+        {
+            HMAC_CTX_free(ctx);
+        }
     };
 
     /**
@@ -54,11 +56,12 @@ namespace psm::handshake::shadowtls
     struct handshake_detail
     {
         memory::vector<std::byte> client_firstframe; ///< 客户端首帧数据（认证后，TLS header + payload）
-        std::string matched_user;                     ///< 匹配的用户名
-        std::string matched_password;                 ///< 匹配的密码（用于后续 HMAC 计算）
-        std::array<std::byte, 32> server_random{};    ///< ServerHello 的 ServerRandom（用于后续 HMAC 和 XOR）
-        std::shared_ptr<HMAC_CTX> hmac_write_ctx;     ///< 写入方向累积 HMAC（初始：password + SR + "S"）
-        std::shared_ptr<HMAC_CTX> hmac_read_ctx;      ///< 读取方向累积 HMAC（初始：password + SR + "C" + payload + HMAC[:4]）
+        std::string matched_user;                    ///< 匹配的用户名
+        std::string matched_password;                ///< 匹配的密码（用于后续 HMAC 计算）
+        std::array<std::byte, 32> server_random{};   ///< ServerHello 的 ServerRandom（用于后续 HMAC 和 XOR）
+        std::shared_ptr<HMAC_CTX> hmac_write_ctx;    ///< 写入方向累积 HMAC（初始：password + SR + "S"）
+        std::shared_ptr<HMAC_CTX>
+            hmac_read_ctx; ///< 读取方向累积 HMAC（初始：password + SR + "C" + payload + HMAC[:4]）
     };
 
     /**
@@ -88,6 +91,5 @@ namespace psm::handshake::shadowtls
      * @param opts 握手参数（inbound, cfg, router, client_hello, detail）
      * @return 握手结果（使用 handshake 基类的 handshake_result）
      */
-    [[nodiscard]] auto handshake(handshake_opts opts)
-        -> net::awaitable<handshake::handshake_result>;
+    [[nodiscard]] auto handshake(handshake_opts opts) -> net::awaitable<handshake::handshake_result>;
 } // namespace psm::handshake::shadowtls

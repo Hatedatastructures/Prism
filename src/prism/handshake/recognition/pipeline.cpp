@@ -1,7 +1,6 @@
-#include <prism/handshake/recognition/pipeline.hpp>
-
-#include <prism/handshake/registry.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/recognition/pipeline.hpp>
+#include <prism/handshake/registry.hpp>
 
 #include <algorithm>
 
@@ -37,13 +36,13 @@ namespace psm::recognition
             }
         }
 
-        diagnose::debug("pipeline built: Tier0={}, Tier1={}, Tier2={}",
-                     tier0_schemes_.size(), tier1_schemes_.size(), tier2_schemes_.size());
+        diagnose::debug("pipeline built: Tier0={}, Tier1={}, Tier2={}", tier0_schemes_.size(),
+                        tier1_schemes_.size(), tier2_schemes_.size());
     }
 
-    auto layered_detection_pipeline::detect(
-        detect_input input,
-        const std::vector<handshake::shared_scheme> &matched_schemes) const
+    auto
+    layered_detection_pipeline::detect(detect_input input,
+                                       const std::vector<handshake::shared_scheme> &matched_schemes) const
         -> pipeline_result
     {
         // === 层级 0：零成本检测 ===
@@ -64,18 +63,17 @@ namespace psm::recognition
         return detect_tier2(input.cfg, matched_schemes);
     }
 
-    auto layered_detection_pipeline::detect_tier0(
-        std::uint32_t bitmap,
-        const hello_features &features,
-        const psm::settings &cfg) const
-        -> pipeline_result
+    auto layered_detection_pipeline::detect_tier0(std::uint32_t bitmap, const hello_features &features,
+                                                  const psm::settings &cfg) const -> pipeline_result
     {
         pipeline_result result;
 
         for (const auto &scheme : tier0_schemes_)
         {
             if (!scheme->active(cfg))
+            {
                 continue;
+            }
 
             auto sniff_res = scheme->sniff(bitmap, features);
             if (sniff_res.hit)
@@ -88,29 +86,28 @@ namespace psm::recognition
                     return result;
                 }
 
-                result.candidates.push_back({
-                    .name = memory::string(scheme->name()),
-                    .score = sniff_res.hint,
-                    .tier = 0,
-                    .is_deterministic = false});
+                result.candidates.push_back({.name = memory::string(scheme->name()),
+                                             .score = sniff_res.hint,
+                                             .tier = 0,
+                                             .is_deterministic = false});
             }
         }
 
         return result;
     }
 
-    auto layered_detection_pipeline::detect_tier1(
-        const hello_features &features,
-        std::span<const std::byte> raw,
-        const psm::settings &cfg) const
-        -> pipeline_result
+    auto layered_detection_pipeline::detect_tier1(const hello_features &features,
+                                                  std::span<const std::byte> raw,
+                                                  const psm::settings &cfg) const -> pipeline_result
     {
         pipeline_result result;
 
         for (const auto &scheme : tier1_schemes_)
         {
             if (!scheme->active(cfg))
+            {
                 continue;
+            }
 
             auto verify_res = scheme->verify(features, raw, cfg);
             if (verify_res.score > 0)
@@ -123,11 +120,10 @@ namespace psm::recognition
                     return result;
                 }
 
-                result.candidates.push_back({
-                    .name = memory::string(scheme->name()),
-                    .score = verify_res.score,
-                    .tier = 1,
-                    .is_deterministic = false});
+                result.candidates.push_back({.name = memory::string(scheme->name()),
+                                             .score = verify_res.score,
+                                             .tier = 1,
+                                             .is_deterministic = false});
             }
         }
 
@@ -135,8 +131,7 @@ namespace psm::recognition
     }
 
     auto layered_detection_pipeline::detect_tier2(
-        const psm::settings &cfg,
-        const std::vector<handshake::shared_scheme> &matched_schemes) const
+        const psm::settings &cfg, const std::vector<handshake::shared_scheme> &matched_schemes) const
         -> pipeline_result
     {
         pipeline_result result;
@@ -148,11 +143,10 @@ namespace psm::recognition
                 auto guess_res = scheme->guess(cfg);
                 if (guess_res.score > 0)
                 {
-                    result.candidates.push_back({
-                        .name = memory::string(scheme->name()),
-                        .score = guess_res.score,
-                        .tier = 2,
-                        .is_deterministic = false});
+                    result.candidates.push_back({.name = memory::string(scheme->name()),
+                                                 .score = guess_res.score,
+                                                 .tier = 2,
+                                                 .is_deterministic = false});
                 }
             }
         }
@@ -161,16 +155,14 @@ namespace psm::recognition
             if (native_scheme_ && native_scheme_->active(cfg))
             {
                 diagnose::debug("no SNI match, using native fallback");
-                result.candidates.push_back({
-                    .name = memory::string(native_scheme_->name()),
-                    .score = native_scheme_->guess(cfg).score,
-                    .tier = 2,
-                    .is_deterministic = false});
+                result.candidates.push_back({.name = memory::string(native_scheme_->name()),
+                                             .score = native_scheme_->guess(cfg).score,
+                                             .tier = 2,
+                                             .is_deterministic = false});
             }
         }
 
-        std::ranges::sort(result.candidates, [](const auto &a, const auto &b)
-                          { return a.score > b.score; });
+        std::ranges::sort(result.candidates, [](const auto &a, const auto &b) { return a.score > b.score; });
 
         return result;
     }

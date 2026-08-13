@@ -15,11 +15,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/proxy/trojan/codec.hpp>
-#include <common/proxy/trojan/types.hpp>
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
@@ -35,6 +30,11 @@
 #include <utility>
 #include <vector>
 
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/proxy/trojan/codec.hpp>
+#include <common/proxy/trojan/types.hpp>
+
 namespace psmtest::trojan
 {
 
@@ -46,8 +46,7 @@ namespace psmtest::trojan
      * 数据透传、预读缓冲。读写静态分派到 T（无虚表）。
      * 由工厂（connect / accept）创建，调用方以 shared_ptr 持有。
      */
-    class conn : public psmtest::transmission,
-                 public std::enable_shared_from_this<conn>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn>
     {
     public:
         /**
@@ -55,13 +54,14 @@ namespace psmtest::trojan
          * @param upstream 上游传输（所有权移交）
          * @param password 协议密码（派生 SHA224 hex 凭据）
          */
-        explicit conn(shared_transmission upstream, std::string password)
-            : next_layer_(std::move(upstream))
+        explicit conn(shared_transmission upstream, std::string password) : next_layer_(std::move(upstream))
         {
             cred_ = credential(password);
         }
 
-        /// @brief 获取执行器（静态分派到上游）
+        /**
+         * @brief 获取执行器（静态分派到上游）
+         */
         [[nodiscard]] auto executor() const -> net::any_io_executor override
         {
             return next_layer_->executor();
@@ -75,7 +75,7 @@ namespace psmtest::trojan
          * @details 握手阶段预读的剩余字节先被消费，清空后透传底层。
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t> override
         {
             ec.clear();
             if (used_ > 0)
@@ -96,9 +96,11 @@ namespace psmtest::trojan
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
 
-        /// @brief 异步写入（静态分派透传）
+        /**
+         * @brief 异步写入（静态分派透传）
+         */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
@@ -110,16 +112,20 @@ namespace psmtest::trojan
          * @return 实际读取字节数（满 = buffer.size()；EOF 提前返回）
          */
         [[nodiscard]] auto async_read(std::span<std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t>
+            -> net::awaitable<std::size_t>
         {
             std::size_t done = 0;
             while (done < buffer.size())
             {
                 const auto n = co_await async_read_some(buffer.subspan(done), ec);
                 if (ec)
+                {
                     co_return done;
+                }
                 if (n == 0)
+                {
                     co_return done;
+                }
                 done += n;
             }
             co_return done;
@@ -132,14 +138,16 @@ namespace psmtest::trojan
          * @return 实际写入字节数（满 = buffer.size()）
          */
         [[nodiscard]] auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t>
+            -> net::awaitable<std::size_t>
         {
             std::size_t done = 0;
             while (done < buffer.size())
             {
                 const auto n = co_await async_write_some(buffer.subspan(done), ec);
                 if (ec)
+                {
                     co_return done;
+                }
                 if (n == 0)
                 {
                     ec = make_error_code(error::broken_pipe);
@@ -150,31 +158,41 @@ namespace psmtest::trojan
             co_return done;
         }
 
-        /// @brief 关闭传输层（静态分派）
+        /**
+         * @brief 关闭传输层（静态分派）
+         */
         void close() override
         {
             next_layer_->close();
         }
 
-        /// @brief 取消挂起操作（静态分派）
+        /**
+         * @brief 取消挂起操作（静态分派）
+         */
         void cancel() override
         {
             next_layer_->cancel();
         }
 
-        /// @brief 获取内层传输（装饰器链导航）
+        /**
+         * @brief 获取内层传输（装饰器链导航）
+         */
         [[nodiscard]] auto next_layer() noexcept -> psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 获取内层传输（const 版本）
+        /**
+         * @brief 获取内层传输（const 版本）
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 释放底层传输所有权
+        /**
+         * @brief 释放底层传输所有权
+         */
         [[nodiscard]] auto release() -> shared_transmission override
         {
             return std::move(next_layer_);
@@ -188,9 +206,8 @@ namespace psmtest::trojan
          * @details 构造并发送请求头，不读响应（对齐主库 trojan）。
          * 由工厂 connect 内部调用。
          */
-        [[nodiscard]] auto write_handshake(const address &target,
-                                           command cmd = command::connect)
-        -> net::awaitable<error>
+        [[nodiscard]] auto write_handshake(const address &target, command cmd = command::connect)
+            -> net::awaitable<error>
         {
             const auto wire = build_request(cred_, cmd, target);
             co_return co_await send_bytes(wire) ? error::io_error : error::none;
@@ -206,34 +223,48 @@ namespace psmtest::trojan
          * 由工厂 accept 内部调用。
          */
         [[nodiscard]] auto read_handshake(bool enable_tcp = true, bool enable_udp = false)
-        -> net::awaitable<std::pair<error, request_header>>
+            -> net::awaitable<std::pair<error, request_header>>
         {
             // 1. 凭据前缀：Credential(56) + CRLF(2)
             std::array<std::uint8_t, credential_len + 2> prefix{};
             if (co_await read_exact_impl(std::span<std::uint8_t>(prefix)))
+            {
                 co_return std::pair{error::io_error, request_header{}};
+            }
             const std::string_view got(reinterpret_cast<const char *>(prefix.data()), credential_len);
             if (got != cred_)
+            {
                 co_return std::pair{error::bad_auth, request_header{}};
+            }
             if (prefix[credential_len] != '\r' || prefix[credential_len + 1] != '\n')
+            {
                 co_return std::pair{error::bad_magic, request_header{}};
+            }
 
             // 2. 头部：Cmd(1) + Atyp(1)
             std::array<std::uint8_t, 2> head{};
             if (co_await read_exact_impl(std::span<std::uint8_t>(head)))
+            {
                 co_return std::pair{error::io_error, request_header{}};
+            }
             const auto cmd = static_cast<command>(head[0]);
-            if (cmd != command::connect && cmd != command::udp_associate &&
-                cmd != command::mux)
+            if (cmd != command::connect && cmd != command::udp_associate && cmd != command::mux)
+            {
                 co_return std::pair{error::bad_message, request_header{}};
+            }
             if (cmd == command::connect && !enable_tcp)
+            {
                 co_return std::pair{error::not_supported, request_header{}};
+            }
             if (cmd == command::udp_associate && !enable_udp)
+            {
                 co_return std::pair{error::not_supported, request_header{}};
+            }
             const auto atyp = static_cast<address_type>(head[1]);
-            if (atyp != address_type::ipv4 && atyp != address_type::domain &&
-                atyp != address_type::ipv6)
+            if (atyp != address_type::ipv4 && atyp != address_type::domain && atyp != address_type::ipv6)
+            {
                 co_return std::pair{error::bad_message, request_header{}};
+            }
 
             // 3. 地址体
             request_header req;
@@ -241,15 +272,21 @@ namespace psmtest::trojan
             req.target.type = atyp;
             auto err = co_await read_address_body(req.target);
             if (err != error::none)
+            {
                 co_return std::pair{err, request_header{}};
+            }
 
             // 4. 尾部：Port(2 BE) + CRLF(2)
             std::array<std::uint8_t, 4> tail{};
             if (co_await read_exact_impl(std::span<std::uint8_t>(tail)))
+            {
                 co_return std::pair{error::io_error, request_header{}};
+            }
             req.target.port = static_cast<std::uint16_t>(tail[0]) << 8 | tail[1];
             if (tail[2] != '\r' || tail[3] != '\n')
+            {
                 co_return std::pair{error::bad_magic, request_header{}};
+            }
 
             request_ = req;
             co_return std::pair{error::none, std::move(req)};
@@ -269,8 +306,7 @@ namespace psmtest::trojan
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
-        -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
         {
             return read_exact_impl(dst);
         }
@@ -281,42 +317,45 @@ namespace psmtest::trojan
          * @param addr 输出地址
          * @return 错误码
          */
-        [[nodiscard]] auto read_address_body(address &addr)
-        -> net::awaitable<error>
+        [[nodiscard]] auto read_address_body(address &addr) -> net::awaitable<error>
         {
             switch (addr.type)
             {
-                case address_type::ipv4:
+            case address_type::ipv4: {
+                std::array<std::uint8_t, 4> ip{};
+                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
                 {
-                    std::array<std::uint8_t, 4> ip{};
-                    if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                        co_return error::io_error;
-                    std::array<char, 16> buf{};
-                    std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-                    addr.host = buf.data();
-                    break;
+                    co_return error::io_error;
                 }
-                case address_type::ipv6:
+                std::array<char, 16> buf{};
+                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+                addr.host = buf.data();
+                break;
+            }
+            case address_type::ipv6: {
+                std::array<std::uint8_t, 16> ip{};
+                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
                 {
-                    std::array<std::uint8_t, 16> ip{};
-                    if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                        co_return error::io_error;
-                    addr.host.assign(reinterpret_cast<const char *>(ip.data()), 16);
-                    break;
+                    co_return error::io_error;
                 }
-                case address_type::domain:
+                addr.host.assign(reinterpret_cast<const char *>(ip.data()), 16);
+                break;
+            }
+            case address_type::domain: {
+                std::array<std::uint8_t, 1> len{};
+                if (co_await read_exact_impl(std::span<std::uint8_t>(len)))
                 {
-                    std::array<std::uint8_t, 1> len{};
-                    if (co_await read_exact_impl(std::span<std::uint8_t>(len)))
-                        co_return error::io_error;
-                    std::vector<std::uint8_t> host(len[0]);
-                    if (co_await read_exact_impl(host))
-                        co_return error::io_error;
-                    addr.host.assign(reinterpret_cast<const char *>(host.data()), host.size());
-                    break;
+                    co_return error::io_error;
                 }
-                default:
-                    co_return error::bad_message;
+                std::vector<std::uint8_t> host(len[0]);
+                if (co_await read_exact_impl(host))
+                {
+                    co_return error::io_error;
+                }
+                addr.host.assign(reinterpret_cast<const char *>(host.data()), host.size());
+                break;
+            }
+            default: co_return error::bad_message;
             }
             co_return error::none;
         }
@@ -327,8 +366,7 @@ namespace psmtest::trojan
          * @return true = 失败（EOF / 底层错误）
          * @details 超读字节保留在内部缓冲供后续消费。
          */
-        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst)
-        -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst) -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -353,10 +391,11 @@ namespace psmtest::trojan
                 std::array<std::uint8_t, 512> chunk{};
                 std::error_code ec;
                 const auto n = co_await next_layer_->async_read_some(
-                    std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()),
-                    ec);
+                    std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()), ec);
                 if (ec || n == 0)
+                {
                     co_return true;
+                }
                 buf_.insert(buf_.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
                 used_ += n;
             }
@@ -368,29 +407,30 @@ namespace psmtest::trojan
          * @param data 数据
          * @return true = 失败
          */
-        [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-        -> net::awaitable<bool>
+        [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())
             {
                 std::error_code ec;
                 const auto n = co_await next_layer_->async_write_some(
-                    std::span<const std::byte>(
-                        reinterpret_cast<const std::byte *>(data.data() + done), data.size() - done),
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(data.data() + done),
+                                               data.size() - done),
                     ec);
                 if (ec)
+                {
                     co_return true;
+                }
                 done += n;
             }
             co_return false;
         }
 
         shared_transmission next_layer_; ///< 上游传输（基类传参，运行时多态）
-        std::string cred_;              ///< 预计算凭据（SHA224 hex）
-        request_header request_;        ///< 服务端握手解析结果
-        std::vector<std::uint8_t> buf_; ///< 预读缓冲（隧道数据暂存）
-        std::size_t used_{0};           ///< 缓冲中有效字节数
+        std::string cred_;               ///< 预计算凭据（SHA224 hex）
+        request_header request_;         ///< 服务端握手解析结果
+        std::vector<std::uint8_t> buf_;  ///< 预读缓冲（隧道数据暂存）
+        std::size_t used_{0};            ///< 缓冲中有效字节数
     };
 
     /// 流连接共享指针

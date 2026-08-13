@@ -6,15 +6,15 @@
  * URL-safe 变体、空白跳过、非法字符、填充处理、长输入等场景。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/foundation/foundation.hpp>
+#include <prism/crypto/sha224.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <string>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 // ============================================================================
 // SHA224 测试
@@ -30,8 +30,7 @@ TEST(Crypto, Sha224Empty)
     // SHA-224 输出 28 字节 = 56 个十六进制字符
     ASSERT_EQ(hash.size(), 56u) << "SHA224('') should produce 56 hex chars";
     // 对照 RFC 4634 附录的已知向量
-    EXPECT_EQ(hash, "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f")
-        << "SHA224('') mismatch";
+    EXPECT_EQ(hash, "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f") << "SHA224('') mismatch";
 }
 
 /**
@@ -41,8 +40,7 @@ TEST(Crypto, Sha224KnownVector)
 {
     // SHA-224 对 "abc" 的 NIST 标准测试向量
     auto hash = psm::crypto::sha224("abc");
-    EXPECT_EQ(hash, "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7")
-        << "SHA224('abc') mismatch";
+    EXPECT_EQ(hash, "23097d223405d8228642a477bda255b32aadbce4bda0b3f7e36c9da7") << "SHA224('abc') mismatch";
 }
 
 /**
@@ -75,20 +73,16 @@ TEST(Crypto, Sha224OutputLength)
 TEST(Crypto, IsHexString)
 {
     // 合法十六进制字符（含大小写）
-    EXPECT_TRUE(psm::crypto::is_hex("0123456789abcdefABCDEF"))
-        << "'0123456789abcdefABCDEF' should be hex";
+    EXPECT_TRUE(psm::crypto::is_hex("0123456789abcdefABCDEF")) << "'0123456789abcdefABCDEF' should be hex";
 
     // 含非十六进制字符 'xyz'
-    EXPECT_FALSE(psm::crypto::is_hex("xyz"))
-        << "'xyz' should not be hex";
+    EXPECT_FALSE(psm::crypto::is_hex("xyz")) << "'xyz' should not be hex";
 
     // 空串视为合法（vacuously true）
-    EXPECT_TRUE(psm::crypto::is_hex(""))
-        << "empty string should be hex (trivially)";
+    EXPECT_TRUE(psm::crypto::is_hex("")) << "empty string should be hex (trivially)";
 
     // 'g' 超出十六进制范围
-    EXPECT_FALSE(psm::crypto::is_hex("0g"))
-        << "'0g' should not be hex";
+    EXPECT_FALSE(psm::crypto::is_hex("0g")) << "'0g' should not be hex";
 }
 
 /**
@@ -99,28 +93,23 @@ TEST(Crypto, NormalizeCredential)
     {
         // 明文密码应被 SHA-224 哈希，不暴露原文
         auto result = psm::crypto::normalize_credential("password");
-        EXPECT_NE(result, "password")
-            << "normalize_credential('password') should hash, not return plaintext";
+        EXPECT_NE(result, "password") << "normalize_credential('password') should hash, not return plaintext";
         // 哈希结果必须为 56 个十六进制字符
-        EXPECT_EQ(result.size(), 56u)
-            << "normalize_credential('password') should return 56-char hash";
+        EXPECT_EQ(result.size(), 56u) << "normalize_credential('password') should return 56-char hash";
     }
 
     {
         // 已是 56 位十六进制的凭据应原样返回
         const std::string hex56 = "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f";
         auto result = psm::crypto::normalize_credential(hex56);
-        EXPECT_EQ(result, psm::memory::string(hex56))
-            << "56-char hex string should be returned as-is";
+        EXPECT_EQ(result, psm::memory::string(hex56)) << "56-char hex string should be returned as-is";
     }
 
     {
         // 短于 56 的字符串不是哈希值，须先哈希再返回
         auto result = psm::crypto::normalize_credential("short");
-        EXPECT_NE(result, "short")
-            << "normalize_credential('short') should hash, not return plaintext";
-        EXPECT_EQ(result.size(), 56u)
-            << "normalize_credential('short') should return 56-char hash";
+        EXPECT_NE(result, "short") << "normalize_credential('short') should hash, not return plaintext";
+        EXPECT_EQ(result.size(), 56u) << "normalize_credential('short') should return 56-char hash";
     }
 }
 
@@ -161,8 +150,7 @@ TEST(Crypto, Base64DecodeUrlSafe)
     // "a+//" 和 "a-__" 应解码为相同二进制值
     auto standard = psm::crypto::base64_decode("a+//");
     auto url_safe = psm::crypto::base64_decode("a-__");
-    EXPECT_EQ(standard, url_safe)
-        << "URL-safe variant should decode to same result as standard";
+    EXPECT_EQ(standard, url_safe) << "URL-safe variant should decode to same result as standard";
 }
 
 /**
@@ -190,8 +178,7 @@ TEST(Crypto, Base64DecodeInvalidChars)
 {
     // '!' 不在 Base64 字母表中，应返回空串表示失败
     auto result = psm::crypto::base64_decode("Zm9v!");
-    EXPECT_TRUE(result.empty())
-        << "base64_decode with invalid char '!' should return empty string";
+    EXPECT_TRUE(result.empty()) << "base64_decode with invalid char '!' should return empty string";
 }
 
 /**
@@ -266,10 +253,8 @@ TEST(Crypto, Base64DecodeLongInput)
     // 编码后解码，验证往返一致性
     auto decoded = psm::crypto::base64_decode(encoded);
 
-    EXPECT_EQ(decoded, psm::memory::string(long_input))
-        << "long input roundtrip encode/decode mismatch";
+    EXPECT_EQ(decoded, psm::memory::string(long_input)) << "long input roundtrip encode/decode mismatch";
 
     // 确保解码后长度与原始一致
-    EXPECT_EQ(decoded.size(), expected_length)
-        << "decoded length mismatch";
+    EXPECT_EQ(decoded.size(), expected_length) << "decoded length mismatch";
 }

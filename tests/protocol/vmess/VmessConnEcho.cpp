@@ -7,15 +7,15 @@
  *          3. 客户端写数据块 → 服务端读取回显 → 客户端解密验证
  */
 
-#include <prism/protocol/vmess/vmess.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/net/transport/reliable.hpp>
+#include <prism/protocol/vmess/vmess.hpp>
 
 #include <openssl/evp.h>
 
-#include <gtest/gtest.h>
-
 #include <memory>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -25,24 +25,29 @@ namespace
 
     /// 建立本地 TCP socket pair
     auto make_pair_transport(net::io_context &ioc)
-        -> std::pair<psm::transport::shared_transmission,
-                     psm::transport::shared_transmission>
+        -> std::pair<psm::transport::shared_transmission, psm::transport::shared_transmission>
     {
         tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
         const auto ep = acceptor.local_endpoint();
 
         std::pair<psm::transport::shared_transmission, psm::transport::shared_transmission> result;
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
-        {
-            auto server_sock = co_await acceptor.async_accept(net::use_awaitable);
-            result.second = psm::transport::make_reliable(std::move(server_sock));
-        }, net::detached);
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
-        {
-            tcp::socket client_sock(ioc);
-            co_await client_sock.async_connect(ep, net::use_awaitable);
-            result.first = psm::transport::make_reliable(std::move(client_sock));
-        }, net::detached);
+        net::co_spawn(
+            ioc,
+            [&]() -> net::awaitable<void>
+            {
+                auto server_sock = co_await acceptor.async_accept(net::use_awaitable);
+                result.second = psm::transport::make_reliable(std::move(server_sock));
+            },
+            net::detached);
+        net::co_spawn(
+            ioc,
+            [&]() -> net::awaitable<void>
+            {
+                tcp::socket client_sock(ioc);
+                co_await client_sock.async_connect(ep, net::use_awaitable);
+                result.first = psm::transport::make_reliable(std::move(client_sock));
+            },
+            net::detached);
         ioc.restart();
         ioc.run();
         ioc.restart();
@@ -58,10 +63,9 @@ namespace
     }
 
     /// 模拟客户端：构造首包 → 写数据块
-    net::awaitable<void> DoClient(
-        psm::transport::shared_transmission transport,
-        const std::array<std::uint8_t, 16> &cmd_key,
-        const std::string &payload, bool *ok)
+    net::awaitable<void> DoClient(psm::transport::shared_transmission transport,
+                                  const std::array<std::uint8_t, 16> &cmd_key, const std::string &payload,
+                                  bool *ok)
     {
         try
         {
@@ -71,19 +75,24 @@ namespace
             header.request_nonce.fill(0x11);
             header.request_key.fill(0x22);
             header.response_header = 0x77;
-            header.option = static_cast<std::uint8_t>(option::chunk_stream)
-                | static_cast<std::uint8_t>(option::chunk_masking);
+            header.option = static_cast<std::uint8_t>(option::chunk_stream) |
+                            static_cast<std::uint8_t>(option::chunk_masking);
             header.security = static_cast<std::uint8_t>(security::aes_128_gcm);
             header.command = static_cast<std::uint8_t>(command::tcp);
-            header.destination = psm::protocol::common::domain_address{
-                .length = 11,
-                .value = []{ std::array<char, 255> v{}; std::memcpy(v.data(), "example.com", 11); return v; }()};
+            header.destination =
+                psm::protocol::common::domain_address{.length = 11,
+                                                      .value = []
+                                                      {
+                                                          std::array<char, 255> v{};
+                                                          std::memcpy(v.data(), "example.com", 11);
+                                                          return v;
+                                                      }()};
             header.port = 443;
 
             // 2. 密封首包并发送（只写有效长度：16+18+8+used+16）
             std::array<std::uint8_t, 256> packet{};
-            const auto seal_ec = codec::seal_request(
-                std::span<const std::uint8_t, 16>(cmd_key.data(), 16), header, packet);
+            const auto seal_ec =
+                codec::seal_request(std::span<const std::uint8_t, 16>(cmd_key.data(), 16), header, packet);
             if (psm::fault::failed(seal_ec))
             {
                 *ok = false;
@@ -116,14 +125,15 @@ namespace
             }
 
             // 4. 客户端写数据块（请求侧密钥）
-            codec::write_stream writer(codec::stream_params{
-                .transport = transport.get(),
-                .key = header.request_key,
-                .nonce = header.request_nonce,
-                .option = header.option,
-                .security = header.security});
+            codec::write_stream writer(codec::stream_params{.transport = transport.get(),
+                                                            .key = header.request_key,
+                                                            .nonce = header.request_nonce,
+                                                            .option = header.option,
+                                                            .security = header.security});
             co_await writer.write_chunk(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), payload.size()), ec);
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
+                                           payload.size()),
+                ec);
             if (ec)
             {
                 *ok = false;
@@ -140,16 +150,15 @@ namespace
             std::memcpy(resp_key.data(), key_hash.data(), 16);
             std::memcpy(resp_nonce.data(), nonce_hash.data(), 16);
 
-            codec::read_stream reader(codec::stream_params{
-                .transport = transport.get(),
-                .key = resp_key,
-                .nonce = resp_nonce,
-                .option = header.option,
-                .security = header.security});
+            codec::read_stream reader(codec::stream_params{.transport = transport.get(),
+                                                           .key = resp_key,
+                                                           .nonce = resp_nonce,
+                                                           .option = header.option,
+                                                           .security = header.security});
             std::array<std::byte, 4096> echo{};
             const auto n = co_await reader.read_chunk(echo, ec);
-            *ok = !ec && n == payload.size()
-                && std::string_view(reinterpret_cast<const char *>(echo.data()), n) == payload;
+            *ok = !ec && n == payload.size() &&
+                  std::string_view(reinterpret_cast<const char *>(echo.data()), n) == payload;
         }
         catch (const std::exception &)
         {
@@ -159,8 +168,8 @@ namespace
     }
 
     /// 服务端：make_conn + handshake + 读块回显
-    net::awaitable<void> DoServer(
-        psm::transport::shared_transmission transport, const std::string &payload, bool *ok)
+    net::awaitable<void> DoServer(psm::transport::shared_transmission transport, const std::string &payload,
+                                  bool *ok)
     {
         try
         {
@@ -232,40 +241,45 @@ TEST(VmessConnEcho, WrongKeyRejected)
     key.cmd_key.fill(0xDE); // 错误密钥
 
     // 服务端：认证失败应快速返回错误（而非挂起）
-    net::co_spawn(ioc, [&]() -> net::awaitable<void>
-    {
-        config cfg;
-        cfg.enable_tcp = true;
-        auto agent = make_conn(std::move(server_trans), cfg, {test_user_key()});
-        auto [ec, req] = co_await agent->handshake();
-        *server_ok = psm::fault::failed(ec);
-        (void)req;
-    }, net::detached);
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
+        {
+            config cfg;
+            cfg.enable_tcp = true;
+            auto agent = make_conn(std::move(server_trans), cfg, {test_user_key()});
+            auto [ec, req] = co_await agent->handshake();
+            *server_ok = psm::fault::failed(ec);
+            (void)req;
+        },
+        net::detached);
 
     // 客户端：发一个用错误密钥密封的首包后关闭
-    net::co_spawn(ioc, [&]() -> net::awaitable<void>
-    {
-        codec::request_header header;
-        header.version = version;
-        header.request_nonce.fill(0x01);
-        header.request_key.fill(0x02);
-        header.response_header = 0x55;
-        header.option = static_cast<std::uint8_t>(option::chunk_stream);
-        header.security = static_cast<std::uint8_t>(security::aes_128_gcm);
-        header.command = static_cast<std::uint8_t>(command::tcp);
-        header.destination = psm::protocol::common::ipv4_address{{8, 8, 8, 8}};
-        header.port = 53;
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
+        {
+            codec::request_header header;
+            header.version = version;
+            header.request_nonce.fill(0x01);
+            header.request_key.fill(0x02);
+            header.response_header = 0x55;
+            header.option = static_cast<std::uint8_t>(option::chunk_stream);
+            header.security = static_cast<std::uint8_t>(security::aes_128_gcm);
+            header.command = static_cast<std::uint8_t>(command::tcp);
+            header.destination = psm::protocol::common::ipv4_address{{8, 8, 8, 8}};
+            header.port = 53;
 
-        std::array<std::uint8_t, 256> packet{};
-        codec::seal_request(
-            std::span<const std::uint8_t, 16>(key.cmd_key.data(), 16), header, packet);
-        const auto used = 38U + 7U + 4U; // 基础 + ipv4(7) + fnv
-        const auto wire_len = 16U + 18U + 8U + used + 16U;
-        std::error_code ec;
-        co_await client_trans->async_write_some(
-            std::span<const std::byte>(reinterpret_cast<const std::byte *>(packet.data()), wire_len), ec);
-        client_trans->close();
-    }, net::detached);
+            std::array<std::uint8_t, 256> packet{};
+            codec::seal_request(std::span<const std::uint8_t, 16>(key.cmd_key.data(), 16), header, packet);
+            const auto used = 38U + 7U + 4U; // 基础 + ipv4(7) + fnv
+            const auto wire_len = 16U + 18U + 8U + used + 16U;
+            std::error_code ec;
+            co_await client_trans->async_write_some(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(packet.data()), wire_len), ec);
+            client_trans->close();
+        },
+        net::detached);
 
     ioc.run();
     // 认证失败：handshake 返回错误

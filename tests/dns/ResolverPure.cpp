@@ -6,11 +6,10 @@
  *          测试域名规范化和 IP 黑名单匹配逻辑。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <boost/asio.hpp>
-
 
 #include <gtest/gtest.h>
 

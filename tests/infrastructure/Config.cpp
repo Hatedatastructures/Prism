@@ -16,19 +16,19 @@
  * 12. Reality enabled() 逻辑（缺少 key/server_names/dest 时返回 false）
  */
 
+#include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/handshake/reality/config.hpp>
+#include <prism/handshake/shadowtls/config.hpp>
+#include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/protocol/socks5/config.hpp>
 #include <prism/protocol/trojan/config.hpp>
 #include <prism/protocol/vless/config.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/handshake/shadowtls/config.hpp>
-#include <prism/handshake/reality/config.hpp>
-#include <prism/foundation/foundation.hpp>
-#include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
 
 #include <string>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace
 {

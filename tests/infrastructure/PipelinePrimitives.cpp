@@ -7,20 +7,20 @@
  * 3. probe_result 探测结果辅助方法的正确性
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/handshake/recognition/probe/probe.hpp>
 #include <prism/net/connection/util.hpp>
 #include <prism/net/transport/preview.hpp>
-#include <prism/handshake/recognition/probe/probe.hpp>
-#include <prism/diagnose/log.hpp>
 
-#include <gtest/gtest.h>
+#include <boost/asio.hpp>
 
 #include <array>
 #include <cstddef>
 #include <memory>
 #include <string_view>
 
-#include <boost/asio.hpp>
+#include <gtest/gtest.h>
 
 namespace net = boost::asio;
 
@@ -48,8 +48,7 @@ namespace
             << "mux enabled + exactly suffix -> true";
 
         // mux 启用 + 非匹配主机名 -> false
-        EXPECT_EQ(is_mux("example.com", mux_switch::on), false)
-            << "mux enabled + non-matching host -> false";
+        EXPECT_EQ(is_mux("example.com", mux_switch::on), false) << "mux enabled + non-matching host -> false";
 
         // mux 启用 + 类似但不匹配的后缀 -> false
         EXPECT_EQ(is_mux("mux.sing-box.arpa", mux_switch::on), false)
@@ -60,20 +59,17 @@ namespace
             << "mux enabled + misspelled suffix -> false";
 
         // mux 启用 + 空主机名 -> false
-        EXPECT_EQ(is_mux("", mux_switch::on), false)
-            << "mux enabled + empty host -> false";
+        EXPECT_EQ(is_mux("", mux_switch::on), false) << "mux enabled + empty host -> false";
 
         // mux 启用 + 后缀的前缀（比后缀短） -> false
-        EXPECT_EQ(is_mux("sing-box.arpa", mux_switch::on), false)
-            << "mux enabled + partial suffix -> false";
+        EXPECT_EQ(is_mux("sing-box.arpa", mux_switch::on), false) << "mux enabled + partial suffix -> false";
 
         // mux 禁用 + 匹配的 mux 标记地址 -> false
         EXPECT_EQ(is_mux("example.mux.sing-box.arpa", mux_switch::off), false)
             << "mux disabled + matching host -> false";
 
         // mux 禁用 + 任意主机名 -> false
-        EXPECT_EQ(is_mux("anything", mux_switch::off), false)
-            << "mux disabled + any host -> false";
+        EXPECT_EQ(is_mux("anything", mux_switch::off), false) << "mux disabled + any host -> false";
     }
 
     // ============================================================================
@@ -88,8 +84,7 @@ namespace
     class mock_transmission final : public psm::transport::transmission
     {
     public:
-        explicit mock_transmission(net::io_context &ioc)
-            : ioc_(ioc)
+        explicit mock_transmission(net::io_context &ioc) : ioc_(ioc)
         {
         }
 
@@ -117,8 +112,12 @@ namespace
             co_return 0;
         }
 
-        void close() override {}
-        void cancel() override {}
+        void close() override
+        {
+        }
+        void cancel() override
+        {
+        }
 
     private:
         net::io_context &ioc_;
@@ -136,8 +135,7 @@ namespace
         // 构造预读数据
         constexpr std::string_view sample_data = "GET / HTTP/1.1\r\n";
         const auto byte_span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(sample_data.data()),
-            sample_data.size());
+            reinterpret_cast<const std::byte *>(sample_data.data()), sample_data.size());
 
         // 构造 preview
         auto preview = std::make_shared<pp::preview>(inner, byte_span);
@@ -147,8 +145,7 @@ namespace
             << "preview::transport_type() delegates to inner";
 
         // 验证 executor 委托给内部传输
-        EXPECT_TRUE(preview->executor() == inner->executor())
-            << "preview::executor() delegates to inner";
+        EXPECT_TRUE(preview->executor() == inner->executor()) << "preview::executor() delegates to inner";
 
         // 测试空预读数据的 preview 构造
         auto inner2 = std::make_shared<mock_transmission>(ioc);
@@ -158,14 +155,13 @@ namespace
         EXPECT_TRUE(preview2->transport_type() == psm::transport::transmission::type::tcp)
             << "preview with empty preread transport_type()";
 
-        EXPECT_TRUE(preview2->executor() == inner2->executor())
-            << "preview with empty preread executor()";
+        EXPECT_TRUE(preview2->executor() == inner2->executor()) << "preview with empty preread executor()";
 
         // 测试使用默认内存资源的构造
         auto inner3 = std::make_shared<mock_transmission>(ioc);
         const std::array<std::byte, 8> data = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03},
-                                                std::byte{0x04}, std::byte{0x05}, std::byte{0x06},
-                                                std::byte{0x07}, std::byte{0x08}};
+                                               std::byte{0x04}, std::byte{0x05}, std::byte{0x06},
+                                               std::byte{0x07}, std::byte{0x08}};
         auto preview3 = std::make_shared<pp::preview>(inner3, data);
 
         EXPECT_TRUE(preview3->transport_type() == psm::transport::transmission::type::tcp)
@@ -178,21 +174,17 @@ namespace
 
     TEST(PipelinePrimitives, ProbeResultHelpers)
     {
-        using psm::recognition::probe::probe_result;
         using psm::connect::protocol_type;
         using psm::fault::code;
+        using psm::recognition::probe::probe_result;
 
         // 测试默认构造状态
         {
             probe_result result;
-            EXPECT_EQ(result.success(), false)
-                << "default constructed probe_result::success() == false";
-            EXPECT_EQ(result.pre_read_size, 0)
-                << "default constructed pre_read_size == 0";
-            EXPECT_EQ(result.preload_view().empty(), true)
-                << "default constructed preload_view() is empty";
-            EXPECT_EQ(result.preload_bytes().empty(), true)
-                << "default constructed preload_bytes() is empty";
+            EXPECT_EQ(result.success(), false) << "default constructed probe_result::success() == false";
+            EXPECT_EQ(result.pre_read_size, 0) << "default constructed pre_read_size == 0";
+            EXPECT_EQ(result.preload_view().empty(), true) << "default constructed preload_view() is empty";
+            EXPECT_EQ(result.preload_bytes().empty(), true) << "default constructed preload_bytes() is empty";
         }
 
         // 测试成功状态
@@ -235,10 +227,8 @@ namespace
             result.ec = code::success;
 
             const auto view = result.preload_view();
-            EXPECT_EQ(view.size(), len)
-                << "preload_view() returns correct size";
-            EXPECT_EQ(view, std::string_view("GET /"))
-                << "preload_view() returns correct content";
+            EXPECT_EQ(view.size(), len) << "preload_view() returns correct size";
+            EXPECT_EQ(view, std::string_view("GET /")) << "preload_view() returns correct content";
         }
 
         // 测试 preload_bytes() 返回正确的字节跨度
@@ -259,8 +249,7 @@ namespace
             result.ec = code::success;
 
             const auto span = result.preload_bytes();
-            EXPECT_EQ(span.size(), expected.size())
-                << "preload_bytes() returns correct size";
+            EXPECT_EQ(span.size(), expected.size()) << "preload_bytes() returns correct size";
 
             bool match = true;
             for (std::size_t i = 0; i < expected.size(); ++i)

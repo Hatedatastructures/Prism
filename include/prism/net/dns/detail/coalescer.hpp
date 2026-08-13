@@ -18,7 +18,6 @@
 #include <cstddef>
 #include <string_view>
 
-
 namespace psm::dns::detail
 {
 
@@ -67,9 +66,10 @@ namespace psm::dns::detail
             bool pending_cleanup{false}; // 是否待清理
         };
 
-        using flight_list = memory::list<flight>;                                                                              // 请求合并列表类型
-        using flight_iterator = flight_list::iterator;                                                                         // 请求合并列表迭代器
-        using flight_map = memory::unordered_map<std::string_view, flight_iterator, string_hash, string_equal>; // 请求合并索引类型
+        using flight_list = memory::list<flight>;      // 请求合并列表类型
+        using flight_iterator = flight_list::iterator; // 请求合并列表迭代器
+        using flight_map = memory::unordered_map<std::string_view, flight_iterator, string_hash,
+                                                 string_equal>; // 请求合并索引类型
 
         /**
          * @brief 构造请求合并器
@@ -164,6 +164,6 @@ namespace psm::dns::detail
     private:
         memory::resource_pointer mr_; // 内存资源
         flight_list flights_;         // 请求合并列表
-        flight_map flight_map_;  // 请求合并索引
+        flight_map flight_map_;       // 请求合并索引
     };
 } // namespace psm::dns::detail

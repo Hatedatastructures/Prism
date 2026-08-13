@@ -5,9 +5,9 @@
  * 日志级别配置、各级别日志输出、重复初始化、空日志器安全调用等。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/diagnose/log.hpp>
 #include <prism/diagnose/config.hpp>
+#include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 
@@ -114,9 +114,8 @@ namespace
             return c;
         }();
 
-        const char *levels[] = {
-            "trace", "debug", "info", "warn", "warning", "error", "err",
-            "critical", "fatal", "off", "INFO", "DeBuG", "UNKNOWN_LEVEL"};
+        const char *levels[] = {"trace",    "debug", "info", "warn", "warning", "error",        "err",
+                                "critical", "fatal", "off",  "INFO", "DeBuG",   "UNKNOWN_LEVEL"};
 
         for (const auto *level : levels)
         {

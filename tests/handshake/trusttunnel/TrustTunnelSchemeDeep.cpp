@@ -5,17 +5,16 @@
  *          覆盖 verify_basic_auth、resolve_stream_target 和所有访问器方法。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/handshake/trusttunnel/scheme.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
     namespace tt = psm::handshake::trusttunnel;
-    using psm::memory::vector;
     using psm::memory::string;
+    using psm::memory::vector;
 
     // ─── verify_basic_auth 测试 ──────────────
 
@@ -117,8 +116,7 @@ namespace
         headers.authority = string("host:443");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(3, headers);
-        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::udp)
-            << "resolve: _udp2 host -> udp type";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::udp) << "resolve: _udp2 host -> udp type";
     }
 
     TEST(TrustTunnelSchemeDeep, ResolveStreamTargetIcmpHost)
@@ -128,8 +126,7 @@ namespace
         headers.authority = string("host:443");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(5, headers);
-        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::icmp)
-            << "resolve: _icmp host -> icmp type";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::icmp) << "resolve: _icmp host -> icmp type";
     }
 
     TEST(TrustTunnelSchemeDeep, ResolveStreamTargetTcpHost)
@@ -139,8 +136,7 @@ namespace
         headers.authority = string("example.com:8443");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(7, headers);
-        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp)
-            << "resolve: normal host -> tcp type";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp) << "resolve: normal host -> tcp type";
         EXPECT_TRUE(info.valid) << "resolve: valid host:port -> valid";
         // 检查 host 和 port 解析
         auto info_host = std::string_view(info.host.data(), info.host.size());
@@ -155,8 +151,7 @@ namespace
         headers.authority = string("example.com");
 
         auto info = psm::handshake::trusttunnel::resolve_stream_target(9, headers);
-        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp)
-            << "resolve: no port -> tcp type";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp) << "resolve: no port -> tcp type";
         EXPECT_TRUE(!info.valid) << "resolve: no port -> not valid";
     }
 
@@ -205,8 +200,7 @@ namespace
     TEST(TrustTunnelSchemeDeep, SchemeCategory)
     {
         tt::scheme s;
-        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
-            << "scheme: category == stack";
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack) << "scheme: category == stack";
     }
 
     TEST(TrustTunnelSchemeDeep, SchemeWeight)

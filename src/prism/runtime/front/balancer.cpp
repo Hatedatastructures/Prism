@@ -14,11 +14,9 @@ namespace psm::runtime::front
         overload_state_.resize(bindings_.size(), 0U);
     }
 
-
     // splitmix64 哈希函数——将亲和性值（客户端 IP 哈希）均匀打散。
     // 目的：即使客户端 IP 集中在某个子网，分配到 worker 的分布也要尽量均匀。
-    constexpr auto balancer::mix_hash(std::uint64_t value) noexcept
-        -> std::uint64_t
+    constexpr auto balancer::mix_hash(std::uint64_t value) noexcept -> std::uint64_t
     {
         value += 0x9e3779b97f4a7c15ULL;
         value = (value ^ (value >> 30U)) * 0xbf58476d1ce4e5b9ULL;
@@ -27,12 +25,10 @@ namespace psm::runtime::front
         return value;
     }
 
-
     // 计算单个 worker 的负载评分（0.0 = 空闲，越高越忙）。
     // 三个维度加权求和：活跃会话数（权重最大）、待处理移交数、事件循环延迟。
     // 用比率而非绝对值，这样不同容量的 worker 可以公平比较。
-    auto balancer::score(const ::psm::stats::worker_snapshot &snapshot) const noexcept
-        -> double
+    auto balancer::score(const ::psm::stats::worker_snapshot &snapshot) const noexcept -> double
     {
         const auto session_capacity = std::max(1U, config_.session_capacity);
         const auto pending_capacity = std::max(1U, config_.pending_capacity);
@@ -42,11 +38,9 @@ namespace psm::runtime::front
         const double pending_ratio = static_cast<double>(snapshot.pending_handoffs) / pending_capacity;
         const double lag_ratio = static_cast<double>(snapshot.lag_us) / lag_capacity;
 
-        return session_ratio * config_.weight_session +
-               pending_ratio * config_.weight_pending +
+        return session_ratio * config_.weight_session + pending_ratio * config_.weight_pending +
                lag_ratio * config_.weight_lag;
     }
-
 
     // 过载状态更新——采用迟滞（hysteresis）机制：
     // 进入过载阈值（如 90%）和退出过载阈值（如 80%）不同，
@@ -65,7 +59,6 @@ namespace psm::runtime::front
         }
     }
 
-
     // 核心选择算法：为新连接选一个 worker。
     //
     // 步骤：
@@ -78,8 +71,7 @@ namespace psm::runtime::front
     //    - primary 过载 → 选负载更低的那个（primary 或 secondary 都可能）
     // 4. 判断是否触发全局背压：
     //    - 所有 worker 都过载，或最低评分超过全局阈值
-    auto balancer::select(const std::uint64_t affinity_value) noexcept
-        -> select_result
+    auto balancer::select(const std::uint64_t affinity_value) noexcept -> select_result
     {
         if (bindings_.empty())
         {
@@ -139,24 +131,24 @@ namespace psm::runtime::front
 
         // primary 过载时，看 secondary 是否更空闲
         const bool primary_overloaded = overload_state_[primary] != 0U;
-            std::size_t selected = primary;
-            if (primary_overloaded && workers_count > 1U)
+        std::size_t selected = primary;
+        if (primary_overloaded && workers_count > 1U)
+        {
+            if (secondary_score < primary_score)
             {
-                if (secondary_score < primary_score)
-                {
-                    selected = secondary;
-                }
-                else
-                {
-                    selected = primary;
-                }
+                selected = secondary;
             }
+            else
+            {
+                selected = primary;
+            }
+        }
 
         // 全局背压：所有 worker 都过载 或 全局最低评分已经很高
-        const bool backpressure = overloaded_count == workers_count || min_score >= config_.backpressure_thresh;
+        const bool backpressure =
+            overloaded_count == workers_count || min_score >= config_.backpressure_thresh;
         return {selected, primary_overloaded, backpressure};
     }
-
 
     // 将 socket 实际移交给选中的 worker。
     // 越界时回退到 worker 0 作为安全兜底。
@@ -173,9 +165,7 @@ namespace psm::runtime::front
         bindings_[worker_index].dispatch(std::move(socket));
     }
 
-
-    auto balancer::size() const noexcept
-        -> std::size_t
+    auto balancer::size() const noexcept -> std::size_t
     {
         return bindings_.size();
     }

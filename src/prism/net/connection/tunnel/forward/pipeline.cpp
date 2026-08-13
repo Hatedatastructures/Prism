@@ -1,12 +1,11 @@
-#include <prism/net/connection/tunnel/forward/pipeline.hpp>
-
-#include <prism/settings/settings.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/connection/outbound/dial.hpp>
+#include <prism/net/connection/tunnel/forward/pipeline.hpp>
 #include <prism/net/connection/tunnel/tunnel.hpp>
 #include <prism/net/connection/tunnel/tunnel_relay.hpp>
 #include <prism/net/connection/util.hpp>
 #include <prism/protocol/multiplex/bootstrap.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <utility>
 
@@ -16,25 +15,28 @@ namespace psm::connect
 {
     namespace net = boost::asio;
 
-    auto forward_pipeline(
-        psm::resource::session &res,
-        const psm::connect::target &target,
-        pipeline_options opts) -> net::awaitable<fault::code>
+    auto forward_pipeline(psm::resource::session &res, const psm::connect::target &target,
+                          pipeline_options opts) -> net::awaitable<fault::code>
     {
         auto mux_sw = psm::connect::mux_switch::off;
         if (res.worker->process->cfg->mux.enabled)
+        {
             mux_sw = psm::connect::mux_switch::on;
+        }
         if (psm::connect::is_mux(target.host, mux_sw))
         {
             if (opts.trace)
+            {
                 diagnose::debug(opts.trace, "mux session started");
-            const auto ok = co_await spawn_mux_session(
-                mux_session_options{res, std::move(opts.inbound), opts.trace});
+            }
+            const auto ok =
+                co_await spawn_mux_session(mux_session_options{res, std::move(opts.inbound), opts.trace});
             if (!ok)
             {
                 if (opts.trace)
-                    diagnose::warn(opts.trace,
-                        "mux bootstrap failed");
+                {
+                    diagnose::warn(opts.trace, "mux bootstrap failed");
+                }
                 co_return fault::code::bad_gateway;
             }
             co_return fault::code::success;
@@ -60,12 +62,12 @@ namespace psm::connect
         t_opts.lease = &res.lease;
         // 带自帧语义的协议（QUIC 族 + VMess/VLESS/Trojan/SS2022）有自己的
         // 分块/加密结构，客户端不消费 transport 层 pad，注入会破坏协议帧
-        const auto self_framed = res.detected == psm::connect::protocol_type::hysteria2
-            || res.detected == psm::connect::protocol_type::tuic
-            || res.detected == psm::connect::protocol_type::vmess
-            || res.detected == psm::connect::protocol_type::vless
-            || res.detected == psm::connect::protocol_type::trojan
-            || res.detected == psm::connect::protocol_type::shadowsocks;
+        const auto self_framed = res.detected == psm::connect::protocol_type::hysteria2 ||
+                                 res.detected == psm::connect::protocol_type::tuic ||
+                                 res.detected == psm::connect::protocol_type::vmess ||
+                                 res.detected == psm::connect::protocol_type::vless ||
+                                 res.detected == psm::connect::protocol_type::trojan ||
+                                 res.detected == psm::connect::protocol_type::shadowsocks;
         if (!self_framed && res.worker->process->cfg->stealth.pad.enabled())
         {
             t_opts.pad_cfg = &res.worker->process->cfg->stealth.pad;
@@ -81,11 +83,10 @@ namespace psm::connect
         auto transport = std::move(opts.transport);
         auto trace_ctx = std::move(opts.trace);
 
-        auto mux_proto = co_await multiplex::bootstrap(
-            multiplex::bootstrap_context{
-                .transport = std::move(transport),
-                .res = &opts.res,
-            });
+        auto mux_proto = co_await multiplex::bootstrap(multiplex::bootstrap_context{
+            .transport = std::move(transport),
+            .res = &opts.res,
+        });
 
         if (!mux_proto)
         {

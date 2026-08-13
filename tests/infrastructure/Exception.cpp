@@ -10,14 +10,13 @@
  * 6. 派生类类型标识 (network/protocol/security)
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include <string>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -47,8 +46,7 @@ namespace
 
             // 验证 what() 消息中包含错误码描述
             const std::string what = ex.what();
-            ASSERT_TRUE(contains(what, "eof"))
-                << "what()='" << what << "' does not contain 'eof'";
+            ASSERT_TRUE(contains(what, "eof")) << "what()='" << what << "' does not contain 'eof'";
 
             return;
         }
@@ -72,7 +70,8 @@ namespace
             // 未指定错误码时应回退到 generic_error
             const int expected_value = static_cast<int>(psm::fault::code::generic_error);
             ASSERT_TRUE(ex.error_code().value() == expected_value)
-                << "error_code().value()=" << ex.error_code().value() << ", expected " << expected_value << " (generic_error)";
+                << "error_code().value()=" << ex.error_code().value() << ", expected " << expected_value
+                << " (generic_error)";
 
             return;
         }
@@ -122,8 +121,7 @@ namespace
                 << "filename()='" << fname << "' does not contain 'Exception'";
 
             // 行号必须大于 0，证明捕获了真实源码位置
-            ASSERT_TRUE(loc.line() > 0)
-                << "location().line()=" << loc.line() << ", expected > 0";
+            ASSERT_TRUE(loc.line() > 0) << "location().line()=" << loc.line() << ", expected > 0";
 
             return;
         }
@@ -143,8 +141,7 @@ namespace
             const std::string dump = ex.dump();
 
             // dump 应包含类型名称 "PROTOCOL"
-            ASSERT_TRUE(contains(dump, "PROTOCOL"))
-                << "dump()='" << dump << "' does not contain 'PROTOCOL'";
+            ASSERT_TRUE(contains(dump, "PROTOCOL")) << "dump()='" << dump << "' does not contain 'PROTOCOL'";
 
             // parse_error 的枚举值为 2，dump 中应体现
             ASSERT_TRUE(contains(dump, "2"))

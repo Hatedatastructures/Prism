@@ -17,7 +17,6 @@
 #include <span>
 #include <string_view>
 
-
 namespace psm::dns::detail
 {
 
@@ -58,7 +57,7 @@ namespace psm::dns::detail
     struct question
     {
         memory::string name;     // 域名，小写无末尾点号
-        qtype query_type{};       // 查询类型
+        qtype query_type{};      // 查询类型
         std::uint16_t qclass{1}; // 查询类，默认 IN（Internet）
 
         /**
@@ -66,8 +65,7 @@ namespace psm::dns::detail
          * @details 使用指定内存资源初始化域名成员。
          * @param mr PMR 内存资源指针，默认使用当前全局资源
          */
-        explicit question(memory::resource_pointer mr = memory::current_resource())
-            : name(mr)
+        explicit question(memory::resource_pointer mr = memory::current_resource()) : name(mr)
         {
         }
     };
@@ -92,8 +90,7 @@ namespace psm::dns::detail
          * @details 使用指定内存资源初始化名称和 RDATA 容器成员。
          * @param mr PMR 内存资源指针，默认使用当前全局资源
          */
-        explicit record(memory::resource_pointer mr = memory::current_resource())
-            : name(mr), rdata(mr)
+        explicit record(memory::resource_pointer mr = memory::current_resource()) : name(mr), rdata(mr)
         {
         }
     };
@@ -104,8 +101,7 @@ namespace psm::dns::detail
      * @param rec DNS 资源记录
      * @return 若 rdata 恰好 4 字节则返回对应地址，否则返回 std::nullopt
      */
-    [[nodiscard]] auto extract_ipv4(const record &rec)
-        -> std::optional<net::ip::address_v4>;
+    [[nodiscard]] auto extract_ipv4(const record &rec) -> std::optional<net::ip::address_v4>;
 
     /**
      * @brief 从 AAAA 记录中提取 IPv6 地址
@@ -113,8 +109,7 @@ namespace psm::dns::detail
      * @param rec DNS 资源记录
      * @return 若 rdata 恰好 16 字节则返回对应地址，否则返回 std::nullopt
      */
-    [[nodiscard]] auto extract_ipv6(const record &rec)
-        -> std::optional<net::ip::address_v6>;
+    [[nodiscard]] auto extract_ipv6(const record &rec) -> std::optional<net::ip::address_v6>;
 
     /**
      * @class message
@@ -155,8 +150,7 @@ namespace psm::dns::detail
          * @details 按照如下顺序编码：12 字节 Header -> Question 列表 ->
          * Answer/Authority/Additional 记录列表。域名编码采用压缩指针优化。
          */
-        [[nodiscard]] auto pack() const
-            -> memory::vector<std::uint8_t>;
+        [[nodiscard]] auto pack() const -> memory::vector<std::uint8_t>;
 
         /**
          * @brief 从二进制数据反序列化 DNS 报文
@@ -166,7 +160,8 @@ namespace psm::dns::detail
          * @details 检查数据长度 >= 12，解析 Header 后逐段解码。
          * 域名解码时处理压缩指针并检测循环引用。
          */
-        [[nodiscard]] static auto unpack(std::span<const std::uint8_t> data, memory::resource_pointer mr = memory::current_resource())
+        [[nodiscard]] static auto unpack(std::span<const std::uint8_t> data,
+                                         memory::resource_pointer mr = memory::current_resource())
             -> std::optional<message>;
 
         /**
@@ -177,7 +172,8 @@ namespace psm::dns::detail
          * @return 构造好的查询 message
          * @details 设置 id=0, rd=true, opcode=0，添加一个 Question。
          */
-        [[nodiscard]] static auto make_query(std::string_view domain, qtype qt, memory::resource_pointer mr = memory::current_resource())
+        [[nodiscard]] static auto make_query(std::string_view domain, qtype qt,
+                                             memory::resource_pointer mr = memory::current_resource())
             -> message;
 
         /**
@@ -186,16 +182,14 @@ namespace psm::dns::detail
          * AAAA 记录映射为 v6 地址，跳过其他类型。
          * @return 包含所有有效 IP 地址的列表
          */
-        [[nodiscard]] auto extract_ips() const
-            -> memory::vector<net::ip::address>;
+        [[nodiscard]] auto extract_ips() const -> memory::vector<net::ip::address>;
 
         /**
          * @brief 计算所有记录中的最小 TTL
          * @details 遍历应答段、权威段和附加段中的所有记录，取最小 TTL 值。
          * @return 所有段中记录的最小 TTL 值；若无任何记录则返回 0
          */
-        [[nodiscard]] auto min_ttl() const
-            -> std::uint32_t;
+        [[nodiscard]] auto min_ttl() const -> std::uint32_t;
 
     private:
         memory::resource_pointer mr_;
@@ -207,8 +201,7 @@ namespace psm::dns::detail
      * @param msg 待封装的 DNS 报文
      * @return 包含长度前缀和报文字节的字节序列
      */
-    [[nodiscard]] auto pack_tcp(const message &msg)
-        -> memory::vector<std::uint8_t>;
+    [[nodiscard]] auto pack_tcp(const message &msg) -> memory::vector<std::uint8_t>;
 
     /**
      * @brief 从 TCP 帧中解析 DNS 报文
@@ -217,7 +210,8 @@ namespace psm::dns::detail
      * @return 解析成功返回 message，否则返回 std::nullopt
      * @details 前 2 字节为大端长度前缀，其后为 DNS 报文主体。
      */
-    [[nodiscard]] auto unpack_tcp(std::span<const std::uint8_t> data, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] auto unpack_tcp(std::span<const std::uint8_t> data,
+                                  memory::resource_pointer mr = memory::current_resource())
         -> std::optional<message>;
 
 } // namespace psm::dns::detail

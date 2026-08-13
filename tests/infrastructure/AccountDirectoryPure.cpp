@@ -5,9 +5,9 @@
  *          验证 COW（copy-on-write）语义和并发安全性。
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/user/directory.hpp>
-#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 
@@ -98,9 +98,7 @@ namespace
         user::directory dir(psm::memory::current_resource());
         dir.upsert("test_cred", 3);
 
-        EXPECT_TRUE(psm::user::contains(dir, "test_cred"))
-            << "contains: existing credential";
-        EXPECT_TRUE(!psm::user::contains(dir, "missing"))
-            << "contains: missing credential";
+        EXPECT_TRUE(psm::user::contains(dir, "test_cred")) << "contains: existing credential";
+        EXPECT_TRUE(!psm::user::contains(dir, "missing")) << "contains: missing credential";
     }
 } // namespace

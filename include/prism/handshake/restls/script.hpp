@@ -22,7 +22,6 @@
 #include <string_view>
 #include <vector>
 
-
 namespace psm::handshake::restls
 {
 
@@ -32,8 +31,8 @@ namespace psm::handshake::restls
      */
     enum class command_type : std::uint8_t
     {
-        noop = 0x00,     // 无需响应
-        response = 0x01  // 请求随机响应
+        noop = 0x00,    // 无需响应
+        response = 0x01 // 请求随机响应
     }; // enum class command_type
 
     /**
@@ -45,9 +44,9 @@ namespace psm::handshake::restls
      */
     struct script_line
     {
-        std::int16_t target_base{0};       // 基础目标长度
-        std::int16_t target_random{0};     // 随机范围
-        bool random_is_fixed{false};       // true = ?语法（已 resolve）
+        std::int16_t target_base{0};   // 基础目标长度
+        std::int16_t target_random{0}; // 随机范围
+        bool random_is_fixed{false};   // true = ?语法（已 resolve）
         command_type cmd{command_type::noop};
         std::uint8_t response_count{0};
 
@@ -57,8 +56,7 @@ namespace psm::handshake::restls
          * 否则动态计算 target_base + rand(0..target_random)。
          * @return 目标 TLS 记录 payload 长度
          */
-        [[nodiscard]] auto target_length() const
-            -> std::int16_t;
+        [[nodiscard]] auto target_length() const -> std::int16_t;
     }; // struct script_line
 
     /**
@@ -69,12 +67,12 @@ namespace psm::handshake::restls
      */
     struct allocation
     {
-        std::int16_t payload_len{0};    // 含 auth_header 的完整 payload
-        std::int16_t data_len{0};       // 实际用户数据长度
-        std::int16_t padding_len{0};    // 填充长度
+        std::int16_t payload_len{0}; // 含 auth_header 的完整 payload
+        std::int16_t data_len{0};    // 实际用户数据长度
+        std::int16_t padding_len{0}; // 填充长度
         command_type cmd{command_type::noop};
         std::uint8_t response_count{0};
-        bool write_blocking{false};     // 是否阻塞后续写入
+        bool write_blocking{false}; // 是否阻塞后续写入
     }; // struct allocation
 
     /**
@@ -106,14 +104,12 @@ namespace psm::handshake::restls
          * @param data_available 待写入的可用用户数据量
          * @return 本次写入的分配方案
          */
-        [[nodiscard]] auto allocate(std::uint64_t counter, std::size_t data_available) const
-            -> allocation;
+        [[nodiscard]] auto allocate(std::uint64_t counter, std::size_t data_available) const -> allocation;
 
         /**
          * @brief 获取解析后的 script 行数
          */
-        [[nodiscard]] auto size() const noexcept
-            -> std::size_t
+        [[nodiscard]] auto size() const noexcept -> std::size_t
         {
             return lines_.size();
         }

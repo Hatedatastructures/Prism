@@ -7,12 +7,11 @@
  *          register_instance、unregister_instance、aggregate。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/user/stats/traffic.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {

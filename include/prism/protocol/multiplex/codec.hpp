@@ -20,7 +20,6 @@
 #include <span>
 #include <string_view>
 
-
 namespace psm::multiplex
 {
 
@@ -87,16 +86,14 @@ namespace psm::multiplex
          * @brief 获取帧头长度
          * @return 帧头字节数（定长帧协议为固定值）
          */
-        [[nodiscard]] virtual auto header_size() const noexcept
-            -> std::size_t = 0;
+        [[nodiscard]] virtual auto header_size() const noexcept -> std::size_t = 0;
 
         /**
          * @brief 解析帧头
          * @param header 帧头字节（长度不小于 header_size()）
          * @return 帧头元信息（语义分类、流标识符、载荷长度）
          */
-        [[nodiscard]] virtual auto decode_header(std::span<const std::byte> header)
-            -> frame_meta = 0;
+        [[nodiscard]] virtual auto decode_header(std::span<const std::byte> header) -> frame_meta = 0;
 
         /**
          * @brief 构造数据帧（完整帧字节：帧头 + 载荷）
@@ -104,8 +101,7 @@ namespace psm::multiplex
          * @param payload 载荷数据
          * @return 编码后的完整帧字节
          */
-        [[nodiscard]] virtual auto encode_data(std::uint32_t stream_id,
-                                               std::span<const std::byte> payload)
+        [[nodiscard]] virtual auto encode_data(std::uint32_t stream_id, std::span<const std::byte> payload)
             -> memory::vector<std::byte> = 0;
 
         /**
@@ -113,15 +109,13 @@ namespace psm::multiplex
          * @param stream_id 目标流标识符
          * @return 编码后的完整帧字节
          */
-        [[nodiscard]] virtual auto encode_fin(std::uint32_t stream_id)
-            -> memory::vector<std::byte> = 0;
+        [[nodiscard]] virtual auto encode_fin(std::uint32_t stream_id) -> memory::vector<std::byte> = 0;
 
         /**
          * @brief 获取协议名称
          * @return 协议名字符串（smux/yamux/h2mux，用于日志）
          */
-        [[nodiscard]] virtual auto type_name() const noexcept
-            -> std::string_view = 0;
+        [[nodiscard]] virtual auto type_name() const noexcept -> std::string_view = 0;
     };
 
 } // namespace psm::multiplex

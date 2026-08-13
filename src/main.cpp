@@ -3,38 +3,38 @@
  * @brief Prism 代理服务器主入口
  */
 
+#include <boost/asio/signal_set.hpp>
+
+#include <cstdio>
+#include <ctime>
 #include <exception>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
 #include <memory>
 #include <thread>
 #include <vector>
-#include <iostream>
-#include <fstream>
-#include <filesystem>
-#include <cstdio>
-#include <ctime>
-
-#include <boost/asio/signal_set.hpp>
 
 #ifdef _WIN32
-#include <windows.h>
 #include <dbghelp.h>
+#include <windows.h>
 #endif
 
-#include <prism/resource/session.hpp>
-#include <prism/resource/process.hpp>
-#include <prism/runtime/runtime.hpp>
-#include <prism/user/directory.hpp>
-#include <prism/user/stats/stats.hpp>
-#include <prism/user/stats/runtime.hpp>
-#include <prism/runtime/front/balancer.hpp>
-#include <prism/runtime/front/listener.hpp>
-#include <prism/runtime/worker/tls.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/foundation/memory/pool.hpp>
-#include <prism/settings/settings.hpp>
-#include <prism/settings/loader/load.hpp>
 #include <prism/handshake/registry.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/resource/process.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/runtime/front/balancer.hpp>
+#include <prism/runtime/front/listener.hpp>
+#include <prism/runtime/runtime.hpp>
+#include <prism/runtime/worker/tls.hpp>
+#include <prism/settings/loader/load.hpp>
+#include <prism/settings/settings.hpp>
+#include <prism/user/directory.hpp>
+#include <prism/user/stats/runtime.hpp>
+#include <prism/user/stats/stats.hpp>
 
 namespace runtime = psm::runtime;
 
@@ -48,13 +48,12 @@ namespace
         const auto offset = crash_addr - module_base;
 
         std::fprintf(stderr,
-            "\n=== CRASH ===\n"
-            "exception code=0x%08X address=%p\n"
-            "module_base=0x%llx offset=0x%llx\n",
-            static_cast<unsigned>(ep->ExceptionRecord->ExceptionCode),
-            ep->ExceptionRecord->ExceptionAddress,
-            static_cast<unsigned long long>(module_base),
-            static_cast<unsigned long long>(offset));
+                     "\n=== CRASH ===\n"
+                     "exception code=0x%08X address=%p\n"
+                     "module_base=0x%llx offset=0x%llx\n",
+                     static_cast<unsigned>(ep->ExceptionRecord->ExceptionCode),
+                     ep->ExceptionRecord->ExceptionAddress, static_cast<unsigned long long>(module_base),
+                     static_cast<unsigned long long>(offset));
 
         void *stack[32];
         const USHORT frames = CaptureStackBackTrace(0, 32, stack, NULL);
@@ -62,20 +61,17 @@ namespace
         for (USHORT i = 0; i < frames; i++)
         {
             const auto frame_offset = reinterpret_cast<std::uintptr_t>(stack[i]) - module_base;
-            std::fprintf(stderr, "  [%u] offset=0x%llx\n", i,
-                static_cast<unsigned long long>(frame_offset));
+            std::fprintf(stderr, "  [%u] offset=0x%llx\n", i, static_cast<unsigned long long>(frame_offset));
         }
         std::fflush(stderr);
 
         char dump_name[MAX_PATH];
         const auto pid = static_cast<unsigned long>(GetCurrentProcessId());
         const auto now = static_cast<long long>(std::time(nullptr));
-        std::snprintf(dump_name, sizeof(dump_name),
-            "prism_crash_%lu_%lld.dmp", pid, now);
+        std::snprintf(dump_name, sizeof(dump_name), "prism_crash_%lu_%lld.dmp", pid, now);
 
-        const HANDLE hFile = CreateFileA(
-            dump_name, GENERIC_WRITE, 0, nullptr,
-            CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        const HANDLE hFile =
+            CreateFileA(dump_name, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
 
         if (hFile != INVALID_HANDLE_VALUE)
         {
@@ -85,27 +81,27 @@ namespace
             mei.ClientPointers = FALSE;
 
             const BOOL ok = MiniDumpWriteDump(
-                GetCurrentProcess(),
-                GetCurrentProcessId(),
-                hFile,
-                static_cast<MINIDUMP_TYPE>(
-                    MiniDumpNormal |
-                    MiniDumpWithIndirectlyReferencedMemory |
-                    MiniDumpWithThreadInfo),
+                GetCurrentProcess(), GetCurrentProcessId(), hFile,
+                static_cast<MINIDUMP_TYPE>(MiniDumpNormal | MiniDumpWithIndirectlyReferencedMemory |
+                                           MiniDumpWithThreadInfo),
                 &mei, nullptr, nullptr);
             CloseHandle(hFile);
 
             if (ok)
+            {
                 std::fprintf(stderr, "minidump written: %s\n", dump_name);
+            }
             else
+            {
                 std::fprintf(stderr, "MiniDumpWriteDump failed: error=%lu\n",
-                    static_cast<unsigned long>(GetLastError()));
+                             static_cast<unsigned long>(GetLastError()));
+            }
         }
 
         std::fflush(stderr);
         return EXCEPTION_EXECUTE_HANDLER;
     }
-}
+} // namespace
 #endif
 
 int main(int argc, char *argv[])
@@ -126,8 +122,8 @@ int main(int argc, char *argv[])
         }
         else
         {
-            configuration_path = std::filesystem::absolute(
-                std::filesystem::path(argv[0]).parent_path() / "configuration.json");
+            configuration_path = std::filesystem::absolute(std::filesystem::path(argv[0]).parent_path() /
+                                                           "configuration.json");
         }
 
         if (!std::filesystem::exists(configuration_path))
@@ -158,7 +154,9 @@ int main(int argc, char *argv[])
 
         std::uint32_t workers_count = 1U;
         if (threads_count > 1U)
+        {
             workers_count = threads_count - 1U;
+        }
         const psm::settings &config_ref = *cfg_shared;
 
         psm::memory::vector<std::unique_ptr<runtime::worker::worker>> workers;
@@ -176,17 +174,10 @@ int main(int argc, char *argv[])
         {
             runtime::worker::worker *worker_ref = worker_ptr.get();
             auto delivery_function = [worker_ref](boost::asio::ip::tcp::socket socket)
-            {
-                worker_ref->dispatch_socket(std::move(socket));
-            };
+            { worker_ref->dispatch_socket(std::move(socket)); };
             auto snapshot_function = [worker_ref]() -> psm::stats::worker_snapshot
-            {
-                return worker_ref->load_snapshot();
-            };
-            auto alive_function = [worker_ref]() -> bool
-            {
-                return worker_ref->alive();
-            };
+            { return worker_ref->load_snapshot(); };
+            auto alive_function = [worker_ref]() -> bool { return worker_ref->alive(); };
             bindings.emplace_back(delivery_function, snapshot_function, alive_function);
         }
 
@@ -203,8 +194,8 @@ int main(int argc, char *argv[])
             {
                 worker_resources.push_back(worker_ptr->resources());
             }
-            quic_service = std::make_shared<runtime::front::quic_gateway>(
-                config_ref, dispatcher, std::move(worker_resources));
+            quic_service = std::make_shared<runtime::front::quic_gateway>(config_ref, dispatcher,
+                                                                          std::move(worker_resources));
             quic_service->start();
         }
 
@@ -253,8 +244,8 @@ int main(int argc, char *argv[])
         boost::asio::signal_set signals(signal_ioc, SIGINT, SIGTERM);
 
         signals.async_wait(
-            [&workers, &service_listener, &quic_service, &threads, &signal_ioc](
-                const boost::system::error_code & /*ec*/, int /*signo*/)
+            [&workers, &service_listener, &quic_service, &threads,
+             &signal_ioc](const boost::system::error_code & /*ec*/, int /*signo*/)
             {
                 psm::diagnose::info("received shutdown signal, stopping gracefully...");
 
@@ -278,10 +269,7 @@ int main(int argc, char *argv[])
                 signal_ioc.stop();
             });
 
-        std::jthread signal_thread([&signal_ioc]()
-        {
-            signal_ioc.run();
-        });
+        std::jthread signal_thread([&signal_ioc]() { signal_ioc.run(); });
 
         signal_thread.join();
 

@@ -11,7 +11,6 @@
 
 #include <prism/foundation/memory/container.hpp>
 
-
 namespace psm::diagnose
 {
 
@@ -23,7 +22,7 @@ namespace psm::diagnose
      */
     struct config
     {
-        memory::string file_name = "prism.log";                 // 日志文件名
+        memory::string file_name = "prism.log";                   // 日志文件名
         memory::string path_name = "logs";                        // 日志文件存储路径
         std::uint64_t max_size = 64ULL * 1024ULL * 1024ULL;       // 文件最大大小，默认 64MB
         std::uint32_t max_files = 8U;                             // 最大文件数量
@@ -33,6 +32,6 @@ namespace psm::diagnose
         bool enable_file = true;                                  // 是否启用文件输出
         memory::string log_level = "info";                        // 日志级别
         memory::string pattern = "[%Y-%m-%d %H:%M:%S.%e][%l] %v"; // 日志格式
-        memory::string trace_name = "prism";             // 日志追踪名称
+        memory::string trace_name = "prism";                      // 日志追踪名称
     }; // struct config
 } // namespace psm::diagnose

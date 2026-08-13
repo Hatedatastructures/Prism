@@ -20,10 +20,13 @@ namespace psm::handshake::hysteria2
      */
     struct config
     {
-        bool enable{false}; ///< 是否启用
+        bool enable{false};                   ///< 是否启用
         memory::vector<memory::string> users; ///< 认证密码列表（与 mihomo 客户端 password 对应）
 
-        /// 是否启用
+        /**
+         * @brief 是否启用
+         * @return 是否启用
+         */
         [[nodiscard]] auto enabled() const noexcept -> bool
         {
             return enable;

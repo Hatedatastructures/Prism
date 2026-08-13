@@ -9,31 +9,28 @@
 
 #include <prism/foundation/memory/container.hpp>
 
-
 namespace psm::connect
 {
 
-/**
+    /**
  * @struct target
  * @brief 目标地址信息
  * @details 封装了解析出的目标主机、端口以及是否需要正向代理。
  */
-struct target
-{
-    /**
+    struct target
+    {
+        /**
      * @brief 构造目标对象
      * @param mr 内存资源指针
      */
-    explicit target(memory::resource_pointer mr = memory::current_resource())
-        : host(mr)
-        , port(mr)
-    {
-        port.assign("80");
-    }
+        explicit target(memory::resource_pointer mr = memory::current_resource()) : host(mr), port(mr)
+        {
+            port.assign("80");
+        }
 
-    memory::string host;
-    memory::string port;
-    bool           positive{false};
-};
+        memory::string host;
+        memory::string port;
+        bool positive{false};
+    };
 
 } // namespace psm::connect

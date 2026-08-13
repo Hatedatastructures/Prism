@@ -10,18 +10,18 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/connection/outbound/direct.hpp>
-#include <prism/diagnose/log.hpp>
 
 #include "common/MockTransport.hpp"
-
 #include <gtest/gtest.h>
 
 // 预包含依赖头文件（不打开 private）
 #include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
+
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
@@ -62,13 +62,18 @@ namespace
             craft_obj = std::make_shared<smux::control>(std::move(opts));
         }
 
-        auto &ioc() { return transport->get_io_context(); }
+        auto &ioc()
+        {
+            return transport->get_io_context();
+        }
 
         // 用 poll_one 循环代替 run()，避免 io_context 永久调度（连接池定时器等）
         void poll(int max_iters = 500)
         {
             for (int i = 0; i < max_iters; ++i)
+            {
                 ioc().poll_one();
+            }
             ioc().restart();
         }
     };
@@ -85,7 +90,8 @@ TEST(SmuxCraftDeep2, HandleSynCreatesPending)
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
     bool done = false;
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->handle_syn(1);
@@ -95,14 +101,14 @@ TEST(SmuxCraftDeep2, HandleSynCreatesPending)
 
     // 用 poll_one 循环代替 run()，避免无限阻塞
     for (int i = 0; i < 100 && !done; ++i)
+    {
         fx.ioc().poll_one();
+    }
     fx.ioc().restart();
 
     EXPECT_TRUE(done) << "handle_syn: coroutine completed";
-    EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 1)
-        << "handle_syn: creates pending entry";
-    EXPECT_TRUE(!fx.craft_obj->pending_.at(1).connecting)
-        << "handle_syn: connecting=false initially";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 1) << "handle_syn: creates pending entry";
+    EXPECT_TRUE(!fx.craft_obj->pending_.at(1).connecting) << "handle_syn: connecting=false initially";
 }
 
 TEST(SmuxCraftDeep2, HandleSynMaxStreamsReached)
@@ -114,15 +120,12 @@ TEST(SmuxCraftDeep2, HandleSynMaxStreamsReached)
     fx.craft_obj->pending_.emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
     fx.craft_obj->pending_.emplace(2, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
 
-    net::co_spawn(fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            co_await fx.craft_obj->handle_syn(3);
-        },
-        net::detached);
+    net::co_spawn(
+        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->handle_syn(3); }, net::detached);
 
     // fin 内部 co_spawn 写 channel_，需要消费者
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             boost::system::error_code ec;
@@ -133,8 +136,7 @@ TEST(SmuxCraftDeep2, HandleSynMaxStreamsReached)
 
     fx.poll();
 
-    EXPECT_TRUE(fx.craft_obj->pending_.count(3) == 0)
-        << "handle_syn: max_streams -> stream 3 rejected";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(3) == 0) << "handle_syn: max_streams -> stream 3 rejected";
     EXPECT_TRUE(fx.craft_obj->pending_.size() == 2)
         << "handle_syn: max_streams -> original pending unchanged";
 }
@@ -146,15 +148,12 @@ TEST(SmuxCraftDeep2, HandleSynDuplicateSyn)
 
     fx.craft_obj->pending_.emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
 
-    net::co_spawn(fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            co_await fx.craft_obj->handle_syn(1);
-        },
-        net::detached);
+    net::co_spawn(
+        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->handle_syn(1); }, net::detached);
 
     // fin 消费者
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             boost::system::error_code ec;
@@ -165,8 +164,7 @@ TEST(SmuxCraftDeep2, HandleSynDuplicateSyn)
 
     fx.poll();
 
-    EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 1)
-        << "handle_syn: duplicate -> only one entry";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 1) << "handle_syn: duplicate -> only one entry";
 }
 
 TEST(SmuxCraftDeep2, HandleSynDuctsConflict)
@@ -176,14 +174,11 @@ TEST(SmuxCraftDeep2, HandleSynDuctsConflict)
 
     fx.craft_obj->streams_[5];
 
-    net::co_spawn(fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            co_await fx.craft_obj->handle_syn(5);
-        },
-        net::detached);
+    net::co_spawn(
+        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->handle_syn(5); }, net::detached);
 
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             boost::system::error_code ec;
@@ -194,8 +189,7 @@ TEST(SmuxCraftDeep2, HandleSynDuctsConflict)
 
     fx.poll();
 
-    EXPECT_TRUE(fx.craft_obj->pending_.count(5) == 0)
-        << "handle_syn: ducts conflict -> rejected";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(5) == 0) << "handle_syn: ducts conflict -> rejected";
 }
 
 TEST(SmuxCraftDeep2, HandleSynParcelsConflict)
@@ -205,14 +199,11 @@ TEST(SmuxCraftDeep2, HandleSynParcelsConflict)
 
     fx.craft_obj->datagrams_[10];
 
-    net::co_spawn(fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            co_await fx.craft_obj->handle_syn(10);
-        },
-        net::detached);
+    net::co_spawn(
+        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->handle_syn(10); }, net::detached);
 
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             boost::system::error_code ec;
@@ -223,8 +214,7 @@ TEST(SmuxCraftDeep2, HandleSynParcelsConflict)
 
     fx.poll();
 
-    EXPECT_TRUE(fx.craft_obj->pending_.count(10) == 0)
-        << "handle_syn: parcels conflict -> rejected";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(10) == 0) << "handle_syn: parcels conflict -> rejected";
 }
 
 // ─── dispatch_push ───────────────────────────────
@@ -245,8 +235,7 @@ TEST(SmuxCraftDeep2, DispatchPushPendingAccumulate)
 
     EXPECT_TRUE(fx.craft_obj->pending_.at(1).buffer.size() == 3)
         << "dispatch_push: pending buffer accumulated 3 bytes";
-    EXPECT_TRUE(!fx.craft_obj->pending_.at(1).connecting)
-        << "dispatch_push: not connecting (<7 bytes)";
+    EXPECT_TRUE(!fx.craft_obj->pending_.at(1).connecting) << "dispatch_push: not connecting (<7 bytes)";
 }
 
 TEST(SmuxCraftDeep2, DispatchPushPendingTriggerConnecting)
@@ -254,8 +243,9 @@ TEST(SmuxCraftDeep2, DispatchPushPendingTriggerConnecting)
     CraftFixture fx;
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
-    auto &entry = fx.craft_obj->pending_.emplace(
-        1, multiplex::multiplexer::pending_entry(psm::memory::current_resource())).first->second;
+    auto &entry = fx.craft_obj->pending_
+                      .emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
+                      .first->second;
 
     entry.buffer.push_back(std::byte{0x00});
     entry.buffer.push_back(std::byte{0x00});
@@ -271,8 +261,7 @@ TEST(SmuxCraftDeep2, DispatchPushPendingTriggerConnecting)
 
     EXPECT_TRUE(fx.craft_obj->pending_.at(1).buffer.size() == 7)
         << "dispatch_push: buffer=7 after accumulation";
-    EXPECT_TRUE(fx.craft_obj->pending_.at(1).connecting)
-        << "dispatch_push: connecting=true after >=7 bytes";
+    EXPECT_TRUE(fx.craft_obj->pending_.at(1).connecting) << "dispatch_push: connecting=true after >=7 bytes";
 }
 
 TEST(SmuxCraftDeep2, DispatchPushPendingAlreadyConnecting)
@@ -280,8 +269,9 @@ TEST(SmuxCraftDeep2, DispatchPushPendingAlreadyConnecting)
     CraftFixture fx;
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
-    auto &entry = fx.craft_obj->pending_.emplace(
-        1, multiplex::multiplexer::pending_entry(psm::memory::current_resource())).first->second;
+    auto &entry = fx.craft_obj->pending_
+                      .emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
+                      .first->second;
     entry.connecting = true;
 
     psm::memory::vector<std::byte> payload(psm::memory::current_resource());
@@ -289,10 +279,8 @@ TEST(SmuxCraftDeep2, DispatchPushPendingAlreadyConnecting)
 
     fx.craft_obj->dispatch_push(1, std::move(payload));
 
-    EXPECT_EQ(entry.buffer.size(), 1)
-        << "dispatch_push: already connecting -> only accumulate";
-    EXPECT_TRUE(entry.connecting)
-        << "dispatch_push: connecting stays true";
+    EXPECT_EQ(entry.buffer.size(), 1) << "dispatch_push: already connecting -> only accumulate";
+    EXPECT_TRUE(entry.connecting) << "dispatch_push: connecting stays true";
 }
 
 TEST(SmuxCraftDeep2, DispatchPushNoMatch)
@@ -315,8 +303,7 @@ TEST(SmuxCraftDeep2, HandleFinPendingErased)
 
     fx.craft_obj->handle_fin(1);
 
-    EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 0)
-        << "handle_fin: pending erased";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 0) << "handle_fin: pending erased";
 }
 
 TEST(SmuxCraftDeep2, HandleFinDuctNull)
@@ -325,8 +312,7 @@ TEST(SmuxCraftDeep2, HandleFinDuctNull)
     fx.craft_obj->streams_[3];
 
     fx.craft_obj->handle_fin(3);
-    EXPECT_TRUE(fx.craft_obj->streams_.count(3) == 1)
-        << "handle_fin: duct null ptr -> entry remains";
+    EXPECT_TRUE(fx.craft_obj->streams_.count(3) == 1) << "handle_fin: duct null ptr -> entry remains";
 }
 
 TEST(SmuxCraftDeep2, HandleFinParcelNull)
@@ -335,8 +321,7 @@ TEST(SmuxCraftDeep2, HandleFinParcelNull)
     fx.craft_obj->datagrams_[4];
 
     fx.craft_obj->handle_fin(4);
-    EXPECT_TRUE(fx.craft_obj->datagrams_.count(4) == 1)
-        << "handle_fin: parcel null ptr -> entry remains";
+    EXPECT_TRUE(fx.craft_obj->datagrams_.count(4) == 1) << "handle_fin: parcel null ptr -> entry remains";
 }
 
 TEST(SmuxCraftDeep2, HandleFinNoMatch)
@@ -353,10 +338,8 @@ TEST(SmuxCraftDeep2, HandleFinPendingPriorityOverDuct)
 
     fx.craft_obj->handle_fin(5);
 
-    EXPECT_TRUE(fx.craft_obj->pending_.count(5) == 0)
-        << "handle_fin: pending erased (priority)";
-    EXPECT_TRUE(fx.craft_obj->streams_.count(5) == 1)
-        << "handle_fin: duct not checked";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(5) == 0) << "handle_fin: pending erased (priority)";
+    EXPECT_TRUE(fx.craft_obj->streams_.count(5) == 1) << "handle_fin: duct not checked";
 }
 
 // ─── activate_stream ─────────────────────────────
@@ -367,7 +350,8 @@ TEST(SmuxCraftDeep2, ActivateStreamNotPending)
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
     bool completed = false;
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(999);
@@ -384,13 +368,15 @@ TEST(SmuxCraftDeep2, ActivateStreamBufferTooSmall)
     CraftFixture fx;
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
-    auto &entry = fx.craft_obj->pending_.emplace(
-        1, multiplex::multiplexer::pending_entry(psm::memory::current_resource())).first->second;
+    auto &entry = fx.craft_obj->pending_
+                      .emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
+                      .first->second;
     entry.connecting = true;
     entry.buffer.resize(5);
 
     bool completed = false;
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(1);
@@ -400,8 +386,7 @@ TEST(SmuxCraftDeep2, ActivateStreamBufferTooSmall)
     fx.poll();
 
     EXPECT_TRUE(completed) << "activate_stream: buffer <7 -> completed";
-    EXPECT_TRUE(!entry.connecting)
-        << "activate_stream: buffer <7 -> connecting reset";
+    EXPECT_TRUE(!entry.connecting) << "activate_stream: buffer <7 -> connecting reset";
 }
 
 TEST(SmuxCraftDeep2, ActivateStreamBufferExactlySix)
@@ -409,13 +394,15 @@ TEST(SmuxCraftDeep2, ActivateStreamBufferExactlySix)
     CraftFixture fx;
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
-    auto &entry = fx.craft_obj->pending_.emplace(
-        2, multiplex::multiplexer::pending_entry(psm::memory::current_resource())).first->second;
+    auto &entry = fx.craft_obj->pending_
+                      .emplace(2, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
+                      .first->second;
     entry.connecting = true;
     entry.buffer.resize(6);
 
     bool completed = false;
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(2);
@@ -425,8 +412,7 @@ TEST(SmuxCraftDeep2, ActivateStreamBufferExactlySix)
     fx.poll();
 
     EXPECT_TRUE(completed) << "activate_stream: buffer=6 -> completed";
-    EXPECT_TRUE(!entry.connecting)
-        << "activate_stream: buffer=6 -> connecting reset";
+    EXPECT_TRUE(!entry.connecting) << "activate_stream: buffer=6 -> connecting reset";
 }
 
 TEST(SmuxCraftDeep2, ActivateStreamBadAddressLargeBuffer)
@@ -434,15 +420,19 @@ TEST(SmuxCraftDeep2, ActivateStreamBadAddressLargeBuffer)
     CraftFixture fx;
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
-    auto &entry = fx.craft_obj->pending_.emplace(
-        3, multiplex::multiplexer::pending_entry(psm::memory::current_resource())).first->second;
+    auto &entry = fx.craft_obj->pending_
+                      .emplace(3, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
+                      .first->second;
     entry.connecting = true;
     for (int i = 0; i < 21; ++i)
+    {
         entry.buffer.push_back(std::byte{0xFF});
+    }
 
     bool activate_done = false;
 
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(3);
@@ -451,7 +441,8 @@ TEST(SmuxCraftDeep2, ActivateStreamBadAddressLargeBuffer)
         net::detached);
 
     // 消费 channel_ 中的帧（send_addr_err 会发 error data + FIN）
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             for (int i = 0; i < 2; ++i)
@@ -466,8 +457,7 @@ TEST(SmuxCraftDeep2, ActivateStreamBadAddressLargeBuffer)
     fx.poll();
 
     EXPECT_TRUE(activate_done) << "activate_stream: bad address -> completed";
-    EXPECT_TRUE(fx.craft_obj->pending_.count(3) == 0)
-        << "activate_stream: bad address -> pending erased";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(3) == 0) << "activate_stream: bad address -> pending erased";
 }
 
 TEST(SmuxCraftDeep2, ActivateStreamInvalidAtyp)
@@ -475,19 +465,23 @@ TEST(SmuxCraftDeep2, ActivateStreamInvalidAtyp)
     CraftFixture fx;
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
-    auto &entry = fx.craft_obj->pending_.emplace(
-        4, multiplex::multiplexer::pending_entry(psm::memory::current_resource())).first->second;
+    auto &entry = fx.craft_obj->pending_
+                      .emplace(4, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
+                      .first->second;
     entry.connecting = true;
     // Flags(2B)=0x0000 + ATYP=0x04(无效) + padding 到 21 字节
     entry.buffer.push_back(std::byte{0x00});
     entry.buffer.push_back(std::byte{0x00});
     entry.buffer.push_back(std::byte{0x04});
     for (int i = 0; i < 18; ++i)
+    {
         entry.buffer.push_back(std::byte{0x00});
+    }
 
     bool activate_done = false;
 
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(4);
@@ -496,7 +490,8 @@ TEST(SmuxCraftDeep2, ActivateStreamInvalidAtyp)
         net::detached);
 
     // send_addr_err 发 2 帧：error data + fin
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             for (int i = 0; i < 2; ++i)
@@ -511,8 +506,7 @@ TEST(SmuxCraftDeep2, ActivateStreamInvalidAtyp)
     fx.poll();
 
     EXPECT_TRUE(activate_done) << "activate_stream: invalid ATYP -> completed";
-    EXPECT_TRUE(fx.craft_obj->pending_.count(4) == 0)
-        << "activate_stream: invalid ATYP -> pending erased";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(4) == 0) << "activate_stream: invalid ATYP -> pending erased";
 }
 
 TEST(SmuxCraftDeep2, ActivateStreamValidTcpAddress)
@@ -520,8 +514,9 @@ TEST(SmuxCraftDeep2, ActivateStreamValidTcpAddress)
     CraftFixture fx;
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
-    auto &entry = fx.craft_obj->pending_.emplace(
-        10, multiplex::multiplexer::pending_entry(psm::memory::current_resource())).first->second;
+    auto &entry = fx.craft_obj->pending_
+                      .emplace(10, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
+                      .first->second;
     entry.connecting = true;
     // Flags(2B)=0x0000 + ATYP=0x01(IPv4) + 127.0.0.1 + Port=80
     entry.buffer.push_back(std::byte{0x00});
@@ -535,7 +530,8 @@ TEST(SmuxCraftDeep2, ActivateStreamValidTcpAddress)
     entry.buffer.push_back(std::byte{0x50});
 
     bool activate_done = false;
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(10);
@@ -544,7 +540,8 @@ TEST(SmuxCraftDeep2, ActivateStreamValidTcpAddress)
         net::detached);
 
     // activate_tcp 失败路径：send(1帧) + fin(1帧) = 2帧
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             for (int i = 0; i < 2; ++i)
@@ -567,8 +564,9 @@ TEST(SmuxCraftDeep2, ActivateStreamValidUdpAddress)
     CraftFixture fx;
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
-    auto &entry = fx.craft_obj->pending_.emplace(
-        20, multiplex::multiplexer::pending_entry(psm::memory::current_resource())).first->second;
+    auto &entry = fx.craft_obj->pending_
+                      .emplace(20, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
+                      .first->second;
     entry.connecting = true;
     // Flags=0x0001(UDP) + ATYP=0x01(IPv4) + 127.0.0.1 + Port=53
     entry.buffer.push_back(std::byte{0x01});
@@ -582,7 +580,8 @@ TEST(SmuxCraftDeep2, ActivateStreamValidUdpAddress)
     entry.buffer.push_back(std::byte{0x35});
 
     bool activate_done = false;
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(20);
@@ -591,7 +590,8 @@ TEST(SmuxCraftDeep2, ActivateStreamValidUdpAddress)
         net::detached);
 
     // activate_udp: send(1帧, success) + 可能的 parcel 创建
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             for (int i = 0; i < 4; ++i)
@@ -613,8 +613,9 @@ TEST(SmuxCraftDeep2, ActivateStreamDomainAddress)
     CraftFixture fx;
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
-    auto &entry = fx.craft_obj->pending_.emplace(
-        30, multiplex::multiplexer::pending_entry(psm::memory::current_resource())).first->second;
+    auto &entry = fx.craft_obj->pending_
+                      .emplace(30, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
+                      .first->second;
     entry.connecting = true;
     // Flags=0x0000(TCP) + ATYP=0x03(域名) + len=11 + "example.com" + Port=443
     entry.buffer.push_back(std::byte{0x00});
@@ -623,12 +624,15 @@ TEST(SmuxCraftDeep2, ActivateStreamDomainAddress)
     entry.buffer.push_back(std::byte{0x0B});
     const char *domain = "example.com";
     for (int i = 0; i < 11; ++i)
+    {
         entry.buffer.push_back(static_cast<std::byte>(domain[i]));
+    }
     entry.buffer.push_back(std::byte{0x01});
     entry.buffer.push_back(std::byte{0xBB});
 
     bool activate_done = false;
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(30);
@@ -637,7 +641,8 @@ TEST(SmuxCraftDeep2, ActivateStreamDomainAddress)
         net::detached);
 
     // activate_tcp 失败路径：send(1帧) + fin(1帧) = 2帧
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             for (int i = 0; i < 2; ++i)
@@ -667,7 +672,8 @@ TEST(SmuxCraftDeep2, PushFrameEncodesCorrectly)
 
     multiplex::multiplexer::outbound_frame received_frame;
 
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             multiplex::multiplexer::outbound_frame frame;
@@ -678,21 +684,16 @@ TEST(SmuxCraftDeep2, PushFrameEncodesCorrectly)
         },
         net::detached);
 
-    net::co_spawn(fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            received_frame = co_await fx.craft_obj->channel_.async_receive(net::use_awaitable);
-        },
+    net::co_spawn(
+        fx.ioc(), [&]() -> net::awaitable<void>
+        { received_frame = co_await fx.craft_obj->channel_.async_receive(net::use_awaitable); },
         net::detached);
 
     fx.poll();
 
-    EXPECT_EQ(received_frame.stream_id, 42)
-        << "push_frame: stream_id correct";
-    EXPECT_EQ(received_frame.kind, multiplex::multiplexer::outbound_kind::data)
-        << "push_frame: kind is data";
-    EXPECT_EQ(received_frame.payload.size(), 2)
-        << "push_frame: payload size = 2";
+    EXPECT_EQ(received_frame.stream_id, 42) << "push_frame: stream_id correct";
+    EXPECT_EQ(received_frame.kind, multiplex::multiplexer::outbound_kind::data) << "push_frame: kind is data";
+    EXPECT_EQ(received_frame.payload.size(), 2) << "push_frame: payload size = 2";
 }
 
 TEST(SmuxCraftDeep2, SendDataPushesFrame)
@@ -706,28 +707,20 @@ TEST(SmuxCraftDeep2, SendDataPushesFrame)
 
     multiplex::multiplexer::outbound_frame received_frame;
 
-    net::co_spawn(fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            co_await fx.craft_obj->send(7, std::move(data));
-        },
+    net::co_spawn(
+        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->send(7, std::move(data)); },
         net::detached);
 
-    net::co_spawn(fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            received_frame = co_await fx.craft_obj->channel_.async_receive(net::use_awaitable);
-        },
+    net::co_spawn(
+        fx.ioc(), [&]() -> net::awaitable<void>
+        { received_frame = co_await fx.craft_obj->channel_.async_receive(net::use_awaitable); },
         net::detached);
 
     fx.poll();
 
-    EXPECT_EQ(received_frame.stream_id, 7)
-        << "send: stream_id correct";
-    EXPECT_EQ(received_frame.kind, multiplex::multiplexer::outbound_kind::data)
-        << "send: kind is data";
-    EXPECT_EQ(received_frame.payload.size(), 2)
-        << "send: payload preserved";
+    EXPECT_EQ(received_frame.stream_id, 7) << "send: stream_id correct";
+    EXPECT_EQ(received_frame.kind, multiplex::multiplexer::outbound_kind::data) << "send: kind is data";
+    EXPECT_EQ(received_frame.payload.size(), 2) << "send: payload preserved";
 }
 
 TEST(SmuxCraftDeep2, SendFinSendsFinFrame)
@@ -739,23 +732,25 @@ TEST(SmuxCraftDeep2, SendFinSendsFinFrame)
 
     multiplex::multiplexer::outbound_frame received_frame;
     bool got_frame = false;
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             boost::system::error_code ec;
             auto token = net::redirect_error(net::use_awaitable, ec);
             received_frame = co_await fx.craft_obj->channel_.async_receive(token);
-            if (!ec) got_frame = true;
+            if (!ec)
+            {
+                got_frame = true;
+            }
         },
         net::detached);
 
     fx.poll();
 
     EXPECT_TRUE(got_frame) << "fin: frame received on channel";
-    EXPECT_EQ(received_frame.stream_id, 5)
-        << "fin: stream_id correct";
-    EXPECT_EQ(received_frame.kind, multiplex::multiplexer::outbound_kind::fin)
-        << "fin: kind is fin";
+    EXPECT_EQ(received_frame.stream_id, 5) << "fin: stream_id correct";
+    EXPECT_EQ(received_frame.kind, multiplex::multiplexer::outbound_kind::fin) << "fin: kind is fin";
 }
 
 TEST(SmuxCraftDeep2, SendAddrErrSendsErrorAndFin)
@@ -767,7 +762,8 @@ TEST(SmuxCraftDeep2, SendAddrErrSendsErrorAndFin)
     int frame_count = 0;
     bool done = false;
 
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             co_await fx.craft_obj->send_addr_err(1);
@@ -775,9 +771,10 @@ TEST(SmuxCraftDeep2, SendAddrErrSendsErrorAndFin)
         },
         net::detached);
 
-// send_addr_err 内部 co_await send + fin，其中 fin co_spawn
+    // send_addr_err 内部 co_await send + fin，其中 fin co_spawn
     // send(1帧, push) + fin(co_spawn push) = 2帧
-    net::co_spawn(fx.ioc(),
+    net::co_spawn(
+        fx.ioc(),
         [&]() -> net::awaitable<void>
         {
             for (int i = 0; i < 2; ++i)
@@ -785,7 +782,10 @@ TEST(SmuxCraftDeep2, SendAddrErrSendsErrorAndFin)
                 boost::system::error_code ec;
                 auto token = net::redirect_error(net::use_awaitable, ec);
                 co_await fx.craft_obj->channel_.async_receive(token);
-                if (!ec) frame_count++;
+                if (!ec)
+                {
+                    frame_count++;
+                }
             }
         },
         net::detached);
@@ -793,10 +793,8 @@ TEST(SmuxCraftDeep2, SendAddrErrSendsErrorAndFin)
     fx.poll();
 
     EXPECT_TRUE(done) << "send_addr_err: completed";
-    EXPECT_GE(frame_count, 2)
-        << "send_addr_err: sent error data + fin >= 2 frames";
-    EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 0)
-        << "send_addr_err: pending erased";
+    EXPECT_GE(frame_count, 2) << "send_addr_err: sent error data + fin >= 2 frames";
+    EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 0) << "send_addr_err: pending erased";
 }
 
 // ─── 杂项 ────────────────────────────────────────
@@ -810,8 +808,7 @@ TEST(SmuxCraftDeep2, ExecutorReturnsTransportExecutor)
 TEST(SmuxCraftDeep2, ConstructorChannelCapacity)
 {
     CraftFixture fx;
-    EXPECT_TRUE(fx.craft_obj->channel_.is_open())
-        << "constructor: channel is open";
+    EXPECT_TRUE(fx.craft_obj->channel_.is_open()) << "constructor: channel is open";
 }
 
 TEST(SmuxCraftDeep2, CloseIdempotent)

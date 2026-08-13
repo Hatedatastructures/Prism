@@ -9,9 +9,9 @@
  *          通过 #include 源文件覆盖编译行。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
+
+#include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
 #include "../../src/prism/handshake/reality/util/response.cpp"
@@ -30,8 +30,7 @@ namespace
         // 1 byte type + 3 bytes length(0) = 4 bytes
         EXPECT_EQ(msg.size(), 4) << "make_hs_msg empty: size=4";
         EXPECT_EQ(msg[0], 0x01) << "make_hs_msg empty: type=0x01";
-        EXPECT_TRUE(msg[1] == 0x00 && msg[2] == 0x00 && msg[3] == 0x00)
-                     << "make_hs_msg empty: length=0";
+        EXPECT_TRUE(msg[1] == 0x00 && msg[2] == 0x00 && msg[3] == 0x00) << "make_hs_msg empty: length=0";
     }
 
     TEST(RealityResponseDeep, MakeHandshakeMessageWithBody)
@@ -40,8 +39,7 @@ namespace
         auto msg = make_handshake_message(0x02, body);
         EXPECT_EQ(msg.size(), 8) << "make_hs_msg body: size=8";
         EXPECT_EQ(msg[0], 0x02) << "make_hs_msg body: type=0x02";
-        EXPECT_TRUE(msg[1] == 0x00 && msg[2] == 0x00 && msg[3] == 0x04)
-                     << "make_hs_msg body: length=4";
+        EXPECT_TRUE(msg[1] == 0x00 && msg[2] == 0x00 && msg[3] == 0x04) << "make_hs_msg body: length=4";
         EXPECT_EQ(msg[4], 0xAA) << "make_hs_msg body: data[0]";
         EXPECT_EQ(msg[7], 0xDD) << "make_hs_msg body: data[3]";
     }
@@ -55,8 +53,7 @@ namespace
         EXPECT_EQ(msg.size(), 4 + 256) << "make_hs_msg large: size=260";
         EXPECT_EQ(msg[0], tls::HS_SERVER_HELLO) << "make_hs_msg large: type=SH";
         // length = 256 = 0x000100
-        EXPECT_TRUE(msg[1] == 0x00 && msg[2] == 0x01 && msg[3] == 0x00)
-                     << "make_hs_msg large: length=256";
+        EXPECT_TRUE(msg[1] == 0x00 && msg[2] == 0x01 && msg[3] == 0x00) << "make_hs_msg large: length=256";
     }
 
     TEST(RealityResponseDeep, MakeHandshakeMessageDifferentTypes)
@@ -164,7 +161,9 @@ namespace
 
         std::array<std::uint8_t, 32> eph_pub{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             eph_pub[i] = static_cast<std::uint8_t>(i);
+        }
 
         auto body = build_server_hello_body(ch, eph_pub);
 
@@ -212,7 +211,12 @@ namespace
 
         bool pub_all_zero = true;
         for (auto b : kp.public_key)
-            if (b != 0) pub_all_zero = false;
+        {
+            if (b != 0)
+            {
+                pub_all_zero = false;
+            }
+        }
         EXPECT_TRUE(!pub_all_zero) << "gen_cert zero: public key non-zero";
     }
 
@@ -220,7 +224,9 @@ namespace
     {
         std::array<std::uint8_t, 32> auth_key{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             auth_key[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         auto [cert1, kp1] = generate_reality_certificate(auth_key);
         auto [cert2, kp2] = generate_reality_certificate(auth_key);
@@ -229,18 +235,21 @@ namespace
         EXPECT_TRUE(!cert2.empty()) << "gen_cert det: cert2 non-empty";
         // Same auth_key but different Ed25519 keypair → different cert content
         // Public keys differ (randomly generated)
-        EXPECT_NE(kp1.public_key, kp2.public_key)
-                     << "gen_cert det: different keypairs per call";
+        EXPECT_NE(kp1.public_key, kp2.public_key) << "gen_cert det: different keypairs per call";
     }
 
     TEST(RealityResponseDeep, GenCertDifferentAuthKeys)
     {
         std::array<std::uint8_t, 32> key1{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             key1[i] = static_cast<std::uint8_t>(i);
+        }
         std::array<std::uint8_t, 32> key2{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             key2[i] = static_cast<std::uint8_t>(i + 0x80);
+        }
 
         auto [cert1, kp1] = generate_reality_certificate(key1);
         auto [cert2, kp2] = generate_reality_certificate(key2);
@@ -264,8 +273,7 @@ namespace
         // Verify dest_cert is embedded: after request_ctx(1) + cert_list_len(3) +
         // cert_len(3) + cert_data + extensions_len(2)
         // Total overhead = 1 + 3 + 3 + 2 = 9 bytes
-        EXPECT_EQ(body.size(), 9 + sizeof(dest_cert))
-                     << "build_cert noauth: correct total size";
+        EXPECT_EQ(body.size(), 9 + sizeof(dest_cert)) << "build_cert noauth: correct total size";
     }
 
     TEST(RealityResponseDeep, BuildCertWithAuthKey)
@@ -273,7 +281,9 @@ namespace
         const std::uint8_t dest_cert[] = {0x30, 0x01, 0x02};
         std::array<std::uint8_t, 32> auth_key{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             auth_key[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         psm::crypto::ed25519_keypair out_kp{};
 
@@ -284,7 +294,12 @@ namespace
         // out_kp should be populated by generate_reality_certificate
         bool pub_zero = true;
         for (auto b : out_kp.public_key)
-            if (b != 0) pub_zero = false;
+        {
+            if (b != 0)
+            {
+                pub_zero = false;
+            }
+        }
         EXPECT_TRUE(!pub_zero) << "build_cert auth: out_kp public key set";
     }
 
@@ -307,7 +322,9 @@ namespace
 
         std::array<std::uint8_t, 32> transcript{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             transcript[i] = static_cast<std::uint8_t>(i);
+        }
 
         auto body = build_certificate_verify(kp, transcript);
         // sig_scheme(2) + sig_len(2) + signature(64) = 68
@@ -336,7 +353,9 @@ namespace
 
         std::array<std::uint8_t, 32> transcript{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             transcript[i] = static_cast<std::uint8_t>(i);
+        }
 
         auto body1 = build_certificate_verify(kp1, transcript);
         auto body2 = build_certificate_verify(kp2, transcript);
@@ -368,10 +387,14 @@ namespace
         // 加密后再解密，验证往返正确性
         std::array<std::uint8_t, 16> key{};
         for (std::size_t i = 0; i < 16; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
         std::array<std::uint8_t, 12> iv{};
         for (std::size_t i = 0; i < 12; ++i)
+        {
             iv[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         const std::uint8_t plaintext[] = {0xDE, 0xAD, 0xBE, 0xEF};
 
@@ -384,8 +407,7 @@ namespace
         const auto enc_payload_len = encrypted.size() - 5;
         // inner = plaintext + content_type + tag
         // so plaintext.size() + 1 + 16 = enc_payload_len
-        EXPECT_EQ(enc_payload_len, sizeof(plaintext) + 1 + 16)
-                     << "encrypt roundtrip: payload len correct";
+        EXPECT_EQ(enc_payload_len, sizeof(plaintext) + 1 + 16) << "encrypt roundtrip: payload len correct";
 
         // 用 AEAD open 解密
         auto nonce = psm::handshake::common::aead_nonce(iv, 0);
@@ -395,8 +417,7 @@ namespace
         psm::memory::vector<std::uint8_t> decrypted(sizeof(plaintext) + 1);
 
         auto open_ec = aead.open(psm::crypto::open_input{
-            decrypted,
-            std::span<const std::uint8_t>(encrypted.data() + 5, enc_payload_len),
+            decrypted, std::span<const std::uint8_t>(encrypted.data() + 5, enc_payload_len),
             std::span<const std::uint8_t>{nonce.data(), nonce.size()},
             std::span<const std::uint8_t>{ad.data(), ad.size()}});
 

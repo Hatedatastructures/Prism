@@ -4,27 +4,22 @@
  * @details 测试 parse_request、make_response、build_udp_pkt、parse_udp_pkt。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/protocol/vless/codec/framing.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/protocol/vless/codec/framing.hpp>
 
 #include <array>
 #include <cstdint>
 #include <cstring>
 #include <span>
 
-
 #include <gtest/gtest.h>
 
 namespace
 {
     // Helper: build a VLESS request buffer
-    auto build_request(std::uint8_t cmd, std::uint8_t atyp,
-                       const std::vector<std::uint8_t> &uuid,
-                       const std::vector<std::uint8_t> &addr,
-                       std::uint16_t port)
-        -> std::vector<std::uint8_t>
+    auto build_request(std::uint8_t cmd, std::uint8_t atyp, const std::vector<std::uint8_t> &uuid,
+                       const std::vector<std::uint8_t> &addr, std::uint16_t port) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> buf;
         buf.push_back(0x00); // version
@@ -70,7 +65,7 @@ namespace
     {
         std::vector<std::uint8_t> uuid(16, 0);
         std::vector<std::uint8_t> addr(16, 0);
-        addr[15] = 1; // ::1
+        addr[15] = 1;                                           // ::1
         auto buf = build_request(0x01, 0x03, uuid, addr, 8080); // TCP + IPv6
 
         auto result = psm::protocol::vless::format::parse_request(buf);
@@ -86,7 +81,8 @@ namespace
 
         auto result = psm::protocol::vless::format::parse_request(buf);
         EXPECT_TRUE(result.has_value()) << "parse request mux: has_value";
-        EXPECT_TRUE(result->transport == psm::protocol::form::stream) << "parse request mux: transport=stream";
+        EXPECT_TRUE(result->transport == psm::protocol::form::stream)
+            << "parse request mux: transport=stream";
     }
 
     TEST(VlessFraming, ParseRequestTooShort)

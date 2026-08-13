@@ -1,12 +1,11 @@
-#include <prism/protocol/multiplex/h2mux/control.hpp>
-#include <prism/protocol/multiplex/h2mux/singmux.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/connection/outbound/direct.hpp>
 #include <prism/protocol/multiplex/datagram.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
+#include <prism/protocol/multiplex/h2mux/singmux.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
-#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -39,19 +38,14 @@ namespace psm::multiplex::h2mux
     } // namespace
 
     control::control(multiplexer_options opts, address_resolver resolver, const bool sing_streams)
-        : multiplexer(multiplexer_options{
-              std::move(opts.transport), opts.outbound, opts.cfg, opts.mr,
-              opts.cfg.h2mux.max_streams}),
-          resolver_(std::move(resolver)),
-          sing_streams_(sing_streams),
-          router_fn_(outbound_ ? outbound_->make_router() : decltype(router_fn_){}),
-          h2_pending_(mr_),
-          udp_bufs_(mr_),
-          connect_waiter_(transport_->executor())
+        : multiplexer(multiplexer_options{std::move(opts.transport), opts.outbound, opts.cfg, opts.mr,
+                                          opts.cfg.h2mux.max_streams}),
+          resolver_(std::move(resolver)), sing_streams_(sing_streams),
+          router_fn_(outbound_ ? outbound_->make_router() : decltype(router_fn_){}), h2_pending_(mr_),
+          udp_bufs_(mr_), connect_waiter_(transport_->executor())
     {
         connect_waiter_.expires_after(std::chrono::hours(24));
     }
-
 
     control::~control() noexcept
     {
@@ -61,7 +55,6 @@ namespace psm::multiplex::h2mux
             session_ = nullptr;
         }
     }
-
 
     auto control::run() -> net::awaitable<void>
     {
@@ -76,14 +69,12 @@ namespace psm::multiplex::h2mux
         co_await frame_loop();
     }
 
-
-    auto control::write_frame(outbound_frame frame)
-        -> net::awaitable<void>
+    auto control::write_frame(outbound_frame frame) -> net::awaitable<void>
     {
         if (frame.kind == outbound_kind::fin)
         {
-            nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
-                                      static_cast<std::int32_t>(frame.stream_id), NGHTTP2_NO_ERROR);
+            nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE, static_cast<std::int32_t>(frame.stream_id),
+                                      NGHTTP2_NO_ERROR);
             co_await send_pending();
             co_return;
         }
@@ -102,9 +93,8 @@ namespace psm::multiplex::h2mux
 
         nghttp2_data_provider dp;
         dp.source.ptr = raw;
-        dp.read_callback = [](nghttp2_session *, int32_t stream_id, uint8_t *buf,
-                              size_t length, uint32_t *data_flags,
-                              nghttp2_data_source *, void *user_data) -> ssize_t
+        dp.read_callback = [](nghttp2_session *, int32_t stream_id, uint8_t *buf, size_t length,
+                              uint32_t *data_flags, nghttp2_data_source *, void *user_data) -> ssize_t
         {
             auto *self = static_cast<control *>(user_data);
             auto it = self->pending_data_.find(stream_id);
@@ -134,8 +124,8 @@ namespace psm::multiplex::h2mux
             return static_cast<ssize_t>(to_copy);
         };
 
-        const std::int32_t rv = nghttp2_submit_data(session_, NGHTTP2_FLAG_NONE,
-                                                    static_cast<std::int32_t>(frame.stream_id), &dp);
+        const std::int32_t rv =
+            nghttp2_submit_data(session_, NGHTTP2_FLAG_NONE, static_cast<std::int32_t>(frame.stream_id), &dp);
         if (rv != 0)
         {
             pending_data_.erase(frame.stream_id);
@@ -145,7 +135,6 @@ namespace psm::multiplex::h2mux
 
         co_await send_pending();
     }
-
 
     auto control::init_nghttp2() -> std::int32_t
     {
@@ -170,7 +159,9 @@ namespace psm::multiplex::h2mux
 
         const std::int32_t rv = nghttp2_session_server_new3(&session_, callbacks, this, option, nullptr);
         if (option)
+        {
             nghttp2_option_del(option);
+        }
         nghttp2_session_callbacks_del(callbacks);
 
         if (rv != 0)
@@ -188,7 +179,6 @@ namespace psm::multiplex::h2mux
         diagnose::debug(prefix_, "nghttp2 session initialized");
         return 0;
     }
-
 
     auto control::frame_loop() -> net::awaitable<void>
     {
@@ -215,14 +205,12 @@ namespace psm::multiplex::h2mux
 
             // 安全：nghttp2 API 要求 uint8_t*，recv_buf 仅作只读输入
             const auto recv_len = nghttp2_session_mem_recv(
-                session_,
-                reinterpret_cast<const std::uint8_t *>(recv_buf.data()),
-                n);
+                session_, reinterpret_cast<const std::uint8_t *>(recv_buf.data()), n);
 
             if (recv_len < 0)
             {
                 diagnose::error(prefix_, "nghttp2 recv error: {}",
-                             nghttp2_strerror(static_cast<std::int32_t>(recv_len)));
+                                nghttp2_strerror(static_cast<std::int32_t>(recv_len)));
                 break;
             }
 
@@ -238,7 +226,6 @@ namespace psm::multiplex::h2mux
         diagnose::debug(prefix_, "frame loop ended");
     }
 
-
     auto control::send_pending() -> net::awaitable<void>
     {
         while (true)
@@ -253,9 +240,8 @@ namespace psm::multiplex::h2mux
 
             std::error_code write_ec;
             // 安全：将 nghttp2 输出数据 (uint8_t*) 转为 byte span 写入传输层
-            co_await transport::async_write(*transport_,
-                std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(data), len),
+            co_await transport::async_write(
+                *transport_, std::span<const std::byte>(reinterpret_cast<const std::byte *>(data), len),
                 write_ec);
 
             if (write_ec)
@@ -265,7 +251,6 @@ namespace psm::multiplex::h2mux
             }
         }
     }
-
 
     void control::handle_connect(const std::int32_t stream_id)
     {
@@ -294,7 +279,6 @@ namespace psm::multiplex::h2mux
         }
     }
 
-
     void control::spawn_activate(const std::uint32_t stream_id)
     {
         auto it = h2_pending_.find(stream_id);
@@ -306,16 +290,16 @@ namespace psm::multiplex::h2mux
         it->second.connecting = true;
         auto self = std::static_pointer_cast<control>(shared_from_this());
         auto activate_task = [self, id = stream_id]() -> net::awaitable<void>
-        {
-            co_await self->activate_stream(id);
-        };
+        { co_await self->activate_stream(id); };
         auto on_error = [](const std::exception_ptr &ep)
         {
-            if (ep) log_spawn_error(ep, "activate_stream");
+            if (ep)
+            {
+                log_spawn_error(ep, "activate_stream");
+            }
         };
         net::co_spawn(transport_->executor(), std::move(activate_task), std::move(on_error));
     }
-
 
     auto control::activate_stream(const std::uint32_t stream_id) -> net::awaitable<void>
     {
@@ -331,29 +315,30 @@ namespace psm::multiplex::h2mux
 
         switch (info.type)
         {
-        case stream_type::check:
-        {
+        case stream_type::check: {
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
-                diagnose::warn(prefix_, "respond_connect for health check stream {} failed: nghttp2 rc={}", stream_id, rc);
+                diagnose::warn(prefix_, "respond_connect for health check stream {} failed: nghttp2 rc={}",
+                               stream_id, rc);
             }
             co_await send_pending();
-            nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
-                                      static_cast<std::int32_t>(stream_id), NGHTTP2_NO_ERROR);
+            nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE, static_cast<std::int32_t>(stream_id),
+                                      NGHTTP2_NO_ERROR);
             co_await send_pending();
             diagnose::debug(prefix_, "stream {} health check completed", stream_id);
             co_return;
         }
 
-        case stream_type::udp:
-        {
-            diagnose::debug(prefix_, "stream {} creating UDP datagram -> {}:{}", stream_id, info.host, info.port);
+        case stream_type::udp: {
+            diagnose::debug(prefix_, "stream {} creating UDP datagram -> {}:{}", stream_id, info.host,
+                            info.port);
 
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
-                diagnose::warn(prefix_, "respond_connect for UDP stream {} failed: nghttp2 rc={}", stream_id, rc);
+                diagnose::warn(prefix_, "respond_connect for UDP stream {} failed: nghttp2 rc={}", stream_id,
+                               rc);
             }
             co_await send_pending();
 
@@ -367,10 +352,8 @@ namespace psm::multiplex::h2mux
             {
                 auto status_payload = memory::vector<std::byte>(mr_);
                 status_payload.push_back(std::byte{0});
-                co_await write_frame(outbound_frame{
-                    stream_id,
-                    std::move(status_payload),
-                    outbound_kind::data});
+                co_await write_frame(
+                    outbound_frame{stream_id, std::move(status_payload), outbound_kind::data});
             }
             // StreamRequest 后的剩余数据（length-prefixed UDP 包）交给重组缓冲
             if (!pending_data.empty())
@@ -407,13 +390,13 @@ namespace psm::multiplex::h2mux
             {
                 auto self = std::static_pointer_cast<control>(shared_from_this());
                 auto process_task = [self, id = stream_id]() -> net::awaitable<void>
-                {
-                    co_await self->process_udp(id, memory::vector<std::byte>(self->mr_));
-                };
+                { co_await self->process_udp(id, memory::vector<std::byte>(self->mr_)); };
                 auto on_error = [](const std::exception_ptr &ep)
                 {
                     if (ep)
+                    {
                         log_spawn_error(ep, "process pending udp");
+                    }
                 };
                 net::co_spawn(transport_->executor(), std::move(process_task), std::move(on_error));
             }
@@ -422,15 +405,13 @@ namespace psm::multiplex::h2mux
             co_return;
         }
 
-        case stream_type::icmp:
-        {
+        case stream_type::icmp: {
             diagnose::warn(prefix_, "stream {} ICMP not yet implemented, treating as TCP", stream_id);
             [[fallthrough]];
         }
 
         case stream_type::tcp:
-        default:
-        {
+        default: {
             diagnose::debug(prefix_, "stream {} connecting to {}:{}", stream_id, info.host, info.port);
 
             char port_buf[8];
@@ -448,8 +429,8 @@ namespace psm::multiplex::h2mux
             if (code != fault::code::success || !trans)
             {
                 diagnose::warn(prefix_, "stream {} connect to {}:{} failed", stream_id, info.host, info.port);
-                nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE,
-                                          static_cast<std::int32_t>(stream_id), NGHTTP2_INTERNAL_ERROR);
+                nghttp2_submit_rst_stream(session_, NGHTTP2_FLAG_NONE, static_cast<std::int32_t>(stream_id),
+                                          NGHTTP2_INTERNAL_ERROR);
                 co_await send_pending();
                 co_return;
             }
@@ -457,7 +438,8 @@ namespace psm::multiplex::h2mux
             const auto rc = respond_connect(static_cast<std::int32_t>(stream_id), 200);
             if (rc != 0)
             {
-                diagnose::warn(prefix_, "respond_connect for TCP stream {} failed: nghttp2 rc={}", stream_id, rc);
+                diagnose::warn(prefix_, "respond_connect for TCP stream {} failed: nghttp2 rc={}", stream_id,
+                               rc);
             }
             co_await send_pending();
 
@@ -477,10 +459,8 @@ namespace psm::multiplex::h2mux
             {
                 auto status_payload = memory::vector<std::byte>(mr_);
                 status_payload.push_back(std::byte{0});
-                co_await write_frame(outbound_frame{
-                    stream_id,
-                    std::move(status_payload),
-                    outbound_kind::data});
+                co_await write_frame(
+                    outbound_frame{stream_id, std::move(status_payload), outbound_kind::data});
             }
             // StreamRequest 后的剩余数据转发给流
             if (!pending_data.empty())
@@ -492,7 +472,6 @@ namespace psm::multiplex::h2mux
         }
         }
     }
-
 
     auto control::process_udp(const std::uint32_t stream_id, memory::vector<std::byte> payload)
         -> net::awaitable<void>
@@ -551,12 +530,12 @@ namespace psm::multiplex::h2mux
                 if (offset < local.size())
                 {
                     entry.buffer.insert(entry.buffer.begin(),
-                                        local.begin() + static_cast<std::ptrdiff_t>(offset),
-                                        local.end());
+                                        local.begin() + static_cast<std::ptrdiff_t>(offset), local.end());
                 }
 
                 has_progress = offset > 0;
-            } while (has_progress && !entry.buffer.empty() && is_active());
+            }
+            while (has_progress && !entry.buffer.empty() && is_active());
         }
         catch (const std::exception &e)
         {
@@ -569,7 +548,6 @@ namespace psm::multiplex::h2mux
         entry.processing = false;
     }
 
-
     auto control::on_begin_headers(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
     {
         auto *self = static_cast<control *>(user_data);
@@ -577,8 +555,7 @@ namespace psm::multiplex::h2mux
         // 注：begin_headers 阶段 frame->headers.nva 尚未填充（头在 on_header
         // 回调中逐个到达），此处只按帧类型预注册 pending，:method 校验在
         // on_frame_recv（HEADERS 完整到达）时执行。
-        if (frame->hd.type == NGHTTP2_HEADERS &&
-            frame->headers.cat == NGHTTP2_HCAT_REQUEST)
+        if (frame->hd.type == NGHTTP2_HEADERS && frame->headers.cat == NGHTTP2_HCAT_REQUEST)
         {
             const auto stream_id = static_cast<std::uint32_t>(frame->hd.stream_id);
             h2_pending_entry entry;
@@ -589,11 +566,9 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-
-    auto control::on_header(nghttp2_session *, const nghttp2_frame *frame,
-                            const uint8_t *name, const size_t namelen,
-                            const uint8_t *value, const size_t valuelen,
-                            uint8_t, void *user_data) -> int
+    auto control::on_header(nghttp2_session *, const nghttp2_frame *frame, const uint8_t *name,
+                            const size_t namelen, const uint8_t *value, const size_t valuelen, uint8_t,
+                            void *user_data) -> int
     {
         auto *self = static_cast<control *>(user_data);
 
@@ -634,13 +609,11 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-
     auto control::on_frame_recv(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
     {
         auto *self = static_cast<control *>(user_data);
 
-        if (frame->hd.type != NGHTTP2_HEADERS ||
-            frame->headers.cat != NGHTTP2_HCAT_REQUEST)
+        if (frame->hd.type != NGHTTP2_HEADERS || frame->headers.cat != NGHTTP2_HCAT_REQUEST)
         {
             return 0;
         }
@@ -667,9 +640,8 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-
-    auto control::on_data(nghttp2_session *, uint8_t, const int32_t stream_id,
-                          const uint8_t *data, const size_t len, void *user_data) -> int
+    auto control::on_data(nghttp2_session *, uint8_t, const int32_t stream_id, const uint8_t *data,
+                          const size_t len, void *user_data) -> int
     {
         auto *self = static_cast<control *>(user_data);
         const auto id = static_cast<std::uint32_t>(stream_id);
@@ -678,8 +650,7 @@ namespace psm::multiplex::h2mux
         {
             // sing-mux：首个 DATA 帧载荷为 StreamRequest，解析后激活
             auto &entry = self->h2_pending_[id];
-            entry.buffer.insert(entry.buffer.end(),
-                                reinterpret_cast<const std::byte *>(data),
+            entry.buffer.insert(entry.buffer.end(), reinterpret_cast<const std::byte *>(data),
                                 reinterpret_cast<const std::byte *>(data) + len);
 
             if (!entry.info.valid)
@@ -690,16 +661,16 @@ namespace psm::multiplex::h2mux
                     // 数据不足：等待更多 DATA 帧（防无限累积）
                     if (entry.buffer.size() > 512)
                     {
-                        nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE,
-                                                  stream_id, NGHTTP2_PROTOCOL_ERROR);
+                        nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE, stream_id,
+                                                  NGHTTP2_PROTOCOL_ERROR);
                     }
                     return 0;
                 }
                 if (request->consumed == 0)
                 {
                     // 非法地址类型
-                    nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE,
-                                              stream_id, NGHTTP2_PROTOCOL_ERROR);
+                    nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE, stream_id,
+                                              NGHTTP2_PROTOCOL_ERROR);
                     return 0;
                 }
 
@@ -711,9 +682,9 @@ namespace psm::multiplex::h2mux
                 // StreamRequest 之后的剩余数据暂存，激活后转发
                 if (request->consumed < entry.buffer.size())
                 {
-                    entry.pending_data.assign(
-                        entry.buffer.begin() + static_cast<std::ptrdiff_t>(request->consumed),
-                        entry.buffer.end());
+                    entry.pending_data.assign(entry.buffer.begin() +
+                                                  static_cast<std::ptrdiff_t>(request->consumed),
+                                              entry.buffer.end());
                 }
 
                 self->spawn_activate(id);
@@ -721,8 +692,7 @@ namespace psm::multiplex::h2mux
             }
 
             // 目标已解析：后续 DATA 直接累积转发（激活可能尚未完成）
-            entry.pending_data.insert(entry.pending_data.end(),
-                                      reinterpret_cast<const std::byte *>(data),
+            entry.pending_data.insert(entry.pending_data.end(), reinterpret_cast<const std::byte *>(data),
                                       reinterpret_cast<const std::byte *>(data) + len);
             return 0;
         }
@@ -731,15 +701,13 @@ namespace psm::multiplex::h2mux
         {
             auto sp = dit->second;
             // 安全：将 nghttp2 数据帧载荷 (uint8_t*) 转为 byte vector 分发到 stream
-            auto payload = memory::vector<std::byte>(
-                reinterpret_cast<const std::byte *>(data),
-                reinterpret_cast<const std::byte *>(data) + len, self->mr_);
+            auto payload =
+                memory::vector<std::byte>(reinterpret_cast<const std::byte *>(data),
+                                          reinterpret_cast<const std::byte *>(data) + len, self->mr_);
 
             auto self_ptr = std::static_pointer_cast<control>(self->shared_from_this());
             auto dispatch_data = [sp, p = std::move(payload), self_ptr]() mutable -> net::awaitable<void>
-            {
-                co_await sp->on_data(std::move(p));
-            };
+            { co_await sp->on_data(std::move(p)); };
             auto on_stream_error = [sp](const std::exception_ptr &ep)
             {
                 if (ep)
@@ -754,15 +722,13 @@ namespace psm::multiplex::h2mux
 
         if (self->datagrams_.contains(id))
         {
-            auto payload = memory::vector<std::byte>(
-                reinterpret_cast<const std::byte *>(data),
-                reinterpret_cast<const std::byte *>(data) + len, self->mr_);
+            auto payload =
+                memory::vector<std::byte>(reinterpret_cast<const std::byte *>(data),
+                                          reinterpret_cast<const std::byte *>(data) + len, self->mr_);
 
             auto self_ptr = std::static_pointer_cast<control>(self->shared_from_this());
             auto dispatch_udp = [self_ptr, id, p = std::move(payload)]() mutable -> net::awaitable<void>
-            {
-                co_await self_ptr->process_udp(id, std::move(p));
-            };
+            { co_await self_ptr->process_udp(id, std::move(p)); };
             auto on_udp_error = [self_ptr, id](const std::exception_ptr &ep)
             {
                 if (ep)
@@ -779,9 +745,8 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-
-    auto control::on_stream_close(nghttp2_session *, const int32_t stream_id,
-                                  uint32_t error_code, void *user_data) -> int
+    auto control::on_stream_close(nghttp2_session *, const int32_t stream_id, uint32_t error_code,
+                                  void *user_data) -> int
     {
         auto *self = static_cast<control *>(user_data);
         const auto id = static_cast<std::uint32_t>(stream_id);
@@ -805,9 +770,7 @@ namespace psm::multiplex::h2mux
         return 0;
     }
 
-
-    auto control::wait_first_connect()
-        -> net::awaitable<std::optional<h2_headers>>
+    auto control::wait_first_connect() -> net::awaitable<std::optional<h2_headers>>
     {
         if (connect_resolved_)
         {
@@ -819,8 +782,7 @@ namespace psm::multiplex::h2mux
         }
 
         boost::system::error_code ec;
-        co_await connect_waiter_.async_wait(
-            net::redirect_error(net::use_awaitable, ec));
+        co_await connect_waiter_.async_wait(net::redirect_error(net::use_awaitable, ec));
 
         if (first_connect_.authority.empty())
         {
@@ -829,44 +791,38 @@ namespace psm::multiplex::h2mux
         co_return std::move(first_connect_);
     }
 
-
     auto control::respond_connect(const std::int32_t stream_id, const std::uint32_t status) -> std::int32_t
     {
         if (!session_)
+        {
             return NGHTTP2_ERR_INVALID_STATE;
+        }
 
         const char *status_str = "407";
         if (status == 200)
+        {
             status_str = "200";
+        }
         // 安全：nghttp2 要求可变 uint8_t*，字符串字面量经 const_cast 满足 API 兼容
         auto status_name = const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(":status"));
         auto status_val = const_cast<std::uint8_t *>(reinterpret_cast<const std::uint8_t *>(status_str));
-        nghttp2_nv hdrs[] = {
-            {status_name, status_val, 7, 3, NGHTTP2_NV_FLAG_NONE}};
+        nghttp2_nv hdrs[] = {{status_name, status_val, 7, 3, NGHTTP2_NV_FLAG_NONE}};
 
-        return nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE,
-                                      stream_id, nullptr, hdrs, 1, nullptr);
+        return nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE, stream_id, nullptr, hdrs, 1, nullptr);
     }
 
-
-    auto control::make_resolve() const
-        -> resolve_fn
+    auto control::make_resolve() const -> resolve_fn
     {
-        return [this](std::string_view host, std::string_view port)
-            -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
-        {
-            co_return co_await router_fn_(host, port);
-        };
+        return [this](std::string_view host,
+                      std::string_view port) -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
+        { co_return co_await router_fn_(host, port); };
     }
 
-
-    auto control::make_emit(const std::uint32_t stream_id)
-        -> emit_fn
+    auto control::make_emit(const std::uint32_t stream_id) -> emit_fn
     {
         auto self = std::static_pointer_cast<control>(shared_from_this());
         return [self, stream_id](const std::string_view, const std::uint16_t,
-                                 const std::span<const std::byte> payload)
-            -> net::awaitable<void>
+                                 const std::span<const std::byte> payload) -> net::awaitable<void>
         {
             auto encoded = smux::build_prefixed(payload, self->mr_);
             co_await self->send(stream_id, std::move(encoded));

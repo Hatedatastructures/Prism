@@ -5,7 +5,6 @@
 
 #include <common/proxy/hysteria2/hysteria2.hpp>
 #include <common/proxy/tuic/tuic.hpp>
-
 #include <gtest/gtest.h>
 
 namespace

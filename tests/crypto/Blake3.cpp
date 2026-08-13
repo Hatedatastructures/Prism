@@ -5,16 +5,17 @@
  * 覆盖确定性、不同上下文/材料、span 与 vector 重载一致性、输出长度、空输入等场景。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/crypto/blake3.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+
 #include <array>
 #include <cstdint>
 #include <cstring>
 #include <span>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 /**
  * @brief 测试 BLAKE3 derive_key 确定性
@@ -73,8 +74,7 @@ TEST(Blake3, SpanVsVectorOverload)
 
     EXPECT_EQ(vec_result.size(), span_result.size())
         << "span and vector overloads should produce same size output";
-    EXPECT_EQ(vec_result, span_result)
-        << "span and vector overloads should produce identical output";
+    EXPECT_EQ(vec_result, span_result) << "span and vector overloads should produce identical output";
 }
 
 /**

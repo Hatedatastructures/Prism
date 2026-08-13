@@ -7,8 +7,6 @@
  *          检测是否为 TLS 1.3 握手以及解析 host:port 地址。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/restls/crypto.hpp>
 
@@ -17,6 +15,8 @@
 #include <cstring>
 #include <optional>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 // 拉入源文件中 anonymous namespace 的函数定义
 // 注意：必须在所有头文件之后 include

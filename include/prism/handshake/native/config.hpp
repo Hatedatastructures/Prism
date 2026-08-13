@@ -9,7 +9,6 @@
 
 #include <prism/foundation/memory/container.hpp>
 
-
 namespace psm::handshake::native
 {
 

@@ -14,5 +14,3 @@
 #include <prism/diagnose/config.hpp>
 #include <prism/diagnose/context.hpp>
 #include <prism/diagnose/log.hpp>
-
-

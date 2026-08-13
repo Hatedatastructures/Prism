@@ -6,14 +6,14 @@
  */
 
 #include <prism/crypto/base64.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include <cstdint>
 #include <string>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -53,7 +53,8 @@ namespace
             std::string text = "Hello, World!";
             std::vector<std::uint8_t> input(text.begin(), text.end());
             auto result = psm::crypto::base64_encode(input);
-            EXPECT_EQ(result, "SGVsbG8sIFdvcmxkIQ==") << "Base64('Hello, World!') == \"SGVsbG8sIFdvcmxkIQ==\"";
+            EXPECT_EQ(result, "SGVsbG8sIFdvcmxkIQ==")
+                << "Base64('Hello, World!') == \"SGVsbG8sIFdvcmxkIQ==\"";
         }
     }
 
@@ -105,12 +106,9 @@ namespace
     TEST(Base64Encode, Long)
     {
         // 32 bytes of random-looking data
-        std::vector<std::uint8_t> input = {
-            0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE,
-            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-            0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
-            0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8
-        };
+        std::vector<std::uint8_t> input = {0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE, 0x00, 0x01, 0x02,
+                                           0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+                                           0x0E, 0x0F, 0xFF, 0xFE, 0xFD, 0xFC, 0xFB, 0xFA, 0xF9, 0xF8};
 
         auto result = psm::crypto::base64_encode(input);
 

@@ -1,15 +1,14 @@
-#include <prism/handshake/trusttunnel/scheme.hpp>
-
-#include <prism/settings/settings.hpp>
-#include <prism/net/connection/util.hpp>
-#include <prism/resource/session.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/multiplex/h2mux/control.hpp>
+#include <prism/handshake/trusttunnel/scheme.hpp>
 #include <prism/net/connection/types.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/net/connection/util.hpp>
 #include <prism/net/transport/encrypted.hpp>
 #include <prism/net/transport/preview.hpp>
+#include <prism/protocol/multiplex/h2mux/control.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
 #include <openssl/evp.h>
@@ -24,14 +23,10 @@ namespace psm::handshake::trusttunnel
 
     namespace
     {
-        auto verify_basic_auth(
-            std::string_view auth_header,
-            const memory::vector<user> &users)
-            -> bool
+        auto verify_basic_auth(std::string_view auth_header, const memory::vector<user> &users) -> bool
         {
             constexpr std::string_view prefix = "Basic ";
-            if (auth_header.size() <= prefix.size() ||
-                auth_header.substr(0, prefix.size()) != prefix)
+            if (auth_header.size() <= prefix.size() || auth_header.substr(0, prefix.size()) != prefix)
             {
                 return false;
             }
@@ -48,22 +43,21 @@ namespace psm::handshake::trusttunnel
                 constexpr std::size_t max_cred_len = 192;
                 if (creds_view.size() > max_cred_len)
                 {
-                    diagnose::warn(std::shared_ptr<diagnose::context>{}, "凭据长度 {} 超过安全阈值 {}，跳过该用户",
-                        creds_view.size(), max_cred_len);
+                    diagnose::warn(std::shared_ptr<diagnose::context>{},
+                                   "凭据长度 {} 超过安全阈值 {}，跳过该用户", creds_view.size(),
+                                   max_cred_len);
                     continue;
                 }
 
                 std::array<std::uint8_t, 256> encode_buf{};
                 // 安全：SSL API 要求 uint8_t*，字符串数据仅读取用于 Base64 编码
-                auto encoded_len = EVP_EncodeBlock(
-                    encode_buf.data(),
-                    reinterpret_cast<const std::uint8_t *>(creds_view.data()),
-                    static_cast<int>(creds_view.size()));
+                auto encoded_len = EVP_EncodeBlock(encode_buf.data(),
+                                                   reinterpret_cast<const std::uint8_t *>(creds_view.data()),
+                                                   static_cast<int>(creds_view.size()));
 
                 // 安全：将 uint8_t Base64 输出缓冲区转为 string_view 用于比较
-                auto encoded_str = std::string_view(
-                    reinterpret_cast<const char *>(encode_buf.data()),
-                    static_cast<std::size_t>(encoded_len));
+                auto encoded_str = std::string_view(reinterpret_cast<const char *>(encode_buf.data()),
+                                                    static_cast<std::size_t>(encoded_len));
 
                 if (encoded_str == b64_credentials)
                 {
@@ -74,18 +68,13 @@ namespace psm::handshake::trusttunnel
             return false;
         }
 
-
-        auto resolve_stream_target(
-            std::int32_t stream_id,
-            const multiplex::h2mux::h2_headers &headers)
+        auto resolve_stream_target(std::int32_t stream_id, const multiplex::h2mux::h2_headers &headers)
             -> multiplex::h2mux::stream_info
         {
             multiplex::h2mux::stream_info info;
 
-            auto authority = std::string_view(
-                headers.authority.data(), headers.authority.size());
-            auto host = std::string_view(
-                headers.host.data(), headers.host.size());
+            auto authority = std::string_view(headers.authority.data(), headers.authority.size());
+            auto host = std::string_view(headers.host.data(), headers.host.size());
 
             if (host.find("_check") != std::string_view::npos)
             {
@@ -115,8 +104,7 @@ namespace psm::handshake::trusttunnel
             info.host.assign(authority.substr(0, colon));
             auto port_view = authority.substr(colon + 1);
             auto port_val = std::uint16_t{0};
-            auto [_, ec] = std::from_chars(
-                port_view.data(), port_view.data() + port_view.size(), port_val);
+            auto [_, ec] = std::from_chars(port_view.data(), port_view.data() + port_view.size(), port_val);
             if (ec != std::errc())
             {
                 return info;
@@ -128,36 +116,27 @@ namespace psm::handshake::trusttunnel
         }
     } // namespace
 
-
-    auto scheme::active(const psm::settings &cfg) const noexcept
-        -> bool
+    auto scheme::active(const psm::settings &cfg) const noexcept -> bool
     {
         return cfg.stealth.trusttunnel.enabled();
     }
 
-    auto scheme::name() const noexcept
-        -> std::string_view
+    auto scheme::name() const noexcept -> std::string_view
     {
         return "trusttunnel";
     }
 
-    auto scheme::snis(const psm::settings &cfg) const
-        -> memory::vector<memory::string>
+    auto scheme::snis(const psm::settings &cfg) const -> memory::vector<memory::string>
     {
         return make_sni_list(cfg.stealth.trusttunnel.server_names);
     }
 
-    auto scheme::guess(const psm::settings &cfg) const
-        -> verify_result
+    auto scheme::guess(const psm::settings &cfg) const -> verify_result
     {
-        return {
-            .score = 100,
-            .solo_flag = 0,
-            .note = "TrustTunnel: rely on SNI match"};
+        return {.score = 100, .solo_flag = 0, .note = "TrustTunnel: rely on SNI match"};
     }
 
-    auto scheme::handshake(handshake::handshake_context ctx)
-        -> net::awaitable<handshake::handshake_result>
+    auto scheme::handshake(handshake::handshake_context ctx) -> net::awaitable<handshake::handshake_result>
     {
         handshake::handshake_result result;
 
@@ -201,26 +180,27 @@ namespace psm::handshake::trusttunnel
             SSL_CTX_set_session_cache_mode(dst_native, SSL_CTX_get_session_cache_mode(src_native));
 
             // TrustTunnel 专用 ALPN 回调：仅选择 h2
-            SSL_CTX_set_alpn_select_cb(dst_native,
-                [](SSL *, const unsigned char **out, unsigned char *outlen,
-                   const unsigned char *in, unsigned int inlen, void *) -> int
+            SSL_CTX_set_alpn_select_cb(
+                dst_native,
+                [](SSL *, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
+                   unsigned int inlen, void *) -> int
                 {
                     if (SSL_select_next_proto(const_cast<unsigned char **>(out), outlen,
-                        reinterpret_cast<const unsigned char *>("\x2h2"), 3,
-                        in, inlen) == OPENSSL_NPN_NEGOTIATED)
+                                              reinterpret_cast<const unsigned char *>("\x2h2"), 3, in,
+                                              inlen) == OPENSSL_NPN_NEGOTIATED)
                     {
                         return SSL_TLSEXT_ERR_OK;
                     }
                     return SSL_TLSEXT_ERR_NOACK;
-                }, nullptr);
+                },
+                nullptr);
         }
 
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
-        auto clean_inbound = transport::wrap_with_preview(
-            std::move(raw), preread_span);
+        auto clean_inbound = transport::wrap_with_preview(std::move(raw), preread_span);
 
-        auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
-            std::move(clean_inbound), *tt_ssl_ctx);
+        auto [ssl_ec, ssl_stream, recovered] =
+            co_await transport::encrypted::ssl_handshake(std::move(clean_inbound), *tt_ssl_ctx);
 
         if (fault::failed(ssl_ec) || !ssl_stream)
         {
@@ -271,8 +251,7 @@ namespace psm::handshake::trusttunnel
 
         auto &first = *first_opt;
 
-        auto auth_view = std::string_view(
-            first.proxy_auth.data(), first.proxy_auth.size());
+        auto auth_view = std::string_view(first.proxy_auth.data(), first.proxy_auth.size());
         if (cfg.users.empty() || !verify_basic_auth(auth_view, cfg.users))
         {
             diagnose::warn(prefix_, "Authentication failed");

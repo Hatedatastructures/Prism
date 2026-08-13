@@ -1,8 +1,7 @@
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/connection/dialer/dialer.hpp>
-
 #include <prism/net/connection/dialer/racer.hpp>
 #include <prism/net/dns/detail/utility.hpp>
-#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/transport/reliable.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -25,10 +24,10 @@ namespace psm::connect
         struct socket_options
         {
             // 0 = 不设置，使用 Windows 自动调优（自适应 RTT/丢包，避免 64KB 窗口截断带宽）
-            std::uint32_t recv_bufsz = 0U;   // 接收缓冲区大小（字节）
-            std::uint32_t send_bufsz = 0U;   // 发送缓冲区大小（字节）
-            bool tcp_nodelay = true;             // 是否启用 TCP_NODELAY
-            bool keep_alive = true;              // 是否启用 SO_KEEPALIVE
+            std::uint32_t recv_bufsz = 0U; // 接收缓冲区大小（字节）
+            std::uint32_t send_bufsz = 0U; // 发送缓冲区大小（字节）
+            bool tcp_nodelay = true;       // 是否启用 TCP_NODELAY
+            bool keep_alive = true;        // 是否启用 SO_KEEPALIVE
         };
 
         /**
@@ -37,9 +36,9 @@ namespace psm::connect
          */
         struct dial_opts
         {
-            std::chrono::milliseconds timeout{300};        // 连接超时（毫秒）
-            std::shared_ptr<diagnose::context> trace;   // 日志上下文
-            socket_options sock;                           // socket 选项
+            std::chrono::milliseconds timeout{300};   // 连接超时（毫秒）
+            std::shared_ptr<diagnose::context> trace; // 日志上下文
+            socket_options sock;                      // socket 选项
         };
 
         // 新建 socket 的选项设置
@@ -50,31 +49,38 @@ namespace psm::connect
             {
                 sock.set_option(tcp::no_delay(true), opt_ec);
                 if (opt_ec)
+                {
                     opt_ec.clear();
+                }
             }
             if (cfg.keep_alive)
             {
                 sock.set_option(tcp::socket::keep_alive(true), opt_ec);
                 if (opt_ec)
+                {
                     opt_ec.clear();
+                }
             }
             if (cfg.recv_bufsz > 0)
             {
                 sock.set_option(net::socket_base::receive_buffer_size(cfg.recv_bufsz), opt_ec);
                 if (opt_ec)
+                {
                     opt_ec.clear();
+                }
             }
             if (cfg.send_bufsz > 0)
             {
                 sock.set_option(net::socket_base::send_buffer_size(cfg.send_bufsz), opt_ec);
                 if (opt_ec)
+                {
                     opt_ec.clear();
+                }
             }
         }
 
         // 检查目标地址是否为 IPv6 字面量
-        [[nodiscard]] inline auto is_ipv6(const std::string_view host) noexcept
-            -> bool
+        [[nodiscard]] inline auto is_ipv6(const std::string_view host) noexcept -> bool
         {
             boost::system::error_code ec;
             const auto addr = net::ip::make_address(host, ec);
@@ -82,7 +88,8 @@ namespace psm::connect
         }
 
         // 打开 UDP 套接字（按目标地址选择协议族）
-        [[nodiscard]] inline auto open_udp(const net::any_io_executor &executor, const net::ip::udp::endpoint &target)
+        [[nodiscard]] inline auto open_udp(const net::any_io_executor &executor,
+                                           const net::ip::udp::endpoint &target)
             -> std::pair<fault::code, net::ip::udp::socket>
         {
             boost::system::error_code ec;
@@ -104,14 +111,11 @@ namespace psm::connect
     } // namespace
 
     dialer::dialer(dialer_options opts)
-        : dial_timeout_(opts.dial_timeout),
-          mr_(memory::effective_mr(opts.mr)),
-          dns_(std::make_unique<dns::resolver>(opts.ioc, std::move(opts.dns_cfg), mr_)),
-          reverse_map_(mr_),
+        : dial_timeout_(opts.dial_timeout), mr_(memory::effective_mr(opts.mr)),
+          dns_(std::make_unique<dns::resolver>(opts.ioc, std::move(opts.dns_cfg), mr_)), reverse_map_(mr_),
           executor_(opts.ioc.get_executor())
     {
     }
-
 
     void dialer::set_endpoint(const std::string_view host, const std::uint16_t port)
     {
@@ -128,14 +132,12 @@ namespace psm::connect
         positive_port_ = port;
     }
 
-
     void dialer::add_route(const std::string_view host, const tcp::endpoint &ep)
     {
         memory::string host_key(mr_);
         host_key.assign(host);
         reverse_map_.insert_or_assign(std::move(host_key), ep);
     }
-
 
     auto dialer::dial_endpoint(const tcp::endpoint &ep, std::shared_ptr<diagnose::context> trace)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
@@ -186,7 +188,6 @@ namespace psm::connect
         co_return std::make_pair(fault::code::success, std::move(trans));
     }
 
-
     auto dialer::async_reverse(const std::string_view host)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
     {
@@ -204,7 +205,6 @@ namespace psm::connect
 
         co_return std::make_pair(fault::code::success, std::move(conn));
     }
-
 
     auto dialer::connect(const target &t, std::shared_ptr<diagnose::context> trace)
         -> net::awaitable<std::pair<fault::code, shared_transmission>>
@@ -257,7 +257,6 @@ namespace psm::connect
         co_return std::make_pair(fault::code::bad_gateway, shared_transmission{});
     }
 
-
     auto dialer::race(std::span<const tcp::endpoint> endpoints, std::shared_ptr<diagnose::context> trace)
         -> net::awaitable<shared_transmission>
     {
@@ -266,13 +265,9 @@ namespace psm::connect
             co_return shared_transmission{};
         }
 
-        address_racer racer([this](const tcp::endpoint &ep)
-        {
-            return dial_endpoint(ep, nullptr);
-        });
+        address_racer racer([this](const tcp::endpoint &ep) { return dial_endpoint(ep, nullptr); });
         co_return co_await racer.race(endpoints, trace);
     }
-
 
     auto dialer::datagram(std::string_view host, std::string_view port)
         -> net::awaitable<std::pair<fault::code, net::ip::udp::socket>>
@@ -303,7 +298,6 @@ namespace psm::connect
 
         co_return open_udp(executor_, target);
     }
-
 
     auto dialer::resolve_dgram(std::string_view host, std::string_view port)
         -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>

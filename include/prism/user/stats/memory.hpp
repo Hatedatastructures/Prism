@@ -12,7 +12,6 @@
 #include <atomic>
 #include <cstdint>
 
-
 namespace psm::stats
 {
 
@@ -31,8 +30,7 @@ namespace psm::stats
          * @brief 获取全局单例
          * @return memory_tracker 引用
          */
-        [[nodiscard]] static auto instance()
-            -> memory_tracker &
+        [[nodiscard]] static auto instance() -> memory_tracker &
         {
             static memory_tracker inst;
             return inst;
@@ -66,23 +64,19 @@ namespace psm::stats
          * @return 包含分配/释放/活跃/次数的快照
          * @note 快照为松散一致，不保证跨字段的原子性
          */
-        [[nodiscard]] auto snapshot() const noexcept
-            -> memory_snapshot
+        [[nodiscard]] auto snapshot() const noexcept -> memory_snapshot
         {
-            return memory_snapshot{
-                .total_allocated = total_allocated_.load(std::memory_order_relaxed),
-                .total_deallocated = total_deallocated_.load(std::memory_order_relaxed),
-                .current_usage = current_usage_.load(std::memory_order_relaxed),
-                .allocation_count = allocation_count_.load(std::memory_order_relaxed)
-            };
+            return memory_snapshot{.total_allocated = total_allocated_.load(std::memory_order_relaxed),
+                                   .total_deallocated = total_deallocated_.load(std::memory_order_relaxed),
+                                   .current_usage = current_usage_.load(std::memory_order_relaxed),
+                                   .allocation_count = allocation_count_.load(std::memory_order_relaxed)};
         }
 
         /**
          * @brief 读取累计分配字节
          * @return 累计分配字节数
          */
-        [[nodiscard]] auto total_allocated() const noexcept
-            -> std::uint64_t
+        [[nodiscard]] auto total_allocated() const noexcept -> std::uint64_t
         {
             return total_allocated_.load(std::memory_order_relaxed);
         }
@@ -91,8 +85,7 @@ namespace psm::stats
          * @brief 读取当前活跃字节
          * @return 当前活跃字节数
          */
-        [[nodiscard]] auto current_usage() const noexcept
-            -> std::uint64_t
+        [[nodiscard]] auto current_usage() const noexcept -> std::uint64_t
         {
             return current_usage_.load(std::memory_order_relaxed);
         }
@@ -101,16 +94,15 @@ namespace psm::stats
          * @brief 读取分配次数
          * @return 累计分配次数
          */
-        [[nodiscard]] auto allocation_count() const noexcept
-            -> std::uint64_t
+        [[nodiscard]] auto allocation_count() const noexcept -> std::uint64_t
         {
             return allocation_count_.load(std::memory_order_relaxed);
         }
 
     private:
-        std::atomic<std::uint64_t> total_allocated_{0};      ///< 累计分配字节
-        std::atomic<std::uint64_t> total_deallocated_{0};     ///< 累计释放字节
-        std::atomic<std::uint64_t> current_usage_{0};         ///< 当前活跃字节
-        std::atomic<std::uint64_t> allocation_count_{0};      ///< 分配次数
+        std::atomic<std::uint64_t> total_allocated_{0};   ///< 累计分配字节
+        std::atomic<std::uint64_t> total_deallocated_{0}; ///< 累计释放字节
+        std::atomic<std::uint64_t> current_usage_{0};     ///< 当前活跃字节
+        std::atomic<std::uint64_t> allocation_count_{0};  ///< 分配次数
     };
 } // namespace psm::stats

@@ -11,11 +11,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/session_base.hpp>
-#include <common/core/transport/stream.hpp>
-#include <common/core/transport/transport_base.hpp>
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
@@ -25,6 +20,11 @@
 #include <memory>
 #include <span>
 #include <string>
+
+#include <common/core/error.hpp>
+#include <common/core/session_base.hpp>
+#include <common/core/transport/stream.hpp>
+#include <common/core/transport/transport_base.hpp>
 
 namespace psmtest
 {
@@ -59,17 +59,21 @@ namespace psmtest
     public:
         virtual ~client_base() = default;
 
-        /// @brief 建立连接并完成握手（客户端视角）
-        /// @param raw 底层传输流（类型擦除）
-        /// @param target 目标地址
-        /// @param timeout 握手超时
-        /// @return 数据会话；nullptr = 握手失败
+        /**
+         * @brief 建立连接并完成握手（客户端视角）
+         * @param raw 底层传输流（类型擦除）
+         * @param target 目标地址
+         * @param timeout 握手超时
+         * @return 数据会话；nullptr = 握手失败
+         */
         virtual auto connect(transport_base &raw, const address &target,
                              std::chrono::milliseconds timeout = std::chrono::milliseconds{5000})
-            -> net::awaitable<std::shared_ptr<session_base>>
-            = 0;
+            -> net::awaitable<std::shared_ptr<session_base>> = 0;
 
-        /// 获取执行器
+        /**
+         * @brief 获取执行器
+         * @return 关联的执行器
+         */
         [[nodiscard]] virtual auto executor() const -> net::any_io_executor = 0;
     };
 
@@ -79,17 +83,21 @@ namespace psmtest
     public:
         virtual ~server_base() = default;
 
-        /// @brief 接收连接并完成握手（服务端视角）
-        /// @param raw 底层传输流（类型擦除）
-        /// @param target 输出参数：客户端请求的目标地址
-        /// @param timeout 握手超时
-        /// @return 数据会话；nullptr = 握手失败
+        /**
+         * @brief 接收连接并完成握手（服务端视角）
+         * @param raw 底层传输流（类型擦除）
+         * @param target 输出参数：客户端请求的目标地址
+         * @param timeout 握手超时
+         * @return 数据会话；nullptr = 握手失败
+         */
         virtual auto accept(transport_base &raw, address &target,
                             std::chrono::milliseconds timeout = std::chrono::milliseconds{5000})
-            -> net::awaitable<std::shared_ptr<session_base>>
-            = 0;
+            -> net::awaitable<std::shared_ptr<session_base>> = 0;
 
-        /// 获取执行器
+        /**
+         * @brief 获取执行器
+         * @return 关联的执行器
+         */
         [[nodiscard]] virtual auto executor() const -> net::any_io_executor = 0;
     };
 

@@ -10,16 +10,17 @@
  * server-side craft session 与模拟客户端
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/net/connection/outbound/direct.hpp>
 #include <prism/diagnose/log.hpp>
-#include <prism/protocol/protocol.hpp>
-#include <prism/net/transport/reliable.hpp>
-#include <prism/net/connection/dialer/dialer.hpp>
-#include <prism/net/dns/resolver.hpp>
 #include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
+#include <prism/net/dns/resolver.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/protocol/protocol.hpp>
 
-#include <gtest/gtest.h>
+#include <boost/asio.hpp>
+#include <boost/asio/ip/tcp.hpp>
 
 #include <array>
 #include <chrono>
@@ -30,8 +31,7 @@
 #include <string_view>
 #include <utility>
 
-#include <boost/asio.hpp>
-#include <boost/asio/ip/tcp.hpp>
+#include <gtest/gtest.h>
 
 namespace net = boost::asio;
 using tcp = net::ip::tcp;
@@ -43,211 +43,209 @@ using namespace psm::multiplex;
 namespace
 {
 
-/**
+    /**
  * @brief 构建 smux 帧头（小端序）
  */
-[[nodiscard]] auto build_smux_header(const smux::command cmd, const std::uint16_t length,
-                                     const std::uint32_t stream_id) -> std::array<std::byte, 8>
-{
-    return {
-        std::byte{smux::protocol_version},
-        static_cast<std::byte>(cmd),
-        static_cast<std::byte>(length & 0xFF),
-        static_cast<std::byte>((length >> 8) & 0xFF),
-        static_cast<std::byte>(stream_id & 0xFF),
-        static_cast<std::byte>((stream_id >> 8) & 0xFF),
-        static_cast<std::byte>((stream_id >> 16) & 0xFF),
-        static_cast<std::byte>((stream_id >> 24) & 0xFF),
-    };
-}
+    [[nodiscard]] auto build_smux_header(const smux::command cmd, const std::uint16_t length,
+                                         const std::uint32_t stream_id) -> std::array<std::byte, 8>
+    {
+        return {
+            std::byte{smux::protocol_version},
+            static_cast<std::byte>(cmd),
+            static_cast<std::byte>(length & 0xFF),
+            static_cast<std::byte>((length >> 8) & 0xFF),
+            static_cast<std::byte>(stream_id & 0xFF),
+            static_cast<std::byte>((stream_id >> 8) & 0xFF),
+            static_cast<std::byte>((stream_id >> 16) & 0xFF),
+            static_cast<std::byte>((stream_id >> 24) & 0xFF),
+        };
+    }
 
-/**
+    /**
  * @brief 构建 yamux 帧头（大端序）
  */
-[[nodiscard]] auto build_yamux_header(const yamux::message_type type, const yamux::flags flag,
-                                      const std::uint32_t stream_id,
-                                      const std::uint32_t length) -> std::array<std::byte, 12>
-{
-    yamux::frame_header hdr{};
-    hdr.version = yamux::protocol_version;
-    hdr.type = type;
-    hdr.flag = flag;
-    hdr.stream_id = stream_id;
-    hdr.length = length;
-    return yamux::build_header(hdr);
-}
+    [[nodiscard]] auto build_yamux_header(const yamux::message_type type, const yamux::flags flag,
+                                          const std::uint32_t stream_id, const std::uint32_t length)
+        -> std::array<std::byte, 12>
+    {
+        yamux::frame_header hdr{};
+        hdr.version = yamux::protocol_version;
+        hdr.type = type;
+        hdr.flag = flag;
+        hdr.stream_id = stream_id;
+        hdr.length = length;
+        return yamux::build_header(hdr);
+    }
 
-/**
+    /**
  * @brief 构建指向 127.0.0.1:port 的 SOCKS5 TCP 地址（sing-mux StreamRequest 格式）
  */
-[[nodiscard]] auto make_tcp_address(const std::uint16_t port) -> std::vector<std::byte>
-{
-    std::vector<std::byte> buf;
-    buf.push_back(std::byte{0x00}); // flags high
-    buf.push_back(std::byte{0x00}); // flags low: TCP
-    buf.push_back(std::byte{0x01}); // ATYP IPv4
-    buf.push_back(std::byte{127});
-    buf.push_back(std::byte{0});
-    buf.push_back(std::byte{0});
-    buf.push_back(std::byte{1}); // 127.0.0.1
-    buf.push_back(std::byte{static_cast<unsigned char>((port >> 8) & 0xFF)});
-    buf.push_back(std::byte{static_cast<unsigned char>(port & 0xFF)});
-    return buf;
-}
+    [[nodiscard]] auto make_tcp_address(const std::uint16_t port) -> std::vector<std::byte>
+    {
+        std::vector<std::byte> buf;
+        buf.push_back(std::byte{0x00}); // flags high
+        buf.push_back(std::byte{0x00}); // flags low: TCP
+        buf.push_back(std::byte{0x01}); // ATYP IPv4
+        buf.push_back(std::byte{127});
+        buf.push_back(std::byte{0});
+        buf.push_back(std::byte{0});
+        buf.push_back(std::byte{1}); // 127.0.0.1
+        buf.push_back(std::byte{static_cast<unsigned char>((port >> 8) & 0xFF)});
+        buf.push_back(std::byte{static_cast<unsigned char>(port & 0xFF)});
+        return buf;
+    }
 
-/**
+    /**
  * @brief 构建指向 127.0.0.1:port 的 SOCKS5 UDP 地址
  */
-[[nodiscard]] auto make_udp_address(const std::uint16_t port) -> std::vector<std::byte>
-{
-    std::vector<std::byte> buf;
-    buf.push_back(std::byte{0x00}); // flags high
-    buf.push_back(std::byte{0x01}); // flags low: is_udp=true
-    buf.push_back(std::byte{0x01}); // ATYP IPv4
-    buf.push_back(std::byte{127});
-    buf.push_back(std::byte{0});
-    buf.push_back(std::byte{0});
-    buf.push_back(std::byte{1}); // 127.0.0.1
-    buf.push_back(std::byte{static_cast<unsigned char>((port >> 8) & 0xFF)});
-    buf.push_back(std::byte{static_cast<unsigned char>(port & 0xFF)});
-    return buf;
-}
+    [[nodiscard]] auto make_udp_address(const std::uint16_t port) -> std::vector<std::byte>
+    {
+        std::vector<std::byte> buf;
+        buf.push_back(std::byte{0x00}); // flags high
+        buf.push_back(std::byte{0x01}); // flags low: is_udp=true
+        buf.push_back(std::byte{0x01}); // ATYP IPv4
+        buf.push_back(std::byte{127});
+        buf.push_back(std::byte{0});
+        buf.push_back(std::byte{0});
+        buf.push_back(std::byte{1}); // 127.0.0.1
+        buf.push_back(std::byte{static_cast<unsigned char>((port >> 8) & 0xFF)});
+        buf.push_back(std::byte{static_cast<unsigned char>(port & 0xFF)});
+        return buf;
+    }
 
-/**
+    /**
  * @brief 构建 SOCKS5 UDP relay 数据报
  */
-[[nodiscard]] auto make_udp_datagram(const std::uint16_t port,
-                                     const std::span<const std::byte> payload) -> std::vector<std::byte>
-{
-    std::vector<std::byte> buf;
-    buf.push_back(std::byte{0x01}); // ATYP IPv4
-    buf.push_back(std::byte{127});
-    buf.push_back(std::byte{0});
-    buf.push_back(std::byte{0});
-    buf.push_back(std::byte{1}); // 127.0.0.1
-    buf.push_back(std::byte{static_cast<unsigned char>((port >> 8) & 0xFF)});
-    buf.push_back(std::byte{static_cast<unsigned char>(port & 0xFF)});
-    buf.insert(buf.end(), payload.begin(), payload.end());
-    return buf;
-}
+    [[nodiscard]] auto make_udp_datagram(const std::uint16_t port, const std::span<const std::byte> payload)
+        -> std::vector<std::byte>
+    {
+        std::vector<std::byte> buf;
+        buf.push_back(std::byte{0x01}); // ATYP IPv4
+        buf.push_back(std::byte{127});
+        buf.push_back(std::byte{0});
+        buf.push_back(std::byte{0});
+        buf.push_back(std::byte{1}); // 127.0.0.1
+        buf.push_back(std::byte{static_cast<unsigned char>((port >> 8) & 0xFF)});
+        buf.push_back(std::byte{static_cast<unsigned char>(port & 0xFF)});
+        buf.insert(buf.end(), payload.begin(), payload.end());
+        return buf;
+    }
 
-// ── echo server 协程 ──
+    // ── echo server 协程 ──
 
-/**
+    /**
  * @brief TCP echo server 协程，接受一个连接后原样回传
  */
-auto echo_server(tcp::acceptor acceptor) -> net::awaitable<void>
-{
-    boost::system::error_code ec;
-    auto token = net::redirect_error(net::use_awaitable, ec);
-    auto socket = co_await acceptor.async_accept(token);
-    if (ec)
+    auto echo_server(tcp::acceptor acceptor) -> net::awaitable<void>
     {
-        co_return;
-    }
-
-    std::array<char, 8192> buf{};
-    while (true)
-    {
-        boost::system::error_code read_ec;
-        auto read_token = net::redirect_error(net::use_awaitable, read_ec);
-        const auto n = co_await socket.async_read_some(net::buffer(buf), read_token);
-        if (read_ec || n == 0)
+        boost::system::error_code ec;
+        auto token = net::redirect_error(net::use_awaitable, ec);
+        auto socket = co_await acceptor.async_accept(token);
+        if (ec)
         {
-            break;
+            co_return;
         }
-        boost::system::error_code write_ec;
-        auto write_token = net::redirect_error(net::use_awaitable, write_ec);
-        co_await net::async_write(socket, net::buffer(buf.data(), n), write_token);
-        if (write_ec)
+
+        std::array<char, 8192> buf{};
+        while (true)
         {
-            break;
+            boost::system::error_code read_ec;
+            auto read_token = net::redirect_error(net::use_awaitable, read_ec);
+            const auto n = co_await socket.async_read_some(net::buffer(buf), read_token);
+            if (read_ec || n == 0)
+            {
+                break;
+            }
+            boost::system::error_code write_ec;
+            auto write_token = net::redirect_error(net::use_awaitable, write_ec);
+            co_await net::async_write(socket, net::buffer(buf.data(), n), write_token);
+            if (write_ec)
+            {
+                break;
+            }
         }
     }
-}
 
-// ── 辅助：通过 localhost 创建已连接的 socket pair ──
+    // ── 辅助：通过 localhost 创建已连接的 socket pair ──
 
-auto make_socket_pair(net::any_io_executor ex) -> net::awaitable<std::pair<tcp::socket, tcp::socket>>
-{
-    tcp::acceptor acceptor(ex, tcp::endpoint(net::ip::address_v4::loopback(), 0));
-    auto client_socket = tcp::socket(ex);
-    co_await client_socket.async_connect(acceptor.local_endpoint(), net::use_awaitable);
-    auto server_socket = co_await acceptor.async_accept(net::use_awaitable);
-    co_return std::make_pair(std::move(client_socket), std::move(server_socket));
-}
-
-// ── 辅助：异步写入原始字节 ──
-
-auto async_write_raw(tcp::socket &sock, const std::span<const std::byte> data) -> net::awaitable<void>
-{
-    boost::system::error_code ec;
-    co_await net::async_write(sock, net::buffer(data.data(), data.size()),
-                              net::redirect_error(net::use_awaitable, ec));
-}
-
-// ── 辅助：异步读取至少 min_bytes 字节 ──
-
-auto async_read_at_least(tcp::socket &sock, std::span<std::byte> buffer,
-                         const std::size_t min_bytes) -> net::awaitable<std::size_t>
-{
-    boost::system::error_code ec;
-    auto n = co_await net::async_read(sock, net::mutable_buffer(buffer.data(), buffer.size()),
-                                      net::transfer_at_least(min_bytes),
-                                      net::redirect_error(net::use_awaitable, ec));
-    if (ec)
+    auto make_socket_pair(net::any_io_executor ex) -> net::awaitable<std::pair<tcp::socket, tcp::socket>>
     {
-        co_return 0;
+        tcp::acceptor acceptor(ex, tcp::endpoint(net::ip::address_v4::loopback(), 0));
+        auto client_socket = tcp::socket(ex);
+        co_await client_socket.async_connect(acceptor.local_endpoint(), net::use_awaitable);
+        auto server_socket = co_await acceptor.async_accept(net::use_awaitable);
+        co_return std::make_pair(std::move(client_socket), std::move(server_socket));
     }
-    co_return n;
-}
 
-// ── 辅助：异步等待 ──
+    // ── 辅助：异步写入原始字节 ──
 
-auto async_wait(net::any_io_executor ex, const std::chrono::milliseconds dur) -> net::awaitable<void>
-{
-    net::steady_timer timer(ex);
-    timer.expires_after(dur);
-    boost::system::error_code ec;
-    co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
-}
+    auto async_write_raw(tcp::socket &sock, const std::span<const std::byte> data) -> net::awaitable<void>
+    {
+        boost::system::error_code ec;
+        co_await net::async_write(sock, net::buffer(data.data(), data.size()),
+                                  net::redirect_error(net::use_awaitable, ec));
+    }
 
-// ── 辅助：等待 session 变为非活跃 ──
+    // ── 辅助：异步读取至少 min_bytes 字节 ──
 
-auto wait_for_inactive(const std::shared_ptr<multiplexer> &session, net::any_io_executor ex,
-                       const std::chrono::milliseconds timeout = std::chrono::milliseconds(500))
-    -> net::awaitable<void>
-{
-    // 轮询等待 session 变为非活跃状态，或超时
-    const auto deadline = std::chrono::steady_clock::now() + timeout;
-    while (session->is_active() && std::chrono::steady_clock::now() < deadline)
+    auto async_read_at_least(tcp::socket &sock, std::span<std::byte> buffer, const std::size_t min_bytes)
+        -> net::awaitable<std::size_t>
+    {
+        boost::system::error_code ec;
+        auto n = co_await net::async_read(sock, net::mutable_buffer(buffer.data(), buffer.size()),
+                                          net::transfer_at_least(min_bytes),
+                                          net::redirect_error(net::use_awaitable, ec));
+        if (ec)
+        {
+            co_return 0;
+        }
+        co_return n;
+    }
+
+    // ── 辅助：异步等待 ──
+
+    auto async_wait(net::any_io_executor ex, const std::chrono::milliseconds dur) -> net::awaitable<void>
     {
         net::steady_timer timer(ex);
-        timer.expires_after(std::chrono::milliseconds(10));
+        timer.expires_after(dur);
         boost::system::error_code ec;
         co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
     }
-}
 
-// ── 测试基础设施工厂 ──
+    // ── 辅助：等待 session 变为非活跃 ──
 
-struct LifecycleContext
-{
-    net::io_context ioc;
-    psm::connect::dialer router;
-    psm::outbound::direct outbound;
-    psm::multiplex::config mux_config;
-
-    LifecycleContext()
-: router({ioc, psm::dns::config{}}),
-          outbound(router)
+    auto wait_for_inactive(const std::shared_ptr<multiplexer> &session, net::any_io_executor ex,
+                           const std::chrono::milliseconds timeout = std::chrono::milliseconds(500))
+        -> net::awaitable<void>
     {
-        mux_config.smux.keepalive_interval = 0;
-        mux_config.yamux.enable_ping = false;
-        mux_config.yamux.ping_interval = 0;
-        mux_config.yamux.open_timeout = 0;
+        // 轮询等待 session 变为非活跃状态，或超时
+        const auto deadline = std::chrono::steady_clock::now() + timeout;
+        while (session->is_active() && std::chrono::steady_clock::now() < deadline)
+        {
+            net::steady_timer timer(ex);
+            timer.expires_after(std::chrono::milliseconds(10));
+            boost::system::error_code ec;
+            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+        }
     }
-};
+
+    // ── 测试基础设施工厂 ──
+
+    struct LifecycleContext
+    {
+        net::io_context ioc;
+        psm::connect::dialer router;
+        psm::outbound::direct outbound;
+        psm::multiplex::config mux_config;
+
+        LifecycleContext() : router({ioc, psm::dns::config{}}), outbound(router)
+        {
+            mux_config.smux.keepalive_interval = 0;
+            mux_config.yamux.enable_ping = false;
+            mux_config.yamux.ping_interval = 0;
+            mux_config.yamux.open_timeout = 0;
+        }
+    };
 
 } // namespace
 
@@ -273,7 +271,8 @@ TEST(MuxLifecycle, SmuxTcpLifecycle)
 
         // 创建 smux 服务端 session
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(
+            multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 1;
@@ -282,7 +281,8 @@ TEST(MuxLifecycle, SmuxTcpLifecycle)
 
         // PSH 携带 TCP 目标地址
         auto address = make_tcp_address(echo_port);
-        auto psh_header = build_smux_header(smux::command::push, static_cast<std::uint16_t>(address.size()), stream_id);
+        auto psh_header =
+            build_smux_header(smux::command::push, static_cast<std::uint16_t>(address.size()), stream_id);
         std::vector<std::byte> addr_frame;
         addr_frame.insert(addr_frame.end(), psh_header.begin(), psh_header.end());
         addr_frame.insert(addr_frame.end(), address.begin(), address.end());
@@ -356,8 +356,12 @@ TEST(MuxLifecycle, SmuxTcpLifecycle)
         session->close();
     };
 
-    net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
-                  { ep = e; ctx->ioc.stop(); });
+    net::co_spawn(ctx->ioc, coro(),
+                  [&](std::exception_ptr e)
+                  {
+                      ep = e;
+                      ctx->ioc.stop();
+                  });
     ctx->ioc.run();
 
     if (ep)
@@ -395,7 +399,8 @@ TEST(MuxLifecycle, YamuxTcpLifecycle)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(
+            multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 1;
@@ -516,8 +521,12 @@ TEST(MuxLifecycle, YamuxTcpLifecycle)
         session->close();
     };
 
-    net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
-                  { ep = e; ctx->ioc.stop(); });
+    net::co_spawn(ctx->ioc, coro(),
+                  [&](std::exception_ptr e)
+                  {
+                      ep = e;
+                      ctx->ioc.stop();
+                  });
     ctx->ioc.run();
 
     if (ep)
@@ -551,7 +560,8 @@ TEST(MuxLifecycle, SmuxUdpLifecycle)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(
+            multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 2;
@@ -559,7 +569,8 @@ TEST(MuxLifecycle, SmuxUdpLifecycle)
         co_await async_write_raw(client_sock, syn_frame);
 
         auto address = make_udp_address(53);
-        auto psh_header = build_smux_header(smux::command::push, static_cast<std::uint16_t>(address.size()), stream_id);
+        auto psh_header =
+            build_smux_header(smux::command::push, static_cast<std::uint16_t>(address.size()), stream_id);
         std::vector<std::byte> addr_frame;
         addr_frame.insert(addr_frame.end(), psh_header.begin(), psh_header.end());
         addr_frame.insert(addr_frame.end(), address.begin(), address.end());
@@ -571,7 +582,8 @@ TEST(MuxLifecycle, SmuxUdpLifecycle)
         if (n >= 9)
         {
             auto hdr = smux::deserialization(read_buf);
-            if (hdr && hdr->cmd == smux::command::push && hdr->stream_id == stream_id && read_buf[8] == std::byte{0x00})
+            if (hdr && hdr->cmd == smux::command::push && hdr->stream_id == stream_id &&
+                read_buf[8] == std::byte{0x00})
             {
                 status_ok = true;
             }
@@ -580,7 +592,8 @@ TEST(MuxLifecycle, SmuxUdpLifecycle)
         // 发送 UDP 数据报
         const std::byte udp_payload[] = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
         auto udp_dg = make_udp_datagram(53, udp_payload);
-        auto dg_header = build_smux_header(smux::command::push, static_cast<std::uint16_t>(udp_dg.size()), stream_id);
+        auto dg_header =
+            build_smux_header(smux::command::push, static_cast<std::uint16_t>(udp_dg.size()), stream_id);
         std::vector<std::byte> dg_frame;
         dg_frame.insert(dg_frame.end(), dg_header.begin(), dg_header.end());
         dg_frame.insert(dg_frame.end(), udp_dg.begin(), udp_dg.end());
@@ -599,8 +612,12 @@ TEST(MuxLifecycle, SmuxUdpLifecycle)
         session->close();
     };
 
-    net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
-                  { ep = e; ctx->ioc.stop(); });
+    net::co_spawn(ctx->ioc, coro(),
+                  [&](std::exception_ptr e)
+                  {
+                      ep = e;
+                      ctx->ioc.stop();
+                  });
     ctx->ioc.run();
 
     if (ep)
@@ -638,7 +655,8 @@ TEST(MuxLifecycle, SmuxAbruptDisconnect)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(
+            multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 1;
@@ -646,7 +664,8 @@ TEST(MuxLifecycle, SmuxAbruptDisconnect)
         co_await async_write_raw(client_sock, syn);
 
         auto address = make_tcp_address(echo_port);
-        auto psh = build_smux_header(smux::command::push, static_cast<std::uint16_t>(address.size()), stream_id);
+        auto psh =
+            build_smux_header(smux::command::push, static_cast<std::uint16_t>(address.size()), stream_id);
         std::vector<std::byte> frame;
         frame.insert(frame.end(), psh.begin(), psh.end());
         frame.insert(frame.end(), address.begin(), address.end());
@@ -671,8 +690,12 @@ TEST(MuxLifecycle, SmuxAbruptDisconnect)
         pass = inactive;
     };
 
-    net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
-                  { ep = e; ctx->ioc.stop(); });
+    net::co_spawn(ctx->ioc, coro(),
+                  [&](std::exception_ptr e)
+                  {
+                      ep = e;
+                      ctx->ioc.stop();
+                  });
     ctx->ioc.run();
 
     if (ep)
@@ -710,7 +733,8 @@ TEST(MuxLifecycle, YamuxAbruptDisconnect)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(
+            multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 1;
@@ -737,8 +761,12 @@ TEST(MuxLifecycle, YamuxAbruptDisconnect)
         pass = inactive;
     };
 
-    net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
-                  { ep = e; ctx->ioc.stop(); });
+    net::co_spawn(ctx->ioc, coro(),
+                  [&](std::exception_ptr e)
+                  {
+                      ep = e;
+                      ctx->ioc.stop();
+                  });
     ctx->ioc.run();
 
     if (ep)
@@ -780,7 +808,8 @@ TEST(MuxLifecycle, SmuxMultiStream)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<smux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<smux::control>(
+            multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         for (std::uint32_t sid = 1; sid <= 2; ++sid)
@@ -831,8 +860,12 @@ TEST(MuxLifecycle, SmuxMultiStream)
         session->close();
     };
 
-    net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
-                  { ep = e; ctx->ioc.stop(); });
+    net::co_spawn(ctx->ioc, coro(),
+                  [&](std::exception_ptr e)
+                  {
+                      ep = e;
+                      ctx->ioc.stop();
+                  });
     ctx->ioc.run();
 
     if (ep)
@@ -870,7 +903,8 @@ TEST(MuxLifecycle, YamuxRstStream)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(
+            multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         const std::uint32_t stream_id = 5;
@@ -901,8 +935,12 @@ TEST(MuxLifecycle, YamuxRstStream)
         session->close();
     };
 
-    net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
-                  { ep = e; ctx->ioc.stop(); });
+    net::co_spawn(ctx->ioc, coro(),
+                  [&](std::exception_ptr e)
+                  {
+                      ep = e;
+                      ctx->ioc.stop();
+                  });
     ctx->ioc.run();
 
     if (ep)
@@ -936,7 +974,8 @@ TEST(MuxLifecycle, YamuxGoAway)
         auto [client_sock, server_sock] = co_await make_socket_pair(ex);
 
         auto server_transport = psm::transport::make_reliable(std::move(server_sock));
-        auto session = std::make_shared<yamux::control>(multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+        auto session = std::make_shared<yamux::control>(
+            multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
         session->start();
 
         auto go_away = yamux::build_goaway(yamux::away_code::protocol_error);
@@ -951,8 +990,12 @@ TEST(MuxLifecycle, YamuxGoAway)
         pass = closed;
     };
 
-    net::co_spawn(ctx->ioc, coro(), [&](std::exception_ptr e)
-                  { ep = e; ctx->ioc.stop(); });
+    net::co_spawn(ctx->ioc, coro(),
+                  [&](std::exception_ptr e)
+                  {
+                      ep = e;
+                      ctx->ioc.stop();
+                  });
     ctx->ioc.run();
 
     if (ep)

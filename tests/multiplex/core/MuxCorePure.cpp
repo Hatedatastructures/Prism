@@ -6,8 +6,8 @@
  *          枚举值，确认 core.hpp 头文件可正确 include。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 

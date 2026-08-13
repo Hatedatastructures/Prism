@@ -1,10 +1,9 @@
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/common.hpp>
 #include <prism/handshake/shadowtls/transport.hpp>
-
 #include <prism/net/transport/reliable.hpp>
 #include <prism/net/transport/transmission.hpp>
 #include <prism/protocol/tls/record.hpp>
-#include <prism/handshake/common.hpp>
-#include <prism/diagnose/diagnose.hpp>
 
 #include <openssl/crypto.h>
 #include <openssl/hmac.h>
@@ -21,15 +20,21 @@ namespace psm::handshake::shadowtls
 
     namespace
     {
-        /// 计算 XOR 密钥：SHA256(password + serverRandom)
-        [[nodiscard]] auto compute_write_key(std::string_view password, std::span<const std::byte> server_random)
+        /**
+         * @brief 计算 XOR 密钥：SHA256(password + serverRandom)
+         * @param password 共享密码
+         * @param server_random 服务器随机数
+         * @return 32 字节写密钥
+         */
+        [[nodiscard]] auto compute_write_key(std::string_view password,
+                                             std::span<const std::byte> server_random)
             -> memory::vector<std::uint8_t>
         {
             SHA256_CTX sha_ctx;
             SHA256_Init(&sha_ctx);
             SHA256_Update(&sha_ctx, password.data(), password.size());
             SHA256_Update(&sha_ctx, reinterpret_cast<const std::uint8_t *>(server_random.data()),
-                         server_random.size());
+                          server_random.size());
             memory::vector<std::uint8_t> key(32);
             SHA256_Final(key.data(), &sha_ctx);
             return key;
@@ -38,28 +43,31 @@ namespace psm::handshake::shadowtls
 
     shadowtls_transport::shadowtls_transport(transport::shared_transmission lower,
                                              shadowtls_handover handover)
-        : lower_(std::move(lower))
-        , write_key_(compute_write_key(handover.password, handover.server_random))
-        , initial_buffer_(handover.initial_data.begin(), handover.initial_data.end())
-        , hmac_write_ctx_(std::move(handover.hmac_write_ctx))
-        , hmac_read_ctx_(std::move(handover.hmac_read_ctx))
+        : lower_(std::move(lower)), write_key_(compute_write_key(handover.password, handover.server_random)),
+          initial_buffer_(handover.initial_data.begin(), handover.initial_data.end()),
+          hmac_write_ctx_(std::move(handover.hmac_write_ctx)),
+          hmac_read_ctx_(std::move(handover.hmac_read_ctx))
     {
         std::memcpy(server_random_.data(), handover.server_random.data(), handover.server_random.size());
 
         const auto *hw_str = "no";
         if (hmac_write_ctx_)
+        {
             hw_str = "yes";
+        }
         const auto *hr_str = "no";
         if (hmac_read_ctx_)
+        {
             hr_str = "yes";
-        diagnose::debug(prefix_, "shadowtls_transport created, initial_data_size={}, hmac_write_ctx={}, hmac_read_ctx={}",
-                    handover.initial_data.size(), hw_str, hr_str);
+        }
+        diagnose::debug(
+            prefix_, "shadowtls_transport created, initial_data_size={}, hmac_write_ctx={}, hmac_read_ctx={}",
+            handover.initial_data.size(), hw_str, hr_str);
     }
 
     shadowtls_transport::~shadowtls_transport() noexcept
     {
     }
-
 
     auto shadowtls_transport::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -67,7 +75,8 @@ namespace psm::handshake::shadowtls
         ec.clear();
 
         diagnose::debug(prefix_, "async_read_some: buf={}, init_off={}, init_sz={}, pend_off={}, pend_sz={}",
-                    buffer.size(), initial_offset_, initial_buffer_.size(), pending_offset_, pending_buffer_.size());
+                        buffer.size(), initial_offset_, initial_buffer_.size(), pending_offset_,
+                        pending_buffer_.size());
 
         if (initial_offset_ < initial_buffer_.size())
         {
@@ -121,7 +130,6 @@ namespace psm::handshake::shadowtls
         co_return n;
     }
 
-
     auto shadowtls_transport::read_tls_frame(std::error_code &ec)
         -> net::awaitable<std::optional<memory::vector<std::byte>>>
     {
@@ -154,8 +162,7 @@ namespace psm::handshake::shadowtls
         std::array<std::uint8_t, hmac_size> client_hmac{};
         std::memcpy(client_hmac.data(), payload.data(), hmac_size);
 
-        auto actual_data = std::span<const std::byte>(
-            payload.data() + hmac_size, payload.size() - hmac_size);
+        auto actual_data = std::span<const std::byte>(payload.data() + hmac_size, payload.size() - hmac_size);
 
         if (!hmac_read_ctx_)
         {
@@ -164,9 +171,8 @@ namespace psm::handshake::shadowtls
             co_return std::nullopt;
         }
 
-        HMAC_Update(hmac_read_ctx_.get(),
-                   reinterpret_cast<const std::uint8_t *>(actual_data.data()),
-                   actual_data.size());
+        HMAC_Update(hmac_read_ctx_.get(), reinterpret_cast<const std::uint8_t *>(actual_data.data()),
+                    actual_data.size());
 
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
         std::uint32_t md_len = 0;
@@ -189,13 +195,13 @@ namespace psm::handshake::shadowtls
 
         HMAC_Update(hmac_read_ctx_.get(), client_hmac.data(), hmac_size);
 
-        diagnose::debug(prefix_, "TLS frame verified (cumulative HMAC), payload_size={}, added HMAC to cumulative state",
-                    actual_data.size());
+        diagnose::debug(
+            prefix_, "TLS frame verified (cumulative HMAC), payload_size={}, added HMAC to cumulative state",
+            actual_data.size());
 
         memory::vector<std::byte> result(actual_data.begin(), actual_data.end());
         co_return result;
     }
-
 
     auto shadowtls_transport::async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -204,7 +210,6 @@ namespace psm::handshake::shadowtls
         return write_tls_frame(buffer, ec);
     }
 
-
     auto shadowtls_transport::async_write(std::span<const std::byte> data, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
@@ -212,16 +217,14 @@ namespace psm::handshake::shadowtls
         return write_tls_frame(data, ec);
     }
 
-
     auto shadowtls_transport::write_tls_frame(std::span<const std::byte> payload, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         ec.clear();
         diagnose::debug(prefix_, "write_tls_frame: payload_size={}", payload.size());
 
-        HMAC_Update(hmac_write_ctx_.get(),
-                   reinterpret_cast<const std::uint8_t *>(payload.data()),
-                   payload.size());
+        HMAC_Update(hmac_write_ctx_.get(), reinterpret_cast<const std::uint8_t *>(payload.data()),
+                    payload.size());
 
         HMAC_CTX *hmac_copy = HMAC_CTX_new();
         HMAC_CTX_copy(hmac_copy, hmac_write_ctx_.get());
@@ -239,18 +242,13 @@ namespace psm::handshake::shadowtls
         std::memcpy(tls_payload.data(), hmac_tag.data(), hmac_size);
         std::memcpy(tls_payload.data() + hmac_size, payload.data(), payload.size());
 
-        auto frame_rec = ::psm::tls::record::builder()
-                             .type(content_appdata)
-                             .version(0x0303)
-                             .payload(tls_payload)
-                             .build();
+        auto frame_rec =
+            ::psm::tls::record::builder().type(content_appdata).version(0x0303).payload(tls_payload).build();
         auto frame_bytes = frame_rec.serialize();
 
         std::error_code write_ec;
         co_await transport::async_write(
-            *lower_,
-            std::span<const std::byte>(frame_bytes.data(), frame_bytes.size()),
-            write_ec);
+            *lower_, std::span<const std::byte>(frame_bytes.data(), frame_bytes.size()), write_ec);
 
         if (write_ec)
         {
@@ -263,19 +261,18 @@ namespace psm::handshake::shadowtls
         co_return payload.size();
     }
 
-
     void shadowtls_transport::shutdown_write()
     {
         if (auto *rel = lowest_layer<transport::reliable>())
+        {
             rel->shutdown_write();
+        }
     }
-
 
     void shadowtls_transport::close()
     {
         lower_->close();
     }
-
 
     void shadowtls_transport::cancel()
     {

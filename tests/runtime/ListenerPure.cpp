@@ -5,11 +5,12 @@
  *          测试 IPv4/IPv6/loopback/zero 地址的亲和性哈希计算。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include <boost/asio.hpp>
+
+#include <gtest/gtest.h>
 
 namespace net = boost::asio;
 

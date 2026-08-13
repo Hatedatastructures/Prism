@@ -4,12 +4,12 @@
  * @details 测试 padding_factory 构造和 generate_sizes 纯逻辑。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/anytls/padding.hpp>
 
 #include <cstdint>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -28,11 +28,10 @@ namespace
 
     TEST(AnytlsPadding, SimpleScheme)
     {
-        psm::handshake::anytls::padding_factory factory(
-            "stop=3\n"
-            "0=100-200\n"
-            "1=50-50,c\n"
-            "2=300-500");
+        psm::handshake::anytls::padding_factory factory("stop=3\n"
+                                                        "0=100-200\n"
+                                                        "1=50-50,c\n"
+                                                        "2=300-500");
 
         EXPECT_EQ(factory.enabled(), true) << "simple scheme enabled";
         EXPECT_EQ(factory.stop, 3) << "stop = 3";
@@ -45,7 +44,8 @@ namespace
         auto sizes1 = factory.generate_sizes(1);
         EXPECT_EQ(sizes1.size(), 2) << "pkt 1 has 2 segments";
         EXPECT_EQ(sizes1[0], 50) << "pkt 1 first segment = 50";
-        EXPECT_EQ(sizes1[1], psm::handshake::anytls::padding_factory::checkmark) << "pkt 1 second segment is checkmark";
+        EXPECT_EQ(sizes1[1], psm::handshake::anytls::padding_factory::checkmark)
+            << "pkt 1 second segment is checkmark";
     }
 
     TEST(AnytlsPadding, GenerateBeyondStop)
@@ -53,8 +53,7 @@ namespace
         psm::handshake::anytls::padding_factory factory("stop=2\n0=100-200");
         auto sizes = factory.generate_sizes(5);
         EXPECT_EQ(sizes.size(), 1) << "beyond stop → single checkmark";
-        EXPECT_EQ(sizes[0], psm::handshake::anytls::padding_factory::checkmark)
-            << "beyond stop → checkmark";
+        EXPECT_EQ(sizes[0], psm::handshake::anytls::padding_factory::checkmark) << "beyond stop → checkmark";
     }
 
     TEST(AnytlsPadding, GenerateMissingPkt)
@@ -62,8 +61,7 @@ namespace
         psm::handshake::anytls::padding_factory factory("stop=5\n0=100-200\n2=300-400");
         auto sizes = factory.generate_sizes(1);
         EXPECT_EQ(sizes.size(), 1) << "missing pkt → single checkmark";
-        EXPECT_EQ(sizes[0], psm::handshake::anytls::padding_factory::checkmark)
-            << "missing pkt → checkmark";
+        EXPECT_EQ(sizes[0], psm::handshake::anytls::padding_factory::checkmark) << "missing pkt → checkmark";
     }
 
     TEST(AnytlsPadding, CheckmarkOnly)

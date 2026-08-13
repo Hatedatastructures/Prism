@@ -23,7 +23,6 @@
 #include <string_view>
 #include <system_error>
 
-
 namespace psm::exception
 {
 
@@ -63,8 +62,10 @@ namespace psm::exception
          * @details 将字符串转换为 generic_error 错误码，
          * 建议迁移到错误码构造函数。
          */
-        explicit deviant(const std::string &msg, const std::source_location &loc = std::source_location::current())
-            : deviant(std::error_code(static_cast<int>(fault::code::generic_error), fault::category()), msg, loc)
+        explicit deviant(const std::string &msg,
+                         const std::source_location &loc = std::source_location::current())
+            : deviant(std::error_code(static_cast<int>(fault::code::generic_error), fault::category()), msg,
+                      loc)
         {
         }
 
@@ -87,13 +88,19 @@ namespace psm::exception
          * @brief 获取异常的错误码
          * @return 错误码引用
          */
-        [[nodiscard]] auto error_code() const noexcept -> const std::error_code & { return ec_; }
+        [[nodiscard]] auto error_code() const noexcept -> const std::error_code &
+        {
+            return ec_;
+        }
 
         /**
          * @brief 获取异常抛出时的位置信息
          * @return 包含文件名、行号、列号等位置信息
          */
-        [[nodiscard]] auto location() const noexcept -> const std::source_location & { return location_; }
+        [[nodiscard]] auto location() const noexcept -> const std::source_location &
+        {
+            return location_;
+        }
 
         /**
          * @brief 获取异常抛出时的文件名
@@ -113,8 +120,8 @@ namespace psm::exception
          */
         [[nodiscard]] virtual auto dump() const -> std::string
         {
-            return std::format("[{}:{}] [{}:{}] {}", filename(), location_.line(),
-                               type_name(), ec_.value(), std::runtime_error::what());
+            return std::format("[{}:{}] [{}:{}] {}", filename(), location_.line(), type_name(), ec_.value(),
+                               std::runtime_error::what());
         }
 
     protected:

@@ -5,9 +5,8 @@
  *          测试 add_route/lookup/matches_any/registered_snis/empty
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
+#include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 

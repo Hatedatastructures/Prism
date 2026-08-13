@@ -14,7 +14,6 @@
 #include <chrono>
 #include <memory>
 
-
 namespace psm::stats::runtime
 {
 
@@ -68,8 +67,7 @@ namespace psm::stats::runtime
          * @brief 获取当前负载快照
          * @return 包含活跃会话数、待分发数、事件循环延迟的快照
          */
-        [[nodiscard]] auto snapshot() const noexcept
-            -> worker_snapshot;
+        [[nodiscard]] auto snapshot() const noexcept -> worker_snapshot;
 
         /**
          * @brief 启动事件循环延迟监测协程
@@ -79,13 +77,13 @@ namespace psm::stats::runtime
          * 存入 lag_us_。前 16 次采样为预热，用于
          * 建立抖动基线，之后的有效延迟需超过 1ms 才计入。
          */
-        [[nodiscard]] auto observe(net::io_context &ioc)
-            -> net::awaitable<void>;
+        [[nodiscard]] auto observe(net::io_context &ioc) -> net::awaitable<void>;
 
     private:
-        std::shared_ptr<std::atomic<std::uint32_t>> active_sessions_;  ///< 活跃会话计数器（共享给 on_closed 回调）
-        std::atomic<std::uint32_t> pending_handoffs_{0};               ///< 待分发连接数
-        std::atomic<std::uint64_t> lag_us_{0};                     ///< 事件循环延迟（微秒，EMA 平滑后）
+        std::shared_ptr<std::atomic<std::uint32_t>>
+            active_sessions_;                            ///< 活跃会话计数器（共享给 on_closed 回调）
+        std::atomic<std::uint32_t> pending_handoffs_{0}; ///< 待分发连接数
+        std::atomic<std::uint64_t> lag_us_{0};           ///< 事件循环延迟（微秒，EMA 平滑后）
     };
 
     /**
@@ -102,8 +100,7 @@ namespace psm::stats::runtime
          * @brief 获取全局单例
          * @return system_state 引用
          */
-        [[nodiscard]] static auto instance()
-            -> system_state &;
+        [[nodiscard]] static auto instance() -> system_state &;
 
         /**
          * @brief 标记系统已启动（仅调用一次）
@@ -116,12 +113,11 @@ namespace psm::stats::runtime
          * @brief 获取运行状态快照
          * @return 包含运行时间和 worker 数量的快照
          */
-        [[nodiscard]] auto snapshot() const noexcept
-            -> runtime_snapshot;
+        [[nodiscard]] auto snapshot() const noexcept -> runtime_snapshot;
 
     private:
-        std::atomic<bool> started_{false};                              ///< 是否已启动
-        std::chrono::steady_clock::time_point start_time_{};           ///< 启动时间点
-        std::uint32_t worker_count_{0};                                 ///< 工作线程数量
+        std::atomic<bool> started_{false};                   ///< 是否已启动
+        std::chrono::steady_clock::time_point start_time_{}; ///< 启动时间点
+        std::uint32_t worker_count_{0};                      ///< 工作线程数量
     };
 } // namespace psm::stats::runtime

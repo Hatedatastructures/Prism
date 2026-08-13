@@ -12,7 +12,6 @@
 #include <optional>
 #include <string_view>
 
-
 namespace psm::dns::detail
 {
 
@@ -32,8 +31,7 @@ namespace psm::dns::detail
         }
 
         std::uint32_t value = 0;
-        const auto result = std::from_chars(
-            port_str.data(), port_str.data() + port_str.size(), value);
+        const auto result = std::from_chars(port_str.data(), port_str.data() + port_str.size(), value);
 
         if (result.ec != std::errc{} || value > 65535)
         {

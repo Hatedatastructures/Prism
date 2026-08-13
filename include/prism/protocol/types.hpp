@@ -11,7 +11,7 @@
 namespace psm::protocol
 {
 
-using psm::connect::protocol_type;
-using psm::connect::to_string_view;
+    using psm::connect::protocol_type;
+    using psm::connect::to_string_view;
 
 } // namespace psm::protocol

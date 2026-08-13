@@ -7,19 +7,17 @@
  *          decrypt_inbound 期望 request_type (0x00) 包体。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/protocol/shadowsocks/util/datagram.hpp>
-#include <prism/protocol/shadowsocks/util/tracker.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/crypto/block.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
+#include <prism/protocol/shadowsocks/util/datagram.hpp>
+#include <prism/protocol/shadowsocks/util/tracker.hpp>
 
 #include <array>
 #include <cstdint>
 #include <cstring>
-
 
 #include <gtest/gtest.h>
 
@@ -35,9 +33,13 @@ namespace
         {
             std::uint32_t n = static_cast<std::uint32_t>(data[i]) << 16;
             if (i + 1 < data.size())
+            {
                 n |= static_cast<std::uint32_t>(data[i + 1]) << 8;
+            }
             if (i + 2 < data.size())
+            {
                 n |= static_cast<std::uint32_t>(data[i + 2]);
+            }
             out.push_back(table[(n >> 18) & 0x3F]);
             out.push_back(table[(n >> 12) & 0x3F]);
             out.push_back((i + 1 < data.size()) ? table[(n >> 6) & 0x3F] : '=');
@@ -51,7 +53,9 @@ namespace
         psm::protocol::shadowsocks::config cfg;
         std::array<std::uint8_t, 16> key{};
         for (std::size_t i = 0; i < 16; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
         cfg.psk = b64_encode(key);
         cfg.method = "";
         cfg.enable_udp = true;
@@ -63,7 +67,9 @@ namespace
         psm::protocol::shadowsocks::config cfg;
         std::array<std::uint8_t, 32> key{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
         cfg.psk = b64_encode(key);
         cfg.method = "";
         cfg.enable_udp = true;
@@ -75,7 +81,9 @@ namespace
         psm::protocol::shadowsocks::config cfg;
         std::array<std::uint8_t, 32> key{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
         cfg.psk = b64_encode(key);
         cfg.method = "2022-blake3-chacha20-poly1305";
         cfg.enable_udp = true;
@@ -89,7 +97,7 @@ namespace
         auto relay = psm::protocol::shadowsocks::make_udp_relay(cfg, tracker);
         EXPECT_NE(relay, nullptr) << "construct aes-128: not null";
         EXPECT_TRUE(relay->method() == psm::protocol::shadowsocks::cipher_method::aes_128_gcm)
-                     << "construct aes-128: method=aes_128_gcm";
+            << "construct aes-128: method=aes_128_gcm";
     }
 
     TEST(ShadowsocksDatagram, ConstructAes256)
@@ -99,7 +107,7 @@ namespace
         auto relay = psm::protocol::shadowsocks::make_udp_relay(cfg, tracker);
         EXPECT_NE(relay, nullptr) << "construct aes-256: not null";
         EXPECT_TRUE(relay->method() == psm::protocol::shadowsocks::cipher_method::aes_256_gcm)
-                     << "construct aes-256: method=aes_256_gcm";
+            << "construct aes-256: method=aes_256_gcm";
     }
 
     TEST(ShadowsocksDatagram, ConstructChacha20)
@@ -109,7 +117,7 @@ namespace
         auto relay = psm::protocol::shadowsocks::make_udp_relay(cfg, tracker);
         EXPECT_NE(relay, nullptr) << "construct chacha20: not null";
         EXPECT_TRUE(relay->method() == psm::protocol::shadowsocks::cipher_method::chacha20_poly1305)
-                     << "construct chacha20: method=chacha20_poly1305";
+            << "construct chacha20: method=chacha20_poly1305";
     }
 
     TEST(ShadowsocksDatagram, ConstructBadPsk)
@@ -133,11 +141,10 @@ namespace
     // 构造合法的 AES-GCM 入站包供 decrypt_inbound 解析
     // 格式: SeparateHeader(16, AES-ECB encrypted) + AEAD-GCM body
     // body plaintext: request_type(1) + timestamp(8) + padding_len(2, =0) + payload
-    auto build_valid_aes_inbound_packet(
-        const psm::memory::vector<std::uint8_t> &psk,
-        const std::array<std::uint8_t, 8> &session_id,
-        const std::array<std::uint8_t, 8> &packet_id,
-        const std::span<const std::uint8_t> &payload_body)
+    auto build_valid_aes_inbound_packet(const psm::memory::vector<std::uint8_t> &psk,
+                                        const std::array<std::uint8_t, 8> &session_id,
+                                        const std::array<std::uint8_t, 8> &packet_id,
+                                        const std::span<const std::uint8_t> &payload_body)
         -> psm::memory::vector<std::byte>
     {
         namespace ss = psm::protocol::shadowsocks;
@@ -152,11 +159,15 @@ namespace
         psm::memory::vector<std::uint8_t> plain(plain_len, psm::memory::current_resource());
         plain[0] = ss::request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         plain[9] = 0;
         plain[10] = 0;
         if (!payload_body.empty())
+        {
             std::memcpy(plain.data() + 11, payload_body.data(), payload_body.size());
+        }
 
         // 派生会话子密钥（与 session_tracker::derive_aead 相同）
         constexpr auto ctx_str = ss::kdf_context;
@@ -166,12 +177,11 @@ namespace
         std::memcpy(material.data() + psk.size(), session_id.data(), session_id.size());
 
         const auto key_len = (psk.size() == 16) ? 16 : 32;
-        const auto derived_key = crypto::derive_key(
-            ctx_str, std::span<const std::uint8_t>(material.data(), total), key_len);
+        const auto derived_key =
+            crypto::derive_key(ctx_str, std::span<const std::uint8_t>(material.data(), total), key_len);
 
-        const auto cipher = (psk.size() == 16)
-            ? crypto::aead_cipher::aes_128_gcm
-            : crypto::aead_cipher::aes_256_gcm;
+        const auto cipher =
+            (psk.size() == 16) ? crypto::aead_cipher::aes_128_gcm : crypto::aead_cipher::aes_256_gcm;
         crypto::aead_context ctx(cipher, derived_key);
 
         // 构造 nonce: sessionID[4..8] + packetID[0..8]
@@ -189,9 +199,9 @@ namespace
         std::memcpy(separate_plain.data(), session_id.data(), 8);
         std::memcpy(separate_plain.data() + 8, packet_id.data(), 8);
 
-        const auto header_enc = crypto::ecb_encrypt(
-            std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
-            std::span<const std::uint8_t>(psk.data(), psk.size()));
+        const auto header_enc =
+            crypto::ecb_encrypt(std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
+                                std::span<const std::uint8_t>(psk.data(), psk.size()));
 
         // 组装最终包
         psm::memory::vector<std::byte> result(16 + body_enc_len, psm::memory::current_resource());
@@ -204,11 +214,10 @@ namespace
     // 构造合法的 ChaCha20 入站包
     // 格式: SessionID(8) + PacketID(8) + XChaCha20-Poly1305 body
     // body plaintext: request_type(1) + timestamp(8) + padding_len(2) + payload
-    auto build_valid_chacha_inbound_packet(
-        const psm::memory::vector<std::uint8_t> &psk,
-        const std::array<std::uint8_t, 8> &session_id,
-        const std::array<std::uint8_t, 8> &packet_id,
-        const std::span<const std::uint8_t> &payload_body)
+    auto build_valid_chacha_inbound_packet(const psm::memory::vector<std::uint8_t> &psk,
+                                           const std::array<std::uint8_t, 8> &session_id,
+                                           const std::array<std::uint8_t, 8> &packet_id,
+                                           const std::span<const std::uint8_t> &payload_body)
         -> psm::memory::vector<std::byte>
     {
         namespace crypto = psm::crypto;
@@ -221,14 +230,18 @@ namespace
         psm::memory::vector<std::uint8_t> plain(plain_len, psm::memory::current_resource());
         plain[0] = psm::protocol::shadowsocks::request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         plain[9] = 0;
         plain[10] = 0;
         if (!payload_body.empty())
+        {
             std::memcpy(plain.data() + 11, payload_body.data(), payload_body.size());
+        }
 
         crypto::aead_context ctx(crypto::aead_cipher::xchacha20_poly1305,
-            std::span<const std::uint8_t>(psk.data(), psk.size()));
+                                 std::span<const std::uint8_t>(psk.data(), psk.size()));
 
         // 24 字节 nonce: SessionID(8) + PacketID(8) + zeros(8)
         std::array<std::uint8_t, 24> nonce{};
@@ -261,8 +274,7 @@ namespace
         auto tracker = std::make_shared<psm::protocol::shadowsocks::session_tracker>();
         auto relay = psm::protocol::shadowsocks::make_udp_relay(cfg, tracker);
 
-        boost::asio::ip::udp::endpoint sender(
-            boost::asio::ip::make_address("127.0.0.1"), 12345);
+        boost::asio::ip::udp::endpoint sender(boost::asio::ip::make_address("127.0.0.1"), 12345);
 
         // SeparateHeader(16) + AEAD tag(16) = 32 -> minimum for AES-GCM variant
         std::array<std::byte, 31> short_packet{};
@@ -278,14 +290,13 @@ namespace
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[0] = 0x42;
-        boost::asio::ip::udp::endpoint sender(
-            boost::asio::ip::make_address("127.0.0.1"), 12345);
+        boost::asio::ip::udp::endpoint sender(boost::asio::ip::make_address("127.0.0.1"), 12345);
 
         auto [dec_ec, psk_bytes] = psm::protocol::shadowsocks::format::decode_psk(cfg.psk);
         EXPECT_EQ(dec_ec, psm::fault::code::success) << "aes128 encrypt: decode psk";
 
-        auto entry = tracker->get_or_create({session_id, sender, psk_bytes,
-            psm::protocol::shadowsocks::cipher_method::aes_128_gcm});
+        auto entry = tracker->get_or_create(
+            {session_id, sender, psk_bytes, psm::protocol::shadowsocks::cipher_method::aes_128_gcm});
         EXPECT_NE(entry, nullptr) << "aes128 encrypt: session created";
 
         const std::byte payload[] = {std::byte{0xDE}, std::byte{0xAD}};
@@ -302,8 +313,7 @@ namespace
         auto tracker = std::make_shared<psm::protocol::shadowsocks::session_tracker>();
         auto relay = psm::protocol::shadowsocks::make_udp_relay(cfg, tracker);
 
-        boost::asio::ip::udp::endpoint sender(
-            boost::asio::ip::make_address("::1"), 54321);
+        boost::asio::ip::udp::endpoint sender(boost::asio::ip::make_address("::1"), 54321);
 
         // ChaCha20 variant minimum: SessionID(8) + PacketID(8) + AEAD tag(16) = 32
         std::array<std::byte, 31> short_packet{};
@@ -319,16 +329,15 @@ namespace
 
         std::array<std::uint8_t, 8> session_id{};
         session_id[7] = 0x99;
-        boost::asio::ip::udp::endpoint sender(
-            boost::asio::ip::make_address("::1"), 54321);
+        boost::asio::ip::udp::endpoint sender(boost::asio::ip::make_address("::1"), 54321);
 
         auto [dec_ec, psk_bytes] = psm::protocol::shadowsocks::format::decode_psk(cfg.psk);
         EXPECT_EQ(dec_ec, psm::fault::code::success) << "chacha encrypt: decode psk";
 
         // ChaCha20 不预建 aead_ctx，get_or_create 跳过 derive_aead
         psm::memory::vector<std::uint8_t> empty_psk(psm::memory::current_resource());
-        auto entry = tracker->get_or_create({session_id, sender, empty_psk,
-            psm::protocol::shadowsocks::cipher_method::chacha20_poly1305});
+        auto entry = tracker->get_or_create(
+            {session_id, sender, empty_psk, psm::protocol::shadowsocks::cipher_method::chacha20_poly1305});
 
         const std::byte payload[] = {std::byte{0x01}, std::byte{0x02}};
         auto [enc_ec, ciphertext] = relay->encrypt_out(payload, session_id, entry);
@@ -381,13 +390,19 @@ namespace
         plain[0] = ss::request_type;
         const std::uint64_t old_ts = 1000;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             plain[1 + i] = static_cast<std::uint8_t>((old_ts >> (56 - 8 * i)) & 0xFF);
+        }
         plain[9] = 0;
         plain[10] = 0;
         // SOCKS5 address
         plain[11] = 0x01;
-        plain[12] = 127; plain[13] = 0; plain[14] = 0; plain[15] = 1;
-        plain[16] = 0; plain[17] = 80;
+        plain[12] = 127;
+        plain[13] = 0;
+        plain[14] = 0;
+        plain[15] = 1;
+        plain[16] = 0;
+        plain[17] = 80;
         plain[18] = 0xAA;
 
         // Derive session subkey
@@ -395,8 +410,7 @@ namespace
         std::memcpy(material.data(), psk_bytes.data(), psk_bytes.size());
         std::memcpy(material.data() + psk_bytes.size(), session_id.data(), 8);
         const auto derived_key = crypto::derive_key(
-            ss::kdf_context,
-            std::span<const std::uint8_t>(material.data(), psk_bytes.size() + 8), 16);
+            ss::kdf_context, std::span<const std::uint8_t>(material.data(), psk_bytes.size() + 8), 16);
 
         crypto::aead_context ctx(crypto::aead_cipher::aes_128_gcm, derived_key);
         std::array<std::uint8_t, 12> nonce{};
@@ -410,16 +424,15 @@ namespace
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);
         std::memcpy(separate_plain.data() + 8, packet_id.data(), 8);
-        const auto header_enc = crypto::ecb_encrypt(
-            std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
-            std::span<const std::uint8_t>(psk_bytes.data(), psk_bytes.size()));
+        const auto header_enc =
+            crypto::ecb_encrypt(std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
+                                std::span<const std::uint8_t>(psk_bytes.data(), psk_bytes.size()));
 
         psm::memory::vector<std::byte> packet(16 + body_enc_len, psm::memory::current_resource());
         std::memcpy(packet.data(), header_enc.data(), 16);
         std::memcpy(packet.data() + 16, body_enc.data(), body_enc_len);
 
-        boost::asio::ip::udp::endpoint sender(
-            boost::asio::ip::make_address("127.0.0.1"), 9999);
+        boost::asio::ip::udp::endpoint sender(boost::asio::ip::make_address("127.0.0.1"), 9999);
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
         EXPECT_EQ(ec, psm::fault::code::timestamp_expired) << "bad timestamp: timestamp_expired";
     }

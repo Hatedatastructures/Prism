@@ -46,23 +46,53 @@ namespace psm::handshake::gun
         transport(net::any_io_executor executor, write_cb write_fn,
                   memory::resource_pointer mr = memory::current_resource());
 
+        /**
+         * @brief 获取执行器
+         * @return 执行器，用于协程调度
+         */
         [[nodiscard]] auto executor() const -> executor_type override;
 
+        /**
+         * @brief 异步读取解帧后的明文数据
+         * @param buffer 接收缓冲区
+         * @param ec 错误码输出参数
+         * @return 异步操作，返回读取字节数
+         */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
+        /**
+         * @brief 异步写入数据（封帧后发送）
+         * @param buffer 发送缓冲区
+         * @param ec 错误码输出参数
+         * @return 异步操作，返回写入字节数
+         */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
+        /**
+         * @brief 关闭传输层
+         */
         void close() override;
 
+        /**
+         * @brief 取消所有未完成的异步操作
+         */
         void cancel() override;
 
+        /**
+         * @brief 获取内层传输
+         * @return nullptr（无内层传输）
+         */
         [[nodiscard]] auto next_layer() noexcept -> psm::transport::transmission * override
         {
             return nullptr;
         }
 
+        /**
+         * @brief 获取内层传输（const 版本）
+         * @return nullptr（无内层传输）
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const psm::transport::transmission * override
         {
             return nullptr;
@@ -75,20 +105,22 @@ namespace psm::handshake::gun
          */
         auto push(std::span<const std::byte> data) -> bool;
 
-        /// 通知对端流结束（EOF）
+        /**
+         * @brief 通知对端流结束（EOF）
+         */
         void notify_eof();
 
     private:
-        using channel_type = net::experimental::concurrent_channel<
-            void(boost::system::error_code, memory::vector<std::byte>)>;
+        using channel_type =
+            net::experimental::concurrent_channel<void(boost::system::error_code, memory::vector<std::byte>)>;
 
-        net::any_io_executor executor_;
-        write_cb write_fn_;
-        memory::resource_pointer mr_;
+        net::any_io_executor executor_;       // 执行器
+        write_cb write_fn_;                   // 帧写入回调（封帧后提交 nghttp2）
+        memory::resource_pointer mr_;         // 内存资源
         std::unique_ptr<channel_type> channel_; ///< 明文数据通道
-        memory::vector<std::byte> current_;      ///< 当前消费块
-        std::size_t current_offset_{0};          ///< 消费游标
-        bool closed_{false};                     ///< 本地关闭
+        memory::vector<std::byte> current_;     ///< 当前消费块
+        std::size_t current_offset_{0};         ///< 消费游标
+        bool closed_{false};                    ///< 本地关闭
     };
 
     using shared_transport = std::shared_ptr<transport>;

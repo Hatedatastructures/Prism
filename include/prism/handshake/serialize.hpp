@@ -10,21 +10,20 @@
  */
 #pragma once
 
+#include <prism/foundation/rate/counter.hpp>
 #include <prism/handshake/anytls/config.hpp>
 #include <prism/handshake/ech/config.hpp>
+#include <prism/handshake/gun/config.hpp>
 #include <prism/handshake/native/config.hpp>
 #include <prism/handshake/reality/config.hpp>
 #include <prism/handshake/restls/config.hpp>
 #include <prism/handshake/shadowtls/config.hpp>
-#include <prism/foundation/rate/counter.hpp>
-#include <prism/handshake/gun/config.hpp>
 #include <prism/handshake/trusttunnel/config.hpp>
 #include <prism/handshake/ws/config.hpp>
 #include <prism/handshake/xhttp/config.hpp>
 #include <prism/net/transport/pad.hpp>
 
 #include <glaze/glaze.hpp>
-
 
 // ============================================================================
 // reality
@@ -34,11 +33,13 @@ template <>
 struct glz::meta<psm::handshake::reality::config>
 {
     using T = psm::handshake::reality::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "dest",         &T::dest,
         "server_names", &T::server_names,
         "private_key",  &T::private_key,
         "short_ids",    &T::short_ids);
+    // clang-format on
 };
 
 // ============================================================================
@@ -50,9 +51,11 @@ template <>
 struct glz::meta<psm::handshake::shadowtls::user>
 {
     using T = psm::handshake::shadowtls::user;
+    // clang-format off
     static constexpr auto value = glz::object(
         "name",     &T::name,
         "password", &T::password);
+    // clang-format on
 };
 
 // shadowtls::config
@@ -60,6 +63,7 @@ template <>
 struct glz::meta<psm::handshake::shadowtls::config>
 {
     using T = psm::handshake::shadowtls::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "version",              &T::version,
         "password",             &T::password,
@@ -68,6 +72,7 @@ struct glz::meta<psm::handshake::shadowtls::config>
         "server_names",         &T::server_names,
         "strict_mode",          &T::strict_mode,
         "handshake_timeout_ms", &T::hs_timeout);
+    // clang-format on
 };
 
 // ============================================================================
@@ -79,6 +84,7 @@ template <>
 struct glz::meta<psm::handshake::restls::config>
 {
     using T = psm::handshake::restls::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "server_names",         &T::server_names,
         "host",                 &T::host,
@@ -86,6 +92,7 @@ struct glz::meta<psm::handshake::restls::config>
         "version_hint",         &T::version_hint,
         "restls_script",        &T::restls_script,
         "handshake_timeout_ms", &T::hs_timeout);
+    // clang-format on
 };
 
 // ============================================================================
@@ -97,9 +104,11 @@ template <>
 struct glz::meta<psm::handshake::anytls::user>
 {
     using T = psm::handshake::anytls::user;
+    // clang-format off
     static constexpr auto value = glz::object(
         "username", &T::username,
         "password", &T::password);
+    // clang-format on
 };
 
 // anytls::config
@@ -107,6 +116,7 @@ template <>
 struct glz::meta<psm::handshake::anytls::config>
 {
     using T = psm::handshake::anytls::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "server_names",             &T::server_names,
         "certificate",              &T::certificate,
@@ -116,6 +126,7 @@ struct glz::meta<psm::handshake::anytls::config>
         "padding_scheme",           &T::padding_scheme,
         "handshake_timeout_ms",     &T::hs_timeout,
         "idle_session_timeout_ms",  &T::idle_sess_timeout);
+    // clang-format on
 };
 
 // ============================================================================
@@ -127,29 +138,30 @@ template <>
 struct glz::meta<psm::handshake::trusttunnel::user>
 {
     using T = psm::handshake::trusttunnel::user;
+    // clang-format off
     static constexpr auto value = glz::object(
         "username", &T::username,
         "password", &T::password);
+    // clang-format on
 };
 
 // trusttunnel::network_type
 template <>
 struct glz::meta<psm::handshake::trusttunnel::network_type>
 {
-    static constexpr auto value = glz::enumerate(
-        "tcp", psm::handshake::trusttunnel::network_type::tcp,
-        "udp", psm::handshake::trusttunnel::network_type::udp,
-        "both", psm::handshake::trusttunnel::network_type::both);
+    static constexpr auto value = glz::enumerate("tcp", psm::handshake::trusttunnel::network_type::tcp, "udp",
+                                                 psm::handshake::trusttunnel::network_type::udp, "both",
+                                                 psm::handshake::trusttunnel::network_type::both);
 };
 
 // trusttunnel::congestion_controller
 template <>
 struct glz::meta<psm::handshake::trusttunnel::congestion_controller>
 {
-    static constexpr auto value = glz::enumerate(
-        "cubic", psm::handshake::trusttunnel::congestion_controller::cubic,
-        "bbr", psm::handshake::trusttunnel::congestion_controller::bbr,
-        "new_reno", psm::handshake::trusttunnel::congestion_controller::new_reno);
+    static constexpr auto value =
+        glz::enumerate("cubic", psm::handshake::trusttunnel::congestion_controller::cubic, "bbr",
+                       psm::handshake::trusttunnel::congestion_controller::bbr, "new_reno",
+                       psm::handshake::trusttunnel::congestion_controller::new_reno);
 };
 
 // trusttunnel::config
@@ -157,6 +169,7 @@ template <>
 struct glz::meta<psm::handshake::trusttunnel::config>
 {
     using T = psm::handshake::trusttunnel::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "server_names",         &T::server_names,
         "certificate",          &T::certificate,
@@ -166,6 +179,7 @@ struct glz::meta<psm::handshake::trusttunnel::config>
         "congestion",           &T::congestion,
         "handshake_timeout_ms", &T::hs_timeout,
         "idle_timeout_ms",      &T::idle_timeout);
+    // clang-format on
 };
 
 // ============================================================================
@@ -176,8 +190,10 @@ template <>
 struct glz::meta<psm::handshake::native::config>
 {
     using T = psm::handshake::native::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "enabled", &T::enabled);
+    // clang-format on
 };
 
 // ============================================================================
@@ -188,10 +204,12 @@ template <>
 struct glz::meta<psm::transport::pad_config>
 {
     using T = psm::transport::pad_config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "pad_targets",  &T::pad_targets,
         "stop_after",   &T::stop_after,
         "max_pad_bytes", &T::max_pad_bytes);
+    // clang-format on
 };
 
 // ============================================================================
@@ -202,11 +220,13 @@ template <>
 struct glz::meta<psm::rate::probe_defense_config>
 {
     using T = psm::rate::probe_defense_config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "challenge_timeout_ms", &T::challenge_timeout_ms,
         "track_window_sec",     &T::track_window_sec,
         "fail_threshold",       &T::fail_threshold,
         "max_records",          &T::max_records);
+    // clang-format on
 };
 
 // ============================================================================
@@ -217,10 +237,12 @@ template <>
 struct glz::meta<psm::handshake::gun::config>
 {
     using T = psm::handshake::gun::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "server_names",  &T::server_names,
         "path",          &T::path,
         "service_name",  &T::service_name);
+    // clang-format on
 };
 // ============================================================================
 // ech
@@ -230,11 +252,13 @@ template <>
 struct glz::meta<psm::handshake::ech::config>
 {
     using T = psm::handshake::ech::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "server_names",  &T::server_names,
         "key",           &T::key,
         "public_name",   &T::public_name,
         "max_name_len",  &T::max_name_len);
+    // clang-format on
 };
 // ============================================================================
 // ws
@@ -244,9 +268,11 @@ template <>
 struct glz::meta<psm::handshake::ws::config>
 {
     using T = psm::handshake::ws::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "server_names",  &T::server_names,
         "path",          &T::path);
+    // clang-format on
 };
 // ============================================================================
 // xhttp
@@ -256,12 +282,14 @@ template <>
 struct glz::meta<psm::handshake::xhttp::config>
 {
     using T = psm::handshake::xhttp::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "server_names",  &T::server_names,
         "path",          &T::path,
         "stream_one",    &T::stream_one,
         "stream_up",     &T::stream_up,
         "packet_up",     &T::packet_up);
+    // clang-format on
 };
 // ============================================================================
 // hysteria2
@@ -271,9 +299,11 @@ template <>
 struct glz::meta<psm::handshake::hysteria2::config>
 {
     using T = psm::handshake::hysteria2::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "enable",        &T::enable,
         "users",         &T::users);
+    // clang-format on
 };
 // ============================================================================
 // tuic
@@ -283,16 +313,20 @@ template <>
 struct glz::meta<psm::handshake::tuic::user>
 {
     using T = psm::handshake::tuic::user;
+    // clang-format off
     static constexpr auto value = glz::object(
         "uuid",          &T::uuid,
         "password",      &T::password);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::handshake::tuic::config>
 {
     using T = psm::handshake::tuic::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "enable",        &T::enable,
         "users",         &T::users);
+    // clang-format on
 };

@@ -6,21 +6,20 @@
  * 同时使用 MockTransport 测试 read_tls_record 异步 I/O 路径。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/handshake/recognition/tls/signal.hpp>
-#include <prism/protocol/tls/types.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/handshake/recognition/tls/signal.hpp>
 #include <prism/net/transport/transmission.hpp>
-#include <gtest/gtest.h>
+#include <prism/protocol/tls/types.hpp>
 
 #include <array>
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <vector>
 
 #include "common/MockTransport.hpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -107,12 +106,16 @@ namespace
                     std::vector<std::uint16_t> vers;
                     vers.push_back(psm::protocol::tls::VERSION_TLS13);
                     for (auto v : extra_versions)
+                    {
                         vers.push_back(v);
+                    }
 
                     std::vector<std::uint8_t> sv_ext;
                     sv_ext.push_back(static_cast<std::uint8_t>(vers.size() * 2));
                     for (auto v : vers)
+                    {
                         write_u16(sv_ext, v);
+                    }
 
                     write_u16(ext_data, psm::protocol::tls::EXT_SUPPORTED_VERSIONS);
                     write_u16(ext_data, static_cast<std::uint16_t>(sv_ext.size()));
@@ -276,12 +279,16 @@ namespace
         std::vector<std::uint8_t> body;
         body.push_back(psm::protocol::tls::HS_CLIENT_HELLO);
         std::vector<std::uint8_t> hs_body;
-        hs_body.push_back(0x03); hs_body.push_back(0x03);
+        hs_body.push_back(0x03);
+        hs_body.push_back(0x03);
         hs_body.insert(hs_body.end(), 32, 0x00);
         hs_body.push_back(0x00);
         write_u16(hs_body, 3); // odd cipher_len
-        hs_body.push_back(0x13); hs_body.push_back(0x01); hs_body.push_back(0x00);
-        hs_body.push_back(1); hs_body.push_back(0x00);
+        hs_body.push_back(0x13);
+        hs_body.push_back(0x01);
+        hs_body.push_back(0x00);
+        hs_body.push_back(1);
+        hs_body.push_back(0x00);
 
         write_u24(body, hs_body.size());
         body.insert(body.end(), hs_body.begin(), hs_body.end());
@@ -311,9 +318,13 @@ namespace
         write_u16(ks_ext, psm::protocol::tls::GROUP_X25519_MLKEM768);
         write_u16(ks_ext, hybrid_key_len);
         for (std::size_t i = 0; i < 32; ++i)
+        {
             ks_ext.push_back(0x42);
+        }
         for (std::size_t i = 32; i < hybrid_key_len; ++i)
+        {
             ks_ext.push_back(0x00);
+        }
 
         std::vector<std::uint8_t> ext_block;
         write_u16(ext_block, psm::protocol::tls::EXT_KEY_SHARE);
@@ -328,12 +339,14 @@ namespace
         ext_block.insert(ext_block.end(), sv_ext.begin(), sv_ext.end());
 
         std::vector<std::uint8_t> hs_body;
-        hs_body.push_back(0x03); hs_body.push_back(0x03);
+        hs_body.push_back(0x03);
+        hs_body.push_back(0x03);
         hs_body.insert(hs_body.end(), 32, 0x00);
         hs_body.push_back(0x00);
         write_u16(hs_body, 2);
         write_u16(hs_body, psm::protocol::tls::CIPHER_AES_128_GCM_SHA256);
-        hs_body.push_back(1); hs_body.push_back(0x00);
+        hs_body.push_back(1);
+        hs_body.push_back(0x00);
         write_u16(hs_body, static_cast<std::uint16_t>(ext_block.size()));
         hs_body.insert(hs_body.end(), ext_block.begin(), ext_block.end());
 
@@ -407,14 +420,17 @@ namespace
         record.push_back(std::byte{static_cast<std::uint8_t>((body.size() >> 8) & 0xFF)});
         record.push_back(std::byte{static_cast<std::uint8_t>(body.size() & 0xFF)});
         for (auto b : body)
+        {
             record.push_back(std::byte{b});
+        }
         return record;
     }
 
     /**
      * @brief 辅助：限时运行 io_context，防止挂起
      */
-    void run_with_timeout(net::io_context &ioc, std::chrono::milliseconds timeout = std::chrono::milliseconds(500))
+    void run_with_timeout(net::io_context &ioc,
+                          std::chrono::milliseconds timeout = std::chrono::milliseconds(500))
     {
         net::steady_timer timer(ioc);
         timer.expires_after(timeout);
@@ -431,7 +447,8 @@ namespace
         fault::code result_ec = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
-        net::co_spawn(mock->get_io_context(),
+        net::co_spawn(
+            mock->get_io_context(),
             [&]() -> net::awaitable<void>
             {
                 auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock);
@@ -444,24 +461,24 @@ namespace
 
         EXPECT_TRUE(psm::fault::succeeded(result_ec)) << "read_tls_record: success";
         EXPECT_EQ(result_data.size(), wire.size()) << "read_tls_record: full record size";
-        EXPECT_TRUE(std::memcmp(result_data.data(), wire.data(),
-                     (std::min)(result_data.size(), wire.size())) == 0)
+        EXPECT_TRUE(
+            std::memcmp(result_data.data(), wire.data(), (std::min)(result_data.size(), wire.size())) == 0)
             << "read_tls_record: data matches wire";
     }
 
     TEST(TlsSignal, ReadTlsRecordNonHandshake)
     {
         // 构造非 Handshake 记录（Application Data）
-        std::vector<std::byte> wire = {
-            std::byte{0x17}, std::byte{0x03}, std::byte{0x03},
-            std::byte{0x00}, std::byte{0x04},
-            std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
+        std::vector<std::byte> wire = {std::byte{0x17}, std::byte{0x03}, std::byte{0x03},
+                                       std::byte{0x00}, std::byte{0x04}, std::byte{0x01},
+                                       std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
         auto mock = std::make_shared<psm::testing::MockTransport>();
         mock->inject_read(wire);
 
         fault::code result_ec = fault::code::success;
 
-        net::co_spawn(mock->get_io_context(),
+        net::co_spawn(
+            mock->get_io_context(),
             [&]() -> net::awaitable<void>
             {
                 auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock);
@@ -471,8 +488,7 @@ namespace
 
         run_with_timeout(mock->get_io_context());
 
-        EXPECT_EQ(result_ec, psm::fault::code::recorderr)
-            << "read_tls_record: non-handshake → recorderr";
+        EXPECT_EQ(result_ec, psm::fault::code::recorderr) << "read_tls_record: non-handshake → recorderr";
     }
 
     TEST(TlsSignal, ReadTlsRecordError)
@@ -482,7 +498,8 @@ namespace
 
         fault::code result_ec = fault::code::success;
 
-        net::co_spawn(mock->get_io_context(),
+        net::co_spawn(
+            mock->get_io_context(),
             [&]() -> net::awaitable<void>
             {
                 auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock);
@@ -492,8 +509,7 @@ namespace
 
         run_with_timeout(mock->get_io_context());
 
-        EXPECT_TRUE(psm::fault::failed(result_ec))
-            << "read_tls_record: read error → failed";
+        EXPECT_TRUE(psm::fault::failed(result_ec)) << "read_tls_record: read error → failed";
     }
 
     TEST(TlsSignal, ReadTlsRecordWithPrereadFull)
@@ -508,7 +524,8 @@ namespace
         fault::code result_ec = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
-        net::co_spawn(mock->get_io_context(),
+        net::co_spawn(
+            mock->get_io_context(),
             [&]() -> net::awaitable<void>
             {
                 auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock, preread);
@@ -537,7 +554,8 @@ namespace
         fault::code result_ec = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
-        net::co_spawn(mock->get_io_context(),
+        net::co_spawn(
+            mock->get_io_context(),
             [&]() -> net::awaitable<void>
             {
                 auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock, preread);
@@ -564,7 +582,8 @@ namespace
         fault::code result_ec = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
-        net::co_spawn(mock->get_io_context(),
+        net::co_spawn(
+            mock->get_io_context(),
             [&]() -> net::awaitable<void>
             {
                 auto [ec, data] = co_await psm::recognition::tls::read_tls_record(
@@ -582,15 +601,15 @@ namespace
     TEST(TlsSignal, ReadTlsRecordPrereadNonHandshake)
     {
         // preread 中 content_type != 0x16 → recorderr
-        std::array<std::byte, 5> non_hs_preread = {
-            std::byte{0x17}, std::byte{0x03}, std::byte{0x03},
-            std::byte{0x00}, std::byte{0x04}};
+        std::array<std::byte, 5> non_hs_preread = {std::byte{0x17}, std::byte{0x03}, std::byte{0x03},
+                                                   std::byte{0x00}, std::byte{0x04}};
 
         auto mock = std::make_shared<psm::testing::MockTransport>();
 
         fault::code result_ec = fault::code::success;
 
-        net::co_spawn(mock->get_io_context(),
+        net::co_spawn(
+            mock->get_io_context(),
             [&]() -> net::awaitable<void>
             {
                 auto [ec, data] = co_await psm::recognition::tls::read_tls_record(
@@ -601,22 +620,21 @@ namespace
 
         run_with_timeout(mock->get_io_context());
 
-        EXPECT_EQ(result_ec, psm::fault::code::recorderr)
-            << "preread non-handshake: recorderr";
+        EXPECT_EQ(result_ec, psm::fault::code::recorderr) << "preread non-handshake: recorderr";
     }
 
     TEST(TlsSignal, ReadTlsRecordPrereadOversized)
     {
         // preread header 声称 length > MAX_RECORD_PAYLOAD → recorderr
-        std::array<std::byte, 5> oversized_preread = {
-            std::byte{0x16}, std::byte{0x03}, std::byte{0x03},
-            std::byte{0x40}, std::byte{0x01}}; // length=16385
+        std::array<std::byte, 5> oversized_preread = {std::byte{0x16}, std::byte{0x03}, std::byte{0x03},
+                                                      std::byte{0x40}, std::byte{0x01}}; // length=16385
 
         auto mock = std::make_shared<psm::testing::MockTransport>();
 
         fault::code result_ec = fault::code::success;
 
-        net::co_spawn(mock->get_io_context(),
+        net::co_spawn(
+            mock->get_io_context(),
             [&]() -> net::awaitable<void>
             {
                 auto [ec, data] = co_await psm::recognition::tls::read_tls_record(
@@ -627,7 +645,6 @@ namespace
 
         run_with_timeout(mock->get_io_context());
 
-        EXPECT_EQ(result_ec, psm::fault::code::recorderr)
-            << "preread oversized: recorderr";
+        EXPECT_EQ(result_ec, psm::fault::code::recorderr) << "preread oversized: recorderr";
     }
 } // namespace

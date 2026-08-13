@@ -19,13 +19,13 @@
  */
 #pragma once
 
+#include <prism/diagnose/context.hpp>
 #include <prism/foundation/memory/container.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <prism/protocol/multiplex/codec.hpp>
 #include <prism/protocol/multiplex/config.hpp>
 #include <prism/protocol/multiplex/egress.hpp>
-#include <prism/net/connection/types.hpp>
-#include <prism/diagnose/context.hpp>
-#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
@@ -33,7 +33,6 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
-
 
 // 前向声明
 namespace psm::outbound
@@ -45,7 +44,6 @@ namespace psm::outbound
 
 namespace psm::runtime::stats
 {
-
 
 }
 
@@ -67,12 +65,12 @@ namespace psm::multiplex
      */
     struct activate_opts
     {
-        std::uint32_t stream_id{0};                    ///< 流标识符
-        memory::string host;                           ///< 目标主机
-        std::uint16_t port{0};                         ///< 目标端口
-        std::size_t addr_offset{0};                    ///< 地址在 pending 缓冲中的结束位置
-        addr_mode addr{addr_mode::length_prefixed};    ///< 地址编码模式（UDP 专用）
-        memory::vector<std::byte> remaining;           ///< 地址之后的剩余数据
+        std::uint32_t stream_id{0};                 ///< 流标识符
+        memory::string host;                        ///< 目标主机
+        std::uint16_t port{0};                      ///< 目标端口
+        std::size_t addr_offset{0};                 ///< 地址在 pending 缓冲中的结束位置
+        addr_mode addr{addr_mode::length_prefixed}; ///< 地址编码模式（UDP 专用）
+        memory::vector<std::byte> remaining;        ///< 地址之后的剩余数据
     };
 
     /**
@@ -83,7 +81,7 @@ namespace psm::multiplex
     struct multiplexer_options
     {
         transport::shared_transmission transport; ///< 已建立的传输层连接（通常是 TLS 隧道）
-        outbound::direct *outbound{nullptr};       ///< 出站代理接口（非拥有，worker 生命周期）
+        outbound::direct *outbound{nullptr};      ///< 出站代理接口（非拥有，worker 生命周期）
         const config &cfg;                        ///< 多路复用配置参数
         memory::resource_pointer mr = {};         ///< PMR 内存资源，为空时使用默认资源
         std::size_t channel_capacity{512};        ///< 发送通道容量（由子类按协议 max_streams 传入）
@@ -149,8 +147,7 @@ namespace psm::multiplex
          * @brief 获取 transport executor
          * @return 底层传输层的执行器，用于协程调度与 co_spawn
          */
-        [[nodiscard]] auto executor() const noexcept
-            -> net::any_io_executor
+        [[nodiscard]] auto executor() const noexcept -> net::any_io_executor
         {
             return transport_->executor();
         }
@@ -212,8 +209,8 @@ namespace psm::multiplex
          */
         struct outbound_frame
         {
-            std::uint32_t stream_id{0};          ///< 目标流标识符
-            memory::vector<std::byte> payload;   ///< 数据载荷（fin/control 帧可为空）
+            std::uint32_t stream_id{0};              ///< 目标流标识符
+            memory::vector<std::byte> payload;       ///< 数据载荷（fin/control 帧可为空）
             outbound_kind kind{outbound_kind::data}; ///< 帧类型
         };
 
@@ -223,8 +220,7 @@ namespace psm::multiplex
          *          syn 建立 pending、data 投递流管道、fin 半关闭、
          *          rst 强制关闭、control 协议特定处理。
          */
-        virtual auto run()
-            -> net::awaitable<void> = 0;
+        virtual auto run() -> net::awaitable<void> = 0;
 
         /**
          * @brief 编码并写入一个逻辑帧（纯虚，子类实现）
@@ -233,8 +229,7 @@ namespace psm::multiplex
          *          h2mux：nghttp2_submit_data + send_pending。
          *          由 send_loop 单消费者调用，保证写不交错。
          */
-        virtual auto write_frame(outbound_frame frame)
-            -> net::awaitable<void> = 0;
+        virtual auto write_frame(outbound_frame frame) -> net::awaitable<void> = 0;
 
         /**
          * @brief 投递逻辑帧到发送通道（带背压）
@@ -243,16 +238,14 @@ namespace psm::multiplex
          * @details 子类控制帧（SYN/窗口/心跳）也通过此通道投递，
          *          与数据帧共用同一发送串行化。
          */
-        auto push_frame(outbound_frame frame)
-            -> net::awaitable<void>;
+        auto push_frame(outbound_frame frame) -> net::awaitable<void>;
 
         /**
          * @brief 发送循环协程
          * @details 从发送通道取出逻辑帧，调用 write_frame() 编码写入。
          *          通道被取消（close 触发）时退出。
          */
-        auto send_loop()
-            -> net::awaitable<void>;
+        auto send_loop() -> net::awaitable<void>;
 
         /**
          * @brief run 协程完成回调
@@ -270,12 +263,14 @@ namespace psm::multiplex
             memory::vector<std::byte> buffer; ///< 累积的地址+数据
             bool connecting = false;          ///< 是否已发起连接
 
-            explicit pending_entry(memory::resource_pointer mr) : buffer(mr) {}
+            explicit pending_entry(memory::resource_pointer mr) : buffer(mr)
+            {
+            }
         };
 
         // 资源
         transport::shared_transmission transport_; ///< 底层传输连接
-        outbound::direct *outbound_{nullptr};       ///< 出站代理接口（非拥有）
+        outbound::direct *outbound_{nullptr};      ///< 出站代理接口（非拥有）
         const config &config_;                     ///< 多路复用配置
         memory::resource_pointer mr_;              ///< PMR 内存资源
 
@@ -286,13 +281,13 @@ namespace psm::multiplex
         std::shared_ptr<diagnose::context> prefix_; ///< 会话日志前缀
 
         // 流注册表
-        memory::unordered_map<std::uint32_t, pending_entry> pending_;       ///< 待连接流
-        memory::unordered_map<std::uint32_t, std::shared_ptr<stream>> streams_;    ///< 活跃 TCP 流
+        memory::unordered_map<std::uint32_t, pending_entry> pending_;               ///< 待连接流
+        memory::unordered_map<std::uint32_t, std::shared_ptr<stream>> streams_;     ///< 活跃 TCP 流
         memory::unordered_map<std::uint32_t, std::shared_ptr<datagram>> datagrams_; ///< 活跃 UDP 流
 
     private:
-        using channel_type = net::experimental::concurrent_channel<
-            void(boost::system::error_code, outbound_frame)>;
+        using channel_type =
+            net::experimental::concurrent_channel<void(boost::system::error_code, outbound_frame)>;
 
         channel_type channel_; ///< 有界发送通道，容量与 max_streams 对齐
     };

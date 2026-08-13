@@ -8,11 +8,9 @@
  *          的独立函数进行测试，覆盖核心字节操作的正确性。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
-
+#include <prism/protocol/shadowsocks/constants.hpp>
 
 #include <gtest/gtest.h>
 
@@ -21,13 +19,12 @@
 
 namespace
 {
-    using psm::protocol::shadowsocks::session_id_len;
     using psm::protocol::shadowsocks::packet_id_len;
+    using psm::protocol::shadowsocks::session_id_len;
 
     // 与 udp_relay::make_nonce_aes 相同逻辑的本地副本
-    auto make_nonce_aes_local(
-        const std::array<std::uint8_t, session_id_len> &sid,
-        const std::array<std::uint8_t, packet_id_len> &pid)
+    auto make_nonce_aes_local(const std::array<std::uint8_t, session_id_len> &sid,
+                              const std::array<std::uint8_t, packet_id_len> &pid)
         -> std::array<std::uint8_t, 12>
     {
         std::array<std::uint8_t, 12> nonce{};
@@ -40,7 +37,9 @@ namespace
     {
         std::uint64_t val = 0;
         for (int i = 0; i < 8; ++i)
+        {
             val = (val << 8) | data[i];
+        }
         return val;
     }
 
@@ -58,10 +57,19 @@ namespace
     TEST(ShadowsocksDatagramPure, MakeNonceAesBasic)
     {
         std::array<std::uint8_t, session_id_len> sid{};
-        sid[4] = 0xAA; sid[5] = 0xBB; sid[6] = 0xCC; sid[7] = 0xDD;
+        sid[4] = 0xAA;
+        sid[5] = 0xBB;
+        sid[6] = 0xCC;
+        sid[7] = 0xDD;
         std::array<std::uint8_t, packet_id_len> pid{};
-        pid[0] = 0x11; pid[1] = 0x22; pid[2] = 0x33; pid[3] = 0x44;
-        pid[4] = 0x55; pid[5] = 0x66; pid[6] = 0x77; pid[7] = 0x88;
+        pid[0] = 0x11;
+        pid[1] = 0x22;
+        pid[2] = 0x33;
+        pid[3] = 0x44;
+        pid[4] = 0x55;
+        pid[5] = 0x66;
+        pid[6] = 0x77;
+        pid[7] = 0x88;
 
         auto nonce = make_nonce_aes_local(sid, pid);
         EXPECT_EQ(nonce.size(), 12) << "make_nonce_aes: 12 bytes";

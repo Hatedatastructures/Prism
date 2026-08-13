@@ -9,8 +9,8 @@
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/blake3.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/protocol/shadowsocks/codec/framing.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/protocol/shadowsocks/util/replay.hpp>
 
 #include <boost/asio.hpp>
@@ -19,7 +19,6 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
-
 
 namespace psm::protocol::shadowsocks
 {
@@ -33,12 +32,12 @@ namespace psm::protocol::shadowsocks
      */
     struct udp_session
     {
-        net::ip::udp::endpoint client_endpoint; // 客户端最新端点地址（NAT 遍历用）
-        std::chrono::steady_clock::time_point last_seen; // 最后活跃时间
-        std::unique_ptr<crypto::aead_context> aead_ctx; // 缓存的 AEAD 上下文（AES-GCM 变体用派生密钥）
+        net::ip::udp::endpoint client_endpoint;             // 客户端最新端点地址（NAT 遍历用）
+        std::chrono::steady_clock::time_point last_seen;    // 最后活跃时间
+        std::unique_ptr<crypto::aead_context> aead_ctx;     // 缓存的 AEAD 上下文（AES-GCM 变体用派生密钥）
         std::unique_ptr<crypto::aead_context> chacha20_ctx; // 缓存的 XChaCha20 AEAD 上下文（避免逐包创建）
-        replay_window packet_ids; // PacketID 滑动窗口重放过滤器
-        std::uint64_t srv_pkt_id{0}; // 服务端 PacketID 计数器
+        replay_window packet_ids;                           // PacketID 滑动窗口重放过滤器
+        std::uint64_t srv_pkt_id{0};                        // 服务端 PacketID 计数器
     };
 
     /**
@@ -50,9 +49,9 @@ namespace psm::protocol::shadowsocks
     struct session_create_opts
     {
         const std::array<std::uint8_t, session_id_len> &relay_id; ///< SS2022 8-byte relay session identifier
-        const net::ip::udp::endpoint &endpoint;                     ///< 客户端端点
-        const memory::vector<std::uint8_t> &psk;                    ///< PSK 字节
-        cipher_method method;                                        ///< 加密方法
+        const net::ip::udp::endpoint &endpoint;                   ///< 客户端端点
+        const memory::vector<std::uint8_t> &psk;                  ///< PSK 字节
+        cipher_method method;                                     ///< 加密方法
     };
 
     /**
@@ -64,12 +63,16 @@ namespace psm::protocol::shadowsocks
      */
     class session_tracker
     {
-        using sess_key = std::array<std::uint8_t, session_id_len>;
+        using sess_key = std::array<std::uint8_t, session_id_len>; ///< 会话键（8 字节 relay session ID）
 
         struct sess_hash
         {
-            [[nodiscard]] auto operator()(const sess_key &k) const noexcept
-                -> std::size_t
+            /**
+             * @brief 计算会话键哈希值（FNV-1a）
+             * @param k 会话键
+             * @return 哈希值
+             */
+            [[nodiscard]] auto operator()(const sess_key &k) const noexcept -> std::size_t
             {
                 std::size_t h = 0xcbf29ce484222325ULL;
                 for (auto b : k)
@@ -86,8 +89,7 @@ namespace psm::protocol::shadowsocks
          * @brief 构造会话跟踪器
          * @param ttl_seconds 会话空闲超时时间（秒）
          */
-        explicit session_tracker(std::int64_t ttl_seconds = 60)
-            : ttl_(std::chrono::seconds(ttl_seconds))
+        explicit session_tracker(std::int64_t ttl_seconds = 60) : ttl_(std::chrono::seconds(ttl_seconds))
         {
         }
 
@@ -98,8 +100,7 @@ namespace psm::protocol::shadowsocks
          * @param opts 创建选项（relay_id + endpoint + psk + method）
          * @return 会话条目共享指针
          */
-        [[nodiscard]] auto get_or_create(const session_create_opts &opts)
-            -> std::shared_ptr<udp_session>
+        [[nodiscard]] auto get_or_create(const session_create_opts &opts) -> std::shared_ptr<udp_session>
         {
             // 分摊清理：仅当距上次清理超过 1 秒时才执行
             const auto now = std::chrono::steady_clock::now();
@@ -174,7 +175,8 @@ namespace psm::protocol::shadowsocks
          * @param method 加密方法
          * @return AEAD 上下文智能指针
          */
-        [[nodiscard]] static auto derive_aead(const std::array<std::uint8_t, session_id_len> &relay_id, const memory::vector<std::uint8_t> &psk, cipher_method method)
+        [[nodiscard]] static auto derive_aead(const std::array<std::uint8_t, session_id_len> &relay_id,
+                                              const memory::vector<std::uint8_t> &psk, cipher_method method)
             -> std::unique_ptr<crypto::aead_context>
         {
             // 密钥材料：PSK + relay session ID（栈分配避免堆分配）
@@ -185,8 +187,8 @@ namespace psm::protocol::shadowsocks
 
             constexpr auto ctx_str = kdf_context; // SIP022: "shadowsocks 2022 session subkey"
             const auto key_len = format::keysalt_len(method);
-            const auto key = crypto::derive_key(
-                ctx_str, std::span<const std::uint8_t>(material.data(), total), key_len);
+            const auto key =
+                crypto::derive_key(ctx_str, std::span<const std::uint8_t>(material.data(), total), key_len);
 
             crypto::aead_cipher cipher;
             if (method == cipher_method::aes_128_gcm)
@@ -202,9 +204,8 @@ namespace psm::protocol::shadowsocks
         }
 
         memory::unordered_map<sess_key, std::shared_ptr<udp_session>,
-                           sess_hash>
-            sessions_; // 会话映射表
-        std::chrono::seconds ttl_; // 会话 TTL
+                              sess_hash> sessions_;            // 会话映射表
+        std::chrono::seconds ttl_;                             // 会话 TTL
         std::chrono::steady_clock::time_point last_cleanup_{}; // 上次清理时间
     };
 } // namespace psm::protocol::shadowsocks

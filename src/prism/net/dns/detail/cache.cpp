@@ -1,7 +1,6 @@
-#include <prism/net/dns/detail/cache.hpp>
-
-#include <prism/foundation/memory/container.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/net/dns/detail/cache.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -15,7 +14,9 @@ namespace
     auto resolve_mr(psm::memory::resource_pointer mr) -> psm::memory::resource_pointer
     {
         if (mr)
+        {
             return mr;
+        }
         return psm::memory::current_resource();
     }
 } // namespace
@@ -24,14 +25,12 @@ namespace psm::dns::detail
 {
 
     cache::cache(const cache_options &opts)
-        : mr_(resolve_mr(opts.mr)),
-          default_ttl_(opts.ttl), max_entries_(opts.max_entries),
+        : mr_(resolve_mr(opts.mr)), default_ttl_(opts.ttl), max_entries_(opts.max_entries),
           serve_stale_(opts.stale == stale_policy::serve), lru_order_(mr_), entries_(mr_)
     {
     }
 
-    auto cache::make_key(const std::string_view domain, const qtype qt) const
-        -> memory::string
+    auto cache::make_key(const std::string_view domain, const qtype qt) const -> memory::string
     {
         // qtype 数值转为字符串（最大 3 位，如 "65535"）
         const auto num = static_cast<std::uint16_t>(qt);
@@ -47,8 +46,7 @@ namespace psm::dns::detail
         return key;
     }
 
-    auto cache::key_view(const std::string_view domain, const qtype qt,
-                              const std::span<char> buffer)
+    auto cache::key_view(const std::string_view domain, const qtype qt, const std::span<char> buffer)
         -> std::string_view
     {
         const auto num = static_cast<std::uint16_t>(qt);
@@ -162,7 +160,8 @@ namespace psm::dns::detail
         }
     }
 
-    void cache::put_negative(const std::string_view domain, const qtype qt, const std::chrono::seconds negative_ttl)
+    void cache::put_negative(const std::string_view domain, const qtype qt,
+                             const std::chrono::seconds negative_ttl)
     {
         const auto now = std::chrono::steady_clock::now();
 
@@ -200,7 +199,6 @@ namespace psm::dns::detail
 
         // 插入缓存表
         entries_.emplace(pmr_key, std::make_pair(std::move(entry), lru_it));
-
     }
 
     void cache::evict_expired()

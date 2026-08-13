@@ -15,9 +15,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/stealth/reality/types.hpp>
-
 #include <openssl/curve25519.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
@@ -32,6 +29,9 @@
 #include <string_view>
 #include <vector>
 
+#include <common/core/error.hpp>
+#include <common/stealth/reality/types.hpp>
+
 namespace psmtest::reality
 {
 
@@ -40,8 +40,7 @@ namespace psmtest::reality
      * @param data 输入
      * @return base64url 字符串
      */
-    [[nodiscard]] inline auto base64url_encode(std::span<const std::uint8_t> data)
-    -> std::string
+    [[nodiscard]] inline auto base64url_encode(std::span<const std::uint8_t> data) -> std::string
     {
         static constexpr char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         std::string out;
@@ -64,8 +63,8 @@ namespace psmtest::reality
         }
         else if (i + 2 == data.size())
         {
-            const auto n = static_cast<std::uint32_t>(data[i]) << 16 |
-                           static_cast<std::uint32_t>(data[i + 1]) << 8;
+            const auto n = static_cast<std::uint32_t>(data[i]) << 16 | static_cast<std::uint32_t>(data[i + 1])
+                                                                           << 8;
             out.push_back(table[(n >> 18) & 0x3F]);
             out.push_back(table[(n >> 12) & 0x3F]);
             out.push_back(table[(n >> 6) & 0x3F]);
@@ -78,21 +77,30 @@ namespace psmtest::reality
      * @param s 输入
      * @return 解码字节
      */
-    [[nodiscard]] inline auto base64url_decode(std::string_view s)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto base64url_decode(std::string_view s) -> std::vector<std::uint8_t>
     {
         auto val = [](char c) -> int
         {
             if (c >= 'A' && c <= 'Z')
+            {
                 return c - 'A';
+            }
             if (c >= 'a' && c <= 'z')
+            {
                 return c - 'a' + 26;
+            }
             if (c >= '0' && c <= '9')
+            {
                 return c - '0' + 52;
+            }
             if (c == '-')
+            {
                 return 62;
+            }
             if (c == '_')
+            {
                 return 63;
+            }
             return -1;
         };
         std::vector<std::uint8_t> out;
@@ -102,7 +110,9 @@ namespace psmtest::reality
         {
             const int v = val(c);
             if (v < 0)
+            {
                 return {};
+            }
             acc = (acc << 6) | static_cast<std::uint32_t>(v);
             bits += 6;
             if (bits >= 8)
@@ -124,7 +134,9 @@ namespace psmtest::reality
                                                std::array<std::uint8_t, key_len> &pub) -> bool
     {
         if (RAND_bytes(priv.data(), static_cast<int>(key_len)) != 1)
+        {
             return true;
+        }
         X25519_public_from_private(pub.data(), priv.data());
         return false;
     }
@@ -139,7 +151,9 @@ namespace psmtest::reality
                                                 std::array<std::uint8_t, key_len> &pub) -> bool
     {
         if (priv.size() != key_len)
+        {
             return true;
+        }
         X25519_public_from_private(pub.data(), priv.data());
         return false;
     }
@@ -156,9 +170,13 @@ namespace psmtest::reality
                                             std::array<std::uint8_t, key_len> &out) -> bool
     {
         if (priv.size() != key_len || pub.size() != key_len)
+        {
             return true;
+        }
         if (X25519(out.data(), priv.data(), pub.data()) != 1)
+        {
             return true;
+        }
         bool all_zero = true;
         for (const auto b : out)
         {
@@ -186,15 +204,16 @@ namespace psmtest::reality
                                               std::array<std::uint8_t, key_len> &out) -> bool
     {
         if (client_random.size() < 40)
+        {
             return true;
+        }
         auto hmac_sha256 = [](std::span<const std::uint8_t> key,
-                              std::span<const std::uint8_t> data)
-                                  -> std::array<std::uint8_t, 32>
+                              std::span<const std::uint8_t> data) -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> md{};
             unsigned int len = 0;
-            HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
-                 data.data(), data.size(), md.data(), &len);
+            HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), data.data(), data.size(), md.data(),
+                 &len);
             return md;
         };
 
@@ -244,22 +263,26 @@ namespace psmtest::reality
      * @return 成功返回 false
      */
     [[nodiscard]] inline auto seal_session_id(const session_id_seal_input &in,
-                                              std::array<std::uint8_t, session_id_auth_len> &out)
-        -> bool
+                                              std::array<std::uint8_t, session_id_auth_len> &out) -> bool
     {
         if (in.plain.size() != 16 || in.client_random.size() < 40)
+        {
             return true;
+        }
         // AAD：hello 且 session_id 区（偏移 39 起 32 字节）清零
         std::vector<std::uint8_t> aad(in.hello.begin(), in.hello.end());
         if (aad.size() >= 39 + 32)
+        {
             std::memset(aad.data() + 39, 0, 32);
+        }
 
         EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
         if (!ctx)
+        {
             return true;
+        }
         int len = 0;
-        EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.auth_key.data(),
-                           in.client_random.data() + 20);
+        EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.auth_key.data(), in.client_random.data() + 20);
         EVP_EncryptUpdate(ctx, nullptr, &len, aad.data(), static_cast<int>(aad.size()));
         EVP_EncryptUpdate(ctx, out.data(), &len, in.plain.data(), static_cast<int>(in.plain.size()));
         int out_len = len;
@@ -280,22 +303,26 @@ namespace psmtest::reality
                                               std::array<std::uint8_t, 16> &out) -> bool
     {
         if (in.cipher.size() != session_id_auth_len || in.client_random.size() < 40)
+        {
             return true;
+        }
         std::vector<std::uint8_t> aad(in.hello.begin(), in.hello.end());
         if (aad.size() >= 39 + 32)
+        {
             std::memset(aad.data() + 39, 0, 32);
+        }
 
         EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
         if (!ctx)
+        {
             return true;
+        }
         int len = 0;
-        EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.auth_key.data(),
-                           in.client_random.data() + 20);
+        EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.auth_key.data(), in.client_random.data() + 20);
         EVP_DecryptUpdate(ctx, nullptr, &len, aad.data(), static_cast<int>(aad.size()));
         EVP_DecryptUpdate(ctx, out.data(), &len, in.cipher.data(), 16);
         int out_len = len;
-        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
-                            const_cast<std::uint8_t *>(in.cipher.data()) + 16);
+        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, const_cast<std::uint8_t *>(in.cipher.data()) + 16);
         const auto ok = EVP_DecryptFinal_ex(ctx, out.data() + out_len, &len);
         EVP_CIPHER_CTX_free(ctx);
         return ok != 1;
@@ -312,7 +339,9 @@ namespace psmtest::reality
     {
         const auto raw = base64url_decode(encoded);
         if (raw.size() != key_len)
+        {
             return true;
+        }
         std::copy(raw.begin(), raw.end(), out.begin());
         return false;
     }
@@ -322,8 +351,7 @@ namespace psmtest::reality
      * @param pub 公钥（32 字节）
      * @return base64url 字符串
      */
-    [[nodiscard]] inline auto encode_public_key(std::span<const std::uint8_t> pub)
-    -> std::string
+    [[nodiscard]] inline auto encode_public_key(std::span<const std::uint8_t> pub) -> std::string
     {
         return base64url_encode(pub);
     }
@@ -335,19 +363,26 @@ namespace psmtest::reality
      * @return 成功返回 false
      */
     [[nodiscard]] inline auto parse_short_id(std::string_view hex,
-                                             std::array<std::uint8_t, max_short_id_len> &out)
-        -> bool
+                                             std::array<std::uint8_t, max_short_id_len> &out) -> bool
     {
         if (hex.empty() || hex.size() > 16 || hex.size() % 2 != 0)
+        {
             return true;
+        }
         auto nibble = [](char c) -> int
         {
             if (c >= '0' && c <= '9')
+            {
                 return c - '0';
+            }
             if (c >= 'a' && c <= 'f')
+            {
                 return c - 'a' + 10;
+            }
             if (c >= 'A' && c <= 'F')
+            {
                 return c - 'A' + 10;
+            }
             return -1;
         };
         std::size_t pos = 0;
@@ -356,7 +391,9 @@ namespace psmtest::reality
             const int hi = nibble(hex[i]);
             const int lo = nibble(hex[i + 1]);
             if (hi < 0 || lo < 0)
+            {
                 return true;
+            }
             out[pos++] = static_cast<std::uint8_t>((hi << 4) | lo);
         }
         return false;

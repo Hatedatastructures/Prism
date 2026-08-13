@@ -7,18 +7,17 @@
  *          使用 TestCore 具体子类 + MockTransport 验证核心逻辑。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/dns/resolver.hpp>
+#include <prism/protocol/multiplex/datagram.hpp>
+#include <prism/protocol/multiplex/multiplexer.hpp>
+#include <prism/protocol/multiplex/stream.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
 #include "common/MockTransport.hpp"
-
-#include <prism/net/connection/dialer/dialer.hpp>
-#include <prism/net/dns/resolver.hpp>
-#include <prism/protocol/multiplex/multiplexer.hpp>
-#include <prism/protocol/multiplex/stream.hpp>
-#include <prism/protocol/multiplex/datagram.hpp>
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -32,23 +31,32 @@ namespace
     class TestCore final : public multiplex::multiplexer
     {
     public:
-        explicit TestCore(multiplex::multiplexer_options opts)
-            : multiplexer(std::move(opts))
+        explicit TestCore(multiplex::multiplexer_options opts) : multiplexer(std::move(opts))
         {
         }
 
-        auto send(std::uint32_t, psm::memory::vector<std::byte>)
-            -> net::awaitable<void> override
+        auto send(std::uint32_t, psm::memory::vector<std::byte>) -> net::awaitable<void> override
         {
             co_return;
         }
 
-        void fin(std::uint32_t) override {}
+        void fin(std::uint32_t) override
+        {
+        }
 
         // public 包装器用于测试 protected 方法
-        void test_remove_duct(std::uint32_t id) { drop(id); }
-        void test_remove_parcel(std::uint32_t id) { drop(id); }
-        void test_on_exception(std::exception_ptr ep) { on_exception(std::move(ep)); }
+        void test_remove_duct(std::uint32_t id)
+        {
+            drop(id);
+        }
+        void test_remove_parcel(std::uint32_t id)
+        {
+            drop(id);
+        }
+        void test_on_exception(std::exception_ptr ep)
+        {
+            on_exception(std::move(ep));
+        }
 
     protected:
         auto run() -> net::awaitable<void> override
@@ -126,7 +134,6 @@ namespace
         EXPECT_TRUE(fx.transport->is_cancelled()) << "close: transport cancelled";
         EXPECT_TRUE(fx.transport->is_closed()) << "close: transport closed";
     }
-
 
     TEST(MuxCoreDeep, CloseWithoutTraffic)
     {
@@ -230,8 +237,7 @@ namespace
     TEST(MuxCoreDeep, ResolveMrWithNullOpt)
     {
         auto *result = resolve_mr(nullptr);
-        EXPECT_EQ(result, psm::memory::current_resource())
-            << "resolve_mr: nullptr -> current_resource";
+        EXPECT_EQ(result, psm::memory::current_resource()) << "resolve_mr: nullptr -> current_resource";
     }
 
     TEST(MuxCoreDeep, ResolveMrWithValid)

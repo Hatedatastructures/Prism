@@ -11,7 +11,6 @@
 #pragma once
 #include <cstdint>
 
-
 namespace psm::protocol::socks5
 {
 
@@ -48,4 +47,4 @@ namespace psm::protocol::socks5
         // 是否启用用户名/密码认证（RFC 1929）
         bool enable_auth = false;
     };
-}
+} // namespace psm::protocol::socks5

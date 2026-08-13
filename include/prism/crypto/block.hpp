@@ -12,7 +12,6 @@
 #include <cstdint>
 #include <span>
 
-
 namespace psm::crypto
 {
 

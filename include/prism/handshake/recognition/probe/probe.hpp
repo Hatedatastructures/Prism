@@ -10,8 +10,8 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/net/connection/types.hpp>
 #include <prism/handshake/recognition/probe/analyzer.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -20,7 +20,6 @@
 #include <cstddef>
 #include <span>
 #include <string_view>
-
 
 namespace psm::recognition::probe
 {
@@ -45,8 +44,7 @@ namespace psm::recognition::probe
         /**
          * @brief 检测是否成功
          */
-        [[nodiscard]] auto success() const noexcept
-            -> bool
+        [[nodiscard]] auto success() const noexcept -> bool
         {
             return ec == fault::code::success && type != psm::connect::protocol_type::unknown;
         }
@@ -54,8 +52,7 @@ namespace psm::recognition::probe
         /**
          * @brief 获取预读数据的字符串视图
          */
-        [[nodiscard]] auto preload_view() const noexcept
-            -> std::string_view
+        [[nodiscard]] auto preload_view() const noexcept -> std::string_view
         {
             return {reinterpret_cast<const char *>(pre_read_data.data()), pre_read_size};
         }
@@ -63,8 +60,7 @@ namespace psm::recognition::probe
         /**
          * @brief 获取预读数据的字节视图
          */
-        [[nodiscard]] auto preload_bytes() const noexcept
-            -> std::span<const std::byte>
+        [[nodiscard]] auto preload_bytes() const noexcept -> std::span<const std::byte>
         {
             return {pre_read_data.data(), pre_read_size};
         }

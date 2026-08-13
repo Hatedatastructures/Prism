@@ -14,22 +14,19 @@ namespace psm::transport
 {
 
     pad_transport::pad_transport(shared_transmission inner, const pad_config &cfg)
-        : inner_(std::move(inner))
-        , cfg_(cfg)
-        , targets_(parse_targets(cfg.pad_targets, memory::current_resource()))
-        , pad_buf_(16384 + 256, memory::current_resource())
+        : inner_(std::move(inner)), cfg_(cfg),
+          targets_(parse_targets(cfg.pad_targets, memory::current_resource())),
+          pad_buf_(16384 + 256, memory::current_resource())
     {
         /// 从 BoringSSL 获取 CSPRNG 种子
         RAND_bytes(rng_key_.data(), static_cast<int>(rng_key_.size()));
     }
-
 
     auto pad_transport::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         co_return co_await inner_->async_read_some(buffer, ec);
     }
-
 
     auto pad_transport::async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -58,61 +55,63 @@ namespace psm::transport
             rng_next_bytes(std::span<std::byte>(pad_buf_.data() + data_len, pad_size));
         }
 
-        co_await async_write(*inner_,
-            std::span<const std::byte>(pad_buf_.data(), total), ec);
+        co_await async_write(*inner_, std::span<const std::byte>(pad_buf_.data(), total), ec);
 
         ++write_count_;
 
         if (ec)
+        {
             co_return 0;
+        }
         co_return data_len;
     }
-
 
     void pad_transport::close()
     {
         inner_->close();
     }
 
-
     void pad_transport::cancel()
     {
         inner_->cancel();
     }
 
-
     auto pad_transport::compute_padding(std::size_t data_len) -> std::size_t
     {
         if (targets_.empty())
+        {
             return rng_next_u16(0, cfg_.max_pad_bytes);
+        }
 
         /// 选取当前 write_count 对应的 target(循环使用)
         const auto &target = targets_[write_count_ % targets_.size()];
         const auto target_len = rng_next_u16(target.min_val, target.max_val);
 
         if (data_len < target_len)
+        {
             return target_len - data_len;
+        }
 
         return rng_next_u16(0, cfg_.max_pad_bytes);
     }
 
-
     auto pad_transport::rng_next_u16(std::uint16_t min_val, std::uint16_t max_val) -> std::uint16_t
     {
         if (min_val >= max_val)
+        {
             return min_val;
+        }
 
         std::array<std::byte, 2> buf{};
         rng_next_bytes(buf);
 
-        const auto raw = static_cast<std::uint16_t>(
-            (static_cast<std::uint16_t>(static_cast<std::uint8_t>(buf[0])) << 8) |
-            static_cast<std::uint16_t>(static_cast<std::uint8_t>(buf[1])));
+        const auto raw =
+            static_cast<std::uint16_t>((static_cast<std::uint16_t>(static_cast<std::uint8_t>(buf[0])) << 8) |
+                                       static_cast<std::uint16_t>(static_cast<std::uint8_t>(buf[1])));
 
         const auto range = static_cast<std::uint16_t>(max_val - min_val + 1);
         return static_cast<std::uint16_t>(min_val + (raw % range));
     }
-
 
     void pad_transport::rng_refill()
     {
@@ -133,23 +132,23 @@ namespace psm::transport
         ++rng_counter_;
     }
 
-
     void pad_transport::rng_next_bytes(std::span<std::byte> out)
     {
         std::size_t offset = 0;
         while (offset < out.size())
         {
             if (rng_cache_pos_ >= 32)
+            {
                 rng_refill();
+            }
 
-            const auto chunk = (out.size() - offset < 32 - rng_cache_pos_)
-                ? (out.size() - offset) : (32 - rng_cache_pos_);
+            const auto chunk =
+                (out.size() - offset < 32 - rng_cache_pos_) ? (out.size() - offset) : (32 - rng_cache_pos_);
             std::memcpy(out.data() + offset, rng_cache_.data() + rng_cache_pos_, chunk);
             rng_cache_pos_ += chunk;
             offset += chunk;
         }
     }
-
 
     auto pad_transport::parse_targets(std::string_view spec, memory::resource_pointer mr)
         -> memory::vector<pad_target>
@@ -161,7 +160,9 @@ namespace psm::transport
         {
             auto end = spec.find(',', start);
             if (end == std::string_view::npos)
+            {
                 end = spec.size();
+            }
 
             const auto token = spec.substr(start, end - start);
             if (!token.empty())

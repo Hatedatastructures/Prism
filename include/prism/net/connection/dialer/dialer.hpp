@@ -10,11 +10,11 @@
  */
 #pragma once
 
-#include <prism/net/transport/transmission.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/net/dns/resolver.hpp>
 #include <prism/net/connection/target.hpp>
+#include <prism/net/dns/resolver.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 
@@ -23,7 +23,6 @@
 #include <optional>
 #include <string_view>
 #include <utility>
-
 
 namespace psm::connect
 {
@@ -39,9 +38,9 @@ namespace psm::connect
      */
     struct dialer_options
     {
-        net::io_context &ioc;                      ///< IO 上下文，用于创建执行器和定时器
-        dns::config dns_cfg;              ///< DNS 解析器配置
-        std::chrono::milliseconds dial_timeout{300};  ///< 拨号超时（毫秒）
+        net::io_context &ioc;                                     ///< IO 上下文，用于创建执行器和定时器
+        dns::config dns_cfg;                                      ///< DNS 解析器配置
+        std::chrono::milliseconds dial_timeout{300};              ///< 拨号超时（毫秒）
         memory::resource_pointer mr = memory::current_resource(); ///< 内存资源，用于内部存储分配
     };
 
@@ -66,14 +65,22 @@ namespace psm::connect
         {
             using is_transparent = void;
 
-            [[nodiscard]] auto operator()(const std::string_view value) const noexcept
-                -> std::size_t
+            /**
+             * @brief 计算字符串的哈希值
+             * @param value 输入字符串
+             * @return 字符串哈希值
+             */
+            [[nodiscard]] auto operator()(const std::string_view value) const noexcept -> std::size_t
             {
                 return std::hash<std::string_view>{}(value);
             }
 
-            [[nodiscard]] auto operator()(const memory::string &value) const noexcept
-                -> std::size_t
+            /**
+             * @brief 计算字符串的哈希值（memory::string 重载）
+             * @param value 输入字符串
+             * @return 字符串哈希值
+             */
+            [[nodiscard]] auto operator()(const memory::string &value) const noexcept -> std::size_t
             {
                 return std::hash<std::string_view>{}(std::string_view(value));
             }
@@ -88,26 +95,50 @@ namespace psm::connect
         {
             using is_transparent = void;
 
-            [[nodiscard]] auto operator()(const std::string_view left, const std::string_view right) const noexcept
-                -> bool
+            /**
+             * @brief 比较两个字符串是否相等
+             * @param left 左字符串
+             * @param right 右字符串
+             * @return 相等返回 true，否则返回 false
+             */
+            [[nodiscard]] auto operator()(const std::string_view left,
+                                          const std::string_view right) const noexcept -> bool
             {
                 return left == right;
             }
 
-            [[nodiscard]] auto operator()(const memory::string &left, const std::string_view right) const noexcept
-                -> bool
+            /**
+             * @brief 比较两个字符串是否相等（memory::string 与 string_view 混合）
+             * @param left 左字符串
+             * @param right 右字符串
+             * @return 相等返回 true，否则返回 false
+             */
+            [[nodiscard]] auto operator()(const memory::string &left,
+                                          const std::string_view right) const noexcept -> bool
             {
                 return std::string_view(left) == right;
             }
 
-            [[nodiscard]] auto operator()(const std::string_view left, const memory::string &right) const noexcept
-                -> bool
+            /**
+             * @brief 比较两个字符串是否相等（string_view 与 memory::string 混合）
+             * @param left 左字符串
+             * @param right 右字符串
+             * @return 相等返回 true，否则返回 false
+             */
+            [[nodiscard]] auto operator()(const std::string_view left,
+                                          const memory::string &right) const noexcept -> bool
             {
                 return left == std::string_view(right);
             }
 
-            [[nodiscard]] auto operator()(const memory::string &left, const memory::string &right) const noexcept
-                -> bool
+            /**
+             * @brief 比较两个字符串是否相等
+             * @param left 左字符串
+             * @param right 右字符串
+             * @return 相等返回 true，否则返回 false
+             */
+            [[nodiscard]] auto operator()(const memory::string &left,
+                                          const memory::string &right) const noexcept -> bool
             {
                 return left == right;
             }
@@ -164,7 +195,8 @@ namespace psm::connect
          * @param trace 日志上下文
          * @return 成功连接，或空（全部失败时）
          */
-        [[nodiscard]] auto race(std::span<const tcp::endpoint> endpoints, std::shared_ptr<diagnose::context> trace = nullptr)
+        [[nodiscard]] auto race(std::span<const tcp::endpoint> endpoints,
+                                std::shared_ptr<diagnose::context> trace = nullptr)
             -> net::awaitable<shared_transmission>;
 
         /**
@@ -191,45 +223,64 @@ namespace psm::connect
          * @brief 查询是否禁用了 IPv6
          * @return 禁用 IPv6 返回 true，否则返回 false
          */
-        [[nodiscard]] auto ipv6_disabled() const noexcept
-            -> bool { return dns_->ipv6_disabled(); }
+        [[nodiscard]] auto ipv6_disabled() const noexcept -> bool
+        {
+            return dns_->ipv6_disabled();
+        }
 
         /**
          * @brief 获取拨号超时
          * @return 拨号超时（毫秒）
          */
-        [[nodiscard]] auto dial_timeout() const noexcept
-            -> std::chrono::milliseconds { return dial_timeout_; }
+        [[nodiscard]] auto dial_timeout() const noexcept -> std::chrono::milliseconds
+        {
+            return dial_timeout_;
+        }
 
         /**
          * @brief 获取 DNS 解析器引用
          * @return DNS 解析器引用
          */
-        [[nodiscard]] auto dns() noexcept
-            -> dns::resolver & { return *dns_; }
-        [[nodiscard]] auto dns() const noexcept
-            -> const dns::resolver & { return *dns_; }
+        [[nodiscard]] auto dns() noexcept -> dns::resolver &
+        {
+            return *dns_;
+        }
+
+        /**
+         * @brief 获取 DNS 解析器常量引用
+         * @return DNS 解析器常量引用
+         */
+        [[nodiscard]] auto dns() const noexcept -> const dns::resolver &
+        {
+            return *dns_;
+        }
 
         /**
          * @brief 获取执行器
          * @return 执行器
          */
-        [[nodiscard]] auto executor() const noexcept
-            -> net::any_io_executor { return executor_; }
+        [[nodiscard]] auto executor() const noexcept -> net::any_io_executor
+        {
+            return executor_;
+        }
 
         /**
          * @brief 获取正向代理主机名
          * @return 正向代理主机名的 optional 引用
          */
-        [[nodiscard]] auto positive_host() const noexcept
-            -> const std::optional<memory::string> & { return positive_host_; }
+        [[nodiscard]] auto positive_host() const noexcept -> const std::optional<memory::string> &
+        {
+            return positive_host_;
+        }
 
         /**
          * @brief 获取正向代理端口
          * @return 正向代理端口
          */
-        [[nodiscard]] auto positive_port() const noexcept
-            -> std::uint16_t { return positive_port_; }
+        [[nodiscard]] auto positive_port() const noexcept -> std::uint16_t
+        {
+            return positive_port_;
+        }
 
     private:
         /**
@@ -251,13 +302,13 @@ namespace psm::connect
         [[nodiscard]] auto async_reverse(std::string_view host)
             -> net::awaitable<std::pair<fault::code, shared_transmission>>;
 
-        std::chrono::milliseconds dial_timeout_{300};       // 拨号超时
-        memory::resource_pointer mr_;                       // 内存资源
-        std::unique_ptr<dns::resolver> dns_;       // DNS 解析器
-        reverse_map reverse_map_;                           // 反向路由表
-        net::any_io_executor executor_;                     // 执行器（用于创建 UDP socket）
-        std::optional<memory::string> positive_host_;       // 正向代理主机名
-        std::uint16_t positive_port_{0};                    // 正向代理端口
+        std::chrono::milliseconds dial_timeout_{300}; // 拨号超时
+        memory::resource_pointer mr_;                 // 内存资源
+        std::unique_ptr<dns::resolver> dns_;          // DNS 解析器
+        reverse_map reverse_map_;                     // 反向路由表
+        net::any_io_executor executor_;               // 执行器（用于创建 UDP socket）
+        std::optional<memory::string> positive_host_; // 正向代理主机名
+        std::uint16_t positive_port_{0};              // 正向代理端口
     };
 
 } // namespace psm::connect

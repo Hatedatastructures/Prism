@@ -7,16 +7,15 @@
  *          不 #include 源文件（含大量协程模板，会导致对象文件过大链接失败）。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
-
-#include <gtest/gtest.h>
-
 #include <boost/asio.hpp>
+
 #include <cstdint>
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 #define private public
 #include <prism/net/dns/upstream.hpp>
@@ -26,9 +25,9 @@ namespace
 {
     namespace net = boost::asio;
     namespace dns = psm::dns;
-    using dns::upstream;
     using dns::query_result;
     using dns::server;
+    using dns::upstream;
     using psm::memory::resource_pointer;
 
     // ─── 构造器 ──────────────────────────────────

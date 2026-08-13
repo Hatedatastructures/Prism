@@ -1,9 +1,8 @@
-#include <prism/runtime/worker/worker.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/coroutine/registry.hpp>
 #include <prism/runtime/worker/launch.hpp>
 #include <prism/runtime/worker/tls.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/runtime/worker/worker.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -17,17 +16,13 @@ namespace psm::runtime::worker
 
     worker::worker(std::shared_ptr<psm::resource::process> global_ctx)
         : resources_(std::make_shared<psm::resource::worker>(
-              psm::resource::worker::options{
-                  std::move(global_ctx),
-                  std::pmr::new_delete_resource(),
-                  0}))
+              psm::resource::worker::options{std::move(global_ctx), std::pmr::new_delete_resource(), 0}))
     {
     }
 
     auto worker::run() -> void
     {
-        resources_->tasks.spawn_tracked(
-            "metrics.observe", metrics_.observe(resources_->ioc));
+        resources_->tasks.spawn_tracked("metrics.observe", metrics_.observe(resources_->ioc));
         resources_->ioc.run();
     }
 
@@ -40,12 +35,10 @@ namespace psm::runtime::worker
 
     auto worker::dispatch_socket(tcp::socket socket) -> void
     {
-        launch::dispatch(launch::launch_params{
-            resources_, metrics_, std::move(socket)});
+        launch::dispatch(launch::launch_params{resources_, metrics_, std::move(socket)});
     }
 
-    auto worker::load_snapshot() const noexcept
-        -> ::psm::stats::worker_snapshot
+    auto worker::load_snapshot() const noexcept -> ::psm::stats::worker_snapshot
     {
         auto snapshot = metrics_.snapshot();
         const auto task_stats = resources_->tasks.stats();

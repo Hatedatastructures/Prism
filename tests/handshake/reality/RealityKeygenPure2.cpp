@@ -6,11 +6,11 @@
  *          测试 compute_verify 的 HMAC-SHA256 计算。
  */
 
-#include <gtest/gtest.h>
-
+#include <prism/crypto/hkdf.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/reality/util/keygen.hpp>
-#include <prism/crypto/hkdf.hpp>
+
+#include <gtest/gtest.h>
 
 namespace
 {

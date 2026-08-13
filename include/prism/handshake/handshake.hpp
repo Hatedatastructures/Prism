@@ -9,16 +9,13 @@
 
 #pragma once
 
-#include <prism/handshake/common.hpp>
-#include <prism/handshake/executor.hpp>
-#include <prism/handshake/native.hpp>
-#include <prism/handshake/registry.hpp>
-#include <prism/handshake/scheme.hpp>
-
 #include <prism/handshake/anytls/scheme.hpp>
+#include <prism/handshake/common.hpp>
 #include <prism/handshake/ech/config.hpp>
 #include <prism/handshake/ech/scheme.hpp>
 #include <prism/handshake/ech/util/keygen.hpp>
+#include <prism/handshake/executor.hpp>
+#include <prism/handshake/native.hpp>
 #include <prism/handshake/reality/config.hpp>
 #include <prism/handshake/reality/handshake.hpp>
 #include <prism/handshake/reality/scheme.hpp>
@@ -26,7 +23,9 @@
 #include <prism/handshake/reality/util/auth.hpp>
 #include <prism/handshake/reality/util/keygen.hpp>
 #include <prism/handshake/reality/util/response.hpp>
+#include <prism/handshake/registry.hpp>
 #include <prism/handshake/restls/scheme.hpp>
+#include <prism/handshake/scheme.hpp>
 #include <prism/handshake/shadowtls/scheme.hpp>
 #include <prism/handshake/trusttunnel/scheme.hpp>
 
@@ -39,5 +38,3 @@
 #include <prism/handshake/recognition/target.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/handshake/recognition/tls/signal.hpp>
-
-

@@ -13,5 +13,3 @@
 #pragma once
 
 #include <prism/settings/transformer/json.hpp>
-
-

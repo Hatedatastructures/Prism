@@ -3,8 +3,8 @@
  * @brief XHTTP HTTP/2 会话实现
  */
 
-#include <prism/handshake/xhttp/session.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/xhttp/session.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio/co_spawn.hpp>
@@ -25,13 +25,9 @@ namespace psm::handshake::xhttp
         public:
             using write_cb = std::function<net::awaitable<void>(memory::vector<std::byte>)>;
 
-            stream_transport(net::any_io_executor executor, write_cb write_fn,
-                             memory::resource_pointer mr)
-                : executor_(std::move(executor))
-                , write_fn_(std::move(write_fn))
-                , mr_(mr)
-                , channel_(std::make_unique<channel_type>(executor_, 512))
-                , current_(mr)
+            stream_transport(net::any_io_executor executor, write_cb write_fn, memory::resource_pointer mr)
+                : executor_(std::move(executor)), write_fn_(std::move(write_fn)), mr_(mr),
+                  channel_(std::make_unique<channel_type>(executor_, 512)), current_(mr)
             {
             }
 
@@ -112,7 +108,9 @@ namespace psm::handshake::xhttp
             void push(std::span<const std::byte> data)
             {
                 if (closed_ || data.empty())
+                {
                     return;
+                }
                 memory::vector<std::byte> copy(data.begin(), data.end(), mr_);
                 channel_->try_send(boost::system::error_code{}, std::move(copy));
             }
@@ -120,12 +118,14 @@ namespace psm::handshake::xhttp
             void notify_eof()
             {
                 if (!closed_)
+                {
                     channel_->try_send(boost::system::error_code{}, memory::vector<std::byte>(mr_));
+                }
             }
 
         private:
-            using channel_type = net::experimental::concurrent_channel<
-                void(boost::system::error_code, memory::vector<std::byte>)>;
+            using channel_type = net::experimental::concurrent_channel<void(boost::system::error_code,
+                                                                            memory::vector<std::byte>)>;
 
             net::any_io_executor executor_;
             write_cb write_fn_;
@@ -138,15 +138,9 @@ namespace psm::handshake::xhttp
     } // namespace
 
     session::session(psm::transport::shared_transmission transport, const config &cfg,
-                     const memory::resource_pointer mr,
-                     std::shared_ptr<diagnose::context> prefix)
-        : transport_(std::move(transport))
-        , config_(cfg)
-        , mr_(mr)
-        , prefix_(std::move(prefix))
-        , request_path_(mr_)
-        , read_buffer_(mr_)
-        , wait_timer_(transport_->executor())
+                     const memory::resource_pointer mr, std::shared_ptr<diagnose::context> prefix)
+        : transport_(std::move(transport)), config_(cfg), mr_(mr), prefix_(std::move(prefix)),
+          request_path_(mr_), read_buffer_(mr_), wait_timer_(transport_->executor())
     {
         wait_timer_.expires_after(std::chrono::hours(24));
     }
@@ -164,27 +158,31 @@ namespace psm::handshake::xhttp
     {
         active_.store(true, std::memory_order_release);
         auto self = shared_from_this();
-        auto task = [self]() -> net::awaitable<void>
-        {
-            co_await self->frame_loop();
-        };
-        net::co_spawn(transport_->executor(), std::move(task), [self](const std::exception_ptr &ep)
-        {
-            if (ep)
-            {
-                diagnose::debug(self->prefix_, "xhttp session loop error");
-            }
-        });
+        auto task = [self]() -> net::awaitable<void> { co_await self->frame_loop(); };
+        net::co_spawn(transport_->executor(), std::move(task),
+                      [self](const std::exception_ptr &ep)
+                      {
+                          if (ep)
+                          {
+                              diagnose::debug(self->prefix_, "xhttp session loop error");
+                          }
+                      });
     }
 
     void session::close()
     {
         if (!active_.exchange(false, std::memory_order_acq_rel))
+        {
             return;
+        }
         if (transport_)
+        {
             transport_->close();
+        }
         if (matched_transport_)
+        {
             matched_transport_->close();
+        }
         wait_timer_.cancel();
     }
 
@@ -209,7 +207,9 @@ namespace psm::handshake::xhttp
 
         const std::int32_t rv = nghttp2_session_server_new3(&session_, callbacks, this, option, nullptr);
         if (option)
+        {
             nghttp2_option_del(option);
+        }
         nghttp2_session_callbacks_del(callbacks);
 
         if (rv != 0)
@@ -250,8 +250,8 @@ namespace psm::handshake::xhttp
                 break;
             }
 
-            const auto recv_len = nghttp2_session_mem_recv(
-                session_, reinterpret_cast<const uint8_t *>(recv_buf.data()), n);
+            const auto recv_len =
+                nghttp2_session_mem_recv(session_, reinterpret_cast<const uint8_t *>(recv_buf.data()), n);
             if (recv_len < 0)
             {
                 diagnose::debug(prefix_, "xhttp: nghttp2 recv error: {}",
@@ -265,7 +265,9 @@ namespace psm::handshake::xhttp
         transport_ready_ = true;
         wait_timer_.cancel();
         if (matched_transport_)
+        {
             matched_transport_->close();
+        }
         close();
         diagnose::debug(prefix_, "xhttp: frame loop ended");
     }
@@ -277,12 +279,13 @@ namespace psm::handshake::xhttp
             const std::uint8_t *data = nullptr;
             const auto len = nghttp2_session_mem_send(session_, &data);
             if (len <= 0)
+            {
                 break;
+            }
 
             std::error_code write_ec;
-            co_await psm::transport::async_write(*transport_,
-                std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(data), len),
+            co_await psm::transport::async_write(
+                *transport_, std::span<const std::byte>(reinterpret_cast<const std::byte *>(data), len),
                 write_ec);
             if (write_ec)
             {
@@ -301,16 +304,20 @@ namespace psm::handshake::xhttp
         const char *cache_control = "no-store";
         nghttp2_nv hdrs[] = {
             {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(":status")),
-             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_str)), 7, 3, NGHTTP2_NV_FLAG_NONE},
+             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(status_str)), 7, 3,
+             NGHTTP2_NV_FLAG_NONE},
             {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>("content-type")),
-             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(content_type)), 12, 17, NGHTTP2_NV_FLAG_NONE},
+             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(content_type)), 12, 17,
+             NGHTTP2_NV_FLAG_NONE},
             {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>("x-accel-buffering")),
-             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(no_buffering)), 18, 2, NGHTTP2_NV_FLAG_NONE},
+             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(no_buffering)), 18, 2,
+             NGHTTP2_NV_FLAG_NONE},
             {const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>("cache-control")),
-             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(cache_control)), 13, 8, NGHTTP2_NV_FLAG_NONE},
+             const_cast<uint8_t *>(reinterpret_cast<const uint8_t *>(cache_control)), 13, 8,
+             NGHTTP2_NV_FLAG_NONE},
         };
-        const auto rc = nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE,
-                                               stream_id, nullptr, hdrs, 4, nullptr);
+        const auto rc =
+            nghttp2_submit_headers(session_, NGHTTP2_FLAG_NONE, stream_id, nullptr, hdrs, 4, nullptr);
         if (rc != 0)
         {
             diagnose::warn(prefix_, "xhttp: submit headers failed: {}", nghttp2_strerror(rc));
@@ -337,8 +344,7 @@ namespace psm::handshake::xhttp
     auto session::on_begin_headers(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
     {
         auto *self = static_cast<session *>(user_data);
-        if (frame->hd.type != NGHTTP2_HEADERS ||
-            frame->headers.cat != NGHTTP2_HCAT_REQUEST)
+        if (frame->hd.type != NGHTTP2_HEADERS || frame->headers.cat != NGHTTP2_HCAT_REQUEST)
         {
             return 0;
         }
@@ -347,14 +353,12 @@ namespace psm::handshake::xhttp
         return 0;
     }
 
-    auto session::on_header(nghttp2_session *, const nghttp2_frame *frame,
-                            const uint8_t *name, const size_t namelen,
-                            const uint8_t *value, const size_t valuelen,
-                            uint8_t, void *user_data) -> int
+    auto session::on_header(nghttp2_session *, const nghttp2_frame *frame, const uint8_t *name,
+                            const size_t namelen, const uint8_t *value, const size_t valuelen, uint8_t,
+                            void *user_data) -> int
     {
         auto *self = static_cast<session *>(user_data);
-        if (frame->hd.type != NGHTTP2_HEADERS ||
-            frame->headers.cat != NGHTTP2_HCAT_REQUEST)
+        if (frame->hd.type != NGHTTP2_HEADERS || frame->headers.cat != NGHTTP2_HCAT_REQUEST)
         {
             return 0;
         }
@@ -371,7 +375,9 @@ namespace psm::handshake::xhttp
             self->request_path_.clear();
             self->request_path_.reserve(hvalue.size());
             for (const auto c : hvalue)
+            {
                 self->request_path_.push_back(static_cast<std::byte>(c));
+            }
         }
         return 0;
     }
@@ -379,8 +385,7 @@ namespace psm::handshake::xhttp
     auto session::on_frame_recv(nghttp2_session *, const nghttp2_frame *frame, void *user_data) -> int
     {
         auto *self = static_cast<session *>(user_data);
-        if (frame->hd.type != NGHTTP2_HEADERS ||
-            frame->headers.cat != NGHTTP2_HCAT_REQUEST ||
+        if (frame->hd.type != NGHTTP2_HEADERS || frame->headers.cat != NGHTTP2_HCAT_REQUEST ||
             self->stream_accepted_)
         {
             return 0;
@@ -391,14 +396,12 @@ namespace psm::handshake::xhttp
         const std::string_view expected(self->config_.path.data(), self->config_.path.size());
 
         // 路径前缀匹配
-        const bool path_ok = expected == "/"
-            ? path.rfind('/', 0) == 0
-            : path.rfind(expected, 0) == 0;
+        const bool path_ok = expected == "/" ? path.rfind('/', 0) == 0 : path.rfind(expected, 0) == 0;
 
         if (!self->request_is_post_ || !path_ok)
         {
-            nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE,
-                                      frame->hd.stream_id, NGHTTP2_REFUSED_STREAM);
+            nghttp2_submit_rst_stream(self->session_, NGHTTP2_FLAG_NONE, frame->hd.stream_id,
+                                      NGHTTP2_REFUSED_STREAM);
             return 0;
         }
 
@@ -406,15 +409,15 @@ namespace psm::handshake::xhttp
 
         // 建立裸流传输
         auto self_ptr = self->shared_from_this();
-        auto write_fn = [self_ptr, stream_id = frame->hd.stream_id](memory::vector<std::byte> frame)
-            -> net::awaitable<void>
+        auto write_fn = [self_ptr, stream_id = frame->hd.stream_id](
+                            memory::vector<std::byte> frame) -> net::awaitable<void>
         {
             // 提交 DATA 帧（数据源生命周期绑定 pending_data_，防 nghttp2 延迟读取悬垂）
             co_await self_ptr->submit_data_frame(stream_id, std::move(frame));
         };
 
-        auto stream_trans = std::make_shared<stream_transport>(
-            self->transport_->executor(), std::move(write_fn), self->mr_);
+        auto stream_trans =
+            std::make_shared<stream_transport>(self->transport_->executor(), std::move(write_fn), self->mr_);
         self->matched_transport_ = stream_trans;
 
         if (self->accept_stream(frame->hd.stream_id) == 0)
@@ -455,8 +458,8 @@ namespace psm::handshake::xhttp
     }
 
     auto session::read_data_source(nghttp2_session *, const int32_t stream_id, uint8_t *buf,
-                                   const size_t length, uint32_t *data_flags,
-                                   nghttp2_data_source *, void *user_data) -> ssize_t
+                                   const size_t length, uint32_t *data_flags, nghttp2_data_source *,
+                                   void *user_data) -> ssize_t
     {
         auto *self = static_cast<session *>(user_data);
         auto it = self->pending_data_.find(stream_id);
@@ -488,25 +491,26 @@ namespace psm::handshake::xhttp
         if (matched_transport_)
         {
             if (auto *st = dynamic_cast<stream_transport *>(matched_transport_.get()))
+            {
                 st->push(data);
+            }
         }
     }
 
-    auto session::on_data(nghttp2_session *, uint8_t, const int32_t stream_id,
-                          const uint8_t *data, const size_t len, void *user_data) -> int
+    auto session::on_data(nghttp2_session *, uint8_t, const int32_t stream_id, const uint8_t *data,
+                          const size_t len, void *user_data) -> int
     {
         auto *self = static_cast<session *>(user_data);
         if (stream_id != self->matched_stream_ || !self->matched_transport_)
         {
             return 0;
         }
-        self->push_data(std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(data), len));
+        self->push_data(std::span<const std::byte>(reinterpret_cast<const std::byte *>(data), len));
         return 0;
     }
 
-    auto session::on_stream_close(nghttp2_session *, const int32_t stream_id,
-                                  uint32_t, void *user_data) -> int
+    auto session::on_stream_close(nghttp2_session *, const int32_t stream_id, uint32_t, void *user_data)
+        -> int
     {
         auto *self = static_cast<session *>(user_data);
         // 流关闭后数据源不再被读取，释放避免泄漏
@@ -514,7 +518,9 @@ namespace psm::handshake::xhttp
         if (stream_id == self->matched_stream_ && self->matched_transport_)
         {
             if (auto *st = dynamic_cast<stream_transport *>(self->matched_transport_.get()))
+            {
                 st->notify_eof();
+            }
         }
         return 0;
     }

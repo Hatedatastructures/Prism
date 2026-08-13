@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file conn.hpp
  * @brief SS2022 (SIP022) 协议中继器声明
  * @details SS2022 relay 是一个 AEAD 加密传输层装饰器。与 Trojan/VLESS 不同，
@@ -12,20 +12,19 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/net/connection/target.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/net/transport/preview.hpp>
+#include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/shadowsocks/codec/packet.hpp>
 #include <prism/protocol/shadowsocks/config.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/protocol/shadowsocks/codec/packet.hpp>
 #include <prism/protocol/shadowsocks/util/salts.hpp>
-#include <prism/net/connection/types.hpp>
-#include <prism/net/transport/transmission.hpp>
-#include <prism/net/transport/preview.hpp>
 
 #include <boost/asio.hpp>
 
 #include <memory>
 #include <span>
 #include <tuple>
-
 
 namespace psm::protocol::shadowsocks
 {
@@ -54,6 +53,10 @@ namespace psm::protocol::shadowsocks
             return next_layer_.get();
         }
 
+        /**
+         * @brief 获取内层传输常量指针（装饰器链导航）
+         * @return const transmission* 内层传输常量指针
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const transport::transmission * override
         {
             return next_layer_.get();
@@ -88,8 +91,7 @@ namespace psm::protocol::shadowsocks
          * @brief 获取关联的执行器
          * @return executor_type 执行器
          */
-        [[nodiscard]] auto executor() const
-            -> executor_type override;
+        [[nodiscard]] auto executor() const -> executor_type override;
 
         /**
          * @brief 异步读取数据
@@ -128,8 +130,7 @@ namespace psm::protocol::shadowsocks
          * 握手成功后需调用 acknowledge() 发送响应
          * @return 错误码和请求信息
          */
-        [[nodiscard]] auto handshake()
-            -> net::awaitable<std::pair<fault::code, request>>;
+        [[nodiscard]] auto handshake() -> net::awaitable<std::pair<fault::code, request>>;
 
         /**
          * @brief 发送 SS2022 握手响应
@@ -137,15 +138,13 @@ namespace psm::protocol::shadowsocks
          * 上游拨号成功后，避免拨号失败时客户端收到误导性的成功响应
          * @return 错误码
          */
-        [[nodiscard]] auto acknowledge()
-            -> net::awaitable<fault::code>;
+        [[nodiscard]] auto acknowledge() -> net::awaitable<fault::code>;
 
         /**
          * @brief 获取解析后的目标地址
          * @return 目标地址的常量引用
          */
-        [[nodiscard]] auto target() const noexcept
-            -> const psm::connect::target &
+        [[nodiscard]] auto target() const noexcept -> const psm::connect::target &
         {
             return target_;
         }
@@ -158,19 +157,19 @@ namespace psm::protocol::shadowsocks
         std::unique_ptr<crypto::aead_context> decrypt_ctx_; // 解密上下文
         std::unique_ptr<crypto::aead_context> encrypt_ctx_; // 加密上下文
         cipher_method method_{cipher_method::aes_128_gcm};  // 加密方法
-        std::size_t key_salt_len_{16};                   // 密钥/salt 长度
+        std::size_t key_salt_len_{16};                      // 密钥/salt 长度
 
         memory::vector<std::uint8_t> psk_; // 解码后的 PSK
 
         memory::vector<std::byte> decrypted_; // 解密后的数据缓冲区
-        std::size_t decrypted_off_{0};     // 已消费的解密缓冲区偏移
+        std::size_t decrypted_off_{0};        // 已消费的解密缓冲区偏移
 
         std::array<std::byte, len_block_size> length_buf_{}; // 加密长度块缓冲区（2+16=18字节）
-        memory::vector<std::byte> chunk_buf_;                   // 加密 payload 块缓冲区
-        std::uint16_t cur_payload_len_{0};                  // 当前 chunk 的 payload 长度
+        memory::vector<std::byte> chunk_buf_;                // 加密 payload 块缓冲区
+        std::uint16_t cur_payload_len_{0};                   // 当前 chunk 的 payload 长度
 
         memory::vector<std::byte> init_payload_; // 握手中的初始 payload
-        std::size_t init_off_{0};             // 初始 payload 偏移
+        std::size_t init_off_{0};                // 初始 payload 偏移
 
         memory::vector<std::uint8_t> payload_enc_buf_; // 发送加密缓冲区（复用）
 
@@ -221,8 +220,7 @@ namespace psm::protocol::shadowsocks
          * @param ec 错误码输出参数
          * @return 异步操作
          */
-        [[nodiscard]] auto fetch_chunk(std::error_code &ec)
-            -> net::awaitable<void>;
+        [[nodiscard]] auto fetch_chunk(std::error_code &ec) -> net::awaitable<void>;
 
         /**
          * @brief 加密并写入一个数据块
@@ -234,6 +232,10 @@ namespace psm::protocol::shadowsocks
             -> net::awaitable<std::size_t>;
     };
 
+    /**
+     * @brief SS2022 中继器共享智能指针
+     * @details 使用 shared_ptr 管理 conn 对象生命周期，支持协程上下文中的异步保活
+     */
     using shared_conn = std::shared_ptr<conn>;
 
     /**
@@ -243,8 +245,8 @@ namespace psm::protocol::shadowsocks
      * @param salts Salt 重放保护池
      * @return shared_conn 中继器共享指针
      */
-    [[nodiscard]] inline auto make_conn(shared_transmission next_layer, const config &cfg, std::shared_ptr<salt_pool> salts)
-        -> shared_conn
+    [[nodiscard]] inline auto make_conn(shared_transmission next_layer, const config &cfg,
+                                        std::shared_ptr<salt_pool> salts) -> shared_conn
     {
         return std::make_shared<conn>(std::move(next_layer), cfg, std::move(salts));
     }

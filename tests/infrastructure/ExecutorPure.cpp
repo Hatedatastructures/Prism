@@ -6,10 +6,11 @@
  *          find_scheme 测试通过 registry::find 间接验证。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/handshake/handshake.hpp>
 #include <prism/settings/settings.hpp>
+
 #include <gtest/gtest.h>
 
 // #include 源文件以访问匿名命名空间中的 secondary_probe
@@ -37,8 +38,7 @@ namespace
         const auto *ptr = reinterpret_cast<const std::byte *>(http_get);
         psm::memory::vector<std::byte> preread(ptr, ptr + std::strlen(http_get));
         auto result = psm::handshake::secondary_probe(preread);
-        EXPECT_EQ(result, psm::connect::protocol_type::http)
-            << "secondary_probe: HTTP GET -> http";
+        EXPECT_EQ(result, psm::connect::protocol_type::http) << "secondary_probe: HTTP GET -> http";
     }
 
     /**
@@ -88,8 +88,7 @@ namespace
         registry.add(scheme);
         auto found = registry.find("native");
         EXPECT_NE(found, nullptr) << "registry::find: native registered -> found";
-        EXPECT_TRUE(found->name() == std::string_view("native"))
-            << "registry::find: found name == 'native'";
+        EXPECT_TRUE(found->name() == std::string_view("native")) << "registry::find: found name == 'native'";
     }
 
     /**

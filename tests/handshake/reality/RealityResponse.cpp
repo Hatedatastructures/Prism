@@ -5,16 +5,15 @@
  *          以及 generate_shello 的结构化输出验证。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/reality/util/response.hpp>
 #include <prism/handshake/reality/util/keygen.hpp>
+#include <prism/handshake/reality/util/response.hpp>
 #include <prism/protocol/tls/types.hpp>
-#include <prism/foundation/foundation.hpp>
 
 #include <cstdint>
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -36,8 +35,7 @@ namespace
     TEST(RealityResponse, MakeRecordWithPayload)
     {
         const std::uint8_t payload[] = {0x01, 0x02, 0x03, 0x04};
-        auto rec = reality::make_record(tls::CT_APPLICATION_DATA,
-            std::span<const std::uint8_t>{payload, 4});
+        auto rec = reality::make_record(tls::CT_APPLICATION_DATA, std::span<const std::uint8_t>{payload, 4});
 
         EXPECT_EQ(rec.size(), 5 + 4) << "make_record payload: size=9";
         EXPECT_EQ(rec[0], tls::CT_APPLICATION_DATA) << "make_record payload: content_type=0x17";
@@ -48,8 +46,8 @@ namespace
     TEST(RealityResponse, MakeRecordChangeCipherSpec)
     {
         const std::uint8_t payload[] = {0x01};
-        auto rec = reality::make_record(tls::CT_CHANGE_CIPHER_SPEC,
-            std::span<const std::uint8_t>{payload, 1});
+        auto rec =
+            reality::make_record(tls::CT_CHANGE_CIPHER_SPEC, std::span<const std::uint8_t>{payload, 1});
 
         EXPECT_EQ(rec.size(), 6) << "make_record ccs: size=6";
         EXPECT_EQ(rec[0], tls::CT_CHANGE_CIPHER_SPEC) << "make_record ccs: content_type=0x14";
@@ -62,16 +60,19 @@ namespace
         // 固定 key 和 IV
         std::array<std::uint8_t, 16> key{};
         for (std::size_t i = 0; i < 16; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         std::array<std::uint8_t, 12> iv{};
         for (std::size_t i = 0; i < 12; ++i)
+        {
             iv[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         const std::uint8_t plaintext[] = {0xAA, 0xBB, 0xCC};
 
-        reality::encrypt_params params{
-            key, iv, 0, tls::CT_HANDSHAKE, plaintext};
+        reality::encrypt_params params{key, iv, 0, tls::CT_HANDSHAKE, plaintext};
 
         auto [ec1, rec1] = reality::encrypt_record(params);
         EXPECT_EQ(ec1, psm::fault::code::success) << "encrypt_record: success";
@@ -85,18 +86,22 @@ namespace
         EXPECT_EQ(ec2, psm::fault::code::success) << "encrypt_record 2: success";
         EXPECT_EQ(rec1.size(), rec2.size()) << "encrypt_record: deterministic size";
         EXPECT_TRUE(std::memcmp(rec1.data(), rec2.data(), rec1.size()) == 0)
-                     << "encrypt_record: deterministic bytes";
+            << "encrypt_record: deterministic bytes";
     }
 
     TEST(RealityResponse, EncryptRecordDifferentSequence)
     {
         std::array<std::uint8_t, 16> key{};
         for (std::size_t i = 0; i < 16; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         std::array<std::uint8_t, 12> iv{};
         for (std::size_t i = 0; i < 12; ++i)
+        {
             iv[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         const std::uint8_t plaintext[] = {0xDE, 0xAD};
 
@@ -109,22 +114,25 @@ namespace
         EXPECT_EQ(ec1, psm::fault::code::success) << "encrypt seq 0: success";
         EXPECT_EQ(ec2, psm::fault::code::success) << "encrypt seq 1: success";
         EXPECT_TRUE(std::memcmp(r1.data(), r2.data(), r1.size()) != 0)
-                     << "encrypt_record: different sequence → different ciphertext";
+            << "encrypt_record: different sequence → different ciphertext";
     }
 
     TEST(RealityResponse, EncryptRecordEmptyPlaintext)
     {
         std::array<std::uint8_t, 16> key{};
         for (std::size_t i = 0; i < 16; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         std::array<std::uint8_t, 12> iv{};
         for (std::size_t i = 0; i < 12; ++i)
+        {
             iv[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         std::span<const std::uint8_t> empty;
-        reality::encrypt_params params{
-            key, iv, 0, tls::CT_APPLICATION_DATA, empty};
+        reality::encrypt_params params{key, iv, 0, tls::CT_APPLICATION_DATA, empty};
 
         auto [ec, rec] = reality::encrypt_record(params);
         EXPECT_EQ(ec, psm::fault::code::success) << "encrypt empty: success";
@@ -136,15 +144,18 @@ namespace
     {
         std::array<std::uint8_t, 16> key{};
         for (std::size_t i = 0; i < 16; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         std::array<std::uint8_t, 12> iv{};
         for (std::size_t i = 0; i < 12; ++i)
+        {
             iv[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         const std::uint8_t payload[] = {0x01, 0x02, 0x03, 0x04, 0x05};
-        reality::encrypt_params params{
-            key, iv, 42, tls::CT_HANDSHAKE, payload};
+        reality::encrypt_params params{key, iv, 42, tls::CT_HANDSHAKE, payload};
 
         auto [ec, rec] = reality::encrypt_record(params);
         EXPECT_EQ(ec, psm::fault::code::success) << "encrypt header: success";
@@ -171,12 +182,16 @@ namespace
         // 服务端临时公钥 (X25519, 32 bytes)
         std::array<std::uint8_t, 32> eph_pub{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             eph_pub[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         // 构造 shared_secret → derive_hs_keys
         std::array<std::uint8_t, 32> shared_secret{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             shared_secret[i] = static_cast<std::uint8_t>(i + 0xAA);
+        }
 
         // 构造一个最小的 ClientHello 消息字节（至少 4 字节）
         psm::memory::vector<std::uint8_t> fake_chello;
@@ -200,15 +215,11 @@ namespace
         // auth_key (32 bytes)
         std::array<std::uint8_t, 32> auth_key{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             auth_key[i] = static_cast<std::uint8_t>(i + 0x55);
+        }
 
-        reality::hello_request req{
-            features,
-            eph_pub,
-            keys,
-            fake_cert,
-            fake_chello,
-            auth_key};
+        reality::hello_request req{features, eph_pub, keys, fake_cert, fake_chello, auth_key};
 
         auto [ec, result] = reality::generate_shello(req);
         EXPECT_EQ(ec, psm::fault::code::success) << "generate_shello: success";
@@ -255,13 +266,8 @@ namespace
 
         const std::uint8_t fake_cert[] = {0x30, 0x01, 0x02};
 
-        reality::hello_request req{
-            features,
-            eph_pub,
-            keys,
-            fake_cert,
-            fake_chello,
-            {}}; // 空 auth_key → 使用 dest_certificate
+        reality::hello_request req{features,  eph_pub,     keys,
+                                   fake_cert, fake_chello, {}}; // 空 auth_key → 使用 dest_certificate
 
         auto [ec, result] = reality::generate_shello(req);
         EXPECT_EQ(ec, psm::fault::code::success) << "generate_shello no auth: success";

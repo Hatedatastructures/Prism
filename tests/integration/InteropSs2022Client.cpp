@@ -11,14 +11,14 @@
  * @param argv[2] echo 服务器端口（默认 19090，客户端直连 echo 验证转发）
  */
 
-#include <common/proxy/shadowsocks2022/codec.hpp>
-
 #include <boost/asio.hpp>
 
 #include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <vector>
+
+#include <common/proxy/shadowsocks2022/codec.hpp>
 
 namespace ss = psmtest::ss2022;
 
@@ -30,9 +30,8 @@ int main(const int argc, char *argv[])
     const std::string echo_addr = argc > 2 ? argv[2] : "127.0.0.1:19090";
 
     // PSK（与 configuration.json 一致）
-    std::array<std::uint8_t, 16> psk{
-        0xE6, 0x7E, 0x44, 0x4A, 0xEF, 0x79, 0xDE, 0x2F,
-        0xE9, 0x8C, 0x8A, 0x74, 0xDA, 0x86, 0x6F, 0x1C};
+    std::array<std::uint8_t, 16> psk{0xE6, 0x7E, 0x44, 0x4A, 0xEF, 0x79, 0xDE, 0x2F,
+                                     0xE9, 0x8C, 0x8A, 0x74, 0xDA, 0x86, 0x6F, 0x1C};
 
     try
     {
@@ -58,7 +57,9 @@ int main(const int argc, char *argv[])
         std::random_device rd;
         std::array<std::uint8_t, 16> salt{};
         for (auto &b : salt)
+        {
             b = static_cast<std::uint8_t>(rd() & 0xFF);
+        }
         const auto key = ss::session_key(psk, salt, 16);
 
         ss::address dst;
@@ -67,8 +68,8 @@ int main(const int argc, char *argv[])
         dst.port = static_cast<std::uint16_t>(std::stoi(echo_addr.substr(echo_addr.find_last_of(':') + 1)));
         const auto now = static_cast<std::uint64_t>(std::time(nullptr));
         const auto var = ss::build_var_header(dst, 1);
-        const auto fixed = ss::build_fixed_header(ss::header_type_client, now,
-                                                  static_cast<std::uint16_t>(var.size()));
+        const auto fixed =
+            ss::build_fixed_header(ss::header_type_client, now, static_cast<std::uint16_t>(var.size()));
 
         ss::chunk_codec codec(key);
         const auto fixed_enc = codec.seal(fixed);
@@ -95,8 +96,8 @@ int main(const int argc, char *argv[])
         const auto resp_key = ss::session_key(psk, std::span<const std::uint8_t>(resp_head).first(16), 16);
         ss::chunk_codec resp_codec(resp_key);
         std::size_t consumed = 0;
-        const auto fixed_plain = resp_codec.open(
-            std::span<const std::uint8_t>(resp_head).subspan(16, 43), consumed);
+        const auto fixed_plain =
+            resp_codec.open(std::span<const std::uint8_t>(resp_head).subspan(16, 43), consumed);
         if (fixed_plain.size() != ss::fixed_hdr_plain || fixed_plain[0] != ss::header_type_server)
         {
             std::fprintf(stderr, "FAIL: server response fixed header\n");

@@ -7,19 +7,18 @@
 
 #pragma once
 
-#include <prism/resource/session.hpp>
+#include <prism/diagnose/context.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/handshake/scheme.hpp>
 #include <prism/net/transport/transmission.hpp>
-#include <prism/diagnose/context.hpp>
+#include <prism/resource/session.hpp>
 
 #include <boost/asio.hpp>
 
 #include <cstdint>
 #include <memory>
 #include <span>
-
 
 namespace psm::connect
 {
@@ -43,8 +42,7 @@ namespace psm::handshake::reality
      * @return net::awaitable<handshake::handshake_result> 异步操作，返回握手结果
      */
     [[nodiscard]] auto handshake(transport::shared_transmission inbound, const psm::settings &cfg,
-                                 psm::resource::session &session,
-                                 std::shared_ptr<diagnose::context> trace)
+                                 psm::resource::session &session, std::shared_ptr<diagnose::context> trace)
         -> net::awaitable<handshake::handshake_result>;
 
     /**
@@ -56,9 +54,9 @@ namespace psm::handshake::reality
      * @param raw_record 原始 ClientHello TLS 记录字节
      * @return net::awaitable<fault::code> 异步操作，返回错误码
      */
-    [[nodiscard]] auto fallback_dest(psm::resource::session &session, transport::shared_transmission inbound, std::span<const std::uint8_t> raw_record,
-                                    std::shared_ptr<diagnose::context> trace)
-        -> net::awaitable<fault::code>;
+    [[nodiscard]] auto fallback_dest(psm::resource::session &session, transport::shared_transmission inbound,
+                                     std::span<const std::uint8_t> raw_record,
+                                     std::shared_ptr<diagnose::context> trace) -> net::awaitable<fault::code>;
 
     /**
      * @brief 从 dest 配置中解析 host 和 port
@@ -68,8 +66,7 @@ namespace psm::handshake::reality
      * @param port 输出参数，解析出的端口号
      * @return bool 解析成功返回 true，格式错误返回 false
      */
-    [[nodiscard]] auto parse_dest(std::string_view dest, std::string &host, std::uint16_t &port)
-        -> bool;
+    [[nodiscard]] auto parse_dest(std::string_view dest, std::string &host, std::uint16_t &port) -> bool;
 
     /**
      * @brief 从 dest 服务器获取证书

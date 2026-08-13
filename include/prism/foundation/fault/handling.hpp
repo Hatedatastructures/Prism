@@ -21,7 +21,6 @@
 #include <system_error>
 #include <type_traits>
 
-
 namespace psm::fault
 {
 
@@ -36,8 +35,7 @@ namespace psm::fault
      * static_assert 编译错误。
      */
     template <typename ErrorCode>
-    [[nodiscard]] constexpr auto succeeded(const ErrorCode &ec) noexcept
-        -> bool
+    [[nodiscard]] constexpr auto succeeded(const ErrorCode &ec) noexcept -> bool
     {
         if constexpr (std::is_same_v<ErrorCode, code>)
         {
@@ -67,8 +65,7 @@ namespace psm::fault
      * !succeeded(ec)。
      */
     template <typename ErrorCode>
-    [[nodiscard]] constexpr auto failed(const ErrorCode &ec) noexcept
-        -> bool
+    [[nodiscard]] constexpr auto failed(const ErrorCode &ec) noexcept -> bool
     {
         return !succeeded(ec);
     }
@@ -82,8 +79,7 @@ namespace psm::fault
      * @warning 未映射的 Boost 错误将返回 io_error，
      * 可能丢失原始错误信息。
      */
-    [[nodiscard]] inline auto to_code(const boost::system::error_code &ec) noexcept
-        -> code
+    [[nodiscard]] inline auto to_code(const boost::system::error_code &ec) noexcept -> code
     {
         if (!ec)
         {
@@ -148,8 +144,7 @@ namespace psm::fault
      * fault 错误码，未映射的错误返回 io_error。
      * @warning 未映射的标准错误将返回 io_error。
      */
-    [[nodiscard]] inline auto to_code(const std::error_code &ec) noexcept
-        -> code
+    [[nodiscard]] inline auto to_code(const std::error_code &ec) noexcept -> code
     {
         if (!ec)
         {

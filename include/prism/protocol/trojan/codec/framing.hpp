@@ -16,14 +16,13 @@
 #include <cstdint>
 #include <span>
 
-
 namespace psm::protocol::trojan::format
 {
 
     // 委托到共享地址解析函数
+    using common::framing::parse_domain;
     using common::framing::parse_ipv4;
     using common::framing::parse_ipv6;
-    using common::framing::parse_domain;
     using common::framing::parse_port;
 
     /**
@@ -50,8 +49,7 @@ namespace psm::protocol::trojan::format
      * @param buffer 包含 CRLF 的缓冲区，至少 2 字节
      * @return 验证结果错误码
      */
-    [[nodiscard]] auto parse_crlf(std::span<const std::uint8_t> buffer)
-        -> fault::code;
+    [[nodiscard]] auto parse_crlf(std::span<const std::uint8_t> buffer) -> fault::code;
 
     /**
      * @brief 解析命令和地址类型
@@ -92,8 +90,8 @@ namespace psm::protocol::trojan::format
      * @param out 输出缓冲区
      * @return 编码结果错误码
      */
-    [[nodiscard]] auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
-        -> fault::code;
+    [[nodiscard]] auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload,
+                                     memory::vector<std::byte> &out) -> fault::code;
 
     /**
      * @brief 解析 Trojan UDP 数据包（mihomo 兼容格式）

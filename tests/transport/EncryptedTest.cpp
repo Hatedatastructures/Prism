@@ -4,8 +4,6 @@
  * @details 测试 encrypted 类的 TLS 握手、读写代理、关闭/取消传播。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/transport/adapter/connector.hpp>
@@ -14,12 +12,11 @@
 
 #include <boost/asio.hpp>
 #include <boost/asio/ssl.hpp>
-
-#include <openssl/ssl.h>
-#include <openssl/x509.h>
+#include <openssl/bn.h>
 #include <openssl/evp.h>
 #include <openssl/rsa.h>
-#include <openssl/bn.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
 
 #include <array>
 #include <atomic>
@@ -29,6 +26,7 @@
 #include <span>
 
 #include "common/MockTransport.hpp"
+#include <gtest/gtest.h>
 
 // ── 加载自签名证书到 ssl::context 的辅助函数 ──
 
@@ -58,8 +56,8 @@ namespace
         X509_gmtime_adj(X509_get_notAfter(x509), 3600 * 24);
 
         auto *name = X509_NAME_new();
-        X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-                                   reinterpret_cast<const unsigned char *>("Test"), -1, -1, 0);
+        X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC, reinterpret_cast<const unsigned char *>("Test"),
+                                   -1, -1, 0);
         X509_set_subject_name(x509, name);
         X509_set_issuer_name(x509, name);
         X509_NAME_free(name);
@@ -125,8 +123,8 @@ TEST(Encrypted, SslHandshakeSuccess)
             ssl::context ctx(ssl::context::tls_server);
             load_self_signed_cert(ctx);
 
-            result = co_await encrypted::ssl_handshake(
-                std::shared_ptr<transmission>(std::move(inbound)), ctx);
+            result =
+                co_await encrypted::ssl_handshake(std::shared_ptr<transmission>(std::move(inbound)), ctx);
             done = true;
         },
         net::detached);
@@ -223,8 +221,8 @@ TEST(Encrypted, CloseAndCancelPropagation)
             ssl::context ctx(ssl::context::tls_server);
             load_self_signed_cert(ctx);
 
-            auto [code, stream, recovered] = co_await encrypted::ssl_handshake(
-                std::shared_ptr<transmission>(std::move(inbound)), ctx);
+            auto [code, stream, recovered] =
+                co_await encrypted::ssl_handshake(std::shared_ptr<transmission>(std::move(inbound)), ctx);
             if (psm::fault::succeeded(code))
             {
                 server_stream = stream;
@@ -238,9 +236,8 @@ TEST(Encrypted, CloseAndCancelPropagation)
         [&]() -> net::awaitable<void>
         {
             auto socket = net::ip::tcp::socket{ioc};
-            co_await socket.async_connect(
-                net::ip::tcp::endpoint{net::ip::make_address("127.0.0.1"), port},
-                net::use_awaitable);
+            co_await socket.async_connect(net::ip::tcp::endpoint{net::ip::make_address("127.0.0.1"), port},
+                                          net::use_awaitable);
 
             ssl::context ctx(ssl::context::tls_client);
             ctx.set_verify_mode(ssl::context::verify_none);

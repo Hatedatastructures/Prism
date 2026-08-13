@@ -1,7 +1,7 @@
-#include <prism/protocol/http/codec/parser.hpp>
-#include <prism/user/directory.hpp>
 #include <prism/crypto/base64.hpp>
 #include <prism/crypto/sha224.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+#include <prism/user/directory.hpp>
 
 #include <cctype>
 #include <cstdint>
@@ -13,15 +13,13 @@ namespace psm::protocol::http
     namespace
     {
         // 字符转小写
-        [[nodiscard]] auto to_lower(const std::uint8_t c) noexcept
-            -> char
+        [[nodiscard]] auto to_lower(const std::uint8_t c) noexcept -> char
         {
             return static_cast<char>(std::tolower(c));
         }
 
         // 大小写不敏感字符串比较
-        [[nodiscard]] auto iequals(const std::string_view left, const std::string_view right) noexcept
-            -> bool
+        [[nodiscard]] auto iequals(const std::string_view left, const std::string_view right) noexcept -> bool
         {
             if (left.size() != right.size())
             {
@@ -29,7 +27,8 @@ namespace psm::protocol::http
             }
             for (std::size_t i = 0; i < left.size(); ++i)
             {
-                if (to_lower(static_cast<std::uint8_t>(left[i])) != to_lower(static_cast<std::uint8_t>(right[i])))
+                if (to_lower(static_cast<std::uint8_t>(left[i])) !=
+                    to_lower(static_cast<std::uint8_t>(right[i])))
                 {
                     return false;
                 }
@@ -38,8 +37,7 @@ namespace psm::protocol::http
         }
 
         // 去除首尾空白字符
-        [[nodiscard]] auto trim(const std::string_view value) noexcept
-            -> std::string_view
+        [[nodiscard]] auto trim(const std::string_view value) noexcept -> std::string_view
         {
             auto s = value;
             while (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
@@ -63,7 +61,8 @@ namespace psm::protocol::http
             }
             for (std::size_t i = 0; i < prefix.size(); ++i)
             {
-                if (to_lower(static_cast<std::uint8_t>(str[i])) != to_lower(static_cast<std::uint8_t>(prefix[i])))
+                if (to_lower(static_cast<std::uint8_t>(str[i])) !=
+                    to_lower(static_cast<std::uint8_t>(prefix[i])))
                 {
                     return false;
                 }
@@ -84,8 +83,7 @@ namespace psm::protocol::http
         constexpr std::string_view basic_prefix = "Basic ";
     } // namespace
 
-    auto authenticate_proxy(const std::string_view authorization, user::directory &directory)
-        -> auth_result
+    auto authenticate_proxy(const std::string_view authorization, user::directory &directory) -> auth_result
     {
         // 验证 Basic 认证方案前缀（大小写不敏感）
         if (!iequals_prefix(authorization, basic_prefix))
@@ -127,8 +125,7 @@ namespace psm::protocol::http
         return bad;
     }
 
-    auto build_fwd(const proxy_request &req, std::pmr::memory_resource *mr)
-        -> memory::string
+    auto build_fwd(const proxy_request &req, std::pmr::memory_resource *mr) -> memory::string
     {
         const auto relative = rel_path(req.target);
 
@@ -144,8 +141,7 @@ namespace psm::protocol::http
         return new_line;
     }
 
-    auto parse_req(const std::string_view raw_data, proxy_request &out)
-        -> fault::code
+    auto parse_req(const std::string_view raw_data, proxy_request &out) -> fault::code
     {
         // 定位请求行末尾
         const auto line_end = raw_data.find("\r\n");
@@ -224,8 +220,7 @@ namespace psm::protocol::http
         return fault::code::success;
     }
 
-    auto rel_path(const std::string_view target)
-        -> std::string_view
+    auto rel_path(const std::string_view target) -> std::string_view
     {
         // 跳过 scheme
         std::string_view working = target;

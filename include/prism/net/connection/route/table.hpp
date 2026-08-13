@@ -23,7 +23,6 @@
 #include <string_view>
 #include <utility>
 
-
 namespace psm::connect
 {
     namespace net = boost::asio;
@@ -58,14 +57,22 @@ namespace psm::connect
         {
             using is_transparent = void;
 
-            [[nodiscard]] auto operator()(std::string_view value) const noexcept
-                -> std::size_t
+            /**
+             * @brief 计算字符串的哈希值
+             * @param value 输入字符串
+             * @return 字符串哈希值
+             */
+            [[nodiscard]] auto operator()(std::string_view value) const noexcept -> std::size_t
             {
                 return std::hash<std::string_view>{}(value);
             }
 
-            [[nodiscard]] auto operator()(const memory::string &value) const noexcept
-                -> std::size_t
+            /**
+             * @brief 计算字符串的哈希值（memory::string 重载）
+             * @param value 输入字符串
+             * @return 字符串哈希值
+             */
+            [[nodiscard]] auto operator()(const memory::string &value) const noexcept -> std::size_t
             {
                 return std::hash<std::string_view>{}(std::string_view(value));
             }
@@ -78,26 +85,50 @@ namespace psm::connect
         {
             using is_transparent = void;
 
+            /**
+             * @brief 比较两个字符串是否相等
+             * @param left 左字符串
+             * @param right 右字符串
+             * @return 相等返回 true，否则返回 false
+             */
             [[nodiscard]] auto operator()(std::string_view left, std::string_view right) const noexcept
                 -> bool
             {
                 return left == right;
             }
 
+            /**
+             * @brief 比较两个字符串是否相等（memory::string 与 string_view 混合）
+             * @param left 左字符串
+             * @param right 右字符串
+             * @return 相等返回 true，否则返回 false
+             */
             [[nodiscard]] auto operator()(const memory::string &left, std::string_view right) const noexcept
                 -> bool
             {
                 return std::string_view(left) == right;
             }
 
+            /**
+             * @brief 比较两个字符串是否相等（string_view 与 memory::string 混合）
+             * @param left 左字符串
+             * @param right 右字符串
+             * @return 相等返回 true，否则返回 false
+             */
             [[nodiscard]] auto operator()(std::string_view left, const memory::string &right) const noexcept
                 -> bool
             {
                 return left == std::string_view(right);
             }
 
-            [[nodiscard]] auto operator()(const memory::string &left, const memory::string &right) const noexcept
-                -> bool
+            /**
+             * @brief 比较两个字符串是否相等
+             * @param left 左字符串
+             * @param right 右字符串
+             * @return 相等返回 true，否则返回 false
+             */
+            [[nodiscard]] auto operator()(const memory::string &left,
+                                          const memory::string &right) const noexcept -> bool
             {
                 return left == right;
             }
@@ -109,8 +140,7 @@ namespace psm::connect
          * @brief 构造路由表
          * @param mr 内存资源指针
          */
-        explicit route_table(memory::resource_pointer mr = memory::current_resource())
-            : reverse_(mr)
+        explicit route_table(memory::resource_pointer mr = memory::current_resource()) : reverse_(mr)
         {
         }
 
@@ -152,8 +182,7 @@ namespace psm::connect
          * @brief 获取正向代理主机
          * @return 主机名 optional 引用
          */
-        [[nodiscard]] auto forward_host() const noexcept
-            -> const std::optional<memory::string> &
+        [[nodiscard]] auto forward_host() const noexcept -> const std::optional<memory::string> &
         {
             return forward_host_;
         }
@@ -174,12 +203,12 @@ namespace psm::connect
         [[nodiscard]] auto stats() const noexcept -> route_stats;
 
     private:
-        map_type reverse_;
-        std::optional<memory::string> forward_host_;
-        std::uint16_t forward_port_{0};
-        mutable std::atomic<std::uint64_t> reverse_hits_{0};
-        mutable std::atomic<std::uint64_t> reverse_misses_{0};
-        mutable std::atomic<std::uint64_t> forward_uses_{0};
+        map_type reverse_;                                         // 反向路由映射表
+        std::optional<memory::string> forward_host_;               // 正向代理主机名
+        std::uint16_t forward_port_{0};                            // 正向代理端口
+        mutable std::atomic<std::uint64_t> reverse_hits_{0};       // 反向路由命中计数
+        mutable std::atomic<std::uint64_t> reverse_misses_{0};     // 反向路由未命中计数
+        mutable std::atomic<std::uint64_t> forward_uses_{0};       // 正向代理使用计数
     };
 
 } // namespace psm::connect

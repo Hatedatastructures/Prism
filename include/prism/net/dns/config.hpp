@@ -22,7 +22,6 @@
 #include <chrono>
 #include <cstddef>
 
-
 namespace psm::dns
 {
 
@@ -57,13 +56,13 @@ namespace psm::dns
      */
     struct server
     {
-        memory::string address;                   // 原始地址字符串
+        memory::string address;           // 原始地址字符串
         protocol protocol{protocol::udp}; // 通信协议
-        memory::string hostname;                  // TLS SNI / HTTP Host
-        std::uint16_t port{53};                   // 服务端口
-        std::uint32_t timeout_ms{5000};           // 超时时间（毫秒）
-        memory::string http_path;                 // DoH 路径，默认 /dns-query
-        bool skip_cert_check{false};         // 跳过 TLS 证书验证
+        memory::string hostname;          // TLS SNI / HTTP Host
+        std::uint16_t port{53};           // 服务端口
+        std::uint32_t timeout_ms{5000};   // 超时时间（毫秒）
+        memory::string http_path;         // DoH 路径，默认 /dns-query
+        bool skip_cert_check{false};      // 跳过 TLS 证书验证
 
         /**
          * @brief 构造上游服务器配置
@@ -135,8 +134,7 @@ namespace psm::dns
          * @details 使用指定内存资源初始化所有 PMR 容器成员。
          * @param mr 内存资源，用于内部 PMR 容器分配
          */
-        explicit cname_rule(memory::resource_pointer mr = memory::current_resource())
-            : domain(mr), target(mr)
+        explicit cname_rule(memory::resource_pointer mr = memory::current_resource()) : domain(mr), target(mr)
         {
         }
     };
@@ -154,9 +152,9 @@ namespace psm::dns
      */
     struct config
     {
-        memory::vector<server> servers;       // 上游服务器列表
-        mode mode{mode::fastest}; // 解析查询模式
-        std::uint32_t timeout_ms{5000};           // 全局超时（毫秒）
+        memory::vector<server> servers; // 上游服务器列表
+        mode mode{mode::fastest};       // 解析查询模式
+        std::uint32_t timeout_ms{5000}; // 全局超时（毫秒）
 
         bool cache_enabled{true};               // 是否启用 DNS 缓存
         std::size_t cache_size{10000};          // 缓存最大条目数
@@ -181,9 +179,7 @@ namespace psm::dns
          * @param mr 内存资源，用于内部 PMR 容器分配
          */
         explicit config(memory::resource_pointer mr = memory::current_resource())
-            : servers(mr),
-              address_rules(mr), cname_rules(mr),
-              blacklist_v4(mr), blacklist_v6(mr)
+            : servers(mr), address_rules(mr), cname_rules(mr), blacklist_v4(mr), blacklist_v6(mr)
         {
         }
     };

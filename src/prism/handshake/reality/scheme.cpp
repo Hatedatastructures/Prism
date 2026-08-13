@@ -1,10 +1,9 @@
-#include <prism/resource/session.hpp>
-#include <prism/handshake/reality/scheme.hpp>
-
-#include <prism/settings/settings.hpp>
-#include <prism/handshake/recognition/tls/features.hpp>
-#include <prism/handshake/reality/handshake.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/reality/handshake.hpp>
+#include <prism/handshake/reality/scheme.hpp>
+#include <prism/handshake/recognition/tls/features.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/settings/settings.hpp>
 
 using namespace psm::diagnose;
 
@@ -14,30 +13,25 @@ namespace psm::handshake::reality
     namespace rec_tls = psm::recognition::tls;
     using hello_features = protocol::tls::hello_features;
 
-    auto scheme::active(const psm::settings &cfg) const noexcept
-        -> bool
+    auto scheme::active(const psm::settings &cfg) const noexcept -> bool
     {
         return cfg.stealth.reality.enabled();
     }
 
-    auto scheme::snis(const psm::settings &cfg) const
-        -> memory::vector<memory::string>
+    auto scheme::snis(const psm::settings &cfg) const -> memory::vector<memory::string>
     {
         return make_sni_list(cfg.stealth.reality.server_names);
     }
 
-    auto scheme::sniff(std::uint32_t bitmap,
-                       const hello_features & /*features*/) const
-        -> sniff_result
+    auto scheme::sniff(std::uint32_t bitmap, const hello_features & /*features*/) const -> sniff_result
     {
         if (rec_tls::has_feature(bitmap, rec_tls::feature_bit::reality_marker))
         {
             diagnose::debug(prefix_, "Sniff: exclusive marker [01:08:02] found");
-            return {
-                .hit = true,
-                .solo = true,  // 独占！命中则跳过其他方案
-                .hint = 950,
-                .note = "Reality marker [01:08:02] detected"};
+            return {.hit = true,
+                    .solo = true, // 独占！命中则跳过其他方案
+                    .hint = 950,
+                    .note = "Reality marker [01:08:02] detected"};
         }
 
         // 有 X25519 + session_id=32 → 高置信度候选
@@ -45,11 +39,7 @@ namespace psm::handshake::reality
         if (rec_tls::has_all(bitmap, rec_tls::feature_bit::has_x25519 | rec_tls::feature_bit::full_session))
         {
             diagnose::debug(prefix_, "Sniff: has X25519 + session_id=32, no marker");
-            return {
-                .hit = true,
-                .solo = false,
-                .hint = 450,
-                .note = "Has X25519 + session_id=32"};
+            return {.hit = true, .solo = false, .hint = 450, .note = "Has X25519 + session_id=32"};
         }
 
         // 有 X25519 + session_id 非标准 → 中等置信度
@@ -59,22 +49,14 @@ namespace psm::handshake::reality
         if (has_x25519 && has_nonstd_session)
         {
             diagnose::debug(prefix_, "Sniff: has X25519 + non-standard session_id");
-            return {
-                .hit = true,
-                .solo = false,
-                .hint = 400,
-                .note = "Has X25519 + non-standard session_id"};
+            return {.hit = true, .solo = false, .hint = 400, .note = "Has X25519 + non-standard session_id"};
         }
 
         // 有 X25519 但 session_id 标准长度（无标记）→ 中低置信度
         if (rec_tls::has_feature(bitmap, rec_tls::feature_bit::has_x25519))
         {
             diagnose::debug(prefix_, "Sniff: has X25519 only");
-            return {
-                .hit = true,
-                .solo = false,
-                .hint = 200,
-                .note = "Has X25519"};
+            return {.hit = true, .solo = false, .hint = 200, .note = "Has X25519"};
         }
 
         // 无 X25519 但有 SNI + session_id=32 → 低置信度
@@ -82,35 +64,25 @@ namespace psm::handshake::reality
         if (rec_tls::has_all(bitmap, rec_tls::feature_bit::has_sni | rec_tls::feature_bit::full_session))
         {
             diagnose::debug(prefix_, "Sniff: has SNI + session_id=32, no X25519");
-            return {
-                .hit = true,
-                .solo = false,
-                .hint = 100,
-                .note = "Has SNI + session_id=32"};
+            return {.hit = true, .solo = false, .hint = 100, .note = "Has SNI + session_id=32"};
         }
 
         // 只有 SNI → 低置信度 (SNI 匹配已在上层检查)
         if (rec_tls::has_feature(bitmap, rec_tls::feature_bit::has_sni))
         {
             diagnose::debug(prefix_, "Sniff: has SNI only");
-            return {
-                .hit = true,
-                .solo = false,
-                .hint = 100,
-                .note = "Has SNI"};
+            return {.hit = true, .solo = false, .hint = 100, .note = "Has SNI"};
         }
 
         return {.hit = false};
     }
 
-    auto scheme::name() const noexcept
-        -> std::string_view
+    auto scheme::name() const noexcept -> std::string_view
     {
         return "reality";
     }
 
-    auto scheme::handshake(handshake::handshake_context ctx)
-        -> net::awaitable<handshake::handshake_result>
+    auto scheme::handshake(handshake::handshake_context ctx) -> net::awaitable<handshake::handshake_result>
     {
         handshake::handshake_result result;
 
@@ -127,9 +99,7 @@ namespace psm::handshake::reality
         co_return result;
     }
 
-
-    auto scheme::challenge(handshake::handshake_context /*ctx*/)
-        -> net::awaitable<challenge_result>
+    auto scheme::challenge(handshake::handshake_context /*ctx*/) -> net::awaitable<challenge_result>
     {
         // Reality 挑战的基础实现：标记 triggered=true 但 success=false
         // 后续完善：在 ServerHello 的 encrypted_extensions 中嵌入 GREASE 扩展,

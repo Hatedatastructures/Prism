@@ -1,9 +1,9 @@
+#include <prism/diagnose/context.hpp>
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/memory/container.hpp>
 #include <prism/net/connection/dialer/racer.hpp>
 
-#include <prism/foundation/memory/container.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <prism/diagnose/diagnose.hpp>
-#include <prism/diagnose/context.hpp>
 
 #include <atomic>
 #include <memory>
@@ -19,13 +19,12 @@ namespace psm::connect
     // 竞速上下文：多个端点并发连接，首个成功者通过原子标志选出胜者
     struct address_racer::race_context
     {
-        std::atomic<bool> winner{false}; // 原子标志，首个成功连接的端点设为 true
-        shared_transmission result;        // 胜者的连接，由 CAS 竞争写入
+        std::atomic<bool> winner{false};  // 原子标志，首个成功连接的端点设为 true
+        shared_transmission result;       // 胜者的连接，由 CAS 竞争写入
         std::atomic<std::size_t> pending; // 尚未完成的协程计数
-        net::steady_timer signal;        // 不会自动到期，仅靠 cancel() 手动唤醒主协程
+        net::steady_timer signal;         // 不会自动到期，仅靠 cancel() 手动唤醒主协程
 
-        race_context(const std::size_t count, net::any_io_executor ex)
-            : pending(count), signal(std::move(ex))
+        race_context(const std::size_t count, net::any_io_executor ex) : pending(count), signal(std::move(ex))
         {
             // 设为 time_point::max 使定时器永不自动到期，
             // 主协程 co_await 等待它被 cancel() 才继续
@@ -43,13 +42,12 @@ namespace psm::connect
         }
     };
 
-    address_racer::address_racer(dial_fn dial)
-        : dial_(std::move(dial))
+    address_racer::address_racer(dial_fn dial) : dial_(std::move(dial))
     {
     }
 
-    auto address_racer::race(std::span<const tcp::endpoint> endpoints, std::shared_ptr<diagnose::context> trace)
-        -> net::awaitable<shared_transmission>
+    auto address_racer::race(std::span<const tcp::endpoint> endpoints,
+                             std::shared_ptr<diagnose::context> trace) -> net::awaitable<shared_transmission>
     {
         if (endpoints.empty())
         {
@@ -73,17 +71,18 @@ namespace psm::connect
 
         for (std::size_t i = 0; i < count; ++i)
         {
-        // RFC 8305 Happy Eyeballs stagger 策略：
-        // 首端点立即连接，后续端点按 secondary_delay 递增延迟，
-        // 给 IPv4 优先机会但不会长时间阻塞在失败地址上
-        // trace 参数已显式传入（替代旧 active_prefix 获取）
+            // RFC 8305 Happy Eyeballs stagger 策略：
+            // 首端点立即连接，后续端点按 secondary_delay 递增延迟，
+            // 给 IPv4 优先机会但不会长时间阻塞在失败地址上
+            // trace 参数已显式传入（替代旧 active_prefix 获取）
 
-        std::chrono::milliseconds delay{0};
+            std::chrono::milliseconds delay{0};
             if (i > 0)
+            {
                 delay = secondary_delay * static_cast<long>(i);
+            }
 
-            net::co_spawn(executor,
-                race_endpoint(endpoints[i], delay, ctx, trace), net::detached);
+            net::co_spawn(executor, race_endpoint(endpoints[i], delay, ctx, trace), net::detached);
         }
 
         boost::system::error_code ec;
@@ -91,11 +90,12 @@ namespace psm::connect
         co_return std::move(ctx->result);
     }
 
-    auto address_racer::race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay, std::shared_ptr<race_context> ctx, std::shared_ptr<diagnose::context> trace)
-        -> net::awaitable<void>
+    auto address_racer::race_endpoint(tcp::endpoint ep, std::chrono::milliseconds delay,
+                                      std::shared_ptr<race_context> ctx,
+                                      std::shared_ptr<diagnose::context> trace) -> net::awaitable<void>
     {
-    // 子协程：每个端点一个，延迟到期后尝试连接
-    // 清除父协程日志前缀，子协程不应该继承调用者的会话上下文
+        // 子协程：每个端点一个，延迟到期后尝试连接
+        // 清除父协程日志前缀，子协程不应该继承调用者的会话上下文
 
         try
         {
@@ -124,7 +124,8 @@ namespace psm::connect
 
             if (!conn)
             {
-                diagnose::debug(trace, "endpoint {} failed: {}", ep.address().to_string(), static_cast<int>(code));
+                diagnose::debug(trace, "endpoint {} failed: {}", ep.address().to_string(),
+                                static_cast<int>(code));
                 ctx->complete();
                 co_return;
             }
@@ -141,7 +142,8 @@ namespace psm::connect
             }
             else
             {
-                diagnose::debug(trace, "endpoint {} connected but not winner, returning to pool", ep.address().to_string());
+                diagnose::debug(trace, "endpoint {} connected but not winner, returning to pool",
+                                ep.address().to_string());
 
                 conn.reset();
             }

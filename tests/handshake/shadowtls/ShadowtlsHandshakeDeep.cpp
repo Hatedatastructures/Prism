@@ -6,8 +6,6 @@
  *          通过 verify_client_hello 验证 ClientHello HMAC。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/shadowtls/config.hpp>
 #include <prism/handshake/shadowtls/util/auth.hpp>
@@ -17,6 +15,7 @@
 #include <cstring>
 
 #include "../../src/prism/handshake/shadowtls/handshake.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -29,46 +28,51 @@ namespace
      *          SessionID 长度(1) + SessionID(32) = 76 字节。
      *          SessionID 最后 4 字节放置 HMAC 标签。
      */
-    auto make_client_hello(std::string_view password)
-        -> psm::memory::vector<std::byte>
+    auto make_client_hello(std::string_view password) -> psm::memory::vector<std::byte>
     {
         constexpr std::size_t buf_size = tls_hdrsize + 1 + 3 + 2 + tls_rndsize + 1 + tls_session_id_sz;
         psm::memory::vector<std::byte> buf(buf_size, std::byte{}, psm::memory::current_resource());
 
         auto *raw = reinterpret_cast<std::uint8_t *>(buf.data());
         raw[0] = content_handshake;
-        raw[1] = 0x03; raw[2] = 0x01;
+        raw[1] = 0x03;
+        raw[2] = 0x01;
         raw[3] = static_cast<std::uint8_t>((buf_size - tls_hdrsize) >> 8);
         raw[4] = static_cast<std::uint8_t>((buf_size - tls_hdrsize) & 0xFF);
         raw[5] = hs_type_clienthello;
-        raw[6] = 0x00; raw[7] = 0x00;
+        raw[6] = 0x00;
+        raw[7] = 0x00;
         raw[8] = static_cast<std::uint8_t>((buf_size - tls_hdrsize - 4) & 0xFF);
-        raw[9] = 0x03; raw[10] = 0x03;
+        raw[9] = 0x03;
+        raw[10] = 0x03;
 
         for (int i = 0; i < 32; ++i)
+        {
             raw[11 + i] = static_cast<std::uint8_t>(i);
+        }
 
         raw[43] = tls_session_id_sz;
 
         for (int i = 0; i < 28; ++i)
+        {
             raw[44 + i] = static_cast<std::uint8_t>(i + 0x10);
+        }
 
         constexpr std::size_t data_size = buf_size - tls_hdrsize;
         psm::memory::vector<std::uint8_t> hmac_data(data_size, psm::memory::current_resource());
         for (std::size_t i = 0; i < data_size; ++i)
+        {
             hmac_data[i] = static_cast<std::uint8_t>(buf[tls_hdrsize + i]);
+        }
 
         constexpr std::size_t hmac_offset_in_data =
             session_id_len_idx + 1 + tls_session_id_sz - hmac_size - tls_hdrsize;
         std::memset(hmac_data.data() + hmac_offset_in_data, 0, hmac_size);
 
-        auto expected = compute_hmac(
-            password,
-            reinterpret_cast<const std::byte *>(hmac_data.data()),
-            hmac_data.size());
+        auto expected =
+            compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
 
-        constexpr std::size_t client_hmac_offset =
-            session_id_len_idx + 1 + tls_session_id_sz - hmac_size;
+        constexpr std::size_t client_hmac_offset = session_id_len_idx + 1 + tls_session_id_sz - hmac_size;
         raw[client_hmac_offset + 0] = expected[0];
         raw[client_hmac_offset + 1] = expected[1];
         raw[client_hmac_offset + 2] = expected[2];

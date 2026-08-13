@@ -7,18 +7,20 @@
  * 3. 客户端关闭后上游检测到 (TestSessionClientClose)
  */
 
-#include <prism/runtime/config.hpp>
-#include <prism/settings/settings.hpp>
-#include <prism/resource/session.hpp>
-#include <prism/user/directory.hpp>
-#include <prism/runtime/session/session.hpp>
-#include <prism/net/transport/reliable.hpp>
-#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/exception/network.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/diagnose/log.hpp>
-#include <gtest/gtest.h>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/runtime/config.hpp>
+#include <prism/runtime/session/session.hpp>
+#include <prism/settings/settings.hpp>
+#include <prism/user/directory.hpp>
+
+#include <boost/asio.hpp>
+#include <boost/asio/ssl.hpp>
 
 #include <array>
 #include <atomic>
@@ -28,8 +30,7 @@
 #include <memory>
 #include <string_view>
 
-#include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
+#include <gtest/gtest.h>
 
 namespace net = boost::asio;
 namespace ssl = boost::asio::ssl;
@@ -166,7 +167,8 @@ namespace
      * @param timeout 延迟时长
      * @return net::awaitable<void>
      */
-    net::awaitable<void> EmitCancelAfter(std::shared_ptr<net::cancellation_signal> signal, const std::chrono::milliseconds timeout)
+    net::awaitable<void> EmitCancelAfter(std::shared_ptr<net::cancellation_signal> signal,
+                                         const std::chrono::milliseconds timeout)
     {
         // 获取当前协程所在执行器，用于创建定时器
         net::steady_timer timer(co_await net::this_coro::executor);
@@ -191,7 +193,8 @@ namespace
      * @param timeout 最大等待时长
      * @return net::awaitable<void>
      */
-    net::awaitable<void> WaitUntilTrue(std::shared_ptr<std::atomic_bool> flag, const std::chrono::milliseconds timeout)
+    net::awaitable<void> WaitUntilTrue(std::shared_ptr<std::atomic_bool> flag,
+                                       const std::chrono::milliseconds timeout)
     {
         auto executor = co_await net::this_coro::executor;
         net::steady_timer timer(executor);
@@ -236,9 +239,9 @@ namespace
         co_await socket.async_connect(proxy_ep, net::use_awaitable);
 
         // 构造 HTTP CONNECT 请求，请求代理建立到回显服务器的隧道
-        const std::string connect_request = std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
-                                                        echo_ep.address().to_string(), echo_ep.port(),
-                                                        echo_ep.address().to_string(), echo_ep.port());
+        const std::string connect_request =
+            std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n", echo_ep.address().to_string(),
+                        echo_ep.port(), echo_ep.address().to_string(), echo_ep.port());
 
         // 发送 CONNECT 请求
         co_await net::async_write(socket, net::buffer(connect_request), net::use_awaitable);
@@ -256,7 +259,8 @@ namespace
         std::size_t got = 0;
         while (got < payload.size())
         {
-            got += co_await socket.async_read_some(net::buffer(echo.data() + got, payload.size() - got), net::use_awaitable);
+            got += co_await socket.async_read_some(net::buffer(echo.data() + got, payload.size() - got),
+                                                   net::use_awaitable);
         }
 
         // 比对回显内容与原始载荷，验证双向转发正确性
@@ -276,7 +280,8 @@ namespace
      * @param delay 关闭前的等待时长
      * @return net::awaitable<void>
      */
-    net::awaitable<void> UpstreamCloseAfterAccept(tcp::acceptor acceptor, const std::chrono::milliseconds delay)
+    net::awaitable<void> UpstreamCloseAfterAccept(tcp::acceptor acceptor,
+                                                  const std::chrono::milliseconds delay)
     {
         boost::system::error_code accept_ec;
         auto accept_token = net::redirect_error(net::use_awaitable, accept_ec);
@@ -308,7 +313,8 @@ namespace
      * @param timeout 最大等待时长，超时后取消信号触发
      * @return net::awaitable<void>
      */
-    net::awaitable<void> UpstreamWaitPeerClose(tcp::acceptor acceptor, std::shared_ptr<std::atomic_bool> closed_flag,
+    net::awaitable<void> UpstreamWaitPeerClose(tcp::acceptor acceptor,
+                                               std::shared_ptr<std::atomic_bool> closed_flag,
                                                const std::chrono::milliseconds timeout)
     {
         boost::system::error_code accept_ec;
@@ -323,13 +329,15 @@ namespace
         // 创建取消信号，用于超时后中断阻塞的读操作
         auto timeout_signal = std::make_shared<net::cancellation_signal>();
         // 在独立协程中延迟发射取消信号，超时兜底防止永久阻塞
-        net::co_spawn(co_await net::this_coro::executor, EmitCancelAfter(timeout_signal, timeout), net::detached);
+        net::co_spawn(co_await net::this_coro::executor, EmitCancelAfter(timeout_signal, timeout),
+                      net::detached);
 
         // 只读 1 字节即可判断对端是否关闭
         std::array<char, 1> buf{};
         boost::system::error_code ec;
         // 将取消信号绑定到后续的读操作 token 上
-        auto token = net::bind_cancellation_slot(timeout_signal->slot(), net::redirect_error(net::use_awaitable, ec));
+        auto token =
+            net::bind_cancellation_slot(timeout_signal->slot(), net::redirect_error(net::use_awaitable, ec));
 
         // 持续读取直到收到 EOF（对端关闭）或被超时取消
         while (true)
@@ -359,7 +367,8 @@ namespace
      * @param tag 测试标签，用于日志区分
      * @return net::awaitable<void>
      */
-    net::awaitable<void> ProxyConnectClientExpectClose(const tcp::endpoint proxy_ep, const tcp::endpoint upstream_ep,
+    net::awaitable<void> ProxyConnectClientExpectClose(const tcp::endpoint proxy_ep,
+                                                       const tcp::endpoint upstream_ep,
                                                        const std::string_view tag)
     {
         // 创建 socket 并连接到代理
@@ -367,9 +376,9 @@ namespace
         co_await socket.async_connect(proxy_ep, net::use_awaitable);
 
         // 构造 CONNECT 请求，建立到上游的隧道
-        const std::string connect_request = std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
-                                                        upstream_ep.address().to_string(), upstream_ep.port(),
-                                                        upstream_ep.address().to_string(), upstream_ep.port());
+        const std::string connect_request =
+            std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n", upstream_ep.address().to_string(),
+                        upstream_ep.port(), upstream_ep.address().to_string(), upstream_ep.port());
 
         co_await net::async_write(socket, net::buffer(connect_request), net::use_awaitable);
 
@@ -379,13 +388,13 @@ namespace
         // 设置 1500ms 超时取消信号，防止代理永不关闭导致测试悬挂
         auto timeout_signal = std::make_shared<net::cancellation_signal>();
         net::co_spawn(co_await net::this_coro::executor,
-                      EmitCancelAfter(timeout_signal, std::chrono::milliseconds(1500)),
-                      net::detached);
+                      EmitCancelAfter(timeout_signal, std::chrono::milliseconds(1500)), net::detached);
 
         // 尝试读取，预期代理会因上游关闭而中断连接
         std::array<char, 1> one{};
         boost::system::error_code ec;
-        auto token = net::bind_cancellation_slot(timeout_signal->slot(), net::redirect_error(net::use_awaitable, ec));
+        auto token =
+            net::bind_cancellation_slot(timeout_signal->slot(), net::redirect_error(net::use_awaitable, ec));
         const std::size_t n = co_await socket.async_read_some(net::buffer(one), token);
 
         // 超时仍未关闭，测试失败
@@ -414,7 +423,8 @@ namespace
      * @param tag 测试标签，用于日志区分
      * @return net::awaitable<void>
      */
-    net::awaitable<void> ProxyConnectClientThenClose(const tcp::endpoint proxy_ep, const tcp::endpoint upstream_ep,
+    net::awaitable<void> ProxyConnectClientThenClose(const tcp::endpoint proxy_ep,
+                                                     const tcp::endpoint upstream_ep,
                                                      const std::string_view tag)
     {
         // 创建 socket 并连接到代理
@@ -422,9 +432,9 @@ namespace
         co_await socket.async_connect(proxy_ep, net::use_awaitable);
 
         // 构造 CONNECT 请求，建立到上游的隧道
-        const std::string connect_request = std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n",
-                                                        upstream_ep.address().to_string(), upstream_ep.port(),
-                                                        upstream_ep.address().to_string(), upstream_ep.port());
+        const std::string connect_request =
+            std::format("CONNECT {}:{} HTTP/1.1\r\nHost: {}:{}\r\n\r\n", upstream_ep.address().to_string(),
+                        upstream_ep.port(), upstream_ep.address().to_string(), upstream_ep.port());
 
         co_await net::async_write(socket, net::buffer(connect_request), net::use_awaitable);
 
@@ -461,7 +471,8 @@ namespace
             const auto proxy_ep = proxy_acceptor.local_endpoint();
 
             net::co_spawn(ioc, EchoServer(std::move(echo_acceptor)), net::detached);
-            net::co_spawn(ioc, ProxyAcceptOne(std::move(proxy_acceptor), server_ctx, worker_ctx), net::detached);
+            net::co_spawn(ioc, ProxyAcceptOne(std::move(proxy_acceptor), server_ctx, worker_ctx),
+                          net::detached);
 
             try
             {
@@ -482,8 +493,11 @@ namespace
             const auto upstream_ep = upstream_acceptor.local_endpoint();
             const auto proxy_ep = proxy_acceptor.local_endpoint();
 
-            net::co_spawn(ioc, UpstreamCloseAfterAccept(std::move(upstream_acceptor), std::chrono::milliseconds(50)), net::detached);
-            net::co_spawn(ioc, ProxyAcceptOne(std::move(proxy_acceptor), server_ctx, worker_ctx), net::detached);
+            net::co_spawn(
+                ioc, UpstreamCloseAfterAccept(std::move(upstream_acceptor), std::chrono::milliseconds(50)),
+                net::detached);
+            net::co_spawn(ioc, ProxyAcceptOne(std::move(proxy_acceptor), server_ctx, worker_ctx),
+                          net::detached);
 
             try
             {
@@ -507,8 +521,10 @@ namespace
             constexpr auto timeout = std::chrono::milliseconds(1500);
             auto upstream_closed = std::make_shared<std::atomic_bool>(false);
 
-            net::co_spawn(ioc, UpstreamWaitPeerClose(std::move(upstream_acceptor), upstream_closed, timeout), net::detached);
-            net::co_spawn(ioc, ProxyAcceptOne(std::move(proxy_acceptor), server_ctx, worker_ctx), net::detached);
+            net::co_spawn(ioc, UpstreamWaitPeerClose(std::move(upstream_acceptor), upstream_closed, timeout),
+                          net::detached);
+            net::co_spawn(ioc, ProxyAcceptOne(std::move(proxy_acceptor), server_ctx, worker_ctx),
+                          net::detached);
 
             try
             {
@@ -545,7 +561,8 @@ namespace
         // 创建连接池，管理到上游的出站连接
         // 使用空 DNS 配置创建路由器（测试中使用直连，无需上游 DNS）
         psm::dns::config dns_cfg;
-        auto dist = std::make_unique<psm::connect::dialer>(psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
+        auto dist = std::make_unique<psm::connect::dialer>(
+            psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
         // 创建 SSL 上下文，测试中跳过证书验证
         auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
@@ -554,7 +571,9 @@ namespace
         // 构造服务端上下文：配置、SSL、账户存储
         psm::settings cfg;
         auto account_store = std::make_shared<psm::user::directory>(psm::memory::system::global_pool());
-        psm::resource::process server_ctx{std::atomic<std::shared_ptr<const psm::settings>>{std::make_shared<const psm::settings>(cfg)}, ssl_ctx, account_store};
+        psm::resource::process server_ctx{
+            std::atomic<std::shared_ptr<const psm::settings>>{std::make_shared<const psm::settings>(cfg)},
+            ssl_ctx, account_store};
 
         // 构造工作线程上下文：io_context、DNS 路由、线程本地内存池
         auto mr = psm::memory::system::local_pool();
@@ -566,9 +585,7 @@ namespace
         {
             // 定义测试协程入口，顺序运行所有测试
             auto function = [&server_ctx, &worker_ctx]() -> net::awaitable<void>
-            {
-                co_await RunAllTests(server_ctx, worker_ctx);
-            };
+            { co_await RunAllTests(server_ctx, worker_ctx); };
 
             // 协程完成回调：保存异常并停止事件循环
             auto token = [&ioc, &test_error](const std::exception_ptr &ep)

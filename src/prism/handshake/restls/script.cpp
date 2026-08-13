@@ -1,6 +1,5 @@
-#include <prism/handshake/restls/script.hpp>
-
 #include <prism/handshake/restls/crypto.hpp>
+#include <prism/handshake/restls/script.hpp>
 
 #include <random>
 
@@ -10,23 +9,20 @@ namespace psm::handshake::restls
     namespace
     {
         // 线程安全随机数生成器
-        auto random_engine()
-            -> std::mt19937 &
+        auto random_engine() -> std::mt19937 &
         {
             thread_local std::mt19937 eng{std::random_device{}()};
             return eng;
         }
 
-        auto random_int(std::int16_t min_val, std::int16_t max_val)
-            -> std::int16_t
+        auto random_int(std::int16_t min_val, std::int16_t max_val) -> std::int16_t
         {
             std::uniform_int_distribution<std::int16_t> dist(min_val, max_val);
             return dist(random_engine());
         }
 
         // 解析单条 script 规则为 script_line
-        auto parse_line(std::string_view token)
-            -> script_line
+        auto parse_line(std::string_view token) -> script_line
         {
             script_line line;
 
@@ -59,9 +55,13 @@ namespace psm::handshake::restls
                     {
                         // 一次性随机：解析时 resolve
                         if (range > 0)
+                        {
                             line.target_base = base + random_int(0, range - 1);
+                        }
                         else
+                        {
                             line.target_base = base;
+                        }
                         line.target_random = 0;
                         line.random_is_fixed = true;
                     }
@@ -88,15 +88,16 @@ namespace psm::handshake::restls
                 line.cmd = command_type::response;
                 line.response_count = count;
                 if (count == 0)
+                {
                     line.response_count = 1;
+                }
             }
 
             return line;
         }
 
         // 分割逗号分隔的 script 字符串
-        auto split_script(std::string_view script)
-            -> memory::vector<std::string_view>
+        auto split_script(std::string_view script) -> memory::vector<std::string_view>
         {
             memory::vector<std::string_view> tokens;
             std::size_t start = 0;
@@ -119,8 +120,7 @@ namespace psm::handshake::restls
 
     // ── script_line ──
 
-    auto script_line::target_length() const
-        -> std::int16_t
+    auto script_line::target_length() const -> std::int16_t
     {
         if (random_is_fixed || target_random == 0)
         {
@@ -135,7 +135,9 @@ namespace psm::handshake::restls
     {
         std::string_view effective = default_script;
         if (!script.empty())
+        {
             effective = script;
+        }
         // NOLINTNEXTLINE: script 为空时使用默认值，无需 PMR
         const auto tokens = split_script(effective);
         lines_.reserve(tokens.size());

@@ -18,7 +18,6 @@
 #include <span>
 #include <utility>
 
-
 namespace psm::handshake::reality
 {
 
@@ -35,12 +34,12 @@ namespace psm::handshake::reality
      */
     struct hello_request
     {
-        const hello_features &client_hello;            ///< 解析后的 ClientHello 信息
-        std::span<const std::uint8_t> eph_pub; ///< 服务端临时 X25519 公钥
-        const key_material &handshake_keys;            ///< 握手阶段密钥材料
+        const hello_features &client_hello;             ///< 解析后的 ClientHello 信息
+        std::span<const std::uint8_t> eph_pub;          ///< 服务端临时 X25519 公钥
+        const key_material &handshake_keys;             ///< 握手阶段密钥材料
         std::span<const std::uint8_t> dest_certificate; ///< 目标网站的 DER 格式证书
-        std::span<const std::uint8_t> chello_msg;      ///< 完整的 ClientHello 消息字节
-        std::span<const std::uint8_t> auth_key = {};       ///< HKDF 派生的认证密钥，用于签名
+        std::span<const std::uint8_t> chello_msg;       ///< 完整的 ClientHello 消息字节
+        std::span<const std::uint8_t> auth_key = {};    ///< HKDF 派生的认证密钥，用于签名
     };
 
     /**
@@ -65,11 +64,12 @@ namespace psm::handshake::reality
      */
     struct shello_result
     {
-        memory::vector<std::uint8_t> shello_msg;              // ServerHello 握手消息（含 handshake header）
-        memory::vector<std::uint8_t> shello_record;           // ServerHello TLS 记录（含 record header）
-        memory::vector<std::uint8_t> ccs_record;              // ChangeCipherSpec 兼容性记录
-        memory::vector<std::uint8_t> enc_hs_record;           // 加密后的握手记录（EncryptedExtensions + Certificate + CertificateVerify + Finished）
-        memory::vector<std::uint8_t> enc_hs_plain;            // 加密前握手记录明文
+        memory::vector<std::uint8_t> shello_msg;    // ServerHello 握手消息（含 handshake header）
+        memory::vector<std::uint8_t> shello_record; // ServerHello TLS 记录（含 record header）
+        memory::vector<std::uint8_t> ccs_record;    // ChangeCipherSpec 兼容性记录
+        memory::vector<std::uint8_t>
+            enc_hs_record; // 加密后的握手记录（EncryptedExtensions + Certificate + CertificateVerify + Finished）
+        memory::vector<std::uint8_t> enc_hs_plain; // 加密前握手记录明文
     };
 
     /**
@@ -80,8 +80,7 @@ namespace psm::handshake::reality
      * @param req ServerHello 生成所需的全部输入参数
      * @return 错误码和生成结果
      */
-    [[nodiscard]] auto generate_shello(const hello_request &req)
-        -> std::pair<fault::code, shello_result>;
+    [[nodiscard]] auto generate_shello(const hello_request &req) -> std::pair<fault::code, shello_result>;
 
     /**
      * @brief 构造 TLS 记录

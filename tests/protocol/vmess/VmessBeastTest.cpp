@@ -3,19 +3,17 @@
  * @brief VMess Beast 风格组件测试
  */
 
-#include <common/proxy/vmess/vmess.hpp>
-
-#include <gtest/gtest.h>
-
 #include <ctime>
+
+#include <common/proxy/vmess/vmess.hpp>
+#include <gtest/gtest.h>
 
 namespace
 {
     using namespace psmtest;
 
-    constexpr std::array<std::uint8_t, 16> kUuid{
-        0x12, 0x3E, 0x45, 0x67, 0xE8, 0x9B, 0x12, 0xD3,
-        0xA4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00};
+    constexpr std::array<std::uint8_t, 16> kUuid{0x12, 0x3E, 0x45, 0x67, 0xE8, 0x9B, 0x12, 0xD3,
+                                                 0xA4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00};
 
     TEST(VmessBeast, HandshakeRoundtrip)
     {
@@ -48,9 +46,8 @@ namespace
 
     TEST(VmessBeast, WrongUuidRejected)
     {
-        constexpr std::array<std::uint8_t, 16> other{
-            0x11, 0x11, 0x11, 0x11, 0x22, 0x22, 0x22, 0x22,
-            0x33, 0x33, 0x33, 0x33, 0x44, 0x44, 0x44, 0x44};
+        constexpr std::array<std::uint8_t, 16> other{0x11, 0x11, 0x11, 0x11, 0x22, 0x22, 0x22, 0x22,
+                                                     0x33, 0x33, 0x33, 0x33, 0x44, 0x44, 0x44, 0x44};
         vmess::message msg;
         msg.uuid = other;
         msg.request_nonce.fill(0x11);
@@ -85,15 +82,13 @@ namespace
 
         const std::string payload = "vmess chunk payload";
         std::string wire;
-        EXPECT_FALSE(enc.encrypt(
-            std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()),
-            wire));
+        EXPECT_FALSE(enc.encrypt(std::span<const std::uint8_t>(
+                                     reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()),
+                                 wire));
 
         std::string plain;
         const auto r = dec.decrypt(
-            std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t *>(wire.data()), wire.size()),
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(wire.data()), wire.size()),
             plain);
         EXPECT_FALSE(r.ec);
         EXPECT_EQ(r.consumed, wire.size());

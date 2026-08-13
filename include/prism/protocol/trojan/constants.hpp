@@ -9,7 +9,6 @@
 
 #include <cstdint>
 
-
 namespace psm::protocol::trojan
 {
 
@@ -46,4 +45,4 @@ namespace psm::protocol::trojan
         /** @brief IPv6 地址，值 0x04，占用 16 字节 */
         ipv6 = 0x04
     };
-}
+} // namespace psm::protocol::trojan

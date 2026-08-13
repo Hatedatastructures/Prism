@@ -5,18 +5,18 @@
  *          加解密路径需要真实 AEAD 密钥+TLS 记录，此处测试基础行为。
  */
 
-#include <gtest/gtest.h>
-
+#include <prism/crypto/aead.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/reality/seal.hpp>
-#include <prism/crypto/aead.hpp>
-
-#include "common/MockTransport.hpp"
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+
 #include <array>
 #include <cstring>
+
+#include "common/MockTransport.hpp"
+#include <gtest/gtest.h>
 
 using psm::testing::MockTransport;
 

@@ -1,11 +1,10 @@
-#include <prism/protocol/multiplex/yamux/control.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/connection/outbound/direct.hpp>
 #include <prism/protocol/multiplex/datagram.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/protocol/multiplex/yamux/control.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -46,37 +45,27 @@ namespace psm::multiplex::yamux
     } // namespace
 
     control::control(multiplexer_options opts)
-        : multiplexer(multiplexer_options{
-              std::move(opts.transport), opts.outbound, opts.cfg, opts.mr,
-              opts.cfg.yamux.max_streams}),
-          router_fn_(outbound_ ? outbound_->make_router() : decltype(router_fn_){}),
-          windows_(mr_),
-          pending_timers_(mr_),
-          udp_bufs_(mr_)
+        : multiplexer(multiplexer_options{std::move(opts.transport), opts.outbound, opts.cfg, opts.mr,
+                                          opts.cfg.yamux.max_streams}),
+          router_fn_(outbound_ ? outbound_->make_router() : decltype(router_fn_){}), windows_(mr_),
+          pending_timers_(mr_), udp_bufs_(mr_)
     {
         diagnose::debug(prefix_, "constructed");
     }
 
-
     control::~control() noexcept = default;
 
-
-    auto control::run()
-        -> net::awaitable<void>
+    auto control::run() -> net::awaitable<void>
     {
         if (config_.yamux.enable_ping && config_.yamux.ping_interval > 0)
         {
             auto self = std::static_pointer_cast<control>(shared_from_this());
-            auto start_ping = [self]() -> net::awaitable<void>
-            {
-                co_await self->ping_loop();
-            };
+            auto start_ping = [self]() -> net::awaitable<void> { co_await self->ping_loop(); };
             net::co_spawn(transport_->executor(), std::move(start_ping), net::detached);
         }
 
         co_await frame_loop();
     }
-
 
     auto control::send(const std::uint32_t stream_id, memory::vector<std::byte> payload)
         -> net::awaitable<void>
@@ -98,7 +87,8 @@ namespace psm::multiplex::yamux
                 auto old_val = window->send_window.load(std::memory_order_acquire);
                 while (old_val >= payload_size)
                 {
-                    if (window->send_window.compare_exchange_weak(old_val, old_val - payload_size, std::memory_order_acq_rel))
+                    if (window->send_window.compare_exchange_weak(old_val, old_val - payload_size,
+                                                                  std::memory_order_acq_rel))
                     {
                         window_acquired = true;
                         break;
@@ -143,7 +133,6 @@ namespace psm::multiplex::yamux
         co_await push_frame(std::move(frame));
     }
 
-
     void control::close()
     {
         for (auto &[id, timer] : pending_timers_)
@@ -161,7 +150,6 @@ namespace psm::multiplex::yamux
         windows_.clear();
     }
 
-
     void control::drop(const std::uint32_t stream_id)
     {
         if (const auto it = windows_.find(stream_id); it != windows_.end())
@@ -173,20 +161,14 @@ namespace psm::multiplex::yamux
         multiplexer::drop(stream_id);
     }
 
-
-    auto control::write_frame(outbound_frame frame)
-        -> net::awaitable<void>
+    auto control::write_frame(outbound_frame frame) -> net::awaitable<void>
     {
         memory::vector<std::byte> bytes(mr_);
 
         switch (frame.kind)
         {
-        case outbound_kind::data:
-            bytes = codec_.encode_data(frame.stream_id, frame.payload);
-            break;
-        case outbound_kind::fin:
-            bytes = codec_.encode_fin(frame.stream_id);
-            break;
+        case outbound_kind::data: bytes = codec_.encode_data(frame.stream_id, frame.payload); break;
+        case outbound_kind::fin: bytes = codec_.encode_fin(frame.stream_id); break;
         case outbound_kind::control:
             // 控制帧（WindowUpdate/Ping/GoAway/RST）由调用方预编码，直接写入
             bytes = std::move(frame.payload);
@@ -202,9 +184,7 @@ namespace psm::multiplex::yamux
         }
     }
 
-
-    auto control::frame_loop()
-        -> net::awaitable<void>
+    auto control::frame_loop() -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "frame loop started");
 
@@ -237,8 +217,8 @@ namespace psm::multiplex::yamux
             {
                 if (meta.length > max_frame_payload)
                 {
-                    diagnose::warn(prefix_, "oversized Data frame: stream={}, length={}",
-                                meta.stream_id, meta.length);
+                    diagnose::warn(prefix_, "oversized Data frame: stream={}, length={}", meta.stream_id,
+                                   meta.length);
                     co_await push_control(message_type::go_away, flags::none, 0,
                                           static_cast<std::uint32_t>(away_code::protocol_error));
                     break;
@@ -260,27 +240,18 @@ namespace psm::multiplex::yamux
 
             switch (hdr.type)
             {
-            case message_type::data:
-                co_await handle_data(hdr, std::move(payload));
-                break;
+            case message_type::data: co_await handle_data(hdr, std::move(payload)); break;
 
-            case message_type::window_update:
-                co_await handle_winupd(hdr);
-                break;
+            case message_type::window_update: co_await handle_winupd(hdr); break;
 
-            case message_type::ping:
-                co_await handle_ping(hdr);
-                break;
+            case message_type::ping: co_await handle_ping(hdr); break;
 
-            case message_type::go_away:
-                co_await handle_goaway(hdr);
-                break;
+            case message_type::go_away: co_await handle_goaway(hdr); break;
             }
         }
 
         diagnose::debug(prefix_, "frame loop ended");
     }
-
 
     auto control::handle_data(const frame_header &hdr, memory::vector<std::byte> payload)
         -> net::awaitable<void>
@@ -307,7 +278,6 @@ namespace psm::multiplex::yamux
 
         co_await dispatch_data(stream_id, std::move(payload));
     }
-
 
     auto control::handle_syn(const std::uint32_t stream_id, memory::vector<std::byte> payload)
         -> net::awaitable<void>
@@ -341,7 +311,6 @@ namespace psm::multiplex::yamux
         try_activate_pending(stream_id);
     }
 
-
     void control::handle_rst(const std::uint32_t stream_id)
     {
         pending_.erase(stream_id);
@@ -364,7 +333,6 @@ namespace psm::multiplex::yamux
         udp_bufs_.erase(stream_id);
         diagnose::debug(prefix_, "stream {} reset", stream_id);
     }
-
 
     void control::handle_fin(const std::uint32_t stream_id)
     {
@@ -394,7 +362,6 @@ namespace psm::multiplex::yamux
 
         diagnose::debug(prefix_, "stream {} fin", stream_id);
     }
-
 
     auto control::dispatch_data(const std::uint32_t stream_id, memory::vector<std::byte> payload)
         -> net::awaitable<void>
@@ -426,9 +393,7 @@ namespace psm::multiplex::yamux
             auto sp = it->second;
             auto self = std::static_pointer_cast<control>(shared_from_this());
             auto async_push = [sp, p = std::move(payload), self]() mutable -> net::awaitable<void>
-            {
-                co_await sp->on_data(std::move(p));
-            };
+            { co_await sp->on_data(std::move(p)); };
             auto on_error = [sp, self](const std::exception_ptr &ep)
             {
                 if (ep)
@@ -450,9 +415,7 @@ namespace psm::multiplex::yamux
 
             auto self = std::static_pointer_cast<control>(shared_from_this());
             auto async_push = [self, stream_id, p = std::move(payload)]() mutable -> net::awaitable<void>
-            {
-                co_await self->process_udp(stream_id, std::move(p));
-            };
+            { co_await self->process_udp(stream_id, std::move(p)); };
             auto on_error = [self, stream_id](const std::exception_ptr &ep)
             {
                 if (ep)
@@ -468,7 +431,6 @@ namespace psm::multiplex::yamux
         diagnose::debug(prefix_, "data for unknown stream {}", stream_id);
         co_await push_control(message_type::window_update, flags::rst, stream_id, 0);
     }
-
 
     void control::try_activate_pending(const std::uint32_t stream_id)
     {
@@ -488,18 +450,17 @@ namespace psm::multiplex::yamux
         const auto self = std::static_pointer_cast<control>(shared_from_this());
         auto callback = [stream_id, self](const std::exception_ptr &ep)
         {
-            if (ep) log_spawn_error(ep, stream_id, "activate", self->prefix_);
+            if (ep)
+            {
+                log_spawn_error(ep, stream_id, "activate", self->prefix_);
+            }
         };
         auto activate_fn = [self, stream_id]() -> net::awaitable<void>
-        {
-            co_await self->activate_stream(stream_id);
-        };
+        { co_await self->activate_stream(stream_id); };
         net::co_spawn(transport_->executor(), std::move(activate_fn), callback);
     }
 
-
-    auto control::handle_winupd(const frame_header &hdr)
-        -> net::awaitable<void>
+    auto control::handle_winupd(const frame_header &hdr) -> net::awaitable<void>
     {
         const auto stream_id = hdr.stream_id;
         const auto delta = hdr.length;
@@ -578,8 +539,9 @@ namespace psm::multiplex::yamux
 
             start_pending(stream_id);
 
-            diagnose::debug(prefix_, "stream {} opened via window update syn, client_window={}, using_window={}",
-                         stream_id, delta, client_window);
+            diagnose::debug(prefix_,
+                            "stream {} opened via window update syn, client_window={}, using_window={}",
+                            stream_id, delta, client_window);
             co_return;
         }
 
@@ -600,9 +562,10 @@ namespace psm::multiplex::yamux
                 {
                     new_val = std::numeric_limits<std::uint32_t>::max();
                 }
-            } while (!window->send_window.compare_exchange_weak(old_val, new_val, std::memory_order_acq_rel));
-            diagnose::debug(prefix_, "stream {} window update received, delta={}, new_window={}",
-                         stream_id, delta, new_val);
+            }
+            while (!window->send_window.compare_exchange_weak(old_val, new_val, std::memory_order_acq_rel));
+            diagnose::debug(prefix_, "stream {} window update received, delta={}, new_window={}", stream_id,
+                            delta, new_val);
 
             window->window_signal->cancel();
         }
@@ -610,9 +573,7 @@ namespace psm::multiplex::yamux
         co_return;
     }
 
-
-    auto control::handle_ping(const frame_header &hdr)
-        -> net::awaitable<void>
+    auto control::handle_ping(const frame_header &hdr) -> net::awaitable<void>
     {
         if (has_flag(hdr.flag, flags::syn) && config_.yamux.enable_ping)
         {
@@ -623,9 +584,7 @@ namespace psm::multiplex::yamux
         co_return;
     }
 
-
-    auto control::handle_goaway(const frame_header &hdr)
-        -> net::awaitable<void>
+    auto control::handle_goaway(const frame_header &hdr) -> net::awaitable<void>
     {
         const auto code = static_cast<away_code>(hdr.length);
         diagnose::debug(prefix_, "go away received, code={}", static_cast<std::uint32_t>(code));
@@ -633,9 +592,7 @@ namespace psm::multiplex::yamux
         co_return;
     }
 
-
-    auto control::send_addr_err(const std::uint32_t stream_id)
-        -> net::awaitable<void>
+    auto control::send_addr_err(const std::uint32_t stream_id) -> net::awaitable<void>
     {
         diagnose::warn(prefix_, "stream {} address parse failed", stream_id);
         memory::vector<std::byte> error_buf(mr_);
@@ -645,9 +602,7 @@ namespace psm::multiplex::yamux
         fin(stream_id);
     }
 
-
-    auto control::activate_udp(activate_opts opts)
-        -> net::awaitable<void>
+    auto control::activate_udp(activate_opts opts) -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "stream {} creating UDP datagram", opts.stream_id);
 
@@ -704,9 +659,7 @@ namespace psm::multiplex::yamux
         diagnose::debug(prefix_, "stream {} UDP datagram created", opts.stream_id);
     }
 
-
-    auto control::activate_tcp(activate_opts opts)
-        -> net::awaitable<void>
+    auto control::activate_tcp(activate_opts opts) -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "stream {} connecting to {}:{}", opts.stream_id, opts.host, opts.port);
 
@@ -723,7 +676,8 @@ namespace psm::multiplex::yamux
 
         if (code != fault::code::success || !trans)
         {
-            diagnose::warn(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host, opts.port);
+            diagnose::warn(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host,
+                           opts.port);
             memory::vector<std::byte> error_buf(mr_);
             error_buf.push_back(std::byte{0x01});
             co_await send(opts.stream_id, std::move(error_buf));
@@ -769,9 +723,7 @@ namespace psm::multiplex::yamux
         diagnose::debug(prefix_, "stream {} connected to {}:{}", opts.stream_id, opts.host, opts.port);
     }
 
-
-    auto control::activate_stream(const std::uint32_t stream_id)
-        -> net::awaitable<void>
+    auto control::activate_stream(const std::uint32_t stream_id) -> net::awaitable<void>
     {
         const auto pit = pending_.find(stream_id);
         if (pit == pending_.end())
@@ -817,13 +769,12 @@ namespace psm::multiplex::yamux
 
         if (is_udp)
         {
-            activate_opts udp_opts{
-                .stream_id = stream_id,
-                .host = std::move(host),
-                .port = port,
-                .addr_offset = 0,
-                .addr = addr_type,
-                .remaining = std::move(remaining_data)};
+            activate_opts udp_opts{.stream_id = stream_id,
+                                   .host = std::move(host),
+                                   .port = port,
+                                   .addr_offset = 0,
+                                   .addr = addr_type,
+                                   .remaining = std::move(remaining_data)};
             co_await activate_udp(std::move(udp_opts));
         }
         else
@@ -837,7 +788,6 @@ namespace psm::multiplex::yamux
             co_await activate_tcp(std::move(tcp_opts));
         }
     }
-
 
     auto control::process_udp(const std::uint32_t stream_id, memory::vector<std::byte> payload)
         -> net::awaitable<void>
@@ -910,12 +860,12 @@ namespace psm::multiplex::yamux
                 if (offset < local.size())
                 {
                     entry.buffer.insert(entry.buffer.begin(),
-                                        local.begin() + static_cast<std::ptrdiff_t>(offset),
-                                        local.end());
+                                        local.begin() + static_cast<std::ptrdiff_t>(offset), local.end());
                 }
 
                 has_progress = offset > 0;
-            } while (has_progress && !entry.buffer.empty() && is_active());
+            }
+            while (has_progress && !entry.buffer.empty() && is_active());
         }
         catch (const std::exception &e)
         {
@@ -927,7 +877,6 @@ namespace psm::multiplex::yamux
         }
         entry.processing = false;
     }
-
 
     void control::start_pending(const std::uint32_t stream_id)
     {
@@ -942,12 +891,9 @@ namespace psm::multiplex::yamux
 
         auto self = std::static_pointer_cast<control>(shared_from_this());
         auto timeout_task = [self, stream_id, timer = std::move(timer)]() -> net::awaitable<void>
-        {
-            co_return co_await self->pending_timeout(stream_id, std::move(timer));
-        };
+        { co_return co_await self->pending_timeout(stream_id, std::move(timer)); };
         net::co_spawn(transport_->executor(), std::move(timeout_task), net::detached);
     }
-
 
     auto control::pending_timeout(const std::uint32_t stream_id, std::shared_ptr<net::steady_timer> timer)
         -> net::awaitable<void>
@@ -968,7 +914,6 @@ namespace psm::multiplex::yamux
         }
     }
 
-
     stream_window *control::ensure_window(const std::uint32_t stream_id)
     {
         if (const auto it = windows_.find(stream_id); it != windows_.end())
@@ -981,7 +926,6 @@ namespace psm::multiplex::yamux
         return new_it->second.get();
     }
 
-
     stream_window *control::get_window(const std::uint32_t stream_id) const
     {
         if (const auto it = windows_.find(stream_id); it != windows_.end())
@@ -990,7 +934,6 @@ namespace psm::multiplex::yamux
         }
         return nullptr;
     }
-
 
     auto control::update_recv_win(const std::uint32_t stream_id, const std::uint32_t consumed)
         -> net::awaitable<void>
@@ -1001,7 +944,8 @@ namespace psm::multiplex::yamux
             co_return;
         }
 
-        const std::uint32_t total_consumed = window->recv_consumed.fetch_add(consumed, std::memory_order_acq_rel) + consumed;
+        const std::uint32_t total_consumed =
+            window->recv_consumed.fetch_add(consumed, std::memory_order_acq_rel) + consumed;
 
         if (total_consumed >= config_.yamux.initial_window / 2)
         {
@@ -1013,10 +957,8 @@ namespace psm::multiplex::yamux
         }
     }
 
-
     auto control::push_control(const message_type type, const flags f, const std::uint32_t stream_id,
-                               const std::uint32_t length)
-        -> net::awaitable<void>
+                               const std::uint32_t length) -> net::awaitable<void>
     {
         frame_header hdr{};
         hdr.type = type;
@@ -1034,9 +976,7 @@ namespace psm::multiplex::yamux
         co_await push_frame(std::move(frame));
     }
 
-
-    auto control::ping_loop()
-        -> net::awaitable<void>
+    auto control::ping_loop() -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "ping loop started, interval={}ms", config_.yamux.ping_interval);
         net::steady_timer timer(transport_->executor());
@@ -1065,25 +1005,18 @@ namespace psm::multiplex::yamux
         diagnose::debug(prefix_, "ping loop ended");
     }
 
-
-    auto control::make_resolve() const
-        -> resolve_fn
+    auto control::make_resolve() const -> resolve_fn
     {
-        return [this](std::string_view host, std::string_view port)
-            -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
-        {
-            co_return co_await router_fn_(host, port);
-        };
+        return [this](std::string_view host,
+                      std::string_view port) -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
+        { co_return co_await router_fn_(host, port); };
     }
 
-
-    auto control::make_emit(const std::uint32_t stream_id, const addr_mode mode)
-        -> emit_fn
+    auto control::make_emit(const std::uint32_t stream_id, const addr_mode mode) -> emit_fn
     {
         auto self = std::static_pointer_cast<control>(shared_from_this());
         return [self, stream_id, mode](const std::string_view host, const std::uint16_t port,
-                                       const std::span<const std::byte> payload)
-            -> net::awaitable<void>
+                                       const std::span<const std::byte> payload) -> net::awaitable<void>
         {
             memory::vector<std::byte> encoded(self->mr_);
             if (mode == addr_mode::packet_addr)

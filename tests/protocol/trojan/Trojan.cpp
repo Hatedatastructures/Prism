@@ -7,20 +7,21 @@
  * 3. 数据双向传输 (Echo)
  */
 
-#include <prism/protocol/trojan/trojan.hpp>
-#include <prism/protocol/trojan/codec/framing.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/exception/network.hpp>
 #include <prism/foundation/fault/code.hpp>
-#include <prism/net/transport/reliable.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/diagnose/log.hpp>
-#include <boost/asio.hpp>
-#include <iostream>
-#include <string>
-#include <memory>
-#include <cstring>
-#include <array>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/protocol/trojan/codec/framing.hpp>
+#include <prism/protocol/trojan/trojan.hpp>
 
+#include <boost/asio.hpp>
+
+#include <array>
+#include <cstring>
+#include <iostream>
+#include <memory>
+#include <string>
 
 #include <gtest/gtest.h>
 
@@ -48,9 +49,7 @@ namespace
 
             // 凭据验证回调：比对客户端发送的 SHA224 哈希与期望值
             auto user_credential_verifier = [expected_credential](std::string_view user_credential) -> bool
-            {
-                return user_credential == expected_credential;
-            };
+            { return user_credential == expected_credential; };
 
             // 将 TCP socket 包装为可靠传输层
             auto trans = psm::transport::make_reliable(std::move(socket));
@@ -108,8 +107,8 @@ namespace
      * @param test_msg 测试载荷
      * @return net::awaitable<void>
      */
-    net::awaitable<void> DoTrojanClient(tcp::endpoint endpoint, const std::string &credential, const std::string &host,
-                                        uint16_t port, const std::string &test_msg)
+    net::awaitable<void> DoTrojanClient(tcp::endpoint endpoint, const std::string &credential,
+                                        const std::string &host, uint16_t port, const std::string &test_msg)
     {
         try
         {
@@ -125,10 +124,10 @@ namespace
             req.append(credential);
             // CRLF 分隔凭据与命令字段
             req.append("\r\n");
-            req.push_back(0x01); // CMD=0x01 表示 CONNECT 命令
-            req.push_back(0x03); // ATYP=0x03 表示域名类型
+            req.push_back(0x01);                             // CMD=0x01 表示 CONNECT 命令
+            req.push_back(0x03);                             // ATYP=0x03 表示域名类型
             req.push_back(static_cast<char>(host.length())); // 域名长度字节
-            req.append(host);    // 域名内容
+            req.append(host);                                // 域名内容
             // 端口号转为网络字节序（大端）并写入 2 字节
             uint16_t net_port = htons(port);
             req.append(reinterpret_cast<const char *>(&net_port), 2);
@@ -162,7 +161,7 @@ namespace
         }
         co_return;
     }
-}
+} // namespace
 
 // ============================================================================
 // UDP 帧格式测试
@@ -175,13 +174,18 @@ TEST(Trojan, UdpParseIPv4)
 {
     // Trojan UDP: [ATYP=0x01][IPv4 4B][Port 2B][Length 2B][CRLF 2B][Payload]
     std::vector<std::byte> buf;
-    buf.push_back(std::byte{0x01});                                // ATYP = IPv4
-    buf.push_back(std::byte{127}); buf.push_back(std::byte{0});
-    buf.push_back(std::byte{0});   buf.push_back(std::byte{1});   // 127.0.0.1
-    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x50}); // port = 80
-    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x05}); // length = 5
-    buf.push_back(std::byte{0x0D}); buf.push_back(std::byte{0x0A}); // CRLF
-    const char* payload = "hello";
+    buf.push_back(std::byte{0x01}); // ATYP = IPv4
+    buf.push_back(std::byte{127});
+    buf.push_back(std::byte{0});
+    buf.push_back(std::byte{0});
+    buf.push_back(std::byte{1}); // 127.0.0.1
+    buf.push_back(std::byte{0x00});
+    buf.push_back(std::byte{0x50}); // port = 80
+    buf.push_back(std::byte{0x00});
+    buf.push_back(std::byte{0x05}); // length = 5
+    buf.push_back(std::byte{0x0D});
+    buf.push_back(std::byte{0x0A}); // CRLF
+    const char *payload = "hello";
     for (auto c : std::string_view(payload))
     {
         buf.push_back(static_cast<std::byte>(c));
@@ -190,7 +194,7 @@ TEST(Trojan, UdpParseIPv4)
     auto [ec, result] = protocol::trojan::format::parse_udp_pkt(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse_udp_packet IPv4 failed: " << psm::fault::describe(ec);
 
-    auto* ipv4 = std::get_if<protocol::trojan::ipv4_address>(&result.destination_address);
+    auto *ipv4 = std::get_if<protocol::trojan::ipv4_address>(&result.destination_address);
     ASSERT_TRUE(ipv4 != nullptr) << "address type should be IPv4";
     EXPECT_EQ(result.destination_port, 80) << "port should be 80, got " << result.destination_port;
     EXPECT_EQ(result.payload_size, 5) << "payload size should be 5, got " << result.payload_size;
@@ -203,16 +207,19 @@ TEST(Trojan, UdpParseDomain)
 {
     const std::string domain = "example.com";
     std::vector<std::byte> buf;
-    buf.push_back(std::byte{0x03});                                // ATYP = Domain
-    buf.push_back(static_cast<std::byte>(domain.size()));          // domain length
+    buf.push_back(std::byte{0x03});                       // ATYP = Domain
+    buf.push_back(static_cast<std::byte>(domain.size())); // domain length
     for (auto c : domain)
     {
         buf.push_back(static_cast<std::byte>(c));
     }
-    buf.push_back(std::byte{0x01}); buf.push_back(std::byte{0x0BB}); // port = 443
-    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x04}); // length = 4
-    buf.push_back(std::byte{0x0D}); buf.push_back(std::byte{0x0A}); // CRLF
-    const char* payload = "test";
+    buf.push_back(std::byte{0x01});
+    buf.push_back(std::byte{0x0BB}); // port = 443
+    buf.push_back(std::byte{0x00});
+    buf.push_back(std::byte{0x04}); // length = 4
+    buf.push_back(std::byte{0x0D});
+    buf.push_back(std::byte{0x0A}); // CRLF
+    const char *payload = "test";
     for (auto c : std::string_view(payload))
     {
         buf.push_back(static_cast<std::byte>(c));
@@ -221,7 +228,7 @@ TEST(Trojan, UdpParseDomain)
     auto [ec, result] = protocol::trojan::format::parse_udp_pkt(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse_udp_packet Domain failed: " << psm::fault::describe(ec);
 
-    auto* dom = std::get_if<protocol::trojan::domain_address>(&result.destination_address);
+    auto *dom = std::get_if<protocol::trojan::domain_address>(&result.destination_address);
     ASSERT_TRUE(dom != nullptr) << "address type should be domain";
     EXPECT_EQ(result.destination_port, 443) << "port should be 443";
 }
@@ -236,21 +243,24 @@ TEST(Trojan, UdpBuildParseRoundtrip)
     frame.destination_port = 8080;
 
     const std::string payload_str = "hello trojan udp";
-    auto payload_span = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(payload_str.data()), payload_str.size());
+    auto payload_span = std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload_str.data()),
+                                                   payload_str.size());
 
     psm::memory::vector<std::byte> out(psm::memory::current_resource());
     auto build_ec = protocol::trojan::format::build_udp_pkt(frame, payload_span, out);
-    ASSERT_TRUE(psm::fault::succeeded(build_ec)) << "build_udp_packet failed: " << psm::fault::describe(build_ec);
+    ASSERT_TRUE(psm::fault::succeeded(build_ec))
+        << "build_udp_packet failed: " << psm::fault::describe(build_ec);
 
     auto [parse_ec, result] = protocol::trojan::format::parse_udp_pkt(out);
-    ASSERT_TRUE(psm::fault::succeeded(parse_ec)) << "parse_udp_packet roundtrip failed: " << psm::fault::describe(parse_ec);
+    ASSERT_TRUE(psm::fault::succeeded(parse_ec))
+        << "parse_udp_packet roundtrip failed: " << psm::fault::describe(parse_ec);
 
-    EXPECT_EQ(result.destination_port, 8080) << "roundtrip port should be 8080, got " << result.destination_port;
+    EXPECT_EQ(result.destination_port, 8080)
+        << "roundtrip port should be 8080, got " << result.destination_port;
     EXPECT_EQ(result.payload_size, payload_str.size()) << "roundtrip payload_size mismatch";
 
-    std::string_view parsed_payload(reinterpret_cast<const char*>(out.data() + result.payload_offset),
-                                     result.payload_size);
+    std::string_view parsed_payload(reinterpret_cast<const char *>(out.data() + result.payload_offset),
+                                    result.payload_size);
     EXPECT_EQ(parsed_payload, payload_str) << "roundtrip payload content mismatch";
 }
 
@@ -280,19 +290,19 @@ TEST(Trojan, RelayHandshake)
     // 启动服务端协程：接受连接并进行 Trojan 握手及回显
     net::co_spawn(ioc, DoTrojanServer(acceptor, test_user_credential), net::detached);
     // 启动客户端协程：连接服务端并执行完整的 Trojan 握手 + Echo 测试
-    auto client_task = [endpoint = bound_endpoint, &test_user_credential, &test_host, test_port, &test_message, client_ok]() -> net::awaitable<void>
+    auto client_task = [endpoint = bound_endpoint, &test_user_credential, &test_host, test_port,
+                        &test_message, client_ok]() -> net::awaitable<void>
     {
-                      try
-                      {
-                          co_await DoTrojanClient(endpoint, test_user_credential, test_host, test_port, test_message);
-                          *client_ok = true;
-                      }
-                      catch (const std::exception &)
-                      {
-                      }
-                  };
-    net::co_spawn(ioc, std::move(client_task), [&](const std::exception_ptr &)
-                  { ioc.stop(); });
+        try
+        {
+            co_await DoTrojanClient(endpoint, test_user_credential, test_host, test_port, test_message);
+            *client_ok = true;
+        }
+        catch (const std::exception &)
+        {
+        }
+    };
+    net::co_spawn(ioc, std::move(client_task), [&](const std::exception_ptr &) { ioc.stop(); });
 
     // 阻塞运行事件循环，直到所有异步操作完成
     ioc.run();

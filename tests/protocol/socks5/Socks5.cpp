@@ -8,20 +8,21 @@
  * 4. Echo 数据双向传输
  */
 
-#include <prism/protocol/socks5/socks5.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/exception/network.hpp>
 #include <prism/foundation/fault/code.hpp>
-#include <prism/net/transport/reliable.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/diagnose/log.hpp>
-#include <boost/asio.hpp>
-#include <iostream>
-#include <string>
-#include <memory>
-#include <cstring>
-#include <array>
-#include <vector>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/protocol/socks5/socks5.hpp>
 
+#include <boost/asio.hpp>
+
+#include <array>
+#include <cstring>
+#include <iostream>
+#include <memory>
+#include <string>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -175,7 +176,9 @@ namespace
             {
                 // 回复码非零表示服务端拒绝了连接请求
                 if (total_read > 0 && response[1] != 0x00)
+                {
                     throw psm::exception::network("SOCKS5 connection request rejected");
+                }
             }
         }
         catch (const boost::system::system_error &e)
@@ -192,7 +195,7 @@ namespace
         }
         co_return;
     }
-}
+} // namespace
 
 /**
  * @brief 测试 SOCKS5 协议完整握手与数据回显

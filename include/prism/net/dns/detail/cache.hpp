@@ -27,7 +27,6 @@
 #include <span>
 #include <string_view>
 
-
 namespace psm::dns::detail
 {
 
@@ -42,7 +41,7 @@ namespace psm::dns::detail
     struct cache_entry
     {
         memory::vector<net::ip::address> ips;           // 解析结果 IP 地址列表
-        std::uint32_t ttl{0};                                // 原始 TTL（秒）
+        std::uint32_t ttl{0};                           // 原始 TTL（秒）
         std::chrono::steady_clock::time_point expire;   // 过期时间
         std::chrono::steady_clock::time_point inserted; // 插入时间（用于 FIFO 淘汰）
         bool failed{false};                             // 负缓存标记
@@ -51,8 +50,7 @@ namespace psm::dns::detail
          * @brief 构造 DNS 缓存条目
          * @param mr 内存资源指针，为 null 时使用 current_resource()
          */
-        explicit cache_entry(memory::resource_pointer mr = memory::current_resource())
-            : ips(mr)
+        explicit cache_entry(memory::resource_pointer mr = memory::current_resource()) : ips(mr)
         {
         }
     };
@@ -65,8 +63,8 @@ namespace psm::dns::detail
      */
     enum class stale_policy : std::uint8_t
     {
-        discard,  ///< 过期即丢弃
-        serve     ///< 过期后仍返回旧数据（serve-stale 模式）
+        discard, ///< 过期即丢弃
+        serve    ///< 过期后仍返回旧数据（serve-stale 模式）
     };
 
     /**
@@ -90,10 +88,10 @@ namespace psm::dns::detail
      */
     struct put_input
     {
-        std::string_view domain;                         ///< 域名
-        qtype qt;                                        ///< 查询类型
-        const memory::vector<net::ip::address> &ips;     ///< 解析得到的 IP 地址列表
-        std::uint32_t ttl_seconds;                       ///< 缓存 TTL（秒）
+        std::string_view domain;                     ///< 域名
+        qtype qt;                                    ///< 查询类型
+        const memory::vector<net::ip::address> &ips; ///< 解析得到的 IP 地址列表
+        std::uint32_t ttl_seconds;                   ///< 缓存 TTL（秒）
     };
 
     /**
@@ -165,8 +163,7 @@ namespace psm::dns::detail
          * @details 将域名和查询类型数值拼接为缓存键，如 "www.example.com:1"
          * (A 记录) 或 "www.example.com:28" (AAAA 记录)。
          */
-        [[nodiscard]] auto make_key(std::string_view domain, qtype qt) const
-            -> memory::string;
+        [[nodiscard]] auto make_key(std::string_view domain, qtype qt) const -> memory::string;
 
         /**
          * @brief 构造缓存键视图
@@ -189,10 +186,7 @@ namespace psm::dns::detail
         lru_list lru_order_;                           // LRU 访问顺序链表
 
         using cache_map = memory::unordered_map< // 缓存表：键到条目和LRU迭代器的映射
-            memory::string,
-            std::pair<cache_entry, lru_list::iterator>,
-            string_hash,
-            string_equal>;
+            memory::string, std::pair<cache_entry, lru_list::iterator>, string_hash, string_equal>;
         cache_map entries_; // 缓存表
     };
 

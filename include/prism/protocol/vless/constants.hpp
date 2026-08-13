@@ -10,7 +10,6 @@
 
 #include <cstdint>
 
-
 namespace psm::protocol::vless
 {
 
@@ -49,4 +48,4 @@ namespace psm::protocol::vless
         /** @brief IPv6 地址，值 0x03，占用 16 字节 */
         ipv6 = 0x03
     };
-}
+} // namespace psm::protocol::vless

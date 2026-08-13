@@ -1,12 +1,11 @@
-#include <prism/handshake/executor.hpp>
-
-#include <prism/net/connection/util.hpp>
-#include <prism/resource/session.hpp>
-#include <prism/foundation/rate/counter.hpp>
-#include <prism/handshake/recognition/probe/analyzer.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/rate/counter.hpp>
+#include <prism/handshake/executor.hpp>
+#include <prism/handshake/recognition/probe/analyzer.hpp>
+#include <prism/net/connection/util.hpp>
 #include <prism/net/transport/preview.hpp>
 #include <prism/net/transport/snapshot.hpp>
+#include <prism/resource/session.hpp>
 
 #include <algorithm>
 
@@ -26,9 +25,7 @@ namespace psm::handshake
                 return psm::connect::protocol_type::unknown;
             }
 
-            auto view = std::string_view(
-                reinterpret_cast<const char *>(preread.data()),
-                preread.size());
+            auto view = std::string_view(reinterpret_cast<const char *>(preread.data()), preread.size());
             auto detected = recognition::probe::detect_tls(view);
             // SS2022 的 AEAD 加密载荷无特征，detect_tls() 无法识别，回退到 shadowsocks
             if (detected == psm::connect::protocol_type::unknown)
@@ -45,11 +42,12 @@ namespace psm::handshake
     {
     }
 
-
     void scheme_executor::pass_through(handshake_context &ctx, const handshake_result &res)
     {
         if (res.transport)
+        {
             ctx.transport = res.transport;
+        }
         if (!res.preread.empty() && ctx.transport)
         {
             auto preread_span = std::span(res.preread.data(), res.preread.size());
@@ -57,31 +55,37 @@ namespace psm::handshake
         }
     }
 
-
     void scheme_executor::ensure_snapshot(handshake_context &ctx)
     {
         if (!ctx.transport)
+        {
             return;
+        }
         if (connect::as<transport::snapshot>(ctx.transport))
+        {
             return;
+        }
         ctx.transport = transport::make_snapshot(std::move(ctx.transport));
     }
 
-
-    auto scheme_executor::try_rewind(handshake_context &ctx, rewind_mode mode)
-        -> bool
+    auto scheme_executor::try_rewind(handshake_context &ctx, rewind_mode mode) -> bool
     {
         if (mode == rewind_mode::polluted)
+        {
             return false;
+        }
         if (!ctx.transport)
+        {
             return false;
+        }
         auto *snap = connect::as<transport::snapshot>(ctx.transport);
         if (!snap || !snap->can_rewind())
+        {
             return false;
+        }
         snap->rewind();
         return true;
     }
-
 
     auto scheme_executor::execute_single(const shared_scheme scheme, handshake_context ctx)
         -> net::awaitable<handshake_result>
@@ -91,9 +95,8 @@ namespace psm::handshake
         co_return result;
     }
 
-
-    auto scheme_executor::execute_pipeline(const memory::vector<memory::string> &order, handshake_context ctx) const
-        -> net::awaitable<handshake_result>
+    auto scheme_executor::execute_pipeline(const memory::vector<memory::string> &order,
+                                           handshake_context ctx) const -> net::awaitable<handshake_result>
     {
         handshake_result result;
 
@@ -157,7 +160,9 @@ namespace psm::handshake
                     rw_mode2 = rewind_mode::clean;
                 }
                 if (!try_rewind(ctx, rw_mode2))
+                {
                     pass_through(ctx, exec_result);
+                }
                 continue;
             }
 
@@ -169,8 +174,8 @@ namespace psm::handshake
                 {
                     exec_result.detected = secondary_probe(exec_result.preread);
                 }
-                diagnose::debug(ctx.session->trace, "Facade scheme '{}' succeeded, inner: {}",
-                             name, static_cast<std::int32_t>(exec_result.detected));
+                diagnose::debug(ctx.session->trace, "Facade scheme '{}' succeeded, inner: {}", name,
+                                static_cast<std::int32_t>(exec_result.detected));
                 co_return exec_result;
             }
 
@@ -186,28 +191,27 @@ namespace psm::handshake
                     // 探测次数达到阈值时触发挑战-响应
                     if (tracker_->should_challenge(src_ip))
                     {
-                        diagnose::debug(
-                            ctx.session->trace, "triggering challenge for scheme '{}'", name);
+                        diagnose::debug(ctx.session->trace, "triggering challenge for scheme '{}'", name);
                         auto ch_result = co_await scheme->challenge(handshake_context{ctx});
                         if (ch_result.triggered && ch_result.success)
                         {
-                            diagnose::debug(
-                                ctx.session->trace, "challenge passed, retrying handshake");
+                            diagnose::debug(ctx.session->trace, "challenge passed, retrying handshake");
                             tracker_->reset(src_ip);
                             exec_result = co_await execute_single(scheme, handshake_context{ctx});
                             if (exec_result.transport && !fault::failed(exec_result.error))
                             {
                                 if (!exec_result.preread.empty())
+                                {
                                     exec_result.detected = secondary_probe(exec_result.preread);
-                                diagnose::debug(
-                                    ctx.session->trace, "Facade scheme '{}' succeeded after challenge", name);
+                                }
+                                diagnose::debug(ctx.session->trace,
+                                                "Facade scheme '{}' succeeded after challenge", name);
                                 co_return exec_result;
                             }
                         }
                         else if (ch_result.triggered)
                         {
-                            diagnose::warn(
-                                ctx.session->trace, "challenge failed for scheme '{}'", name);
+                            diagnose::warn(ctx.session->trace, "challenge failed for scheme '{}'", name);
                         }
                     }
                 }
@@ -223,25 +227,27 @@ namespace psm::handshake
                 }
                 if (try_rewind(ctx, rw_mode))
                 {
-                    diagnose::debug(ctx.session->trace, "Scheme '{}' failed but snapshot rewound, trying next", name);
+                    diagnose::debug(ctx.session->trace,
+                                    "Scheme '{}' failed but snapshot rewound, trying next", name);
                     continue;
                 }
-                diagnose::warn(ctx.session->trace, "Scheme '{}' failed with error: {}",
-                            name, fault::describe(exec_result.error));
+                diagnose::warn(ctx.session->trace, "Scheme '{}' failed with error: {}", name,
+                               fault::describe(exec_result.error));
                 co_return exec_result;
             }
 
             if (!try_rewind(ctx))
+            {
                 pass_through(ctx, exec_result);
+            }
         }
 
         result.error = fault::code::not_supported;
         co_return result;
     }
 
-
-    auto scheme_executor::execute_by_analysis(const recognition::analysis_result &analysis, handshake_context ctx) const
-        -> net::awaitable<handshake_result>
+    auto scheme_executor::execute_by_analysis(const recognition::analysis_result &analysis,
+                                              handshake_context ctx) const -> net::awaitable<handshake_result>
     {
         if (analysis.candidates.empty())
         {
@@ -249,7 +255,9 @@ namespace psm::handshake
 
             memory::vector<memory::string> default_order; // 默认顺序
             for (const auto &scheme : schemes_)
+            {
                 default_order.emplace_back(scheme->name());
+            }
 
             auto native_ctx = handshake_context{ctx};
             auto result = co_await execute_pipeline(default_order, std::move(ctx));
@@ -269,21 +277,20 @@ namespace psm::handshake
         co_return co_await execute_pipeline(analysis.candidates, std::move(ctx));
     }
 
-
-    auto scheme_executor::execute(const memory::vector<memory::string> &candidates, handshake_context ctx) const
-        -> net::awaitable<handshake_result>
+    auto scheme_executor::execute(const memory::vector<memory::string> &candidates,
+                                  handshake_context ctx) const -> net::awaitable<handshake_result>
     {
         co_return co_await execute_pipeline(candidates, std::move(ctx));
     }
 
-
-    auto scheme_executor::find_scheme(const std::string_view name) const
-        -> shared_scheme
+    auto scheme_executor::find_scheme(const std::string_view name) const -> shared_scheme
     {
         for (const auto &scheme : schemes_)
         {
             if (scheme->name() == name)
+            {
                 return scheme;
+            }
         }
         return nullptr;
     }

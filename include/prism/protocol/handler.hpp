@@ -51,17 +51,18 @@ namespace psm::protocol
      */
     struct handler_params
     {
-        psm::resource::session &res;  ///< 会话资源（含 worker 级 + session 级）
-        std::span<const std::byte> data;         ///< 预读数据
+        psm::resource::session &res;     ///< 会话资源（含 worker 级 + session 级）
+        std::span<const std::byte> data; ///< 预读数据
 
-        explicit handler_params(psm::resource::session &r, std::span<const std::byte> d)
-            : res(r), data(d) {}
+        explicit handler_params(psm::resource::session &r, std::span<const std::byte> d) : res(r), data(d)
+        {
+        }
     };
 
     /**
      * @brief 创建协议处理器
      */
-    [[nodiscard]] auto make_protocol_handler(
-        protocol_type type, handler_params params) -> std::unique_ptr<protocol_handler>;
+    [[nodiscard]] auto make_protocol_handler(protocol_type type, handler_params params)
+        -> std::unique_ptr<protocol_handler>;
 
 } // namespace psm::protocol

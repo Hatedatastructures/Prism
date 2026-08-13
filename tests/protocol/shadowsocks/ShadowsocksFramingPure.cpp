@@ -4,21 +4,21 @@
  * @details 测试 parse_addr_port/decode_psk/resolve_method 全分支
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
-#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 
 namespace
 {
-    using psm::protocol::shadowsocks::format::parse_addr_port;
-    using psm::protocol::shadowsocks::format::decode_psk;
-    using psm::protocol::shadowsocks::format::resolve_method;
-    using psm::protocol::shadowsocks::format::keysalt_len;
-    using psm::protocol::shadowsocks::format::addr_parse_result;
     using psm::protocol::shadowsocks::cipher_method;
+    using psm::protocol::shadowsocks::format::addr_parse_result;
+    using psm::protocol::shadowsocks::format::decode_psk;
+    using psm::protocol::shadowsocks::format::keysalt_len;
+    using psm::protocol::shadowsocks::format::parse_addr_port;
+    using psm::protocol::shadowsocks::format::resolve_method;
 
     TEST(ShadowsocksFramingPure, ParseAddrPortEmpty)
     {
@@ -51,10 +51,8 @@ namespace
     TEST(ShadowsocksFramingPure, ParseAddrPortDomain)
     {
         // ATYP=0x03, len=11, "example.com", port=443
-        std::array<std::uint8_t, 16> buf = {
-            0x03, 11,
-            'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm',
-            0x01, 0xBB};
+        std::array<std::uint8_t, 16> buf = {0x03, 11,  'e', 'x', 'a', 'm',  'p', 'l',
+                                            'e',  '.', 'c', 'o', 'm', 0x01, 0xBB};
         auto [ec, result] = parse_addr_port(buf);
         EXPECT_EQ(ec, psm::fault::code::success) << "parse_addr_port domain: success";
         EXPECT_EQ(result.port, 443) << "parse_addr_port domain: port=443";
@@ -138,9 +136,12 @@ namespace
 
     TEST(ShadowsocksFramingPure, ResolveMethodExplicit)
     {
-        EXPECT_EQ(resolve_method("2022-blake3-aes-128-gcm", 0), cipher_method::aes_128_gcm) << "resolve: aes-128-gcm";
-        EXPECT_EQ(resolve_method("2022-blake3-aes-256-gcm", 0), cipher_method::aes_256_gcm) << "resolve: aes-256-gcm";
-        EXPECT_EQ(resolve_method("2022-blake3-chacha20-poly1305", 0), cipher_method::chacha20_poly1305) << "resolve: chacha20";
+        EXPECT_EQ(resolve_method("2022-blake3-aes-128-gcm", 0), cipher_method::aes_128_gcm)
+            << "resolve: aes-128-gcm";
+        EXPECT_EQ(resolve_method("2022-blake3-aes-256-gcm", 0), cipher_method::aes_256_gcm)
+            << "resolve: aes-256-gcm";
+        EXPECT_EQ(resolve_method("2022-blake3-chacha20-poly1305", 0), cipher_method::chacha20_poly1305)
+            << "resolve: chacha20";
     }
 
     TEST(ShadowsocksFramingPure, ResolveMethodAutoInfer)

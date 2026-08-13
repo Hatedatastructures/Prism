@@ -15,7 +15,6 @@
 #include <cstdint>
 #include <string_view>
 
-
 namespace psm::fault
 {
 
@@ -176,8 +175,7 @@ namespace psm::fault
      * 日志和诊断。对于未知错误码返回 "unknown"。
      * @note 该函数为 constexpr，可在编译时求值。
      */
-    [[nodiscard]] constexpr auto describe(const code value) noexcept
-        -> std::string_view
+    [[nodiscard]] constexpr auto describe(const code value) noexcept -> std::string_view
     {
         switch (value)
         {
@@ -256,8 +254,7 @@ namespace psm::fault
      * @details 语义等价于 c == code::success，
      * 使用此函数可提高代码表达力。
      */
-    [[nodiscard]] constexpr auto succeeded(const code c) noexcept
-        -> bool
+    [[nodiscard]] constexpr auto succeeded(const code c) noexcept -> bool
     {
         return c == code::success;
     }
@@ -269,8 +266,7 @@ namespace psm::fault
      * @details succeeded() 的互补函数，语义等价于
      * c != code::success。
      */
-    [[nodiscard]] constexpr auto failed(const code c) noexcept
-        -> bool
+    [[nodiscard]] constexpr auto failed(const code c) noexcept -> bool
     {
         return !succeeded(c);
     }

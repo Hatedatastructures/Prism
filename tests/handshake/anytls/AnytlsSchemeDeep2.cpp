@@ -5,17 +5,16 @@
  *          parse_socks_target, build_user_map, verify_user, sha256_hash。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/handshake/anytls/scheme.cpp"
+#include <gtest/gtest.h>
 
 // 匿名命名空间函数通过 #include 可见
-using psm::handshake::anytls::parse_socks_target;
 using psm::handshake::anytls::build_user_map;
-using psm::handshake::anytls::verify_user;
+using psm::handshake::anytls::parse_socks_target;
 using psm::handshake::anytls::sha256_hash;
+using psm::handshake::anytls::verify_user;
 
 namespace
 {
@@ -54,8 +53,7 @@ namespace
         }
 
         sha256_hash hasher;
-        EXPECT_NE(hasher(key1), hasher(key2))
-            << "sha256_hash: different keys -> different hashes";
+        EXPECT_NE(hasher(key1), hasher(key2)) << "sha256_hash: different keys -> different hashes";
     }
 
     TEST(AnytlsSchemeDeep2, Sha256HashAllZero)
@@ -152,10 +150,8 @@ namespace
     TEST(AnytlsSchemeDeep2, ParseSocksTargetIPv4)
     {
         // atyp=0x01 + 4 bytes IP(127.0.0.1) + 2 bytes port(80)
-        std::byte data[] = {
-            std::byte{0x01},
-            std::byte{0x7F}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
-            std::byte{0x00}, std::byte{0x50}};
+        std::byte data[] = {std::byte{0x01}, std::byte{0x7F}, std::byte{0x00}, std::byte{0x00},
+                            std::byte{0x01}, std::byte{0x00}, std::byte{0x50}};
         auto [ec, target] = parse_socks_target(data, make_mr());
         EXPECT_TRUE(!psm::fault::failed(ec)) << "parse_socks_target: IPv4 success";
         EXPECT_EQ(target.host, "127.0.0.1") << "parse_socks_target: IPv4 host";
@@ -165,13 +161,10 @@ namespace
     TEST(AnytlsSchemeDeep2, ParseSocksTargetIPv6)
     {
         // atyp=0x04 + 16 bytes (::1) + 2 bytes port(8080 = 0x1F90)
-        std::byte data[] = {
-            std::byte{0x04},
-            std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-            std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-            std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0},
-            std::byte{0}, std::byte{0}, std::byte{0}, std::byte{0x01},
-            std::byte{0x1F}, std::byte{0x90}};
+        std::byte data[] = {std::byte{0x04}, std::byte{0},    std::byte{0},    std::byte{0},   std::byte{0},
+                            std::byte{0},    std::byte{0},    std::byte{0},    std::byte{0},   std::byte{0},
+                            std::byte{0},    std::byte{0},    std::byte{0},    std::byte{0},   std::byte{0},
+                            std::byte{0},    std::byte{0x01}, std::byte{0x1F}, std::byte{0x90}};
         auto [ec, target] = parse_socks_target(data, make_mr());
         EXPECT_TRUE(!psm::fault::failed(ec)) << "parse_socks_target: IPv6 success";
         EXPECT_EQ(target.port, "8080") << "parse_socks_target: IPv6 port";
@@ -222,8 +215,7 @@ namespace
     TEST(AnytlsSchemeDeep2, SchemeCategory)
     {
         psm::handshake::anytls::scheme s;
-        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
-            << "scheme: category() == stack";
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack) << "scheme: category() == stack";
     }
 
 } // namespace

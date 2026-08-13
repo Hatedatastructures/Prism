@@ -10,7 +10,6 @@
 
 #include <cstdint>
 
-
 namespace psm::multiplex::h2mux
 {
 
@@ -24,12 +23,12 @@ namespace psm::multiplex::h2mux
      */
     struct config
     {
-        std::uint32_t max_streams = 256;           // 单个 mux 会话最大并发流数（HTTP/2 默认允许更多）
-        std::uint32_t buffer_size = 4096;          // 每流读取缓冲区大小（字节）
-        std::uint32_t max_frame_size = 16384;      // HTTP/2 最大帧载荷大小（字节），默认 16384
-        std::uint32_t idle_timeout = 30000;     // 连接空闲超时（毫秒）
-        std::uint32_t udp_idle = 60000; // UDP 管道空闲超时（毫秒），超时自动关闭
-        std::uint32_t max_dgram = 65535;    // UDP 数据报最大长度（字节）
+        std::uint32_t max_streams = 256;      // 单个 mux 会话最大并发流数（HTTP/2 默认允许更多）
+        std::uint32_t buffer_size = 4096;     // 每流读取缓冲区大小（字节）
+        std::uint32_t max_frame_size = 16384; // HTTP/2 最大帧载荷大小（字节），默认 16384
+        std::uint32_t idle_timeout = 30000;   // 连接空闲超时（毫秒）
+        std::uint32_t udp_idle = 60000;       // UDP 管道空闲超时（毫秒），超时自动关闭
+        std::uint32_t max_dgram = 65535;      // UDP 数据报最大长度（字节）
     }; // struct config
 
 } // namespace psm::multiplex::h2mux

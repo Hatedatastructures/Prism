@@ -17,9 +17,10 @@
 
 #include <vector>
 
-
-namespace psm::rate { class counter; }
-
+namespace psm::rate
+{
+    class counter;
+}
 
 namespace psm::handshake
 {
@@ -32,8 +33,8 @@ namespace psm::handshake
      */
     enum class rewind_mode : std::uint8_t
     {
-        clean,     ///< 传输层未被污染，可以安全回绕
-        polluted   ///< 传输层已被写入数据，不可回绕
+        clean,   ///< 传输层未被污染，可以安全回绕
+        polluted ///< 传输层已被写入数据，不可回绕
     };
 
     /**
@@ -59,7 +60,8 @@ namespace psm::handshake
          * @details 候选为空时按注册顺序执行；全部失败则执行 native 兜底。
          * 每个方案返回 TLS 表示 "不是我"，transport 和 preread 数据传递给下一个方案。
          */
-        [[nodiscard]] auto execute_by_analysis(const recognition::analysis_result &analysis, handshake_context ctx) const
+        [[nodiscard]] auto execute_by_analysis(const recognition::analysis_result &analysis,
+                                               handshake_context ctx) const
             -> net::awaitable<handshake_result>;
 
         /**
@@ -68,31 +70,68 @@ namespace psm::handshake
          * @param ctx 方案执行上下文
          * @return 执行结果
          */
-        [[nodiscard]] auto execute(const memory::vector<memory::string> &candidates, handshake_context ctx) const
-            -> net::awaitable<handshake_result>;
+        [[nodiscard]] auto execute(const memory::vector<memory::string> &candidates,
+                                   handshake_context ctx) const -> net::awaitable<handshake_result>;
 
-        /// 设置探测行为追踪器（RFC-065）
-        void set_probe_tracker(psm::rate::counter *t) noexcept { tracker_ = t; }
+        /**
+         * @brief 设置探测行为追踪器（RFC-065）
+         * @param t 探测行为追踪器指针
+         */
+        void set_probe_tracker(psm::rate::counter *t) noexcept
+        {
+            tracker_ = t;
+        }
 
     private:
-        std::vector<shared_scheme> schemes_;
-        psm::rate::counter *tracker_{nullptr};
+        std::vector<shared_scheme> schemes_;            // 候选方案列表
+        psm::rate::counter *tracker_{nullptr};          // 探测行为追踪器（RFC-065）
 
-        [[nodiscard]] auto find_scheme(std::string_view name) const
-            -> shared_scheme;
+        /**
+         * @brief 按名称查找方案
+         * @param name 方案名称
+         * @return 找到的方案，未找到返回 nullptr
+         */
+        [[nodiscard]] auto find_scheme(std::string_view name) const -> shared_scheme;
 
+        /**
+         * @brief 执行单个方案的握手
+         * @param scheme 待执行的方案
+         * @param ctx 方案执行上下文
+         * @return 执行结果
+         */
         [[nodiscard]] static auto execute_single(shared_scheme scheme, handshake_context ctx)
             -> net::awaitable<handshake_result>;
 
+        /**
+         * @brief 将上一方案的 transport 和 preread 透传给下一方案
+         * @param ctx 方案执行上下文
+         * @param res 上一方案的执行结果
+         */
         static void pass_through(handshake_context &ctx, const handshake_result &res);
 
+        /**
+         * @brief 确保传输层快照就绪（供失败时回绕恢复）
+         * @param ctx 方案执行上下文
+         */
         static void ensure_snapshot(handshake_context &ctx);
 
+        /**
+         * @brief 尝试将传输层回绕到握手前状态
+         * @param ctx 方案执行上下文
+         * @param mode 回绕模式（clean 可回绕，polluted 不可）
+         * @return 是否回绕成功
+         */
         [[nodiscard]] static auto try_rewind(handshake_context &ctx, rewind_mode mode = rewind_mode::clean)
             -> bool;
 
-        [[nodiscard]] auto execute_pipeline(const memory::vector<memory::string> &order, handshake_context ctx) const
-            -> net::awaitable<handshake_result>;
+        /**
+         * @brief 按指定顺序执行方案管道
+         * @param order 方案执行顺序（名称列表）
+         * @param ctx 方案执行上下文
+         * @return 执行结果
+         */
+        [[nodiscard]] auto execute_pipeline(const memory::vector<memory::string> &order,
+                                            handshake_context ctx) const -> net::awaitable<handshake_result>;
     };
 
 } // namespace psm::handshake

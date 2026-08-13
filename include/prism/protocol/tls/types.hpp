@@ -14,7 +14,6 @@
 #include <array>
 #include <cstdint>
 
-
 namespace psm::protocol::tls
 {
 

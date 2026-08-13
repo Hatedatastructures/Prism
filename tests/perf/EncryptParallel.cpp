@@ -34,15 +34,19 @@ auto main(int argc, char **argv) -> int
     std::vector<std::thread> pool;
     pool.reserve(threads);
     for (int i = 0; i < threads; ++i)
+    {
         pool.emplace_back([mb] { worker(mb); });
+    }
     for (auto &t : pool)
+    {
         t.join();
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        std::chrono::steady_clock::now() - start)
-                        .count();
+    }
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start)
+            .count();
 
     const auto total_mb = static_cast<double>(threads) * mb;
-    std::printf("%d threads: %.0f MB in %lld ms = %.0f MB/s\n",
-                threads, total_mb, ms, total_mb * 1000.0 / ms);
+    std::printf("%d threads: %.0f MB in %lld ms = %.0f MB/s\n", threads, total_mb, ms,
+                total_mb * 1000.0 / ms);
     return 0;
 }

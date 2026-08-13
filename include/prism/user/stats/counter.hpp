@@ -9,7 +9,6 @@
 #include <atomic>
 #include <cstdint>
 
-
 namespace psm::stats
 {
 
@@ -51,8 +50,7 @@ namespace psm::stats
          * @brief 原子读取当前值
          * @return 当前计数值
          */
-        [[nodiscard]] auto load() const noexcept
-            -> std::uint64_t
+        [[nodiscard]] auto load() const noexcept -> std::uint64_t
         {
             return value_.load(std::memory_order_relaxed);
         }
@@ -62,8 +60,7 @@ namespace psm::stats
          * @param desired 要设置的新值
          * @return 交换前的旧值
          */
-        [[nodiscard]] auto exchange(std::uint64_t desired) noexcept
-            -> std::uint64_t
+        [[nodiscard]] auto exchange(std::uint64_t desired) noexcept -> std::uint64_t
         {
             return value_.exchange(desired, std::memory_order_relaxed);
         }

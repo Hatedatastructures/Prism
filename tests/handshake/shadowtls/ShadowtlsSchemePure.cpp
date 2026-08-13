@@ -4,13 +4,13 @@
  * @details 测试 sniff 和 verify 方法的所有分支路径
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
-#include <prism/settings/settings.hpp>
-#include <prism/handshake/shadowtls/scheme.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
+#include <prism/handshake/shadowtls/scheme.hpp>
 #include <prism/protocol/tls/types.hpp>
+#include <prism/settings/settings.hpp>
+
+#include <gtest/gtest.h>
 
 namespace
 {

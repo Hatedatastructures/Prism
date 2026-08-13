@@ -49,9 +49,8 @@ namespace psm::protocol::vmess::codec
      * @param out 输出缓冲区（16 字节）
      * @return 错误码
      */
-    [[nodiscard]] auto seal_auth_header(
-        std::span<const std::uint8_t, 16> cmd_key, std::int64_t timestamp,
-        std::span<std::uint8_t, auth_header_len> out) -> fault::code;
+    [[nodiscard]] auto seal_auth_header(std::span<const std::uint8_t, 16> cmd_key, std::int64_t timestamp,
+                                        std::span<std::uint8_t, auth_header_len> out) -> fault::code;
 
     /**
      * @brief 解密并校验认证头
@@ -59,8 +58,8 @@ namespace psm::protocol::vmess::codec
      * @param auth_id 16 字节认证头
      * @return 解密结果（含时间戳与校验标记）
      */
-    [[nodiscard]] auto open_auth_header(
-        std::span<const std::uint8_t, 16> cmd_key,
-        std::span<const std::uint8_t, auth_header_len> auth_id) -> auth_result;
+    [[nodiscard]] auto open_auth_header(std::span<const std::uint8_t, 16> cmd_key,
+                                        std::span<const std::uint8_t, auth_header_len> auth_id)
+        -> auth_result;
 
 } // namespace psm::protocol::vmess::codec

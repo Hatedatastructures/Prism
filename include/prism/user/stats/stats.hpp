@@ -12,12 +12,10 @@
  */
 #pragma once
 
-#include <prism/user/stats/record.hpp>
 #include <prism/user/stats/counter.hpp>
 #include <prism/user/stats/gauge.hpp>
 #include <prism/user/stats/memory.hpp>
+#include <prism/user/stats/record.hpp>
 #include <prism/user/stats/runtime.hpp>
 #include <prism/user/stats/snapshot.hpp>
 #include <prism/user/stats/traffic.hpp>
-
-

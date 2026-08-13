@@ -7,17 +7,16 @@
  * 参照 ShadowTLS v3 的 relay 架构（operator|| + co_return 退出）。
  */
 
-#include <prism/handshake/restls/handshake.hpp>
-
-#include <prism/foundation/fault/code.hpp>
 #include <prism/crypto/blake3.hpp>
-#include <prism/net/transport/reliable.hpp>
-#include <prism/handshake/common.hpp>
-#include <prism/handshake/restls/crypto.hpp>
-#include <prism/handshake/restls/script.hpp>
-#include <prism/handshake/recognition/tls/signal.hpp>
-#include <prism/handshake/restls/transport.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/handshake/common.hpp>
+#include <prism/handshake/recognition/tls/signal.hpp>
+#include <prism/handshake/restls/crypto.hpp>
+#include <prism/handshake/restls/handshake.hpp>
+#include <prism/handshake/restls/script.hpp>
+#include <prism/handshake/restls/transport.hpp>
+#include <prism/net/transport/reliable.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
@@ -32,12 +31,18 @@ namespace psm::handshake::restls
     namespace
     {
 
-        /// 解析 host:port 字符串
+        /**
+         * @brief 解析 host:port 字符串
+         * @param host_port 主机与端口字符串（形如 host:port）
+         * @return 主机名与端口对（未携带端口时默认 443）
+         */
         auto parse_host_port(std::string_view host_port) -> std::pair<std::string, std::uint16_t>
         {
             const auto pos = host_port.rfind(':');
             if (pos == std::string_view::npos)
+            {
                 return {std::string(host_port), 443};
+            }
             auto host = std::string(host_port.substr(0, pos));
             auto port_sv = host_port.substr(pos + 1);
             std::uint16_t port = 443;
@@ -45,13 +50,18 @@ namespace psm::handshake::restls
             return {std::move(host), port};
         }
 
-        /// 连接到真实 TLS 后端
-        /// TODO(P5): restls 当前用裸 tcp::resolver + net::async_connect 直连后端，
-        /// 绕过 connection_pool/DNS gateway/IPv6 策略。待 P5 分层修复时统一走 outbound::dial。
-        auto connect_to_backend(
-            net::ip::tcp::socket::executor_type executor,
-            const std::string &host, std::uint16_t port,
-            std::shared_ptr<diagnose::context> prefix_)
+        /**
+         * @brief 连接到真实 TLS 后端
+         * @details TODO(P5): restls 当前用裸 tcp::resolver + net::async_connect 直连后端，
+         * 绕过 connection_pool/DNS gateway/IPv6 策略。待 P5 分层修复时统一走 outbound::dial。
+         * @param executor 连接使用的执行器
+         * @param host 后端主机名
+         * @param port 后端端口
+         * @param prefix_ 日志上下文
+         * @return 连接成功的 socket，失败返回 nullptr
+         */
+        auto connect_to_backend(net::ip::tcp::socket::executor_type executor, const std::string &host,
+                                std::uint16_t port, std::shared_ptr<diagnose::context> prefix_)
             -> net::awaitable<std::shared_ptr<net::ip::tcp::socket>>
         {
             net::ip::tcp::resolver resolver(executor);
@@ -59,9 +69,7 @@ namespace psm::handshake::restls
 
             auto sock = std::make_shared<net::ip::tcp::socket>(executor);
             boost::system::error_code ec;
-            co_await net::async_connect(
-                *sock, endpoints,
-                net::redirect_error(net::use_awaitable, ec));
+            co_await net::async_connect(*sock, endpoints, net::redirect_error(net::use_awaitable, ec));
 
             if (ec)
             {
@@ -71,58 +79,69 @@ namespace psm::handshake::restls
             co_return sock;
         }
 
-        /// 从 ServerHello 提取 server_random（offset 11，32 bytes）
+        /**
+         * @brief 从 ServerHello 提取 server_random（offset 11，32 bytes）
+         * @param hello ServerHello 原始字节序列
+         * @return 提取的 server_random（32 字节）
+         */
         auto extract_server_random(std::span<const std::byte> hello) -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> random{};
             if (hello.size() >= 11 + 32)
             {
-                std::memcpy(random.data(),
-                            reinterpret_cast<const std::uint8_t *>(hello.data()) + 11, 32);
+                std::memcpy(random.data(), reinterpret_cast<const std::uint8_t *>(hello.data()) + 11, 32);
             }
             return random;
         }
 
-        /// 检测 ServerHello 是否为 TLS 1.3
+        /**
+         * @brief 检测 ServerHello 是否为 TLS 1.3
+         * @param hello ServerHello 原始字节序列
+         * @return 是否为 TLS 1.3 ServerHello
+         */
         auto is_tls13_server_hello(std::span<const std::byte> hello) -> bool
         {
             return hello.size() >= 43;
         }
 
-
-        auto relay_backend_to_client(
-            std::shared_ptr<net::ip::tcp::socket> backend_sock,
-            net::ip::tcp::socket &client_sock,
-            std::span<const std::uint8_t> sr_mac,
-            memory::vector<std::byte> &first_encrypted_out,
-            std::atomic<bool> &client_finished_flag,
-            std::shared_ptr<diagnose::context> prefix_)
-            -> net::awaitable<void>
+        auto relay_backend_to_client(std::shared_ptr<net::ip::tcp::socket> backend_sock,
+                                     net::ip::tcp::socket &client_sock, std::span<const std::uint8_t> sr_mac,
+                                     memory::vector<std::byte> &first_encrypted_out,
+                                     std::atomic<bool> &client_finished_flag,
+                                     std::shared_ptr<diagnose::context> prefix_) -> net::awaitable<void>
         {
             bool first_app_data = true;
             bool first_encrypted_captured = false;
-            int appdata_count = 0;  // CCS 后的 0x17 record 计数
+            int appdata_count = 0; // CCS 后的 0x17 record 计数
 
             while (true)
             {
                 // 双重保险：flag 检查 + 0x17 record 数量限制
                 if (client_finished_flag.load(std::memory_order_acquire))
+                {
                     co_return;
+                }
 
                 std::error_code ec;
                 auto frame_opt = co_await common::read_tls_frame(*backend_sock, ec);
                 if (ec || !frame_opt)
+                {
                     co_return;
+                }
 
                 if (client_finished_flag.load(std::memory_order_acquire))
+                {
                     co_return;
+                }
 
                 auto &frame = *frame_opt;
                 auto *raw = reinterpret_cast<std::uint8_t *>(frame.data());
 
                 // 统计 CCS 之后的 0x17 record
-                if (raw[0] == 0x14)  // CCS
+                if (raw[0] == 0x14) // CCS
+                {
                     appdata_count = 0;
+                }
                 else if (raw[0] == 0x17)
                 {
                     ++appdata_count;
@@ -130,9 +149,11 @@ namespace psm::handshake::restls
                     // 第 5 个开始是 NewSessionTicket 等后端数据，不转发
                     if (appdata_count > 4)
                     {
-                        diagnose::debug(prefix_, "restls: dropping backend record #{} (likely NewSessionTicket), payload_len={}",
+                        diagnose::debug(
+                            prefix_,
+                            "restls: dropping backend record #{} (likely NewSessionTicket), payload_len={}",
                             appdata_count, frame.size() - tls_hdrsize);
-                        continue;  // 读但丢弃，不转发
+                        continue; // 读但丢弃，不转发
                     }
                 }
 
@@ -141,10 +162,14 @@ namespace psm::handshake::restls
                     const std::size_t payload_len = frame.size() - tls_hdrsize;
                     const std::size_t xor_len = std::min(hs_maclen, payload_len);
                     for (std::size_t i = 0; i < xor_len; ++i)
+                    {
                         raw[tls_hdrsize + i] ^= sr_mac[i];
+                    }
                     first_app_data = false;
 
-                    diagnose::debug(prefix_, "restls: XOR applied to first backend→client record, payload_len={}, xor_len={}",
+                    diagnose::debug(
+                        prefix_,
+                        "restls: XOR applied to first backend→client record, payload_len={}, xor_len={}",
                         payload_len, xor_len);
                 }
 
@@ -155,23 +180,20 @@ namespace psm::handshake::restls
                 }
 
                 boost::system::error_code write_ec;
-                co_await net::async_write(
-                    client_sock,
-                    net::buffer(frame.data(), frame.size()),
-                    net::redirect_error(net::use_awaitable, write_ec));
+                co_await net::async_write(client_sock, net::buffer(frame.data(), frame.size()),
+                                          net::redirect_error(net::use_awaitable, write_ec));
                 if (write_ec)
+                {
                     co_return;
+                }
             }
         }
 
-
-        auto relay_client_to_backend(
-            net::ip::tcp::socket &client_sock,
-            std::shared_ptr<net::ip::tcp::socket> backend_sock,
-            memory::vector<std::byte> &client_finished_out,
-            std::atomic<bool> &client_finished_flag,
-            std::shared_ptr<diagnose::context> prefix_)
-            -> net::awaitable<void>
+        auto relay_client_to_backend(net::ip::tcp::socket &client_sock,
+                                     std::shared_ptr<net::ip::tcp::socket> backend_sock,
+                                     memory::vector<std::byte> &client_finished_out,
+                                     std::atomic<bool> &client_finished_flag,
+                                     std::shared_ptr<diagnose::context> prefix_) -> net::awaitable<void>
         {
             bool first_app_data = true;
 
@@ -180,7 +202,9 @@ namespace psm::handshake::restls
                 std::error_code ec;
                 auto frame_opt = co_await common::read_tls_frame(client_sock, ec);
                 if (ec || !frame_opt)
+                {
                     co_return;
+                }
 
                 auto &frame = *frame_opt;
                 auto *raw = reinterpret_cast<std::uint8_t *>(frame.data());
@@ -192,10 +216,8 @@ namespace psm::handshake::restls
 
                     // 先转发 clientFinished 到后端（让 nvidia.com 完成 TLS 状态机）
                     boost::system::error_code write_ec;
-                    co_await net::async_write(
-                        *backend_sock,
-                        net::buffer(frame.data(), frame.size()),
-                        net::redirect_error(net::use_awaitable, write_ec));
+                    co_await net::async_write(*backend_sock, net::buffer(frame.data(), frame.size()),
+                                              net::redirect_error(net::use_awaitable, write_ec));
 
                     // 立即关闭后端的 read 端，阻止 relay_backend_to_client 继续读
                     // 这会让 relay_backend_to_client 的 read_tls_frame 立即返回 error
@@ -205,25 +227,25 @@ namespace psm::handshake::restls
 
                     client_finished_flag.store(true, std::memory_order_release);
 
-                    diagnose::debug(prefix_, "restls: clientFinished captured + backend recv shutdown, payload_len={}", frame.size());
+                    diagnose::debug(prefix_,
+                                    "restls: clientFinished captured + backend recv shutdown, payload_len={}",
+                                    frame.size());
                     co_return;
                 }
 
                 boost::system::error_code write_ec;
-                co_await net::async_write(
-                    *backend_sock,
-                    net::buffer(frame.data(), frame.size()),
-                    net::redirect_error(net::use_awaitable, write_ec));
+                co_await net::async_write(*backend_sock, net::buffer(frame.data(), frame.size()),
+                                          net::redirect_error(net::use_awaitable, write_ec));
                 if (write_ec)
+                {
                     co_return;
+                }
             }
         }
 
     } // namespace
 
-
-    auto handshake(handshake_opts opts)
-        -> net::awaitable<handshake::handshake_result>
+    auto handshake(handshake_opts opts) -> net::awaitable<handshake::handshake_result>
     {
         const auto prefix_ = opts.prefix;
         handshake::handshake_result result;
@@ -266,10 +288,9 @@ namespace psm::handshake::restls
         // 4. 转发 ClientHello 到后端
         {
             boost::system::error_code write_ec;
-            co_await net::async_write(
-                *backend_sock,
-                net::buffer(opts.client_hello.data(), opts.client_hello.size()),
-                net::redirect_error(net::use_awaitable, write_ec));
+            co_await net::async_write(*backend_sock,
+                                      net::buffer(opts.client_hello.data(), opts.client_hello.size()),
+                                      net::redirect_error(net::use_awaitable, write_ec));
             if (write_ec)
             {
                 diagnose::warn(prefix_, "restls: write ClientHello failed: {}", write_ec.message());
@@ -300,16 +321,16 @@ namespace psm::handshake::restls
         const bool tls13 = is_tls13_server_hello(sh_span);
         detail.version = tls13 ? tls_version::v13 : tls_version::v12;
 
-        diagnose::debug(prefix_, "restls: ServerHello received, tls13={}, sr_mac[0..3]={:02x}{:02x}{:02x}{:02x}",
-            tls13, sr_mac[0], sr_mac[1], sr_mac[2], sr_mac[3]);
+        diagnose::debug(prefix_,
+                        "restls: ServerHello received, tls13={}, sr_mac[0..3]={:02x}{:02x}{:02x}{:02x}",
+                        tls13, sr_mac[0], sr_mac[1], sr_mac[2], sr_mac[3]);
 
         // 7. 转发 ServerHello 到客户端
         {
             boost::system::error_code write_ec;
-            co_await net::async_write(
-                client_sock,
-                net::buffer(server_hello_opt->data(), server_hello_opt->size()),
-                net::redirect_error(net::use_awaitable, write_ec));
+            co_await net::async_write(client_sock,
+                                      net::buffer(server_hello_opt->data(), server_hello_opt->size()),
+                                      net::redirect_error(net::use_awaitable, write_ec));
             if (write_ec)
             {
                 diagnose::warn(prefix_, "restls: write ServerHello failed: {}", write_ec.message());
@@ -328,9 +349,10 @@ namespace psm::handshake::restls
         // 9. 双工中继
         auto client_finished_flag = std::make_shared<std::atomic<bool>>(false);
         using boost::asio::experimental::awaitable_operators::operator||;
-        co_await (
-            relay_backend_to_client(backend_sock, client_sock, sr_mac, detail.first_encrypted, *client_finished_flag, prefix_) ||
-            relay_client_to_backend(client_sock, backend_sock, detail.client_finished, *client_finished_flag, prefix_));
+        co_await (relay_backend_to_client(backend_sock, client_sock, sr_mac, detail.first_encrypted,
+                                          *client_finished_flag, prefix_) ||
+                  relay_client_to_backend(client_sock, backend_sock, detail.client_finished,
+                                          *client_finished_flag, prefix_));
 
         // 10. 关闭后端
         {
@@ -348,7 +370,7 @@ namespace psm::handshake::restls
         }
 
         diagnose::debug(prefix_, "restls: handshake complete, clientFinished={}B, first_encrypted={}B",
-            detail.client_finished.size(), detail.first_encrypted.size());
+                        detail.client_finished.size(), detail.first_encrypted.size());
 
         // 12. 把 raw_trans 所有权交给 restls_transport
         result.transport = std::make_shared<restls_transport>(
@@ -360,8 +382,7 @@ namespace psm::handshake::restls
                 .version = detail.version,
                 .client_finished = std::move(detail.client_finished),
             });
-        result.transport->set_prefix(
-            prefix_);
+        result.transport->set_prefix(prefix_);
         result.detected = psm::connect::protocol_type::tls;
         result.scheme = "restls";
 

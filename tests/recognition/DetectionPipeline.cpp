@@ -5,16 +5,17 @@
  *          的构造分组、三级检测逻辑、early-out 和 native 兜底。
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/recognition/pipeline.hpp>
 #include <prism/handshake/scheme.hpp>
 #include <prism/settings/settings.hpp>
-#include <prism/diagnose/log.hpp>
-#include <gtest/gtest.h>
 
 #include <cstdint>
 #include <memory>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -28,27 +29,47 @@ namespace
         psm::handshake::verify_result verify_result_;
         psm::handshake::verify_result guess_result_;
 
-        explicit mock_scheme(std::string name, std::uint8_t tier = 2)
-            : name_(std::move(name)), tier_(tier) {}
+        explicit mock_scheme(std::string name, std::uint8_t tier = 2) : name_(std::move(name)), tier_(tier)
+        {
+        }
 
-        [[nodiscard]] auto name() const noexcept -> std::string_view override { return name_; }
-        [[nodiscard]] auto tier() const noexcept -> std::uint8_t override { return tier_; }
-        [[nodiscard]] auto unique() const noexcept -> bool override { return false; }
+        [[nodiscard]] auto name() const noexcept -> std::string_view override
+        {
+            return name_;
+        }
+        [[nodiscard]] auto tier() const noexcept -> std::uint8_t override
+        {
+            return tier_;
+        }
+        [[nodiscard]] auto unique() const noexcept -> bool override
+        {
+            return false;
+        }
 
-        [[nodiscard]] auto active(const psm::settings & /*cfg*/) const noexcept
-            -> bool override { return active_; }
+        [[nodiscard]] auto active(const psm::settings & /*cfg*/) const noexcept -> bool override
+        {
+            return active_;
+        }
 
         [[nodiscard]] auto sniff(std::uint32_t /*bitmap*/,
                                  const psm::handshake::hello_features & /*features*/) const
-            -> psm::handshake::sniff_result override { return sniff_result_; }
+            -> psm::handshake::sniff_result override
+        {
+            return sniff_result_;
+        }
 
         [[nodiscard]] auto verify(const psm::handshake::hello_features & /*features*/,
-                                  std::span<const std::byte> /*raw*/,
-                                  const psm::settings & /*cfg*/) const
-            -> psm::handshake::verify_result override { return verify_result_; }
+                                  std::span<const std::byte> /*raw*/, const psm::settings & /*cfg*/) const
+            -> psm::handshake::verify_result override
+        {
+            return verify_result_;
+        }
 
         [[nodiscard]] auto guess(const psm::settings & /*cfg*/) const
-            -> psm::handshake::verify_result override { return guess_result_; }
+            -> psm::handshake::verify_result override
+        {
+            return guess_result_;
+        }
 
         [[nodiscard]] auto handshake(psm::handshake::handshake_context /*ctx*/)
             -> boost::asio::awaitable<psm::handshake::handshake_result> override
@@ -62,7 +83,9 @@ namespace
     {
         std::vector<psm::handshake::shared_scheme> result;
         for (auto &[n, t] : defs)
+        {
             result.push_back(std::make_shared<mock_scheme>(n, t));
+        }
         return result;
     }
 

@@ -5,13 +5,12 @@
  *          通过 #include 源文件覆盖编译行，调用匿名命名空间中的真实函数。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/shadowtls/handshake.hpp>
 #include <prism/handshake/common.hpp>
+#include <prism/handshake/shadowtls/handshake.hpp>
 
 #include "../../src/prism/handshake/shadowtls/handshake.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -19,8 +18,7 @@ namespace
 
     // ─── 辅助：构造 TLS ServerHello 帧 ──────────────
 
-    auto build_server_hello(bool with_tls13_ext, std::uint8_t session_id_len = 0)
-        -> std::vector<std::byte>
+    auto build_server_hello(bool with_tls13_ext, std::uint8_t session_id_len = 0) -> std::vector<std::byte>
     {
         std::size_t ext_size = with_tls13_ext ? 6 : 0;
         std::size_t body_size = 2 + tls_rndsize + 1 + session_id_len + 2 + 1 + 2 + ext_size;
@@ -31,7 +29,8 @@ namespace
 
         // TLS record header
         raw[0] = content_handshake;
-        raw[1] = 0x03; raw[2] = 0x01;
+        raw[1] = 0x03;
+        raw[2] = 0x01;
         raw[3] = static_cast<std::uint8_t>(((body_size + 4) >> 8) & 0xFF);
         raw[4] = static_cast<std::uint8_t>((body_size + 4) & 0xFF);
 
@@ -42,21 +41,27 @@ namespace
         raw[8] = static_cast<std::uint8_t>(body_size & 0xFF);
 
         // Server version (legacy TLS 1.2)
-        raw[9] = 0x03; raw[10] = 0x03;
+        raw[9] = 0x03;
+        raw[10] = 0x03;
 
         // Random (32 bytes)
         for (int i = 0; i < 32; ++i)
+        {
             raw[11 + i] = static_cast<std::uint8_t>(i + 0x40);
+        }
 
         // Session ID length + session ID
         std::size_t offset = 43;
         raw[offset] = session_id_len;
         for (int i = 0; i < session_id_len; ++i)
+        {
             raw[offset + 1 + i] = static_cast<std::uint8_t>(i + 0xA0);
+        }
         offset += 1 + session_id_len;
 
         // Cipher suite
-        raw[offset] = 0x13; raw[offset + 1] = 0x01;
+        raw[offset] = 0x13;
+        raw[offset + 1] = 0x01;
         offset += 2;
 
         // Compression
@@ -70,9 +75,12 @@ namespace
 
         if (with_tls13_ext)
         {
-            raw[offset] = 0x00; raw[offset + 1] = 43;
-            raw[offset + 2] = 0x00; raw[offset + 3] = 0x02;
-            raw[offset + 4] = 0x03; raw[offset + 5] = 0x04;
+            raw[offset] = 0x00;
+            raw[offset + 1] = 43;
+            raw[offset + 2] = 0x00;
+            raw[offset + 3] = 0x02;
+            raw[offset + 4] = 0x03;
+            raw[offset + 5] = 0x04;
         }
 
         return buf;
@@ -123,7 +131,9 @@ namespace
         raw[5] = hs_type_serverhello;
         // 把 random 区域设为 0xFF
         for (int i = 0; i < 32; ++i)
+        {
             raw[11 + i] = 0xFF;
+        }
 
         auto result = extract_random(hello);
         EXPECT_TRUE(result.has_value()) << "extract_random: all 0xFF valid";

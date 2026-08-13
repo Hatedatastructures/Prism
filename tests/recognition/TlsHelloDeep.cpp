@@ -7,11 +7,10 @@
  *          通过 #include 源文件覆盖编译行。
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/tls/hello.hpp>
 #include <prism/protocol/tls/record.hpp>
-#include <prism/diagnose/log.hpp>
-#include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 
@@ -120,7 +119,10 @@ namespace
         write_u16(ext, static_cast<std::uint16_t>(1 + 2 + name_len));
         ext.push_back(ptls::SNAME_TYPE_HOSTNAME);
         write_u16(ext, name_len);
-        for (auto c : std::string_view(name)) ext.push_back(static_cast<std::uint8_t>(c));
+        for (auto c : std::string_view(name))
+        {
+            ext.push_back(static_cast<std::uint8_t>(c));
+        }
 
         psm::memory::string sni(psm::memory::current_resource());
         auto span = std::span<const std::uint8_t>(ext.data(), ext.size());
@@ -179,7 +181,10 @@ namespace
         // hostname
         ext.push_back(ptls::SNAME_TYPE_HOSTNAME);
         write_u16(ext, name_len);
-        for (auto c : std::string_view(name)) ext.push_back(static_cast<std::uint8_t>(c));
+        for (auto c : std::string_view(name))
+        {
+            ext.push_back(static_cast<std::uint8_t>(c));
+        }
 
         psm::memory::string sni(psm::memory::current_resource());
         auto span = std::span<const std::uint8_t>(ext.data(), ext.size());
@@ -237,7 +242,10 @@ namespace
         write_u16(ext, 36);
         write_u16(ext, ptls::GROUP_X25519);
         write_u16(ext, 32);
-        for (std::size_t i = 0; i < 32; ++i) ext.push_back(static_cast<std::uint8_t>(i + 1));
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            ext.push_back(static_cast<std::uint8_t>(i + 1));
+        }
 
         bool has_key = false;
         std::array<std::uint8_t, 32> key{};
@@ -255,7 +263,10 @@ namespace
         write_u16(ext, 40); // list_len
         write_u16(ext, ptls::GROUP_X25519_MLKEM768);
         write_u16(ext, 36); // key_len > 32
-        for (std::size_t i = 0; i < 36; ++i) ext.push_back(static_cast<std::uint8_t>(i));
+        for (std::size_t i = 0; i < 36; ++i)
+        {
+            ext.push_back(static_cast<std::uint8_t>(i));
+        }
 
         bool has_key = false;
         std::array<std::uint8_t, 32> key{};
@@ -285,7 +296,10 @@ namespace
         write_u16(ext, 36);
         write_u16(ext, 0x9999); // 未知 group
         write_u16(ext, 32);
-        for (std::size_t i = 0; i < 32; ++i) ext.push_back(0x00);
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            ext.push_back(0x00);
+        }
 
         bool has_key = false;
         std::array<std::uint8_t, 32> key{};
@@ -300,7 +314,10 @@ namespace
         write_u16(ext, 36);
         write_u16(ext, ptls::GROUP_X25519);
         write_u16(ext, 32);
-        for (std::size_t i = 0; i < 16; ++i) ext.push_back(0x00); // 只 16 字节，不够 32
+        for (std::size_t i = 0; i < 16; ++i)
+        {
+            ext.push_back(0x00); // 只 16 字节，不够 32
+        }
 
         bool has_key = false;
         std::array<std::uint8_t, 32> key{};
@@ -315,7 +332,10 @@ namespace
         write_u16(ext, 8);
         write_u16(ext, ptls::GROUP_X25519);
         write_u16(ext, 16); // key_len != 32 -> 跳过
-        for (std::size_t i = 0; i < 16; ++i) ext.push_back(0x00);
+        for (std::size_t i = 0; i < 16; ++i)
+        {
+            ext.push_back(0x00);
+        }
 
         bool has_key = false;
         std::array<std::uint8_t, 32> key{};
@@ -337,7 +357,10 @@ namespace
         ext.push_back(0x00);
         write_u16(ext, ptls::GROUP_X25519);
         write_u16(ext, 32);
-        for (std::size_t i = 0; i < 32; ++i) ext.push_back(static_cast<std::uint8_t>(i + 10));
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            ext.push_back(static_cast<std::uint8_t>(i + 10));
+        }
 
         bool has_key = false;
         std::array<std::uint8_t, 32> key{};
@@ -412,7 +435,10 @@ namespace
         write_u16(sni_ext, static_cast<std::uint16_t>(1 + 2 + name_len));
         sni_ext.push_back(ptls::SNAME_TYPE_HOSTNAME);
         write_u16(sni_ext, name_len);
-        for (auto c : std::string_view(name)) sni_ext.push_back(static_cast<std::uint8_t>(c));
+        for (auto c : std::string_view(name))
+        {
+            sni_ext.push_back(static_cast<std::uint8_t>(c));
+        }
         write_u16(ext_block, ptls::EXT_SERVER_NAME);
         write_u16(ext_block, static_cast<std::uint16_t>(sni_ext.size()));
         ext_block.insert(ext_block.end(), sni_ext.begin(), sni_ext.end());
@@ -422,7 +448,10 @@ namespace
         write_u16(ks_ext, 36);
         write_u16(ks_ext, ptls::GROUP_X25519);
         write_u16(ks_ext, 32);
-        for (std::size_t i = 0; i < 32; ++i) ks_ext.push_back(0x42);
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            ks_ext.push_back(0x42);
+        }
         write_u16(ext_block, ptls::EXT_KEY_SHARE);
         write_u16(ext_block, static_cast<std::uint16_t>(ks_ext.size()));
         ext_block.insert(ext_block.end(), ks_ext.begin(), ks_ext.end());
@@ -521,7 +550,7 @@ namespace
     TEST(TlsHelloDeep, FromBytesBadContentType)
     {
         psm::memory::vector<std::uint8_t> raw(44, static_cast<std::uint8_t>(0x17)); // 非 CT_HANDSHAKE
-        raw[0] = 0x17; // Application Data
+        raw[0] = 0x17;                                                              // Application Data
         auto [ec, ch] = client_hello::from_bytes(raw);
         EXPECT_EQ(ec, psm::fault::code::recorderr) << "from_bytes: bad content type -> error";
     }
@@ -570,9 +599,15 @@ namespace
         psm::memory::vector<std::uint8_t> hs_body(psm::memory::current_resource());
         hs_body.push_back(0x03);
         hs_body.push_back(0x03);
-        for (std::size_t i = 0; i < 32; ++i) hs_body.push_back(0x00); // random
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            hs_body.push_back(0x00); // random
+        }
         hs_body.push_back(20); // session_id_len=20
-        for (std::size_t i = 0; i < 5; ++i) hs_body.push_back(0x00); // 只有 5 字节，不够 20
+        for (std::size_t i = 0; i < 5; ++i)
+        {
+            hs_body.push_back(0x00); // 只有 5 字节，不够 20
+        }
 
         psm::memory::vector<std::uint8_t> body(psm::memory::current_resource());
         body.push_back(ptls::HS_CLIENT_HELLO);
@@ -595,7 +630,10 @@ namespace
         psm::memory::vector<std::uint8_t> hs_body(psm::memory::current_resource());
         hs_body.push_back(0x03);
         hs_body.push_back(0x03);
-        for (std::size_t i = 0; i < 32; ++i) hs_body.push_back(0x00); // random
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            hs_body.push_back(0x00); // random
+        }
         hs_body.push_back(0x00); // session_id_len=0
         // cipher_len = 3 (奇数)
         write_u16(hs_body, 3);
@@ -623,7 +661,10 @@ namespace
         psm::memory::vector<std::uint8_t> hs_body(psm::memory::current_resource());
         hs_body.push_back(0x03);
         hs_body.push_back(0x03);
-        for (std::size_t i = 0; i < 32; ++i) hs_body.push_back(0x00); // random
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            hs_body.push_back(0x00); // random
+        }
         hs_body.push_back(0x00); // session_id_len=0
         write_u16(hs_body, 2);
         write_u16(hs_body, ptls::CIPHER_AES_128_GCM_SHA256);
@@ -656,7 +697,10 @@ namespace
         write_u16(sni_ext, static_cast<std::uint16_t>(1 + 2 + name_len));
         sni_ext.push_back(ptls::SNAME_TYPE_HOSTNAME);
         write_u16(sni_ext, name_len);
-        for (auto c : std::string_view(name)) sni_ext.push_back(static_cast<std::uint8_t>(c));
+        for (auto c : std::string_view(name))
+        {
+            sni_ext.push_back(static_cast<std::uint8_t>(c));
+        }
         write_u16(ext_block, ptls::EXT_SERVER_NAME);
         write_u16(ext_block, static_cast<std::uint16_t>(sni_ext.size()));
         ext_block.insert(ext_block.end(), sni_ext.begin(), sni_ext.end());
@@ -666,7 +710,10 @@ namespace
         write_u16(ks_ext, 36);
         write_u16(ks_ext, ptls::GROUP_X25519);
         write_u16(ks_ext, 32);
-        for (std::size_t i = 0; i < 32; ++i) ks_ext.push_back(static_cast<std::uint8_t>(i + 100));
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            ks_ext.push_back(static_cast<std::uint8_t>(i + 100));
+        }
         write_u16(ext_block, ptls::EXT_KEY_SHARE);
         write_u16(ext_block, static_cast<std::uint16_t>(ks_ext.size()));
         ext_block.insert(ext_block.end(), ks_ext.begin(), ks_ext.end());
@@ -684,9 +731,15 @@ namespace
         psm::memory::vector<std::uint8_t> hs_body(psm::memory::current_resource());
         hs_body.push_back(0x03);
         hs_body.push_back(0x03);
-        for (std::size_t i = 0; i < 32; ++i) hs_body.push_back(static_cast<std::uint8_t>(i)); // random
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            hs_body.push_back(static_cast<std::uint8_t>(i)); // random
+        }
         hs_body.push_back(4); // session_id_len=4
-        for (std::size_t i = 0; i < 4; ++i) hs_body.push_back(static_cast<std::uint8_t>(i));
+        for (std::size_t i = 0; i < 4; ++i)
+        {
+            hs_body.push_back(static_cast<std::uint8_t>(i));
+        }
         write_u16(hs_body, 2);
         write_u16(hs_body, ptls::CIPHER_AES_128_GCM_SHA256);
         hs_body.push_back(1); // comp_methods_len
@@ -740,7 +793,10 @@ namespace
         raw.insert(raw.end(), body.begin(), body.end());
 
         // 需要 raw.size() >= 44 才能通过第一个检查
-        while (raw.size() < 44) raw.push_back(0x00);
+        while (raw.size() < 44)
+        {
+            raw.push_back(0x00);
+        }
         // 修正 body_len
         raw[3] = static_cast<std::uint8_t>((body.size() >> 8) & 0xFF);
         raw[4] = static_cast<std::uint8_t>(body.size() & 0xFF);
@@ -755,7 +811,10 @@ namespace
         psm::memory::vector<std::uint8_t> hs_body(psm::memory::current_resource());
         hs_body.push_back(0x03);
         hs_body.push_back(0x03);
-        for (std::size_t i = 0; i < 32; ++i) hs_body.push_back(0x00); // random
+        for (std::size_t i = 0; i < 32; ++i)
+        {
+            hs_body.push_back(0x00); // random
+        }
         hs_body.push_back(10); // session_id_len=10 但后续不足
 
         psm::memory::vector<std::uint8_t> body(psm::memory::current_resource());

@@ -5,6 +5,7 @@
 
 #include <prism/handshake/recognition/routes.hpp>
 #include <prism/settings/settings.hpp>
+
 #include <gtest/gtest.h>
 
 namespace

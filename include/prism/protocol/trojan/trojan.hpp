@@ -8,10 +8,8 @@
  */
 #pragma once
 
-#include <prism/protocol/trojan/config.hpp>
-#include <prism/protocol/trojan/handler/conn.hpp>
-#include <prism/protocol/trojan/constants.hpp>
 #include <prism/protocol/trojan/codec/framing.hpp>
 #include <prism/protocol/trojan/codec/packet.hpp>
-
-
+#include <prism/protocol/trojan/config.hpp>
+#include <prism/protocol/trojan/constants.hpp>
+#include <prism/protocol/trojan/handler/conn.hpp>

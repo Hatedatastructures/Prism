@@ -1,7 +1,6 @@
 #include <prism/foundation/coroutine/registry.hpp>
 
 #include <algorithm>
-#include <utility>
 
 namespace psm::coroutine
 {
@@ -26,8 +25,7 @@ namespace psm::coroutine
         }
     }
 
-    auto task_registry::cancel_and_wait(
-        const std::chrono::milliseconds /*timeout*/) -> bool
+    auto task_registry::cancel_and_wait(const std::chrono::milliseconds /*timeout*/) -> bool
     {
         cancelling_ = true;
         total_cancelled_ += tokens_.size();
@@ -37,11 +35,7 @@ namespace psm::coroutine
 
     auto task_registry::stats() const noexcept -> task_stats
     {
-        return task_stats{
-            tokens_.size(),
-            total_spawned_,
-            total_released_,
-            total_cancelled_};
+        return task_stats{tokens_.size(), total_spawned_, total_released_, total_cancelled_};
     }
 
     auto task_registry::release_internal(const task_token &token) noexcept -> void
@@ -51,10 +45,9 @@ namespace psm::coroutine
             return;
         }
 
-        const auto it = std::find_if(
-            tokens_.begin(), tokens_.end(),
-            [&token](const std::shared_ptr<task_token> &ptr)
-            { return ptr.get() == &token; });
+        const auto it =
+            std::find_if(tokens_.begin(), tokens_.end(),
+                         [&token](const std::shared_ptr<task_token> &ptr) { return ptr.get() == &token; });
 
         if (it != tokens_.end())
         {

@@ -22,7 +22,6 @@
 #include <string_view>
 #include <vector>
 
-
 namespace psm::handshake::anytls
 {
 
@@ -55,14 +54,12 @@ namespace psm::handshake::anytls
          * @param pkt 包序号（从 0 开始）
          * @return 大小列表，-1 表示 CheckMark（放实际 payload），正数为随机 padding 大小
          */
-        [[nodiscard]] auto generate_sizes(std::uint32_t pkt) const
-            -> memory::vector<std::int32_t>;
+        [[nodiscard]] auto generate_sizes(std::uint32_t pkt) const -> memory::vector<std::int32_t>;
 
         /**
          * @brief 是否启用 padding
          */
-        [[nodiscard]] auto enabled() const noexcept
-            -> bool
+        [[nodiscard]] auto enabled() const noexcept -> bool
         {
             return stop > 0;
         }

@@ -3,18 +3,17 @@
  * @brief HTTP 协议处理器实现
  */
 
-#include <prism/protocol/http/handler/handler.hpp>
-
-#include <prism/settings/settings.hpp>
-#include <prism/net/connection/outbound/dial.hpp>
-#include <prism/net/connection/dialer/dialer.hpp>
-#include <prism/net/connection/tunnel/tunnel.hpp>
-#include <prism/protocol/http/handler/conn.hpp>
-#include <prism/net/connection/target.hpp>
-#include <prism/net/connection/types.hpp>
-#include <prism/handshake/recognition/target.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/recognition/target.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/outbound/dial.hpp>
+#include <prism/net/connection/target.hpp>
+#include <prism/net/connection/tunnel/tunnel.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/net/transport/preview.hpp>
+#include <prism/protocol/http/handler/conn.hpp>
+#include <prism/protocol/http/handler/handler.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <string_view>
 #include <utility>
@@ -23,9 +22,7 @@ namespace psm::protocol::http
 {
     using namespace psm::diagnose;
 
-    handler::handler(protocol::handler_params params) noexcept
-        : res_(params.res)
-        , data_(params.data)
+    handler::handler(protocol::handler_params params) noexcept : res_(params.res), data_(params.data)
     {
     }
 
@@ -43,15 +40,17 @@ namespace psm::protocol::http
         if (fault::failed(ec))
         {
             if (trace)
-                diagnose::warn(trace,
-                    "handshake failed: {}", fault::describe(ec));
+            {
+                diagnose::warn(trace, "handshake failed: {}", fault::describe(ec));
+            }
             co_return;
         }
 
         const auto target = recognition::resolve(req);
         if (trace)
-            diagnose::access(trace,
-                "{} {} -> {}:{}", req.method, req.target, target.host, target.port);
+        {
+            diagnose::access(trace, "{} {} -> {}:{}", req.method, req.target, target.host, target.port);
+        }
 
         psm::outbound::dial_options dial_opts;
         dial_opts.trace = trace;
@@ -63,8 +62,9 @@ namespace psm::protocol::http
         if (fault::failed(dial_ec) || !outbound)
         {
             if (trace)
-                diagnose::warn(trace,
-                    "dial failed: {}:{}", target.host, target.port);
+            {
+                diagnose::warn(trace, "dial failed: {}:{}", target.host, target.port);
+            }
             co_await relay->send_gateway_err();
             co_return;
         }
@@ -72,7 +72,9 @@ namespace psm::protocol::http
         if (req.method == "CONNECT")
         {
             if (fault::failed(co_await relay->send_ok()))
+            {
                 co_return;
+            }
             auto t_opts = psm::connect::tunnel_options{};
             t_opts.inbound = relay->release();
             t_opts.outbound = outbound;

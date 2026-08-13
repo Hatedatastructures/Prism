@@ -1,6 +1,6 @@
-#include <prism/runtime/worker/tls.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/runtime/worker/tls.hpp>
 
 using namespace psm::diagnose;
 
@@ -39,9 +39,11 @@ namespace psm::runtime::worker::tls
         // 设置 ALPN 协议回调（服务端 API）
         // QUIC 客户端（Hysteria2/TUIC）要求协商 h3，否则握手失败；
         // 普通 TCP TLS 客户端无需协商（NOACK），避免 BoringSSL 校验问题。
-        SSL_CTX_set_alpn_select_cb(native,
-            [](SSL *, const unsigned char **out, unsigned char *outlen,
-               const unsigned char *in, unsigned int inlen, void*) -> int {
+        SSL_CTX_set_alpn_select_cb(
+            native,
+            [](SSL *, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
+               unsigned int inlen, void *) -> int
+            {
                 // 遍历客户端 ALPN 列表：若请求 h3（QUIC）则选择
                 const auto *p = in;
                 const auto *end = in + inlen;
@@ -49,7 +51,9 @@ namespace psm::runtime::worker::tls
                 {
                     const auto len = *p++;
                     if (p + len > end)
+                    {
                         break;
+                    }
                     if (len == 2 && p[0] == 'h' && p[1] == '3')
                     {
                         *out = p;
@@ -60,7 +64,8 @@ namespace psm::runtime::worker::tls
                 }
                 // 非 QUIC 客户端：不协商 ALPN
                 return SSL_TLSEXT_ERR_NOACK;
-            }, nullptr);
+            },
+            nullptr);
 
         // 设置协议版本范围：TLS 1.2 ~ TLS 1.3
         SSL_CTX_set_min_proto_version(native, TLS1_2_VERSION);
@@ -69,8 +74,8 @@ namespace psm::runtime::worker::tls
         // 启用 Session 缓存（服务端）
         // 允许客户端复用之前的 TLS 会话，减少握手开销
         SSL_CTX_set_session_cache_mode(native, SSL_SESS_CACHE_SERVER);
-        SSL_CTX_sess_set_cache_size(native, 2048);      // 缓存最多 2048 个会话
-        SSL_CTX_set_timeout(native, 300);               // 会话超时 5 分钟
+        SSL_CTX_sess_set_cache_size(native, 2048); // 缓存最多 2048 个会话
+        SSL_CTX_set_timeout(native, 300);          // 会话超时 5 分钟
 
         // 启用 Session Ticket（无状态会话复用）
         // 客户端可以携带之前的 ticket，服务端无需维护会话状态
@@ -80,17 +85,15 @@ namespace psm::runtime::worker::tls
         // 不提供 OpenSSL 1.1.1+ 的 SSL_CTX_set_ciphersuites API。
         // TLS 1.3 套件（AES-GCM / ChaCha20-Poly1305）
         // TLS 1.2 套件（优先 AES-GCM 有硬件加速，ChaCha20 移动设备友好）
-        SSL_CTX_set_cipher_list(native,
-            "TLS_AES_128_GCM_SHA256:"
-            "TLS_AES_256_GCM_SHA384:"
-            "TLS_CHACHA20_POLY1305_SHA256:"
-            "ECDHE-ECDSA-AES128-GCM-SHA256:"
-            "ECDHE-RSA-AES128-GCM-SHA256:"
-            "ECDHE-ECDSA-AES256-GCM-SHA384:"
-            "ECDHE-RSA-AES256-GCM-SHA384:"
-            "ECDHE-ECDSA-CHACHA20-POLY1305:"
-            "ECDHE-RSA-CHACHA20-POLY1305"
-        );
+        SSL_CTX_set_cipher_list(native, "TLS_AES_128_GCM_SHA256:"
+                                        "TLS_AES_256_GCM_SHA384:"
+                                        "TLS_CHACHA20_POLY1305_SHA256:"
+                                        "ECDHE-ECDSA-AES128-GCM-SHA256:"
+                                        "ECDHE-RSA-AES128-GCM-SHA256:"
+                                        "ECDHE-ECDSA-AES256-GCM-SHA384:"
+                                        "ECDHE-RSA-AES256-GCM-SHA384:"
+                                        "ECDHE-ECDSA-CHACHA20-POLY1305:"
+                                        "ECDHE-RSA-CHACHA20-POLY1305");
 
         // 禁用重协商（BoringSSL 默认禁用，此为防御性标记）
         SSL_CTX_set_options(native, SSL_OP_NO_RENEGOTIATION);
@@ -102,8 +105,7 @@ namespace psm::runtime::worker::tls
         SSL_CTX_set_options(native, SSL_OP_NO_COMPRESSION);
     }
 
-    auto make(const runtime::config &cfg)
-        -> shared_context
+    auto make(const runtime::config &cfg) -> shared_context
     {
         const auto &cert = cfg.cert.cert;
         const auto &key = cfg.cert.key;
@@ -118,7 +120,8 @@ namespace psm::runtime::worker::tls
         auto ctx = std::make_shared<ssl::context>(ssl::context::tls);
         try
         {
-            configure(*ctx, std::string_view(cert.data(), cert.size()), std::string_view(key.data(), key.size()));
+            configure(*ctx, std::string_view(cert.data(), cert.size()),
+                      std::string_view(key.data(), key.size()));
             return ctx;
         }
         catch (const exception::protocol &)

@@ -17,7 +17,6 @@
 #include <span>
 #include <utility>
 
-
 namespace psm::crypto
 {
 
@@ -59,8 +58,7 @@ namespace psm::crypto
      * 然后从私钥推导对应的公钥。
      * @return 随机生成的 X25519 密钥对
      */
-    [[nodiscard]] auto generate_keypair()
-        -> x25519_keypair;
+    [[nodiscard]] auto generate_keypair() -> x25519_keypair;
 
     /**
      * @brief 从私钥推导公钥
@@ -83,7 +81,8 @@ namespace psm::crypto
      * @note 即使对方公钥是低阶点，X25519 也会成功计算（输出全零），
      * 调用者应检查共享密钥是否为全零以检测此类攻击。
      */
-    [[nodiscard]] auto x25519(std::span<const std::uint8_t> private_key, std::span<const std::uint8_t> peer_pubkey)
+    [[nodiscard]] auto x25519(std::span<const std::uint8_t> private_key,
+                              std::span<const std::uint8_t> peer_pubkey)
         -> std::pair<fault::code, std::array<std::uint8_t, x25519_slen>>;
 
     /**
@@ -95,6 +94,6 @@ namespace psm::crypto
     struct ed25519_keypair
     {
         std::array<std::uint8_t, ed25519_plen> private_key{}; // Ed25519 完整私钥（64 字节：种子+公钥）
-        std::array<std::uint8_t, ed25519_klen> public_key{};          // Ed25519 公钥（32 字节）
+        std::array<std::uint8_t, ed25519_klen> public_key{};  // Ed25519 公钥（32 字节）
     };
 } // namespace psm::crypto

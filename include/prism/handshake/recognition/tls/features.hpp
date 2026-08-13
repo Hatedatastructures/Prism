@@ -11,7 +11,6 @@
 
 #include <cstdint>
 
-
 namespace psm::recognition::tls
 {
 
@@ -46,7 +45,7 @@ namespace psm::recognition::tls
         reserved_tail = 0xFFF00000
     };
 
-    constexpr std::uint32_t& operator|=(std::uint32_t& lhs, feature_bit rhs) noexcept
+    constexpr std::uint32_t &operator|=(std::uint32_t &lhs, feature_bit rhs) noexcept
     {
         lhs |= static_cast<std::uint32_t>(rhs);
         return lhs;
@@ -78,16 +77,19 @@ namespace psm::recognition::tls
      * @return 特征位图（32 位）
      * @note 不检查 SNI 是否匹配配置（sni_matched_config 位需要在路由阶段设置）
      */
-    [[nodiscard]] inline auto build_bitmap(const hello_features &features) noexcept
-        -> std::uint32_t
+    [[nodiscard]] inline auto build_bitmap(const hello_features &features) noexcept -> std::uint32_t
     {
         std::uint32_t bitmap = 0;
 
         if (!features.server_name.empty())
+        {
             bitmap |= feature_bit::has_sni;
+        }
 
         if (features.has_x25519)
+        {
             bitmap |= feature_bit::has_x25519;
+        }
 
         if (features.session_id_len == 32)
         {
@@ -102,19 +104,21 @@ namespace psm::recognition::tls
             bitmap |= feature_bit::nonstd_session;
         }
 
-        if (features.session_id.size() >= 3 &&
-            features.session_id[0] == 0x01 &&
-            features.session_id[1] == 0x08 &&
-            features.session_id[2] == 0x02)
+        if (features.session_id.size() >= 3 && features.session_id[0] == 0x01 &&
+            features.session_id[1] == 0x08 && features.session_id[2] == 0x02)
         {
             bitmap |= feature_bit::reality_marker;
         }
 
         if (!features.versions.empty())
+        {
             bitmap |= feature_bit::has_versions;
+        }
 
         if (features.has_ech)
+        {
             bitmap |= feature_bit::has_ech;
+        }
 
         return bitmap;
     }
@@ -125,8 +129,7 @@ namespace psm::recognition::tls
      * @param bit 要检查的特征位
      * @return 是否存在该特征
      */
-    [[nodiscard]] inline auto has_feature(std::uint32_t bitmap, feature_bit bit) noexcept
-        -> bool
+    [[nodiscard]] inline auto has_feature(std::uint32_t bitmap, feature_bit bit) noexcept -> bool
     {
         return (bitmap & bit) != 0;
     }
@@ -137,8 +140,7 @@ namespace psm::recognition::tls
      * @param bits 要检查的特征位组合
      * @return 是否全部存在
      */
-    [[nodiscard]] inline auto has_all(std::uint32_t bitmap, std::uint32_t bits) noexcept
-        -> bool
+    [[nodiscard]] inline auto has_all(std::uint32_t bitmap, std::uint32_t bits) noexcept -> bool
     {
         return (bitmap & bits) == bits;
     }

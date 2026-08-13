@@ -17,7 +17,6 @@
 #include <unordered_set>
 #include <vector>
 
-
 namespace psm
 {
 
@@ -26,7 +25,8 @@ namespace psm
 namespace psm::memory
 {
 
-    using resource = std::pmr::memory_resource; // 内存资源类型，配合 monotonic_buffer 使用具有良好的缓存友好性
+    using resource =
+        std::pmr::memory_resource; // 内存资源类型，配合 monotonic_buffer 使用具有良好的缓存友好性
 
     using resource_pointer = std::add_pointer_t<resource>; // 内存资源指针类型，用于在函数间传递内存资源引用
 
@@ -37,8 +37,7 @@ namespace psm::memory
      * global_pool()，否则返回系统堆分配器。
      * @return 当前默认内存资源指针，永不返回 nullptr
      */
-    [[nodiscard]] inline auto current_resource()
-        -> resource_pointer
+    [[nodiscard]] inline auto current_resource() -> resource_pointer
     {
         return std::pmr::get_default_resource();
     }
@@ -50,11 +49,12 @@ namespace psm::memory
      * @param mr 可选的内存资源指针
      * @return 有效的内存资源指针，永不返回 nullptr
      */
-    [[nodiscard]] inline auto effective_mr(resource_pointer mr) noexcept
-        -> resource_pointer
+    [[nodiscard]] inline auto effective_mr(resource_pointer mr) noexcept -> resource_pointer
     {
         if (mr)
+        {
             return mr;
+        }
         return current_resource();
     }
 
@@ -78,7 +78,8 @@ namespace psm::memory
     template <typename Key, typename Value, typename Compare = std::less<Key>>
     using map = std::pmr::map<Key, Value, Compare>; // PMR 红黑树映射模板
 
-    template <typename Key, typename Value, typename Hash = std::hash<Key>, typename KeyEqual = std::equal_to<Key>>
+    template <typename Key, typename Value, typename Hash = std::hash<Key>,
+              typename KeyEqual = std::equal_to<Key>>
     using unordered_map = std::pmr::unordered_map<Key, Value, Hash, KeyEqual>; // PMR 哈希映射模板
 
     template <typename Key, typename Hash = std::hash<Key>, typename KeyEqual = std::equal_to<Key>>

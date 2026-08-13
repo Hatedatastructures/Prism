@@ -13,7 +13,6 @@
 #include <cstdint>
 #include <memory>
 
-
 namespace psm::user
 {
 
@@ -57,8 +56,7 @@ namespace psm::user
          * @param state 账户状态指针，调用方需确保已在
          * 构造前递增活跃连接数
          */
-        explicit lease(std::shared_ptr<entry> state) noexcept
-            : state_(std::move(state))
+        explicit lease(std::shared_ptr<entry> state) noexcept : state_(std::move(state))
         {
         }
 
@@ -67,8 +65,7 @@ namespace psm::user
          * @details 转移源租约的所有权，移动后源对象为空。
          * @param other 源租约对象，移动后置空
          */
-        lease(lease &&other) noexcept
-            : state_(std::move(other.state_))
+        lease(lease &&other) noexcept : state_(std::move(other.state_))
         {
         }
 
@@ -79,8 +76,7 @@ namespace psm::user
          * @return 当前租约引用
          * @note 赋值前会释放当前持有的租约
          */
-        auto operator=(lease &&other) noexcept
-            -> lease &
+        auto operator=(lease &&other) noexcept -> lease &
         {
             if (this == &other)
             {
@@ -93,8 +89,7 @@ namespace psm::user
         }
 
         lease(const lease &) = delete;
-        auto operator=(const lease &)
-            -> lease & = delete;
+        auto operator=(const lease &) -> lease & = delete;
 
         /**
          * @brief 析构租约并释放连接计数
@@ -110,8 +105,7 @@ namespace psm::user
          * @details 返回内部 shared_ptr 管理的裸指针。
          * @return 账户条目裸指针，租约为空时返回 nullptr
          */
-        [[nodiscard]] auto get() const noexcept
-            -> entry *
+        [[nodiscard]] auto get() const noexcept -> entry *
         {
             return state_.get();
         }

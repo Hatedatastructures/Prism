@@ -11,7 +11,6 @@
 
 #include <string_view>
 
-
 namespace psm
 {
 
@@ -48,8 +47,7 @@ namespace psm::recognition
          * @details 遍历所有 handshake 方案的 server_names，
          * 构建 SNI → 方案名称的映射。
          */
-        [[nodiscard]] static auto build(const psm::settings &cfg)
-            -> route_table;
+        [[nodiscard]] static auto build(const psm::settings &cfg) -> route_table;
 
         /**
          * @brief 根据 SNI 查找匹配方案
@@ -57,30 +55,26 @@ namespace psm::recognition
          * @return 匹配的方案名称列表（通常只有一个）
          * @details 空字符串 sni 返回空列表。
          */
-        [[nodiscard]] auto lookup(std::string_view sni) const
-            -> memory::vector<memory::string>;
+        [[nodiscard]] auto lookup(std::string_view sni) const -> memory::vector<memory::string>;
 
         /**
          * @brief 检查 SNI 是否匹配任意方案
          * @param sni ClientHello 中的 SNI
          * @return 是否匹配至少一个方案
          */
-        [[nodiscard]] auto matches_any(std::string_view sni) const
-            -> bool;
+        [[nodiscard]] auto matches_any(std::string_view sni) const -> bool;
 
         /**
          * @brief 获取所有已注册的 SNI 列表
          * @return SNI 列表（用于调试）
          */
-        [[nodiscard]] auto registered_snis() const
-            -> memory::vector<memory::string>;
+        [[nodiscard]] auto registered_snis() const -> memory::vector<memory::string>;
 
         /**
          * @brief 检查路由表是否为空
          * @return 无任何 SNI 注册时返回 true
          */
-        [[nodiscard]] auto empty() const noexcept
-            -> bool;
+        [[nodiscard]] auto empty() const noexcept -> bool;
 
     private:
         /// SNI → 方案名称列表映射

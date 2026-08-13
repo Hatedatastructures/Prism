@@ -1,13 +1,13 @@
-#include <prism/protocol/trojan/handler/conn.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/protocol/common/form.hpp>
 #include <prism/protocol/common/read.hpp>
 #include <prism/protocol/common/udprelay.hpp>
-#include <prism/protocol/trojan/constants.hpp>
 #include <prism/protocol/trojan/codec/framing.hpp>
+#include <prism/protocol/trojan/constants.hpp>
+#include <prism/protocol/trojan/handler/conn.hpp>
 #include <prism/user/stats/traffic.hpp>
-#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
@@ -24,8 +24,7 @@ namespace psm::protocol::trojan
     using protocol::common::read_remaining;
 
     // 验证命令并确定传输形式
-    inline auto validate_command(const command cmd, const config &cfg)
-        -> std::pair<fault::code, form>
+    inline auto validate_command(const command cmd, const config &cfg) -> std::pair<fault::code, form>
     {
         switch (cmd)
         {
@@ -41,22 +40,19 @@ namespace psm::protocol::trojan
                 return {fault::code::forbidden, form::datagram};
             }
             return {fault::code::success, form::datagram};
-        case command::mux:
-            return {fault::code::success, form::stream};
-        default:
-            return {fault::code::unsupported_command, form::stream};
+        case command::mux: return {fault::code::success, form::stream};
+        default: return {fault::code::unsupported_command, form::stream};
         }
     }
 
-
     // 从缓冲区解析地址
-    inline auto parse_address_from_buffer(const std::span<const std::uint8_t> buffer, const std::size_t offset, const address_type atyp)
+    inline auto parse_address_from_buffer(const std::span<const std::uint8_t> buffer,
+                                          const std::size_t offset, const address_type atyp)
         -> std::tuple<fault::code, address, std::size_t>
     {
         switch (atyp)
         {
-        case address_type::ipv4:
-        {
+        case address_type::ipv4: {
             if (buffer.size() < offset + 4)
             {
                 return {fault::code::bad_message, address{}, 0};
@@ -64,8 +60,7 @@ namespace psm::protocol::trojan
             auto [ec, addr] = format::parse_ipv4(buffer.subspan(offset, 4));
             return {ec, address{addr}, 4};
         }
-        case address_type::ipv6:
-        {
+        case address_type::ipv6: {
             if (buffer.size() < offset + 16)
             {
                 return {fault::code::bad_message, address{}, 0};
@@ -73,8 +68,7 @@ namespace psm::protocol::trojan
             auto [ec, addr] = format::parse_ipv6(buffer.subspan(offset, 16));
             return {ec, address{addr}, 16};
         }
-        case address_type::domain:
-        {
+        case address_type::domain: {
             if (buffer.size() < offset + 1)
             {
                 return {fault::code::bad_message, address{}, 0};
@@ -87,17 +81,14 @@ namespace psm::protocol::trojan
             auto [ec, addr] = format::parse_domain(buffer.subspan(offset, 1 + len));
             return {ec, address{addr}, 1 + len};
         }
-        default:
-            return {fault::code::unsupported_address, address{}, 0};
+        default: return {fault::code::unsupported_address, address{}, 0};
         }
     }
 
-
     // 验证凭据和首个 CRLF (bytes 0-57)
-    inline auto verify_credential(
-        const std::span<const std::uint8_t> data,
-        const std::function<bool(std::string_view)> &verifier,
-        std::array<char, 56> &credential_out) -> fault::code
+    inline auto verify_credential(const std::span<const std::uint8_t> data,
+                                  const std::function<bool(std::string_view)> &verifier,
+                                  std::array<char, 56> &credential_out) -> fault::code
     {
         auto [cred_ec, credential] = format::parse_credential(data.subspan(0, 56));
         if (fault::failed(cred_ec))
@@ -121,13 +112,10 @@ namespace psm::protocol::trojan
         return fault::code::success;
     }
 
-
     // 解析目标地址、端口和结束 CRLF
-    inline auto parse_request_target(
-        const std::span<const std::uint8_t> data,
-        const std::size_t offset,
-        const address_type atyp,
-        const std::size_t total) -> std::tuple<fault::code, address, std::uint16_t>
+    inline auto parse_request_target(const std::span<const std::uint8_t> data, const std::size_t offset,
+                                     const address_type atyp, const std::size_t total)
+        -> std::tuple<fault::code, address, std::uint16_t>
     {
         auto [addr_ec, dest_addr, addr_size] = parse_address_from_buffer(data, offset, atyp);
         if (fault::failed(addr_ec))
@@ -159,20 +147,16 @@ namespace psm::protocol::trojan
         return {fault::code::success, dest_addr, port};
     }
 
-
     conn::conn(transport::shared_transmission next_layer, const config &cfg,
-                 std::function<bool(std::string_view)> credential_verifier)
+               std::function<bool(std::string_view)> credential_verifier)
         : next_layer_(std::move(next_layer)), config_(cfg), verifier_(std::move(credential_verifier))
     {
     }
 
-
-    auto conn::executor() const
-        -> executor_type
+    auto conn::executor() const -> executor_type
     {
         return next_layer_->executor();
     }
-
 
     auto conn::async_read_some(const std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -180,28 +164,23 @@ namespace psm::protocol::trojan
         co_return co_await next_layer_->async_read_some(buffer, ec);
     }
 
-
     auto conn::async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         co_return co_await next_layer_->async_write_some(buffer, ec);
     }
 
-
     void conn::close()
     {
         next_layer_->close();
     }
-
 
     void conn::cancel()
     {
         next_layer_->cancel();
     }
 
-
-    auto conn::handshake() const
-        -> net::awaitable<std::pair<fault::code, request>>
+    auto conn::handshake() const -> net::awaitable<std::pair<fault::code, request>>
     {
         // 缓冲区足够容纳最大请求
         std::array<std::uint8_t, 320> buffer{};
@@ -213,7 +192,10 @@ namespace psm::protocol::trojan
         net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
         auto on_deadline = [this](const boost::system::error_code &ec)
         {
-            if (!ec) next_layer_->cancel();
+            if (!ec)
+            {
+                next_layer_->cancel();
+            }
         };
         deadline.async_wait(std::move(on_deadline));
 
@@ -227,7 +209,9 @@ namespace psm::protocol::trojan
             deadline.cancel();
             auto result_ec = read_ec;
             if (read_ec == fault::code::canceled)
+            {
                 result_ec = fault::code::timeout;
+            }
             co_return std::pair{result_ec, request{}};
         }
 
@@ -253,33 +237,29 @@ namespace psm::protocol::trojan
 
         switch (header.atyp)
         {
-        case address_type::ipv4:
-            required_total = 60 + 4 + 2 + 2;
-            break;
-        case address_type::ipv6:
-            required_total = 60 + 16 + 2 + 2;
-            break;
-        case address_type::domain:
-        {
+        case address_type::ipv4: required_total = 60 + 4 + 2 + 2; break;
+        case address_type::ipv6: required_total = 60 + 16 + 2 + 2; break;
+        case address_type::domain: {
             const std::uint8_t domain_len = buffer[60];
             required_total = 60 + 1 + domain_len + 2 + 2;
             break;
         }
-        default:
-            deadline.cancel();
-            co_return std::pair{fault::code::unsupported_address, request{}};
+        default: deadline.cancel(); co_return std::pair{fault::code::unsupported_address, request{}};
         }
 
         // 如果数据不足，补读剩余字节
         if (total < required_total)
         {
-            auto [rem_ec, new_total] = co_await read_remaining({*next_layer_, byte_span, total, required_total});
+            auto [rem_ec, new_total] =
+                co_await read_remaining({*next_layer_, byte_span, total, required_total});
             if (fault::failed(rem_ec))
             {
                 deadline.cancel();
                 auto rem_result_ec = rem_ec;
                 if (rem_ec == fault::code::canceled)
+                {
                     rem_result_ec = fault::code::timeout;
+                }
                 co_return std::pair{rem_result_ec, request{}};
             }
             total = new_total;
@@ -314,27 +294,22 @@ namespace psm::protocol::trojan
         co_return std::pair{fault::code::success, req};
     }
 
-
     transport::transmission &conn::underlying() noexcept
     {
         return *next_layer_;
     }
-
 
     const transport::transmission &conn::underlying() const noexcept
     {
         return *next_layer_;
     }
 
-
     transport::shared_transmission conn::release()
     {
         return std::move(next_layer_);
     }
 
-
-    auto conn::async_associate(route_callback route_cb) const
-        -> net::awaitable<fault::code>
+    auto conn::async_associate(route_callback route_cb) const -> net::awaitable<fault::code>
     {
         if (!config_.enable_udp)
         {
@@ -346,40 +321,32 @@ namespace psm::protocol::trojan
             stats::traffic::traffic_state *traffic;
             psm::connect::protocol_type proto;
         };
-        auto *tc = [&]() -> traffic_context * {
+        auto *tc = [&]() -> traffic_context *
+        {
             if (traffic_)
+            {
                 return new traffic_context{traffic_, proto_};
+            }
             return nullptr;
         }();
 
         net::steady_timer idle_timer(next_layer_->executor());
 
-        co_await protocol::common::frame_loop<
-            decltype(format::parse_udp_pkt),
-            decltype(format::build_udp_pkt),
-            format::udp_routed,
-            format::udp_parse_result>(
+        co_await protocol::common::frame_loop<decltype(format::parse_udp_pkt),
+                                              decltype(format::build_udp_pkt), format::udp_routed,
+                                              format::udp_parse_result>(
             *next_layer_,
-            protocol::common::frame_ctx<
-                decltype(format::parse_udp_pkt),
-                decltype(format::build_udp_pkt),
-                format::udp_routed,
-                format::udp_parse_result>{
-                format::parse_udp_pkt,
-                format::build_udp_pkt,
-                std::move(route_cb)
-            },
-            protocol::common::loop_cfg{
-                idle_timer,
-                config_.idle_timeout,
-                config_.max_dgram,
-                [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept {
-                    auto *tc = static_cast<traffic_context*>(ctx);
-                    tc->traffic->flush_traffic(tc->proto, up, down);
-                    delete tc;
-                },
-                tc
-            });
+            protocol::common::frame_ctx<decltype(format::parse_udp_pkt), decltype(format::build_udp_pkt),
+                                        format::udp_routed, format::udp_parse_result>{
+                format::parse_udp_pkt, format::build_udp_pkt, std::move(route_cb)},
+            protocol::common::loop_cfg{idle_timer, config_.idle_timeout, config_.max_dgram,
+                                       [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept
+                                       {
+                                           auto *tc = static_cast<traffic_context *>(ctx);
+                                           tc->traffic->flush_traffic(tc->proto, up, down);
+                                           delete tc;
+                                       },
+                                       tc});
 
         if (!tc)
         {

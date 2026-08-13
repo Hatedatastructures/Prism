@@ -1,8 +1,7 @@
-#include <prism/protocol/multiplex/multiplexer.hpp>
-
-#include <prism/protocol/multiplex/datagram.hpp>
-#include <prism/protocol/multiplex/stream.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/protocol/multiplex/datagram.hpp>
+#include <prism/protocol/multiplex/multiplexer.hpp>
+#include <prism/protocol/multiplex/stream.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -16,7 +15,9 @@ namespace
     auto resolve_mr(psm::memory::resource_pointer mr) -> psm::memory::resource_pointer
     {
         if (mr)
+        {
             return mr;
+        }
         return psm::memory::current_resource();
     }
 } // namespace
@@ -25,23 +26,16 @@ namespace psm::multiplex
 {
 
     multiplexer::multiplexer(multiplexer_options opts)
-        : transport_(std::move(opts.transport)),
-          outbound_(opts.outbound),
-          config_(opts.cfg),
-          mr_(resolve_mr(opts.mr)),
-          pending_(mr_),
-          streams_(mr_),
-          datagrams_(mr_),
+        : transport_(std::move(opts.transport)), outbound_(opts.outbound), config_(opts.cfg),
+          mr_(resolve_mr(opts.mr)), pending_(mr_), streams_(mr_), datagrams_(mr_),
           channel_(transport_->executor(), opts.channel_capacity)
     {
     }
-
 
     multiplexer::~multiplexer() noexcept
     {
         close();
     }
-
 
     void multiplexer::start()
     {
@@ -49,23 +43,13 @@ namespace psm::multiplex
 
         auto self = shared_from_this();
 
-        auto run_wrapper = [self]() -> net::awaitable<void>
-        {
-            co_await self->run();
-        };
+        auto run_wrapper = [self]() -> net::awaitable<void> { co_await self->run(); };
         net::co_spawn(transport_->executor(), run_wrapper(),
-            [self](const std::exception_ptr &ep)
-            {
-                self->on_exception(ep);
-            });
+                      [self](const std::exception_ptr &ep) { self->on_exception(ep); });
 
-        auto send_task = [self]() -> net::awaitable<void>
-        {
-            co_await self->send_loop();
-        };
+        auto send_task = [self]() -> net::awaitable<void> { co_await self->send_loop(); };
         net::co_spawn(transport_->executor(), std::move(send_task), net::detached);
     }
-
 
     void multiplexer::on_exception(const std::exception_ptr &ep)
     {
@@ -86,7 +70,6 @@ namespace psm::multiplex
         }
         close();
     }
-
 
     void multiplexer::close()
     {
@@ -120,7 +103,6 @@ namespace psm::multiplex
         diagnose::debug(prefix_, "session closed");
     }
 
-
     auto multiplexer::send(const std::uint32_t stream_id, memory::vector<std::byte> payload)
         -> net::awaitable<void>
     {
@@ -136,14 +118,12 @@ namespace psm::multiplex
         co_await push_frame(std::move(frame));
     }
 
-
     void multiplexer::drop(const std::uint32_t stream_id)
     {
         streams_.erase(stream_id);
         datagrams_.erase(stream_id);
         pending_.erase(stream_id);
     }
-
 
     void multiplexer::fin(const std::uint32_t stream_id)
     {
@@ -160,9 +140,7 @@ namespace psm::multiplex
         channel_.try_send(boost::system::error_code{}, std::move(frame));
     }
 
-
-    auto multiplexer::push_frame(outbound_frame frame)
-        -> net::awaitable<void>
+    auto multiplexer::push_frame(outbound_frame frame) -> net::awaitable<void>
     {
         if (!is_active())
         {
@@ -174,9 +152,7 @@ namespace psm::multiplex
         co_await channel_.async_send(boost::system::error_code{}, std::move(frame), token);
     }
 
-
-    auto multiplexer::send_loop()
-        -> net::awaitable<void>
+    auto multiplexer::send_loop() -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "send loop started");
         try

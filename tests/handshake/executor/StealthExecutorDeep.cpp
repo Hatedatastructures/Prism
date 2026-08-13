@@ -7,9 +7,9 @@
  *          无法直接测试，由集成测试间接覆盖。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
+
+#include <gtest/gtest.h>
 
 // 不用匿名命名空间，因为我们 #include 的源文件里的 anonymous namespace
 // 在 psm::handshake 内，需要在同一命名空间或使用 using 声明
@@ -18,8 +18,8 @@
 namespace
 {
     namespace handshake = psm::handshake;
-    using psm::memory::vector;
     using psm::connect::protocol_type;
+    using psm::memory::vector;
 
     // ─── 构造函数 ───────────────────────────
 
@@ -44,16 +44,14 @@ namespace
     {
         auto view = std::string_view("GET / HTTP/1.1\r\n");
         auto detected = psm::recognition::probe::detect(view);
-        EXPECT_EQ(detected, protocol_type::http)
-            << "probe::detect: GET -> http";
+        EXPECT_EQ(detected, protocol_type::http) << "probe::detect: GET -> http";
     }
 
     TEST(StealthExecutorDeep, ProbeDetectHttpPost)
     {
         auto view = std::string_view("POST /api HTTP/1.1\r\n");
         auto detected = psm::recognition::probe::detect(view);
-        EXPECT_EQ(detected, protocol_type::http)
-            << "probe::detect: POST -> http";
+        EXPECT_EQ(detected, protocol_type::http) << "probe::detect: POST -> http";
     }
 
     TEST(StealthExecutorDeep, ProbeDetectSocks5)
@@ -63,8 +61,7 @@ namespace
         data.push_back(static_cast<char>(0x01));
         data.push_back(static_cast<char>(0x00));
         auto detected = psm::recognition::probe::detect(std::string_view(data));
-        EXPECT_EQ(detected, protocol_type::socks5)
-            << "probe::detect: socks5 -> socks5";
+        EXPECT_EQ(detected, protocol_type::socks5) << "probe::detect: socks5 -> socks5";
     }
 
     TEST(StealthExecutorDeep, ProbeDetectTlsClientHello)
@@ -74,8 +71,7 @@ namespace
         data.push_back(static_cast<char>(0x03));
         data.push_back(static_cast<char>(0x01));
         auto detected = psm::recognition::probe::detect(std::string_view(data));
-        EXPECT_EQ(detected, protocol_type::tls)
-            << "probe::detect: TLS ClientHello -> tls";
+        EXPECT_EQ(detected, protocol_type::tls) << "probe::detect: TLS ClientHello -> tls";
     }
 
     TEST(StealthExecutorDeep, ProbeDetectRandomBytes)

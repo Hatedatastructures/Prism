@@ -5,9 +5,9 @@
  *          secondary_probe。构造/registry 测试通过公开接口。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
+
+#include <gtest/gtest.h>
 
 // 显式引入 scheme 子类（executor.cpp 不直接 include 它们）
 #include <prism/handshake/native.hpp>
@@ -38,11 +38,12 @@ namespace
         psm::memory::vector<std::byte> preread;
         const char *http = "GET / HTTP/1.1\r\n";
         for (auto c : std::string_view(http))
+        {
             preread.push_back(static_cast<std::byte>(c));
+        }
 
         auto result = secondary_probe(preread);
-        EXPECT_EQ(result, psm::connect::protocol_type::http)
-            << "secondary_probe: HTTP GET -> http";
+        EXPECT_EQ(result, psm::connect::protocol_type::http) << "secondary_probe: HTTP GET -> http";
     }
 
     TEST(StealthExecutorPure2, SecondaryProbeTls)
@@ -52,11 +53,13 @@ namespace
         preread.push_back(static_cast<std::byte>(0x03));
         preread.push_back(static_cast<std::byte>(0x01));
         for (std::size_t i = 0; i < 20; ++i)
+        {
             preread.push_back(std::byte{0});
+        }
 
         auto result = secondary_probe(preread);
         EXPECT_TRUE(result == psm::connect::protocol_type::tls ||
-                     result == psm::connect::protocol_type::shadowsocks)
+                    result == psm::connect::protocol_type::shadowsocks)
             << "secondary_probe: TLS bytes -> tls or shadowsocks fallback";
     }
 
@@ -77,11 +80,12 @@ namespace
         psm::memory::vector<std::byte> preread;
         const char *connect = "CONNECT example.com:443 HTTP/1.1\r\n";
         for (auto c : std::string_view(connect))
+        {
             preread.push_back(static_cast<std::byte>(c));
+        }
 
         auto result = secondary_probe(preread);
-        EXPECT_EQ(result, psm::connect::protocol_type::http)
-            << "secondary_probe: CONNECT -> http";
+        EXPECT_EQ(result, psm::connect::protocol_type::http) << "secondary_probe: CONNECT -> http";
     }
 
     TEST(StealthExecutorPure2, SecondaryProbePost)
@@ -89,11 +93,12 @@ namespace
         psm::memory::vector<std::byte> preread;
         const char *post = "POST /api HTTP/1.1\r\n";
         for (auto c : std::string_view(post))
+        {
             preread.push_back(static_cast<std::byte>(c));
+        }
 
         auto result = secondary_probe(preread);
-        EXPECT_EQ(result, psm::connect::protocol_type::http)
-            << "secondary_probe: POST -> http";
+        EXPECT_EQ(result, psm::connect::protocol_type::http) << "secondary_probe: POST -> http";
     }
 
     TEST(StealthExecutorPure2, SecondaryProbeSocks5)
@@ -116,11 +121,13 @@ namespace
         preread.push_back(static_cast<std::byte>(0x03));
         preread.push_back(static_cast<std::byte>(0x03));
         for (std::size_t i = 0; i < 20; ++i)
+        {
             preread.push_back(std::byte{0});
+        }
 
         auto result = secondary_probe(preread);
         EXPECT_TRUE(result == psm::connect::protocol_type::tls ||
-                     result == psm::connect::protocol_type::shadowsocks)
+                    result == psm::connect::protocol_type::shadowsocks)
             << "secondary_probe: TLS 1.2 bytes -> tls or shadowsocks";
     }
 
@@ -139,8 +146,7 @@ namespace
         registry.add(std::make_shared<psm::handshake::native::native>());
         auto schemes = registry.all();
         EXPECT_EQ(schemes.size(), 1) << "registry: add native -> size 1";
-        EXPECT_TRUE(schemes[0]->name() == std::string_view("native"))
-            << "registry: scheme name is native";
+        EXPECT_TRUE(schemes[0]->name() == std::string_view("native")) << "registry: scheme name is native";
     }
 
     TEST(StealthExecutorPure2, RegistryAddMultiple)

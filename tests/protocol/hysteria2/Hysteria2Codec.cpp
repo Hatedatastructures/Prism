@@ -15,7 +15,7 @@ namespace
     using psm::protocol::hysteria2::parse_udp_message;
     using psm::protocol::hysteria2::tcp_request;
     using psm::protocol::hysteria2::udp_message;
-}
+} // namespace
 
 TEST(Hysteria2Codec, VarintKnownValues)
 {
@@ -53,7 +53,9 @@ TEST(Hysteria2Codec, ParseTcpRequest)
     std::vector<std::uint8_t> buf{0x44, 0x01, 0x0F};
     const std::string_view addr = "example.com:443";
     for (const auto c : addr)
+    {
         buf.push_back(static_cast<std::uint8_t>(c));
+    }
     buf.push_back(0x00);
 
     tcp_request req;
@@ -73,9 +75,13 @@ TEST(Hysteria2Codec, ParseUdpMessage)
     std::vector<std::uint8_t> buf{0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x01, 0x0A};
     const std::string_view addr = "8.8.8.8:53";
     for (const auto c : addr)
+    {
         buf.push_back(static_cast<std::uint8_t>(c));
+    }
     for (const auto c : std::string_view("hello"))
+    {
         buf.push_back(static_cast<std::uint8_t>(c));
+    }
 
     udp_message msg;
     ASSERT_TRUE(parse_udp_message(buf, msg));
@@ -94,7 +100,9 @@ TEST(Hysteria2Codec, ParseUdpFragmented)
     std::vector<std::uint8_t> buf{0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x01, 0x02, 0x0A};
     const std::string_view addr = "8.8.8.8:53";
     for (const auto c : addr)
+    {
         buf.push_back(static_cast<std::uint8_t>(c));
+    }
     buf.push_back('x');
 
     udp_message msg;

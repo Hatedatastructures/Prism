@@ -8,14 +8,13 @@
 
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/tls/types.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <boost/asio.hpp>
 
 #include <cstdint>
 #include <span>
-
 
 namespace psm::tls
 {
@@ -46,8 +45,11 @@ namespace psm::tls
 
         // === 访问 ===
 
+        /** @brief 获取记录帧头部 */
         [[nodiscard]] auto header() const noexcept -> const record_header &;
+        /** @brief 获取记录载荷 */
         [[nodiscard]] auto payload() const noexcept -> std::span<const std::byte>;
+        /** @brief 获取记录总大小（头部 + 载荷） */
         [[nodiscard]] auto size() const noexcept -> std::size_t;
 
         // === 协程 I/O ===
@@ -61,12 +63,10 @@ namespace psm::tls
             -> net::awaitable<std::pair<fault::code, record>>;
 
         /** @brief 向 transmission 写入此记录 */
-        [[nodiscard]] auto write(transport::transmission &trans) const
-            -> net::awaitable<fault::code>;
+        [[nodiscard]] auto write(transport::transmission &trans) const -> net::awaitable<fault::code>;
 
         /** @brief 向 tcp::socket 写入此记录 */
-        [[nodiscard]] auto write(net::ip::tcp::socket &sock) const
-            -> net::awaitable<fault::code>;
+        [[nodiscard]] auto write(net::ip::tcp::socket &sock) const -> net::awaitable<fault::code>;
 
         // === 序列化 ===
 
@@ -78,8 +78,8 @@ namespace psm::tls
         class builder;
 
     private:
-        record_header header_{};
-        memory::vector<std::byte> payload_;
+        record_header header_{};              ///< 记录帧头部
+        memory::vector<std::byte> payload_;   ///< 记录载荷
     };
 
     /**
@@ -89,15 +89,20 @@ namespace psm::tls
     class record::builder
     {
     public:
+        /** @brief 设置内容类型 */
         auto type(std::uint8_t t) noexcept -> builder &;
+        /** @brief 设置协议版本 */
         auto version(std::uint16_t v) noexcept -> builder &;
+        /** @brief 设置载荷（byte 视图） */
         auto payload(std::span<const std::byte> data) -> builder &;
+        /** @brief 设置载荷（uint8_t 视图） */
         auto payload_u8(std::span<const std::uint8_t> data) -> builder &;
+        /** @brief 构建记录帧 */
         [[nodiscard]] auto build() const -> record;
 
     private:
-        record_header header_{};
-        memory::vector<std::byte> payload_;
+        record_header header_{};              ///< 记录帧头部
+        memory::vector<std::byte> payload_;   ///< 记录载荷
     };
 
 } // namespace psm::tls

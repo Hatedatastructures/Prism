@@ -5,12 +5,11 @@
  *          覆盖 prime、migrate_executor。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/runtime/worker/launch.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {

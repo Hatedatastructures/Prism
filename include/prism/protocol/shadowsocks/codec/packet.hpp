@@ -11,7 +11,6 @@
 #include <prism/protocol/common/address.hpp>
 #include <prism/protocol/shadowsocks/constants.hpp>
 
-
 namespace psm::protocol::shadowsocks
 {
 

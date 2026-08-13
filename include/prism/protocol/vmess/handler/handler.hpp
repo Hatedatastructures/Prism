@@ -18,12 +18,21 @@ namespace psm::protocol::vmess
     class handler final : public protocol_handler
     {
     public:
+        /**
+         * @brief 构造函数
+         * @param params 协议处理器参数（会话资源 + 预读数据）
+         */
         explicit handler(protocol::handler_params params) noexcept;
+
+        /**
+         * @brief 执行 VMess 协议处理（握手 → 解析目标 → 拨号 → 隧道转发）
+         * @return 异步操作
+         */
         auto run() -> net::awaitable<void> override;
 
     private:
-        psm::resource::session &res_;
-        std::span<const std::byte> data_;
+        psm::resource::session &res_;     ///< 会话资源（含 worker 级 + session 级）
+        std::span<const std::byte> data_; ///< 预读数据
     };
 
     /**
@@ -35,6 +44,5 @@ namespace psm::protocol::vmess
      *          调用，内部执行 VMess 握手。
      */
     [[nodiscard]] auto fallback_run(psm::resource::session &res, std::span<const std::byte> data,
-                                    shared_transmission inbound = nullptr)
-        -> net::awaitable<void>;
+                                    shared_transmission inbound = nullptr) -> net::awaitable<void>;
 } // namespace psm::protocol::vmess

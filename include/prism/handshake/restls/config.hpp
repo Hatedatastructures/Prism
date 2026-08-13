@@ -12,7 +12,6 @@
 
 #include <cstdint>
 
-
 namespace psm::handshake::restls
 {
 
@@ -35,19 +34,18 @@ namespace psm::handshake::restls
      */
     struct config
     {
-        memory::vector<memory::string> server_names;     ///< SNI 白名单
-        memory::string host;                             ///< TLS 后端目标 host:port
-        memory::string password;                         ///< 认证密码
-        memory::string version_hint;                     ///< 版本提示: "tls12" 或 "tls13"
-        memory::string restls_script;                    ///< 流量控制脚本
-        std::uint32_t hs_timeout{5000};               ///< 握手超时（毫秒）
+        memory::vector<memory::string> server_names; ///< SNI 白名单
+        memory::string host;                         ///< TLS 后端目标 host:port
+        memory::string password;                     ///< 认证密码
+        memory::string version_hint;                 ///< 版本提示: "tls12" 或 "tls13"
+        memory::string restls_script;                ///< 流量控制脚本
+        std::uint32_t hs_timeout{5000};              ///< 握手超时（毫秒）
 
         /**
          * @brief 检查配置是否有效
          * @return 如果 server_names、host 和 password 都非空，返回 true
          */
-        [[nodiscard]] auto enabled() const noexcept
-            -> bool
+        [[nodiscard]] auto enabled() const noexcept -> bool
         {
             return !server_names.empty() && !host.empty() && !password.empty();
         }

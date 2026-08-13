@@ -1,12 +1,11 @@
-#include <prism/handshake/recognition/recognition.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/executor.hpp>
+#include <prism/handshake/handshake.hpp>
 #include <prism/handshake/recognition/pipeline.hpp>
+#include <prism/handshake/recognition/recognition.hpp>
 #include <prism/handshake/recognition/routes.hpp>
 #include <prism/handshake/recognition/tls/signal.hpp>
-#include <prism/handshake/handshake.hpp>
-#include <prism/handshake/executor.hpp>
 #include <prism/handshake/registry.hpp>
-#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/transport/preview.hpp>
 
 #include <algorithm>
@@ -16,8 +15,7 @@ using namespace psm::diagnose;
 namespace psm::recognition
 {
 
-    auto identify(handshake::handshake_context &opts)
-        -> net::awaitable<identify_result>
+    auto identify(handshake::handshake_context &opts) -> net::awaitable<identify_result>
     {
         const auto prefix_ = opts.session->trace;
         identify_result result;
@@ -58,21 +56,24 @@ namespace psm::recognition
         {
             auto scheme = registry.find(std::string_view(name));
             if (scheme && scheme->active(*opts.session->worker->process->cfg))
+            {
                 matched_schemes.push_back(scheme);
+            }
         }
 
         // Phase 4: 分层检测
-        auto raw_ch_span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
+        auto raw_ch_span = std::span<const std::byte>(reinterpret_cast<const std::byte *>(raw_record.data()),
+                                                      raw_record.size());
         auto bitmap = recognition::tls::build_bitmap(features);
 
         auto pipeline = layered_detection_pipeline(registry.all());
-        auto pipeline_result = pipeline.detect(
-            detect_input{bitmap, features, raw_ch_span, *opts.session->worker->process->cfg},
-            matched_schemes);
+        auto pipeline_result =
+            pipeline.detect(detect_input{bitmap, features, raw_ch_span, *opts.session->worker->process->cfg},
+                            matched_schemes);
 
         // Phase 5: 构建 preview transport，直接修改 opts
-        auto preread_span = std::span(reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
+        auto preread_span =
+            std::span(reinterpret_cast<const std::byte *>(raw_record.data()), raw_record.size());
         opts.transport = std::make_shared<transport::preview>(opts.transport, preread_span);
 
         // Phase 6: 将完整 ClientHello 存入 opts.preread
@@ -99,8 +100,7 @@ namespace psm::recognition
             // 写入 scheme 名到 prefix
             if (result.success && pfx && !result.executed_scheme.empty())
             {
-                std::strncpy(pfx->scheme, result.executed_scheme.c_str(),
-                             sizeof(pfx->scheme) - 1);
+                std::strncpy(pfx->scheme, result.executed_scheme.c_str(), sizeof(pfx->scheme) - 1);
             }
 
             co_return result;
@@ -110,7 +110,9 @@ namespace psm::recognition
         memory::vector<memory::string> candidates;
         candidates.reserve(pipeline_result.candidates.size());
         for (const auto &entry : pipeline_result.candidates)
+        {
             candidates.push_back(entry.name);
+        }
 
         analysis_result analysis;
         analysis.candidates = std::move(candidates);
@@ -129,12 +131,10 @@ namespace psm::recognition
             // 写入 scheme 名到 prefix
             if (pfx && !result.executed_scheme.empty())
             {
-                std::strncpy(pfx->scheme, result.executed_scheme.c_str(),
-                             sizeof(pfx->scheme) - 1);
+                std::strncpy(pfx->scheme, result.executed_scheme.c_str(), sizeof(pfx->scheme) - 1);
             }
-            diagnose::debug(prefix_, "identify succeeded: {} -> {}",
-                result.executed_scheme,
-                psm::connect::to_string_view(result.detected));
+            diagnose::debug(prefix_, "identify succeeded: {} -> {}", result.executed_scheme,
+                            psm::connect::to_string_view(result.detected));
         }
         else
         {
@@ -144,8 +144,7 @@ namespace psm::recognition
         co_return result;
     }
 
-    auto recognize(handshake::handshake_context &opts)
-        -> net::awaitable<recognize_result>
+    auto recognize(handshake::handshake_context &opts) -> net::awaitable<recognize_result>
     {
         const auto prefix_ = opts.session->trace;
         recognize_result result;
@@ -168,7 +167,8 @@ namespace psm::recognition
         diagnose::debug(prefix_, "probe result: {}", psm::connect::to_string_view(probe_res.type));
 
         result.detected = probe_res.type;
-        result.preread.assign(probe_res.pre_read_data.begin(), probe_res.pre_read_data.begin() + probe_res.pre_read_size);
+        result.preread.assign(probe_res.pre_read_data.begin(),
+                              probe_res.pre_read_data.begin() + probe_res.pre_read_size);
 
         if (probe_res.type == psm::connect::protocol_type::tls)
         {
@@ -186,9 +186,8 @@ namespace psm::recognition
                 result.executed_scheme = std::move(id_result.executed_scheme);
                 result.success = true;
 
-                diagnose::debug(prefix_, "recognized: {} -> {}",
-                    result.executed_scheme,
-                    psm::connect::to_string_view(result.detected));
+                diagnose::debug(prefix_, "recognized: {} -> {}", result.executed_scheme,
+                                psm::connect::to_string_view(result.detected));
             }
             else
             {
@@ -201,7 +200,8 @@ namespace psm::recognition
             result.transport = opts.transport;
             result.success = probe_res.success();
 
-            diagnose::debug(prefix_, "recognized (non-TLS): {}", psm::connect::to_string_view(result.detected));
+            diagnose::debug(prefix_, "recognized (non-TLS): {}",
+                            psm::connect::to_string_view(result.detected));
         }
 
         co_return result;

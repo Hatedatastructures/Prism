@@ -16,7 +16,6 @@
 #include <span>
 #include <unordered_map>
 
-
 namespace psm::rate
 {
 
@@ -29,15 +28,21 @@ namespace psm::rate
 
         [[nodiscard]] auto operator==(const address_hash &) const noexcept -> bool = default;
 
-        /// 从 IPv4 地址构造(写入前 4 字节,其余置零)
+        /**
+         * 从 IPv4 地址构造(写入前 4 字节,其余置零)
+         */
         [[nodiscard]] static auto from_v4(std::uint32_t ip) noexcept -> address_hash;
 
-        /// 从 IPv6 地址构造(取前 16 字节作为 key)
+        /**
+         * 从 IPv6 地址构造(取前 16 字节作为 key)
+         */
         [[nodiscard]] static auto from_v6(std::span<const std::byte, 16> addr) noexcept -> address_hash;
 
-        /// 从 boost::asio endpoint 构造(IPv4/IPv6 自动判断)
-        [[nodiscard]] static auto from_endpoint(
-            bool is_v6, const std::uint8_t *addr_bytes, std::size_t addr_len) noexcept -> address_hash;
+        /**
+         * 从 boost::asio endpoint 构造(IPv4/IPv6 自动判断)
+         */
+        [[nodiscard]] static auto from_endpoint(bool is_v6, const std::uint8_t *addr_bytes,
+                                                std::size_t addr_len) noexcept -> address_hash;
     };
 
     /**
@@ -78,29 +83,42 @@ namespace psm::rate
     class counter
     {
     public:
-        explicit counter(
-            std::uint32_t window_sec = 300,
-            std::uint32_t threshold = 2,
-            std::uint32_t max_records = 100000) noexcept
-            : window_sec_(window_sec)
-            , threshold_(threshold)
-            , max_records_(max_records)
+        explicit counter(std::uint32_t window_sec = 300, std::uint32_t threshold = 2,
+                         std::uint32_t max_records = 100000) noexcept
+            : window_sec_(window_sec), threshold_(threshold), max_records_(max_records)
         {
         }
 
-        /// @brief 记录一次探测失败
+        /**
+         * @brief 记录一次探测失败
+         * @param src 来源地址哈希
+         * @param tier 探测层级
+         */
         auto record(const address_hash &src, std::uint16_t tier) -> void;
 
-        /// @brief 查询指定地址的连续失败次数
+        /**
+         * @brief 查询指定地址的连续失败次数
+         * @param src 来源地址哈希
+         * @return 连续失败次数
+         */
         [[nodiscard]] auto fail_count(const address_hash &src) const noexcept -> std::uint16_t;
 
-        /// @brief 检查是否应触发挑战(threshold=0 永远返回 false)
+        /**
+         * @brief 检查是否应触发挑战(threshold=0 永远返回 false)
+         * @param src 来源地址哈希
+         * @return 是否应触发挑战
+         */
         [[nodiscard]] auto should_challenge(const address_hash &src) const noexcept -> bool;
 
-        /// @brief 认证成功后重置计数
+        /**
+         * @brief 认证成功后重置计数
+         * @param src 来源地址哈希
+         */
         auto reset(const address_hash &src) -> void;
 
-        /// @brief 清除过期记录,超出 max_records 时淘汰最旧记录
+        /**
+         * @brief 清除过期记录,超出 max_records 时淘汰最旧记录
+         */
         auto expire() -> void;
 
     private:

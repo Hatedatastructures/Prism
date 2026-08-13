@@ -7,9 +7,9 @@
  *          通过 #include 源文件覆盖编译行。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
+
+#include <gtest/gtest.h>
 
 // #include 源文件增加覆盖率计数
 #include "../../src/prism/handshake/anytls/scheme.cpp"
@@ -25,11 +25,14 @@ namespace
         // atyp(1) + ipv4(4) + port(2) = 7 bytes
         std::array<std::uint8_t, 7> buf{};
         buf[0] = 0x01; // IPv4
-        buf[1] = 127; buf[2] = 0; buf[3] = 0; buf[4] = 1;
-        buf[5] = 0x00; buf[6] = 0x50; // port 80
+        buf[1] = 127;
+        buf[2] = 0;
+        buf[3] = 0;
+        buf[4] = 1;
+        buf[5] = 0x00;
+        buf[6] = 0x50; // port 80
 
-        auto span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(buf.data()), buf.size());
+        auto span = std::span<const std::byte>(reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
         EXPECT_EQ(ec, psm::fault::code::success) << "parse_socks ipv4: success";
@@ -41,11 +44,13 @@ namespace
     {
         std::array<std::uint8_t, 5> buf{};
         buf[0] = 0x01;
-        buf[1] = 127; buf[2] = 0; buf[3] = 0; buf[4] = 1;
+        buf[1] = 127;
+        buf[2] = 0;
+        buf[3] = 0;
+        buf[4] = 1;
         // 缺少 port
 
-        auto span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(buf.data()), buf.size());
+        auto span = std::span<const std::byte>(reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
         EXPECT_NE(ec, psm::fault::code::success) << "parse_socks ipv4: no port → error";
@@ -60,10 +65,10 @@ namespace
         buf[0] = 0x04; // IPv6
         // ::1
         buf[15] = 0x01; // last byte of IPv6 = ::1
-        buf[17] = 0x00; buf[18] = 0x50; // port 80
+        buf[17] = 0x00;
+        buf[18] = 0x50; // port 80
 
-        auto span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(buf.data()), buf.size());
+        auto span = std::span<const std::byte>(reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
         EXPECT_EQ(ec, psm::fault::code::success) << "parse_socks ipv6: success";
@@ -81,11 +86,14 @@ namespace
         psm::memory::vector<std::uint8_t> buf(psm::memory::current_resource());
         buf.push_back(0x03); // Domain
         buf.push_back(dlen);
-        for (auto c : std::string_view(domain)) buf.push_back(static_cast<std::uint8_t>(c));
-        buf.push_back(0x00); buf.push_back(0x50); // port 80
+        for (auto c : std::string_view(domain))
+        {
+            buf.push_back(static_cast<std::uint8_t>(c));
+        }
+        buf.push_back(0x00);
+        buf.push_back(0x50); // port 80
 
-        auto span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(buf.data()), buf.size());
+        auto span = std::span<const std::byte>(reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
         EXPECT_EQ(ec, psm::fault::code::success) << "parse_socks domain: success";
@@ -109,8 +117,7 @@ namespace
         std::array<std::uint8_t, 4> buf{};
         buf[0] = 0x05; // 无效地址类型
 
-        auto span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(buf.data()), buf.size());
+        auto span = std::span<const std::byte>(reinterpret_cast<const std::byte *>(buf.data()), buf.size());
 
         auto [ec, target] = parse_socks_target(span, psm::memory::current_resource());
         EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse_socks: bad atyp → bad_message";
@@ -132,8 +139,7 @@ namespace
         // 构造正确的 auth_frame
         auth_frame frame{};
         std::array<std::uint8_t, SHA256_DIGEST_LENGTH> digest{};
-        SHA256(reinterpret_cast<const std::uint8_t *>(u.password.data()),
-               u.password.size(), digest.data());
+        SHA256(reinterpret_cast<const std::uint8_t *>(u.password.data()), u.password.size(), digest.data());
         std::memcpy(frame.password_hash.data(), digest.data(), 32);
 
         auto result = verify_user(frame, users, nullptr);
@@ -152,8 +158,7 @@ namespace
         auth_frame frame{};
         std::array<std::uint8_t, SHA256_DIGEST_LENGTH> digest{};
         const char *wrong = "wrong_password";
-        SHA256(reinterpret_cast<const std::uint8_t *>(wrong),
-               std::strlen(wrong), digest.data());
+        SHA256(reinterpret_cast<const std::uint8_t *>(wrong), std::strlen(wrong), digest.data());
         std::memcpy(frame.password_hash.data(), digest.data(), 32);
 
         auto result = verify_user(frame, users, nullptr);

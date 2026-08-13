@@ -6,13 +6,12 @@
  *          mdc 操作完整路径、recorder 状态。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/settings/settings.hpp>
 
-#include <gtest/gtest.h>
-
 #include "../../src/prism/diagnose/spdlog.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -120,7 +119,7 @@ namespace
         cfg.file_name = "test.log";
         auto path = psm::diagnose::build_log_path(cfg);
         EXPECT_EQ(path.filename().string(), "test.log")
-                     << "build_log_path: empty path_name -> just file_name";
+            << "build_log_path: empty path_name -> just file_name";
     }
 
     TEST(TraceSpdlogDeep, BuildLogPathWithDirectory)
@@ -129,10 +128,8 @@ namespace
         cfg.path_name = "logs";
         cfg.file_name = "app.log";
         auto path = psm::diagnose::build_log_path(cfg);
-        EXPECT_EQ(path.parent_path().string(), "logs")
-                     << "build_log_path: has parent directory";
-        EXPECT_EQ(path.filename().string(), "app.log")
-                     << "build_log_path: file_name correct";
+        EXPECT_EQ(path.parent_path().string(), "logs") << "build_log_path: has parent directory";
+        EXPECT_EQ(path.filename().string(), "app.log") << "build_log_path: file_name correct";
     }
 
     TEST(TraceSpdlogDeep, BuildLogPathNestedDirectory)
@@ -142,8 +139,7 @@ namespace
         cfg.file_name = "out.log";
         auto path = psm::diagnose::build_log_path(cfg);
         EXPECT_TRUE(!path.empty()) << "build_log_path: nested path non-empty";
-        EXPECT_EQ(path.filename().string(), "out.log")
-                     << "build_log_path: nested file_name correct";
+        EXPECT_EQ(path.filename().string(), "out.log") << "build_log_path: nested file_name correct";
     }
 
     TEST(TraceSpdlogDeep, BuildLogPathEmptyFileName)
@@ -177,10 +173,8 @@ namespace
         psm::diagnose::mdc_set("id", "200");
 
         auto prefix = psm::diagnose::build_mdc_prefix();
-        EXPECT_NE(prefix.find("id=200"), std::string::npos)
-                     << "mdc: overwrite key -> latest value";
-        EXPECT_EQ(prefix.find("id=100"), std::string::npos)
-                     << "mdc: overwrite key -> old value gone";
+        EXPECT_NE(prefix.find("id=200"), std::string::npos) << "mdc: overwrite key -> latest value";
+        EXPECT_EQ(prefix.find("id=100"), std::string::npos) << "mdc: overwrite key -> old value gone";
         psm::diagnose::mdc_clear();
     }
 

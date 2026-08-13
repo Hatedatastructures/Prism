@@ -7,8 +7,8 @@
  *          所有函数均为纯同步，无 I/O、无协程。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
 
 #include <gtest/gtest.h>
@@ -18,9 +18,8 @@ namespace
     // ─── 辅助函数 ──────────────────────────────
 
     /// 构造有效 smux 帧头字节序列
-    static auto make_header(std::uint8_t version, psm::multiplex::smux::command cmd,
-                            std::uint16_t length, std::uint32_t stream_id)
-        -> std::vector<std::byte>
+    static auto make_header(std::uint8_t version, psm::multiplex::smux::command cmd, std::uint16_t length,
+                            std::uint32_t stream_id) -> std::vector<std::byte>
     {
         std::vector<std::byte> buf(8);
         buf[0] = static_cast<std::byte>(version);
@@ -35,11 +34,8 @@ namespace
     }
 
     /// 构造 parse_address 输入：[Flags 2B BE][ATYP 1B][Addr][Port 2B BE]
-    static auto make_address_ipv4(std::uint16_t flags,
-                                  std::uint8_t a, std::uint8_t b,
-                                  std::uint8_t c, std::uint8_t d,
-                                  std::uint16_t port)
-        -> std::vector<std::byte>
+    static auto make_address_ipv4(std::uint16_t flags, std::uint8_t a, std::uint8_t b, std::uint8_t c,
+                                  std::uint8_t d, std::uint16_t port) -> std::vector<std::byte>
     {
         std::vector<std::byte> buf;
         buf.push_back(static_cast<std::byte>((flags >> 8) & 0xFF));
@@ -54,9 +50,7 @@ namespace
         return buf;
     }
 
-    static auto make_address_domain(std::uint16_t flags,
-                                    const std::string &domain,
-                                    std::uint16_t port)
+    static auto make_address_domain(std::uint16_t flags, const std::string &domain, std::uint16_t port)
         -> std::vector<std::byte>
     {
         std::vector<std::byte> buf;
@@ -65,33 +59,33 @@ namespace
         buf.push_back(std::byte{0x03}); // domain
         buf.push_back(static_cast<std::byte>(domain.size()));
         for (auto ch : domain)
+        {
             buf.push_back(static_cast<std::byte>(ch));
+        }
         buf.push_back(static_cast<std::byte>((port >> 8) & 0xFF));
         buf.push_back(static_cast<std::byte>(port & 0xFF));
         return buf;
     }
 
-    static auto make_address_ipv6(std::uint16_t flags,
-                                  const std::array<std::uint8_t, 16> &addr,
-                                  std::uint16_t port)
-        -> std::vector<std::byte>
+    static auto make_address_ipv6(std::uint16_t flags, const std::array<std::uint8_t, 16> &addr,
+                                  std::uint16_t port) -> std::vector<std::byte>
     {
         std::vector<std::byte> buf;
         buf.push_back(static_cast<std::byte>((flags >> 8) & 0xFF));
         buf.push_back(static_cast<std::byte>(flags & 0xFF));
         buf.push_back(std::byte{0x04}); // IPv6
         for (auto b : addr)
+        {
             buf.push_back(static_cast<std::byte>(b));
+        }
         buf.push_back(static_cast<std::byte>((port >> 8) & 0xFF));
         buf.push_back(static_cast<std::byte>(port & 0xFF));
         return buf;
     }
 
     /// 构造 parse_dgram 输入：[ATYP 1B][Addr][Port 2B BE][Length 2B BE][Payload]
-    static auto make_dgram_ipv4(std::uint8_t a, std::uint8_t b,
-                                std::uint8_t c, std::uint8_t d,
-                                std::uint16_t port,
-                                const std::vector<std::byte> &payload)
+    static auto make_dgram_ipv4(std::uint8_t a, std::uint8_t b, std::uint8_t c, std::uint8_t d,
+                                std::uint16_t port, const std::vector<std::byte> &payload)
         -> std::vector<std::byte>
     {
         std::vector<std::byte> buf;
@@ -105,44 +99,50 @@ namespace
         buf.push_back(static_cast<std::byte>((payload.size() >> 8) & 0xFF));
         buf.push_back(static_cast<std::byte>(payload.size() & 0xFF));
         for (auto b : payload)
+        {
             buf.push_back(b);
+        }
         return buf;
     }
 
-    static auto make_dgram_domain(const std::string &domain,
-                                  std::uint16_t port,
-                                  const std::vector<std::byte> &payload)
-        -> std::vector<std::byte>
+    static auto make_dgram_domain(const std::string &domain, std::uint16_t port,
+                                  const std::vector<std::byte> &payload) -> std::vector<std::byte>
     {
         std::vector<std::byte> buf;
         buf.push_back(std::byte{0x03}); // domain
         buf.push_back(static_cast<std::byte>(domain.size()));
         for (auto ch : domain)
+        {
             buf.push_back(static_cast<std::byte>(ch));
+        }
         buf.push_back(static_cast<std::byte>((port >> 8) & 0xFF));
         buf.push_back(static_cast<std::byte>(port & 0xFF));
         buf.push_back(static_cast<std::byte>((payload.size() >> 8) & 0xFF));
         buf.push_back(static_cast<std::byte>(payload.size() & 0xFF));
         for (auto b : payload)
+        {
             buf.push_back(b);
+        }
         return buf;
     }
 
-    static auto make_dgram_ipv6(const std::array<std::uint8_t, 16> &addr,
-                                std::uint16_t port,
-                                const std::vector<std::byte> &payload)
-        -> std::vector<std::byte>
+    static auto make_dgram_ipv6(const std::array<std::uint8_t, 16> &addr, std::uint16_t port,
+                                const std::vector<std::byte> &payload) -> std::vector<std::byte>
     {
         std::vector<std::byte> buf;
         buf.push_back(std::byte{0x04}); // IPv6
         for (auto b : addr)
+        {
             buf.push_back(static_cast<std::byte>(b));
+        }
         buf.push_back(static_cast<std::byte>((port >> 8) & 0xFF));
         buf.push_back(static_cast<std::byte>(port & 0xFF));
         buf.push_back(static_cast<std::byte>((payload.size() >> 8) & 0xFF));
         buf.push_back(static_cast<std::byte>(payload.size() & 0xFF));
         for (auto b : payload)
+        {
             buf.push_back(b);
+        }
         return buf;
     }
 
@@ -360,7 +360,9 @@ TEST(SmuxFrameDeep, ParseAddrIpv6Full)
 {
     std::array<std::uint8_t, 16> addr{};
     for (int i = 0; i < 16; ++i)
+    {
         addr[i] = static_cast<std::uint8_t>(i + 1);
+    }
     auto buf = make_address_ipv6(0, addr, 8080);
     auto r = psm::multiplex::smux::parse_address(buf, psm::memory::current_resource());
     ASSERT_TRUE(!!r) << "addr: IPv6 full addr -> ok";
@@ -416,9 +418,8 @@ TEST(SmuxFrameDeep, ParseAddrEmpty)
 TEST(SmuxFrameDeep, ParseAddrIpv4Truncated)
 {
     // flags(2) + atype(1) + only 3 bytes of IPv4 (need 4+2)
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
-        std::byte{0x7F}, std::byte{0x00}, std::byte{0x00}};
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
+                                  std::byte{0x7F}, std::byte{0x00}, std::byte{0x00}};
     auto r = psm::multiplex::smux::parse_address(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "addr: IPv4 truncated -> nullopt";
 }
@@ -426,9 +427,8 @@ TEST(SmuxFrameDeep, ParseAddrIpv4Truncated)
 TEST(SmuxFrameDeep, ParseAddrIpv4NoPort)
 {
     // flags(2) + atype(1) + IPv4(4) but no port
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
-        std::byte{0x7F}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01}};
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, std::byte{0x7F},
+                                  std::byte{0x00}, std::byte{0x00}, std::byte{0x01}};
     auto r = psm::multiplex::smux::parse_address(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "addr: IPv4 no port -> nullopt";
 }
@@ -436,10 +436,8 @@ TEST(SmuxFrameDeep, ParseAddrIpv4NoPort)
 TEST(SmuxFrameDeep, ParseAddrIpv4OneBytePort)
 {
     // flags(2) + atype(1) + IPv4(4) + only 1 byte of port
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
-        std::byte{0x7F}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
-        std::byte{0x01}};
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, std::byte{0x7F},
+                                  std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, std::byte{0x01}};
     auto r = psm::multiplex::smux::parse_address(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "addr: IPv4 1-byte port -> nullopt";
 }
@@ -447,9 +445,8 @@ TEST(SmuxFrameDeep, ParseAddrIpv4OneBytePort)
 TEST(SmuxFrameDeep, ParseAddrDomainTruncated)
 {
     // flags(2) + atype(1) + domain_len(1) but not enough domain bytes
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x03},
-        std::byte{0x05}, std::byte{'a'}, std::byte{'b'}};
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x00}, std::byte{0x03},
+                                  std::byte{0x05}, std::byte{'a'},  std::byte{'b'}};
     auto r = psm::multiplex::smux::parse_address(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "addr: domain truncated -> nullopt";
 }
@@ -457,9 +454,8 @@ TEST(SmuxFrameDeep, ParseAddrDomainTruncated)
 TEST(SmuxFrameDeep, ParseAddrDomainNoPort)
 {
     // flags(2) + atype(1) + domain_len(1) + domain(3) but no port
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x03},
-        std::byte{0x03}, std::byte{'a'}, std::byte{'b'}, std::byte{'c'}};
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x00}, std::byte{0x03}, std::byte{0x03},
+                                  std::byte{'a'},  std::byte{'b'},  std::byte{'c'}};
     auto r = psm::multiplex::smux::parse_address(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "addr: domain no port -> nullopt";
 }
@@ -475,9 +471,8 @@ TEST(SmuxFrameDeep, ParseAddrIpv6Truncated)
 
 TEST(SmuxFrameDeep, ParseAddrUnknownAtype)
 {
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x05},
-        std::byte{0x01}, std::byte{0x02}};
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x00}, std::byte{0x05}, std::byte{0x01},
+                                  std::byte{0x02}};
     auto r = psm::multiplex::smux::parse_address(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "addr: unknown atype 0x05 -> nullopt";
 }
@@ -595,9 +590,8 @@ TEST(SmuxFrameDeep, ParseDgramIpv4Truncated)
 TEST(SmuxFrameDeep, ParseDgramIpv4NoPort)
 {
     // atype(1) + IPv4(4) but no port
-    std::vector<std::byte> buf = {
-        std::byte{0x01}, std::byte{0x7F}, std::byte{0x00},
-        std::byte{0x00}, std::byte{0x01}};
+    std::vector<std::byte> buf = {std::byte{0x01}, std::byte{0x7F}, std::byte{0x00}, std::byte{0x00},
+                                  std::byte{0x01}};
     auto r = psm::multiplex::smux::parse_dgram(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "dgram: IPv4 no port -> nullopt";
 }
@@ -605,9 +599,8 @@ TEST(SmuxFrameDeep, ParseDgramIpv4NoPort)
 TEST(SmuxFrameDeep, ParseDgramIpv4NoLength)
 {
     // atype(1) + IPv4(4) + port(2) but no length prefix
-    std::vector<std::byte> buf = {
-        std::byte{0x01}, std::byte{0x7F}, std::byte{0x00},
-        std::byte{0x00}, std::byte{0x01}, std::byte{0x01}, std::byte{0xBB}};
+    std::vector<std::byte> buf = {std::byte{0x01}, std::byte{0x7F}, std::byte{0x00}, std::byte{0x00},
+                                  std::byte{0x01}, std::byte{0x01}, std::byte{0xBB}};
     auto r = psm::multiplex::smux::parse_dgram(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "dgram: IPv4 no length -> nullopt";
 }
@@ -615,11 +608,9 @@ TEST(SmuxFrameDeep, ParseDgramIpv4NoLength)
 TEST(SmuxFrameDeep, ParseDgramIpv4PayloadTruncated)
 {
     // atype(1) + IPv4(4) + port(2) + length(2) saying 100 bytes but only 1
-    std::vector<std::byte> buf = {
-        std::byte{0x01}, std::byte{0x7F}, std::byte{0x00}, std::byte{0x00},
-        std::byte{0x01}, std::byte{0x01}, std::byte{0xBB},
-        std::byte{0x00}, std::byte{0x64},
-        std::byte{0xFF}};
+    std::vector<std::byte> buf = {std::byte{0x01}, std::byte{0x7F}, std::byte{0x00}, std::byte{0x00},
+                                  std::byte{0x01}, std::byte{0x01}, std::byte{0xBB}, std::byte{0x00},
+                                  std::byte{0x64}, std::byte{0xFF}};
     auto r = psm::multiplex::smux::parse_dgram(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "dgram: IPv4 payload truncated -> nullopt";
 }
@@ -635,9 +626,8 @@ TEST(SmuxFrameDeep, ParseDgramDomainTruncated)
 TEST(SmuxFrameDeep, ParseDgramDomainNoPort)
 {
     // atype(1) + domain_len(1) + domain(3) but no port
-    std::vector<std::byte> buf = {
-        std::byte{0x03}, std::byte{0x03},
-        std::byte{'a'}, std::byte{'b'}, std::byte{'c'}};
+    std::vector<std::byte> buf = {std::byte{0x03}, std::byte{0x03}, std::byte{'a'}, std::byte{'b'},
+                                  std::byte{'c'}};
     auto r = psm::multiplex::smux::parse_dgram(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "dgram: domain no port -> nullopt";
 }
@@ -655,9 +645,8 @@ TEST(SmuxFrameDeep, ParseDgramIpv6Truncated)
 
 TEST(SmuxFrameDeep, ParsePrefixedBasic)
 {
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x03}, // length = 3
-        std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x03}, // length = 3
+                                  std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
     auto r = psm::multiplex::smux::parse_prefixed(buf);
     ASSERT_TRUE(!!r) << "prefixed: basic -> ok";
     EXPECT_TRUE(r->payload.size() == 3) << "prefixed: payload size = 3";
@@ -689,26 +678,22 @@ TEST(SmuxFrameDeep, ParsePrefixedTooShort0)
 
 TEST(SmuxFrameDeep, ParsePrefixedPayloadTruncated)
 {
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x0A}, // length = 10
-        std::byte{0x01}, std::byte{0x02}}; // only 2
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x0A},  // length = 10
+                                  std::byte{0x01}, std::byte{0x02}}; // only 2
     auto r = psm::multiplex::smux::parse_prefixed(buf);
     EXPECT_TRUE(!r) << "prefixed: payload truncated -> nullopt";
 }
 
 TEST(SmuxFrameDeep, ParsePrefixedLargeLength)
 {
-    std::vector<std::byte> buf = {
-        std::byte{0xFF}, std::byte{0xFF}}; // length = 65535
+    std::vector<std::byte> buf = {std::byte{0xFF}, std::byte{0xFF}}; // length = 65535
     auto r = psm::multiplex::smux::parse_prefixed(buf);
     EXPECT_TRUE(!r) << "prefixed: length 65535 but no payload -> nullopt";
 }
 
 TEST(SmuxFrameDeep, ParsePrefixedExactMatch)
 {
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x02},
-        std::byte{0xAA}, std::byte{0xBB}};
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x02}, std::byte{0xAA}, std::byte{0xBB}};
     auto r = psm::multiplex::smux::parse_prefixed(buf);
     ASSERT_TRUE(!!r) << "prefixed: exact match -> ok";
     EXPECT_TRUE(r->payload.size() == 2) << "prefixed: payload size = 2";
@@ -825,8 +810,7 @@ TEST(SmuxFrameDeep, BuildPrefixedEmpty)
     std::vector<std::byte> payload;
     auto buf = psm::multiplex::smux::build_prefixed(payload, psm::memory::current_resource());
     EXPECT_EQ(buf.size(), 2) << "build_prefixed: empty payload size = 2";
-    EXPECT_TRUE(buf[0] == std::byte{0x00} && buf[1] == std::byte{0x00})
-        << "build_prefixed: length = 0";
+    EXPECT_TRUE(buf[0] == std::byte{0x00} && buf[1] == std::byte{0x00}) << "build_prefixed: length = 0";
 }
 
 TEST(SmuxFrameDeep, BuildPrefixedRoundtrip)
@@ -1030,10 +1014,8 @@ TEST(SmuxFrameDeep, ParseDgramIpv4ExtraData)
 
 TEST(SmuxFrameDeep, ParsePrefixedExtraData)
 {
-    std::vector<std::byte> buf = {
-        std::byte{0x00}, std::byte{0x02},
-        std::byte{0xAA}, std::byte{0xBB},
-        std::byte{0xCC}}; // extra
+    std::vector<std::byte> buf = {std::byte{0x00}, std::byte{0x02}, std::byte{0xAA}, std::byte{0xBB},
+                                  std::byte{0xCC}}; // extra
     auto r = psm::multiplex::smux::parse_prefixed(buf);
     ASSERT_TRUE(!!r) << "prefixed: extra data -> ok";
     EXPECT_TRUE(r->consumed == 4) << "prefixed: consumed ignores extra";
@@ -1054,10 +1036,8 @@ TEST(SmuxFrameDeep, ParseDgramDomainLenZero)
 TEST(SmuxFrameDeep, ParseDgramDomainNoLength)
 {
     // atype(1) + domain_len(1) + domain(3) + port(2) but no length prefix
-    std::vector<std::byte> buf = {
-        std::byte{0x03}, std::byte{0x03},
-        std::byte{'a'}, std::byte{'b'}, std::byte{'c'},
-        std::byte{0x01}, std::byte{0xBB}};
+    std::vector<std::byte> buf = {std::byte{0x03}, std::byte{0x03}, std::byte{'a'}, std::byte{'b'},
+                                  std::byte{'c'},  std::byte{0x01}, std::byte{0xBB}};
     auto r = psm::multiplex::smux::parse_dgram(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "dgram: domain no length -> nullopt";
 }
@@ -1065,12 +1045,9 @@ TEST(SmuxFrameDeep, ParseDgramDomainNoLength)
 TEST(SmuxFrameDeep, ParseDgramDomainPayloadTruncated)
 {
     // atype(1) + domain_len(1) + domain(3) + port(2) + length(2) saying 10 but only 1
-    std::vector<std::byte> buf = {
-        std::byte{0x03}, std::byte{0x03},
-        std::byte{'a'}, std::byte{'b'}, std::byte{'c'},
-        std::byte{0x01}, std::byte{0xBB},
-        std::byte{0x00}, std::byte{0x0A},
-        std::byte{0xFF}};
+    std::vector<std::byte> buf = {std::byte{0x03}, std::byte{0x03}, std::byte{'a'},  std::byte{'b'},
+                                  std::byte{'c'},  std::byte{0x01}, std::byte{0xBB}, std::byte{0x00},
+                                  std::byte{0x0A}, std::byte{0xFF}};
     auto r = psm::multiplex::smux::parse_dgram(buf, psm::memory::current_resource());
     EXPECT_TRUE(!r) << "dgram: domain payload truncated -> nullopt";
 }

@@ -15,7 +15,6 @@
 #include <memory>
 #include <string_view>
 
-
 namespace psm::connect
 {
 
@@ -27,8 +26,8 @@ namespace psm::connect
      */
     enum class mux_switch : std::uint8_t
     {
-        off,  ///< 禁用多路复用
-        on    ///< 启用多路复用
+        off, ///< 禁用多路复用
+        on   ///< 启用多路复用
     };
 
     /**
@@ -73,8 +72,7 @@ namespace psm::connect
      * @param trans 传输层智能指针（可能被 snapshot/preview 包装）
      * @return 解包后的 shared_ptr，穿透所有装饰层
      */
-    [[nodiscard]] inline auto peel(shared_transmission trans)
-        -> shared_transmission
+    [[nodiscard]] inline auto peel(shared_transmission trans) -> shared_transmission
     {
         while (trans)
         {
@@ -112,11 +110,12 @@ namespace psm::connect
      * @return 若目标地址为 mux 标记地址且 mux 已启用则返回 true
      * @details 检测目标主机名是否以 ".mux.sing-box.arpa" 结尾。
      */
-    [[nodiscard]] inline auto is_mux(std::string_view host, mux_switch mux) noexcept
-        -> bool
+    [[nodiscard]] inline auto is_mux(std::string_view host, mux_switch mux) noexcept -> bool
     {
         if (mux != mux_switch::on)
+        {
             return false;
+        }
         constexpr std::string_view suffix = ".mux.sing-box.arpa";
         return host.size() >= suffix.size() && host.substr(host.size() - suffix.size()) == suffix;
     }

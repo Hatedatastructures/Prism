@@ -23,7 +23,10 @@ namespace psm::handshake::gun
         memory::string path{"/GunService/Tun"};      ///< gRPC 服务路径
         memory::string service_name{"GunService"};   ///< gRPC 服务名
 
-        /// 是否启用
+        /**
+         * @brief 是否启用
+         * @return 是否启用
+         */
         [[nodiscard]] auto enabled() const noexcept -> bool
         {
             return !server_names.empty();

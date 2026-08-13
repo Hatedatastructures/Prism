@@ -7,12 +7,11 @@
  *          observe() 协程不在本测试范围。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/user/stats/runtime.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -153,8 +152,7 @@ namespace
         auto after = st.snapshot();
         if (before.worker_count == 0)
         {
-            EXPECT_EQ(after.worker_count, 42)
-                << "system_state: first mark_started sets 42";
+            EXPECT_EQ(after.worker_count, 42) << "system_state: first mark_started sets 42";
         }
         else
         {

@@ -4,24 +4,23 @@
  * @details 测试 parse_credential/parse_crlf/parse_cmd_atyp/build_udp_pkt/parse_udp_pkt 全分支
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/trojan/codec/framing.hpp>
 #include <prism/protocol/trojan/constants.hpp>
-#include <prism/diagnose/log.hpp>
-
 
 #include <gtest/gtest.h>
 
 namespace
 {
+    using psm::protocol::trojan::address_type;
+    using psm::protocol::trojan::command;
+    using psm::protocol::trojan::format::build_udp_pkt;
+    using psm::protocol::trojan::format::parse_cmd_atyp;
     using psm::protocol::trojan::format::parse_credential;
     using psm::protocol::trojan::format::parse_crlf;
-    using psm::protocol::trojan::format::parse_cmd_atyp;
-    using psm::protocol::trojan::format::build_udp_pkt;
     using psm::protocol::trojan::format::parse_udp_pkt;
     using psm::protocol::trojan::format::udp_routed;
-    using psm::protocol::trojan::command;
-    using psm::protocol::trojan::address_type;
 
     TEST(TrojanFramingPure, ParseCredentialTooShort)
     {

@@ -27,23 +27,21 @@ namespace psmtest
     /// 统一异步传输 concept
     /// @tparam T 传输类型（memory_stream / socket_stream / 协议连接）
     template <typename T>
-    concept stream = requires(T &s, std::span<std::byte> wbuf,
-                              std::span<const std::byte> rbuf,
-                              std::error_code &ec)
-    {
-        /// 异步读取（至多 wbuf.size() 字节，0 = 对端关闭）
-        { s.async_read_some(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
-        /// 异步写入（至多 rbuf.size() 字节）
-        { s.async_write_some(rbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
-        /// 同步关闭（读写均不可用）
-        { s.close() } -> std::same_as<void>;
-        /// 取消未完成异步操作
-        { s.cancel() } -> std::same_as<void>;
-        /// 是否处于打开状态
-        { s.is_open() } -> std::same_as<bool>;
-        /// 获取执行器
-        { s.executor() } -> std::same_as<net::any_io_executor>;
-    };
+    concept stream =
+        requires(T &s, std::span<std::byte> wbuf, std::span<const std::byte> rbuf, std::error_code &ec) {
+            /// 异步读取（至多 wbuf.size() 字节，0 = 对端关闭）
+            { s.async_read_some(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            /// 异步写入（至多 rbuf.size() 字节）
+            { s.async_write_some(rbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            /// 同步关闭（读写均不可用）
+            { s.close() } -> std::same_as<void>;
+            /// 取消未完成异步操作
+            { s.cancel() } -> std::same_as<void>;
+            /// 是否处于打开状态
+            { s.is_open() } -> std::same_as<bool>;
+            /// 获取执行器
+            { s.executor() } -> std::same_as<net::any_io_executor>;
+        };
 
     /// 可关闭传输（在 stream 基础上支持 shutdown 语义，预留）
     template <typename T>

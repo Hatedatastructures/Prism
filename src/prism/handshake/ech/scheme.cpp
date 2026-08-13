@@ -3,17 +3,16 @@
  * @brief ECH 伪装方案实现
  */
 
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/handling.hpp>
 #include <prism/handshake/ech/scheme.hpp>
 #include <prism/handshake/ech/util/keygen.hpp>
-
-#include <prism/settings/settings.hpp>
-#include <prism/net/connection/util.hpp>
-#include <prism/resource/session.hpp>
-#include <prism/foundation/fault/handling.hpp>
 #include <prism/net/connection/types.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/net/connection/util.hpp>
 #include <prism/net/transport/encrypted.hpp>
 #include <prism/net/transport/preview.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
 #include <openssl/ssl.h>
@@ -31,50 +30,67 @@ namespace psm::handshake::ech
 
     namespace
     {
-        /// 在原始 ClientHello 中遍历扩展查找 ECH 类型
-        [[nodiscard]] auto contains_ech_extension(const std::span<const std::byte> raw)
-            -> bool
+        /**
+         * @brief 在原始 ClientHello 中遍历扩展查找 ECH 类型
+         * @param raw 原始 ClientHello 字节序列
+         * @return 是否包含 ECH 扩展
+         */
+        [[nodiscard]] auto contains_ech_extension(const std::span<const std::byte> raw) -> bool
         {
             // ClientHello：type(1) legacy_version(2) random(32) session_id_len(1)+sid
             // cipher_suites_len(2)+suites compression_len(1)+methods extensions_len(2)+...
             const auto *bytes = reinterpret_cast<const std::uint8_t *>(raw.data());
             const std::size_t size = raw.size();
             if (size < 4 + 32 + 1 + 1 + 2 + 1 + 2)
+            {
                 return false;
+            }
 
             std::size_t offset = 0;
             // 跳过 handshake 头（4 字节：type + len）
             offset = 4;
-            offset += 2; // legacy_version
+            offset += 2;  // legacy_version
             offset += 32; // random
             if (offset >= size)
+            {
                 return false;
+            }
             const std::size_t sid_len = bytes[offset];
             offset += 1 + sid_len;
             if (offset + 2 > size)
+            {
                 return false;
+            }
             const std::size_t cipher_len = (static_cast<std::size_t>(bytes[offset]) << 8) | bytes[offset + 1];
             offset += 2 + cipher_len;
             if (offset >= size)
+            {
                 return false;
+            }
             const std::size_t comp_len = bytes[offset];
             offset += 1 + comp_len;
             if (offset + 2 > size)
+            {
                 return false;
+            }
             const std::size_t ext_len = (static_cast<std::size_t>(bytes[offset]) << 8) | bytes[offset + 1];
             offset += 2;
             if (offset + ext_len > size)
+            {
                 return false;
+            }
 
             const std::size_t end = offset + ext_len;
             while (offset + 4 <= end)
             {
-                const std::uint16_t type = static_cast<std::uint16_t>(
-                    (bytes[offset] << 8) | bytes[offset + 1]);
-                const std::uint16_t len = static_cast<std::uint16_t>(
-                    (bytes[offset + 2] << 8) | bytes[offset + 3]);
+                const std::uint16_t type =
+                    static_cast<std::uint16_t>((bytes[offset] << 8) | bytes[offset + 1]);
+                const std::uint16_t len =
+                    static_cast<std::uint16_t>((bytes[offset + 2] << 8) | bytes[offset + 3]);
                 if (type == ech_extension_type)
+                {
                     return true;
+                }
                 offset += 4 + len;
             }
             return false;
@@ -95,7 +111,9 @@ namespace psm::handshake::ech
                         const psm::settings &cfg) const -> verify_result
     {
         if (!active(cfg))
+        {
             return {.score = 0, .solo_flag = 0, .note = "ech disabled"};
+        }
 
         if (contains_ech_extension(raw))
         {
@@ -104,8 +122,7 @@ namespace psm::handshake::ech
         return {.score = 0, .solo_flag = 0, .note = "ech: no ECH extension"};
     }
 
-    auto scheme::handshake(handshake::handshake_context ctx)
-        -> net::awaitable<handshake::handshake_result>
+    auto scheme::handshake(handshake::handshake_context ctx) -> net::awaitable<handshake::handshake_result>
     {
         handshake::handshake_result result;
 
@@ -140,8 +157,7 @@ namespace psm::handshake::ech
         ech_keypair keypair;
         if (fault::failed(keypair_from_private(
                 std::span<const std::uint8_t, private_key_len>(private_key.data(), private_key.size()),
-                std::string_view(cfg.public_name.data(), cfg.public_name.size()),
-                cfg.max_name_len, keypair)))
+                std::string_view(cfg.public_name.data(), cfg.public_name.size()), cfg.max_name_len, keypair)))
         {
             diagnose::warn(prefix_, "ech: failed to restore keypair");
             result.error = fault::code::keyfail;
@@ -193,8 +209,8 @@ namespace psm::handshake::ech
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
         auto clean_inbound = psm::transport::wrap_with_preview(std::move(raw), preread_span);
 
-        auto [ssl_ec, ssl_stream, recovered] = co_await psm::transport::encrypted::ssl_handshake(
-            std::move(clean_inbound), *ech_ssl_ctx);
+        auto [ssl_ec, ssl_stream, recovered] =
+            co_await psm::transport::encrypted::ssl_handshake(std::move(clean_inbound), *ech_ssl_ctx);
 
         if (fault::failed(ssl_ec) || !ssl_stream)
         {

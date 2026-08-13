@@ -6,16 +6,14 @@
  *          所有被测函数均为纯函数或仅操作 PMR 内存，无 I/O 和协程依赖。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-
-#include <gtest/gtest.h>
-
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/dns/detail/format.hpp>
 
 #include <array>
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 namespace dns = psm::dns::detail;
 namespace net = boost::asio;
@@ -24,8 +22,8 @@ namespace
 {
     // ─── 辅助：构造 A 记录 ─────────────────────
 
-    static auto make_a_record(const char *name, std::uint8_t a, std::uint8_t b,
-                              std::uint8_t c, std::uint8_t d, std::uint32_t ttl = 300,
+    static auto make_a_record(const char *name, std::uint8_t a, std::uint8_t b, std::uint8_t c,
+                              std::uint8_t d, std::uint32_t ttl = 300,
                               psm::memory::resource_pointer mr = psm::memory::current_resource())
         -> dns::record
     {
@@ -40,9 +38,7 @@ namespace
 
     // ─── 辅助：构造 AAAA 记录 ──────────────────
 
-    static auto make_aaaa_record(const char *name,
-                                 std::array<std::uint8_t, 16> addr,
-                                 std::uint32_t ttl = 300,
+    static auto make_aaaa_record(const char *name, std::array<std::uint8_t, 16> addr, std::uint32_t ttl = 300,
                                  psm::memory::resource_pointer mr = psm::memory::current_resource())
         -> dns::record
     {
@@ -57,8 +53,7 @@ namespace
 
     // ─── 辅助：构造 CNAME 记录 ──────────────────
 
-    static auto make_cname_record(const char *name, const char *cname,
-                                  std::uint32_t ttl = 300,
+    static auto make_cname_record(const char *name, const char *cname, std::uint32_t ttl = 300,
                                   psm::memory::resource_pointer mr = psm::memory::current_resource())
         -> dns::record
     {
@@ -646,8 +641,7 @@ namespace
         auto packed = msg.pack();
         auto result = dns::message::unpack(packed);
         EXPECT_TRUE(!!result) << "pack qtype: AAAA roundtrip success";
-        EXPECT_TRUE(result->questions[0].query_type == dns::qtype::aaaa)
-            << "pack qtype: AAAA preserved";
+        EXPECT_TRUE(result->questions[0].query_type == dns::qtype::aaaa) << "pack qtype: AAAA preserved";
     }
 
     TEST(DnsFormatDeep, PackQtypeMX)
@@ -656,8 +650,7 @@ namespace
         auto packed = msg.pack();
         auto result = dns::message::unpack(packed);
         EXPECT_TRUE(!!result) << "pack qtype: MX roundtrip success";
-        EXPECT_TRUE(result->questions[0].query_type == dns::qtype::mx)
-            << "pack qtype: MX preserved";
+        EXPECT_TRUE(result->questions[0].query_type == dns::qtype::mx) << "pack qtype: MX preserved";
     }
 
     // ─── 大 message ────────────────────────────
@@ -686,11 +679,8 @@ namespace
         for (int i = 0; i < 20; ++i)
         {
             msg.answers.push_back(
-                make_a_record("example.com",
-                              static_cast<std::uint8_t>(i),
-                              static_cast<std::uint8_t>(i + 1),
-                              static_cast<std::uint8_t>(i + 2),
-                              static_cast<std::uint8_t>(i + 3)));
+                make_a_record("example.com", static_cast<std::uint8_t>(i), static_cast<std::uint8_t>(i + 1),
+                              static_cast<std::uint8_t>(i + 2), static_cast<std::uint8_t>(i + 3)));
         }
         auto packed = msg.pack();
         auto result = dns::message::unpack(packed);

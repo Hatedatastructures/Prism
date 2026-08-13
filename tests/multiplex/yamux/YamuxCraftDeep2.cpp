@@ -8,8 +8,8 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -121,7 +121,8 @@ namespace
     TEST(YamuxCraftDeep2, HandleRstCleansPending)
     {
         CraftFixture fx;
-        fx.craft_obj->pending_.emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
+        fx.craft_obj->pending_.emplace(
+            1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
         EXPECT_TRUE(fx.craft_obj->pending_.count(1) == 1) << "handle_rst: pending exists before";
 
         fx.craft_obj->handle_rst(1);
@@ -141,7 +142,8 @@ namespace
     TEST(YamuxCraftDeep2, HandleRstWithPendingAndWindow)
     {
         CraftFixture fx;
-        fx.craft_obj->pending_.emplace(3, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
+        fx.craft_obj->pending_.emplace(
+            3, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
         fx.craft_obj->ensure_window(3);
 
         fx.craft_obj->handle_rst(3);
@@ -180,7 +182,8 @@ namespace
     TEST(YamuxCraftDeep2, HandleRstWithPendingTimer)
     {
         CraftFixture fx;
-        fx.craft_obj->pending_.emplace(10, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
+        fx.craft_obj->pending_.emplace(
+            10, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
         fx.craft_obj->ensure_window(10);
         // 手动创建一个 timer 而不是通过 start_pending（避免 co_spawn 副作用）
         auto timer = std::make_shared<net::steady_timer>(fx.craft_obj->executor());
@@ -198,7 +201,8 @@ namespace
     TEST(YamuxCraftDeep2, HandleFinPendingBranch)
     {
         CraftFixture fx;
-        fx.craft_obj->pending_.emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
+        fx.craft_obj->pending_.emplace(
+            1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
         fx.craft_obj->ensure_window(1);
 
         fx.craft_obj->handle_fin(1);
@@ -209,7 +213,8 @@ namespace
     TEST(YamuxCraftDeep2, HandleFinPendingNoWindow)
     {
         CraftFixture fx;
-        fx.craft_obj->pending_.emplace(2, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
+        fx.craft_obj->pending_.emplace(
+            2, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
 
         fx.craft_obj->handle_fin(2);
         EXPECT_TRUE(fx.craft_obj->pending_.count(2) == 0) << "handle_fin: pending erased (no window)";
@@ -250,7 +255,8 @@ namespace
     TEST(YamuxCraftDeep2, TryActivateAlreadyConnecting)
     {
         CraftFixture fx;
-        auto [it, _] = fx.craft_obj->pending_.emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
+        auto [it, _] = fx.craft_obj->pending_.emplace(
+            1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
         it->second.connecting = true;
         it->second.buffer.resize(100);
         // connecting=true -> should return early, not call shared_from_this
@@ -262,7 +268,8 @@ namespace
     TEST(YamuxCraftDeep2, TryActivateBufferTooSmall)
     {
         CraftFixture fx;
-        auto [it, _] = fx.craft_obj->pending_.emplace(2, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
+        auto [it, _] = fx.craft_obj->pending_.emplace(
+            2, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
         it->second.connecting = false;
         it->second.buffer.resize(3);
         // buffer.size() < 7 -> should return early
@@ -273,7 +280,8 @@ namespace
     TEST(YamuxCraftDeep2, TryActivateBufferExactlySix)
     {
         CraftFixture fx;
-        auto [it, _] = fx.craft_obj->pending_.emplace(3, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
+        auto [it, _] = fx.craft_obj->pending_.emplace(
+            3, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
         it->second.connecting = false;
         it->second.buffer.resize(6);
         // buffer.size() < 7 -> should return early
@@ -400,7 +408,8 @@ namespace
         CraftFixture fx;
         auto *w = fx.craft_obj->ensure_window(1);
         w->recv_consumed.fetch_add(512, std::memory_order_acq_rel);
-        EXPECT_TRUE(w->recv_consumed.load(std::memory_order_acquire) == 512) << "window: recv_consumed updated";
+        EXPECT_TRUE(w->recv_consumed.load(std::memory_order_acquire) == 512)
+            << "window: recv_consumed updated";
     }
 
     TEST(YamuxCraftDeep2, WindowSignalExpiry)

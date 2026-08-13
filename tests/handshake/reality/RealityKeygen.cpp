@@ -4,16 +4,15 @@
  * @details 测试 derive_hs_keys、derive_app_keys、compute_verify。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/foundation/foundation.hpp>
-#include <prism/handshake/reality/util/keygen.hpp>
 #include <prism/crypto/x25519.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/handshake/reality/util/keygen.hpp>
 
 #include <array>
 #include <cstdint>
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -28,10 +27,14 @@ namespace
         // Dummy handshake messages
         std::array<std::uint8_t, 64> chello_msg{};
         for (std::size_t i = 0; i < 64; ++i)
+        {
             chello_msg[i] = static_cast<std::uint8_t>(i);
+        }
         std::array<std::uint8_t, 64> shello_msg{};
         for (std::size_t i = 0; i < 64; ++i)
+        {
             shello_msg[i] = static_cast<std::uint8_t>(i + 100);
+        }
 
         auto [ec, keys] = psm::handshake::reality::derive_hs_keys(shared_secret, chello_msg, shello_msg);
         EXPECT_EQ(ec, psm::fault::code::success) << "derive_hs_keys: success";
@@ -39,20 +42,32 @@ namespace
         // Verify all key fields are non-zero (with high probability)
         bool server_hskey_zero = true;
         for (auto b : keys.server_hskey)
+        {
             if (b != 0)
+            {
                 server_hskey_zero = false;
+            }
+        }
         EXPECT_TRUE(!server_hskey_zero) << "derive_hs_keys: server_hskey not all zero";
 
         bool client_hskey_zero = true;
         for (auto b : keys.client_hskey)
+        {
             if (b != 0)
+            {
                 client_hskey_zero = false;
+            }
+        }
         EXPECT_TRUE(!client_hskey_zero) << "derive_hs_keys: client_hskey not all zero";
 
         bool master_secret_zero = true;
         for (auto b : keys.master_secret)
+        {
             if (b != 0)
+            {
                 master_secret_zero = false;
+            }
+        }
         EXPECT_TRUE(!master_secret_zero) << "derive_hs_keys: master_secret not all zero";
 
         EXPECT_EQ(keys.server_finkey.size(), 32) << "derive_hs_keys: finkey 32 bytes";
@@ -91,14 +106,22 @@ namespace
 
         bool server_appkey_zero = true;
         for (auto b : app_keys.server_appkey)
+        {
             if (b != 0)
+            {
                 server_appkey_zero = false;
+            }
+        }
         EXPECT_TRUE(!server_appkey_zero) << "derive_app_keys: server_appkey not all zero";
 
         bool client_appkey_zero = true;
         for (auto b : app_keys.client_appkey)
+        {
             if (b != 0)
+            {
                 client_appkey_zero = false;
+            }
+        }
         EXPECT_TRUE(!client_appkey_zero) << "derive_app_keys: client_appkey not all zero";
     }
 
@@ -133,8 +156,7 @@ namespace
 
         auto verify = psm::handshake::reality::compute_verify(key, hash);
         auto hmac = psm::crypto::hmac_sha256(key, hash);
-        EXPECT_TRUE(std::memcmp(verify.data(), hmac.data(), 32) == 0)
-            << "compute_verify == hmac_sha256";
+        EXPECT_TRUE(std::memcmp(verify.data(), hmac.data(), 32) == 0) << "compute_verify == hmac_sha256";
     }
 
 } // namespace

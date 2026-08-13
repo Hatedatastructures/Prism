@@ -6,15 +6,8 @@
  *          使用 BoringSSL API 动态生成自签名证书进行测试。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
-
-#include <filesystem>
-#include <fstream>
-
-#include "../../src/prism/runtime/worker/tls.cpp"
+#include <prism/foundation/foundation.hpp>
 
 #include <openssl/bio.h>
 #include <openssl/bn.h>
@@ -22,6 +15,12 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <openssl/x509.h>
+
+#include <filesystem>
+#include <fstream>
+
+#include "../../src/prism/runtime/worker/tls.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -65,7 +64,7 @@ namespace
 
         auto *name = X509_get_subject_name(x509);
         X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-            reinterpret_cast<const unsigned char *>("prism-test"), -1, -1, 0);
+                                   reinterpret_cast<const unsigned char *>("prism-test"), -1, -1, 0);
         X509_set_issuer_name(x509, name);
 
         X509_gmtime_adj(X509_get_notBefore(x509), 0);

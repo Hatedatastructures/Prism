@@ -1,19 +1,19 @@
-#include <prism/protocol/vless/handler/conn.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/handling.hpp>
+#include <prism/net/transport/transmission.hpp>
 #include <prism/protocol/common/read.hpp>
 #include <prism/protocol/common/udprelay.hpp>
 #include <prism/protocol/vless/codec/framing.hpp>
+#include <prism/protocol/vless/handler/conn.hpp>
 #include <prism/user/stats/traffic.hpp>
-#include <prism/diagnose/diagnose.hpp>
-#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <algorithm>
 #include <array>
 #include <charconv>
-#include <cstring>
 #include <cstdint>
+#include <cstring>
 #include <string>
 
 using namespace psm::diagnose;
@@ -23,8 +23,7 @@ namespace psm::protocol::vless
 
     namespace
     {
-        auto uuid_to_string(const std::array<std::uint8_t, 16> &uuid)
-            -> std::string
+        auto uuid_to_string(const std::array<std::uint8_t, 16> &uuid) -> std::string
         {
             std::array<char, 37> buf;
             static constexpr std::int32_t groups[] = {4, 2, 2, 2, 6};
@@ -53,18 +52,15 @@ namespace psm::protocol::vless
     using protocol::common::remaining_opts;
 
     conn::conn(transport::shared_transmission next_layer, const config &cfg,
-                 std::function<bool(std::string_view)> verifier)
+               std::function<bool(std::string_view)> verifier)
         : next_layer_(std::move(next_layer)), config_(cfg), verifier_(std::move(verifier))
     {
     }
 
-
-    auto conn::executor() const
-        -> executor_type
+    auto conn::executor() const -> executor_type
     {
         return next_layer_->executor();
     }
-
 
     auto conn::async_read_some(const std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -72,66 +68,59 @@ namespace psm::protocol::vless
         co_return co_await next_layer_->async_read_some(buffer, ec);
     }
 
-
     auto conn::async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         co_return co_await next_layer_->async_write_some(buffer, ec);
     }
 
-
     void conn::close()
     {
         next_layer_->close();
     }
-
 
     void conn::cancel()
     {
         next_layer_->cancel();
     }
 
-
-    auto conn::parse_header(std::array<std::uint8_t, 320> &buffer, const std::span<std::byte> byte_span, net::steady_timer &deadline)
-        -> net::awaitable<std::tuple<fault::code, std::array<std::uint8_t, 16>, command, std::uint16_t, address_type, std::size_t>>
+    auto conn::parse_header(std::array<std::uint8_t, 320> &buffer, const std::span<std::byte> byte_span,
+                            net::steady_timer &deadline)
+        -> net::awaitable<std::tuple<fault::code, std::array<std::uint8_t, 16>, command, std::uint16_t,
+                                     address_type, std::size_t>>
     {
         // 最小请求长度：Version(1) + UUID(16) + AddnlInfoLen(1) + Cmd(1) + Port(2) + Atyp(1) + IPv4(4) = 26
         static constexpr std::size_t k_min_request_size = 26;
 
-        auto [read_ec, total] = co_await read_min(*next_layer_, byte_span.first(k_min_request_size), k_min_request_size);
+        auto [read_ec, total] =
+            co_await read_min(*next_layer_, byte_span.first(k_min_request_size), k_min_request_size);
         if (fault::failed(read_ec))
         {
             deadline.cancel();
             if (read_ec == fault::code::canceled)
             {
-                co_return std::tuple{
-                    fault::code::timeout,
-                    std::array<std::uint8_t, 16>{},
-                    command{},
-                    std::uint16_t{0},
-                    address_type{},
-                    std::size_t{0}};
+                co_return std::tuple{fault::code::timeout,
+                                     std::array<std::uint8_t, 16>{},
+                                     command{},
+                                     std::uint16_t{0},
+                                     address_type{},
+                                     std::size_t{0}};
             }
-            co_return std::tuple{
-                read_ec,
-                std::array<std::uint8_t, 16>{},
-                command{},
-                std::uint16_t{0},
-                address_type{},
-                std::size_t{0}};
+            co_return std::tuple{read_ec,        std::array<std::uint8_t, 16>{},
+                                 command{},      std::uint16_t{0},
+                                 address_type{}, std::size_t{0}};
         }
 
         // 校验版本号
         if (buffer[0] != version)
         {
             deadline.cancel();
-            co_return std::tuple{
-                fault::code::bad_message,
-                std::array<std::uint8_t, 16>{},
-                command{},
-                std::uint16_t{0},
-                address_type{},
-                std::size_t{0}};
+            co_return std::tuple{fault::code::bad_message,
+                                 std::array<std::uint8_t, 16>{},
+                                 command{},
+                                 std::uint16_t{0},
+                                 address_type{},
+                                 std::size_t{0}};
         }
 
         // 解析 UUID (offset 1-16)
@@ -143,13 +132,12 @@ namespace psm::protocol::vless
         if (addnl_len != 0)
         {
             deadline.cancel();
-            co_return std::tuple{
-                fault::code::bad_message,
-                std::array<std::uint8_t, 16>{},
-                command{},
-                std::uint16_t{0},
-                address_type{},
-                std::size_t{0}};
+            co_return std::tuple{fault::code::bad_message,
+                                 std::array<std::uint8_t, 16>{},
+                                 command{},
+                                 std::uint16_t{0},
+                                 address_type{},
+                                 std::size_t{0}};
         }
 
         // 解析命令 (offset 18)
@@ -158,28 +146,26 @@ namespace psm::protocol::vless
         {
         case command::tcp:
         case command::mux:
-        case command::udp:
-            break;
+        case command::udp: break;
         default:
             deadline.cancel();
-            co_return std::tuple{
-                fault::code::unsupported_command,
-                std::array<std::uint8_t, 16>{},
-                command{},
-                std::uint16_t{0},
-                address_type{},
-                std::size_t{0}};
+            co_return std::tuple{fault::code::unsupported_command,
+                                 std::array<std::uint8_t, 16>{},
+                                 command{},
+                                 std::uint16_t{0},
+                                 address_type{},
+                                 std::size_t{0}};
         }
 
         // 解析端口 (offset 19-20)
-        const std::uint16_t port = static_cast<std::uint16_t>(buffer[19]) << 8 | static_cast<std::uint16_t>(buffer[20]);
+        const std::uint16_t port =
+            static_cast<std::uint16_t>(buffer[19]) << 8 | static_cast<std::uint16_t>(buffer[20]);
 
         // 解析地址类型 (offset 21)
         const auto atyp = static_cast<address_type>(buffer[21]);
 
         co_return std::tuple{fault::code::success, uuid, cmd, port, atyp, total};
     }
-
 
     auto conn::process_target(target_opts opts)
         -> net::awaitable<std::tuple<fault::code, address, std::size_t>>
@@ -194,14 +180,9 @@ namespace psm::protocol::vless
 
         switch (atyp)
         {
-        case address_type::ipv4:
-            required_total = offset + 4;
-            break;
-        case address_type::ipv6:
-            required_total = offset + 16;
-            break;
-        case address_type::domain:
-        {
+        case address_type::ipv4: required_total = offset + 4; break;
+        case address_type::ipv6: required_total = offset + 16; break;
+        case address_type::domain: {
             if (total <= offset)
             {
                 remaining_opts read_opts{*next_layer_, byte_span.first(offset + 1), total, offset + 1};
@@ -245,22 +226,19 @@ namespace psm::protocol::vless
         address dest_addr;
         switch (atyp)
         {
-        case address_type::ipv4:
-        {
+        case address_type::ipv4: {
             ipv4_address addr;
             std::memcpy(addr.bytes.data(), buffer.data() + offset, 4);
             dest_addr = addr;
             break;
         }
-        case address_type::ipv6:
-        {
+        case address_type::ipv6: {
             ipv6_address addr;
             std::memcpy(addr.bytes.data(), buffer.data() + offset, 16);
             dest_addr = addr;
             break;
         }
-        case address_type::domain:
-        {
+        case address_type::domain: {
             const std::uint8_t domain_len = buffer[offset];
             domain_address addr;
             addr.length = domain_len;
@@ -275,7 +253,6 @@ namespace psm::protocol::vless
 
         co_return std::tuple{fault::code::success, dest_addr, total};
     }
-
 
     auto conn::send_response(const std::array<std::uint8_t, 16> &uuid, net::steady_timer &deadline)
         -> net::awaitable<fault::code>
@@ -302,9 +279,7 @@ namespace psm::protocol::vless
         co_return fault::code::success;
     }
 
-
-    auto conn::handshake()
-        -> net::awaitable<std::pair<fault::code, request>>
+    auto conn::handshake() -> net::awaitable<std::pair<fault::code, request>>
     {
         // 缓冲区足够容纳最大 VLESS 请求
         std::array<std::uint8_t, 320> buffer{};
@@ -314,7 +289,10 @@ namespace psm::protocol::vless
         net::steady_timer deadline(next_layer_->executor(), std::chrono::seconds(30));
         auto on_deadline = [this](const boost::system::error_code &ec)
         {
-            if (!ec) next_layer_->cancel();
+            if (!ec)
+            {
+                next_layer_->cancel();
+            }
         };
         deadline.async_wait(std::move(on_deadline));
 
@@ -326,7 +304,8 @@ namespace psm::protocol::vless
         }
 
         // 步骤 2: 解析目标地址
-        auto [addr_ec, dest_addr, new_total] = co_await process_target({buffer, byte_span, atyp, total, deadline});
+        auto [addr_ec, dest_addr, new_total] =
+            co_await process_target({buffer, byte_span, atyp, total, deadline});
         if (fault::failed(addr_ec))
         {
             co_return std::pair{addr_ec, request{}};
@@ -346,34 +325,33 @@ namespace psm::protocol::vless
         req.port = port;
         req.destination_address = dest_addr;
         if (cmd == command::udp)
+        {
             req.transport = psm::protocol::form::datagram;
+        }
         else
+        {
             req.transport = psm::protocol::form::stream;
+        }
 
         co_return std::pair{fault::code::success, std::move(req)};
     }
-
 
     transport::transmission &conn::underlying() noexcept
     {
         return *next_layer_;
     }
 
-
     const transport::transmission &conn::underlying() const noexcept
     {
         return *next_layer_;
     }
-
 
     transport::shared_transmission conn::release()
     {
         return std::move(next_layer_);
     }
 
-
-    auto conn::async_associate(route_callback route_cb) const
-        -> net::awaitable<fault::code>
+    auto conn::async_associate(route_callback route_cb) const -> net::awaitable<fault::code>
     {
         if (!config_.enable_udp)
         {
@@ -385,40 +363,32 @@ namespace psm::protocol::vless
             stats::traffic::traffic_state *traffic;
             psm::connect::protocol_type proto;
         };
-        auto *tc = [&]() -> traffic_context * {
+        auto *tc = [&]() -> traffic_context *
+        {
             if (traffic_)
+            {
                 return new traffic_context{traffic_, proto_};
+            }
             return nullptr;
         }();
 
         net::steady_timer idle_timer(next_layer_->executor());
 
-        co_await protocol::common::frame_loop<
-            decltype(format::parse_udp_pkt),
-            decltype(format::build_udp_pkt),
-            format::udp_routed,
-            format::udp_parse_result>(
+        co_await protocol::common::frame_loop<decltype(format::parse_udp_pkt),
+                                              decltype(format::build_udp_pkt), format::udp_routed,
+                                              format::udp_parse_result>(
             *next_layer_,
-            protocol::common::frame_ctx<
-                decltype(format::parse_udp_pkt),
-                decltype(format::build_udp_pkt),
-                format::udp_routed,
-                format::udp_parse_result>{
-                format::parse_udp_pkt,
-                format::build_udp_pkt,
-                std::move(route_cb)
-            },
-            protocol::common::loop_cfg{
-                idle_timer,
-                config_.idle_timeout,
-                config_.max_dgram,
-                [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept {
-                    auto *tc = static_cast<traffic_context*>(ctx);
-                    tc->traffic->flush_traffic(tc->proto, up, down);
-                    delete tc;
-                },
-                tc
-            });
+            protocol::common::frame_ctx<decltype(format::parse_udp_pkt), decltype(format::build_udp_pkt),
+                                        format::udp_routed, format::udp_parse_result>{
+                format::parse_udp_pkt, format::build_udp_pkt, std::move(route_cb)},
+            protocol::common::loop_cfg{idle_timer, config_.idle_timeout, config_.max_dgram,
+                                       [](void *ctx, std::uint64_t up, std::uint64_t down) noexcept
+                                       {
+                                           auto *tc = static_cast<traffic_context *>(ctx);
+                                           tc->traffic->flush_traffic(tc->proto, up, down);
+                                           delete tc;
+                                       },
+                                       tc});
 
         if (!tc)
         {

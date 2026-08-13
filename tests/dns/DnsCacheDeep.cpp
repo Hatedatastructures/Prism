@@ -6,10 +6,9 @@
  *          make_key/key_view 辅助方法。
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/dns/detail/cache.hpp>
-#include <prism/diagnose/log.hpp>
-
 
 #include <gtest/gtest.h>
 
@@ -18,8 +17,7 @@ namespace
     namespace dns = psm::dns::detail;
     namespace net = boost::asio;
 
-    auto make_cache(std::size_t max = 100, bool serve_stale = true)
-        -> dns::cache
+    auto make_cache(std::size_t max = 100, bool serve_stale = true) -> dns::cache
     {
         dns::cache_options opts;
         opts.mr = psm::memory::current_resource();
@@ -29,8 +27,7 @@ namespace
         return dns::cache(opts);
     }
 
-    auto make_ips(std::initializer_list<std::string_view> strs)
-        -> psm::memory::vector<net::ip::address>
+    auto make_ips(std::initializer_list<std::string_view> strs) -> psm::memory::vector<net::ip::address>
     {
         psm::memory::vector<net::ip::address> ips;
         for (auto s : strs)
@@ -169,7 +166,9 @@ namespace
         for (auto name : {"a.com", "b.com", "c.com", "d.com"})
         {
             if (c.get(name, dns::qtype::a).has_value())
+            {
                 ++found;
+            }
         }
         EXPECT_EQ(found, 3) << "cache: exactly 3 entries after LRU eviction";
     }

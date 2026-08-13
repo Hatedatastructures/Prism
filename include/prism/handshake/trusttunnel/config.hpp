@@ -12,7 +12,6 @@
 
 #include <cstdint>
 
-
 namespace psm::handshake::trusttunnel
 {
 
@@ -22,8 +21,8 @@ namespace psm::handshake::trusttunnel
      */
     struct user
     {
-        memory::string username;  ///< 用户名
-        memory::string password;  ///< 密码
+        memory::string username; ///< 用户名
+        memory::string password; ///< 密码
     };
 
     /**
@@ -32,9 +31,9 @@ namespace psm::handshake::trusttunnel
      */
     enum class network_type : std::uint8_t
     {
-        tcp,    ///< HTTP/2 (TCP)
-        udp,    ///< HTTP/3 (QUIC)
-        both    ///< 同时支持 TCP 和 UDP
+        tcp, ///< HTTP/2 (TCP)
+        udp, ///< HTTP/3 (QUIC)
+        both ///< 同时支持 TCP 和 UDP
     };
 
     /**
@@ -64,17 +63,17 @@ namespace psm::handshake::trusttunnel
     struct config
     {
         // === SNI 配置（必需）===
-        memory::vector<memory::string> server_names;  ///< SNI 白名单
+        memory::vector<memory::string> server_names; ///< SNI 白名单
 
         // === TLS 证书（必需）===
-        memory::string certificate;      ///< 证书文件路径（PEM）
-        memory::string private_key;      ///< 私钥文件路径（PEM）
+        memory::string certificate; ///< 证书文件路径（PEM）
+        memory::string private_key; ///< 私钥文件路径（PEM）
 
         // === 用户认证 ===
-        memory::vector<user> users;      ///< 用户列表
+        memory::vector<user> users; ///< 用户列表
 
         // === 网络配置 ===
-        network_type network{network_type::both};              ///< 传输网络类型
+        network_type network{network_type::both};                     ///< 传输网络类型
         congestion_controller congestion{congestion_controller::bbr}; ///< 拥塞控制
 
         // === 超时配置 ===
@@ -85,13 +84,9 @@ namespace psm::handshake::trusttunnel
          * @brief 检查配置是否有效
          * @return 如果 server_names、certificate、private_key 和 users 都非空，返回 true
          */
-        [[nodiscard]] auto enabled() const noexcept
-            -> bool
+        [[nodiscard]] auto enabled() const noexcept -> bool
         {
-            return !server_names.empty()
-                && !certificate.empty()
-                && !private_key.empty()
-                && !users.empty();
+            return !server_names.empty() && !certificate.empty() && !private_key.empty() && !users.empty();
         }
     };
 } // namespace psm::handshake::trusttunnel

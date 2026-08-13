@@ -15,7 +15,6 @@
 #include <string>
 #include <string_view>
 
-
 namespace psm::crypto
 {
 
@@ -26,8 +25,7 @@ namespace psm::crypto
          * @brief Base64 解码查找表
          * @details 将 ASCII 字符映射到对应的 6 位值，无效字符映射为 255。
          */
-        [[nodiscard]] constexpr auto decode_tbl()
--> std::array<std::uint8_t, 256>
+        [[nodiscard]] constexpr auto decode_tbl() -> std::array<std::uint8_t, 256>
         {
             std::array<std::uint8_t, 256> table{};
             table.fill(255);
@@ -64,8 +62,7 @@ namespace psm::crypto
      * 输入长度不是 4 的倍数时返回空字符串。
      * @note 遵循 RFC 4648 标准 Base64 解码规则。
      */
-    [[nodiscard]] inline auto base64_decode(const std::string_view input)
-        -> memory::string
+    [[nodiscard]] inline auto base64_decode(const std::string_view input) -> memory::string
     {
         if (input.empty())
         {
@@ -119,11 +116,8 @@ namespace psm::crypto
                         result.push_back(static_cast<char>((group[0] << 2) | (group[1] >> 4)));
                         result.push_back(static_cast<char>(((group[1] & 0x0F) << 4) | (group[2] >> 2)));
                         break;
-                    case 2:
-                        result.push_back(static_cast<char>((group[0] << 2) | (group[1] >> 4)));
-                        break;
-                    default:
-                        break;
+                    case 2: result.push_back(static_cast<char>((group[0] << 2) | (group[1] >> 4))); break;
+                    default: break;
                     }
                     group_count = 0;
                     padding = 0;
@@ -174,10 +168,9 @@ namespace psm::crypto
         /**
          * @brief Base64 编码查找表
          */
-        constexpr char encode_tbl[] =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-            "abcdefghijklmnopqrstuvwxyz"
-            "0123456789+/";
+        constexpr char encode_tbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                      "abcdefghijklmnopqrstuvwxyz"
+                                      "0123456789+/";
     } // namespace detail
 
     /**
@@ -187,8 +180,7 @@ namespace psm::crypto
      * @details 将原始字节编码为标准 Base64 字符串（含 padding）。
      * 遵循 RFC 4648 标准 Base64 编码规则。
      */
-    [[nodiscard]] inline auto base64_encode(std::span<const std::uint8_t> input)
-        -> memory::string
+    [[nodiscard]] inline auto base64_encode(std::span<const std::uint8_t> input) -> memory::string
     {
         if (input.empty())
         {

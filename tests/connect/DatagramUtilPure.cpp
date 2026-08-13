@@ -5,9 +5,8 @@
  *          通过 #include 源文件覆盖编译行，本地实现等价逻辑验证算法正确性。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
+#include <prism/foundation/foundation.hpp>
 
 #include <gtest/gtest.h>
 
@@ -29,8 +28,7 @@ namespace
         return nonce;
     }
 
-    auto local_read_u64_be(const std::uint8_t *data)
-        -> std::uint64_t
+    auto local_read_u64_be(const std::uint8_t *data) -> std::uint64_t
     {
         std::uint64_t val = 0;
         for (std::size_t i = 0; i < 8; ++i)
@@ -54,11 +52,20 @@ namespace
     TEST(DatagramUtilPure, MakeNonceAesBasic)
     {
         std::array<std::uint8_t, session_id_len> sid{};
-        sid[4] = 0xAA; sid[5] = 0xBB; sid[6] = 0xCC; sid[7] = 0xDD;
+        sid[4] = 0xAA;
+        sid[5] = 0xBB;
+        sid[6] = 0xCC;
+        sid[7] = 0xDD;
 
         std::array<std::uint8_t, packet_id_len> pid{};
-        pid[0] = 0x11; pid[1] = 0x22; pid[2] = 0x33; pid[3] = 0x44;
-        pid[4] = 0x55; pid[5] = 0x66; pid[6] = 0x77; pid[7] = 0x88;
+        pid[0] = 0x11;
+        pid[1] = 0x22;
+        pid[2] = 0x33;
+        pid[3] = 0x44;
+        pid[4] = 0x55;
+        pid[5] = 0x66;
+        pid[6] = 0x77;
+        pid[7] = 0x88;
 
         auto nonce = local_make_nonce_aes(sid, pid);
 
@@ -81,7 +88,10 @@ namespace
         bool all_zero = true;
         for (auto b : nonce)
         {
-            if (b != 0) all_zero = false;
+            if (b != 0)
+            {
+                all_zero = false;
+            }
         }
         EXPECT_TRUE(all_zero) << "nonce: all zeros when inputs are zero";
     }
@@ -99,7 +109,10 @@ namespace
         bool all_ff = true;
         for (auto b : nonce)
         {
-            if (b != 0xFF) all_ff = false;
+            if (b != 0xFF)
+            {
+                all_ff = false;
+            }
         }
         EXPECT_TRUE(all_ff) << "nonce: all 0xFF with max inputs";
     }
@@ -147,7 +160,10 @@ namespace
         bool all_zero = true;
         for (auto b : data)
         {
-            if (b != 0) all_zero = false;
+            if (b != 0)
+            {
+                all_zero = false;
+            }
         }
         EXPECT_TRUE(all_zero) << "write_u64_be: zero -> all bytes 0";
     }
@@ -160,7 +176,10 @@ namespace
         bool prefix_zero = true;
         for (std::size_t i = 0; i < 7; ++i)
         {
-            if (data[i] != 0) prefix_zero = false;
+            if (data[i] != 0)
+            {
+                prefix_zero = false;
+            }
         }
         EXPECT_TRUE(prefix_zero) << "write_u64_be: 1 -> prefix bytes = 0";
     }
@@ -172,7 +191,10 @@ namespace
         bool all_ff = true;
         for (auto b : data)
         {
-            if (b != 0xFF) all_ff = false;
+            if (b != 0xFF)
+            {
+                all_ff = false;
+            }
         }
         EXPECT_TRUE(all_ff) << "write_u64_be: max -> all 0xFF";
     }
@@ -196,7 +218,10 @@ namespace
             std::array<std::uint8_t, 8> buf{};
             local_write_u64_be(buf.data(), v);
             auto restored = local_read_u64_be(buf.data());
-            if (restored != v) all_ok = false;
+            if (restored != v)
+            {
+                all_ok = false;
+            }
         }
         EXPECT_TRUE(all_ok) << "read/write roundtrip: many values preserved";
     }
@@ -206,10 +231,16 @@ namespace
     TEST(DatagramUtilPure, MakeNonceAesStructure)
     {
         std::array<std::uint8_t, session_id_len> sid{};
-        for (std::size_t i = 0; i < 8; ++i) sid[i] = static_cast<std::uint8_t>(i + 1);
+        for (std::size_t i = 0; i < 8; ++i)
+        {
+            sid[i] = static_cast<std::uint8_t>(i + 1);
+        }
 
         std::array<std::uint8_t, packet_id_len> pid{};
-        for (std::size_t i = 0; i < 8; ++i) pid[i] = static_cast<std::uint8_t>(i + 10);
+        for (std::size_t i = 0; i < 8; ++i)
+        {
+            pid[i] = static_cast<std::uint8_t>(i + 10);
+        }
 
         auto nonce = local_make_nonce_aes(sid, pid);
 

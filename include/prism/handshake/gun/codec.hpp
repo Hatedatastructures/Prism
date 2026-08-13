@@ -59,8 +59,8 @@ namespace psm::handshake::gun::codec
      */
     struct frame_header
     {
-        std::size_t payload_len{0};  ///< 载荷长度
-        std::size_t header_len{0};   ///< 帧头总长度（含 varint）
+        std::size_t payload_len{0}; ///< 载荷长度
+        std::size_t header_len{0};  ///< 帧头总长度（含 varint）
     };
 
     /**

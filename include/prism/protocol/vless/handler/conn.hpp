@@ -12,10 +12,10 @@
 #pragma once
 
 #include <prism/foundation/fault/code.hpp>
-#include <prism/protocol/vless/config.hpp>
-#include <prism/protocol/vless/codec/packet.hpp>
 #include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/vless/codec/packet.hpp>
+#include <prism/protocol/vless/config.hpp>
 
 #include <boost/asio.hpp>
 
@@ -25,8 +25,10 @@
 #include <span>
 #include <tuple>
 
-
-namespace psm::stats::traffic { class traffic_state; }
+namespace psm::stats::traffic
+{
+    class traffic_state;
+}
 
 namespace psm::protocol::vless
 {
@@ -55,7 +57,7 @@ namespace psm::protocol::vless
          * 为 nullptr 时跳过认证（允许所有连接）
          */
         explicit conn(shared_transmission next_layer, const config &cfg = {},
-                       std::function<bool(std::string_view)> verifier = nullptr);
+                      std::function<bool(std::string_view)> verifier = nullptr);
 
         /**
          * @brief 获取关联的执行器
@@ -99,15 +101,15 @@ namespace psm::protocol::vless
          * UUID，发送响应。数据通过 preview 回放，读取即消费，不会残留
          * @return 握手结果和请求信息
          */
-        [[nodiscard]] auto handshake()
-            -> net::awaitable<std::pair<fault::code, request>>;
+        [[nodiscard]] auto handshake() -> net::awaitable<std::pair<fault::code, request>>;
 
         /**
          * @brief 路由回调函数类型
          * @details 用于解析目标地址并返回 UDP 端点。
          * 参数为主机名和端口字符串，返回错误码和 UDP 端点
          */
-        using route_callback = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+        using route_callback = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
+            std::string_view, std::string_view)>;
 
         /**
          * @brief 处理 UDP 命令
@@ -119,8 +121,7 @@ namespace psm::protocol::vless
          * @note 此方法会阻塞直到连接关闭或空闲超时
          * @warning 调用前必须确保 handshake() 成功且命令为 udp
          */
-        [[nodiscard]] auto async_associate(route_callback route_cb) const
-            -> net::awaitable<fault::code>;
+        [[nodiscard]] auto async_associate(route_callback route_cb) const -> net::awaitable<fault::code>;
 
         /**
          * @brief 设置流量统计状态
@@ -142,6 +143,10 @@ namespace psm::protocol::vless
             return next_layer_.get();
         }
 
+        /**
+         * @brief 获取内层传输常量指针（装饰器链导航）
+         * @return const transmission* 内层传输常量指针
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const psm::transport::transmission * override
         {
             return next_layer_.get();
@@ -175,18 +180,18 @@ namespace psm::protocol::vless
          */
         struct target_opts
         {
-            std::array<std::uint8_t, 320> &buffer;
-            std::span<std::byte> byte_span;
-            address_type atyp;
-            std::size_t initial_total;
-            net::steady_timer &deadline;
+            std::array<std::uint8_t, 320> &buffer; ///< 原始字节缓冲区
+            std::span<std::byte> byte_span;        ///< 可写的 byte span
+            address_type atyp;                     ///< 地址类型
+            std::size_t initial_total;             ///< 初始已读字节数
+            net::steady_timer &deadline;           ///< 握手超时定时器
         };
 
         shared_transmission next_layer_;                 // 底层传输层
         config config_;                                  // VLESS 协议配置
         std::function<bool(std::string_view)> verifier_; // UUID 验证回调
-        stats::traffic::traffic_state *traffic_{nullptr};
-        psm::connect::protocol_type proto_{psm::connect::protocol_type::unknown};
+        stats::traffic::traffic_state *traffic_{nullptr};   ///< 流量统计指针
+        psm::connect::protocol_type proto_{psm::connect::protocol_type::unknown}; ///< 协议类型
 
         /**
          * @brief 解析 VLESS 请求固定头部
@@ -195,8 +200,10 @@ namespace psm::protocol::vless
          * @param deadline 握手超时定时器
          * @return 错误码、UUID、命令、端口、地址类型、已读字节数
          */
-        [[nodiscard]] auto parse_header(std::array<std::uint8_t, 320> &buffer, std::span<std::byte> byte_span, net::steady_timer &deadline)
-            -> net::awaitable<std::tuple<fault::code, std::array<std::uint8_t, 16>, command, std::uint16_t, address_type, std::size_t>>;
+        [[nodiscard]] auto parse_header(std::array<std::uint8_t, 320> &buffer, std::span<std::byte> byte_span,
+                                        net::steady_timer &deadline)
+            -> net::awaitable<std::tuple<fault::code, std::array<std::uint8_t, 16>, command, std::uint16_t,
+                                         address_type, std::size_t>>;
 
         /**
          * @brief 解析目标地址
@@ -212,8 +219,8 @@ namespace psm::protocol::vless
          * @param deadline 握手超时定时器
          * @return 错误码
          */
-        [[nodiscard]] auto send_response(const std::array<std::uint8_t, 16> &uuid, net::steady_timer &deadline)
-            -> net::awaitable<fault::code>;
+        [[nodiscard]] auto send_response(const std::array<std::uint8_t, 16> &uuid,
+                                         net::steady_timer &deadline) -> net::awaitable<fault::code>;
     };
 
     using shared_conn = std::shared_ptr<conn>;
@@ -227,7 +234,7 @@ namespace psm::protocol::vless
      * @return shared_conn 中继器共享指针
      */
     [[nodiscard]] inline shared_conn make_conn(shared_transmission next_layer, const config &cfg = {},
-                                   std::function<bool(std::string_view)> verifier = nullptr)
+                                               std::function<bool(std::string_view)> verifier = nullptr)
     {
         return std::make_shared<conn>(std::move(next_layer), cfg, std::move(verifier));
     }

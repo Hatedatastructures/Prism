@@ -4,23 +4,23 @@
  * @details 测试 parse_request/parse_udp_pkt/build_udp_pkt/make_response 全分支
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/vless/codec/framing.hpp>
 #include <prism/protocol/vless/constants.hpp>
-#include <prism/diagnose/log.hpp>
 
 #include <gtest/gtest.h>
 
 namespace
 {
-    using psm::protocol::vless::format::parse_request;
-    using psm::protocol::vless::format::parse_udp_pkt;
+    using psm::protocol::vless::address_type;
+    using psm::protocol::vless::command;
     using psm::protocol::vless::format::build_udp_pkt;
     using psm::protocol::vless::format::make_response;
-    using psm::protocol::vless::format::udp_routed;
+    using psm::protocol::vless::format::parse_request;
+    using psm::protocol::vless::format::parse_udp_pkt;
     using psm::protocol::vless::format::udp_parse_result;
-    using psm::protocol::vless::command;
-    using psm::protocol::vless::address_type;
+    using psm::protocol::vless::format::udp_routed;
 
     TEST(VlessFramingPure, ParseRequestTooShort)
     {
@@ -64,9 +64,13 @@ namespace
         // UUID: all zeros
         buf[17] = 0; // addnl_len
         buf[18] = static_cast<std::uint8_t>(command::tcp);
-        buf[19] = 0x00; buf[20] = 0x50; // port 80
+        buf[19] = 0x00;
+        buf[20] = 0x50; // port 80
         buf[21] = static_cast<std::uint8_t>(address_type::ipv4);
-        buf[22] = 127; buf[23] = 0; buf[24] = 0; buf[25] = 1;
+        buf[22] = 127;
+        buf[23] = 0;
+        buf[24] = 0;
+        buf[25] = 1;
 
         auto result = parse_request(buf);
         EXPECT_TRUE(result.has_value()) << "parse_request: TCP IPv4 -> has_value";
@@ -85,14 +89,19 @@ namespace
         std::array<std::uint8_t, 26> buf{};
         buf[0] = psm::protocol::vless::version;
         buf[18] = static_cast<std::uint8_t>(command::udp);
-        buf[19] = 0x01; buf[20] = 0xBB; // port 443
+        buf[19] = 0x01;
+        buf[20] = 0xBB; // port 443
         buf[21] = static_cast<std::uint8_t>(address_type::ipv4);
-        buf[22] = 10; buf[23] = 0; buf[24] = 0; buf[25] = 1;
+        buf[22] = 10;
+        buf[23] = 0;
+        buf[24] = 0;
+        buf[25] = 1;
 
         auto result = parse_request(buf);
         EXPECT_TRUE(result.has_value()) << "parse_request: UDP IPv4 -> has_value";
         EXPECT_TRUE(result->cmd == command::udp) << "parse_request: cmd=udp";
-        EXPECT_TRUE(result->transport == psm::protocol::form::datagram) << "parse_request: transport=datagram";
+        EXPECT_TRUE(result->transport == psm::protocol::form::datagram)
+            << "parse_request: transport=datagram";
     }
 
     TEST(VlessFramingPure, ParseRequestMuxCommand)
@@ -100,9 +109,13 @@ namespace
         std::array<std::uint8_t, 26> buf{};
         buf[0] = psm::protocol::vless::version;
         buf[18] = static_cast<std::uint8_t>(command::mux);
-        buf[19] = 0; buf[20] = 80;
+        buf[19] = 0;
+        buf[20] = 80;
         buf[21] = static_cast<std::uint8_t>(address_type::ipv4);
-        buf[22] = 0; buf[23] = 0; buf[24] = 0; buf[25] = 0;
+        buf[22] = 0;
+        buf[23] = 0;
+        buf[24] = 0;
+        buf[25] = 0;
 
         auto result = parse_request(buf);
         EXPECT_TRUE(result.has_value()) << "parse_request: mux -> has_value";
@@ -117,7 +130,8 @@ namespace
         buf[0] = psm::protocol::vless::version;
         buf[17] = 0;
         buf[18] = static_cast<std::uint8_t>(command::tcp);
-        buf[19] = 0x01; buf[20] = 0xBB; // port 443
+        buf[19] = 0x01;
+        buf[20] = 0xBB; // port 443
         buf[21] = static_cast<std::uint8_t>(address_type::domain);
         buf[22] = 11; // domain length
         const char *domain = "example.com";
@@ -138,7 +152,8 @@ namespace
         buf[0] = psm::protocol::vless::version;
         buf[17] = 0;
         buf[18] = static_cast<std::uint8_t>(command::tcp);
-        buf[19] = 0x11; buf[20] = 0x51; // port 4433
+        buf[19] = 0x11;
+        buf[20] = 0x51; // port 4433
         buf[21] = static_cast<std::uint8_t>(address_type::ipv6);
         buf[37] = 1; // last byte = 1 (::1)
 
@@ -164,7 +179,8 @@ namespace
         udp_routed frame;
         frame.destination_address = psm::protocol::common::ipv4_address{{{127, 0, 0, 1}}};
         frame.destination_port = 80;
-        std::array<std::byte, 4> payload = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}, std::byte{0xDD}};
+        std::array<std::byte, 4> payload = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC},
+                                            std::byte{0xDD}};
 
         auto ec = build_udp_pkt(frame, payload, out);
         EXPECT_EQ(ec, psm::fault::code::success) << "build_udp IPv4: success";

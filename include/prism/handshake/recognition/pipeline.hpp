@@ -17,14 +17,13 @@
 #pragma once
 
 #include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/tls/types.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/handshake/scheme.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <cstdint>
 #include <span>
 #include <vector>
-
 
 namespace psm
 {
@@ -128,8 +127,7 @@ namespace psm::recognition
          * @brief 从 handshake 注册表构建管道
          * @param schemes 已注册的方案列表（std::vector 兼容 registry）
          */
-        explicit layered_detection_pipeline(
-            const std::vector<handshake::shared_scheme> &schemes);
+        explicit layered_detection_pipeline(const std::vector<handshake::shared_scheme> &schemes);
 
         /**
          * @brief 执行分层检测
@@ -137,9 +135,8 @@ namespace psm::recognition
          * @param matched_schemes SNI 路由匹配的方案（可选）
          * @return 管道检测结果
          */
-        [[nodiscard]] auto detect(
-            detect_input input,
-            const std::vector<handshake::shared_scheme> &matched_schemes) const
+        [[nodiscard]] auto detect(detect_input input,
+                                  const std::vector<handshake::shared_scheme> &matched_schemes) const
             -> pipeline_result;
 
     private:
@@ -158,19 +155,20 @@ namespace psm::recognition
         /**
          * @brief 执行 Tier 0 检测（零成本）
          */
-        [[nodiscard]] auto detect_tier0(std::uint32_t bitmap, const hello_features &features, const psm::settings &cfg) const
-            -> pipeline_result;
+        [[nodiscard]] auto detect_tier0(std::uint32_t bitmap, const hello_features &features,
+                                        const psm::settings &cfg) const -> pipeline_result;
 
         /**
          * @brief 执行 Tier 1 检测（有成本）
          */
-        [[nodiscard]] auto detect_tier1(const hello_features &features, std::span<const std::byte> raw, const psm::settings &cfg) const
-            -> pipeline_result;
+        [[nodiscard]] auto detect_tier1(const hello_features &features, std::span<const std::byte> raw,
+                                        const psm::settings &cfg) const -> pipeline_result;
 
         /**
          * @brief 执行 Tier 2 检测（模糊）
          */
-        [[nodiscard]] auto detect_tier2(const psm::settings &cfg, const std::vector<handshake::shared_scheme> &matched_schemes) const
+        [[nodiscard]] auto detect_tier2(const psm::settings &cfg,
+                                        const std::vector<handshake::shared_scheme> &matched_schemes) const
             -> pipeline_result;
     };
 } // namespace psm::recognition

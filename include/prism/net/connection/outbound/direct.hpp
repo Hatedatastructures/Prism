@@ -9,16 +9,15 @@
  */
 #pragma once
 
-#include <prism/net/connection/dialer/dialer.hpp>
-#include <prism/net/transport/transmission.hpp>
-#include <prism/foundation/fault/code.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/transport/reliable.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <functional>
 #include <string_view>
 #include <utility>
-
 
 namespace psm::outbound
 {
@@ -28,8 +27,8 @@ namespace psm::outbound
     using shared_transmission = transport::shared_transmission;
 
     /// UDP 数据报路由回调类型
-    using router_fn = std::function<net::awaitable<std::pair<fault::code,
-                                                              net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+    using router_fn = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
+        std::string_view, std::string_view)>;
 
     /**
      * @class direct
@@ -44,8 +43,7 @@ namespace psm::outbound
          * @brief 构造直连出站
          * @param dialer 拨号器引用，用于 DNS 解析和连接建立
          */
-        explicit direct(connect::dialer &dialer)
-            : dialer_(dialer)
+        explicit direct(connect::dialer &dialer) : dialer_(dialer)
         {
         }
 
@@ -55,14 +53,15 @@ namespace psm::outbound
          * @param executor 执行器（由 dialer 内部使用，保持签名兼容）
          * @return 结果码 + 可靠传输（失败时空）
          */
-        [[nodiscard]] auto async_connect(const psm::connect::target &target, const net::any_io_executor &executor)
+        [[nodiscard]] auto async_connect(const psm::connect::target &target,
+                                         const net::any_io_executor &executor)
             -> net::awaitable<std::pair<fault::code, shared_transmission>>
         {
             auto [ec, conn] = co_await dialer_.connect(target);
             if (fault::failed(ec) || !conn)
             {
-                diagnose::warn("route failed: {}, target: {}:{}", fault::describe(ec),
-                            target.host, target.port);
+                diagnose::warn("route failed: {}, target: {}:{}", fault::describe(ec), target.host,
+                               target.port);
                 co_return std::pair{ec, nullptr};
             }
 
@@ -74,18 +73,16 @@ namespace psm::outbound
          * @brief 提供 UDP 端点解析回调
          * @return 解析回调（host, port → 结果码 + UDP 端点）
          */
-        [[nodiscard]] auto make_router()
-            -> router_fn
+        [[nodiscard]] auto make_router() -> router_fn
         {
-            const auto ptr = std::shared_ptr<connect::dialer>(&dialer_, []([[maybe_unused]] connect::dialer *p)
+            const auto ptr = std::shared_ptr<connect::dialer>(&dialer_,
+                                                              []([[maybe_unused]] connect::dialer *p)
                                                               {
                                                                   // 非拥有指针，空删除器
                                                               });
             return [ptr](const std::string_view host, const std::string_view port)
                        -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
-            {
-                co_return co_await ptr->resolve_dgram(host, port);
-            };
+            { co_return co_await ptr->resolve_dgram(host, port); };
         }
 
     private:

@@ -13,7 +13,6 @@
 #include <string_view>
 #include <vector>
 
-
 namespace psm::protocol::shadowsocks::format
 {
 
@@ -50,11 +49,12 @@ namespace psm::protocol::shadowsocks::format
      * @param method 加密方法枚举
      * @return 密钥或 salt 的字节长度（AES-128 为 16，其余为 32）
      */
-    [[nodiscard]] constexpr auto keysalt_len(cipher_method method) noexcept
-        -> std::size_t
+    [[nodiscard]] constexpr auto keysalt_len(cipher_method method) noexcept -> std::size_t
     {
         if (method == cipher_method::aes_128_gcm)
+        {
             return 16;
+        }
         return 32;
     }
 

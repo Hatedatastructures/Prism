@@ -27,12 +27,11 @@
 #include <prism/protocol/multiplex/h2mux/config.hpp>
 #include <prism/protocol/multiplex/multiplexer.hpp>
 
-#include <nghttp2/nghttp2.h>
-
 #include <cstdint>
 #include <functional>
 #include <memory>
 
+#include <nghttp2/nghttp2.h>
 
 namespace psm::outbound
 {
@@ -67,10 +66,10 @@ namespace psm::multiplex::h2mux
      */
     struct stream_info
     {
-        memory::string host;                        ///< 目标主机
-        std::uint16_t port = 0;                     ///< 目标端口
-        stream_type type = stream_type::tcp;        ///< 流类型
-        bool valid = false;                         ///< 地址信息是否完整可用
+        memory::string host;                 ///< 目标主机
+        std::uint16_t port = 0;              ///< 目标端口
+        stream_type type = stream_type::tcp; ///< 流类型
+        bool valid = false;                  ///< 地址信息是否完整可用
     };
 
     /**
@@ -80,12 +79,12 @@ namespace psm::multiplex::h2mux
      */
     struct h2_headers
     {
-        std::int32_t stream_id{0};      ///< HTTP/2 stream ID
-        memory::string method;          ///< :method 头（CONNECT 校验用）
-        memory::string authority;       ///< :authority 头（CONNECT 目标）
-        memory::string host;            ///< Host 头（用于类型判断）
-        memory::string user_agent;      ///< User-Agent 头
-        memory::string proxy_auth;      ///< Proxy-Authorization 头
+        std::int32_t stream_id{0}; ///< HTTP/2 stream ID
+        memory::string method;     ///< :method 头（CONNECT 校验用）
+        memory::string authority;  ///< :authority 头（CONNECT 目标）
+        memory::string host;       ///< Host 头（用于类型判断）
+        memory::string user_agent; ///< User-Agent 头
+        memory::string proxy_auth; ///< Proxy-Authorization 头
     };
 
     /**
@@ -97,8 +96,7 @@ namespace psm::multiplex::h2mux
      *          - sing-mux resolver：等待 StreamRequest
      *          - TrustTunnel resolver：从 authority 解析目标
      */
-    using address_resolver = std::function<stream_info(
-        std::int32_t stream_id, const h2_headers &headers)>;
+    using address_resolver = std::function<stream_info(std::int32_t stream_id, const h2_headers &headers)>;
 
     /**
      * @struct h2_pending_entry
@@ -109,11 +107,11 @@ namespace psm::multiplex::h2mux
      */
     struct h2_pending_entry
     {
-        h2_headers headers;                      ///< 收集的 HTTP/2 请求头
-        stream_info info;                        ///< resolver 返回的地址信息
-        bool connecting = false;                 ///< 是否已发起连接
-        memory::vector<std::byte> buffer;        ///< StreamRequest 累积缓冲
-        memory::vector<std::byte> pending_data;  ///< 解析后的剩余数据（转发给流）
+        h2_headers headers;                     ///< 收集的 HTTP/2 请求头
+        stream_info info;                       ///< resolver 返回的地址信息
+        bool connecting = false;                ///< 是否已发起连接
+        memory::vector<std::byte> buffer;       ///< StreamRequest 累积缓冲
+        memory::vector<std::byte> pending_data; ///< 解析后的剩余数据（转发给流）
     };
 
     /**
@@ -134,8 +132,7 @@ namespace psm::multiplex::h2mux
          * @param resolver 地址解析回调（决定如何从 CONNECT 提取目标地址）
          * @param sing_streams 是否 sing-mux 流（激活后前置 StreamResponse 状态字节）
          */
-        explicit control(multiplexer_options opts, address_resolver resolver,
-                         bool sing_streams = false);
+        explicit control(multiplexer_options opts, address_resolver resolver, bool sing_streams = false);
 
         ~control() noexcept override;
 
@@ -144,8 +141,7 @@ namespace psm::multiplex::h2mux
          * @return 第一个有效的 CONNECT 请求头，或 nullopt（连接关闭）
          * @details 供 TrustTunnel scheme 验证 auth 后再交给 control 管理。
          */
-        [[nodiscard]] auto wait_first_connect()
-            -> net::awaitable<std::optional<h2_headers>>;
+        [[nodiscard]] auto wait_first_connect() -> net::awaitable<std::optional<h2_headers>>;
 
         /**
          * @brief 回复 CONNECT 请求
@@ -153,31 +149,27 @@ namespace psm::multiplex::h2mux
          * @param status HTTP 状态码（200 或 407）
          * @return 0 成功，非 0 失败
          */
-        [[nodiscard]] auto respond_connect(std::int32_t stream_id, std::uint32_t status)
-            -> std::int32_t;
+        [[nodiscard]] auto respond_connect(std::int32_t stream_id, std::uint32_t status) -> std::int32_t;
 
         /**
          * @brief 发送 nghttp2 缓冲区中的待输出数据
          * @details TrustTunnel 在认证接管后手动刷新输出缓冲。
          */
-        [[nodiscard]] auto send_pending()
-            -> net::awaitable<void>;
+        [[nodiscard]] auto send_pending() -> net::awaitable<void>;
 
         /**
          * @brief 激活指定 stream（解析地址、连接目标、创建 stream/datagram）
          * @param stream_id 流标识符
          * @details TrustTunnel 认证通过后手动激活首个 CONNECT 流。
          */
-        [[nodiscard]] auto activate_stream(std::uint32_t stream_id)
-            -> net::awaitable<void>;
+        [[nodiscard]] auto activate_stream(std::uint32_t stream_id) -> net::awaitable<void>;
 
     protected:
         /**
          * @brief 协议主循环
          * @details 初始化 nghttp2 会话，发送 SETTINGS，进入 frame_loop。
          */
-        auto run()
-            -> net::awaitable<void> override;
+        auto run() -> net::awaitable<void> override;
 
         /**
          * @brief 编码并写入一个逻辑帧
@@ -186,24 +178,21 @@ namespace psm::multiplex::h2mux
          *          fin 帧经 nghttp2_submit_rst_stream 关闭流；
          *          然后 send_pending 把 nghttp2 输出缓冲写入传输层。
          */
-        auto write_frame(outbound_frame frame)
-            -> net::awaitable<void> override;
+        auto write_frame(outbound_frame frame) -> net::awaitable<void> override;
 
     private:
         /**
          * @brief 初始化 nghttp2 服务端会话与回调
          * @return 0 成功，非 0 失败
          */
-        [[nodiscard]] auto init_nghttp2()
-            -> std::int32_t;
+        [[nodiscard]] auto init_nghttp2() -> std::int32_t;
 
         /**
          * @brief 帧循环主协程
          * @details 读取传输层字节流喂给 nghttp2_session_mem_recv，
          *          回调在同步上下文中驱动流生命周期。
          */
-        auto frame_loop()
-            -> net::awaitable<void>;
+        auto frame_loop() -> net::awaitable<void>;
 
         /**
          * @brief 处理完整的 CONNECT 请求
@@ -225,29 +214,24 @@ namespace psm::multiplex::h2mux
          * @details h2mux UDP 数据报为 length-prefixed 格式，目标地址在
          *          激活时确定（CONNECT 目标），此处累积跨帧数据并解析。
          */
-        auto process_udp(std::uint32_t stream_id, memory::vector<std::byte> payload)
-            -> net::awaitable<void>;
+        auto process_udp(std::uint32_t stream_id, memory::vector<std::byte> payload) -> net::awaitable<void>;
 
         /**
          * @brief 构造 datagram 端点解析回调
          */
-        [[nodiscard]] auto make_resolve() const
-            -> resolve_fn;
+        [[nodiscard]] auto make_resolve() const -> resolve_fn;
 
         /**
          * @brief 构造 datagram 响应回传回调
          */
-        [[nodiscard]] auto make_emit(std::uint32_t stream_id)
-            -> emit_fn;
+        [[nodiscard]] auto make_emit(std::uint32_t stream_id) -> emit_fn;
 
         // nghttp2 回调（静态函数，通过 user_data 获取 this）
         static auto on_begin_headers(nghttp2_session *, const nghttp2_frame *, void *) -> int;
-        static auto on_header(nghttp2_session *, const nghttp2_frame *,
-                              const uint8_t *, size_t, const uint8_t *, size_t,
-                              uint8_t, void *) -> int;
+        static auto on_header(nghttp2_session *, const nghttp2_frame *, const uint8_t *, size_t,
+                              const uint8_t *, size_t, uint8_t, void *) -> int;
         static auto on_frame_recv(nghttp2_session *, const nghttp2_frame *, void *) -> int;
-        static auto on_data(nghttp2_session *, uint8_t, int32_t,
-                            const uint8_t *, size_t, void *) -> int;
+        static auto on_data(nghttp2_session *, uint8_t, int32_t, const uint8_t *, size_t, void *) -> int;
         static auto on_stream_close(nghttp2_session *, int32_t, uint32_t, void *) -> int;
 
         /**
@@ -261,7 +245,9 @@ namespace psm::multiplex::h2mux
             memory::string dest_host;         ///< 固定目标主机（CONNECT 时确定）
             std::uint16_t dest_port = 0;      ///< 固定目标端口
 
-            explicit udp_entry(memory::resource_pointer mr) : buffer(mr), dest_host(mr) {}
+            explicit udp_entry(memory::resource_pointer mr) : buffer(mr), dest_host(mr)
+            {
+            }
         };
 
         /**
@@ -274,19 +260,21 @@ namespace psm::multiplex::h2mux
             std::size_t offset{0};
         };
 
-        nghttp2_session *session_{nullptr};  ///< nghttp2 会话
-        address_resolver resolver_;          ///< 地址解析回调
-        bool sing_streams_{false};           ///< sing-mux 流模式（激活前置状态字节）
-        std::function<net::awaitable<std::pair<fault::code,
-                                               net::ip::udp::endpoint>>(std::string_view, std::string_view)> router_fn_; ///< UDP 路由回调
+        nghttp2_session *session_{nullptr}; ///< nghttp2 会话
+        address_resolver resolver_;         ///< 地址解析回调
+        bool sing_streams_{false};          ///< sing-mux 流模式（激活前置状态字节）
+        std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view,
+                                                                                     std::string_view)>
+            router_fn_; ///< UDP 路由回调
 
         memory::unordered_map<std::uint32_t, h2_pending_entry> h2_pending_; ///< 等待解析的 HTTP/2 stream
         memory::unordered_map<std::uint32_t, udp_entry> udp_bufs_;          ///< UDP 重组缓冲表
-        memory::unordered_map<std::uint32_t, std::unique_ptr<data_source>> pending_data_; ///< DATA 数据源（随流存活）
+        memory::unordered_map<std::uint32_t, std::unique_ptr<data_source>>
+            pending_data_; ///< DATA 数据源（随流存活）
 
         // 第一个 CONNECT 的通知机制（TrustTunnel auth 验证用）
-        bool connect_resolved_{false};   ///< 首个 CONNECT 是否已到达
-        h2_headers first_connect_;       ///< 首个 CONNECT 的请求头
+        bool connect_resolved_{false};     ///< 首个 CONNECT 是否已到达
+        h2_headers first_connect_;         ///< 首个 CONNECT 的请求头
         net::steady_timer connect_waiter_; ///< 首个 CONNECT 等待定时器
     };
 

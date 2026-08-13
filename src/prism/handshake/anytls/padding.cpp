@@ -2,8 +2,8 @@
 
 #include <openssl/evp.h>
 
-#include <cstdlib>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <random>
 
@@ -13,8 +13,7 @@ namespace psm::handshake::anytls
     namespace
     {
         // 解析 "min-max" 为密码学安全随机整数 [min, max]
-        auto random_in_range(std::int32_t lo, std::int32_t hi)
-            -> std::int32_t
+        auto random_in_range(std::int32_t lo, std::int32_t hi) -> std::int32_t
         {
             if (lo >= hi)
             {
@@ -26,8 +25,7 @@ namespace psm::handshake::anytls
         }
 
         // 解析 "min-max" 字符串
-        auto parse_range(std::string_view seg)
-            -> std::pair<std::int32_t, std::int32_t>
+        auto parse_range(std::string_view seg) -> std::pair<std::int32_t, std::int32_t>
         {
             auto dash = seg.find('-');
             if (dash == std::string_view::npos)
@@ -39,12 +37,12 @@ namespace psm::handshake::anytls
             }
             std::string lo_str(seg.substr(0, dash));
             std::string hi_str(seg.substr(dash + 1));
-            return {static_cast<std::int32_t>(std::atoi(lo_str.c_str())), static_cast<std::int32_t>(std::atoi(hi_str.c_str()))};
+            return {static_cast<std::int32_t>(std::atoi(lo_str.c_str())),
+                    static_cast<std::int32_t>(std::atoi(hi_str.c_str()))};
         }
 
         // 计算 MD5 摘要，返回十六进制字符串
-        auto compute_md5_hex(std::string_view data)
-            -> memory::string
+        auto compute_md5_hex(std::string_view data) -> memory::string
         {
             std::array<std::uint8_t, 16> digest{};
             std::uint32_t digest_len = 0;
@@ -108,7 +106,8 @@ namespace psm::handshake::anytls
                         else
                         {
                             // key 是包序号
-                            std::int32_t pkt_num = static_cast<std::int32_t>(std::atoi(std::string(key).c_str()));
+                            std::int32_t pkt_num =
+                                static_cast<std::int32_t>(std::atoi(std::string(key).c_str()));
                             scheme_[pkt_num] = memory::string(val.data(), val.size());
                         }
                     }
@@ -119,8 +118,7 @@ namespace psm::handshake::anytls
         }
     }
 
-    auto padding_factory::generate_sizes(const std::uint32_t pkt) const
-        -> memory::vector<std::int32_t>
+    auto padding_factory::generate_sizes(const std::uint32_t pkt) const -> memory::vector<std::int32_t>
     {
         memory::vector<std::int32_t> sizes(memory::current_resource());
 

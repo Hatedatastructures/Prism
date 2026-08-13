@@ -54,10 +54,20 @@ namespace psm::protocol::hysteria2
         std::size_t data_len{0};     ///< 数据长度
     };
 
-    /// QUIC varint 编码
+    /**
+     * @brief QUIC varint 编码
+     * @param value 待编码值
+     * @param out 输出缓冲
+     * @return 编码字节数
+     */
     [[nodiscard]] auto encode_varint(std::uint64_t value, std::span<std::uint8_t> out) -> std::size_t;
 
-    /// QUIC varint 解码
+    /**
+     * @brief QUIC varint 解码
+     * @param in 输入缓冲
+     * @param value 解码结果输出
+     * @return 解码字节数
+     */
     [[nodiscard]] auto decode_varint(std::span<const std::uint8_t> in, std::uint64_t &value) -> std::size_t;
 
     /**

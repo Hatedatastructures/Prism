@@ -54,7 +54,6 @@ namespace psm::crypto
         return out;
     }
 
-
     auto ecb_decrypt(const std::span<const std::uint8_t, 16> input, const std::span<const std::uint8_t> key)
         -> std::array<std::uint8_t, 16>
     {
@@ -101,6 +100,5 @@ namespace psm::crypto
         EVP_CIPHER_CTX_free(ctx);
         return out;
     }
-
 
 } // namespace psm::crypto

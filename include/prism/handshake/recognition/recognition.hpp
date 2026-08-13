@@ -10,8 +10,6 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/memory/pool.hpp>
-#include <prism/net/connection/target.hpp>
-#include <prism/net/connection/types.hpp>
 #include <prism/handshake/recognition/confidence.hpp>
 #include <prism/handshake/recognition/pipeline.hpp>
 #include <prism/handshake/recognition/probe/analyzer.hpp>
@@ -19,12 +17,13 @@
 #include <prism/handshake/recognition/result.hpp>
 #include <prism/handshake/recognition/routes.hpp>
 #include <prism/handshake/scheme.hpp>
+#include <prism/net/connection/target.hpp>
+#include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 
 #include <span>
-
 
 // 前置声明
 namespace psm
@@ -93,8 +92,7 @@ namespace psm::recognition
      * 特征分析
      * 方案执行
      */
-    [[nodiscard]] auto recognize(handshake::handshake_context &opts)
-        -> net::awaitable<recognize_result>;
+    [[nodiscard]] auto recognize(handshake::handshake_context &opts) -> net::awaitable<recognize_result>;
 
     // 伪装方案识别：identify()（仅 TLS）
 
@@ -147,7 +145,6 @@ namespace psm::recognition
      * 成功则返回结果
      * 失败则继续下一个或 fallback
      */
-    [[nodiscard]] auto identify(handshake::handshake_context &opts)
-        -> net::awaitable<identify_result>;
+    [[nodiscard]] auto identify(handshake::handshake_context &opts) -> net::awaitable<identify_result>;
 
 } // namespace psm::recognition

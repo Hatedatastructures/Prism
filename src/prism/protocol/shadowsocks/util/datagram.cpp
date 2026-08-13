@@ -1,13 +1,12 @@
-#include <prism/protocol/shadowsocks/util/datagram.hpp>
 #include <prism/crypto/block.hpp>
-#include <prism/protocol/shadowsocks/util/cast.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/protocol/shadowsocks/util/cast.hpp>
+#include <prism/protocol/shadowsocks/util/datagram.hpp>
 
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-
 #include <string_view>
 
 using namespace psm::diagnose;
@@ -36,7 +35,8 @@ namespace psm::protocol::shadowsocks
             // 验证请求类型
             if (body_plain[0] != request_type)
             {
-                diagnose::warn(std::shared_ptr<diagnose::context>{}, "invalid request type: 0x{:02x}", body_plain[0]);
+                diagnose::warn(std::shared_ptr<diagnose::context>{}, "invalid request type: 0x{:02x}",
+                               body_plain[0]);
                 return fault::code::bad_message;
             }
 
@@ -52,8 +52,8 @@ namespace psm::protocol::shadowsocks
             const auto diff = std::abs(static_cast<std::int64_t>(client_ts) - now);
             if (diff > timestamp_window)
             {
-                diagnose::warn(std::shared_ptr<diagnose::context>{}, "timestamp expired: client_ts={}, now={}, diff={}s",
-                            client_ts, now, diff);
+                diagnose::warn(std::shared_ptr<diagnose::context>{},
+                               "timestamp expired: client_ts={}, now={}, diff={}s", client_ts, now, diff);
                 return fault::code::timestamp_expired;
             }
 
@@ -71,7 +71,8 @@ namespace psm::protocol::shadowsocks
             // 跳过 padding
             if (offset + 2 <= body_plain.size())
             {
-                const auto padding_len = static_cast<std::uint16_t>(body_plain[offset] << 8 | body_plain[offset + 1]);
+                const auto padding_len =
+                    static_cast<std::uint16_t>(body_plain[offset] << 8 | body_plain[offset + 1]);
                 offset += 2 + padding_len;
             }
 
@@ -80,8 +81,8 @@ namespace psm::protocol::shadowsocks
             result.destination_port = addr_result.port;
             if (offset < body_plain.size())
             {
-                result.payload = std::span<const std::uint8_t>(
-                    body_plain.data() + offset, body_plain.size() - offset);
+                result.payload =
+                    std::span<const std::uint8_t>(body_plain.data() + offset, body_plain.size() - offset);
             }
 
             return fault::code::success;
@@ -102,8 +103,9 @@ namespace psm::protocol::shadowsocks
         return recv_aes_gcm(packet, sender);
     }
 
-    auto udp_relay::encrypt_out(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &relay_id,
-                                     const std::shared_ptr<udp_session> &entry)
+    auto udp_relay::encrypt_out(std::span<const std::byte> payload,
+                                const std::array<std::uint8_t, session_id_len> &relay_id,
+                                const std::shared_ptr<udp_session> &entry)
         -> std::pair<fault::code, memory::vector<std::byte>>
     {
         if (!valid_)
@@ -135,8 +137,8 @@ namespace psm::protocol::shadowsocks
         std::memcpy(separate_header.data(), packet.data(), separate_hdr_len);
 
         const auto key_span = std::span<const std::uint8_t>(psk_.data(), psk_.size());
-        const auto header_plain = crypto::ecb_decrypt(
-            std::span<const std::uint8_t, 16>{separate_header.data(), 16}, key_span);
+        const auto header_plain =
+            crypto::ecb_decrypt(std::span<const std::uint8_t, 16>{separate_header.data(), 16}, key_span);
 
         std::array<std::uint8_t, session_id_len> relay_id{};
         std::memcpy(relay_id.data(), header_plain.data(), session_id_len);
@@ -160,8 +162,7 @@ namespace psm::protocol::shadowsocks
 
         // AEAD 解密 body（PMR vector，零拷贝 payload 指向此缓冲区）
         const auto body_enc = packet.subspan(separate_hdr_len);
-        memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len,
-                                                memory::current_resource());
+        memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len, memory::current_resource());
 
         if (const auto r = entry->aead_ctx->open(body_plain, as_u8(body_enc), nonce_span);
             r != fault::code::success)
@@ -190,8 +191,9 @@ namespace psm::protocol::shadowsocks
         return {fault::code::success, result};
     }
 
-    auto udp_relay::send_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &relay_id,
-                                    const std::shared_ptr<udp_session> &entry)
+    auto udp_relay::send_aes_gcm(std::span<const std::byte> payload,
+                                 const std::array<std::uint8_t, session_id_len> &relay_id,
+                                 const std::shared_ptr<udp_session> &entry)
         -> std::pair<fault::code, memory::vector<std::byte>>
     {
         if (!entry || !entry->aead_ctx)
@@ -238,8 +240,8 @@ namespace psm::protocol::shadowsocks
         std::memcpy(separate_plain.data() + session_id_len, packet_id.data(), packet_id_len);
 
         const auto key_span = std::span<const std::uint8_t>(psk_.data(), psk_.size());
-        const auto header_enc = crypto::ecb_encrypt(
-            std::span<const std::uint8_t, 16>{separate_plain.data(), 16}, key_span);
+        const auto header_enc =
+            crypto::ecb_encrypt(std::span<const std::uint8_t, 16>{separate_plain.data(), 16}, key_span);
 
         // 直接在输出缓冲区中构造，消除中间 body_enc vector
         memory::vector<std::byte> result(separate_hdr_len + body_enc_len, memory::current_resource());
@@ -249,8 +251,7 @@ namespace psm::protocol::shadowsocks
         // 安全：字节 vector 区域转 uint8_t span 用于 AEAD 加密输出
         const auto body_out = std::span<std::uint8_t>(
             reinterpret_cast<std::uint8_t *>(result.data() + separate_hdr_len), body_enc_len);
-        if (const auto r = entry->aead_ctx->seal(body_out, plain, nonce_span);
-            r != fault::code::success)
+        if (const auto r = entry->aead_ctx->seal(body_out, plain, nonce_span); r != fault::code::success)
         {
             diagnose::warn(prefix_, "AES-GCM encrypt body failed");
             return {fault::code::crypto_error, {}};
@@ -301,12 +302,10 @@ namespace psm::protocol::shadowsocks
 
         // 解密 body（跳过 16 字节明文 header，PMR vector）
         const auto body_enc = packet.subspan(session_id_len + packet_id_len);
-        memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len,
-                                                memory::current_resource());
+        memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len, memory::current_resource());
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
-        if (const auto r = ctx.open(body_plain, as_u8(body_enc), nonce_span);
-            r != fault::code::success)
+        if (const auto r = ctx.open(body_plain, as_u8(body_enc), nonce_span); r != fault::code::success)
         {
             diagnose::warn(prefix_, "chacha20 decrypt body failed");
             return {fault::code::crypto_error, result};
@@ -333,8 +332,8 @@ namespace psm::protocol::shadowsocks
     }
 
     auto udp_relay::send_chacha(std::span<const std::byte> payload,
-                                     const std::array<std::uint8_t, session_id_len> &relay_id,
-                                     const std::shared_ptr<udp_session> &entry)
+                                const std::array<std::uint8_t, session_id_len> &relay_id,
+                                const std::shared_ptr<udp_session> &entry)
         -> std::pair<fault::code, memory::vector<std::byte>>
     {
         if (!entry)
@@ -385,17 +384,16 @@ namespace psm::protocol::shadowsocks
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
         // 直接在输出缓冲区中构造，消除中间 body_enc vector
-        memory::vector<std::byte> result(session_id_len + packet_id_len + body_enc_len, memory::current_resource());
+        memory::vector<std::byte> result(session_id_len + packet_id_len + body_enc_len,
+                                         memory::current_resource());
         std::memcpy(result.data(), relay_id.data(), session_id_len);
         std::memcpy(result.data() + session_id_len, packet_id.data(), packet_id_len);
 
         // 将加密 body 直接写入 result 的 body 区间
         // 安全：字节 vector 区域转 uint8_t span 用于 AEAD 加密输出
         const auto body_out = std::span<std::uint8_t>(
-            reinterpret_cast<std::uint8_t *>(result.data() + session_id_len + packet_id_len),
-            body_enc_len);
-        if (const auto r = ctx.seal(body_out, plain, nonce_span);
-            r != fault::code::success)
+            reinterpret_cast<std::uint8_t *>(result.data() + session_id_len + packet_id_len), body_enc_len);
+        if (const auto r = ctx.seal(body_out, plain, nonce_span); r != fault::code::success)
         {
             diagnose::warn(prefix_, "chacha20 encrypt body failed");
             return {fault::code::crypto_error, {}};
@@ -404,9 +402,8 @@ namespace psm::protocol::shadowsocks
         return {fault::code::success, result};
     }
 
-    auto udp_relay::make_nonce_aes(
-        const std::array<std::uint8_t, session_id_len> &relay_id,
-        const std::array<std::uint8_t, packet_id_len> &packet_id)
+    auto udp_relay::make_nonce_aes(const std::array<std::uint8_t, session_id_len> &relay_id,
+                                   const std::array<std::uint8_t, packet_id_len> &packet_id)
         -> std::array<std::uint8_t, 12>
     {
         std::array<std::uint8_t, 12> nonce{};
@@ -417,8 +414,7 @@ namespace psm::protocol::shadowsocks
         return nonce;
     }
 
-    auto udp_relay::read_u64_be(const std::uint8_t *data)
-        -> std::uint64_t
+    auto udp_relay::read_u64_be(const std::uint8_t *data) -> std::uint64_t
     {
         std::uint64_t val = 0;
         for (std::size_t i = 0; i < 8; ++i)

@@ -7,13 +7,12 @@
  */
 #pragma once
 
-#include <prism/user/stats/runtime.hpp>
 #include <prism/resource/worker.hpp>
+#include <prism/user/stats/runtime.hpp>
 
 #include <boost/asio.hpp>
 
 #include <optional>
-
 
 namespace psm::runtime::worker::launch
 {
@@ -39,8 +38,8 @@ namespace psm::runtime::worker::launch
     struct launch_params
     {
         std::shared_ptr<psm::resource::worker> worker; ///< worker 资源（共享所有权）
-        psm::stats::runtime::worker_load &metrics;                ///< 负载监控
-        tcp::socket socket;                                       ///< 已连接的 socket
+        psm::stats::runtime::worker_load &metrics;     ///< 负载监控
+        tcp::socket socket;                            ///< 已连接的 socket
     };
 
     /**

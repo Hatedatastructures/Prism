@@ -1,8 +1,7 @@
-#include <prism/handshake/anytls/mux/session.hpp>
-
-#include <prism/foundation/fault/handling.hpp>
-#include <prism/handshake/anytls/mux/transport.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/handshake/anytls/mux/session.hpp>
+#include <prism/handshake/anytls/mux/transport.hpp>
 
 #include <cstring>
 
@@ -11,15 +10,11 @@ using namespace psm::diagnose;
 namespace psm::handshake::anytls
 {
 
-    anytls_session::anytls_session(
-        transport::shared_transmission tls_transport,
-        std::shared_ptr<padding_factory> padding,
-        stream_callback on_new_stream)
-        : transport_(std::move(tls_transport))
-        , on_new_stream_(std::move(on_new_stream))
-        , write_strand_(transport_->get_executor())
-        , padding_(std::move(padding))
-        , init_waiter_(transport_->get_executor())
+    anytls_session::anytls_session(transport::shared_transmission tls_transport,
+                                   std::shared_ptr<padding_factory> padding, stream_callback on_new_stream)
+        : transport_(std::move(tls_transport)), on_new_stream_(std::move(on_new_stream)),
+          write_strand_(transport_->get_executor()), padding_(std::move(padding)),
+          init_waiter_(transport_->get_executor())
     {
         // 定时器立即过期，用于等待第一个 stream
         init_waiter_.expires_after(std::chrono::hours(24));
@@ -28,21 +23,16 @@ namespace psm::handshake::anytls
     void anytls_session::start()
     {
         auto self = shared_from_this();
-        auto recv_task = [self]() -> net::awaitable<void>
-        {
-            co_await self->recv_loop();
-        };
+        auto recv_task = [self]() -> net::awaitable<void> { co_await self->recv_loop(); };
         net::co_spawn(transport_->get_executor(), std::move(recv_task), net::detached);
     }
 
     auto anytls_session::wait_first_stream()
-        -> net::awaitable<std::pair<fault::code,
-            std::tuple<std::uint32_t, memory::vector<std::uint8_t>>>>
+        -> net::awaitable<std::pair<fault::code, std::tuple<std::uint32_t, memory::vector<std::uint8_t>>>>
     {
         if (init_resolved_)
         {
-            auto result = std::pair{init_error_,
-                std::tuple{init_id_, std::move(init_preread_)}};
+            auto result = std::pair{init_error_, std::tuple{init_id_, std::move(init_preread_)}};
             co_return result;
         }
 
@@ -50,8 +40,7 @@ namespace psm::handshake::anytls
         boost::system::error_code ec;
         co_await init_waiter_.async_wait(net::redirect_error(net::use_awaitable, ec));
 
-        auto result2 = std::pair{init_error_,
-            std::tuple{init_id_, std::move(init_preread_)}};
+        auto result2 = std::pair{init_error_, std::tuple{init_id_, std::move(init_preread_)}};
         co_return result2;
     }
 
@@ -70,10 +59,8 @@ namespace psm::handshake::anytls
                 }
 
                 // 安全：将 byte 缓冲区转为 uint8_t span 用于帧头解析，内存布局相同
-                auto header = frame_header::parse(
-                    std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(header_buf.data()),
-                        frame_header_size));
+                auto header = frame_header::parse(std::span<const std::uint8_t>(
+                    reinterpret_cast<const std::uint8_t *>(header_buf.data()), frame_header_size));
 
                 if (!header)
                 {
@@ -85,10 +72,8 @@ namespace psm::handshake::anytls
                 if (header->length > 0)
                 {
                     // 安全：将 uint8_t vector 转为可变 byte span 用于异步读取
-                    if (!co_await read_exact(
-                        std::span<std::byte>(
-                            reinterpret_cast<std::byte *>(payload.data()),
-                            payload.size())))
+                    if (!co_await read_exact(std::span<std::byte>(
+                            reinterpret_cast<std::byte *>(payload.data()), payload.size())))
                     {
                         diagnose::debug(prefix_, "connection closed during payload read");
                         break;
@@ -116,9 +101,8 @@ namespace psm::handshake::anytls
 
         for (auto &[id, ch] : streams_)
         {
-            ch->try_send(
-                boost::system::errc::make_error_code(boost::system::errc::connection_reset),
-                memory::vector<std::uint8_t>{});
+            ch->try_send(boost::system::errc::make_error_code(boost::system::errc::connection_reset),
+                         memory::vector<std::uint8_t>{});
         }
         streams_.clear();
 
@@ -131,7 +115,9 @@ namespace psm::handshake::anytls
 
         closed_ = true;
         if (transport_)
+        {
             transport_->close();
+        }
 
         diagnose::debug(prefix_, "recv_loop ended");
     }
@@ -141,20 +127,11 @@ namespace psm::handshake::anytls
     {
         switch (hdr.cmd)
         {
-        case command::settings:
-            co_await on_settings(std::move(payload));
-            break;
-        case command::syn:
-            co_await on_syn(hdr.stream_id);
-            break;
-        case command::psh:
-            co_await on_psh(hdr.stream_id, std::move(payload));
-            break;
-        case command::fin:
-            co_await on_fin(hdr.stream_id);
-            break;
-        case command::alert:
-        {
+        case command::settings: co_await on_settings(std::move(payload)); break;
+        case command::syn: co_await on_syn(hdr.stream_id); break;
+        case command::psh: co_await on_psh(hdr.stream_id, std::move(payload)); break;
+        case command::fin: co_await on_fin(hdr.stream_id); break;
+        case command::alert: {
             auto stream_id = hdr.stream_id;
             auto it = streams_.find(stream_id);
             if (it != streams_.end())
@@ -167,8 +144,7 @@ namespace psm::handshake::anytls
             diagnose::debug(prefix_, "ALERT stream_id={}", stream_id);
             break;
         }
-        case command::heart_req:
-        {
+        case command::heart_req: {
             std::error_code heart_ec;
             co_await write_frame(frame_input{command::heart_resp, 0, {}, heart_ec});
             if (heart_ec)
@@ -181,11 +157,8 @@ namespace psm::handshake::anytls
             }
             break;
         }
-        case command::waste:
-            break;
-        default:
-            diagnose::debug(prefix_, "unhandled command: {}", static_cast<int>(hdr.cmd));
-            break;
+        case command::waste: break;
+        default: diagnose::debug(prefix_, "unhandled command: {}", static_cast<int>(hdr.cmd)); break;
         }
     }
 
@@ -194,8 +167,7 @@ namespace psm::handshake::anytls
         received_settings_ = true;
 
         // 安全：将 uint8_t payload 转为 string_view 用于文本协议解析
-        auto text = std::string_view(
-            reinterpret_cast<const char *>(payload.data()), payload.size());
+        auto text = std::string_view(reinterpret_cast<const char *>(payload.data()), payload.size());
 
         // 查找 "v=N"
         auto v_pos = text.find("v=");
@@ -204,7 +176,9 @@ namespace psm::handshake::anytls
             auto v_end = text.find('\n', v_pos);
             std::size_t v_len = std::string_view::npos;
             if (v_end != std::string_view::npos)
+            {
                 v_len = v_end - v_pos - 2;
+            }
             auto v_str = text.substr(v_pos + 2, v_len);
             peer_version_ = static_cast<std::uint32_t>(std::atoi(std::string(v_str).c_str()));
         }
@@ -219,18 +193,22 @@ namespace psm::handshake::anytls
                 auto md5_end = text.find('\n', md5_start);
                 std::size_t md5_len = std::string_view::npos;
                 if (md5_end != std::string_view::npos)
+                {
                     md5_len = md5_end - md5_start;
+                }
                 auto client_md5 = text.substr(md5_start, md5_len);
 
                 if (client_md5 != std::string_view(padding_->md5.data(), padding_->md5.size()))
                 {
                     diagnose::debug(prefix_, "client padding-md5 mismatch, sending update");
                     std::error_code up_ec;
-                    co_await write_frame(frame_input{command::update_padding, 0,
-                        // 安全：将字符串数据转为 byte span 用于帧传输
-                        std::span<const std::byte>(
-                            reinterpret_cast<const std::byte *>(padding_->raw_scheme_.data()),
-                            padding_->raw_scheme_.size()), up_ec});
+                    co_await write_frame(
+                        frame_input{command::update_padding, 0,
+                                    // 安全：将字符串数据转为 byte span 用于帧传输
+                                    std::span<const std::byte>(
+                                        reinterpret_cast<const std::byte *>(padding_->raw_scheme_.data()),
+                                        padding_->raw_scheme_.size()),
+                                    up_ec});
                 }
             }
         }
@@ -240,11 +218,12 @@ namespace psm::handshake::anytls
         {
             auto settings_text = std::string("v=2\nserver=prism\n");
             std::error_code wr_ec;
-            co_await write_frame(frame_input{command::server_settings, 0,
+            co_await write_frame(frame_input{
+                command::server_settings, 0,
                 // 安全：将字符串数据转为 byte span 用于帧传输
-                std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(settings_text.data()),
-                    settings_text.size()), wr_ec});
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(settings_text.data()),
+                                           settings_text.size()),
+                wr_ec});
             if (wr_ec)
             {
                 diagnose::debug(prefix_, "failed to send server settings: {}", wr_ec.message());
@@ -270,8 +249,7 @@ namespace psm::handshake::anytls
         }
 
         // 创建 channel
-        auto channel = std::make_shared<channel_type>(
-            transport_->get_executor(), 64);
+        auto channel = std::make_shared<channel_type>(transport_->get_executor(), 64);
         streams_[stream_id] = channel;
 
         // mihomo: SYNACK 在 stream 处理完 SOCKS 地址后发送（HandshakeSuccess）
@@ -291,7 +269,8 @@ namespace psm::handshake::anytls
         diagnose::debug(prefix_, "SYN stream_id={}", stream_id);
     }
 
-    auto anytls_session::on_psh(std::uint32_t stream_id, memory::vector<std::uint8_t> payload) -> net::awaitable<void>
+    auto anytls_session::on_psh(std::uint32_t stream_id, memory::vector<std::uint8_t> payload)
+        -> net::awaitable<void>
     {
         // 第一个 stream 的第一个 PSH：保存 preread 数据用于解析 SOCKS 目标
         // 不发送到 channel——数据由 handle_first_stream() 消费，
@@ -320,11 +299,9 @@ namespace psm::handshake::anytls
                     // 触发 on_new_stream（携带 SOCKS 地址数据）
                     if (on_new_stream_)
                     {
-                        auto stream_trans = std::make_shared<anytls_stream_transport>(
-                            shared_from_this(), stream_id, it->second);
-                        on_new_stream_(stream_id,
-                            std::move(stream_trans),
-                            std::move(payload));
+                        auto stream_trans = std::make_shared<anytls_stream_transport>(shared_from_this(),
+                                                                                      stream_id, it->second);
+                        on_new_stream_(stream_id, std::move(stream_trans), std::move(payload));
 
                         // 发送 SYNACK（v2+）
                         if (peer_version_ >= 2)
@@ -361,9 +338,8 @@ namespace psm::handshake::anytls
         auto it = streams_.find(stream_id);
         if (it != streams_.end())
         {
-            it->second->try_send(
-                boost::system::errc::make_error_code(boost::system::errc::connection_reset),
-                memory::vector<std::uint8_t>{});
+            it->second->try_send(boost::system::errc::make_error_code(boost::system::errc::connection_reset),
+                                 memory::vector<std::uint8_t>{});
             streams_.erase(it);
         }
         diagnose::debug(prefix_, "FIN stream_id={}", stream_id);
@@ -376,8 +352,7 @@ namespace psm::handshake::anytls
         while (total < buf.size())
         {
             std::error_code ec;
-            auto n = co_await transport_->async_read_some(
-                buf.subspan(total), ec);
+            auto n = co_await transport_->async_read_some(buf.subspan(total), ec);
             if (ec || n == 0)
             {
                 co_return false;
@@ -401,10 +376,10 @@ namespace psm::handshake::anytls
 
         // 写入 header
         // 安全：将序列化帧头 vector 转为 byte span 用于网络传输
-        co_await transport::async_write(*transport_,
-            std::span<const std::byte>(
-                reinterpret_cast<const std::byte *>(serialized.data()),
-                serialized.size()),
+        co_await transport::async_write(
+            *transport_,
+            std::span<const std::byte>(reinterpret_cast<const std::byte *>(serialized.data()),
+                                       serialized.size()),
             input.ec);
 
         if (input.ec)
@@ -422,7 +397,6 @@ namespace psm::handshake::anytls
                 diagnose::debug(prefix_, "write_frame payload failed: {}", input.ec.message());
             }
         }
-
     }
 
     auto anytls_session::send_waste_frame(std::uint32_t pkt_num, std::error_code &ec) -> net::awaitable<void>
@@ -441,11 +415,12 @@ namespace psm::handshake::anytls
             }
 
             memory::vector<std::uint8_t> waste_data(size, 0);
-            co_await write_frame(frame_input{command::waste, 0,
-                // 安全：将 uint8_t vector 转为 byte span 用于 waste 帧传输
-                std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(waste_data.data()),
-                    waste_data.size()), ec});
+            co_await write_frame(
+                frame_input{command::waste, 0,
+                            // 安全：将 uint8_t vector 转为 byte span 用于 waste 帧传输
+                            std::span<const std::byte>(reinterpret_cast<const std::byte *>(waste_data.data()),
+                                                       waste_data.size()),
+                            ec});
             if (ec)
             {
                 co_return;
@@ -454,7 +429,7 @@ namespace psm::handshake::anytls
     }
 
     auto anytls_session::write_psh(std::uint32_t stream_id, std::span<const std::byte> data,
-                                    std::error_code &ec) -> net::awaitable<std::size_t>
+                                   std::error_code &ec) -> net::awaitable<std::size_t>
     {
         co_await write_frame(frame_input{command::psh, stream_id, data, ec});
         if (ec)

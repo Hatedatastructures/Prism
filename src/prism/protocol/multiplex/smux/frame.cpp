@@ -1,6 +1,6 @@
-#include <prism/protocol/multiplex/smux/frame.hpp>
-#include <prism/diagnose/diagnose.hpp>
 #include <prism/diagnose/context.hpp>
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/protocol/multiplex/smux/frame.hpp>
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -27,37 +27,52 @@ namespace psm::multiplex::smux
             auto p = buf;
             // 第一段
             if (a >= 100)
+            {
                 *p++ = '0' + a / 100;
+            }
             if (a >= 10)
+            {
                 *p++ = '0' + (a / 10) % 10;
+            }
             *p++ = '0' + a % 10;
             *p++ = '.';
             // 第二段
             if (b >= 100)
+            {
                 *p++ = '0' + b / 100;
+            }
             if (b >= 10)
+            {
                 *p++ = '0' + (b / 10) % 10;
+            }
             *p++ = '0' + b % 10;
             *p++ = '.';
             // 第三段
             if (c >= 100)
+            {
                 *p++ = '0' + c / 100;
+            }
             if (c >= 10)
+            {
                 *p++ = '0' + (c / 10) % 10;
+            }
             *p++ = '0' + c % 10;
             *p++ = '.';
             // 第四段
             if (d >= 100)
+            {
                 *p++ = '0' + d / 100;
+            }
             if (d >= 10)
+            {
                 *p++ = '0' + (d / 10) % 10;
+            }
             *p++ = '0' + d % 10;
             *p = '\0';
         }
     } // namespace
 
-    auto deserialization(std::span<const std::byte> data)
-        -> std::optional<frame_header>
+    auto deserialization(std::span<const std::byte> data) -> std::optional<frame_header>
     {
         if (data.size() < frame_hdrsize)
         {
@@ -79,24 +94,19 @@ namespace psm::multiplex::smux
         case command::syn:
         case command::fin:
         case command::push:
-        case command::nop:
-            break;
-        default:
-            return std::nullopt;
+        case command::nop: break;
+        default: return std::nullopt;
         }
 
-        hdr.length = static_cast<std::uint16_t>(data[2]) |
-                     static_cast<std::uint16_t>(data[3]) << 8;
+        hdr.length = static_cast<std::uint16_t>(data[2]) | static_cast<std::uint16_t>(data[3]) << 8;
 
         if (hdr.length > max_frame_length)
         {
             return std::nullopt;
         }
 
-        hdr.stream_id = static_cast<std::uint32_t>(data[4]) |
-                        static_cast<std::uint32_t>(data[5]) << 8 |
-                        static_cast<std::uint32_t>(data[6]) << 16 |
-                        static_cast<std::uint32_t>(data[7]) << 24;
+        hdr.stream_id = static_cast<std::uint32_t>(data[4]) | static_cast<std::uint32_t>(data[5]) << 8 |
+                        static_cast<std::uint32_t>(data[6]) << 16 | static_cast<std::uint32_t>(data[7]) << 24;
 
         return hdr;
     }
@@ -173,7 +183,8 @@ namespace psm::multiplex::smux
             return std::nullopt;
         }
         // 端口大端序
-        const std::uint16_t port = static_cast<std::uint16_t>(data[offset]) << 8 | static_cast<std::uint16_t>(data[offset + 1]);
+        const std::uint16_t port =
+            static_cast<std::uint16_t>(data[offset]) << 8 | static_cast<std::uint16_t>(data[offset + 1]);
 
         auto addr = addr_mode::length_prefixed;
         if (packet_addr)
@@ -257,8 +268,8 @@ namespace psm::multiplex::smux
             return std::nullopt;
         }
         // 端口大端序
-        const std::uint16_t port = static_cast<std::uint16_t>(data[offset]) << 8 |
-                                   static_cast<std::uint16_t>(data[offset + 1]);
+        const std::uint16_t port =
+            static_cast<std::uint16_t>(data[offset]) << 8 | static_cast<std::uint16_t>(data[offset + 1]);
         offset += 2;
 
         // sing-mux PacketAddr 格式: [SOCKS5 addr][Length 2B BE][Payload]
@@ -266,8 +277,8 @@ namespace psm::multiplex::smux
         {
             return std::nullopt;
         }
-        const auto length = static_cast<std::uint16_t>(data[offset]) << 8 |
-                            static_cast<std::uint16_t>(data[offset + 1]);
+        const auto length =
+            static_cast<std::uint16_t>(data[offset]) << 8 | static_cast<std::uint16_t>(data[offset + 1]);
         offset += 2;
 
         if (data.size() < offset + length)
@@ -284,8 +295,7 @@ namespace psm::multiplex::smux
         };
     }
 
-    auto parse_prefixed(std::span<const std::byte> data)
-        -> std::optional<udp_prefixed>
+    auto parse_prefixed(std::span<const std::byte> data) -> std::optional<udp_prefixed>
     {
         if (data.size() < 2)
         {
@@ -293,8 +303,7 @@ namespace psm::multiplex::smux
         }
 
         // Length 2 字节大端序
-        const auto length = static_cast<std::uint16_t>(data[0]) << 8 |
-                            static_cast<std::uint16_t>(data[1]);
+        const auto length = static_cast<std::uint16_t>(data[0]) << 8 | static_cast<std::uint16_t>(data[1]);
 
         if (data.size() < static_cast<std::size_t>(2 + length))
         {
@@ -394,8 +403,7 @@ namespace psm::multiplex::smux
     namespace
     {
         [[nodiscard]] auto build_header(const command cmd, const std::uint32_t stream_id,
-                                        const std::uint16_t length)
-            -> std::array<std::byte, frame_hdrsize>
+                                        const std::uint16_t length) -> std::array<std::byte, frame_hdrsize>
         {
             return {
                 std::byte{protocol_version},
@@ -414,23 +422,18 @@ namespace psm::multiplex::smux
         -> memory::vector<std::byte>
     {
         memory::vector<std::byte> buf(memory::current_resource());
-        const auto hdr = build_header(command::push, stream_id,
-                                      static_cast<std::uint16_t>(payload.size()));
+        const auto hdr = build_header(command::push, stream_id, static_cast<std::uint16_t>(payload.size()));
         buf.insert(buf.end(), hdr.begin(), hdr.end());
         buf.insert(buf.end(), payload.begin(), payload.end());
         return buf;
     }
 
-
-    auto make_syn(const std::uint32_t stream_id)
-        -> std::array<std::byte, frame_hdrsize>
+    auto make_syn(const std::uint32_t stream_id) -> std::array<std::byte, frame_hdrsize>
     {
         return build_header(command::syn, stream_id, 0);
     }
 
-
-    auto make_fin(const std::uint32_t stream_id)
-        -> std::array<std::byte, frame_hdrsize>
+    auto make_fin(const std::uint32_t stream_id) -> std::array<std::byte, frame_hdrsize>
     {
         return build_header(command::fin, stream_id, 0);
     }

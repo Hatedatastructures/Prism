@@ -5,11 +5,10 @@
  *          覆盖 register_schemes、scheme_registry 单例/add/all/find。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/handshake/registry.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {

@@ -10,15 +10,14 @@
  *          start() 相关路径在已有的 MuxParcel.cpp 集成测试中间接覆盖。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include "common/MockTransport.hpp"
-
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
-#include <prism/protocol/multiplex/multiplexer.hpp>
 #include <prism/protocol/multiplex/datagram.hpp>
+#include <prism/protocol/multiplex/multiplexer.hpp>
+
+#include "common/MockTransport.hpp"
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -35,13 +34,11 @@ namespace
         std::uint32_t last_fin_id_ = 0;
         mutable bool send_data_called_ = false;
 
-        explicit TestCore(multiplex::multiplexer_options opts)
-            : multiplexer(std::move(opts))
+        explicit TestCore(multiplex::multiplexer_options opts) : multiplexer(std::move(opts))
         {
         }
 
-        auto send(std::uint32_t, psm::memory::vector<std::byte>)
-            -> net::awaitable<void> override
+        auto send(std::uint32_t, psm::memory::vector<std::byte>) -> net::awaitable<void> override
         {
             send_data_called_ = true;
             co_return;
@@ -76,9 +73,8 @@ namespace
         std::shared_ptr<TestCore> core_obj;
         std::shared_ptr<multiplex::datagram> datagram_obj;
 
-        explicit ParcelFixture(
-            std::uint32_t max_dgram = 4096,
-            multiplex::addr_mode mode = multiplex::addr_mode::length_prefixed)
+        explicit ParcelFixture(std::uint32_t max_dgram = 4096,
+                               multiplex::addr_mode mode = multiplex::addr_mode::length_prefixed)
         {
             mux_transport = std::make_shared<MockTransport>();
             ioc = std::make_unique<net::io_context>(1);
@@ -93,17 +89,15 @@ namespace
             dopts.max_dgram = max_dgram;
             dopts.executor = core_obj->executor();
             dopts.egress = core_obj;
-            dopts.resolve = [](std::string_view, std::string_view)
-                -> net::awaitable<std::pair<psm::fault::code, net::ip::udp::endpoint>>
+            dopts.resolve =
+                [](std::string_view,
+                   std::string_view) -> net::awaitable<std::pair<psm::fault::code, net::ip::udp::endpoint>>
             {
                 co_return std::make_pair(psm::fault::code::success,
-                    net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 53));
+                                         net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 53));
             };
-            dopts.emit = [](std::string_view, std::uint16_t, std::span<const std::byte>)
-                -> net::awaitable<void>
-            {
-                co_return;
-            };
+            dopts.emit = [](std::string_view, std::uint16_t,
+                            std::span<const std::byte>) -> net::awaitable<void> { co_return; };
             dopts.mr = psm::memory::current_resource();
             datagram_obj = multiplex::make_datagram(std::move(dopts));
         }
@@ -184,7 +178,6 @@ namespace
         fx.datagram_obj->close();
         fx.datagram_obj->close();
     }
-
 
     TEST(ParcelDeep, CloseWithoutTraffic)
     {

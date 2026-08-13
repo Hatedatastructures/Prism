@@ -1,9 +1,7 @@
 #include <prism/protocol/tls/hello.hpp>
-
 #include <prism/protocol/tls/record.hpp>
 
 #include <cstring>
-
 
 namespace psm::tls
 {
@@ -11,18 +9,18 @@ namespace psm::tls
     namespace
     {
 
-
-
         [[nodiscard]] auto read_u16(const std::span<const std::uint8_t> data, const std::size_t offset)
             -> std::uint16_t
         {
-            return static_cast<std::uint16_t>(data[offset]) << 8 | static_cast<std::uint16_t>(data[offset + 1]);
+            return static_cast<std::uint16_t>(data[offset]) << 8 |
+                   static_cast<std::uint16_t>(data[offset + 1]);
         }
 
         [[nodiscard]] auto read_u24(const std::span<const std::uint8_t> data, const std::size_t offset)
             -> std::size_t
         {
-            return static_cast<std::size_t>(data[offset]) << 16 | static_cast<std::size_t>(data[offset + 1]) << 8 |
+            return static_cast<std::size_t>(data[offset]) << 16 |
+                   static_cast<std::size_t>(data[offset + 1]) << 8 |
                    static_cast<std::size_t>(data[offset + 2]);
         }
 
@@ -64,15 +62,13 @@ namespace psm::tls
                 {
                     break;
                 }
-                sni.assign(
-                    reinterpret_cast<const char *>(ext_data.data() + offset),
-                    name_len);
+                sni.assign(reinterpret_cast<const char *>(ext_data.data() + offset), name_len);
                 return;
             }
         }
 
-        void parse_keyshare(const std::span<const std::uint8_t> ext_data,
-                            bool &has_key, std::array<std::uint8_t, 32> &key)
+        void parse_keyshare(const std::span<const std::uint8_t> ext_data, bool &has_key,
+                            std::array<std::uint8_t, 32> &key)
         {
             if (ext_data.size() < 2)
             {
@@ -103,7 +99,8 @@ namespace psm::tls
                     return;
                 }
 
-                if (named_group == protocol::tls::GROUP_X25519_MLKEM768 && key_len >= protocol::tls::REALITY_KEY_LEN)
+                if (named_group == protocol::tls::GROUP_X25519_MLKEM768 &&
+                    key_len >= protocol::tls::REALITY_KEY_LEN)
                 {
                     std::memcpy(key.data(), ext_data.data() + offset, protocol::tls::REALITY_KEY_LEN);
                     has_key = true;
@@ -168,17 +165,14 @@ namespace psm::tls
 
                 switch (ext_type)
                 {
-                case protocol::tls::EXT_SERVER_NAME:
-                    parse_sni(ext_payload, state.sni);
-                    break;
+                case protocol::tls::EXT_SERVER_NAME: parse_sni(ext_payload, state.sni); break;
                 case protocol::tls::EXT_KEY_SHARE:
                     parse_keyshare(ext_payload, state.has_key, state.key);
                     break;
                 case protocol::tls::EXT_SUPPORTED_VERSIONS:
                     parse_versions(ext_payload, state.versions);
                     break;
-                default:
-                    break;
+                default: break;
                 }
 
                 offset += cur_len;
@@ -187,62 +181,51 @@ namespace psm::tls
 
     } // namespace
 
-
     auto client_hello::sni() const noexcept -> std::string_view
     {
         return sni_;
     }
-
 
     auto client_hello::session_id() const noexcept -> std::span<const std::uint8_t>
     {
         return session_id_;
     }
 
-
     auto client_hello::has_x25519() const noexcept -> bool
     {
         return has_x25519_;
     }
-
 
     auto client_hello::x25519_key() const noexcept -> const std::array<std::uint8_t, 32> &
     {
         return x25519_key_;
     }
 
-
     auto client_hello::versions() const noexcept -> std::span<const std::uint16_t>
     {
         return versions_;
     }
-
 
     auto client_hello::random() const noexcept -> const std::array<std::uint8_t, 32> &
     {
         return random_;
     }
 
-
     auto client_hello::raw_msg() const noexcept -> std::span<const std::uint8_t>
     {
         return raw_msg_;
     }
-
 
     auto client_hello::raw_record() const noexcept -> std::span<const std::byte>
     {
         return raw_record_;
     }
 
-
-    auto client_hello::from(const record &rec)
-        -> std::pair<fault::code, client_hello>
+    auto client_hello::from(const record &rec) -> std::pair<fault::code, client_hello>
     {
         auto payload = rec.payload();
-        auto raw_u8 = std::span<const std::uint8_t>(
-            reinterpret_cast<const std::uint8_t *>(payload.data()),
-            payload.size());
+        auto raw_u8 = std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(payload.data()),
+                                                    payload.size());
 
         // 构造完整的 TLS 记录字节（header + payload）用于 from_bytes
         auto serialized = rec.serialize();
@@ -252,9 +235,7 @@ namespace psm::tls
         return from_bytes(full);
     }
 
-
-    auto client_hello::from_bytes(std::span<const std::uint8_t> raw)
-        -> std::pair<fault::code, client_hello>
+    auto client_hello::from_bytes(std::span<const std::uint8_t> raw) -> std::pair<fault::code, client_hello>
     {
         client_hello ch;
 
@@ -352,7 +333,6 @@ namespace psm::tls
 
         return {fault::code::success, std::move(ch)};
     }
-
 
     auto client_hello::to_features() const -> protocol::tls::hello_features
     {

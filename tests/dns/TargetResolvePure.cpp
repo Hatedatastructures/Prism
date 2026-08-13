@@ -3,11 +3,10 @@
  * @brief 目标地址解析测试 — parse/resolve 各分支覆盖
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/protocol/http/codec/parser.hpp>
-#include <prism/handshake/recognition/target.hpp>
 #include <prism/diagnose/log.hpp>
-
+#include <prism/foundation/foundation.hpp>
+#include <prism/handshake/recognition/target.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
 
 #include <gtest/gtest.h>
 

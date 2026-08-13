@@ -1,6 +1,6 @@
-#include <prism/protocol/vless/codec/framing.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/common/framing.hpp>
+#include <prism/protocol/vless/codec/framing.hpp>
 
 #include <cstring>
 
@@ -10,15 +10,14 @@ namespace
         -> std::span<const std::uint8_t>
     {
         // 安全：字节 span 转 uint8_t span 用于协议子区间提取，内存布局相同
-        return {reinterpret_cast<const std::uint8_t*>(buf.data()) + offset, count};
+        return {reinterpret_cast<const std::uint8_t *>(buf.data()) + offset, count};
     }
 } // namespace
 
 namespace psm::protocol::vless::format
 {
 
-    auto parse_request(std::span<const std::uint8_t> buffer)
-        -> std::optional<request>
+    auto parse_request(std::span<const std::uint8_t> buffer) -> std::optional<request>
     {
         // 最小长度：Version(1) + UUID(16) + AddnlInfoLen(1) + Cmd(1) + Port(2) + Atyp(1) + IPv4(4) = 26
         if (buffer.size() < 26)
@@ -51,17 +50,10 @@ namespace psm::protocol::vless::format
         const auto cmd = static_cast<command>(buffer[offset]);
         switch (cmd)
         {
-        case command::tcp:
-            req.transport = psm::protocol::form::stream;
-            break;
-        case command::udp:
-            req.transport = psm::protocol::form::datagram;
-            break;
-        case command::mux:
-            req.transport = psm::protocol::form::stream;
-            break;
-        default:
-            return std::nullopt;
+        case command::tcp: req.transport = psm::protocol::form::stream; break;
+        case command::udp: req.transport = psm::protocol::form::datagram; break;
+        case command::mux: req.transport = psm::protocol::form::stream; break;
+        default: return std::nullopt;
         }
         req.cmd = cmd;
         offset += 1;
@@ -85,8 +77,7 @@ namespace psm::protocol::vless::format
 
         switch (atyp)
         {
-        case address_type::ipv4:
-        {
+        case address_type::ipv4: {
             auto [ec4, addr4] = common::framing::parse_ipv4(buffer.subspan(offset));
             if (ec4 != fault::code::success)
             {
@@ -96,8 +87,7 @@ namespace psm::protocol::vless::format
             offset += 4;
             break;
         }
-        case address_type::domain:
-        {
+        case address_type::domain: {
             auto [ecd, addrd] = common::framing::parse_domain(buffer.subspan(offset));
             if (ecd != fault::code::success)
             {
@@ -107,8 +97,7 @@ namespace psm::protocol::vless::format
             offset += 1 + addrd.length;
             break;
         }
-        case address_type::ipv6:
-        {
+        case address_type::ipv6: {
             auto [ec6, addr6] = common::framing::parse_ipv6(buffer.subspan(offset));
             if (ec6 != fault::code::success)
             {
@@ -118,15 +107,13 @@ namespace psm::protocol::vless::format
             offset += 16;
             break;
         }
-        default:
-            return std::nullopt;
+        default: return std::nullopt;
         }
 
         return req;
     }
 
-    auto parse_udp_pkt(std::span<const std::byte> buffer)
-        -> std::pair<fault::code, udp_parse_result>
+    auto parse_udp_pkt(std::span<const std::byte> buffer) -> std::pair<fault::code, udp_parse_result>
     {
         // 最小长度: ATYP(1) + IPv4(4) + PORT(2) = 7
         if (buffer.size() < 7)
@@ -141,8 +128,7 @@ namespace psm::protocol::vless::format
 
         switch (atyp)
         {
-        case address_type::ipv4:
-        {
+        case address_type::ipv4: {
             if (buffer.size() < offset + 4 + 2)
             {
                 return {fault::code::bad_message, {}};
@@ -156,8 +142,7 @@ namespace psm::protocol::vless::format
             addr_size = 4;
             break;
         }
-        case address_type::ipv6:
-        {
+        case address_type::ipv6: {
             if (buffer.size() < offset + 16 + 2)
             {
                 return {fault::code::bad_message, {}};
@@ -171,8 +156,7 @@ namespace psm::protocol::vless::format
             addr_size = 16;
             break;
         }
-        case address_type::domain:
-        {
+        case address_type::domain: {
             if (buffer.size() < offset + 1)
             {
                 return {fault::code::bad_message, {}};
@@ -191,8 +175,7 @@ namespace psm::protocol::vless::format
             addr_size = 1 + domain_len;
             break;
         }
-        default:
-            return {fault::code::unsupported_address, {}};
+        default: return {fault::code::unsupported_address, {}};
         }
 
         offset += addr_size;
@@ -215,40 +198,40 @@ namespace psm::protocol::vless::format
         return {fault::code::success, result};
     }
 
-    auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
-        -> fault::code
+    auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload,
+                       memory::vector<std::byte> &out) -> fault::code
     {
         // 预分配：最大地址长度(1+16) + port(2) + payload
         out.reserve(out.size() + 19 + payload.size());
 
         // 写入 SOCKS5 风格地址 (ATYP + ADDR)
-        std::visit([&out]<typename Address>(const Address &addr)
-                   {
-            if constexpr (std::is_same_v<Address, ipv4_address>)
+        std::visit(
+            [&out]<typename Address>(const Address &addr)
             {
-                out.push_back(static_cast<std::byte>(address_type::ipv4));
-                // 安全：IPv4 地址字节数组转字节 span 用于序列化
-                out.insert(out.end(),
-                           reinterpret_cast<const std::byte*>(addr.bytes.data()),
-                           reinterpret_cast<const std::byte*>(addr.bytes.data()) + 4);
-            }
-            else if constexpr (std::is_same_v<Address, ipv6_address>)
-            {
-                out.push_back(static_cast<std::byte>(address_type::ipv6));
-                // 安全：IPv6 地址字节数组转字节 span 用于序列化
-                out.insert(out.end(),
-                           reinterpret_cast<const std::byte*>(addr.bytes.data()),
-                           reinterpret_cast<const std::byte*>(addr.bytes.data()) + 16);
-            }
-            else if constexpr (std::is_same_v<Address, domain_address>)
-            {
-                out.push_back(static_cast<std::byte>(address_type::domain));
-                out.push_back(static_cast<std::byte>(addr.length));
-                // 安全：域名字符串字节转字节 span 用于序列化
-                out.insert(out.end(),
-                           reinterpret_cast<const std::byte*>(addr.value.data()),
-                           reinterpret_cast<const std::byte*>(addr.value.data()) + addr.length);
-            } }, frame.destination_address);
+                if constexpr (std::is_same_v<Address, ipv4_address>)
+                {
+                    out.push_back(static_cast<std::byte>(address_type::ipv4));
+                    // 安全：IPv4 地址字节数组转字节 span 用于序列化
+                    out.insert(out.end(), reinterpret_cast<const std::byte *>(addr.bytes.data()),
+                               reinterpret_cast<const std::byte *>(addr.bytes.data()) + 4);
+                }
+                else if constexpr (std::is_same_v<Address, ipv6_address>)
+                {
+                    out.push_back(static_cast<std::byte>(address_type::ipv6));
+                    // 安全：IPv6 地址字节数组转字节 span 用于序列化
+                    out.insert(out.end(), reinterpret_cast<const std::byte *>(addr.bytes.data()),
+                               reinterpret_cast<const std::byte *>(addr.bytes.data()) + 16);
+                }
+                else if constexpr (std::is_same_v<Address, domain_address>)
+                {
+                    out.push_back(static_cast<std::byte>(address_type::domain));
+                    out.push_back(static_cast<std::byte>(addr.length));
+                    // 安全：域名字符串字节转字节 span 用于序列化
+                    out.insert(out.end(), reinterpret_cast<const std::byte *>(addr.value.data()),
+                               reinterpret_cast<const std::byte *>(addr.value.data()) + addr.length);
+                }
+            },
+            frame.destination_address);
 
         // 写入端口 (2 字节大端)
         out.push_back(static_cast<std::byte>(frame.destination_port >> 8 & 0xFF));

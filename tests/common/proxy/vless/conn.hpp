@@ -13,11 +13,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/proxy/vless/codec.hpp>
-#include <common/proxy/vless/types.hpp>
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
@@ -31,6 +26,11 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/proxy/vless/codec.hpp>
+#include <common/proxy/vless/types.hpp>
 
 namespace psmtest::vless
 {
@@ -55,7 +55,9 @@ namespace psmtest::vless
         {
         }
 
-        /// @brief 获取执行器
+        /**
+         * @brief 获取执行器
+         */
         [[nodiscard]] auto executor() const -> net::any_io_executor override
         {
             return next_layer_->executor();
@@ -68,7 +70,7 @@ namespace psmtest::vless
          * @return 实际读取字节数
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t> override
         {
             ec.clear();
             if (used_ > 0)
@@ -89,40 +91,56 @@ namespace psmtest::vless
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
 
-        /// @brief 异步写入（透传）
+        /**
+         * @brief 异步写入（透传）
+         */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
 
-        /// @brief 关闭传输层
+        /**
+         * @brief 关闭传输层
+         */
         void close() override
         {
             if (next_layer_)
+            {
                 next_layer_->close();
+            }
         }
 
-        /// @brief 取消挂起操作
+        /**
+         * @brief 取消挂起操作
+         */
         void cancel() override
         {
             if (next_layer_)
+            {
                 next_layer_->cancel();
+            }
         }
 
-        /// @brief 获取内层传输（装饰器链导航）
+        /**
+         * @brief 获取内层传输（装饰器链导航）
+         */
         [[nodiscard]] auto next_layer() noexcept -> psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 获取内层传输（const 版本）
+        /**
+         * @brief 获取内层传输（const 版本）
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 释放底层传输所有权
+        /**
+         * @brief 释放底层传输所有权
+         */
         [[nodiscard]] auto release() -> shared_transmission override
         {
             return std::move(next_layer_);
@@ -136,9 +154,8 @@ namespace psmtest::vless
          * @details 构造请求头（version/uuid/cmd/target）发送，
          * 读取 2 字节响应校验 Version 回显（对齐 Xray）。
          */
-        [[nodiscard]] auto write_handshake(const address &target,
-                                           command cmd = command::tcp)
-        -> net::awaitable<error>
+        [[nodiscard]] auto write_handshake(const address &target, command cmd = command::tcp)
+            -> net::awaitable<error>
         {
             request_header hdr;
             hdr.version = protocol_version;
@@ -147,13 +164,19 @@ namespace psmtest::vless
             hdr.target = target;
             const auto wire = build_request(hdr);
             if (co_await send_bytes(wire))
+            {
                 co_return error::io_error;
+            }
 
             std::array<std::uint8_t, 2> resp{};
             if (co_await read_exact_impl(std::span<std::uint8_t>(resp)))
+            {
                 co_return error::io_error;
+            }
             if (resp[0] != protocol_version)
+            {
                 co_return error::bad_magic;
+            }
             co_return error::none;
         }
 
@@ -169,33 +192,46 @@ namespace psmtest::vless
          */
         [[nodiscard]] auto read_handshake(bool enable_tcp = true, bool enable_udp = true,
                                           bool enable_mux = true)
-        -> net::awaitable<std::pair<error, request_header>>
+            -> net::awaitable<std::pair<error, request_header>>
         {
             // 1. 固定前缀：Version(1) + UUID(16) + AddnlLen(1)
             std::array<std::uint8_t, 18> prefix{};
             if (co_await read_exact_impl(std::span<std::uint8_t>(prefix)))
+            {
                 co_return std::pair{error::io_error, request_header{}};
+            }
             if (prefix[0] != protocol_version)
+            {
                 co_return std::pair{error::bad_magic, request_header{}};
+            }
 
             // 2. Addons（对齐主库：addnl_len 必须为 0）
             if (prefix[17] != 0)
+            {
                 co_return std::pair{error::bad_message, request_header{}};
+            }
 
             // 3. 尾部：Cmd(1) + Port(2 BE) + Atyp(1)
             std::array<std::uint8_t, 4> tail{};
             if (co_await read_exact_impl(std::span<std::uint8_t>(tail)))
+            {
                 co_return std::pair{error::io_error, request_header{}};
+            }
             const auto cmd = static_cast<command>(tail[0]);
             if (cmd != command::tcp && cmd != command::udp && cmd != command::mux)
+            {
                 co_return std::pair{error::bad_message, request_header{}};
+            }
             if ((cmd == command::tcp && !enable_tcp) || (cmd == command::udp && !enable_udp) ||
                 (cmd == command::mux && !enable_mux))
+            {
                 co_return std::pair{error::not_supported, request_header{}};
+            }
             const auto atyp = static_cast<address_type>(tail[3]);
-            if (atyp != address_type::ipv4 && atyp != address_type::domain &&
-                atyp != address_type::ipv6)
+            if (atyp != address_type::ipv4 && atyp != address_type::domain && atyp != address_type::ipv6)
+            {
                 co_return std::pair{error::bad_message, request_header{}};
+            }
 
             // 4. 地址体
             request_header req;
@@ -204,16 +240,22 @@ namespace psmtest::vless
             req.target.port = static_cast<std::uint16_t>(tail[1]) << 8 | tail[2];
             auto err = co_await read_address_body(req.target);
             if (err != error::none)
+            {
                 co_return std::pair{err, request_header{}};
+            }
 
             // 5. UUID 校验（memcmp，不匹配则静默断开）
             if (!std::equal(prefix.begin() + 1, prefix.begin() + 17, uuid_.begin()))
+            {
                 co_return std::pair{error::bad_auth, request_header{}};
+            }
 
             // 6. 发送 2 字节响应 [Version 0x00][Addons Length 0x00]
             const auto resp = make_response();
             if (co_await send_bytes(resp))
+            {
                 co_return std::pair{error::io_error, request_header{}};
+            }
 
             parsed_ = req;
             co_return std::pair{error::none, std::move(req)};
@@ -233,8 +275,7 @@ namespace psmtest::vless
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
-        -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
         {
             return read_exact_impl(dst);
         }
@@ -245,42 +286,45 @@ namespace psmtest::vless
          * @param addr 输出地址
          * @return 错误码
          */
-        [[nodiscard]] auto read_address_body(address &addr)
-        -> net::awaitable<error>
+        [[nodiscard]] auto read_address_body(address &addr) -> net::awaitable<error>
         {
             switch (addr.type)
             {
-                case address_type::ipv4:
+            case address_type::ipv4: {
+                std::array<std::uint8_t, 4> ip{};
+                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
                 {
-                    std::array<std::uint8_t, 4> ip{};
-                    if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                        co_return error::io_error;
-                    std::array<char, 16> buf{};
-                    std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-                    addr.host = buf.data();
-                    break;
+                    co_return error::io_error;
                 }
-                case address_type::ipv6:
+                std::array<char, 16> buf{};
+                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+                addr.host = buf.data();
+                break;
+            }
+            case address_type::ipv6: {
+                std::array<std::uint8_t, 16> ip{};
+                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
                 {
-                    std::array<std::uint8_t, 16> ip{};
-                    if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                        co_return error::io_error;
-                    addr.host.assign(reinterpret_cast<const char *>(ip.data()), 16);
-                    break;
+                    co_return error::io_error;
                 }
-                case address_type::domain:
+                addr.host.assign(reinterpret_cast<const char *>(ip.data()), 16);
+                break;
+            }
+            case address_type::domain: {
+                std::array<std::uint8_t, 1> len{};
+                if (co_await read_exact_impl(std::span<std::uint8_t>(len)))
                 {
-                    std::array<std::uint8_t, 1> len{};
-                    if (co_await read_exact_impl(std::span<std::uint8_t>(len)))
-                        co_return error::io_error;
-                    std::vector<std::uint8_t> host(len[0]);
-                    if (co_await read_exact_impl(host))
-                        co_return error::io_error;
-                    addr.host.assign(reinterpret_cast<const char *>(host.data()), host.size());
-                    break;
+                    co_return error::io_error;
                 }
-                default:
-                    co_return error::bad_message;
+                std::vector<std::uint8_t> host(len[0]);
+                if (co_await read_exact_impl(host))
+                {
+                    co_return error::io_error;
+                }
+                addr.host.assign(reinterpret_cast<const char *>(host.data()), host.size());
+                break;
+            }
+            default: co_return error::bad_message;
             }
             co_return error::none;
         }
@@ -290,8 +334,7 @@ namespace psmtest::vless
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst)
-        -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst) -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -316,10 +359,11 @@ namespace psmtest::vless
                 std::array<std::uint8_t, 512> chunk{};
                 std::error_code ec;
                 const auto n = co_await next_layer_->async_read_some(
-                    std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()),
-                    ec);
+                    std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()), ec);
                 if (ec || n == 0)
+                {
                     co_return true;
+                }
                 buf_.insert(buf_.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
                 used_ += n;
             }
@@ -331,29 +375,30 @@ namespace psmtest::vless
          * @param data 数据
          * @return true = 失败
          */
-        [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-        -> net::awaitable<bool>
+        [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())
             {
                 std::error_code ec;
                 const auto n = co_await next_layer_->async_write_some(
-                    std::span<const std::byte>(
-                        reinterpret_cast<const std::byte *>(data.data() + done), data.size() - done),
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(data.data() + done),
+                                               data.size() - done),
                     ec);
                 if (ec)
+                {
                     co_return true;
+                }
                 done += n;
             }
             co_return false;
         }
 
-        shared_transmission next_layer_;             ///< 上游传输（独占所有权）
-        std::array<std::uint8_t, uuid_len> uuid_;    ///< 协议 UUID（凭据/校验）
-        request_header parsed_;                      ///< 服务端握手解析结果
-        std::vector<std::uint8_t> buf_;              ///< 预读缓冲（隧道数据暂存）
-        std::size_t used_{0};                        ///< 缓冲中有效字节数
+        shared_transmission next_layer_;          ///< 上游传输（独占所有权）
+        std::array<std::uint8_t, uuid_len> uuid_; ///< 协议 UUID（凭据/校验）
+        request_header parsed_;                   ///< 服务端握手解析结果
+        std::vector<std::uint8_t> buf_;           ///< 预读缓冲（隧道数据暂存）
+        std::size_t used_{0};                     ///< 缓冲中有效字节数
     };
 
     /// 流连接共享指针

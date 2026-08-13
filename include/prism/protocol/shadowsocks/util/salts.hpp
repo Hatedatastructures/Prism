@@ -14,7 +14,6 @@
 #include <string_view>
 #include <unordered_map>
 
-
 namespace psm::protocol::shadowsocks
 {
 
@@ -28,11 +27,19 @@ namespace psm::protocol::shadowsocks
     class salt_pool
     {
         // 异构查找：允许用 string_view 查找，无需构造 string
+        /**
+         * @brief 字符串哈希器（FNV-1a，异构查找用）
+         */
         struct string_hash
         {
             using is_transparent = void;
-            [[nodiscard]] auto operator()(std::string_view sv) const noexcept
-                -> std::size_t
+
+            /**
+             * @brief 计算字符串哈希值
+             * @param sv 字符串视图
+             * @return 哈希值
+             */
+            [[nodiscard]] auto operator()(std::string_view sv) const noexcept -> std::size_t
             {
                 // FNV-1a
                 std::size_t h = 0xcbf29ce484222325ULL;
@@ -50,8 +57,7 @@ namespace psm::protocol::shadowsocks
          * @brief 构造 salt 池
          * @param ttl_seconds Salt 条目的生存时间（默认 60 秒）
          */
-        explicit salt_pool(std::int64_t ttl_seconds = 60)
-            : ttl_(std::chrono::seconds(ttl_seconds))
+        explicit salt_pool(std::int64_t ttl_seconds = 60) : ttl_(std::chrono::seconds(ttl_seconds))
         {
         }
 
@@ -60,8 +66,7 @@ namespace psm::protocol::shadowsocks
          * @param salt Salt 数据
          * @return true 表示首次出现（已插入），false 表示重放
          */
-        [[nodiscard]] auto check_and_insert(std::span<const std::uint8_t> salt)
-            -> bool
+        [[nodiscard]] auto check_and_insert(std::span<const std::uint8_t> salt) -> bool
         {
             // 分摊清理：仅当距上次清理超过 1 秒时才执行
             const auto now = std::chrono::steady_clock::now();
@@ -72,8 +77,7 @@ namespace psm::protocol::shadowsocks
             }
 
             // 异构查找：直接用 string_view 指向 salt 原始字节，零分配
-            const auto key = std::string_view(
-                reinterpret_cast<const char *>(salt.data()), salt.size());
+            const auto key = std::string_view(reinterpret_cast<const char *>(salt.data()), salt.size());
 
             if (const auto it = entries_.find(key); it != entries_.end())
             {
@@ -109,10 +113,9 @@ namespace psm::protocol::shadowsocks
         }
 
     private:
-        std::unordered_map<std::string, std::chrono::steady_clock::time_point,
-                           string_hash, std::equal_to<>>
-            entries_;
-        std::chrono::seconds ttl_;
-        std::chrono::steady_clock::time_point last_cleanup_{};
+        std::unordered_map<std::string, std::chrono::steady_clock::time_point, string_hash, std::equal_to<>>
+            entries_;                ///< 已见 salt 表（值 = 过期时间点）
+        std::chrono::seconds ttl_;   ///< Salt 条目生存时间
+        std::chrono::steady_clock::time_point last_cleanup_{}; ///< 上次清理时间
     };
 } // namespace psm::protocol::shadowsocks

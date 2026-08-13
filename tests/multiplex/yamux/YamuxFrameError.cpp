@@ -3,9 +3,9 @@
  * @brief yamux 帧格式错误路径与往返测试
  */
 
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/yamux/frame.hpp>
-#include <prism/diagnose/log.hpp>
 
 #include <cstdint>
 #include <cstring>
@@ -48,7 +48,8 @@ namespace
         auto parsed = parse_header(frame.header);
         ASSERT_TRUE(parsed.has_value()) << "roundtrip syn: parsed";
         EXPECT_TRUE(parsed->type == message_type::data) << "roundtrip syn: type=data";
-        EXPECT_TRUE(static_cast<int>(parsed->flag) == static_cast<int>(flags::syn)) << "roundtrip syn: flag=syn";
+        EXPECT_TRUE(static_cast<int>(parsed->flag) == static_cast<int>(flags::syn))
+            << "roundtrip syn: flag=syn";
         EXPECT_TRUE(parsed->stream_id == 1) << "roundtrip syn: stream_id=1";
     }
 
@@ -58,7 +59,8 @@ namespace
         auto parsed = parse_header(buf);
         ASSERT_TRUE(parsed.has_value()) << "roundtrip fin: parsed";
         EXPECT_TRUE(parsed->type == message_type::data) << "roundtrip fin: type=data";
-        EXPECT_TRUE(static_cast<int>(parsed->flag) == static_cast<int>(flags::fin)) << "roundtrip fin: flag=fin";
+        EXPECT_TRUE(static_cast<int>(parsed->flag) == static_cast<int>(flags::fin))
+            << "roundtrip fin: flag=fin";
         EXPECT_TRUE(parsed->stream_id == 42) << "roundtrip fin: stream_id=42";
         EXPECT_TRUE(parsed->length == 0) << "roundtrip fin: length=0";
     }
@@ -90,7 +92,8 @@ namespace
         ASSERT_TRUE(parsed.has_value()) << "roundtrip goaway: parsed";
         EXPECT_TRUE(parsed->type == message_type::go_away) << "roundtrip goaway: type=go_away";
         EXPECT_TRUE(parsed->stream_id == 0) << "roundtrip goaway: stream_id=0";
-        EXPECT_TRUE(parsed->length == static_cast<std::uint32_t>(away_code::protocol_error)) << "roundtrip goaway: length=protocol_error";
+        EXPECT_TRUE(parsed->length == static_cast<std::uint32_t>(away_code::protocol_error))
+            << "roundtrip goaway: length=protocol_error";
     }
 
     TEST(YamuxFrameError, RoundtripDataWithPayload)

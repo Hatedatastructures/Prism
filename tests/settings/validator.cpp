@@ -5,10 +5,10 @@
  * protocol 配置、reverse_map 端点格式。
  */
 
-#include <prism/settings/settings.hpp>
-#include <prism/settings/validator.hpp>
 #include <prism/foundation/exception/security.hpp>
 #include <prism/foundation/memory/container.hpp>
+#include <prism/settings/settings.hpp>
+#include <prism/settings/validator.hpp>
 
 #include <gtest/gtest.h>
 
@@ -104,7 +104,8 @@ TEST(ConfigValidator, ReverseMapIpLiteralCheck)
     cfg.instance.reverse_map.clear();
     cfg.instance.reverse_map.emplace(
         psm::memory::string{"example.com"},
-        psm::runtime::endpoint{psm::memory::string{"not.an.ip", cfg.instance.reverse_map.get_allocator()}, 8443});
+        psm::runtime::endpoint{psm::memory::string{"not.an.ip", cfg.instance.reverse_map.get_allocator()},
+                               8443});
     const auto result = psm::settings_validator::validate(cfg);
     EXPECT_FALSE(result.valid);
 }
@@ -115,7 +116,8 @@ TEST(ConfigValidator, ReverseMapValidIpLiteralOk)
     cfg.instance.reverse_map.clear();
     cfg.instance.reverse_map.emplace(
         psm::memory::string{"backend.com"},
-        psm::runtime::endpoint{psm::memory::string{"127.0.0.1", cfg.instance.reverse_map.get_allocator()}, 8443});
+        psm::runtime::endpoint{psm::memory::string{"127.0.0.1", cfg.instance.reverse_map.get_allocator()},
+                               8443});
     const auto result = psm::settings_validator::validate(cfg);
     EXPECT_TRUE(result.valid);
 }

@@ -13,11 +13,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/proxy/socks5/codec.hpp>
-#include <common/proxy/socks5/types.hpp>
-
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
@@ -32,6 +27,11 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/proxy/socks5/codec.hpp>
+#include <common/proxy/socks5/types.hpp>
 
 namespace psmtest::socks5
 {
@@ -50,12 +50,13 @@ namespace psmtest::socks5
          * @brief 构造函数（工厂调用）
          * @param upstream 上游传输（所有权移交）
          */
-        explicit conn(shared_transmission upstream)
-            : next_layer_(std::move(upstream))
+        explicit conn(shared_transmission upstream) : next_layer_(std::move(upstream))
         {
         }
 
-        /// @brief 获取执行器
+        /**
+         * @brief 获取执行器
+         */
         [[nodiscard]] auto executor() const -> net::any_io_executor override
         {
             return next_layer_->executor();
@@ -69,7 +70,7 @@ namespace psmtest::socks5
          * @details 握手阶段预读的剩余字节先被消费，清空后透传底层。
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t> override
         {
             ec.clear();
             if (used_ > 0)
@@ -90,40 +91,56 @@ namespace psmtest::socks5
             co_return co_await next_layer_->async_read_some(buffer, ec);
         }
 
-        /// @brief 异步写入（透传）
+        /**
+         * @brief 异步写入（透传）
+         */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+            -> net::awaitable<std::size_t> override
         {
             co_return co_await next_layer_->async_write_some(buffer, ec);
         }
 
-        /// @brief 关闭传输层
+        /**
+         * @brief 关闭传输层
+         */
         void close() override
         {
             if (next_layer_)
+            {
                 next_layer_->close();
+            }
         }
 
-        /// @brief 取消挂起操作
+        /**
+         * @brief 取消挂起操作
+         */
         void cancel() override
         {
             if (next_layer_)
+            {
                 next_layer_->cancel();
+            }
         }
 
-        /// @brief 获取内层传输（装饰器链导航）
+        /**
+         * @brief 获取内层传输（装饰器链导航）
+         */
         [[nodiscard]] auto next_layer() noexcept -> psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 获取内层传输（const 版本）
+        /**
+         * @brief 获取内层传输（const 版本）
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const psmtest::transmission * override
         {
             return next_layer_.get();
         }
 
-        /// @brief 释放底层传输所有权
+        /**
+         * @brief 释放底层传输所有权
+         */
         [[nodiscard]] auto release() -> shared_transmission override
         {
             return std::move(next_layer_);
@@ -140,7 +157,7 @@ namespace psmtest::socks5
          * 地址可通过 bind_endpoint() 获取（UDP_ASSOCIATE 用）。
          */
         [[nodiscard]] auto write_handshake(const request &req, const client_config &cfg)
-        -> net::awaitable<error>
+            -> net::awaitable<error>
         {
             const auto &enable_auth = cfg.enable_auth;
             const auto &username = cfg.username;
@@ -152,28 +169,42 @@ namespace psmtest::socks5
                             ? std::vector<std::uint8_t>{static_cast<std::uint8_t>(auth_method::user_pass)}
                             : std::vector<std::uint8_t>{static_cast<std::uint8_t>(auth_method::no_auth)};
             if (co_await send_bytes(build_greeting(g)))
+            {
                 co_return error::io_error;
+            }
 
             // 2. 读取方法选择
             std::array<std::uint8_t, 2> sel{};
             if (co_await read_exact(std::span<std::uint8_t>(sel)))
+            {
                 co_return error::io_error;
+            }
             if (sel[0] != version)
+            {
                 co_return error::version_mismatch;
+            }
             if (sel[1] == static_cast<std::uint8_t>(auth_method::no_acceptable))
+            {
                 co_return error::not_supported;
+            }
 
             // 3. 认证（如需，RFC 1929）
             if (sel[1] == static_cast<std::uint8_t>(auth_method::user_pass))
             {
                 const auto auth = build_userpass(username, password);
                 if (co_await send_bytes(auth))
+                {
                     co_return error::io_error;
+                }
                 std::array<std::uint8_t, 2> resp{};
                 if (co_await read_exact(std::span<std::uint8_t>(resp)))
+                {
                     co_return error::io_error;
+                }
                 if (resp[0] != 0x01 || resp[1] != 0x00)
+                {
                     co_return error::bad_auth;
+                }
             }
             else if (sel[1] != static_cast<std::uint8_t>(auth_method::no_auth) && !enable_auth)
             {
@@ -182,15 +213,21 @@ namespace psmtest::socks5
 
             // 4. 发送请求
             if (co_await send_bytes(build_request(req)))
+            {
                 co_return error::io_error;
+            }
 
             // 5. 读取响应并校验
             reply rep;
             auto err = co_await read_reply(rep);
             if (err != error::none)
+            {
                 co_return err;
+            }
             if (rep.code != reply_code::success)
+            {
                 co_return error::bad_auth;
+            }
             bind_ = rep.bind;
             co_return error::none;
         }
@@ -207,7 +244,7 @@ namespace psmtest::socks5
          * 发送对应错误响应。
          */
         [[nodiscard]] auto read_handshake(const server_config &cfg)
-        -> net::awaitable<std::pair<error, request>>
+            -> net::awaitable<std::pair<error, request>>
         {
             const auto &enable_tcp = cfg.enable_tcp;
             const auto &enable_udp = cfg.enable_udp;
@@ -217,36 +254,43 @@ namespace psmtest::socks5
             // 1. 方法协商：读取 greeting（2B 头 + 方法列表）
             std::array<std::uint8_t, 2> head{};
             if (co_await read_exact(std::span<std::uint8_t>(head)))
+            {
                 co_return std::pair{error::io_error, request{}};
+            }
             if (head[0] != version)
+            {
                 co_return std::pair{error::version_mismatch, request{}};
+            }
             std::vector<std::uint8_t> methods(head[1]);
             if (!methods.empty() && co_await read_exact(methods))
+            {
                 co_return std::pair{error::io_error, request{}};
+            }
 
             // 2. 选择认证方法（检查客户端方法列表）
-            const auto want = enable_auth
-                                  ? static_cast<std::uint8_t>(auth_method::user_pass)
-                                  : static_cast<std::uint8_t>(auth_method::no_auth);
-            const bool acceptable =
-                std::find(methods.begin(), methods.end(), want) != methods.end();
+            const auto want = enable_auth ? static_cast<std::uint8_t>(auth_method::user_pass)
+                                          : static_cast<std::uint8_t>(auth_method::no_auth);
+            const bool acceptable = std::find(methods.begin(), methods.end(), want) != methods.end();
             if (!acceptable)
             {
-                co_await send_method_reply(
-                    static_cast<std::uint8_t>(auth_method::no_acceptable));
+                co_await send_method_reply(static_cast<std::uint8_t>(auth_method::no_acceptable));
                 co_return std::pair{error::not_supported, request{}};
             }
 
             // 3. 发送方法选择
             if (co_await send_method_reply(want) != error::none)
+            {
                 co_return std::pair{error::io_error, request{}};
+            }
 
             // 4. 认证（如需）
             if (want == static_cast<std::uint8_t>(auth_method::user_pass))
             {
                 const bool ok = co_await userpass_auth(username, password);
                 if (!ok)
+                {
                     co_return std::pair{error::bad_auth, request{}};
+                }
             }
 
             // 5. 解析请求
@@ -299,14 +343,15 @@ namespace psmtest::socks5
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
-        -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
         {
             return read_exact_impl(dst);
         }
 
     private:
-        /// @brief 发送方法选择回复
+        /**
+         * @brief 发送方法选择回复
+         */
         [[nodiscard]] auto send_method_reply(std::uint8_t method) const -> net::awaitable<error>
         {
             const std::array<std::uint8_t, 2> wire{version, method};
@@ -319,24 +364,33 @@ namespace psmtest::socks5
          * @param password 期望密码
          * @return 认证结果
          */
-        [[nodiscard]] auto userpass_auth(const std::string &username,
-                                         const std::string &password)
-        -> net::awaitable<bool>
+        [[nodiscard]] auto userpass_auth(const std::string &username, const std::string &password)
+            -> net::awaitable<bool>
         {
             std::array<std::uint8_t, 2> head{};
             if (co_await read_exact(std::span<std::uint8_t>(head)))
+            {
                 co_return false;
+            }
             if (head[0] != 0x01)
+            {
                 co_return false;
+            }
             std::vector<std::uint8_t> user(head[1]);
             if (co_await read_exact(user))
+            {
                 co_return false;
+            }
             std::array<std::uint8_t, 1> plen{};
             if (co_await read_exact(std::span<std::uint8_t>(plen)))
+            {
                 co_return false;
+            }
             std::vector<std::uint8_t> pass(plen[0]);
             if (co_await read_exact(pass))
+            {
                 co_return false;
+            }
             const bool ok = std::string(user.begin(), user.end()) == username &&
                             std::string(pass.begin(), pass.end()) == password;
             const std::array<std::uint8_t, 2> resp{0x01, ok ? std::uint8_t{0x00} : std::uint8_t{0x01}};
@@ -344,9 +398,11 @@ namespace psmtest::socks5
             co_return ok;
         }
 
-        /// @brief 发送响应（bind 空 = 0.0.0.0:0）
+        /**
+         * @brief 发送响应（bind 空 = 0.0.0.0:0）
+         */
         [[nodiscard]] auto send_reply(reply_code code, const address &bind = {}) const
-        -> net::awaitable<error>
+            -> net::awaitable<error>
         {
             reply rep;
             rep.ver = version;
@@ -364,78 +420,97 @@ namespace psmtest::socks5
             co_return co_await send_bytes(build_reply(rep)) ? error::io_error : error::none;
         }
 
-        /// @brief 读取并解析请求（命令 + 地址）
-        [[nodiscard]] auto read_request(request &req)
-        -> net::awaitable<error>
+        /**
+         * @brief 读取并解析请求（命令 + 地址）
+         */
+        [[nodiscard]] auto read_request(request &req) -> net::awaitable<error>
         {
             std::array<std::uint8_t, 4> head{};
             auto ec = co_await read_exact(std::span<std::uint8_t>(head));
             if (ec)
+            {
                 co_return error::io_error;
+            }
             if (head[0] != version)
+            {
                 co_return error::version_mismatch;
+            }
             req.cmd = static_cast<command>(head[1]);
             if (req.cmd != command::connect && req.cmd != command::udp_associate)
+            {
                 co_return error::not_supported;
+            }
             req.target.type = static_cast<address_type>(head[3]);
             co_return co_await read_address(req.target);
         }
 
-        /// @brief 读取响应（reply）
-        [[nodiscard]] auto read_reply(reply &rep)
-        -> net::awaitable<error>
+        /**
+         * @brief 读取响应（reply）
+         */
+        [[nodiscard]] auto read_reply(reply &rep) -> net::awaitable<error>
         {
             std::array<std::uint8_t, 4> head{};
             if (co_await read_exact(std::span<std::uint8_t>(head)))
+            {
                 co_return error::io_error;
+            }
             if (head[0] != version)
+            {
                 co_return error::version_mismatch;
+            }
             rep.code = static_cast<reply_code>(head[1]);
             rep.bind.type = static_cast<address_type>(head[3]);
             co_return co_await read_address(rep.bind);
         }
 
-        /// @brief 读取地址（ATYP + ADDR + PORT）
-        [[nodiscard]] auto read_address(address &addr)
-        -> net::awaitable<error>
+        /**
+         * @brief 读取地址（ATYP + ADDR + PORT）
+         */
+        [[nodiscard]] auto read_address(address &addr) -> net::awaitable<error>
         {
             switch (addr.type)
             {
-                case address_type::ipv4:
+            case address_type::ipv4: {
+                std::array<std::uint8_t, 4> ip{};
+                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
                 {
-                    std::array<std::uint8_t, 4> ip{};
-                    if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                        co_return error::io_error;
-                    std::array<char, 16> buf{};
-                    std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-                    addr.host = buf.data();
-                    break;
+                    co_return error::io_error;
                 }
-                case address_type::ipv6:
+                std::array<char, 16> buf{};
+                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
+                addr.host = buf.data();
+                break;
+            }
+            case address_type::ipv6: {
+                std::array<std::uint8_t, 16> ip{};
+                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
                 {
-                    std::array<std::uint8_t, 16> ip{};
-                    if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                        co_return error::io_error;
-                    addr.host.assign(reinterpret_cast<const char *>(ip.data()), 16);
-                    break;
+                    co_return error::io_error;
                 }
-                case address_type::domain:
+                addr.host.assign(reinterpret_cast<const char *>(ip.data()), 16);
+                break;
+            }
+            case address_type::domain: {
+                std::array<std::uint8_t, 1> len{};
+                if (co_await read_exact_impl(std::span<std::uint8_t>(len)))
                 {
-                    std::array<std::uint8_t, 1> len{};
-                    if (co_await read_exact_impl(std::span<std::uint8_t>(len)))
-                        co_return error::io_error;
-                    std::vector<std::uint8_t> host(len[0]);
-                    if (co_await read_exact_impl(host))
-                        co_return error::io_error;
-                    addr.host.assign(reinterpret_cast<const char *>(host.data()), host.size());
-                    break;
+                    co_return error::io_error;
                 }
-                default:
-                    co_return error::bad_message;
+                std::vector<std::uint8_t> host(len[0]);
+                if (co_await read_exact_impl(host))
+                {
+                    co_return error::io_error;
+                }
+                addr.host.assign(reinterpret_cast<const char *>(host.data()), host.size());
+                break;
+            }
+            default: co_return error::bad_message;
             }
             std::array<std::uint8_t, 2> port{};
             if (co_await read_exact_impl(std::span<std::uint8_t>(port)))
+            {
                 co_return error::io_error;
+            }
             addr.port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
             co_return error::none;
         }
@@ -445,8 +520,7 @@ namespace psmtest::socks5
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst)
-        -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact_impl(std::span<std::uint8_t> dst) -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -471,10 +545,11 @@ namespace psmtest::socks5
                 std::array<std::uint8_t, 512> chunk{};
                 std::error_code ec;
                 const auto n = co_await next_layer_->async_read_some(
-                    std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()),
-                    ec);
+                    std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()), ec);
                 if (ec || n == 0)
+                {
                     co_return true;
+                }
                 buf_.insert(buf_.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
                 used_ += n;
             }
@@ -486,19 +561,20 @@ namespace psmtest::socks5
          * @param data 数据
          * @return true = 失败
          */
-        [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-        -> net::awaitable<bool>
+        [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())
             {
                 std::error_code ec;
                 const auto n = co_await next_layer_->async_write_some(
-                    std::span<const std::byte>(
-                        reinterpret_cast<const std::byte *>(data.data() + done), data.size() - done),
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(data.data() + done),
+                                               data.size() - done),
                     ec);
                 if (ec)
+                {
                     co_return true;
+                }
                 done += n;
             }
             co_return false;

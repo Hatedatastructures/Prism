@@ -11,13 +11,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/proxy/socks5/codec.hpp>
-#include <common/proxy/socks5/conn.hpp>
-#include <common/proxy/socks5/dgram.hpp>
-#include <common/proxy/socks5/types.hpp>
-
 #include <boost/asio/awaitable.hpp>
 
 #include <cstddef>
@@ -26,6 +19,13 @@
 #include <tuple>
 #include <utility>
 #include <vector>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/proxy/socks5/codec.hpp>
+#include <common/proxy/socks5/conn.hpp>
+#include <common/proxy/socks5/dgram.hpp>
+#include <common/proxy/socks5/types.hpp>
 
 namespace psmtest::socks5
 {
@@ -46,15 +46,14 @@ namespace psmtest::socks5
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       const address &target, command cmd = command::connect)
-    -> net::awaitable<std::pair<error, shared_conn>>
+        -> net::awaitable<std::pair<error, shared_conn>>
     {
         request req;
         req.cmd = cmd;
         req.target = target;
         auto c = std::make_shared<conn>(std::move(upstream));
         const auto err = co_await c->write_handshake(req, cfg);
-        co_return std::pair{err, err == error::none ? shared_conn(std::move(c))
-                                                    : shared_conn{}};
+        co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
 
     /**
@@ -64,14 +63,15 @@ namespace psmtest::socks5
      * @param target 目标地址
      * @return 错误码与包连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto connect_packet(shared_transmission upstream,
-                                             const client_config &cfg, const address &target)
-    -> net::awaitable<std::pair<error, shared_dgram>>
+    [[nodiscard]] inline auto connect_packet(shared_transmission upstream, const client_config &cfg,
+                                             const address &target)
+        -> net::awaitable<std::pair<error, shared_dgram>>
     {
-        auto [err, conn] =
-            co_await connect(std::move(upstream), cfg, target, command::udp_associate);
+        auto [err, conn] = co_await connect(std::move(upstream), cfg, target, command::udp_associate);
         if (err != error::none)
+        {
             co_return std::pair{err, shared_dgram{}};
+        }
         co_return std::pair{error::none, std::make_shared<dgram>(std::move(conn))};
     }
 
@@ -84,7 +84,7 @@ namespace psmtest::socks5
      * 完整握手（greeting/方法协商/认证/请求/响应）。
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-    -> net::awaitable<std::tuple<error, request, shared_conn>>
+        -> net::awaitable<std::tuple<error, request, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream));
         auto [err, req] = co_await c->read_handshake(cfg);
@@ -99,13 +99,14 @@ namespace psmtest::socks5
      * @return 错误码、解析的请求与包连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept_packet(shared_transmission upstream, const server_config &cfg)
-    -> net::awaitable<std::tuple<error, request, shared_dgram>>
+        -> net::awaitable<std::tuple<error, request, shared_dgram>>
     {
         auto [err, req, conn] = co_await accept(std::move(upstream), cfg);
         if (err != error::none)
+        {
             co_return std::tuple{err, std::move(req), shared_dgram{}};
-        co_return std::tuple{error::none, std::move(req),
-                             std::make_shared<dgram>(std::move(conn))};
+        }
+        co_return std::tuple{error::none, std::move(req), std::make_shared<dgram>(std::move(conn))};
     }
 
 } // namespace psmtest::socks5

@@ -27,8 +27,7 @@ namespace psm::testing
          * @brief 构造测试运行器
          * @param tag 日志标签，用于区分不同测试模块（如 "Session", "Crypto" 等）
          */
-        explicit TestRunner(const std::string_view tag) noexcept
-            : tag_(tag)
+        explicit TestRunner(const std::string_view tag) noexcept : tag_(tag)
         {
         }
 

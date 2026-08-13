@@ -27,7 +27,6 @@
 #include <cstdint>
 #include <memory>
 
-
 namespace psm::multiplex::smux
 {
 
@@ -60,8 +59,7 @@ namespace psm::multiplex::smux
          * @details 启动 keepalive 心跳（配置开启时），然后执行 frame_loop。
          *          退出时由基类 close() 清理。
          */
-        auto run()
-            -> net::awaitable<void> override;
+        auto run() -> net::awaitable<void> override;
 
         /**
          * @brief 编码并写入一个逻辑帧
@@ -69,8 +67,7 @@ namespace psm::multiplex::smux
          *          control 帧（NOP 心跳）编码为 8 字节 NOP 帧。
          *          写失败时关闭整个会话。
          */
-        auto write_frame(outbound_frame frame)
-            -> net::awaitable<void> override;
+        auto write_frame(outbound_frame frame) -> net::awaitable<void> override;
 
     private:
         /**
@@ -82,13 +79,15 @@ namespace psm::multiplex::smux
          */
         struct udp_entry
         {
-            memory::vector<std::byte> buffer; ///< 累积的未解析数据
-            bool processing = false;          ///< 处理循环运行标志
-            memory::string dest_host;         ///< length_prefixed 模式固定目标主机
-            std::uint16_t dest_port = 0;      ///< length_prefixed 模式固定目标端口
+            memory::vector<std::byte> buffer;           ///< 累积的未解析数据
+            bool processing = false;                    ///< 处理循环运行标志
+            memory::string dest_host;                   ///< length_prefixed 模式固定目标主机
+            std::uint16_t dest_port = 0;                ///< length_prefixed 模式固定目标端口
             addr_mode mode{addr_mode::length_prefixed}; ///< 地址编码模式
 
-            explicit udp_entry(memory::resource_pointer mr) : buffer(mr), dest_host(mr) {}
+            explicit udp_entry(memory::resource_pointer mr) : buffer(mr), dest_host(mr)
+            {
+            }
         };
 
         /**
@@ -97,15 +96,13 @@ namespace psm::multiplex::smux
          *          syn → handle_syn，data → dispatch_push，
          *          fin → handle_fin，control（NOP）忽略。
          */
-        auto frame_loop()
-            -> net::awaitable<void>;
+        auto frame_loop() -> net::awaitable<void>;
 
         /**
          * @brief 处理 SYN 帧，创建 pending_entry
          * @param stream_id 新建的流标识符
          */
-        auto handle_syn(std::uint32_t stream_id)
-            -> net::awaitable<void>;
+        auto handle_syn(std::uint32_t stream_id) -> net::awaitable<void>;
 
         /**
          * @brief 处理 PSH 帧，非阻塞三路分发
@@ -128,29 +125,25 @@ namespace psm::multiplex::smux
          * @brief 从 pending 解析地址、连接目标、创建 stream/datagram
          * @param stream_id 流标识符
          */
-        auto activate_stream(std::uint32_t stream_id)
-            -> net::awaitable<void>;
+        auto activate_stream(std::uint32_t stream_id) -> net::awaitable<void>;
 
         /**
          * @brief 发送地址解析错误状态并关闭流
          * @param stream_id 流标识符
          */
-        auto send_addr_err(std::uint32_t stream_id)
-            -> net::awaitable<void>;
+        auto send_addr_err(std::uint32_t stream_id) -> net::awaitable<void>;
 
         /**
          * @brief 激活 UDP 流，创建 datagram
          * @param opts 激活参数
          */
-        auto activate_udp(activate_opts opts)
-            -> net::awaitable<void>;
+        auto activate_udp(activate_opts opts) -> net::awaitable<void>;
 
         /**
          * @brief 激活 TCP 流，连接目标并创建 stream
          * @param opts 激活参数
          */
-        auto activate_tcp(activate_opts opts)
-            -> net::awaitable<void>;
+        auto activate_tcp(activate_opts opts) -> net::awaitable<void>;
 
         /**
          * @brief 处理单个 datagram 流的重组与发送
@@ -159,22 +152,19 @@ namespace psm::multiplex::smux
          * @details 累积到 udp_entry.buffer，按模式解析出完整数据报
          *          逐个调用 datagram.send_to。
          */
-        auto process_udp(std::uint32_t stream_id, memory::vector<std::byte> payload)
-            -> net::awaitable<void>;
+        auto process_udp(std::uint32_t stream_id, memory::vector<std::byte> payload) -> net::awaitable<void>;
 
         /**
          * @brief NOP 心跳循环
          * @details 按配置间隔发送 NOP 帧保持连接活性。
          */
-        auto keepalive_loop()
-            -> net::awaitable<void>;
+        auto keepalive_loop() -> net::awaitable<void>;
 
         /**
          * @brief 构造 datagram 端点解析回调
          * @return 解析回调（host/port → endpoint），替代直接持有 outbound
          */
-        [[nodiscard]] auto make_resolve() const
-            -> resolve_fn;
+        [[nodiscard]] auto make_resolve() const -> resolve_fn;
 
         /**
          * @brief 构造 datagram 响应回传回调
@@ -182,12 +172,12 @@ namespace psm::multiplex::smux
          * @param mode 地址编码模式
          * @return 回传回调（编码数据报并经 egress.send 发出）
          */
-        [[nodiscard]] auto make_emit(std::uint32_t stream_id, addr_mode mode)
-            -> emit_fn;
+        [[nodiscard]] auto make_emit(std::uint32_t stream_id, addr_mode mode) -> emit_fn;
 
-        smux_codec codec_;                                ///< smux 帧编解码策略
-        std::function<net::awaitable<std::pair<fault::code,
-                                               net::ip::udp::endpoint>>(std::string_view, std::string_view)> router_fn_; ///< UDP 路由回调（构造时从 outbound 获取）
+        smux_codec codec_; ///< smux 帧编解码策略
+        std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view,
+                                                                                     std::string_view)>
+            router_fn_;                                            ///< UDP 路由回调（构造时从 outbound 获取）
         memory::unordered_map<std::uint32_t, udp_entry> udp_bufs_; ///< UDP 重组缓冲表
     };
 
@@ -196,8 +186,7 @@ namespace psm::multiplex::smux
      * @param opts 基类构造参数
      * @return control 的共享指针
      */
-    [[nodiscard]] inline auto make_control(multiplexer_options opts)
-        -> std::shared_ptr<control>
+    [[nodiscard]] inline auto make_control(multiplexer_options opts) -> std::shared_ptr<control>
     {
         return std::make_shared<control>(std::move(opts));
     }

@@ -9,11 +9,11 @@
  */
 #pragma once
 
+#include <prism/foundation/memory/container.hpp>
+#include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
 #include <prism/user/directory.hpp>
 #include <prism/user/entry.hpp>
-#include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/http/codec/parser.hpp>
-#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 
@@ -21,7 +21,6 @@
 #include <memory>
 #include <string_view>
 #include <utility>
-
 
 namespace psm::protocol::http
 {
@@ -46,8 +45,7 @@ namespace psm::protocol::http
          * @param transport 入站传输层（通常经 preview 包装）
          * @param account_directory 账户目录指针，为空时跳过认证
          */
-        explicit conn(transport::shared_transmission transport,
-                       user::directory *account_directory = nullptr);
+        explicit conn(transport::shared_transmission transport, user::directory *account_directory = nullptr);
 
         /**
          * @brief 执行 HTTP 代理握手
@@ -55,24 +53,21 @@ namespace psm::protocol::http
          * @details 读取完整 HTTP 请求头、解析请求行和头字段、
          * 若配置了账户目录则执行 Basic 认证。认证失败时自动发送 407/403 响应。
          */
-        [[nodiscard]] auto handshake()
-            -> net::awaitable<std::pair<fault::code, proxy_request>>;
+        [[nodiscard]] auto handshake() -> net::awaitable<std::pair<fault::code, proxy_request>>;
 
         /**
          * @brief 发送 200 Connection Established 响应
          * @return fault::code 写入结果
          * @details 用于 CONNECT 方法成功建连后通知客户端隧道已建立。
          */
-        [[nodiscard]] auto send_ok()
-            -> net::awaitable<fault::code>;
+        [[nodiscard]] auto send_ok() -> net::awaitable<fault::code>;
 
         /**
          * @brief 发送 502 Bad Gateway 响应
          * @return fault::code 写入结果
          * @details 用于上游连接失败时通知客户端。
          */
-        [[nodiscard]] auto send_gateway_err()
-            -> net::awaitable<fault::code>;
+        [[nodiscard]] auto send_gateway_err() -> net::awaitable<fault::code>;
 
         /**
          * @brief 转发普通 HTTP 请求到上游
@@ -82,16 +77,15 @@ namespace psm::protocol::http
          * @details 将绝对 URI 重写为相对路径，构建新请求行写入上游，
          *          随后写入请求行之后的剩余数据（headers + body）。
          */
-        auto forward(const proxy_request &req, transport::shared_transmission outbound, std::pmr::memory_resource *mr)
-            -> net::awaitable<void>;
+        auto forward(const proxy_request &req, transport::shared_transmission outbound,
+                     std::pmr::memory_resource *mr) -> net::awaitable<void>;
 
         /**
          * @brief 释放底层传输层
          * @return 入站传输层的共享指针
          * @details 握手完成后调用，将传输层交给 tunnel() 进行双向转发。
          */
-        [[nodiscard]] auto release()
-            -> transport::shared_transmission;
+        [[nodiscard]] auto release() -> transport::shared_transmission;
 
     private:
         transport::shared_transmission transport_;
@@ -104,16 +98,14 @@ namespace psm::protocol::http
          * @brief 循环读取直到找到 HTTP 头部结束标记
          * @return 读取成功返回 true，读取失败返回 false
          */
-        [[nodiscard]] auto read_hdr()
-            -> net::awaitable<bool>;
+        [[nodiscard]] auto read_hdr() -> net::awaitable<bool>;
 
         /**
          * @brief 完整写入字符串数据到传输层
          * @param data 待写入的字符串视图
          * @return fault::code 写入结果
          */
-        [[nodiscard]] auto write_bytes(std::string_view data)
-            -> net::awaitable<fault::code>;
+        [[nodiscard]] auto write_bytes(std::string_view data) -> net::awaitable<fault::code>;
     };
 
     /**
@@ -122,8 +114,8 @@ namespace psm::protocol::http
      * @param account_directory 账户目录指针
      * @return relay 共享指针
      */
-    [[nodiscard]] inline auto make_conn(transport::shared_transmission transport, user::directory *account_directory = nullptr)
-        -> std::shared_ptr<conn>
+    [[nodiscard]] inline auto make_conn(transport::shared_transmission transport,
+                                        user::directory *account_directory = nullptr) -> std::shared_ptr<conn>
     {
         return std::make_shared<conn>(std::move(transport), account_directory);
     }

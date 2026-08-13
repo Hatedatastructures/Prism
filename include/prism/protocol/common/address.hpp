@@ -14,13 +14,12 @@
 #include <variant>
 
 #ifdef _WIN32
-    #include <ws2tcpip.h>
+#include <ws2tcpip.h>
 #else
-    #include <arpa/inet.h>
+#include <arpa/inet.h>
 #endif
 
 #include <prism/foundation/memory/container.hpp>
-
 
 namespace psm::protocol::common
 {
@@ -95,11 +94,11 @@ namespace psm::protocol::common
      * 使用 inet_ntop 进行格式化，域名直接返回原始内容。支持
      * 自定义内存分配器，适用于日志记录和调试输出场景。
      */
-    [[nodiscard]] inline auto addr_to_str(const address &addr, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto addr_to_str(const address &addr,
+                                          memory::resource_pointer mr = memory::current_resource())
         -> memory::string
     {
-        auto translate = [mr]<typename A>(const A &arg)
-            -> memory::string
+        auto translate = [mr]<typename A>(const A &arg) -> memory::string
         {
             using type = std::decay_t<A>;
             if constexpr (std::is_same_v<type, ipv4_address>)

@@ -2,8 +2,7 @@
  * @file conn.cpp
  * @brief VMess 协议中继器实�? */
 
-#include <prism/protocol/vmess/handler/conn.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/protocol/common/form.hpp>
@@ -11,12 +10,11 @@
 #include <prism/protocol/common/udprelay.hpp>
 #include <prism/protocol/vmess/codec/auth.hpp>
 #include <prism/protocol/vmess/codec/kdf.hpp>
+#include <prism/protocol/vmess/handler/conn.hpp>
 #include <prism/user/stats/traffic.hpp>
-#include <prism/diagnose/diagnose.hpp>
-
-#include <openssl/evp.h>
 
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <openssl/evp.h>
 
 #include <algorithm>
 #include <charconv>
@@ -33,18 +31,20 @@ namespace psm::protocol::vmess
 
     namespace
     {
-        /// 当前 Unix 时间戳（秒）
+        /**
+         * @brief 当前 Unix 时间戳（秒）
+         * @return 当前 Unix 时间戳（秒）
+         */
         [[nodiscard]] auto now_seconds() -> std::int64_t
         {
             return std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count();
+                       std::chrono::system_clock::now().time_since_epoch())
+                .count();
         }
     } // namespace
 
     conn::conn(shared_transmission next_layer, const config &cfg, std::vector<user_key> keys)
-        : next_layer_(std::move(next_layer))
-        , config_(cfg)
-        , keys_(std::move(keys))
+        : next_layer_(std::move(next_layer)), config_(cfg), keys_(std::move(keys))
     {
     }
 
@@ -61,7 +61,8 @@ namespace psm::protocol::vmess
             ec = std::make_error_code(std::errc::not_connected);
             co_return 0;
         }
-        auto n = co_await reader_->read_chunk(buffer, ec);        if (ec)
+        auto n = co_await reader_->read_chunk(buffer, ec);
+        if (ec)
         {
             co_return 0;
         }
@@ -87,13 +88,17 @@ namespace psm::protocol::vmess
     void conn::close()
     {
         if (next_layer_)
+        {
             next_layer_->close();
+        }
     }
 
     void conn::cancel()
     {
         if (next_layer_)
+        {
             next_layer_->cancel();
+        }
     }
 
     auto conn::underlying() noexcept -> psm::transport::transmission &
@@ -111,8 +116,7 @@ namespace psm::protocol::vmess
         return std::move(next_layer_);
     }
 
-    auto conn::handshake() const
-        -> net::awaitable<std::pair<fault::code, request>>
+    auto conn::handshake() const -> net::awaitable<std::pair<fault::code, request>>
     {
         request req;
         if (next_layer_ == nullptr)
@@ -125,7 +129,9 @@ namespace psm::protocol::vmess
         auto on_deadline = [this](const boost::system::error_code &ec)
         {
             if (!ec && this->next_layer_)
+            {
                 this->next_layer_->cancel();
+            }
         };
         deadline.async_wait(std::move(on_deadline));
 
@@ -154,8 +160,8 @@ namespace psm::protocol::vmess
                 co_return std::pair{fault::to_code(re_ec), req};
             }
         }
-        const auto auth_span = std::span<const std::uint8_t, 16>(
-            reinterpret_cast<const std::uint8_t *>(auth_id.data()), 16);
+        const auto auth_span =
+            std::span<const std::uint8_t, 16>(reinterpret_cast<const std::uint8_t *>(auth_id.data()), 16);
         const auto conn_nonce = std::span<const std::uint8_t, 8>(
             reinterpret_cast<const std::uint8_t *>(conn_nonce_raw.data()), 8);
 
@@ -165,13 +171,17 @@ namespace psm::protocol::vmess
         std::array<std::uint8_t, 16> cmd_key{};
         for (const auto &key : keys_)
         {
-            const auto auth = codec::open_auth_header(
-                std::span<const std::uint8_t, 16>(key.cmd_key.data(), 16), auth_span);
+            const auto auth =
+                codec::open_auth_header(std::span<const std::uint8_t, 16>(key.cmd_key.data(), 16), auth_span);
             if (!auth.valid)
+            {
                 continue;
+            }
             const auto diff = auth.timestamp > now ? auth.timestamp - now : now - auth.timestamp;
             if (diff > time_tolerance)
+            {
                 continue;
+            }
             cmd_key = key.cmd_key;
             user_found = true;
             break;
@@ -221,8 +231,7 @@ namespace psm::protocol::vmess
         const auto command_byte = header.command;
         const bool is_udp = command_byte == static_cast<std::uint8_t>(command::udp);
         const bool is_mux = command_byte == static_cast<std::uint8_t>(command::mux);
-        if (!is_udp && !is_mux &&
-            command_byte != static_cast<std::uint8_t>(command::tcp))
+        if (!is_udp && !is_mux && command_byte != static_cast<std::uint8_t>(command::tcp))
         {
             deadline.cancel();
             co_return std::pair{fault::code::unsupported_command, req};
@@ -242,8 +251,8 @@ namespace psm::protocol::vmess
         std::array<std::byte, 38> resp{};
         const auto resp_ec = codec::build_response(
             std::span<const std::uint8_t, 16>(header.request_key.data(), 16),
-            std::span<const std::uint8_t, 16>(header.request_nonce.data(), 16),
-            header.response_header, header.option, false,
+            std::span<const std::uint8_t, 16>(header.request_nonce.data(), 16), header.response_header,
+            header.option, false,
             std::span<std::uint8_t>(reinterpret_cast<std::uint8_t *>(resp.data()), resp.size()));
         if (fault::failed(resp_ec))
         {
@@ -268,18 +277,16 @@ namespace psm::protocol::vmess
         std::memcpy(resp_key.data(), key_hash.data(), 16);
         std::memcpy(resp_nonce.data(), nonce_hash.data(), 16);
 
-        reader_ = std::make_unique<codec::read_stream>(codec::stream_params{
-            .transport = next_layer_.get(),
-            .key = header.request_key,
-            .nonce = header.request_nonce,
-            .option = header.option,
-            .security = header.security});
-        writer_ = std::make_unique<codec::write_stream>(codec::stream_params{
-            .transport = next_layer_.get(),
-            .key = resp_key,
-            .nonce = resp_nonce,
-            .option = header.option,
-            .security = header.security});
+        reader_ = std::make_unique<codec::read_stream>(codec::stream_params{.transport = next_layer_.get(),
+                                                                            .key = header.request_key,
+                                                                            .nonce = header.request_nonce,
+                                                                            .option = header.option,
+                                                                            .security = header.security});
+        writer_ = std::make_unique<codec::write_stream>(codec::stream_params{.transport = next_layer_.get(),
+                                                                             .key = resp_key,
+                                                                             .nonce = resp_nonce,
+                                                                             .option = header.option,
+                                                                             .security = header.security});
 
         deadline.cancel();
 
@@ -291,8 +298,7 @@ namespace psm::protocol::vmess
         co_return std::pair{fault::code::success, req};
     }
 
-    auto conn::async_associate(route_callback route_cb) const
-        -> net::awaitable<fault::code>
+    auto conn::async_associate(route_callback route_cb) const -> net::awaitable<fault::code>
     {
         using namespace boost::asio::experimental::awaitable_operators;
         if (!config_.enable_udp)
@@ -307,8 +313,8 @@ namespace psm::protocol::vmess
         // resolve fixed target (address from request header)
         auto host = psm::protocol::common::addr_to_str(header_.destination);
         char port_buf[8];
-        const auto [pe, pec] = std::to_chars(
-            port_buf, port_buf + sizeof(port_buf), static_cast<std::uint32_t>(header_.port));
+        const auto [pe, pec] =
+            std::to_chars(port_buf, port_buf + sizeof(port_buf), static_cast<std::uint32_t>(header_.port));
         auto [route_ec, target_ep] = co_await route_cb(
             std::string_view(host), std::string_view(port_buf, std::distance(port_buf, pe)));
         if (fault::failed(route_ec))
@@ -326,8 +332,7 @@ namespace psm::protocol::vmess
         {
             idle_timer.expires_after(std::chrono::seconds(config_.idle_timeout));
 
-            auto do_read = [&]()
-                -> net::awaitable<std::size_t>
+            auto do_read = [&]() -> net::awaitable<std::size_t>
             {
                 std::error_code ec;
                 const auto n = co_await reader_->read_chunk(buf.recv, ec);
@@ -343,7 +348,9 @@ namespace psm::protocol::vmess
             {
                 // 空闲超时
                 if (traffic_)
+                {
                     traffic_->flush_traffic(proto_, uplink_bytes, downlink_bytes);
+                }
                 co_return fault::code::success;
             }
 
@@ -352,13 +359,15 @@ namespace psm::protocol::vmess
             if (n == 0)
             {
                 if (traffic_)
+                {
                     traffic_->flush_traffic(proto_, uplink_bytes, downlink_bytes);
+                }
                 co_return fault::code::success;
             }
 
-            auto [relay_ec, resp_n, sender_ep] = co_await protocol::common::relay_packet(
-                protocol::common::relay_opts{udp_socket, target_ep,
-                                             std::span<const std::byte>(buf.recv.data(), n), buf});
+            auto [relay_ec, resp_n, sender_ep] =
+                co_await protocol::common::relay_packet(protocol::common::relay_opts{
+                    udp_socket, target_ep, std::span<const std::byte>(buf.recv.data(), n), buf});
             if (fault::failed(relay_ec))
             {
                 continue;
@@ -372,7 +381,9 @@ namespace psm::protocol::vmess
             if (w_ec)
             {
                 if (traffic_)
+                {
                     traffic_->flush_traffic(proto_, uplink_bytes, downlink_bytes);
+                }
                 co_return fault::code::success;
             }
             downlink_bytes += resp_n;
@@ -380,4 +391,3 @@ namespace psm::protocol::vmess
     }
 
 } // namespace psm::protocol::vmess
-

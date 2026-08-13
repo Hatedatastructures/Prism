@@ -1,5 +1,5 @@
-#include <prism/protocol/http/handler/conn.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/http/handler/conn.hpp>
 
 #include <cstring>
 #include <span>
@@ -25,8 +25,7 @@ namespace psm::protocol::http
         buffer_.resize(4096);
     }
 
-    auto conn::handshake()
-        -> net::awaitable<std::pair<fault::code, proxy_request>>
+    auto conn::handshake() -> net::awaitable<std::pair<fault::code, proxy_request>>
     {
         // 读取完整 HTTP 请求头
         if (!co_await read_hdr())
@@ -57,20 +56,18 @@ namespace psm::protocol::http
         co_return std::make_pair(fault::code::success, req);
     }
 
-    auto conn::send_ok()
-        -> net::awaitable<fault::code>
+    auto conn::send_ok() -> net::awaitable<fault::code>
     {
         co_return co_await write_bytes(resp200);
     }
 
-    auto conn::send_gateway_err()
-        -> net::awaitable<fault::code>
+    auto conn::send_gateway_err() -> net::awaitable<fault::code>
     {
         co_return co_await write_bytes(resp502);
     }
 
-    auto conn::forward(const proxy_request &req, transport::shared_transmission outbound, std::pmr::memory_resource *mr)
-        -> net::awaitable<void>
+    auto conn::forward(const proxy_request &req, transport::shared_transmission outbound,
+                       std::pmr::memory_resource *mr) -> net::awaitable<void>
     {
         // 构建新请求行：将绝对 URI 重写为相对路径
         const auto new_line = build_fwd(req, mr);
@@ -89,19 +86,18 @@ namespace psm::protocol::http
         if (used_ > req.line_end)
         {
             // 安全：字符缓冲区转字节 span 用于剩余 HTTP 数据转发
-            std::span span = std::span(reinterpret_cast<const std::byte *>(buffer_.data() + req.line_end), used_ - req.line_end);
+            std::span span = std::span(reinterpret_cast<const std::byte *>(buffer_.data() + req.line_end),
+                                       used_ - req.line_end);
             co_await transport::async_write(*outbound, span, ec);
         }
     }
 
-    auto conn::release()
-        -> transport::shared_transmission
+    auto conn::release() -> transport::shared_transmission
     {
         return std::move(transport_);
     }
 
-    auto conn::read_hdr()
-        -> net::awaitable<bool>
+    auto conn::read_hdr() -> net::awaitable<bool>
     {
         while (true)
         {
@@ -124,7 +120,8 @@ namespace psm::protocol::http
             // 从传输层读取数据
             std::error_code ec;
             // 安全：字符缓冲区转可写字节 span 用于异步读取
-            std::span span = std::span(reinterpret_cast<std::byte *>(buffer_.data() + used_), buffer_.size() - used_);
+            std::span span =
+                std::span(reinterpret_cast<std::byte *>(buffer_.data() + used_), buffer_.size() - used_);
             const auto n = co_await transport_->async_read_some(span, ec);
             if (ec || n == 0)
             {
@@ -134,8 +131,7 @@ namespace psm::protocol::http
         }
     }
 
-    auto conn::write_bytes(std::string_view data)
-        -> net::awaitable<fault::code>
+    auto conn::write_bytes(std::string_view data) -> net::awaitable<fault::code>
     {
         std::error_code ec;
         // 安全：string_view 转字节 span 用于网络传输

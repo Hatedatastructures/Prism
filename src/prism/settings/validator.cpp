@@ -1,7 +1,6 @@
-#include <prism/settings/validator.hpp>
-
 #include <prism/foundation/exception/security.hpp>
 #include <prism/foundation/fault/code.hpp>
+#include <prism/settings/validator.hpp>
 
 #include <boost/asio.hpp>
 
@@ -83,7 +82,8 @@ namespace psm::settings_validator
         check_proto("protocol.socks5", cfg.protocol.socks5.enable_tcp || cfg.protocol.socks5.enable_udp);
         check_proto("protocol.trojan", cfg.protocol.trojan.enable_tcp || cfg.protocol.trojan.enable_udp);
         check_proto("protocol.vless", cfg.protocol.vless.enable_udp);
-        check_proto("protocol.shadowsocks", cfg.protocol.shadowsocks.enable_tcp || cfg.protocol.shadowsocks.enable_udp);
+        check_proto("protocol.shadowsocks",
+                    cfg.protocol.shadowsocks.enable_tcp || cfg.protocol.shadowsocks.enable_udp);
 
         for (const auto &[host, endpoint_config] : cfg.instance.reverse_map)
         {

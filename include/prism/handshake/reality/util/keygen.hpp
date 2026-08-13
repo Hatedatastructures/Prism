@@ -19,7 +19,6 @@
 #include <span>
 #include <utility>
 
-
 namespace psm::handshake::reality
 {
 
@@ -36,16 +35,16 @@ namespace psm::handshake::reality
      */
     struct key_material
     {
-        std::array<std::uint8_t, AES_128_KEY_LEN> server_hskey{};       // 握手阶段服务端加密密钥
-        std::array<std::uint8_t, AEAD_NONCE_LEN> server_hsiv{};        // 握手阶段服务端 IV
-        std::array<std::uint8_t, AES_128_KEY_LEN> client_hskey{};       // 握手阶段客户端加密密钥
-        std::array<std::uint8_t, AEAD_NONCE_LEN> client_hsiv{};        // 握手阶段客户端 IV
-        std::array<std::uint8_t, AES_128_KEY_LEN> server_appkey{};      // 应用阶段服务端加密密钥
-        std::array<std::uint8_t, AEAD_NONCE_LEN> server_appiv{};       // 应用阶段服务端 IV
-        std::array<std::uint8_t, AES_128_KEY_LEN> client_appkey{};      // 应用阶段客户端加密密钥
-        std::array<std::uint8_t, AEAD_NONCE_LEN> client_appiv{};       // 应用阶段客户端 IV
-        std::array<std::uint8_t, sha256_len> server_finkey{};           // 服务端 Finished 验证密钥
-        std::array<std::uint8_t, sha256_len> master_secret{};           // 主密钥
+        std::array<std::uint8_t, AES_128_KEY_LEN> server_hskey{};  // 握手阶段服务端加密密钥
+        std::array<std::uint8_t, AEAD_NONCE_LEN> server_hsiv{};    // 握手阶段服务端 IV
+        std::array<std::uint8_t, AES_128_KEY_LEN> client_hskey{};  // 握手阶段客户端加密密钥
+        std::array<std::uint8_t, AEAD_NONCE_LEN> client_hsiv{};    // 握手阶段客户端 IV
+        std::array<std::uint8_t, AES_128_KEY_LEN> server_appkey{}; // 应用阶段服务端加密密钥
+        std::array<std::uint8_t, AEAD_NONCE_LEN> server_appiv{};   // 应用阶段服务端 IV
+        std::array<std::uint8_t, AES_128_KEY_LEN> client_appkey{}; // 应用阶段客户端加密密钥
+        std::array<std::uint8_t, AEAD_NONCE_LEN> client_appiv{};   // 应用阶段客户端 IV
+        std::array<std::uint8_t, sha256_len> server_finkey{};      // 服务端 Finished 验证密钥
+        std::array<std::uint8_t, sha256_len> master_secret{};      // 主密钥
     };
 
     /**

@@ -7,13 +7,13 @@
  * 无需构造完整的 core/router 协程环境。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
 
-#include <gtest/gtest.h>
-
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 using namespace psm::multiplex::smux;
 
@@ -27,9 +27,8 @@ namespace
      * @param incoming 新到达的帧数据
      * @return 累积后缓冲区是否包含可解析的完整数据报
      */
-    [[nodiscard]] auto accumulate_and_try_parse_packet_addr(
-        psm::memory::vector<std::byte> &accumulated,
-        std::span<const std::byte> incoming) -> bool
+    [[nodiscard]] auto accumulate_and_try_parse_packet_addr(psm::memory::vector<std::byte> &accumulated,
+                                                            std::span<const std::byte> incoming) -> bool
     {
         accumulated.insert(accumulated.end(), incoming.begin(), incoming.end());
         return parse_dgram(accumulated, psm::memory::current_resource()).has_value();
@@ -38,9 +37,8 @@ namespace
     /**
      * @brief 模拟 parcel::on_data 的缓冲区累积行为（length-prefixed 模式）
      */
-    [[nodiscard]] auto accumulate_and_try_parse_length_prefixed(
-        psm::memory::vector<std::byte> &accumulated,
-        std::span<const std::byte> incoming) -> bool
+    [[nodiscard]] auto accumulate_and_try_parse_length_prefixed(psm::memory::vector<std::byte> &accumulated,
+                                                                std::span<const std::byte> incoming) -> bool
     {
         accumulated.insert(accumulated.end(), incoming.begin(), incoming.end());
         return parse_prefixed(accumulated).has_value();
@@ -126,7 +124,8 @@ namespace
                 EXPECT_TRUE(result->host == "example.com") << "cross-frame domain: host matches";
                 EXPECT_TRUE(result->port == 443) << "cross-frame domain: port matches";
                 EXPECT_TRUE(result->payload.size() == 1) << "cross-frame domain: payload size matches";
-                EXPECT_TRUE(result->consumed == full.size()) << "cross-frame domain: consumed equals full size";
+                EXPECT_TRUE(result->consumed == full.size())
+                    << "cross-frame domain: consumed equals full size";
             }
         }
     }
@@ -164,8 +163,10 @@ namespace
             {
                 EXPECT_TRUE(result->payload.size() == 3) << "cross-frame LP: payload size matches";
                 EXPECT_TRUE(result->consumed == full.size()) << "cross-frame LP: consumed equals full size";
-                EXPECT_TRUE(result->payload[0] == std::byte{0x11}) << "cross-frame LP: payload content byte 0";
-                EXPECT_TRUE(result->payload[2] == std::byte{0x33}) << "cross-frame LP: payload content byte 2";
+                EXPECT_TRUE(result->payload[0] == std::byte{0x11})
+                    << "cross-frame LP: payload content byte 0";
+                EXPECT_TRUE(result->payload[2] == std::byte{0x33})
+                    << "cross-frame LP: payload content byte 2";
             }
         }
     }

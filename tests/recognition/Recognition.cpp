@@ -10,18 +10,19 @@
  * 6. 结构体默认值验证
  */
 
+#include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/handshake/reality/scheme.hpp>
 #include <prism/handshake/recognition/probe/probe.hpp>
 #include <prism/handshake/recognition/routes.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/handshake/reality/scheme.hpp>
 #include <prism/handshake/registry.hpp>
+#include <prism/protocol/tls/types.hpp>
 #include <prism/settings/settings.hpp>
-#include <prism/foundation/foundation.hpp>
-#include <prism/diagnose/log.hpp>
-#include <gtest/gtest.h>
 
 #include <string>
+
+#include <gtest/gtest.h>
 
 namespace probe = psm::recognition::probe;
 using psm::protocol::tls::hello_features;
@@ -87,18 +88,15 @@ namespace
 TEST(Recognition, DetectAllProtocols)
 {
     // 空数据 -> unknown
-    EXPECT_EQ(probe::detect(""), psm::connect::protocol_type::unknown)
-        << "detect: empty -> unknown";
+    EXPECT_EQ(probe::detect(""), psm::connect::protocol_type::unknown) << "detect: empty -> unknown";
 
     // SOCKS5 (首字节 0x05)
     std::string socks5 = "\x05\x01\x00";
-    EXPECT_EQ(probe::detect(socks5), psm::connect::protocol_type::socks5)
-        << "detect: 0x05 -> socks5";
+    EXPECT_EQ(probe::detect(socks5), psm::connect::protocol_type::socks5) << "detect: 0x05 -> socks5";
 
     // TLS (0x16 0x03)
     std::string tls = "\x16\x03\x01\x00\x05";
-    EXPECT_EQ(probe::detect(tls), psm::connect::protocol_type::tls)
-        << "detect: 0x16 0x03 -> tls";
+    EXPECT_EQ(probe::detect(tls), psm::connect::protocol_type::tls) << "detect: 0x16 0x03 -> tls";
 
     // 单字节 0x16 但第二字节不是 0x03 -> shadowsocks fallback
     std::string not_tls = "\x16\x00";
@@ -214,7 +212,8 @@ TEST(Recognition, FeatureBitmapBuild)
     non_std_features.session_id_len = 16;
     non_std_features.session_id.resize(16);
     bitmap = psm::recognition::tls::build_bitmap(non_std_features);
-    EXPECT_TRUE(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::nonstd_session))
+    EXPECT_TRUE(
+        psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::nonstd_session))
         << "Should have session_id_non_standard bit";
 }
 
@@ -226,13 +225,13 @@ TEST(Recognition, FeatureBitmapRealityMarker)
     // 测试 Reality 独占标记 [01:08:02]
     hello_features reality_features;
     reality_features.session_id_len = 32;
-    reality_features.session_id = {0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                                    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    reality_features.session_id = {0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                                   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
     auto bitmap = psm::recognition::tls::build_bitmap(reality_features);
-    EXPECT_TRUE(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::reality_marker))
+    EXPECT_TRUE(
+        psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::reality_marker))
         << "Should have reality_marker bit";
     EXPECT_TRUE(psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::full_session))
         << "Should also have full_session bit";
@@ -244,7 +243,8 @@ TEST(Recognition, FeatureBitmapRealityMarker)
     non_reality_features.session_id[0] = 0x00;
 
     bitmap = psm::recognition::tls::build_bitmap(non_reality_features);
-    EXPECT_TRUE(!psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::reality_marker))
+    EXPECT_TRUE(
+        !psm::recognition::tls::has_feature(bitmap, psm::recognition::tls::feature_bit::reality_marker))
         << "Should not have reality_marker bit";
 }
 
@@ -265,13 +265,11 @@ TEST(Recognition, FeatureBitmapCombined)
     // 测试组合特征
     using fb = psm::recognition::tls::feature_bit;
     auto combined = fb::has_sni | fb::has_x25519 | fb::full_session;
-    EXPECT_TRUE(psm::recognition::tls::has_all(bitmap, combined))
-        << "Should have all three features";
+    EXPECT_TRUE(psm::recognition::tls::has_all(bitmap, combined)) << "Should have all three features";
 
     // 测试部分匹配
     auto partial = fb::has_sni | fb::has_ech;
-    EXPECT_TRUE(!psm::recognition::tls::has_all(bitmap, partial))
-        << "Should not have ECH";
+    EXPECT_TRUE(!psm::recognition::tls::has_all(bitmap, partial)) << "Should not have ECH";
 }
 
 // ─── Reality sniff 测试 ─────────────────────────────────────────
@@ -286,10 +284,9 @@ TEST(Recognition, RealitySniffExclusive)
     // Reality 独占标记 → 独占命中
     hello_features features;
     features.session_id_len = 32;
-    features.session_id = {0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
-                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    features.session_id = {0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                           0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
     features.has_x25519 = true;
 
     auto bitmap = psm::recognition::tls::build_bitmap(features);
@@ -323,30 +320,22 @@ TEST(Recognition, SchemeRegistry)
     psm::handshake::register_schemes();
     auto &reg = psm::handshake::scheme_registry::instance();
 
-    EXPECT_GE(reg.all().size(), 4)
-        << "registry: at least 4 schemes registered";
+    EXPECT_GE(reg.all().size(), 4) << "registry: at least 4 schemes registered";
 
     // 按名称查找
     auto reality = reg.find("reality");
-    EXPECT_NE(reality, nullptr)
-        << "registry: find('reality') succeeds";
-    EXPECT_TRUE(reality->name() == "reality")
-        << "registry: reality name matches";
-    EXPECT_TRUE(reality->tier() == 0)
-        << "registry: reality should be Tier 0";
-    EXPECT_TRUE(reality->unique())
-        << "registry: reality should have unique feature";
+    EXPECT_NE(reality, nullptr) << "registry: find('reality') succeeds";
+    EXPECT_TRUE(reality->name() == "reality") << "registry: reality name matches";
+    EXPECT_TRUE(reality->tier() == 0) << "registry: reality should be Tier 0";
+    EXPECT_TRUE(reality->unique()) << "registry: reality should have unique feature";
 
     auto native = reg.find("native");
-    EXPECT_NE(native, nullptr)
-        << "registry: find('native') succeeds";
-    EXPECT_TRUE(native->tier() == 2)
-        << "registry: native should be Tier 2";
+    EXPECT_NE(native, nullptr) << "registry: find('native') succeeds";
+    EXPECT_TRUE(native->tier() == 2) << "registry: native should be Tier 2";
 
     // 不存在的方案
     auto unknown = reg.find("nonexistent");
-    EXPECT_EQ(unknown, nullptr)
-        << "registry: find('nonexistent') returns nullptr";
+    EXPECT_EQ(unknown, nullptr) << "registry: find('nonexistent') returns nullptr";
 }
 
 // ─── 结构体默认值测试 ───────────────────────────────────────────────────
@@ -358,16 +347,11 @@ TEST(Recognition, ClientHelloFeaturesDefaults)
 {
     hello_features features;
 
-    EXPECT_TRUE(features.server_name.empty())
-        << "hello_features: server_name empty";
-    EXPECT_EQ(features.session_id_len, 0)
-        << "hello_features: session_id_len = 0";
-    EXPECT_EQ(features.has_x25519, false)
-        << "hello_features: has_x25519 = false";
-    EXPECT_TRUE(features.versions.empty())
-        << "hello_features: versions empty";
-    EXPECT_TRUE(features.session_id.empty())
-        << "hello_features: session_id empty";
+    EXPECT_TRUE(features.server_name.empty()) << "hello_features: server_name empty";
+    EXPECT_EQ(features.session_id_len, 0) << "hello_features: session_id_len = 0";
+    EXPECT_EQ(features.has_x25519, false) << "hello_features: has_x25519 = false";
+    EXPECT_TRUE(features.versions.empty()) << "hello_features: versions empty";
+    EXPECT_TRUE(features.session_id.empty()) << "hello_features: session_id empty";
 }
 
 /**
@@ -377,12 +361,9 @@ TEST(Recognition, ProbeResultDefaults)
 {
     probe::probe_result result;
 
-    EXPECT_EQ(result.type, psm::connect::protocol_type::unknown)
-        << "probe_result: default type = unknown";
-    EXPECT_EQ(result.pre_read_size, 0)
-        << "probe_result: default pre_read_size = 0";
-    EXPECT_EQ(result.ec, psm::fault::code::success)
-        << "probe_result: default ec = success";
+    EXPECT_EQ(result.type, psm::connect::protocol_type::unknown) << "probe_result: default type = unknown";
+    EXPECT_EQ(result.pre_read_size, 0) << "probe_result: default pre_read_size = 0";
+    EXPECT_EQ(result.ec, psm::fault::code::success) << "probe_result: default ec = success";
 }
 
 /**

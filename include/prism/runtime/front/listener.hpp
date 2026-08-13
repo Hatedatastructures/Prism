@@ -10,14 +10,13 @@
 
 #pragma once
 
-#include <prism/settings/settings.hpp>
 #include <prism/runtime/config.hpp>
 #include <prism/runtime/front/balancer.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
 
 #include <chrono>
-
 
 namespace psm::runtime::front
 {
@@ -76,8 +75,7 @@ namespace psm::runtime::front
          * 一致性选择。相同客户端的连接将产生相近的亲和性值，倾向于分发
          * 至同一工作线程，有利于连接亲和性与会话保持。
          */
-        [[nodiscard]] static auto make_affinity(const tcp::endpoint &endpoint) noexcept
-            -> std::uint64_t;
+        [[nodiscard]] static auto make_affinity(const tcp::endpoint &endpoint) noexcept -> std::uint64_t;
 
         /**
          * @brief 异步接受循环协程
@@ -87,8 +85,7 @@ namespace psm::runtime::front
          * 标志时，协程将暂停指定的延迟时间后再继续接受，实现反压扩散
          * 的平滑处理。
          */
-        auto accept_loop()
-            -> net::awaitable<void>;
+        auto accept_loop() -> net::awaitable<void>;
 
         net::io_context ioc_;                          // 独立的 IO 上下文
         tcp::acceptor acceptor_;                       // TCP 接受器

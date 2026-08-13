@@ -16,7 +16,6 @@
 #include <memory>
 #include <span>
 
-
 // 前向声明，避免暴露 OpenSSL 头文件
 struct evp_aead_ctx_st;
 
@@ -49,10 +48,10 @@ namespace psm::crypto
      */
     struct seal_input
     {
-        std::span<std::uint8_t> out;                 ///< 输出缓冲区（密文 + tag）
-        std::span<const std::uint8_t> plaintext;     ///< 明文
-        std::span<const std::uint8_t> nonce;         ///< 显式 nonce（12 或 24 字节）
-        std::span<const std::uint8_t> ad;            ///< 附加数据
+        std::span<std::uint8_t> out;             ///< 输出缓冲区（密文 + tag）
+        std::span<const std::uint8_t> plaintext; ///< 明文
+        std::span<const std::uint8_t> nonce;     ///< 显式 nonce（12 或 24 字节）
+        std::span<const std::uint8_t> ad;        ///< 附加数据
     };
 
     /**
@@ -63,10 +62,10 @@ namespace psm::crypto
      */
     struct open_input
     {
-        std::span<std::uint8_t> out;                 ///< 输出缓冲区（明文）
-        std::span<const std::uint8_t> ciphertext;    ///< 密文 + tag
-        std::span<const std::uint8_t> nonce;         ///< 显式 nonce（12 或 24 字节）
-        std::span<const std::uint8_t> ad;            ///< 附加数据
+        std::span<std::uint8_t> out;              ///< 输出缓冲区（明文）
+        std::span<const std::uint8_t> ciphertext; ///< 密文 + tag
+        std::span<const std::uint8_t> nonce;      ///< 显式 nonce（12 或 24 字节）
+        std::span<const std::uint8_t> ad;         ///< 附加数据
     };
 
     /**
@@ -106,8 +105,7 @@ namespace psm::crypto
          * @details AEAD 上下文包含 BoringSSL 原始指针，不可拷贝。
          * @return 不返回
          */
-        auto operator=(const aead_context &)
-            -> aead_context & = delete;
+        auto operator=(const aead_context &) -> aead_context & = delete;
 
         /**
          * @brief 移动构造函数
@@ -124,8 +122,7 @@ namespace psm::crypto
          * @param other 源对象
          * @return 当前对象的引用
          */
-        auto operator=(aead_context &&other) noexcept
-            -> aead_context &;
+        auto operator=(aead_context &&other) noexcept -> aead_context &;
 
         /**
          * @brief AEAD 加密（自动递增 nonce）
@@ -136,8 +133,8 @@ namespace psm::crypto
          * @param ad 附加数据（可选）
          * @return 成功返回 fault::code::success，失败返回 crypto_error
          */
-        [[nodiscard]] auto seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext, std::span<const std::uint8_t> ad = {})
-            -> fault::code;
+        [[nodiscard]] auto seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext,
+                                std::span<const std::uint8_t> ad = {}) -> fault::code;
 
         /**
          * @brief AEAD 解密（自动递增 nonce）
@@ -148,8 +145,8 @@ namespace psm::crypto
          * @param ad 附加数据（可选）
          * @return 成功返回 fault::code::success，失败返回 crypto_error
          */
-        [[nodiscard]] auto open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext, std::span<const std::uint8_t> ad = {})
-            -> fault::code;
+        [[nodiscard]] auto open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext,
+                                std::span<const std::uint8_t> ad = {}) -> fault::code;
 
         /**
          * @brief AEAD 加密（显式 nonce，不修改内部状态）
@@ -158,8 +155,7 @@ namespace psm::crypto
          * @param input 加密参数（输出缓冲区、明文、nonce、附加数据）
          * @return 成功返回 fault::code::success，失败返回 crypto_error
          */
-        [[nodiscard]] auto seal(seal_input input)
-            -> fault::code;
+        [[nodiscard]] auto seal(seal_input input) -> fault::code;
 
         /**
          * @brief AEAD 解密（显式 nonce，不修改内部状态）
@@ -168,16 +164,17 @@ namespace psm::crypto
          * @param input 解密参数（输出缓冲区、密文、nonce、附加数据）
          * @return 成功返回 fault::code::success，失败返回 crypto_error
          */
-        [[nodiscard]] auto open(open_input input)
-            -> fault::code;
+        [[nodiscard]] auto open(open_input input) -> fault::code;
 
         /**
          * @brief AEAD tag 长度（固定 16 字节）
          * @details 所有支持的 AEAD 算法均使用 16 字节 tag。
          * @return std::size_t 始终返回 16
          */
-        [[nodiscard]] static constexpr auto tag_length() noexcept
-            -> std::size_t { return 16; }
+        [[nodiscard]] static constexpr auto tag_length() noexcept -> std::size_t
+        {
+            return 16;
+        }
 
         /**
          * @brief 获取当前 nonce 长度
@@ -185,16 +182,20 @@ namespace psm::crypto
          * XChaCha20 为 24 字节。
          * @return std::size_t nonce 长度（12 或 24 字节）
          */
-        [[nodiscard]] auto nonce_length() const noexcept
-            -> std::size_t { return nonce_len_; }
+        [[nodiscard]] auto nonce_length() const noexcept -> std::size_t
+        {
+            return nonce_len_;
+        }
 
         /**
          * @brief 获取当前 nonce 值
          * @details 返回内部 nonce 数组的只读引用，主要用于调试。
          * @return nonce 数组的常量引用
          */
-        [[nodiscard]] auto nonce() const noexcept
-            -> const std::array<std::uint8_t, 24> & { return nonce_; }
+        [[nodiscard]] auto nonce() const noexcept -> const std::array<std::uint8_t, 24> &
+        {
+            return nonce_;
+        }
 
         /**
          * @brief 计算 seal 输出缓冲区所需大小
@@ -202,8 +203,7 @@ namespace psm::crypto
          * @param plaintext_len 明文长度
          * @return std::size_t 输出缓冲区所需大小
          */
-        [[nodiscard]] static constexpr auto seal_size(std::size_t plaintext_len) noexcept
-            -> std::size_t
+        [[nodiscard]] static constexpr auto seal_size(std::size_t plaintext_len) noexcept -> std::size_t
         {
             return plaintext_len + tag_length();
         }
@@ -214,8 +214,7 @@ namespace psm::crypto
          * @param ciphertext_len 密文长度（含 tag）
          * @return std::size_t 输出缓冲区所需大小
          */
-        [[nodiscard]] static constexpr auto open_size(std::size_t ciphertext_len) noexcept
-            -> std::size_t
+        [[nodiscard]] static constexpr auto open_size(std::size_t ciphertext_len) noexcept -> std::size_t
         {
             return ciphertext_len >= tag_length() ? ciphertext_len - tag_length() : 0;
         }
@@ -239,8 +238,8 @@ namespace psm::crypto
         static void release_ctx(evp_aead_ctx_st *ctx) noexcept;
 
         std::unique_ptr<evp_aead_ctx_st, void (*)(evp_aead_ctx_st *) noexcept> ctx_; // BoringSSL AEAD 上下文
-        std::array<std::uint8_t, 24> nonce_{};                                       // 当前 nonce 值（最大 24 字节）
-        std::size_t key_length_{0};                                                  // 密钥长度
-        std::size_t nonce_len_{12};                                                  // nonce 长度（12 或 24 字节）
+        std::array<std::uint8_t, 24> nonce_{}; // 当前 nonce 值（最大 24 字节）
+        std::size_t key_length_{0};            // 密钥长度
+        std::size_t nonce_len_{12};            // nonce 长度（12 或 24 字节）
     };
 } // namespace psm::crypto

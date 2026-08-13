@@ -11,15 +11,14 @@
  */
 #pragma once
 
-#include <prism/foundation/fault/handling.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/handling.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 
 #include <memory>
 #include <optional>
-
 
 namespace psm::transport
 {
@@ -53,7 +52,8 @@ namespace psm::transport
          * @param executor 执行器，用于初始化 socket
          * @param remote_endpoint 远程端点（可选，可在后续设置）
          */
-        explicit unreliable(net::any_io_executor executor, std::optional<endpoint_type> remote_endpoint = std::nullopt)
+        explicit unreliable(net::any_io_executor executor,
+                            std::optional<endpoint_type> remote_endpoint = std::nullopt)
             : socket_(executor), remote_endpoint_(std::move(remote_endpoint))
         {
         }
@@ -74,8 +74,7 @@ namespace psm::transport
          * @brief 获取传输层类型
          * @return type::udp 不可靠传输始终为 UDP
          */
-        [[nodiscard]] auto transport_type() const noexcept
-            -> type override
+        [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             return type::udp;
         }
@@ -89,6 +88,10 @@ namespace psm::transport
             return nullptr;
         }
 
+        /**
+         * @brief 获取内层传输（const 版本）
+         * @return nullptr unreliable 是叶子节点，没有内层
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return nullptr;
@@ -120,8 +123,7 @@ namespace psm::transport
          * @details 返回当前设置的远程端点。如果未设置则返回空。
          * @return std::optional<endpoint_type> 远程端点（如果已设置）
          */
-        [[nodiscard]] auto remote_endpoint() const noexcept
-            -> std::optional<endpoint_type>
+        [[nodiscard]] auto remote_endpoint() const noexcept -> std::optional<endpoint_type>
         {
             return remote_endpoint_;
         }
@@ -143,9 +145,8 @@ namespace psm::transport
             while (true)
             {
                 sys_ec.clear();
-                std::size_t n = co_await socket_.async_receive_from(
-                    net::buffer(buffer.data(), buffer.size()),
-                    sender_endpoint_, token);
+                std::size_t n = co_await socket_.async_receive_from(net::buffer(buffer.data(), buffer.size()),
+                                                                    sender_endpoint_, token);
                 if (sys_ec)
                 {
                     ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
@@ -183,8 +184,8 @@ namespace psm::transport
             }
             boost::system::error_code sys_ec;
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
-            const auto n = co_await socket_.async_send_to(
-                net::buffer(buffer.data(), buffer.size()), *remote_endpoint_, token);
+            const auto n = co_await socket_.async_send_to(net::buffer(buffer.data(), buffer.size()),
+                                                          *remote_endpoint_, token);
             ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
             co_return n;
         }
@@ -216,8 +217,7 @@ namespace psm::transport
          * @details 返回底层 UDP socket 的引用，用于直接操作 socket。
          * @return socket_type& socket 引用
          */
-        [[nodiscard]] auto native_socket() noexcept
-            -> socket_type &
+        [[nodiscard]] auto native_socket() noexcept -> socket_type &
         {
             return socket_;
         }
@@ -227,8 +227,7 @@ namespace psm::transport
          * @details 返回底层 UDP socket 的常量引用，用于只读访问。
          * @return const socket_type& socket 常量引用
          */
-        [[nodiscard]] auto native_socket() const noexcept
-            -> const socket_type &
+        [[nodiscard]] auto native_socket() const noexcept -> const socket_type &
         {
             return socket_;
         }
@@ -247,7 +246,9 @@ namespace psm::transport
      * @param remote_endpoint 远程端点（可选）
      * @return shared_transmission 创建的 unreliable 实例
      */
-    [[nodiscard]] inline auto make_unreliable(net::any_io_executor executor, std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
+    [[nodiscard]] inline auto
+    make_unreliable(net::any_io_executor executor,
+                    std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
         -> shared_transmission
     {
         return std::make_shared<unreliable>(executor, std::move(remote_endpoint));
@@ -261,7 +262,9 @@ namespace psm::transport
      * @param remote_endpoint 远程端点（可选）
      * @return shared_transmission 创建的 unreliable 实例
      */
-    [[nodiscard]] inline auto make_unreliable(net::ip::udp::socket socket, std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
+    [[nodiscard]] inline auto
+    make_unreliable(net::ip::udp::socket socket,
+                    std::optional<net::ip::udp::endpoint> remote_endpoint = std::nullopt)
         -> shared_transmission
     {
         return std::make_shared<unreliable>(std::move(socket), std::move(remote_endpoint));

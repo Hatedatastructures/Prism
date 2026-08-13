@@ -4,17 +4,16 @@
  * @details 覆盖 authenticate_proxy 和 build_fwd 两个未测试函数。
  */
 
+#include <prism/crypto/base64.hpp>
+#include <prism/crypto/sha224.hpp>
+#include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/http/codec/parser.hpp>
 #include <prism/user/directory.hpp>
-#include <prism/crypto/sha224.hpp>
-#include <prism/crypto/base64.hpp>
-#include <prism/diagnose/log.hpp>
 
 #include <cstdint>
 #include <string>
 #include <string_view>
-
 
 #include <gtest/gtest.h>
 
@@ -36,8 +35,7 @@ namespace
         req.version = "HTTP/1.1";
 
         auto result = http::build_fwd(req, std::pmr::get_default_resource());
-        EXPECT_EQ(result, "GET /path/to/resource?query=1 HTTP/1.1\r\n")
-            << "build_fwd: GET request line";
+        EXPECT_EQ(result, "GET /path/to/resource?query=1 HTTP/1.1\r\n") << "build_fwd: GET request line";
     }
 
     TEST(HttpParserAuth, BuildFwdConnect)
@@ -48,8 +46,7 @@ namespace
         req.version = "HTTP/1.1";
 
         auto result = http::build_fwd(req, std::pmr::get_default_resource());
-        EXPECT_EQ(result, "CONNECT example.com:443 HTTP/1.1\r\n")
-            << "build_fwd: CONNECT request line";
+        EXPECT_EQ(result, "CONNECT example.com:443 HTTP/1.1\r\n") << "build_fwd: CONNECT request line";
     }
 
     TEST(HttpParserAuth, BuildFwdRootPath)
@@ -60,8 +57,7 @@ namespace
         req.version = "HTTP/1.1";
 
         auto result = http::build_fwd(req, std::pmr::get_default_resource());
-        EXPECT_EQ(result, "GET / HTTP/1.1\r\n")
-            << "build_fwd: root path";
+        EXPECT_EQ(result, "GET / HTTP/1.1\r\n") << "build_fwd: root path";
     }
 
     TEST(HttpParserAuth, BuildFwdHttp10)
@@ -72,8 +68,7 @@ namespace
         req.version = "HTTP/1.0";
 
         auto result = http::build_fwd(req, std::pmr::get_default_resource());
-        EXPECT_EQ(result, "POST /api HTTP/1.0\r\n")
-            << "build_fwd: HTTP/1.0";
+        EXPECT_EQ(result, "POST /api HTTP/1.0\r\n") << "build_fwd: HTTP/1.0";
     }
 
     TEST(HttpParserAuth, AuthenticateProxyNoPrefix)

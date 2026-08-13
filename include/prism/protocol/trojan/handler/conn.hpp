@@ -15,10 +15,10 @@
 #pragma once
 
 #include <prism/foundation/fault/code.hpp>
-#include <prism/protocol/trojan/config.hpp>
-#include <prism/protocol/trojan/codec/packet.hpp>
 #include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/trojan/codec/packet.hpp>
+#include <prism/protocol/trojan/config.hpp>
 
 #include <boost/asio.hpp>
 
@@ -26,8 +26,10 @@
 #include <memory>
 #include <span>
 
-
-namespace psm::stats::traffic { class traffic_state; }
+namespace psm::stats::traffic
+{
+    class traffic_state;
+}
 
 namespace psm::protocol::trojan
 {
@@ -63,7 +65,7 @@ namespace psm::protocol::trojan
          * @note 底层传输层必须已建立连接，否则后续操作将失败
          */
         explicit conn(shared_transmission next_layer, const config &cfg = {},
-                       std::function<bool(std::string_view)> credential_verifier = nullptr);
+                      std::function<bool(std::string_view)> credential_verifier = nullptr);
 
         /**
          * @brief 获取关联的执行器
@@ -110,8 +112,7 @@ namespace psm::protocol::trojan
          * 成功返回 request 对象，失败返回错误码
          * @return net::awaitable<std::pair<fault::code, request>> 握手结果和请求信息
          */
-        [[nodiscard]] auto handshake() const
-            -> net::awaitable<std::pair<fault::code, request>>;
+        [[nodiscard]] auto handshake() const -> net::awaitable<std::pair<fault::code, request>>;
 
         /**
          * @brief 获取内层传输指针（装饰器链导航）
@@ -122,6 +123,10 @@ namespace psm::protocol::trojan
             return next_layer_.get();
         }
 
+        /**
+         * @brief 获取内层传输常量指针（装饰器链导航）
+         * @return const transmission* 内层传输常量指针
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const psm::transport::transmission * override
         {
             return next_layer_.get();
@@ -152,7 +157,8 @@ namespace psm::protocol::trojan
          * @details 用于解析目标地址并返回 UDP 端点。
          * 参数为主机名和端口字符串，返回错误码和 UDP 端点
          */
-        using route_callback = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+        using route_callback = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
+            std::string_view, std::string_view)>;
 
         /**
          * @brief 处理 UDP_ASSOCIATE 命令
@@ -164,8 +170,7 @@ namespace psm::protocol::trojan
          * @note 此方法会阻塞直到连接关闭或空闲超时
          * @warning 调用前必须确保 handshake() 成功且命令为 udp_associate
          */
-        [[nodiscard]] auto async_associate(route_callback route_cb) const
-            -> net::awaitable<fault::code>;
+        [[nodiscard]] auto async_associate(route_callback route_cb) const -> net::awaitable<fault::code>;
 
         /**
          * @brief 设置流量统计状态
@@ -182,8 +187,8 @@ namespace psm::protocol::trojan
         shared_transmission next_layer_;                 // 底层传输层，构造时转移所有权
         config config_;                                  // 协议配置
         std::function<bool(std::string_view)> verifier_; // 凭据验证回调函数
-        stats::traffic::traffic_state *traffic_{nullptr};
-        psm::connect::protocol_type proto_{psm::connect::protocol_type::unknown};
+        stats::traffic::traffic_state *traffic_{nullptr};   ///< 流量统计指针
+        psm::connect::protocol_type proto_{psm::connect::protocol_type::unknown}; ///< 协议类型
     };
 
     /**
@@ -201,10 +206,11 @@ namespace psm::protocol::trojan
      * @param credential_verifier 凭据验证回调函数
      * @return shared_conn 中继器对象共享指针
      */
-    [[nodiscard]] inline shared_conn make_conn(shared_transmission next_layer, const config &cfg = {},
-                                   std::function<bool(std::string_view)> credential_verifier = nullptr)
+    [[nodiscard]] inline shared_conn
+    make_conn(shared_transmission next_layer, const config &cfg = {},
+              std::function<bool(std::string_view)> credential_verifier = nullptr)
     {
         return std::make_shared<conn>(std::move(next_layer), cfg, std::move(credential_verifier));
     }
 
-}
+} // namespace psm::protocol::trojan

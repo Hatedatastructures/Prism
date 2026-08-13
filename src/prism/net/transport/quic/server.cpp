@@ -1,20 +1,20 @@
-﻿/**
+/**
  * @file server.cpp
  * @brief QUIC 服务端/客户端连接封装实现
  */
 
-#include <prism/net/transport/quic/server.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/net/transport/quic/server.hpp>
 #include <prism/net/transport/transmission.hpp>
-
-#include <ngtcp2/ngtcp2.h>
-#include <ngtcp2/ngtcp2_crypto.h>
-#include <ngtcp2/ngtcp2_crypto_boringssl.h>
 
 #include <openssl/rand.h>
 
 #include <chrono>
 #include <cstring>
+
+#include <ngtcp2/ngtcp2.h>
+#include <ngtcp2/ngtcp2_crypto.h>
+#include <ngtcp2/ngtcp2_crypto_boringssl.h>
 
 using namespace psm::diagnose;
 
@@ -27,52 +27,55 @@ namespace psm::quic
 
         void server_log_printf(void *user_data, const char *fmt, ...);
 
-        int set_read_secret(SSL *ssl, enum ssl_encryption_level_t level,
-                            const SSL_CIPHER *cipher, const uint8_t *secret, size_t secret_len)
+        int set_read_secret(SSL *ssl, enum ssl_encryption_level_t level, const SSL_CIPHER *cipher,
+                            const uint8_t *secret, size_t secret_len)
         {
             auto *s = static_cast<server *>(SSL_get_app_data(ssl));
             if (!s)
+            {
                 return 0;
+            }
             (void)cipher;
             if (ngtcp2_crypto_derive_and_install_rx_key(
                     s->native_conn(), nullptr, nullptr, nullptr,
-                    ngtcp2_crypto_boringssl_from_ssl_encryption_level(level),
-                    secret, secret_len) != 0)
+                    ngtcp2_crypto_boringssl_from_ssl_encryption_level(level), secret, secret_len) != 0)
             {
                 return 0;
             }
             return 1;
         }
 
-        int set_write_secret(SSL *ssl, enum ssl_encryption_level_t level,
-                             const SSL_CIPHER *cipher, const uint8_t *secret, size_t secret_len)
+        int set_write_secret(SSL *ssl, enum ssl_encryption_level_t level, const SSL_CIPHER *cipher,
+                             const uint8_t *secret, size_t secret_len)
         {
             auto *s = static_cast<server *>(SSL_get_app_data(ssl));
             if (!s)
+            {
                 return 0;
+            }
             (void)cipher;
             if (ngtcp2_crypto_derive_and_install_tx_key(
                     s->native_conn(), nullptr, nullptr, nullptr,
-                    ngtcp2_crypto_boringssl_from_ssl_encryption_level(level),
-                    secret, secret_len) != 0)
+                    ngtcp2_crypto_boringssl_from_ssl_encryption_level(level), secret, secret_len) != 0)
             {
                 return 0;
             }
             return 1;
         }
 
-        int add_handshake_data(SSL *ssl, enum ssl_encryption_level_t level,
-                               const uint8_t *data, size_t len)
+        int add_handshake_data(SSL *ssl, enum ssl_encryption_level_t level, const uint8_t *data, size_t len)
         {
             auto *s = static_cast<server *>(SSL_get_app_data(ssl));
             if (!s)
+            {
                 return 0;
+            }
             auto rv = ngtcp2_conn_submit_crypto_data(
-                s->native_conn(),
-                ngtcp2_crypto_boringssl_from_ssl_encryption_level(level),
-                data, len);
+                s->native_conn(), ngtcp2_crypto_boringssl_from_ssl_encryption_level(level), data, len);
             if (rv != 0)
+            {
                 return 0;
+            }
             return 1;
         }
 
@@ -80,7 +83,9 @@ namespace psm::quic
         {
             auto *s = static_cast<server *>(SSL_get_app_data(ssl));
             if (!s)
+            {
                 return 0;
+            }
             return 1;
         }
 
@@ -88,18 +93,16 @@ namespace psm::quic
         {
             auto *s = static_cast<server *>(SSL_get_app_data(ssl));
             if (!s)
+            {
                 return 0;
+            }
             (void)level;
             (void)alert;
             return 1;
         }
 
         const SSL_QUIC_METHOD quic_method = {
-            set_read_secret,
-            set_write_secret,
-            add_handshake_data,
-            flush_flight,
-            send_alert,
+            set_read_secret, set_write_secret, add_handshake_data, flush_flight, send_alert,
         };
 
         // === ngtcp2 应用层回调（server 与 client 共用） ===
@@ -109,7 +112,9 @@ namespace psm::quic
             auto *s = static_cast<server *>(user_data);
             (void)conn;
             if (s)
+            {
                 s->on_handshake_done();
+            }
             return 0;
         }
 
@@ -118,13 +123,14 @@ namespace psm::quic
             auto *s = static_cast<server *>(user_data);
             (void)conn;
             if (s)
+            {
                 s->on_stream_open(stream_id);
+            }
             return 0;
         }
 
-        int cb_recv_stream_data(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id,
-                                uint64_t offset, const uint8_t *data, size_t datalen,
-                                void *user_data, void *stream_user_data)
+        int cb_recv_stream_data(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id, uint64_t offset,
+                                const uint8_t *data, size_t datalen, void *user_data, void *stream_user_data)
         {
             auto *s = static_cast<server *>(user_data);
             (void)conn;
@@ -132,13 +138,15 @@ namespace psm::quic
             (void)offset;
             (void)stream_user_data;
             if (s)
+            {
                 s->on_stream_data(stream_id, std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(data), datalen));
+                                                 reinterpret_cast<const std::byte *>(data), datalen));
+            }
             return 0;
         }
 
-        int cb_stream_close(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id,
-                            uint64_t app_error_code, void *user_data, void *stream_user_data)
+        int cb_stream_close(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id, uint64_t app_error_code,
+                            void *user_data, void *stream_user_data)
         {
             auto *s = static_cast<server *>(user_data);
             (void)conn;
@@ -146,7 +154,9 @@ namespace psm::quic
             (void)app_error_code;
             (void)stream_user_data;
             if (s)
+            {
                 s->on_stream_close(stream_id);
+            }
             return 0;
         }
 
@@ -164,15 +174,17 @@ namespace psm::quic
             RAND_bytes(dest, static_cast<int>(destlen));
         }
 
-        int cb_recv_datagram(ngtcp2_conn *conn, uint32_t flags,
-                             const uint8_t *data, size_t datalen, void *user_data)
+        int cb_recv_datagram(ngtcp2_conn *conn, uint32_t flags, const uint8_t *data, size_t datalen,
+                             void *user_data)
         {
             auto *s = static_cast<server *>(user_data);
             (void)conn;
             (void)flags;
             if (s)
-                s->on_datagram_data(std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(data), datalen));
+            {
+                s->on_datagram_data(
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(data), datalen));
+            }
             return 0;
         }
 
@@ -184,19 +196,25 @@ namespace psm::quic
             return 0;
         }
 
-        int cb_get_new_connection_id(ngtcp2_conn *conn, ngtcp2_cid *cid,
-                                     uint8_t *token, size_t cidlen, void *user_data)
+        int cb_get_new_connection_id(ngtcp2_conn *conn, ngtcp2_cid *cid, uint8_t *token, size_t cidlen,
+                                     void *user_data)
         {
             auto *s = static_cast<server *>(user_data);
             (void)conn;
             (void)cidlen;
             if (!s)
+            {
                 return NGTCP2_ERR_CALLBACK_FAILURE;
+            }
             if (RAND_bytes(cid->data, NGTCP2_MAX_CIDLEN) != 1)
+            {
                 return NGTCP2_ERR_CALLBACK_FAILURE;
+            }
             cid->datalen = NGTCP2_MAX_CIDLEN;
             if (token && RAND_bytes(token, NGTCP2_STATELESS_RESET_TOKENLEN) != 1)
+            {
                 return NGTCP2_ERR_CALLBACK_FAILURE;
+            }
             return 0;
         }
 
@@ -205,7 +223,9 @@ namespace psm::quic
             auto *s = static_cast<server *>(user_data);
             (void)conn;
             if (!s)
+            {
                 return NGTCP2_ERR_CALLBACK_FAILURE;
+            }
             RAND_bytes(data, 8);
             return 0;
         }
@@ -260,13 +280,15 @@ namespace psm::quic
             auto *c = static_cast<client *>(user_data);
             (void)conn;
             if (c)
+            {
                 c->on_handshake_done();
+            }
             return 0;
         }
 
-        int cb_client_recv_stream_data(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id,
-                                       uint64_t offset, const uint8_t *data, size_t datalen,
-                                       void *user_data, void *stream_user_data)
+        int cb_client_recv_stream_data(ngtcp2_conn *conn, uint32_t flags, int64_t stream_id, uint64_t offset,
+                                       const uint8_t *data, size_t datalen, void *user_data,
+                                       void *stream_user_data)
         {
             auto *c = static_cast<client *>(user_data);
             (void)conn;
@@ -274,8 +296,10 @@ namespace psm::quic
             (void)offset;
             (void)stream_user_data;
             if (c && c->on_stream_data)
+            {
                 c->on_stream_data(stream_id, std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(data), datalen));
+                                                 reinterpret_cast<const std::byte *>(data), datalen));
+            }
             return 0;
         }
 
@@ -298,9 +322,10 @@ namespace psm::quic
             .get_path_challenge_data = cb_get_path_challenge_data,
         };
 
-        /// 用真实 UDP 端点填充 path_storage（ngtcp2 要求 sockaddr 有效）
-        [[nodiscard]] inline auto make_path(ngtcp2_path_storage &ps,
-                                            const net::ip::udp::endpoint &local,
+        /**
+         * 用真实 UDP 端点填充 path_storage（ngtcp2 要求 sockaddr 有效）
+         */
+        [[nodiscard]] inline auto make_path(ngtcp2_path_storage &ps, const net::ip::udp::endpoint &local,
                                             const net::ip::udp::endpoint &remote) -> ngtcp2_path *
         {
             ngtcp2_path_storage_zero(&ps);
@@ -311,25 +336,23 @@ namespace psm::quic
             return &ps.path;
         }
 
-        /// 当前微秒时间戳（ngtcp2_tstamp）
+        /**
+         * 当前微秒时间戳（ngtcp2_tstamp）
+         */
         [[nodiscard]] inline auto now_tstamp() -> ngtcp2_tstamp
         {
-            return static_cast<ngtcp2_tstamp>(
-                std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::steady_clock::now().time_since_epoch()).count());
+            return static_cast<ngtcp2_tstamp>(std::chrono::duration_cast<std::chrono::microseconds>(
+                                                  std::chrono::steady_clock::now().time_since_epoch())
+                                                  .count());
         }
     } // namespace
 
     // === stream 实现 ===
 
-    stream::stream(net::any_io_executor executor, std::shared_ptr<server> owner,
-                   const std::int64_t stream_id, const memory::resource_pointer mr)
-        : executor_(std::move(executor))
-        , owner_(std::move(owner))
-        , stream_id_(stream_id)
-        , mr_(mr)
-        , channel_(executor_, 256)
-        , recv_buf_(mr_)
+    stream::stream(net::any_io_executor executor, std::shared_ptr<server> owner, const std::int64_t stream_id,
+                   const memory::resource_pointer mr)
+        : executor_(std::move(executor)), owner_(std::move(owner)), stream_id_(stream_id), mr_(mr),
+          channel_(executor_, 256), recv_buf_(mr_)
     {
     }
 
@@ -409,7 +432,9 @@ namespace psm::quic
     void stream::push(const std::span<const std::byte> data)
     {
         if (closed_ || data.empty())
+        {
             return;
+        }
         memory::vector<std::byte> copy(data.begin(), data.end(), mr_);
         channel_.try_send(boost::system::error_code{}, std::move(copy));
     }
@@ -417,15 +442,14 @@ namespace psm::quic
     void stream::notify_fin()
     {
         if (!closed_)
+        {
             channel_.try_send(boost::system::error_code{}, memory::vector<std::byte>(mr_));
+        }
     }
 
     // === server 实现 ===
 
-    server::server(server_options opts)
-        : opts_(std::move(opts))
-        , mr_(opts_.mr)
-        , peer_(opts_.peer)
+    server::server(server_options opts) : opts_(std::move(opts)), mr_(opts_.mr), peer_(opts_.peer)
     {
     }
 
@@ -452,13 +476,17 @@ namespace psm::quic
     void server::close()
     {
         if (closed_)
+        {
             return;
+        }
         closed_ = true;
         for (auto &[id, st] : streams_)
         {
             (void)id;
             if (st)
+            {
                 st->close();
+            }
         }
         streams_.clear();
     }
@@ -467,7 +495,9 @@ namespace psm::quic
     {
         std::array<uint8_t, NGTCP2_MAX_CIDLEN> scid_buf{};
         if (RAND_bytes(scid_buf.data(), NGTCP2_MAX_CIDLEN) != 1)
+        {
             return false;
+        }
         scid_ = std::make_unique<ngtcp2_cid>();
         scid_->datalen = NGTCP2_MAX_CIDLEN;
         std::memcpy(scid_->data, scid_buf.data(), NGTCP2_MAX_CIDLEN);
@@ -493,22 +523,27 @@ namespace psm::quic
 
         ngtcp2_path_storage path_storage;
         auto *path = make_path(path_storage, opts_.udp->local_endpoint(), peer_);
-        const auto rv = ngtcp2_conn_server_new(
-            &conn_, &peer_scid, scid_.get(), path, NGTCP2_PROTO_VER_V1,
-            &ngtcp2_callbacks_instance, &settings, &params, nullptr, this);
+        const auto rv = ngtcp2_conn_server_new(&conn_, &peer_scid, scid_.get(), path, NGTCP2_PROTO_VER_V1,
+                                               &ngtcp2_callbacks_instance, &settings, &params, nullptr, this);
         if (rv != 0)
+        {
             return false;
+        }
         return true;
     }
 
     auto server::setup_tls() -> bool
     {
         if (!opts_.ssl_ctx)
+        {
             return false;
+        }
 
         ssl_ = SSL_new(opts_.ssl_ctx);
         if (!ssl_)
+        {
             return false;
+        }
 
         SSL_set_app_data(ssl_, this);
         SSL_set_quic_method(ssl_, &quic_method);
@@ -520,9 +555,13 @@ namespace psm::quic
         std::array<std::uint8_t, 256> tp_buf{};
         const auto tp_len = ngtcp2_transport_params_encode(tp_buf.data(), tp_buf.size(), local_params);
         if (tp_len < 0)
+        {
             return false;
+        }
         if (SSL_set_quic_transport_params(ssl_, tp_buf.data(), static_cast<size_t>(tp_len)) != 1)
+        {
             return false;
+        }
 
         ngtcp2_conn_set_tls_native_handle(conn_, ssl_);
 
@@ -531,7 +570,9 @@ namespace psm::quic
         {
             const auto err = SSL_get_error(ssl_, hs_rv);
             if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE)
+            {
                 return false;
+            }
         }
         return true;
     }
@@ -539,7 +580,9 @@ namespace psm::quic
     auto server::send_udp(const std::span<const std::byte> data) -> net::awaitable<void>
     {
         if (closed_ || data.empty() || !opts_.udp)
+        {
             co_return;
+        }
         boost::system::error_code ec;
         co_await opts_.udp->async_send_to(net::buffer(data.data(), data.size()), peer_,
                                           net::redirect_error(net::use_awaitable, ec));
@@ -555,12 +598,15 @@ namespace psm::quic
             auto *path = make_path(path_storage, opts_.udp->local_endpoint(), peer_);
             ngtcp2_pkt_info pi{};
             const auto nwrite = ngtcp2_conn_write_pkt(
-                conn_, path, &pi,
-                reinterpret_cast<uint8_t *>(buf.data()), buf.size(), now_tstamp());
+                conn_, path, &pi, reinterpret_cast<uint8_t *>(buf.data()), buf.size(), now_tstamp());
             if (nwrite == NGTCP2_ERR_WRITE_MORE)
+            {
                 break;
+            }
             if (nwrite <= 0)
+            {
                 break;
+            }
             co_await send_udp(std::span<const std::byte>(buf.data(), nwrite));
         }
     }
@@ -569,7 +615,9 @@ namespace psm::quic
         -> net::awaitable<void>
     {
         if (closed_ || data.empty())
+        {
             co_return;
+        }
         peer_ = from;
 
         // 首个包：解析客户端 DCID 并延迟建立连接
@@ -602,9 +650,8 @@ namespace psm::quic
         auto *path = make_path(path_storage, opts_.udp->local_endpoint(), peer_);
         ngtcp2_pkt_info pi{};
 
-        const auto rv = ngtcp2_conn_read_pkt(conn_, path, &pi,
-                                             reinterpret_cast<const uint8_t *>(data.data()), data.size(),
-                                             now_tstamp());
+        const auto rv = ngtcp2_conn_read_pkt(conn_, path, &pi, reinterpret_cast<const uint8_t *>(data.data()),
+                                             data.size(), now_tstamp());
         if (rv != 0)
         {
             diagnose::debug(opts_.prefix, "quic: read_pkt error {}", static_cast<int>(rv));
@@ -628,8 +675,7 @@ namespace psm::quic
             ngtcp2_vec vec{reinterpret_cast<uint8_t *>(const_cast<std::byte *>(data.data() + offset)),
                            data.size() - offset};
             const auto nwrite = ngtcp2_conn_writev_stream(
-                conn_, path, &pi,
-                reinterpret_cast<uint8_t *>(buf.data()), buf.size(), &ndatalen,
+                conn_, path, &pi, reinterpret_cast<uint8_t *>(buf.data()), buf.size(), &ndatalen,
                 NGTCP2_STREAM_DATA_FLAG_NONE, stream_id, &vec, 1, now_tstamp());
             if (nwrite < 0)
             {
@@ -642,15 +688,21 @@ namespace psm::quic
                 {
                     // 有更多数据待发：本次已生成包，继续循环
                     if (ndatalen > 0)
+                    {
                         offset += static_cast<std::size_t>(ndatalen);
+                    }
                     continue;
                 }
                 co_return fault::code::io_error;
             }
             if (ndatalen > 0)
+            {
                 offset += static_cast<std::size_t>(ndatalen);
+            }
             if (nwrite > 0)
+            {
                 co_await send_udp(std::span<const std::byte>(buf.data(), nwrite));
+            }
             if (nwrite == 0)
             {
                 // 无包可发（拥塞/流控）：数据已入 ngtcp2 队列，等待 ACK 驱动重发
@@ -668,14 +720,17 @@ namespace psm::quic
         ngtcp2_pkt_info pi{};
         int accepted = 0;
         ngtcp2_vec dgram_vec{reinterpret_cast<uint8_t *>(const_cast<std::byte *>(data.data())), data.size()};
-        const auto nwrite = ngtcp2_conn_writev_datagram(
-            conn_, path, &pi,
-            reinterpret_cast<uint8_t *>(buf.data()), buf.size(), &accepted, 0, 0, &dgram_vec, 1,
-            now_tstamp());
+        const auto nwrite =
+            ngtcp2_conn_writev_datagram(conn_, path, &pi, reinterpret_cast<uint8_t *>(buf.data()), buf.size(),
+                                        &accepted, 0, 0, &dgram_vec, 1, now_tstamp());
         if (nwrite < 0)
+        {
             co_return fault::code::io_error;
+        }
         if (nwrite > 0)
+        {
             co_await send_udp(std::span<const std::byte>(buf.data(), nwrite));
+        }
         co_return fault::code::success;
     }
 
@@ -683,7 +738,9 @@ namespace psm::quic
     {
         const auto it = streams_.find(stream_id);
         if (it == streams_.end())
+        {
             return nullptr;
+        }
         return it->second;
     }
 
@@ -692,7 +749,9 @@ namespace psm::quic
         std::int64_t stream_id = 0;
         const auto rv = ngtcp2_conn_open_uni_stream(conn_, &stream_id, nullptr);
         if (rv != 0)
+        {
             return -1;
+        }
         return stream_id;
     }
 
@@ -708,11 +767,15 @@ namespace psm::quic
     void server::on_stream_open(const std::int64_t stream_id)
     {
         if (streams_.contains(stream_id))
+        {
             return;
+        }
         auto st = std::make_shared<stream>(opts_.executor, shared_from_this(), stream_id, mr_);
         streams_[stream_id] = st;
         if (on_stream)
+        {
             on_stream(st);
+        }
     }
 
     void server::on_stream_close(const std::int64_t stream_id)
@@ -721,7 +784,9 @@ namespace psm::quic
         if (it != streams_.end())
         {
             if (it->second)
+            {
                 it->second->notify_fin();
+            }
             streams_.erase(it);
         }
     }
@@ -729,22 +794,27 @@ namespace psm::quic
     void server::on_datagram_data(const std::span<const std::byte> data)
     {
         if (on_datagram)
+        {
             on_datagram(memory::vector<std::byte>(data.begin(), data.end(), mr_));
+        }
     }
 
     void server::on_handshake_done()
     {
         if (handshake_complete_.exchange(true, std::memory_order_acq_rel))
+        {
             return;
+        }
         diagnose::debug(opts_.prefix, "quic: handshake completed");
         if (on_handshake_complete)
+        {
             on_handshake_complete();
+        }
     }
 
     // === client 实现 ===
 
-    client::client(client_options opts)
-        : opts_(std::move(opts))
+    client::client(client_options opts) : opts_(std::move(opts))
     {
     }
 
@@ -776,7 +846,9 @@ namespace psm::quic
     void client::close()
     {
         if (closed_)
+        {
             return;
+        }
         closed_ = true;
     }
 
@@ -786,9 +858,13 @@ namespace psm::quic
         std::array<uint8_t, NGTCP2_MAX_CIDLEN> dcid_buf{};
         std::array<uint8_t, NGTCP2_MAX_CIDLEN> scid_buf{};
         if (RAND_bytes(dcid_buf.data(), NGTCP2_MAX_CIDLEN) != 1)
+        {
             return false;
+        }
         if (RAND_bytes(scid_buf.data(), NGTCP2_MAX_CIDLEN) != 1)
+        {
             return false;
+        }
         dcid_ = std::make_unique<ngtcp2_cid>();
         dcid_->datalen = NGTCP2_MAX_CIDLEN;
         std::memcpy(dcid_->data, dcid_buf.data(), NGTCP2_MAX_CIDLEN);
@@ -800,7 +876,6 @@ namespace psm::quic
         ngtcp2_settings_default(&settings);
         settings.initial_ts = now_tstamp();
         settings.max_tx_udp_payload_size = 1472;
-
 
         ngtcp2_transport_params params;
         ngtcp2_transport_params_default(&params);
@@ -815,22 +890,28 @@ namespace psm::quic
 
         ngtcp2_path_storage path_storage;
         auto *path = make_path(path_storage, opts_.udp->local_endpoint(), opts_.peer);
-        const auto rv = ngtcp2_conn_client_new(
-            &conn_, dcid_.get(), scid_.get(), path, NGTCP2_PROTO_VER_V1,
-            &ngtcp2_client_callbacks_instance, &settings, &params, nullptr, this);
+        const auto rv =
+            ngtcp2_conn_client_new(&conn_, dcid_.get(), scid_.get(), path, NGTCP2_PROTO_VER_V1,
+                                   &ngtcp2_client_callbacks_instance, &settings, &params, nullptr, this);
         if (rv != 0)
+        {
             return false;
+        }
         return true;
     }
 
     auto client::setup_tls() -> bool
     {
         if (!opts_.ssl_ctx)
+        {
             return false;
+        }
 
         ssl_ = SSL_new(opts_.ssl_ctx);
         if (!ssl_)
+        {
             return false;
+        }
 
         SSL_set_app_data(ssl_, this);
         SSL_set_quic_method(ssl_, &quic_method);
@@ -843,9 +924,13 @@ namespace psm::quic
         std::array<std::uint8_t, 256> tp_buf{};
         const auto tp_len = ngtcp2_transport_params_encode(tp_buf.data(), tp_buf.size(), local_params);
         if (tp_len < 0)
+        {
             return false;
+        }
         if (SSL_set_quic_transport_params(ssl_, tp_buf.data(), static_cast<size_t>(tp_len)) != 1)
+        {
             return false;
+        }
 
         ngtcp2_conn_set_tls_native_handle(conn_, ssl_);
 
@@ -854,7 +939,9 @@ namespace psm::quic
         {
             const auto err = SSL_get_error(ssl_, hs_rv);
             if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE)
+            {
                 return false;
+            }
         }
         return true;
     }
@@ -862,11 +949,12 @@ namespace psm::quic
     auto client::send_udp(const std::span<const std::byte> data) -> net::awaitable<void>
     {
         if (closed_ || data.empty() || !opts_.udp)
+        {
             co_return;
+        }
         boost::system::error_code ec;
         co_await opts_.udp->async_send_to(net::buffer(data.data(), data.size()), opts_.peer,
                                           net::redirect_error(net::use_awaitable, ec));
-
     }
 
     auto client::flush_handshake() -> net::awaitable<void>
@@ -880,13 +968,16 @@ namespace psm::quic
             auto *path = make_path(path_storage, opts_.udp->local_endpoint(), opts_.peer);
             ngtcp2_pkt_info pi{};
             const auto nwrite = ngtcp2_conn_write_pkt(
-                conn_, path, &pi,
-                reinterpret_cast<uint8_t *>(buf.data()), buf.size(), now_tstamp());
+                conn_, path, &pi, reinterpret_cast<uint8_t *>(buf.data()), buf.size(), now_tstamp());
 
             if (nwrite == NGTCP2_ERR_WRITE_MORE)
+            {
                 break;
+            }
             if (nwrite <= 0)
+            {
                 break;
+            }
             co_await send_udp(std::span<const std::byte>(buf.data(), nwrite));
         }
     }
@@ -895,17 +986,20 @@ namespace psm::quic
         -> net::awaitable<void>
     {
         if (closed_ || data.empty())
+        {
             co_return;
+        }
         if (from != opts_.peer)
+        {
             co_return;
+        }
 
         ngtcp2_path_storage path_storage;
         auto *path = make_path(path_storage, opts_.udp->local_endpoint(), opts_.peer);
         ngtcp2_pkt_info pi{};
 
-        const auto rv = ngtcp2_conn_read_pkt(conn_, path, &pi,
-                                             reinterpret_cast<const uint8_t *>(data.data()), data.size(),
-                                             now_tstamp());
+        const auto rv = ngtcp2_conn_read_pkt(conn_, path, &pi, reinterpret_cast<const uint8_t *>(data.data()),
+                                             data.size(), now_tstamp());
         if (rv != 0)
         {
             diagnose::debug(opts_.prefix, "quic: client read_pkt error {}", static_cast<int>(rv));
@@ -921,7 +1015,9 @@ namespace psm::quic
         std::int64_t stream_id = 0;
         const auto rv = ngtcp2_conn_open_bidi_stream(conn_, &stream_id, nullptr);
         if (rv != 0)
+        {
             return -1;
+        }
         return stream_id;
     }
 
@@ -930,7 +1026,9 @@ namespace psm::quic
         std::int64_t stream_id = 0;
         const auto rv = ngtcp2_conn_open_uni_stream(conn_, &stream_id, nullptr);
         if (rv != 0)
+        {
             return -1;
+        }
         return stream_id;
     }
 
@@ -948,21 +1046,28 @@ namespace psm::quic
             ngtcp2_vec vec{reinterpret_cast<uint8_t *>(const_cast<std::byte *>(data.data() + offset)),
                            data.size() - offset};
             const auto nwrite = ngtcp2_conn_writev_stream(
-                conn_, path, &pi,
-                reinterpret_cast<uint8_t *>(buf.data()), buf.size(), &ndatalen,
+                conn_, path, &pi, reinterpret_cast<uint8_t *>(buf.data()), buf.size(), &ndatalen,
                 NGTCP2_STREAM_DATA_FLAG_NONE, stream_id, &vec, 1, now_tstamp());
             if (nwrite < 0)
             {
                 if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED)
+                {
                     break;
+                }
                 co_return fault::code::io_error;
             }
             if (ndatalen > 0)
+            {
                 offset += static_cast<std::size_t>(ndatalen);
+            }
             if (nwrite > 0)
+            {
                 co_await send_udp(std::span<const std::byte>(buf.data(), nwrite));
+            }
             if (nwrite == 0)
+            {
                 break;
+            }
         }
         co_return fault::code::success;
     }
@@ -975,24 +1080,31 @@ namespace psm::quic
         ngtcp2_pkt_info pi{};
         int accepted = 0;
         ngtcp2_vec dgram_vec{reinterpret_cast<uint8_t *>(const_cast<std::byte *>(data.data())), data.size()};
-        const auto nwrite = ngtcp2_conn_writev_datagram(
-            conn_, path, &pi,
-            reinterpret_cast<uint8_t *>(buf.data()), buf.size(), &accepted, 0, 0, &dgram_vec, 1,
-            now_tstamp());
+        const auto nwrite =
+            ngtcp2_conn_writev_datagram(conn_, path, &pi, reinterpret_cast<uint8_t *>(buf.data()), buf.size(),
+                                        &accepted, 0, 0, &dgram_vec, 1, now_tstamp());
         if (nwrite < 0)
+        {
             co_return fault::code::io_error;
+        }
         if (nwrite > 0)
+        {
             co_await send_udp(std::span<const std::byte>(buf.data(), nwrite));
+        }
         co_return fault::code::success;
     }
 
     void client::on_handshake_done()
     {
         if (handshake_complete_.exchange(true, std::memory_order_acq_rel))
+        {
             return;
+        }
         diagnose::debug(opts_.prefix, "quic: client handshake completed");
         if (on_handshake_complete)
+        {
             on_handshake_complete();
+        }
     }
 
 } // namespace psm::quic

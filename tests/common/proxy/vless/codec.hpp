@@ -11,9 +11,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/proxy/vless/types.hpp>
-
 #include <boost/asio/buffer.hpp>
 
 #include <array>
@@ -27,6 +24,9 @@
 #include <system_error>
 #include <vector>
 
+#include <common/core/error.hpp>
+#include <common/proxy/vless/types.hpp>
+
 namespace psmtest::vless
 {
 
@@ -35,45 +35,41 @@ namespace psmtest::vless
      * @param addr 目标地址
      * @return 字节序列
      */
-    [[nodiscard]] inline auto encode_address(const address &addr)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
         switch (addr.type)
         {
-            case address_type::ipv4:
+        case address_type::ipv4: {
+            std::array<std::uint8_t, 4> ip{};
+            std::size_t a = 0, p = 0;
+            for (const char ch : addr.host)
             {
-                std::array<std::uint8_t, 4> ip{};
-                std::size_t a = 0, p = 0;
-                for (const char ch : addr.host)
+                if (ch == '.')
                 {
-                    if (ch == '.')
-                    {
-                        ip[a++] = static_cast<std::uint8_t>(p);
-                        p = 0;
-                    }
-                    else
-                    {
-                        p = p * 10 + static_cast<std::size_t>(ch - '0');
-                    }
+                    ip[a++] = static_cast<std::uint8_t>(p);
+                    p = 0;
                 }
-                ip[a] = static_cast<std::uint8_t>(p);
-                out.insert(out.end(), ip.begin(), ip.end());
-                break;
+                else
+                {
+                    p = p * 10 + static_cast<std::size_t>(ch - '0');
+                }
             }
-            case address_type::ipv6:
-            {
-                out.insert(out.end(), addr.host.begin(), addr.host.end());
-                break;
-            }
-            case address_type::domain:
-            default:
-            {
-                out.push_back(static_cast<std::uint8_t>(addr.host.size()));
-                out.insert(out.end(), addr.host.begin(), addr.host.end());
-                break;
-            }
+            ip[a] = static_cast<std::uint8_t>(p);
+            out.insert(out.end(), ip.begin(), ip.end());
+            break;
+        }
+        case address_type::ipv6: {
+            out.insert(out.end(), addr.host.begin(), addr.host.end());
+            break;
+        }
+        case address_type::domain:
+        default: {
+            out.push_back(static_cast<std::uint8_t>(addr.host.size()));
+            out.insert(out.end(), addr.host.begin(), addr.host.end());
+            break;
+        }
         }
         out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
@@ -91,44 +87,53 @@ namespace psmtest::vless
                                             std::size_t &off) -> error
     {
         if (off >= data.size())
+        {
             return error::need_more;
+        }
         out.type = static_cast<address_type>(data[off++]);
         switch (out.type)
         {
-            case address_type::ipv4:
+        case address_type::ipv4: {
+            if (data.size() < off + 4)
             {
-                if (data.size() < off + 4)
-                    return error::need_more;
-                std::array<char, 16> buf{};
-                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u",
-                              data[off], data[off + 1], data[off + 2], data[off + 3]);
-                out.host = buf.data();
-                off += 4;
-                break;
+                return error::need_more;
             }
-            case address_type::ipv6:
+            std::array<char, 16> buf{};
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", data[off], data[off + 1], data[off + 2],
+                          data[off + 3]);
+            out.host = buf.data();
+            off += 4;
+            break;
+        }
+        case address_type::ipv6: {
+            if (data.size() < off + 16)
             {
-                if (data.size() < off + 16)
-                    return error::need_more;
-                out.host.assign(reinterpret_cast<const char *>(data.data() + off), 16);
-                off += 16;
-                break;
+                return error::need_more;
             }
-            case address_type::domain:
-            default:
+            out.host.assign(reinterpret_cast<const char *>(data.data() + off), 16);
+            off += 16;
+            break;
+        }
+        case address_type::domain:
+        default: {
+            if (off >= data.size())
             {
-                if (off >= data.size())
-                    return error::need_more;
-                const auto len = data[off++];
-                if (data.size() < off + len)
-                    return error::need_more;
-                out.host.assign(reinterpret_cast<const char *>(data.data() + off), len);
-                off += len;
-                break;
+                return error::need_more;
             }
+            const auto len = data[off++];
+            if (data.size() < off + len)
+            {
+                return error::need_more;
+            }
+            out.host.assign(reinterpret_cast<const char *>(data.data() + off), len);
+            off += len;
+            break;
+        }
         }
         if (data.size() < off + 2)
+        {
             return error::need_more;
+        }
         out.port = static_cast<std::uint16_t>(data[off]) << 8 | data[off + 1];
         off += 2;
         return error::none;
@@ -141,8 +146,7 @@ namespace psmtest::vless
      * @details 格式 [Version 1B][UUID 16B][AddnlLen 1B][Addnl var][Cmd 1B]
      * [Port 2B BE][Atyp 1B][Addr var]（Port 在 ATYP 之前，与 UDP 帧相反）。
      */
-    [[nodiscard]] inline auto build_request(const request_header &hdr)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_request(const request_header &hdr) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(22 + hdr.addons.size() + hdr.target.host.size());
@@ -156,38 +160,35 @@ namespace psmtest::vless
         out.push_back(static_cast<std::uint8_t>(hdr.target.type));
         switch (hdr.target.type)
         {
-            case address_type::ipv4:
+        case address_type::ipv4: {
+            std::array<std::uint8_t, 4> ip{};
+            std::size_t a = 0, p = 0;
+            for (const char ch : hdr.target.host)
             {
-                std::array<std::uint8_t, 4> ip{};
-                std::size_t a = 0, p = 0;
-                for (const char ch : hdr.target.host)
+                if (ch == '.')
                 {
-                    if (ch == '.')
-                    {
-                        ip[a++] = static_cast<std::uint8_t>(p);
-                        p = 0;
-                    }
-                    else
-                    {
-                        p = p * 10 + static_cast<std::size_t>(ch - '0');
-                    }
+                    ip[a++] = static_cast<std::uint8_t>(p);
+                    p = 0;
                 }
-                ip[a] = static_cast<std::uint8_t>(p);
-                out.insert(out.end(), ip.begin(), ip.end());
-                break;
+                else
+                {
+                    p = p * 10 + static_cast<std::size_t>(ch - '0');
+                }
             }
-            case address_type::ipv6:
-            {
-                out.insert(out.end(), hdr.target.host.begin(), hdr.target.host.end());
-                break;
-            }
-            case address_type::domain:
-            default:
-            {
-                out.push_back(static_cast<std::uint8_t>(hdr.target.host.size()));
-                out.insert(out.end(), hdr.target.host.begin(), hdr.target.host.end());
-                break;
-            }
+            ip[a] = static_cast<std::uint8_t>(p);
+            out.insert(out.end(), ip.begin(), ip.end());
+            break;
+        }
+        case address_type::ipv6: {
+            out.insert(out.end(), hdr.target.host.begin(), hdr.target.host.end());
+            break;
+        }
+        case address_type::domain:
+        default: {
+            out.push_back(static_cast<std::uint8_t>(hdr.target.host.size()));
+            out.insert(out.end(), hdr.target.host.begin(), hdr.target.host.end());
+            break;
+        }
         }
         return out;
     }
@@ -199,18 +200,24 @@ namespace psmtest::vless
      * @param consumed 输出消耗字节数
      * @return 错误码；need_more = 数据不足
      */
-    [[nodiscard]] inline auto parse_request(std::span<const std::uint8_t> data,
-                                            request_header &out, std::size_t &consumed) -> error
+    [[nodiscard]] inline auto parse_request(std::span<const std::uint8_t> data, request_header &out,
+                                            std::size_t &consumed) -> error
     {
         if (data.size() < 22) // 1 + 16 + 1 + 1 + 2 + 1
+        {
             return error::need_more;
+        }
         out.version = data[0];
         if (out.version != protocol_version)
+        {
             return error::bad_magic;
+        }
         std::memcpy(out.uuid.data(), data.data() + 1, uuid_len);
         const auto addnl_len = data[17];
         if (data.size() < 18 + addnl_len + 1 + 2 + 1)
+        {
             return error::need_more;
+        }
         out.addons.assign(data.begin() + 18, data.begin() + 18 + addnl_len);
         std::size_t off = 18 + addnl_len;
         out.cmd = static_cast<command>(data[off++]);
@@ -219,37 +226,42 @@ namespace psmtest::vless
         out.target.type = static_cast<address_type>(data[off++]);
         switch (out.target.type)
         {
-            case address_type::ipv4:
+        case address_type::ipv4: {
+            if (data.size() < off + 4)
             {
-                if (data.size() < off + 4)
-                    return error::need_more;
-                std::array<char, 16> buf{};
-                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u",
-                              data[off], data[off + 1], data[off + 2], data[off + 3]);
-                out.target.host = buf.data();
-                off += 4;
-                break;
+                return error::need_more;
             }
-            case address_type::ipv6:
+            std::array<char, 16> buf{};
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", data[off], data[off + 1], data[off + 2],
+                          data[off + 3]);
+            out.target.host = buf.data();
+            off += 4;
+            break;
+        }
+        case address_type::ipv6: {
+            if (data.size() < off + 16)
             {
-                if (data.size() < off + 16)
-                    return error::need_more;
-                out.target.host.assign(reinterpret_cast<const char *>(data.data() + off), 16);
-                off += 16;
-                break;
+                return error::need_more;
             }
-            case address_type::domain:
-            default:
+            out.target.host.assign(reinterpret_cast<const char *>(data.data() + off), 16);
+            off += 16;
+            break;
+        }
+        case address_type::domain:
+        default: {
+            if (off >= data.size())
             {
-                if (off >= data.size())
-                    return error::need_more;
-                const auto len = data[off++];
-                if (data.size() < off + len)
-                    return error::need_more;
-                out.target.host.assign(reinterpret_cast<const char *>(data.data() + off), len);
-                off += len;
-                break;
+                return error::need_more;
             }
+            const auto len = data[off++];
+            if (data.size() < off + len)
+            {
+                return error::need_more;
+            }
+            out.target.host.assign(reinterpret_cast<const char *>(data.data() + off), len);
+            off += len;
+            break;
+        }
         }
         consumed = off;
         return error::none;
@@ -264,9 +276,8 @@ namespace psmtest::vless
      * 载荷，边界由调用方（一次底层读）约定。
      * @note 地址类型为 VLESS 值体系（IPv4 0x01 / Domain 0x02 / IPv6 0x03）
      */
-    [[nodiscard]] inline auto build_udp_pkt(const address &target,
-                                            std::span<const std::uint8_t> payload)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_udp_pkt(const address &target, std::span<const std::uint8_t> payload)
+        -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(1 + target.host.size() + 2 + payload.size());
@@ -290,7 +301,9 @@ namespace psmtest::vless
         std::size_t off = 0;
         auto err = parse_address(data, target, off);
         if (err != error::none)
+        {
             return err;
+        }
         payload = data.subspan(off);
         return error::none;
     }
@@ -299,13 +312,14 @@ namespace psmtest::vless
      * @brief 构造响应字节（固定 2 字节）
      * @return [Version 0x00][Addons Length 0x00]
      */
-    [[nodiscard]] inline constexpr auto make_response()
-    -> std::array<std::uint8_t, 2>
+    [[nodiscard]] inline constexpr auto make_response() -> std::array<std::uint8_t, 2>
     {
         return {protocol_version, 0x00};
     }
 
-    /// @brief VLESS 帧消息（Beast 风格，供 serializer/parser 使用）
+    /**
+     * @brief VLESS 帧消息（Beast 风格，供 serializer/parser 使用）
+     */
     struct message
     {
         /// 用户 UUID（16 字节）
@@ -318,7 +332,9 @@ namespace psmtest::vless
         bool valid{false};
     };
 
-    /// @brief VLESS 帧序列化器（对象 → wire，Beast 风格）
+    /**
+     * @brief VLESS 帧序列化器（对象 → wire，Beast 风格）
+     */
     class serializer
     {
     public:
@@ -326,8 +342,7 @@ namespace psmtest::vless
          * @brief 构造
          * @param uuid 用户 UUID
          */
-        explicit serializer(const std::array<std::uint8_t, uuid_len> &uuid)
-            : uuid_(uuid)
+        explicit serializer(const std::array<std::uint8_t, uuid_len> &uuid) : uuid_(uuid)
         {
         }
 
@@ -377,7 +392,9 @@ namespace psmtest::vless
         std::size_t offset_{0};
     };
 
-    /// @brief VLESS 帧解析器（wire → 对象，Beast 风格）
+    /**
+     * @brief VLESS 帧解析器（wire → 对象，Beast 风格）
+     */
     class parser
     {
     public:
@@ -385,8 +402,7 @@ namespace psmtest::vless
          * @brief 构造
          * @param uuid 期望的用户 UUID（校验用）
          */
-        explicit parser(const std::array<std::uint8_t, uuid_len> &uuid)
-            : uuid_(uuid)
+        explicit parser(const std::array<std::uint8_t, uuid_len> &uuid) : uuid_(uuid)
         {
         }
 
@@ -399,8 +415,8 @@ namespace psmtest::vless
         auto put(boost::asio::const_buffer buffer, std::error_code &ec) -> std::size_t
         {
             ec.clear();
-            const auto data = std::span<const std::uint8_t>(
-                static_cast<const std::uint8_t *>(buffer.data()), buffer.size());
+            const auto data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(buffer.data()),
+                                                            buffer.size());
             buf_.insert(buf_.end(), data.begin(), data.end());
             std::size_t consumed = 0;
             request_header req;

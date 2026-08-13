@@ -7,12 +7,12 @@
  * @date 2026-03-01
  */
 
-#include <boost/asio.hpp>
-#include <boost/beast/core/flat_buffer.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/settings/transformer.hpp>
-#include <prism/diagnose/diagnose.hpp>
+
+#include <boost/asio.hpp>
+#include <boost/beast/core/flat_buffer.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -38,18 +38,24 @@ std::string ToUtf8Message(const std::string &msg)
 {
 #ifdef _WIN32
     if (msg.empty())
+    {
         return msg;
+    }
 
     int wlen = MultiByteToWideChar(CP_ACP, 0, msg.c_str(), -1, nullptr, 0);
     if (wlen <= 0)
+    {
         return msg;
+    }
 
     std::wstring wmsg(wlen, 0);
     MultiByteToWideChar(CP_ACP, 0, msg.c_str(), -1, wmsg.data(), wlen);
 
     int u8len = WideCharToMultiByte(CP_UTF8, 0, wmsg.c_str(), -1, nullptr, 0, nullptr, nullptr);
     if (u8len <= 0)
+    {
         return msg;
+    }
 
     std::string u8msg(u8len - 1, 0);
     WideCharToMultiByte(CP_UTF8, 0, wmsg.c_str(), -1, u8msg.data(), u8len, nullptr, nullptr);
@@ -115,8 +121,7 @@ public:
      * @brief 构造函数
      * @param config 压力测试配置
      */
-    client(const stress_config &config)
-        : config_(config)
+    client(const stress_config &config) : config_(config)
     {
     }
 
@@ -151,10 +156,7 @@ public:
         threads.reserve(thread_count);
         for (int i = 0; i < thread_count; ++i)
         {
-            auto func = [this]
-            {
-                ioc_.run();
-            };
+            auto func = [this] { ioc_.run(); };
             threads.emplace_back(func);
         }
 
@@ -210,10 +212,11 @@ private:
             double avg_latency = success > 0 ? (double)total_latency / success : 0.0;
             std::uint64_t display_min = min_latency == UINT64_MAX ? 0 : min_latency;
 
-            psm::diagnose::info("[实时统计] QPS: {} | 带宽: {} Mbps | 成功率: {}% | 活跃连接: {} | 总流量: {} MB | 延迟: avg={}ms, min={}ms, max={}ms | 错误: timeout={}, conn={}, proto={}",
-                             qps, mbps, success_rate, active, bytes / 1024 / 1024,
-                             avg_latency, display_min, max_latency,
-                             timeout_err, conn_err, proto_err);
+            psm::diagnose::info(
+                "[实时统计] QPS: {} | 带宽: {} Mbps | 成功率: {}% | 活跃连接: {} | 总流量: {} MB | 延迟: "
+                "avg={}ms, min={}ms, max={}ms | 错误: timeout={}, conn={}, proto={}",
+                qps, mbps, success_rate, active, bytes / 1024 / 1024, avg_latency, display_min, max_latency,
+                timeout_err, conn_err, proto_err);
 
             last_requests = total;
             last_bytes = bytes;
@@ -247,7 +250,9 @@ private:
         for (;;)
         {
             if (stats_.total_requests.load(std::memory_order_relaxed) >= config_.total_requests)
+            {
                 co_return;
+            }
 
             if (!is_connected)
             {
@@ -270,12 +275,13 @@ private:
                 static std::atomic<int> send_debug_counter{0};
                 if (send_debug_counter.fetch_add(1, std::memory_order_relaxed) % 100 == 0)
                 {
-                    psm::diagnose::debug("[调试发送] 目标: http://{}:{}{}",
-                                      config_.backend_host, config_.backend_port, config_.request_path);
+                    psm::diagnose::debug("[调试发送] 目标: http://{}:{}{}", config_.backend_host,
+                                         config_.backend_port, config_.request_path);
                 }
             }
 
-            co_await net::async_write(socket, net::buffer(request_data), net::redirect_error(net::use_awaitable, ec));
+            co_await net::async_write(socket, net::buffer(request_data),
+                                      net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
                 psm::diagnose::error("[错误] 发送请求失败: {}", ec.message());
@@ -333,10 +339,8 @@ private:
         socket.close(ignore_ec);
 
         auto token = net::redirect_error(net::use_awaitable, ec);
-        auto const results = co_await resolver.async_resolve(
-            config_.proxy_host,
-            std::to_string(config_.proxy_port),
-            token);
+        auto const results =
+            co_await resolver.async_resolve(config_.proxy_host, std::to_string(config_.proxy_port), token);
         if (ec)
         {
             if (config_.debug_output)
@@ -402,7 +406,8 @@ private:
      * @param request_start 请求开始时间
      */
     net::awaitable<void> HandleStressMode(tcp::socket &socket, bool &is_connected,
-                                          memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
+                                          memory::resource_pointer mr,
+                                          std::chrono::steady_clock::time_point request_start)
     {
         std::array<char, 8192> buf{};
 
@@ -420,9 +425,8 @@ private:
                     break;
                 }
 
-                auto n = co_await socket.async_read_some(
-                    net::buffer(buf.data() + used, buf.size() - used),
-                    net::redirect_error(net::use_awaitable, ec));
+                auto n = co_await socket.async_read_some(net::buffer(buf.data() + used, buf.size() - used),
+                                                         net::redirect_error(net::use_awaitable, ec));
                 if (ec)
                 {
                     if (ec == net::error::eof && config_.debug_output)
@@ -444,9 +448,12 @@ private:
                 {
                     auto val_start = pos + 15;
                     while (val_start < raw.size() && raw[val_start] == ' ')
+                    {
                         ++val_start;
+                    }
                     auto val_end = raw.find("\r\n", val_start);
-                    auto len_end = val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start;
+                    auto len_end =
+                        val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start;
                     auto len_str = raw.substr(val_start, len_end);
                     for (char c : len_str)
                     {
@@ -503,7 +510,8 @@ private:
      * @param request_start 请求开始时间
      */
     net::awaitable<void> HandleNormalMode(tcp::socket &socket, bool &is_connected,
-                                          [[maybe_unused]] memory::resource_pointer mr, std::chrono::steady_clock::time_point request_start)
+                                          [[maybe_unused]] memory::resource_pointer mr,
+                                          std::chrono::steady_clock::time_point request_start)
     {
         // 读取 HTTP 响应头
         std::array<char, 8192> buf{};
@@ -518,9 +526,8 @@ private:
                 break;
             }
 
-            auto n = co_await socket.async_read_some(
-                net::buffer(buf.data() + used, buf.size() - used),
-                net::redirect_error(net::use_awaitable, ec));
+            auto n = co_await socket.async_read_some(net::buffer(buf.data() + used, buf.size() - used),
+                                                     net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
                 psm::diagnose::error("[错误] 读取响应失败");
@@ -538,12 +545,14 @@ private:
         const auto raw = std::string_view(buf.data(), used);
         const auto line_end = raw.find("\r\n");
         const auto first_space = raw.find(' ');
-        const auto second_space = (line_end != std::string_view::npos && first_space != std::string_view::npos)
-                                      ? raw.find(' ', first_space + 1)
-                                      : std::string_view::npos;
+        const auto second_space =
+            (line_end != std::string_view::npos && first_space != std::string_view::npos)
+                ? raw.find(' ', first_space + 1)
+                : std::string_view::npos;
 
         int status_code = 0;
-        if (first_space != std::string_view::npos && second_space != std::string_view::npos && second_space < line_end)
+        if (first_space != std::string_view::npos && second_space != std::string_view::npos &&
+            second_space < line_end)
         {
             const auto status_str = raw.substr(first_space + 1, second_space - first_space - 1);
             for (char c : status_str)
@@ -568,9 +577,12 @@ private:
                 {
                     auto val_start = pos + 15;
                     while (val_start < headers.size() && headers[val_start] == ' ')
+                    {
                         ++val_start;
+                    }
                     auto val_end = headers.find("\r\n", val_start);
-                    auto len_end = val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start;
+                    auto len_end =
+                        val_end == std::string_view::npos ? std::string_view::npos : val_end - val_start;
                     auto len_str = headers.substr(val_start, len_end);
                     for (char c : len_str)
                     {
@@ -586,7 +598,9 @@ private:
                 {
                     auto val_start = pos + 11;
                     while (val_start < headers.size() && headers[val_start] == ' ')
+                    {
                         ++val_start;
+                    }
                     if (headers.substr(val_start).starts_with("keep-alive"))
                     {
                         keep_alive = true;
@@ -600,8 +614,8 @@ private:
             static std::atomic<int> debug_counter{0};
             if (debug_counter.fetch_add(1, std::memory_order_relaxed) % 100 == 0)
             {
-                psm::diagnose::debug("[调试] 响应状态: {}, body大小: {} bytes, 延迟: {} ms",
-                                  status_code, body_size, latency_ms);
+                psm::diagnose::debug("[调试] 响应状态: {}, body大小: {} bytes, 延迟: {} ms", status_code,
+                                     body_size, latency_ms);
             }
         }
 
@@ -633,14 +647,14 @@ private:
         stats_.total_latency_ms.fetch_add(latency_ms, std::memory_order_relaxed);
 
         std::uint64_t current_min = stats_.min_latency_ms.load(std::memory_order_relaxed);
-        while (latency_ms < current_min &&
-               !stats_.min_latency_ms.compare_exchange_weak(current_min, latency_ms, std::memory_order_relaxed))
+        while (latency_ms < current_min && !stats_.min_latency_ms.compare_exchange_weak(
+                                               current_min, latency_ms, std::memory_order_relaxed))
         {
         }
 
         std::uint64_t current_max = stats_.max_latency_ms.load(std::memory_order_relaxed);
-        while (latency_ms > current_max &&
-               !stats_.max_latency_ms.compare_exchange_weak(current_max, latency_ms, std::memory_order_relaxed))
+        while (latency_ms > current_max && !stats_.max_latency_ms.compare_exchange_weak(
+                                               current_max, latency_ms, std::memory_order_relaxed))
         {
         }
     }
@@ -656,16 +670,12 @@ private:
     {
         stats_.failed_requests.fetch_add(1, std::memory_order_relaxed);
 
-        if (ec == net::error::timed_out ||
-            ec.message().find("timeout") != std::string::npos)
+        if (ec == net::error::timed_out || ec.message().find("timeout") != std::string::npos)
         {
             stats_.timeout_errors.fetch_add(1, std::memory_order_relaxed);
         }
-        else if (ec == net::error::connection_reset ||
-                 ec == net::error::connection_aborted ||
-                 ec == net::error::broken_pipe ||
-                 ec == net::error::not_connected ||
-                 ec == net::error::eof)
+        else if (ec == net::error::connection_reset || ec == net::error::connection_aborted ||
+                 ec == net::error::broken_pipe || ec == net::error::not_connected || ec == net::error::eof)
         {
             stats_.connection_errors.fetch_add(1, std::memory_order_relaxed);
         }

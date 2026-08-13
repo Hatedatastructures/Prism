@@ -3,17 +3,16 @@
  * @brief XHTTP 伪装方案实现
  */
 
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/handling.hpp>
 #include <prism/handshake/xhttp/scheme.hpp>
 #include <prism/handshake/xhttp/session.hpp>
-
-#include <prism/settings/settings.hpp>
-#include <prism/net/connection/util.hpp>
-#include <prism/resource/session.hpp>
-#include <prism/foundation/fault/handling.hpp>
 #include <prism/net/connection/types.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/net/connection/util.hpp>
 #include <prism/net/transport/encrypted.hpp>
 #include <prism/net/transport/preview.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
 #include <openssl/ssl.h>
@@ -36,22 +35,17 @@ namespace psm::handshake::xhttp
         return cfg.stealth.xhttp.enabled();
     }
 
-    auto scheme::snis(const psm::settings &cfg) const
-        -> memory::vector<memory::string>
+    auto scheme::snis(const psm::settings &cfg) const -> memory::vector<memory::string>
     {
         return make_sni_list(cfg.stealth.xhttp.server_names);
     }
 
     auto scheme::guess(const psm::settings &cfg) const -> verify_result
     {
-        return {
-            .score = 100,
-            .solo_flag = 0,
-            .note = "xhttp: rely on SNI match"};
+        return {.score = 100, .solo_flag = 0, .note = "xhttp: rely on SNI match"};
     }
 
-    auto scheme::handshake(handshake::handshake_context ctx)
-        -> net::awaitable<handshake::handshake_result>
+    auto scheme::handshake(handshake::handshake_context ctx) -> net::awaitable<handshake::handshake_result>
     {
         handshake::handshake_result result;
 
@@ -91,25 +85,27 @@ namespace psm::handshake::xhttp
             SSL_CTX_set_max_proto_version(dst_native, SSL_CTX_get_max_proto_version(src_native));
             SSL_CTX_set_session_cache_mode(dst_native, SSL_CTX_get_session_cache_mode(src_native));
 
-            SSL_CTX_set_alpn_select_cb(dst_native,
-                [](SSL *, const unsigned char **out, unsigned char *outlen,
-                   const unsigned char *in, unsigned int inlen, void *) -> int
+            SSL_CTX_set_alpn_select_cb(
+                dst_native,
+                [](SSL *, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
+                   unsigned int inlen, void *) -> int
                 {
                     if (SSL_select_next_proto(const_cast<unsigned char **>(out), outlen,
-                        reinterpret_cast<const unsigned char *>("\x2h2"), 3,
-                        in, inlen) == OPENSSL_NPN_NEGOTIATED)
+                                              reinterpret_cast<const unsigned char *>("\x2h2"), 3, in,
+                                              inlen) == OPENSSL_NPN_NEGOTIATED)
                     {
                         return SSL_TLSEXT_ERR_OK;
                     }
                     return SSL_TLSEXT_ERR_NOACK;
-                }, nullptr);
+                },
+                nullptr);
         }
 
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
         auto clean_inbound = psm::transport::wrap_with_preview(std::move(raw), preread_span);
 
-        auto [ssl_ec, ssl_stream, recovered] = co_await psm::transport::encrypted::ssl_handshake(
-            std::move(clean_inbound), *xh_ssl_ctx);
+        auto [ssl_ec, ssl_stream, recovered] =
+            co_await psm::transport::encrypted::ssl_handshake(std::move(clean_inbound), *xh_ssl_ctx);
 
         if (fault::failed(ssl_ec) || !ssl_stream)
         {

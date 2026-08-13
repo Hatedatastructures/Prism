@@ -4,10 +4,10 @@
  * @details 测试 scheme_registry 的 find/all/instance 方法
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/registry.hpp>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -74,7 +74,9 @@ namespace
         for (const auto &s : psm::handshake::scheme_registry::instance().all())
         {
             if (s->name().empty())
+            {
                 all_named = false;
+            }
         }
         EXPECT_TRUE(all_named) << "all: every scheme has a name";
     }

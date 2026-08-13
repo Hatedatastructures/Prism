@@ -5,13 +5,14 @@
  * 验证构造、异步读写、预读回放、关闭等操作的正确性。
  */
 
-#include <prism/net/transport/reliable.hpp>
-#include <prism/net/transport/preview.hpp>
-#include <prism/net/transport/encrypted.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/transport/encrypted.hpp>
+#include <prism/net/transport/preview.hpp>
+#include <prism/net/transport/reliable.hpp>
 
-#include <gtest/gtest.h>
+#include <boost/asio.hpp>
+#include <boost/asio/ssl.hpp>
 
 #include <array>
 #include <chrono>
@@ -22,8 +23,7 @@
 #include <span>
 #include <string_view>
 
-#include <boost/asio.hpp>
-#include <boost/asio/ssl.hpp>
+#include <gtest/gtest.h>
 
 namespace net = boost::asio;
 namespace ssl = net::ssl;
@@ -109,11 +109,12 @@ namespace
     {
         net::io_context ioc;
         std::exception_ptr test_error;
-        net::co_spawn(ioc, std::move(coro), [&](const std::exception_ptr &ep)
-        {
-            test_error = ep;
-            ioc.stop();
-        });
+        net::co_spawn(ioc, std::move(coro),
+                      [&](const std::exception_ptr &ep)
+                      {
+                          test_error = ep;
+                          ioc.stop();
+                      });
         ioc.run();
         if (test_error)
         {
@@ -170,8 +171,7 @@ namespace
         auto executor = co_await net::this_coro::executor;
 
         // 在随机端口上创建 echo 服务端监听器
-        net::ip::tcp::acceptor echo_acceptor(executor,
-                                              net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        net::ip::tcp::acceptor echo_acceptor(executor, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         auto echo_ep = echo_acceptor.local_endpoint();
         auto connect_ep = net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), echo_ep.port());
 
@@ -206,8 +206,7 @@ namespace
         EXPECT_TRUE(!read_ec) << "ReliableReadWrite: read no error";
         EXPECT_EQ(n, test_message.size()) << "ReliableReadWrite: read size matches";
 
-        const auto received = std::string_view(
-            reinterpret_cast<const char *>(read_buf.data()), n);
+        const auto received = std::string_view(reinterpret_cast<const char *>(read_buf.data()), n);
         EXPECT_EQ(received, test_message) << "ReliableReadWrite: echo content matches";
 
         transport->close();
@@ -225,15 +224,15 @@ namespace
     {
         auto executor = co_await net::this_coro::executor;
 
-        net::ip::tcp::acceptor acceptor(executor,
-                                         net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        net::ip::tcp::acceptor acceptor(executor, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         auto local_ep = acceptor.local_endpoint();
         auto connect_ep = net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), local_ep.port());
 
         bool server_read_error = false;
 
         // 服务端协程：accept 后关闭 reliable，验证关闭后读取返回错误
-        net::co_spawn(executor,
+        net::co_spawn(
+            executor,
             [&acceptor, &server_read_error]() -> net::awaitable<void>
             {
                 auto socket = co_await acceptor.async_accept(net::use_awaitable);
@@ -250,7 +249,8 @@ namespace
                 {
                     server_read_error = true;
                 }
-            }, net::detached);
+            },
+            net::detached);
 
         // 客户端：连接后尝试读取，预期因服务端关闭而收到关闭指示
         {
@@ -259,11 +259,9 @@ namespace
 
             std::array<char, 64> buf{};
             boost::system::error_code ec;
-            co_await socket.async_read_some(
-                net::buffer(buf), net::redirect_error(net::use_awaitable, ec));
+            co_await socket.async_read_some(net::buffer(buf), net::redirect_error(net::use_awaitable, ec));
 
-            EXPECT_TRUE(ec == net::error::eof ||
-                        ec == net::error::connection_reset ||
+            EXPECT_TRUE(ec == net::error::eof || ec == net::error::connection_reset ||
                         ec == net::error::operation_aborted)
                 << "ReliableClose: client detects close";
         }
@@ -293,18 +291,18 @@ namespace
         net::io_context ioc;
         auto reliable = psm::transport::make_reliable(ioc.get_executor());
 
-        const std::array<std::byte, 4> preread = {
-            std::byte{'A'}, std::byte{'B'}, std::byte{'C'}, std::byte{'D'}};
+        const std::array<std::byte, 4> preread = {std::byte{'A'}, std::byte{'B'}, std::byte{'C'},
+                                                  std::byte{'D'}};
 
-        auto prev = std::make_shared<psm::transport::preview>(
-            reliable, std::span<const std::byte>{preread});
+        auto prev = std::make_shared<psm::transport::preview>(reliable, std::span<const std::byte>{preread});
 
         EXPECT_NE(prev, nullptr) << "PreviewConstruction: non-null";
         EXPECT_TRUE(prev->next_layer() != nullptr) << "PreviewConstruction: next_layer non-null";
         EXPECT_TRUE(prev->next_layer() == reliable.get()) << "PreviewConstruction: next_layer is reliable";
         EXPECT_TRUE(prev->transport_type() == psm::transport::transmission::type::tcp)
             << "PreviewConstruction: transport type is tcp";
-        EXPECT_TRUE(prev->executor() == reliable->executor()) << "PreviewConstruction: executor matches inner";
+        EXPECT_TRUE(prev->executor() == reliable->executor())
+            << "PreviewConstruction: executor matches inner";
 
         // wrap_with_preview 辅助函数：空数据时应返回原始传输
         auto original = psm::transport::make_reliable(ioc.get_executor());
@@ -326,8 +324,7 @@ namespace
         auto executor = co_await net::this_coro::executor;
 
         // 在随机端口上创建服务端
-        net::ip::tcp::acceptor acceptor(executor,
-                                         net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        net::ip::tcp::acceptor acceptor(executor, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         auto server_ep = acceptor.local_endpoint();
         auto connect_ep = net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), server_ep.port());
 
@@ -354,11 +351,9 @@ namespace
         auto reliable = psm::transport::make_reliable(std::move(socket));
 
         // 构造 preread 数据（来自 probe 阶段的 4 字节）
-        std::array<std::byte, 4> preread = {
-            std::byte{'A'}, std::byte{'B'}, std::byte{'C'}, std::byte{'D'}};
+        std::array<std::byte, 4> preread = {std::byte{'A'}, std::byte{'B'}, std::byte{'C'}, std::byte{'D'}};
 
-        auto prev = std::make_shared<psm::transport::preview>(
-            reliable, std::span<const std::byte>{preread});
+        auto prev = std::make_shared<psm::transport::preview>(reliable, std::span<const std::byte>{preread});
 
         // 第一次读取：应从预读缓冲区返回（最多 min(4, buffer_size)）
         std::array<std::byte, 64> read_buf1{};
@@ -399,8 +394,7 @@ namespace
         auto executor = co_await net::this_coro::executor;
 
         // 创建 echo 服务器
-        net::ip::tcp::acceptor echo_acceptor(executor,
-                                              net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        net::ip::tcp::acceptor echo_acceptor(executor, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         auto echo_ep = echo_acceptor.local_endpoint();
         auto connect_ep = net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), echo_ep.port());
 
@@ -436,8 +430,7 @@ namespace
         EXPECT_TRUE(!read_ec) << "PreviewWritePassthrough: read no error";
         EXPECT_EQ(n, test_msg.size()) << "PreviewWritePassthrough: read size matches";
 
-        const auto received = std::string_view(
-            reinterpret_cast<const char *>(read_buf.data()), n);
+        const auto received = std::string_view(reinterpret_cast<const char *>(read_buf.data()), n);
         EXPECT_EQ(received, test_msg) << "PreviewWritePassthrough: echo content matches";
 
         prev->close();
@@ -473,8 +466,7 @@ namespace
         ssl::context ssl_ctx(ssl::context::tlsv12);
 
         // 创建 TLS 流
-        auto ssl_stream = std::make_shared<psm::transport::encrypted::stream_type>(
-            std::move(conn), ssl_ctx);
+        auto ssl_stream = std::make_shared<psm::transport::encrypted::stream_type>(std::move(conn), ssl_ctx);
 
         // 创建 encrypted 传输层
         auto enc = std::make_shared<psm::transport::encrypted>(ssl_stream);

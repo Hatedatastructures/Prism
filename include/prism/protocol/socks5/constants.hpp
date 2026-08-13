@@ -10,7 +10,6 @@
 
 #include <cstdint>
 
-
 namespace psm::protocol::socks5
 {
 
@@ -97,4 +96,4 @@ namespace psm::protocol::socks5
         /** @brief 不支持的地址类型 */
         atype_unsupported = 0x08
     };
-}
+} // namespace psm::protocol::socks5

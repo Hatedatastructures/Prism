@@ -9,8 +9,6 @@
  * @param argv[1] 监听地址（默认 127.0.0.1:19080）
  */
 
-#include <common/proxy/shadowsocks2022/codec.hpp>
-
 #include <boost/asio.hpp>
 
 #include <cstdio>
@@ -18,6 +16,8 @@
 #include <ctime>
 #include <random>
 #include <vector>
+
+#include <common/proxy/shadowsocks2022/codec.hpp>
 
 namespace ss = psmtest::ss2022;
 
@@ -28,9 +28,8 @@ int main(const int argc, char *argv[])
     const std::string listen_addr = argc > 1 ? argv[1] : "127.0.0.1:19080";
 
     // PSK（与 configuration.json 一致）
-    std::array<std::uint8_t, 16> psk{
-        0xE6, 0x7E, 0x44, 0x4A, 0xEF, 0x79, 0xDE, 0x2F,
-        0xE9, 0x8C, 0x8A, 0x74, 0xDA, 0x86, 0x6F, 0x1C};
+    std::array<std::uint8_t, 16> psk{0xE6, 0x7E, 0x44, 0x4A, 0xEF, 0x79, 0xDE, 0x2F,
+                                     0xE9, 0x8C, 0x8A, 0x74, 0xDA, 0x86, 0x6F, 0x1C};
 
     try
     {
@@ -45,8 +44,7 @@ int main(const int argc, char *argv[])
         }
         host = listen_addr.substr(0, colon);
         port = static_cast<std::uint16_t>(std::stoi(listen_addr.substr(colon + 1)));
-        net::ip::tcp::acceptor acceptor(ioc,
-                                        net::ip::tcp::endpoint(net::ip::make_address(host), port));
+        net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::make_address(host), port));
         net::ip::tcp::socket sock(ioc);
         acceptor.accept(sock);
 
@@ -58,8 +56,8 @@ int main(const int argc, char *argv[])
         const auto probe_key = ss::session_key(psk, std::span<const std::uint8_t>(head).first(16), 16);
         ss::chunk_codec probe_codec(probe_key);
         std::size_t consumed = 0;
-        const auto fixed_plain = probe_codec.open(
-            std::span<const std::uint8_t>(head).subspan(16, ss::fixed_hdr_size), consumed);
+        const auto fixed_plain =
+            probe_codec.open(std::span<const std::uint8_t>(head).subspan(16, ss::fixed_hdr_size), consumed);
         if (fixed_plain.size() != ss::fixed_hdr_plain || fixed_plain[0] != ss::header_type_client)
         {
             std::fprintf(stderr, "FAIL: fixed header decrypt\n");
@@ -87,7 +85,9 @@ int main(const int argc, char *argv[])
         std::array<std::uint8_t, 16> server_salt{};
         std::random_device rd;
         for (auto &b : server_salt)
+        {
             b = static_cast<std::uint8_t>(rd() & 0xFF);
+        }
         const auto resp_key = ss::session_key(psk, server_salt, 16);
         ss::chunk_codec resp_codec(resp_key);
         const auto resp_fixed = ss::build_fixed_header(ss::header_type_server, now, 0);
@@ -113,10 +113,11 @@ int main(const int argc, char *argv[])
             // Go 客户端按块发送：[len 块 18B][载荷块]
             std::array<std::uint8_t, ss::len_block_size> len_enc{};
             boost::system::error_code ec;
-            const auto n = net::read(sock, net::buffer(len_enc),
-                                     net::transfer_exactly(len_enc.size()), ec);
+            const auto n = net::read(sock, net::buffer(len_enc), net::transfer_exactly(len_enc.size()), ec);
             if (ec || n == 0)
+            {
                 break;
+            }
             const auto len_opt = codec.open_len(len_enc);
             if (!len_opt)
             {

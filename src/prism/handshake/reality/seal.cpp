@@ -1,9 +1,8 @@
-#include <prism/handshake/reality/seal.hpp>
-
-#include <prism/protocol/tls/record.hpp>
-#include <prism/handshake/common.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/common.hpp>
+#include <prism/handshake/reality/seal.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/tls/record.hpp>
 
 #include <algorithm>
 #include <cstring>
@@ -16,16 +15,13 @@ namespace psm::handshake::reality
     namespace tls = psm::protocol::tls;
 
     seal::seal(transport::shared_transmission transport, key_material keys)
-        : transport_(std::move(transport)),
-          keys_(keys),
+        : transport_(std::move(transport)), keys_(keys),
           srv_encryptor_(crypto::aead_cipher::aes_128_gcm, keys_.server_appkey),
           cli_decryptor_(crypto::aead_cipher::aes_128_gcm, keys_.client_appkey)
     {
     }
 
-
-    auto seal::executor() const
-        -> executor_type
+    auto seal::executor() const -> executor_type
     {
         if (!transport_)
         {
@@ -33,7 +29,6 @@ namespace psm::handshake::reality
         }
         return transport_->executor();
     }
-
 
     auto seal::async_read_some(std::span<std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
@@ -82,7 +77,6 @@ namespace psm::handshake::reality
         co_return 0;
     }
 
-
     auto seal::async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
@@ -91,30 +85,34 @@ namespace psm::handshake::reality
         constexpr std::size_t max_chunk = 16383;
         std::span<const std::byte> chunk;
         if (buffer.size() > max_chunk)
+        {
             chunk = std::span<const std::byte>(buffer.data(), max_chunk);
+        }
         else
+        {
             chunk = buffer;
+        }
         const auto written = co_await send_record(chunk, ec);
         co_return written;
     }
 
-
     void seal::close()
     {
         if (transport_)
+        {
             transport_->close();
+        }
     }
-
 
     void seal::cancel()
     {
         if (transport_)
+        {
             transport_->cancel();
+        }
     }
 
-
-    auto seal::recv_record(std::error_code &ec)
-        -> net::awaitable<std::size_t>
+    auto seal::recv_record(std::error_code &ec) -> net::awaitable<std::size_t>
     {
         auto [read_ec, rec] = co_await ::psm::tls::record::read(*transport_);
         if (fault::failed(read_ec))
@@ -152,8 +150,7 @@ namespace psm::handshake::reality
         }
 
         const auto nonce = common::aead_nonce(
-            std::span<const std::uint8_t>(keys_.client_appiv.data(), keys_.client_appiv.size()),
-            read_seq_);
+            std::span<const std::uint8_t>(keys_.client_appiv.data(), keys_.client_appiv.size()), read_seq_);
         ++read_seq_;
 
         // 类型转换：byte 载荷视图转 uint8_t 供 AEAD 解密
@@ -166,10 +163,11 @@ namespace psm::handshake::reality
 
         // AEAD AD 从 record 序列化中取前 5 字节
         auto rec_bytes = rec.serialize();
-        const auto ad_span = std::span<const std::uint8_t>(
-            reinterpret_cast<const std::uint8_t *>(rec_bytes.data()), 5);
+        const auto ad_span =
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(rec_bytes.data()), 5);
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
-        const auto dec_ec = cli_decryptor_.open(crypto::open_input{decrypted, ciphertext, nonce_span, ad_span});
+        const auto dec_ec =
+            cli_decryptor_.open(crypto::open_input{decrypted, ciphertext, nonce_span, ad_span});
         if (!first_read_log_)
         {
             first_read_log_ = true;
@@ -202,7 +200,6 @@ namespace psm::handshake::reality
         co_return plainbuf_.size();
     }
 
-
     auto seal::send_record(const std::span<const std::byte> data, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
@@ -226,8 +223,7 @@ namespace psm::handshake::reality
         }
 
         const auto nonce = common::aead_nonce(
-            std::span<const std::uint8_t>(keys_.server_appiv.data(), keys_.server_appiv.size()),
-            write_seq_);
+            std::span<const std::uint8_t>(keys_.server_appiv.data(), keys_.server_appiv.size()), write_seq_);
         ++write_seq_;
 
         const auto encrypted_len = static_cast<std::uint16_t>(inner.size() + tls::AEAD_TAG_LEN);
@@ -236,14 +232,15 @@ namespace psm::handshake::reality
         auto &ciphertext = wr_cipher_buf_;
 
         // 类型转换：byte 视图转 uint8_t 供 AEAD
-        const auto inner_span = std::span<const std::uint8_t>(
-            reinterpret_cast<const std::uint8_t *>(inner.data()), inner.size());
+        const auto inner_span =
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(inner.data()), inner.size());
         const auto nonce_span = std::span<const std::uint8_t>{nonce.data(), nonce.size()};
 
         // AEAD AD 使用 record_ad 生成
         const auto ad = common::record_ad(encrypted_len);
         const auto ad_span = std::span<const std::uint8_t>{ad.data(), ad.size()};
-        const auto enc_ec = srv_encryptor_.seal(crypto::seal_input{ciphertext, inner_span, nonce_span, ad_span});
+        const auto enc_ec =
+            srv_encryptor_.seal(crypto::seal_input{ciphertext, inner_span, nonce_span, ad_span});
         if (!first_write_log_)
         {
             first_write_log_ = true;
@@ -256,10 +253,10 @@ namespace psm::handshake::reality
 
         // 构造加密 TLS 记录并写入
         auto sealed = ::psm::tls::record::builder()
-            .type(tls::CT_APPLICATION_DATA)
-            .version(0x0303)
-            .payload_u8(std::span<const std::uint8_t>(ciphertext.data(), ciphertext.size()))
-            .build();
+                          .type(tls::CT_APPLICATION_DATA)
+                          .version(0x0303)
+                          .payload_u8(std::span<const std::uint8_t>(ciphertext.data(), ciphertext.size()))
+                          .build();
 
         auto write_ec = co_await sealed.write(*transport_);
         if (fault::failed(write_ec))

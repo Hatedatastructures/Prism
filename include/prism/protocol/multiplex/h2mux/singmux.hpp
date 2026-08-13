@@ -33,11 +33,11 @@ namespace psm::multiplex::h2mux
      */
     struct sing_request
     {
-        bool udp{false};             ///< UDP 标志
-        bool packet_addr{false};      ///< PacketAddr 标志
-        memory::string host;          ///< 目标主机（空表示无目标，PacketAddr 模式）
-        std::uint16_t port{0};        ///< 目标端口
-        std::size_t consumed{0};      ///< 解析消耗的字节数
+        bool udp{false};         ///< UDP 标志
+        bool packet_addr{false}; ///< PacketAddr 标志
+        memory::string host;     ///< 目标主机（空表示无目标，PacketAddr 模式）
+        std::uint16_t port{0};   ///< 目标端口
+        std::size_t consumed{0}; ///< 解析消耗的字节数
     };
 
     /**

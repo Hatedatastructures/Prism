@@ -6,16 +6,14 @@
  * 入站/出站传输层。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/settings/settings.hpp>
-#include <prism/net/connection/dialer/dialer.hpp>
-#include <prism/net/connection/tunnel/tunnel.hpp>
-#include <prism/resource/session.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/tunnel/tunnel.hpp>
 #include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
 
@@ -27,6 +25,7 @@
 #include <vector>
 
 #include "common/MockTransport.hpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -116,8 +115,7 @@ TEST(Tunnel, PartialWritePolicy)
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{
-                inbound, outbound, sess->buffer, write_policy::partial};
+            auto opts = tunnel_options{inbound, outbound, sess->buffer, write_policy::partial};
             co_await tunnel(std::move(opts));
             done = true;
         },

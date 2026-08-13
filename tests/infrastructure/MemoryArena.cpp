@@ -8,14 +8,14 @@
  * 4. 连续多次 reset() 调用的正确性
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include <cstddef>
 #include <cstring>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace
 {

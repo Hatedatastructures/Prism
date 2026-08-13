@@ -1,16 +1,15 @@
-#include <prism/handshake/native.hpp>
-
-#include <prism/resource/session.hpp>
-#include <prism/settings/settings.hpp>
-#include <prism/net/net.hpp>
-#include <prism/net/connection/util.hpp>
-#include <prism/foundation/fault/handling.hpp>
-#include <prism/net/connection/types.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/handshake/recognition/probe/analyzer.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/handshake/native.hpp>
+#include <prism/handshake/recognition/probe/analyzer.hpp>
+#include <prism/net/connection/types.hpp>
+#include <prism/net/connection/util.hpp>
+#include <prism/net/net.hpp>
 #include <prism/net/transport/encrypted.hpp>
 #include <prism/net/transport/preview.hpp>
+#include <prism/protocol/tls/types.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/settings/settings.hpp>
 
 using namespace psm::diagnose;
 
@@ -18,32 +17,22 @@ namespace psm::handshake::native
 {
 
     namespace net = boost::asio;
-    auto native::active(const psm::settings &cfg) const noexcept
-        -> bool
+    auto native::active(const psm::settings &cfg) const noexcept -> bool
     {
         return cfg.stealth.native_tls.enabled;
     }
 
-
-    auto native::name() const noexcept
-        -> std::string_view
+    auto native::name() const noexcept -> std::string_view
     {
         return "native";
     }
 
-
-    auto native::guess(const psm::settings & /*cfg*/) const
-        -> verify_result
+    auto native::guess(const psm::settings & /*cfg*/) const -> verify_result
     {
-        return {
-            .score = 50,
-            .solo_flag = 0,
-            .note = "native TLS fallback"};
+        return {.score = 50, .solo_flag = 0, .note = "native TLS fallback"};
     }
 
-
-    auto native::handshake(handshake::handshake_context ctx)
-        -> net::awaitable<handshake::handshake_result>
+    auto native::handshake(handshake::handshake_context ctx) -> net::awaitable<handshake::handshake_result>
     {
         handshake::handshake_result result;
 
@@ -79,13 +68,12 @@ namespace psm::handshake::native
             co_return result;
         }
 
-        diagnose::debug(prefix_, "Unwrap complete, preread={} bytes, raw={}",
-                     ctx.preread.size(), fmt::ptr(raw.get()));
+        diagnose::debug(prefix_, "Unwrap complete, preread={} bytes, raw={}", ctx.preread.size(),
+                        fmt::ptr(raw.get()));
 
         // 用 preread（ClientHello 完整数据）创建干净的 preview 包装
         auto preread_span = std::span<const std::byte>(ctx.preread.data(), ctx.preread.size());
-        auto clean_inbound = transport::wrap_with_preview(
-            std::move(raw), preread_span);
+        auto clean_inbound = transport::wrap_with_preview(std::move(raw), preread_span);
 
         diagnose::debug(prefix_, "Starting SSL handshake");
         auto [ssl_ec, ssl_stream, recovered] = co_await transport::encrypted::ssl_handshake(
@@ -119,8 +107,7 @@ namespace psm::handshake::native
         const auto inner_view = std::string_view(reinterpret_cast<const char *>(inner_buf.data()), n);
         result.detected = recognition::probe::detect_tls(inner_view);
 
-        diagnose::debug(prefix_, "Inner protocol: {}",
-                    psm::connect::to_string_view(result.detected));
+        diagnose::debug(prefix_, "Inner protocol: {}", psm::connect::to_string_view(result.detected));
 
         result.transport = std::move(encrypted_trans);
         result.preread.assign(inner_buf.begin(), inner_buf.begin() + static_cast<std::ptrdiff_t>(n));

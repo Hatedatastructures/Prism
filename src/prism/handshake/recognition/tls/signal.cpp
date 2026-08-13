@@ -1,9 +1,8 @@
-#include <prism/handshake/recognition/tls/signal.hpp>
-
-#include <prism/foundation/fault/handling.hpp>
-#include <prism/protocol/tls/record.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/fault/handling.hpp>
+#include <prism/handshake/recognition/tls/signal.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/tls/record.hpp>
 
 #include <cstring>
 
@@ -19,21 +18,24 @@ namespace psm::recognition::tls
         [[nodiscard]] auto read_u16(const std::span<const std::uint8_t> data, const std::size_t offset)
             -> std::uint16_t
         {
-            return static_cast<std::uint16_t>(data[offset]) << 8 | static_cast<std::uint16_t>(data[offset + 1]);
+            return static_cast<std::uint16_t>(data[offset]) << 8 |
+                   static_cast<std::uint16_t>(data[offset + 1]);
         }
 
         [[nodiscard]] auto read_u24(const std::span<const std::uint8_t> data, const std::size_t offset)
             -> std::size_t
         {
-            return static_cast<std::size_t>(data[offset]) << 16 | static_cast<std::size_t>(data[offset + 1]) << 8 |
+            return static_cast<std::size_t>(data[offset]) << 16 |
+                   static_cast<std::size_t>(data[offset + 1]) << 8 |
                    static_cast<std::size_t>(data[offset + 2]);
         }
-
 
         void parse_sni(const std::span<const std::uint8_t> ext_data, tls_proto::hello_features &features)
         {
             if (ext_data.size() < 2)
+            {
                 return;
+            }
 
             std::size_t offset = 0;
             const auto list_len = read_u16(ext_data, offset);
@@ -47,32 +49,39 @@ namespace psm::recognition::tls
                 if (name_type != tls_proto::SNAME_TYPE_HOSTNAME)
                 {
                     if (offset + 2 > ext_data.size())
+                    {
                         break;
+                    }
                     const auto name_len = read_u16(ext_data, offset);
                     offset += 2 + name_len;
                     continue;
                 }
 
                 if (offset + 2 > ext_data.size())
+                {
                     break;
+                }
                 const auto name_len = read_u16(ext_data, offset);
                 offset += 2;
 
                 if (offset + name_len > ext_data.size())
+                {
                     break;
+                }
                 // 安全：将 uint8_t SNI 扩展数据转为 char* 用于提取服务器名称
-                features.server_name.assign(
-                    reinterpret_cast<const char *>(ext_data.data() + offset),
-                    name_len);
+                features.server_name.assign(reinterpret_cast<const char *>(ext_data.data() + offset),
+                                            name_len);
                 return;
             }
         }
 
-
-        void parse_key_share(const std::span<const std::uint8_t> ext_data, tls_proto::hello_features &features)
+        void parse_key_share(const std::span<const std::uint8_t> ext_data,
+                             tls_proto::hello_features &features)
         {
             if (ext_data.size() < 2)
+            {
                 return;
+            }
 
             std::size_t offset = 0;
             const auto list_len = read_u16(ext_data, offset);
@@ -87,18 +96,22 @@ namespace psm::recognition::tls
                 offset += 2;
 
                 if (offset + key_len > end)
+                {
                     break;
+                }
 
                 if (named_group == tls_proto::GROUP_X25519 && key_len == tls_proto::REALITY_KEY_LEN)
                 {
-                    std::memcpy(features.x25519_key.data(), ext_data.data() + offset, tls_proto::REALITY_KEY_LEN);
+                    std::memcpy(features.x25519_key.data(), ext_data.data() + offset,
+                                tls_proto::REALITY_KEY_LEN);
                     features.has_x25519 = true;
                     return;
                 }
 
                 if (named_group == tls_proto::GROUP_X25519_MLKEM768 && key_len >= tls_proto::REALITY_KEY_LEN)
                 {
-                    std::memcpy(features.x25519_key.data(), ext_data.data() + offset, tls_proto::REALITY_KEY_LEN);
+                    std::memcpy(features.x25519_key.data(), ext_data.data() + offset,
+                                tls_proto::REALITY_KEY_LEN);
                     features.has_x25519 = true;
                     return;
                 }
@@ -107,11 +120,12 @@ namespace psm::recognition::tls
             }
         }
 
-
         void parse_versions(const std::span<const std::uint8_t> ext_data, tls_proto::hello_features &features)
         {
             if (ext_data.empty())
+            {
                 return;
+            }
 
             std::size_t offset = 0;
             const auto list_len = ext_data[offset];
@@ -124,11 +138,13 @@ namespace psm::recognition::tls
             }
         }
 
-
-        void parse_extensions(const std::span<const std::uint8_t> ext_data, tls_proto::hello_features &features)
+        void parse_extensions(const std::span<const std::uint8_t> ext_data,
+                              tls_proto::hello_features &features)
         {
             if (ext_data.size() < 2)
+            {
                 return;
+            }
 
             std::size_t offset = 0;
             const auto ext_total_len = read_u16(ext_data, offset);
@@ -142,33 +158,25 @@ namespace psm::recognition::tls
                 offset += 2;
 
                 if (offset + ext_len > ext_data.size())
+                {
                     break;
+                }
 
                 const auto ext_payload = ext_data.subspan(offset, ext_len);
 
                 switch (ext_type)
                 {
-                case tls_proto::EXT_SERVER_NAME:
-                    parse_sni(ext_payload, features);
-                    break;
-                case tls_proto::EXT_KEY_SHARE:
-                    parse_key_share(ext_payload, features);
-                    break;
-                case tls_proto::EXT_SUPPORTED_VERSIONS:
-                    parse_versions(ext_payload, features);
-                    break;
-                case tls_proto::EXT_ENCRYPTED_CLIENT_HELLO:
-                    features.has_ech = true;
-                    break;
-                default:
-                    break;
+                case tls_proto::EXT_SERVER_NAME: parse_sni(ext_payload, features); break;
+                case tls_proto::EXT_KEY_SHARE: parse_key_share(ext_payload, features); break;
+                case tls_proto::EXT_SUPPORTED_VERSIONS: parse_versions(ext_payload, features); break;
+                case tls_proto::EXT_ENCRYPTED_CLIENT_HELLO: features.has_ech = true; break;
+                default: break;
                 }
 
                 offset += ext_len;
             }
         }
     } // namespace
-
 
     auto read_tls_record(transport::transmission &transport)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
@@ -189,7 +197,6 @@ namespace psm::recognition::tls
         std::memcpy(result.data(), raw.data(), raw.size());
         co_return std::pair{fault::code::success, std::move(result)};
     }
-
 
     auto read_tls_record(transport::transmission &transport, const std::span<const std::byte> preread)
         -> net::awaitable<std::pair<fault::code, memory::vector<std::uint8_t>>>
@@ -222,7 +229,6 @@ namespace psm::recognition::tls
             co_return std::pair{fault::code::success, std::move(buffer)};
         }
 
-
         memory::vector<std::uint8_t> buffer(total);
         std::memcpy(buffer.data(), raw, preread.size());
 
@@ -231,7 +237,8 @@ namespace psm::recognition::tls
         {
             std::error_code ec;
             // 安全：将 uint8_t 向量区域转为可变 byte span 用于异步读取
-            const auto buf_span = std::span(reinterpret_cast<std::byte *>(buffer.data() + read_offset), total - read_offset);
+            const auto buf_span =
+                std::span(reinterpret_cast<std::byte *>(buffer.data() + read_offset), total - read_offset);
             const auto n = co_await transport.async_read_some(buf_span, ec);
             if (ec || n == 0)
             {
@@ -242,7 +249,6 @@ namespace psm::recognition::tls
 
         co_return std::pair{fault::code::success, std::move(buffer)};
     }
-
 
     auto parse_client_hello(const std::span<const std::uint8_t> record)
         -> std::pair<fault::code, tls_proto::hello_features>
@@ -288,12 +294,16 @@ namespace psm::recognition::tls
         offset += 2; // ClientVersion
 
         if (offset + 32 > record.size())
+        {
             return {fault::code::recorderr, std::move(features)};
+        }
         std::memcpy(features.random.data(), record.data() + offset, 32);
         offset += 32;
 
         if (offset >= record.size())
+        {
             return {fault::code::recorderr, std::move(features)};
+        }
         const auto session_id_len = record[offset];
         ++offset;
         if (offset + session_id_len > record.size() || session_id_len > tls_proto::SESSION_ID_MAX_LEN)
@@ -305,7 +315,9 @@ namespace psm::recognition::tls
         offset += session_id_len;
 
         if (offset + 2 > record.size())
+        {
             return {fault::code::recorderr, std::move(features)};
+        }
         const auto cipher_len = read_u16(record, offset);
         offset += 2;
         if (offset + cipher_len > record.size() || cipher_len % 2 != 0)
@@ -315,11 +327,15 @@ namespace psm::recognition::tls
         offset += cipher_len;
 
         if (offset >= record.size())
+        {
             return {fault::code::recorderr, std::move(features)};
+        }
         const auto comp_len = record[offset];
         ++offset;
         if (offset + comp_len > record.size())
+        {
             return {fault::code::recorderr, std::move(features)};
+        }
         offset += comp_len;
 
         if (offset + 2 <= record.size())

@@ -17,11 +17,11 @@
  */
 #pragma once
 
-#include <prism/foundation/fault/code.hpp>
-#include <prism/protocol/multiplex/codec.hpp>
-#include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/multiplex/egress.hpp>
 #include <prism/diagnose/context.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/protocol/multiplex/codec.hpp>
+#include <prism/protocol/multiplex/egress.hpp>
 
 #include <boost/asio.hpp>
 
@@ -34,19 +34,17 @@
 #include <string_view>
 #include <utility>
 
-
 namespace psm::multiplex
 {
 
     namespace net = boost::asio;
 
     /// UDP 端点解析回调（由 *_control 注入，替代直接持有 outbound::direct）
-    using resolve_fn = std::function<net::awaitable<std::pair<fault::code,
-                                                              net::ip::udp::endpoint>>(std::string_view, std::string_view)>;
+    using resolve_fn = std::function<net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>(
+        std::string_view, std::string_view)>;
 
     /// 响应回传回调（由 *_control 注入：编码数据报帧并经 egress.send 发出）
-    using emit_fn = std::function<net::awaitable<void>(std::string_view host,
-                                                       std::uint16_t port,
+    using emit_fn = std::function<net::awaitable<void>(std::string_view host, std::uint16_t port,
                                                        std::span<const std::byte> payload)>;
 
     /**
@@ -107,8 +105,7 @@ namespace psm::multiplex
          * @details 解析目标端点、确保 socket 可用、首次发送时启动
          *          recv_loop，然后 async_send_to。
          */
-        auto send_to(std::string_view host, std::uint16_t port,
-                     std::span<const std::byte> payload)
+        auto send_to(std::string_view host, std::uint16_t port, std::span<const std::byte> payload)
             -> net::awaitable<void>;
 
         /**
@@ -133,16 +130,14 @@ namespace psm::multiplex
          * @details 等待 idle_timer_ 到期（每次活动 touch_timer 重置），
          *          到期后 close() 关闭管道。
          */
-        auto idle_loop()
-            -> net::awaitable<void>;
+        auto idle_loop() -> net::awaitable<void>;
 
         /**
          * @brief 响应接收循环
          * @details 独立协程，持续从 egress_socket_ 读取 UDP 响应，
          *          经 emit 回调回传会话层。socket 关闭时退出。
          */
-        auto recv_loop()
-            -> net::awaitable<void>;
+        auto recv_loop() -> net::awaitable<void>;
 
         /**
          * @brief 重置空闲计时器
@@ -159,21 +154,21 @@ namespace psm::multiplex
         [[nodiscard]] auto ensure_socket(net::ip::udp::endpoint::protocol_type protocol)
             -> net::awaitable<bool>;
 
-        std::uint32_t id_{0};                          ///< 流标识符
-        std::weak_ptr<egress> egress_;                 ///< 会话层出口弱引用（防循环）
-        resolve_fn resolve_;                           ///< 目标端点解析回调
-        emit_fn emit_;                                 ///< 响应回传回调
-        net::any_io_executor executor_;                ///< 缓存的 executor
-        std::uint32_t idle_timeout_{30000};            ///< 空闲超时（毫秒）
-        std::uint32_t max_dgram_{4096};                ///< 数据报最大长度（字节）
-        memory::resource_pointer mr_{};                ///< PMR 内存资源
+        std::uint32_t id_{0};                       ///< 流标识符
+        std::weak_ptr<egress> egress_;              ///< 会话层出口弱引用（防循环）
+        resolve_fn resolve_;                        ///< 目标端点解析回调
+        emit_fn emit_;                              ///< 响应回传回调
+        net::any_io_executor executor_;             ///< 缓存的 executor
+        std::uint32_t idle_timeout_{30000};         ///< 空闲超时（毫秒）
+        std::uint32_t max_dgram_{4096};             ///< 数据报最大长度（字节）
+        memory::resource_pointer mr_{};             ///< PMR 内存资源
         std::shared_ptr<diagnose::context> prefix_; ///< 日志前缀
-        bool closed_ = false;                          ///< 关闭标志（close 幂等）
+        bool closed_ = false;                       ///< 关闭标志（close 幂等）
 
-        net::steady_timer idle_timer_;                                      ///< 空闲超时计时器
-        std::optional<net::ip::udp::socket> egress_socket_;                 ///< 出站 UDP socket（延迟创建）
+        net::steady_timer idle_timer_;                      ///< 空闲超时计时器
+        std::optional<net::ip::udp::socket> egress_socket_; ///< 出站 UDP socket（延迟创建）
         net::ip::udp::endpoint::protocol_type socket_protocol_{net::ip::udp::v4()}; ///< 当前 socket 协议族
-        memory::vector<std::byte> recv_buffer_;                             ///< 响应接收缓冲区
+        memory::vector<std::byte> recv_buffer_;                                     ///< 响应接收缓冲区
 
         std::atomic<bool> recv_running_{false}; ///< 接收循环运行标志（防并发启动）
     };
@@ -183,8 +178,7 @@ namespace psm::multiplex
      * @param opts 构造参数
      * @return datagram 的共享指针
      */
-    [[nodiscard]] inline auto make_datagram(datagram_options opts)
-        -> std::shared_ptr<datagram>
+    [[nodiscard]] inline auto make_datagram(datagram_options opts) -> std::shared_ptr<datagram>
     {
         return std::make_shared<datagram>(std::move(opts));
     }

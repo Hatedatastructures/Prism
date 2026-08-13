@@ -5,8 +5,6 @@
  *          吞吐量（MB/s）与回环延迟（avg/p50/p95/p99/min/max）。
  */
 
-#include <gtest/gtest.h>
-
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
@@ -21,9 +19,10 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
+#include <common/mux/h2mux/h2mux.hpp>
 #include <common/mux/smux/smux.hpp>
 #include <common/mux/yamux/yamux.hpp>
-#include <common/mux/h2mux/h2mux.hpp>
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -34,11 +33,17 @@ namespace
     auto run_coro(net::io_context &ioc, A coro) -> void
     {
         std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
+        net::co_spawn(ioc, std::move(coro),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          ioc.stop();
+                      });
         ioc.run();
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
     }
 
     auto fnv1a64(std::span<const std::uint8_t> data) -> std::uint64_t
@@ -62,58 +67,67 @@ namespace
 
         constexpr std::size_t kTotal = 100 * 1024 * 1024;
         constexpr std::size_t kBlock = 64 * 1024;
-        run_coro(ioc, [&]() -> net::awaitable<void>
-                 {
-            auto server_coro = [&]() -> net::awaitable<void>
+        run_coro(
+            ioc,
+            [&]() -> net::awaitable<void>
             {
-                auto s = co_await sv.accept_stream();
+                auto server_coro = [&]() -> net::awaitable<void>
+                {
+                    auto s = co_await sv.accept_stream();
+                    if (!s)
+                    {
+                        EXPECT_TRUE(false) << "accept failed";
+                        co_return;
+                    }
+                    std::array<std::byte, kBlock> buf{};
+                    std::size_t got = 0;
+                    while (got < kTotal)
+                    {
+                        std::error_code ec;
+                        const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                        if (ec || n == 0)
+                        {
+                            break;
+                        }
+                        got += n;
+                    }
+                    EXPECT_EQ(got, kTotal);
+                    s->close();
+                };
+                net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+
+                auto s = co_await cl.open_stream();
                 if (!s)
                 {
-                    EXPECT_TRUE(false) << "accept failed";
+                    EXPECT_TRUE(false) << "open failed";
                     co_return;
                 }
-                std::array<std::byte, kBlock> buf{};
-                std::size_t got = 0;
-                while (got < kTotal)
+                std::vector<std::uint8_t> payload(kBlock, 0x2A);
+                std::size_t sent = 0;
+                std::size_t block_idx = 0;
+                while (sent < kTotal)
                 {
+                    const auto n = std::min(kBlock, kTotal - sent);
                     std::error_code ec;
-                    const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
-                    if (ec || n == 0)
+                    const auto w = co_await s->async_write_some(
+                        std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), n),
+                        ec);
+                    if (ec || w == 0)
+                    {
                         break;
-                    got += n;
+                    }
+                    sent += w;
+                    // 让出调度：memory_stream 写同步完成，不 yield 会饿死对端协程
+                    if ((++block_idx & 0x0F) == 0)
+                    {
+                        co_await net::post(ioc.get_executor(), net::use_awaitable);
+                    }
                 }
-                EXPECT_EQ(got, kTotal);
+                EXPECT_EQ(sent, kTotal);
                 s->close();
-            };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-
-            auto s = co_await cl.open_stream();
-            if (!s)
-            {
-                EXPECT_TRUE(false) << "open failed";
-                co_return;
-            }
-            std::vector<std::uint8_t> payload(kBlock, 0x2A);
-            std::size_t sent = 0;
-            std::size_t block_idx = 0;
-            while (sent < kTotal)
-            {
-                const auto n = std::min(kBlock, kTotal - sent);
-                std::error_code ec;
-                const auto w = co_await s->async_write_some(
-                    std::span<const std::byte>(
-                        reinterpret_cast<const std::byte *>(payload.data()), n), ec);
-                if (ec || w == 0)
-                    break;
-                sent += w;
-                // 让出调度：memory_stream 写同步完成，不 yield 会饿死对端协程
-                if ((++block_idx & 0x0F) == 0)
-                    co_await net::post(ioc.get_executor(), net::use_awaitable);
-            }
-            EXPECT_EQ(sent, kTotal);
-            s->close();
-            cl.close();
-            sv.close(); });
+                cl.close();
+                sv.close();
+            });
     }
 
     /// 吞吐 + 延迟报告
@@ -125,42 +139,50 @@ namespace
         ASSERT_TRUE(sv.accept(std::make_shared<memory_stream>(std::move(b))));
 
         bench_report rep{};
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
                  {
-            auto server_coro = [&]() -> net::awaitable<void>
-            {
-                auto s = co_await sv.accept_stream();
-                if (!s)
-                    co_return;
-                std::array<std::byte, 128 * 1024> buf{};
-                while (true)
-                {
-                    std::error_code ec;
-                    const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
-                    if (ec || n == 0)
-                        break;
-                    ec.clear();
-                    (void)co_await s->async_write_some(
-                        std::span<const std::byte>(buf.data(), n), ec);
-                }
-                s->close();
-            };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     auto server_coro = [&]() -> net::awaitable<void>
+                     {
+                         auto s = co_await sv.accept_stream();
+                         if (!s)
+                         {
+                             co_return;
+                         }
+                         std::array<std::byte, 128 * 1024> buf{};
+                         while (true)
+                         {
+                             std::error_code ec;
+                             const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                             if (ec || n == 0)
+                             {
+                                 break;
+                             }
+                             ec.clear();
+                             (void)co_await s->async_write_some(std::span<const std::byte>(buf.data(), n),
+                                                                ec);
+                         }
+                         s->close();
+                     };
+                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            auto s = co_await cl.open_stream();
-            if (!s)
-                co_return;
-            bench_options opt;
-            opt.total = 64 * 1024 * 1024;
-            opt.block = 64 * 1024;
-            rep = co_await bench_throughput_tx(*s, *s, opt);
-            s->close();
-            cl.close();
-            sv.close(); });
+                     auto s = co_await cl.open_stream();
+                     if (!s)
+                     {
+                         co_return;
+                     }
+                     bench_options opt;
+                     opt.total = 64 * 1024 * 1024;
+                     opt.block = 64 * 1024;
+                     rep = co_await bench_throughput_tx(*s, *s, opt);
+                     s->close();
+                     cl.close();
+                     sv.close();
+                 });
 
-        std::printf("%s throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min %.3f max %.3f) samples=%zu\n",
-                    name, rep.mbps, rep.latency_avg, rep.latency_p50,
-                    rep.latency_p95, rep.latency_p99,
+        std::printf("%s throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min %.3f "
+                    "max %.3f) samples=%zu\n",
+                    name, rep.mbps, rep.latency_avg, rep.latency_p50, rep.latency_p95, rep.latency_p99,
                     rep.latency_min, rep.latency_max, rep.samples);
     }
 

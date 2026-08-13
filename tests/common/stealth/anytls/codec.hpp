@@ -9,9 +9,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/stealth/anytls/types.hpp>
-
 #include <openssl/evp.h>
 
 #include <array>
@@ -22,6 +19,9 @@
 #include <string_view>
 #include <vector>
 
+#include <common/core/error.hpp>
+#include <common/stealth/anytls/types.hpp>
+
 namespace psmtest::anytls
 {
 
@@ -31,7 +31,7 @@ namespace psmtest::anytls
      * @return SHA-256(password) 32 字节
      */
     [[nodiscard]] inline auto password_hash(std::string_view password)
-    -> std::array<std::uint8_t, password_hash_len>
+        -> std::array<std::uint8_t, password_hash_len>
     {
         std::array<std::uint8_t, password_hash_len> out{};
         unsigned int len = 0;
@@ -56,7 +56,9 @@ namespace psmtest::anytls
         out.push_back(static_cast<char>((pad_len >> 8) & 0xFF));
         out.push_back(static_cast<char>(pad_len & 0xFF));
         for (std::uint16_t i = 0; i < pad_len; ++i)
+        {
             out.push_back(static_cast<char>(i * 13 + 7));
+        }
         return error::none;
     }
 
@@ -72,12 +74,15 @@ namespace psmtest::anytls
                                                std::uint16_t &pad_len) -> error
     {
         if (data.size() < auth_frame_hdrlen)
+        {
             return error::bad_length;
+        }
         std::memcpy(hash.data(), data.data(), password_hash_len);
-        pad_len = static_cast<std::uint16_t>(data[password_hash_len]) << 8 |
-                  data[password_hash_len + 1];
+        pad_len = static_cast<std::uint16_t>(data[password_hash_len]) << 8 | data[password_hash_len + 1];
         if (data.size() < auth_frame_hdrlen + pad_len)
+        {
             return error::bad_length;
+        }
         return error::none;
     }
 
@@ -88,8 +93,7 @@ namespace psmtest::anytls
      * @return true = 匹配
      */
     [[nodiscard]] inline auto verify_auth(std::string_view password,
-                                          const std::array<std::uint8_t, password_hash_len> &hash)
-        -> bool
+                                          const std::array<std::uint8_t, password_hash_len> &hash) -> bool
     {
         const auto expected = password_hash(password);
         return std::equal(expected.begin(), expected.end(), hash.begin());

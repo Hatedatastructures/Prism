@@ -1,6 +1,6 @@
 #include <prism/crypto/x25519.hpp>
-#include <prism/diagnose/diagnose.hpp>
 #include <prism/diagnose/context.hpp>
+#include <prism/diagnose/diagnose.hpp>
 
 #include <openssl/curve25519.h>
 #include <openssl/rand.h>
@@ -12,8 +12,7 @@ using namespace psm::diagnose;
 namespace psm::crypto
 {
 
-    auto generate_keypair()
-        -> x25519_keypair
+    auto generate_keypair() -> x25519_keypair
     {
         x25519_keypair keypair;
 
@@ -25,7 +24,6 @@ namespace psm::crypto
         keypair.public_key = derive_pubkey(keypair.private_key);
         return keypair;
     }
-
 
     auto derive_pubkey(const std::span<const std::uint8_t> private_key)
         -> std::array<std::uint8_t, x25519_klen>
@@ -42,8 +40,8 @@ namespace psm::crypto
         return public_key;
     }
 
-
-    auto x25519(const std::span<const std::uint8_t> private_key, const std::span<const std::uint8_t> peer_pubkey)
+    auto x25519(const std::span<const std::uint8_t> private_key,
+                const std::span<const std::uint8_t> peer_pubkey)
         -> std::pair<fault::code, std::array<std::uint8_t, x25519_slen>>
     {
         std::array<std::uint8_t, x25519_slen> shared_secret{};
@@ -82,6 +80,5 @@ namespace psm::crypto
 
         return {fault::code::success, shared_secret};
     }
-
 
 } // namespace psm::crypto

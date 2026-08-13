@@ -9,20 +9,19 @@
  * @note 当前 wildcard 断言以仓库现实现行为准：`*.example.com` 也会命中 `example.com`。
  */
 
-#include <prism/net/dns/detail/rules.hpp>
-#include <prism/net/dns/detail/utility.hpp>
-#include <prism/net/dns/detail/transparent.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/dns/detail/rules.hpp>
+#include <prism/net/dns/detail/transparent.hpp>
+#include <prism/net/dns/detail/utility.hpp>
 
 #include <any>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -66,7 +65,8 @@ namespace
 
         {
             auto result = trie.search("example.com");
-            ASSERT_TRUE(result.has_value()) << "search(\"example.com\") should match *.example.com under current trie semantics";
+            ASSERT_TRUE(result.has_value())
+                << "search(\"example.com\") should match *.example.com under current trie semantics";
 
             auto val = std::any_cast<int>(result.value());
             EXPECT_EQ(val, 100) << "search(\"example.com\") should return 100";
@@ -110,7 +110,8 @@ namespace
             trie.insert("a.com", 1);
 
             auto result = trie.search("b.com");
-            EXPECT_TRUE(!result.has_value()) << "search(\"b.com\") should return nullopt when only \"a.com\" is inserted";
+            EXPECT_TRUE(!result.has_value())
+                << "search(\"b.com\") should return nullopt when only \"a.com\" is inserted";
         }
     }
 
@@ -189,7 +190,8 @@ namespace
 
         auto result = engine.match("test.com");
         ASSERT_TRUE(result.has_value()) << "match(\"test.com\") should return a result";
-        EXPECT_TRUE(!result->addresses.empty()) << "address rule should take priority — addresses should be non-empty";
+        EXPECT_TRUE(!result->addresses.empty())
+            << "address rule should take priority — addresses should be non-empty";
     }
 
     // ---------------------------------------------------------------------------
@@ -221,11 +223,16 @@ namespace
 
     TEST(DnsRules, ParsePortInvalid)
     {
-        EXPECT_TRUE(!psm::dns::detail::parse_port("").has_value()) << "parse_port(\"\") should return nullopt";
-        EXPECT_TRUE(!psm::dns::detail::parse_port("abc").has_value()) << "parse_port(\"abc\") should return nullopt";
-        EXPECT_TRUE(!psm::dns::detail::parse_port("65536").has_value()) << "parse_port(\"65536\") should return nullopt";
-        EXPECT_TRUE(!psm::dns::detail::parse_port("-1").has_value()) << "parse_port(\"-1\") should return nullopt";
-        EXPECT_TRUE(!psm::dns::detail::parse_port("123456").has_value()) << "parse_port(\"123456\") should return nullopt (>5 chars)";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("").has_value())
+            << "parse_port(\"\") should return nullopt";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("abc").has_value())
+            << "parse_port(\"abc\") should return nullopt";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("65536").has_value())
+            << "parse_port(\"65536\") should return nullopt";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("-1").has_value())
+            << "parse_port(\"-1\") should return nullopt";
+        EXPECT_TRUE(!psm::dns::detail::parse_port("123456").has_value())
+            << "parse_port(\"123456\") should return nullopt (>5 chars)";
     }
 
     TEST(DnsRules, ParsePortBoundary)

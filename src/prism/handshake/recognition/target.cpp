@@ -9,21 +9,21 @@ namespace psm::recognition
     {
         // HTTP 方法列表，用于协议检测（最短 4 字节 "GET "）
         static constexpr std::array<std::string_view, 9> http_methods = {
-            "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
-            "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
+            "GET ", "POST ", "HEAD ", "PUT ", "DELETE ", "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
 
         // 获取内存资源，优先使用 mr，否则使用默认内存资源
-        [[nodiscard]] auto resolve_mr(const memory::resource_pointer mr) noexcept
-            -> memory::resource_pointer
+        [[nodiscard]] auto resolve_mr(const memory::resource_pointer mr) noexcept -> memory::resource_pointer
         {
             if (mr)
+            {
                 return mr;
+            }
             return memory::current_resource();
         }
 
         // 解析绝对 URI，支持 HTTP 和 HTTPS 协议
-        auto parse_absolute_uri(const std::string_view uri, memory::string &host, memory::string &port, memory::string &path)
-            -> bool
+        auto parse_absolute_uri(const std::string_view uri, memory::string &host, memory::string &port,
+                                memory::string &path) -> bool
         {
             std::string_view working = uri;
             std::string_view scheme;
@@ -84,7 +84,7 @@ namespace psm::recognition
             path.assign(path_part.begin(), path_part.end());
             return !host.empty();
         }
-    }
+    } // namespace
 
     auto resolve(const protocol::http::proxy_request &req, const memory::resource_pointer mr)
         -> psm::connect::target
@@ -106,8 +106,8 @@ namespace psm::recognition
             }
             else
             {
-                has_explicit_port = raw.find(':') != std::string_view::npos &&
-                                    raw.find(':') == raw.rfind(':');
+                has_explicit_port =
+                    raw.find(':') != std::string_view::npos && raw.find(':') == raw.rfind(':');
             }
             if (!has_explicit_port)
             {
@@ -132,8 +132,7 @@ namespace psm::recognition
         return t;
     }
 
-    auto resolve(const std::string_view host_port, const memory::resource_pointer mr)
-        -> psm::connect::target
+    auto resolve(const std::string_view host_port, const memory::resource_pointer mr) -> psm::connect::target
     {
         memory::resource_pointer effective_mr;
         if (mr)
@@ -205,4 +204,4 @@ namespace psm::recognition
             }
         }
     }
-}
+} // namespace psm::recognition

@@ -16,7 +16,6 @@
 #include <optional>
 #include <span>
 
-
 namespace psm::protocol::vless::format
 {
 
@@ -29,8 +28,7 @@ namespace psm::protocol::vless::format
      * @param buffer 包含完整 VLESS 请求头的缓冲区
      * @return 解析成功返回请求结构，失败返回 std::nullopt
      */
-    [[nodiscard]] auto parse_request(std::span<const std::uint8_t> buffer)
-        -> std::optional<request>;
+    [[nodiscard]] auto parse_request(std::span<const std::uint8_t> buffer) -> std::optional<request>;
 
     /**
      * @brief 获取 VLESS 响应字节数组
@@ -41,8 +39,7 @@ namespace psm::protocol::vless::format
      * @return 2 字节响应数组
      * @note 必须发送 2 字节，不能只发送 1 字节
      */
-    [[nodiscard]] constexpr auto make_response()
-        -> std::array<std::byte, 2>
+    [[nodiscard]] constexpr auto make_response() -> std::array<std::byte, 2>
     {
         return {static_cast<std::byte>(version), std::byte{0x00}};
     }
@@ -83,8 +80,8 @@ namespace psm::protocol::vless::format
      * @param out 输出缓冲区
      * @return fault::code 编码结果
      */
-    [[nodiscard]] auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload, memory::vector<std::byte> &out)
-        -> fault::code;
+    [[nodiscard]] auto build_udp_pkt(const udp_routed &frame, std::span<const std::byte> payload,
+                                     memory::vector<std::byte> &out) -> fault::code;
 
     /**
      * @brief 解析 VLESS UDP 数据包
@@ -95,4 +92,4 @@ namespace psm::protocol::vless::format
      */
     [[nodiscard]] auto parse_udp_pkt(std::span<const std::byte> buffer)
         -> std::pair<fault::code, udp_parse_result>;
-}
+} // namespace psm::protocol::vless::format

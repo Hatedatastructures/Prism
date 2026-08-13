@@ -3,12 +3,10 @@
 namespace psm::user
 {
 
-    directory::directory(const memory::resource_pointer resource)
-        : allocator_(resource), entries_ptr_()
-    {   // 初始化账户目录
+    directory::directory(const memory::resource_pointer resource) : allocator_(resource), entries_ptr_()
+    { // 初始化账户目录
         entries_ptr_.store(std::allocate_shared<unordered_map>(allocator_, 0));
     }
-
 
     void directory::reserve(const std::size_t n)
     {
@@ -19,12 +17,10 @@ namespace psm::user
         update_entries(update_function);
     }
 
-
     void directory::clear()
     {
         entries_ptr_.store(std::allocate_shared<unordered_map>(allocator_, 0), std::memory_order_release);
     }
-
 
     void directory::upsert(std::string_view credential, const std::uint32_t max_connections)
     {
@@ -40,7 +36,6 @@ namespace psm::user
         update_entries(update_function);
     }
 
-
     void directory::insert(std::string_view credential, std::shared_ptr<entry> existing_entry)
     {
         auto update_function = [credential, e = std::move(existing_entry)](unordered_map &ref) mutable
@@ -50,10 +45,8 @@ namespace psm::user
         update_entries(update_function);
     }
 
-
-    auto directory::find(const std::string_view credential) const noexcept
-        -> std::shared_ptr<entry>
-    {   // 先获取当前映射表的快照，确保读取的是最新数据
+    auto directory::find(const std::string_view credential) const noexcept -> std::shared_ptr<entry>
+    { // 先获取当前映射表的快照，确保读取的是最新数据
         const auto snapshot = entries_ptr_.load(std::memory_order_acquire);
         if (!snapshot)
         {
@@ -62,17 +55,15 @@ namespace psm::user
 
         const auto it = snapshot->find(credential);
         if (it == snapshot->end())
-        {   // 如果未找到，返回 nullptr
+        { // 如果未找到，返回 nullptr
             return nullptr;
         }
 
         return it->second;
     }
 
-
-    auto directory::enumerate(std::vector<std::string_view> &out) const
-        -> std::size_t
-    {   // 快照读取全部凭证键
+    auto directory::enumerate(std::vector<std::string_view> &out) const -> std::size_t
+    { // 快照读取全部凭证键
         const auto snapshot = entries_ptr_.load(std::memory_order_acquire);
         if (!snapshot)
         {

@@ -8,10 +8,10 @@
  */
 #pragma once
 
-#include <prism/runtime/config.hpp>
-#include <prism/protocol/multiplex/config.hpp>
-#include <prism/net/dns/config.hpp>
 #include <prism/diagnose/config.hpp>
+#include <prism/net/dns/config.hpp>
+#include <prism/protocol/multiplex/config.hpp>
+#include <prism/runtime/config.hpp>
 
 namespace psm
 {
@@ -25,24 +25,24 @@ namespace psm
      */
     struct settings
     {
-        std::uint32_t version{1};               // 配置版本号（schema 演进用）
-        runtime::config instance;              // 代理服务核心配置
-        runtime::buffer buffer;                // 缓冲区配置
-        runtime::protocol::config protocol;    // 协议配置 (socks5/trojan/vless/shadowsocks)
-        multiplex::config mux;                  // 多路复用配置
-        runtime::stealth::config stealth;      // 伪装配置 (reality/shadowtls)
-        dns::config dns;               // DNS 解析器配置
-        diagnose::config trace;                    // 日志追踪配置
+        std::uint32_t version{1};           // 配置版本号（schema 演进用）
+        runtime::config instance;           // 代理服务核心配置
+        runtime::buffer buffer;             // 缓冲区配置
+        runtime::protocol::config protocol; // 协议配置 (socks5/trojan/vless/shadowsocks)
+        multiplex::config mux;              // 多路复用配置
+        runtime::stealth::config stealth;   // 伪装配置 (reality/shadowtls)
+        dns::config dns;                    // DNS 解析器配置
+        diagnose::config trace;             // 日志追踪配置
     };
 
 } // namespace psm
 
-#include <glaze/glaze.hpp>
-#include <prism/runtime/serialize.hpp>
-#include <prism/protocol/multiplex/serialize.hpp>
-#include <prism/net/dns/serialize.hpp>
 #include <prism/handshake/serialize.hpp>
+#include <prism/net/dns/serialize.hpp>
+#include <prism/protocol/multiplex/serialize.hpp>
+#include <prism/runtime/serialize.hpp>
 
+#include <glaze/glaze.hpp>
 
 // ============================================================================
 // diagnose::config
@@ -52,6 +52,7 @@ template <>
 struct glz::meta<psm::diagnose::config>
 {
     using T = psm::diagnose::config;
+    // clang-format off
     static constexpr auto value = glz::object(
         "file_name",      &T::file_name,
         "path_name",      &T::path_name,
@@ -64,12 +65,14 @@ struct glz::meta<psm::diagnose::config>
         "log_level",      &T::log_level,
         "pattern",        &T::pattern,
         "trace_name",     &T::trace_name);
+    // clang-format on
 };
 
 template <>
 struct glz::meta<psm::settings>
 {
     using T = psm::settings;
+    // clang-format off
     static constexpr auto value = glz::object(
         "version",  &T::version,
         "agent",    &T::instance,
@@ -79,4 +82,5 @@ struct glz::meta<psm::settings>
         "stealth",  &T::stealth,
         "dns",      &T::dns,
         "trace",    &T::trace);
+    // clang-format on
 };

@@ -12,14 +12,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/core/transport/udp_transmission.hpp>
-#include <common/proxy/tuic/codec.hpp>
-#include <common/proxy/tuic/conn.hpp>
-#include <common/proxy/tuic/dgram.hpp>
-#include <common/proxy/tuic/types.hpp>
-
 #include <boost/asio/awaitable.hpp>
 
 #include <array>
@@ -28,6 +20,14 @@
 #include <string>
 #include <tuple>
 #include <utility>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/core/transport/udp_transmission.hpp>
+#include <common/proxy/tuic/codec.hpp>
+#include <common/proxy/tuic/conn.hpp>
+#include <common/proxy/tuic/dgram.hpp>
+#include <common/proxy/tuic/types.hpp>
 
 namespace psmtest::tuic
 {
@@ -74,13 +74,11 @@ namespace psmtest::tuic
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
-                                      const address &target)
-    -> net::awaitable<std::pair<error, shared_conn>>
+                                      const address &target) -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.uuid);
         const auto err = co_await c->write_handshake(target);
-        co_return std::pair{err, err == error::none ? shared_conn(std::move(c))
-                                                    : shared_conn{}};
+        co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
 
     /**
@@ -97,7 +95,9 @@ namespace psmtest::tuic
     {
         auto udp = std::make_shared<udp_transmission>(ex);
         if (!udp->connect(remote))
+        {
             return nullptr;
+        }
         return std::make_shared<dgram>(std::move(udp));
     }
 
@@ -108,7 +108,7 @@ namespace psmtest::tuic
      * @return 错误码、解析的消息与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-    -> net::awaitable<std::tuple<error, message, shared_conn>>
+        -> net::awaitable<std::tuple<error, message, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.uuid);
         auto [err, req] = co_await c->read_handshake();
@@ -129,7 +129,9 @@ namespace psmtest::tuic
     {
         auto udp = std::make_shared<udp_transmission>(ex);
         if (!udp->bind(port))
+        {
             return nullptr;
+        }
         return std::make_shared<dgram>(std::move(udp));
     }
 

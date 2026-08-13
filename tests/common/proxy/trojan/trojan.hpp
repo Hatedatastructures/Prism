@@ -15,13 +15,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/proxy/trojan/codec.hpp>
-#include <common/proxy/trojan/conn.hpp>
-#include <common/proxy/trojan/dgram.hpp>
-#include <common/proxy/trojan/types.hpp>
-
 #include <boost/asio/awaitable.hpp>
 
 #include <cstddef>
@@ -29,6 +22,13 @@
 #include <string>
 #include <tuple>
 #include <utility>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/proxy/trojan/codec.hpp>
+#include <common/proxy/trojan/conn.hpp>
+#include <common/proxy/trojan/dgram.hpp>
+#include <common/proxy/trojan/types.hpp>
 
 namespace psmtest::trojan
 {
@@ -64,7 +64,6 @@ namespace psmtest::trojan
         bool enable_udp = false;
     };
 
-
     /**
      * @brief 创建客户端流连接并完成握手（sing DialConn 语义）
      * @tparam T 传输类型（transmission_like 约束）
@@ -77,14 +76,12 @@ namespace psmtest::trojan
      * 请求头（握手对调用方透明）。成功后连接持有 upstream。
      */
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
-                                      const address &target,
-                                      command cmd = command::connect)
-    -> net::awaitable<std::pair<error, shared_conn>>
+                                      const address &target, command cmd = command::connect)
+        -> net::awaitable<std::pair<error, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
         const auto err = co_await c->write_handshake(target, cmd);
-        co_return std::pair{err, err == error::none ? shared_conn(std::move(c))
-                                                    : shared_conn{}};
+        co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
 
     /**
@@ -97,14 +94,15 @@ namespace psmtest::trojan
      * @details 先经 connect 完成 udp_associate 握手，再包装为
      * 包连接（对齐 mihomo ListenPacketContext：握手后 NewPacketConn）。
      */
-    [[nodiscard]] inline auto connect_packet(shared_transmission upstream,
-                                             const client_config &cfg, const address &target)
-    -> net::awaitable<std::pair<error, shared_dgram>>
+    [[nodiscard]] inline auto connect_packet(shared_transmission upstream, const client_config &cfg,
+                                             const address &target)
+        -> net::awaitable<std::pair<error, shared_dgram>>
     {
-        auto [err, conn] =
-            co_await connect(std::move(upstream), cfg, target, command::udp_associate);
+        auto [err, conn] = co_await connect(std::move(upstream), cfg, target, command::udp_associate);
         if (err != error::none)
+        {
             co_return std::pair{err, shared_dgram{}};
+        }
         co_return std::pair{error::none, std::make_shared<dgram>(std::move(conn))};
     }
 
@@ -119,13 +117,12 @@ namespace psmtest::trojan
      * 响应，静默断开。
      */
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
-    -> net::awaitable<std::tuple<error, request_header, shared_conn>>
+        -> net::awaitable<std::tuple<error, request_header, shared_conn>>
     {
         auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
         auto [err, req] = co_await c->read_handshake(cfg.enable_tcp, cfg.enable_udp);
         co_return std::tuple{err, std::move(req),
-                             err == error::none ? shared_conn(std::move(c))
-                                                : shared_conn{}};
+                             err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
 
     /**
@@ -136,15 +133,15 @@ namespace psmtest::trojan
      * @return 错误码、解析的请求与包连接（失败时连接为空）
      * @details 先经 accept 完成流握手解析，再包装为包连接。
      */
-    [[nodiscard]] inline auto accept_packet(shared_transmission upstream,
-                                            const server_config &cfg)
-    -> net::awaitable<std::tuple<error, request_header, shared_dgram>>
+    [[nodiscard]] inline auto accept_packet(shared_transmission upstream, const server_config &cfg)
+        -> net::awaitable<std::tuple<error, request_header, shared_dgram>>
     {
         auto [err, req, conn] = co_await accept(std::move(upstream), cfg);
         if (err != error::none)
+        {
             co_return std::tuple{err, std::move(req), shared_dgram{}};
-        co_return std::tuple{error::none, std::move(req),
-                             std::make_shared<dgram>(std::move(conn))};
+        }
+        co_return std::tuple{error::none, std::move(req), std::make_shared<dgram>(std::move(conn))};
     }
 
 } // namespace psmtest::trojan

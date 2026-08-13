@@ -1,10 +1,9 @@
-#include <prism/protocol/multiplex/smux/control.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/connection/outbound/direct.hpp>
 #include <prism/protocol/multiplex/datagram.hpp>
+#include <prism/protocol/multiplex/smux/control.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
-#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -19,7 +18,8 @@ namespace psm::multiplex::smux
 
     namespace
     {
-        void log_spawn_error(const std::exception_ptr &ep, const std::uint32_t stream_id, std::string_view label)
+        void log_spawn_error(const std::exception_ptr &ep, const std::uint32_t stream_id,
+                             std::string_view label)
         {
             try
             {
@@ -36,8 +36,7 @@ namespace psm::multiplex::smux
         }
 
         [[nodiscard]] auto build_header(const command cmd, const std::uint32_t stream_id,
-                                        const std::uint16_t length)
-            -> std::array<std::byte, frame_hdrsize>
+                                        const std::uint16_t length) -> std::array<std::byte, frame_hdrsize>
         {
             return {
                 std::byte{protocol_version},
@@ -51,8 +50,7 @@ namespace psm::multiplex::smux
             };
         }
 
-        [[nodiscard]] auto make_nop_frame(memory::resource_pointer mr)
-            -> memory::vector<std::byte>
+        [[nodiscard]] auto make_nop_frame(memory::resource_pointer mr) -> memory::vector<std::byte>
         {
             const auto hdr = build_header(command::nop, 0, 0);
             memory::vector<std::byte> buf(mr);
@@ -62,48 +60,34 @@ namespace psm::multiplex::smux
     } // namespace
 
     control::control(multiplexer_options opts)
-        : multiplexer(multiplexer_options{
-              std::move(opts.transport), opts.outbound, opts.cfg, opts.mr,
-              opts.cfg.smux.max_streams}),
-          router_fn_(outbound_ ? outbound_->make_router() : decltype(router_fn_){}),
-          udp_bufs_(mr_)
+        : multiplexer(multiplexer_options{std::move(opts.transport), opts.outbound, opts.cfg, opts.mr,
+                                          opts.cfg.smux.max_streams}),
+          router_fn_(outbound_ ? outbound_->make_router() : decltype(router_fn_){}), udp_bufs_(mr_)
     {
     }
 
-
     control::~control() noexcept = default;
 
-
-    auto control::run()
-        -> net::awaitable<void>
+    auto control::run() -> net::awaitable<void>
     {
         if (config_.smux.keepalive_interval > 0)
         {
             auto self = std::static_pointer_cast<control>(shared_from_this());
-            auto start_keepalive = [self]() -> net::awaitable<void>
-            {
-                co_await self->keepalive_loop();
-            };
+            auto start_keepalive = [self]() -> net::awaitable<void> { co_await self->keepalive_loop(); };
             net::co_spawn(transport_->executor(), std::move(start_keepalive), net::detached);
         }
 
         co_await frame_loop();
     }
 
-
-    auto control::write_frame(outbound_frame frame)
-        -> net::awaitable<void>
+    auto control::write_frame(outbound_frame frame) -> net::awaitable<void>
     {
         memory::vector<std::byte> bytes(mr_);
 
         switch (frame.kind)
         {
-        case outbound_kind::data:
-            bytes = codec_.encode_data(frame.stream_id, frame.payload);
-            break;
-        case outbound_kind::fin:
-            bytes = codec_.encode_fin(frame.stream_id);
-            break;
+        case outbound_kind::data: bytes = codec_.encode_data(frame.stream_id, frame.payload); break;
+        case outbound_kind::fin: bytes = codec_.encode_fin(frame.stream_id); break;
         case outbound_kind::control:
             // 控制帧（心跳等）由调用方预编码为完整字节，直接写入
             bytes = std::move(frame.payload);
@@ -123,9 +107,7 @@ namespace psm::multiplex::smux
         }
     }
 
-
-    auto control::frame_loop()
-        -> net::awaitable<void>
+    auto control::frame_loop() -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "frame loop started");
 
@@ -166,31 +148,22 @@ namespace psm::multiplex::smux
 
             switch (meta.kind)
             {
-            case frame_kind::syn:
-                co_await handle_syn(meta.stream_id);
-                break;
+            case frame_kind::syn: co_await handle_syn(meta.stream_id); break;
 
-            case frame_kind::data:
-                dispatch_push(meta.stream_id, std::move(payload));
-                break;
+            case frame_kind::data: dispatch_push(meta.stream_id, std::move(payload)); break;
 
-            case frame_kind::fin:
-                handle_fin(meta.stream_id);
-                break;
+            case frame_kind::fin: handle_fin(meta.stream_id); break;
 
             case frame_kind::control:
             case frame_kind::rst:
-            default:
-                break;
+            default: break;
             }
         }
 
         diagnose::debug(prefix_, "frame loop ended");
     }
 
-
-    auto control::handle_syn(const std::uint32_t stream_id)
-        -> net::awaitable<void>
+    auto control::handle_syn(const std::uint32_t stream_id) -> net::awaitable<void>
     {
         if (pending_.size() + streams_.size() + datagrams_.size() >= config_.smux.max_streams)
         {
@@ -211,7 +184,6 @@ namespace psm::multiplex::smux
         diagnose::debug(prefix_, "stream {} pending, waiting for address", stream_id);
     }
 
-
     void control::dispatch_push(const std::uint32_t stream_id, memory::vector<std::byte> payload)
     {
         const auto self = std::static_pointer_cast<control>(shared_from_this());
@@ -219,7 +191,8 @@ namespace psm::multiplex::smux
         if (const auto pit = pending_.find(stream_id); pit != pending_.end())
         {
             auto &entry = pit->second;
-            diagnose::debug(prefix_, "[up] push to pending stream={} {} bytes, buffer={}", stream_id, payload.size(), entry.buffer.size() + payload.size());
+            diagnose::debug(prefix_, "[up] push to pending stream={} {} bytes, buffer={}", stream_id,
+                            payload.size(), entry.buffer.size() + payload.size());
             entry.buffer.insert(entry.buffer.end(), payload.begin(), payload.end());
 
             if (!entry.connecting && entry.buffer.size() >= 7)
@@ -227,14 +200,14 @@ namespace psm::multiplex::smux
                 entry.connecting = true;
                 auto on_error = [stream_id](const std::exception_ptr &ep)
                 {
-                    if (ep) log_spawn_error(ep, stream_id, "activate_stream");
-                };
-                net::co_spawn(transport_->executor(),
-                    [self, stream_id]() -> net::awaitable<void>
+                    if (ep)
                     {
-                        co_await self->activate_stream(stream_id);
-                    },
-                    std::move(on_error));
+                        log_spawn_error(ep, stream_id, "activate_stream");
+                    }
+                };
+                net::co_spawn(
+                    transport_->executor(), [self, stream_id]() -> net::awaitable<void>
+                    { co_await self->activate_stream(stream_id); }, std::move(on_error));
             }
             return;
         }
@@ -265,9 +238,7 @@ namespace psm::multiplex::smux
         if (datagrams_.contains(stream_id))
         {
             auto async_push = [self, stream_id, p = std::move(payload)]() mutable -> net::awaitable<void>
-            {
-                co_await self->process_udp(stream_id, std::move(p));
-            };
+            { co_await self->process_udp(stream_id, std::move(p)); };
             auto on_error = [self, stream_id](const std::exception_ptr &ep)
             {
                 if (ep)
@@ -283,7 +254,6 @@ namespace psm::multiplex::smux
         // 流不存在或已关闭：帧被丢弃（记录以便诊断上传数据丢失）
         diagnose::debug(prefix_, "[up] DROP frame for closed stream={} {} bytes", stream_id, payload.size());
     }
-
 
     void control::handle_fin(const std::uint32_t stream_id)
     {
@@ -308,9 +278,7 @@ namespace psm::multiplex::smux
         }
     }
 
-
-    auto control::send_addr_err(const std::uint32_t stream_id)
-        -> net::awaitable<void>
+    auto control::send_addr_err(const std::uint32_t stream_id) -> net::awaitable<void>
     {
         diagnose::warn(prefix_, "stream {} address parse failed", stream_id);
         memory::vector<std::byte> error_buf(mr_);
@@ -320,9 +288,7 @@ namespace psm::multiplex::smux
         fin(stream_id);
     }
 
-
-    auto control::activate_udp(activate_opts opts)
-        -> net::awaitable<void>
+    auto control::activate_udp(activate_opts opts) -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "stream {} creating UDP datagram", opts.stream_id);
 
@@ -380,9 +346,7 @@ namespace psm::multiplex::smux
         diagnose::debug(prefix_, "stream {} UDP datagram created", opts.stream_id);
     }
 
-
-    auto control::activate_tcp(activate_opts opts)
-        -> net::awaitable<void>
+    auto control::activate_tcp(activate_opts opts) -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "stream {} connecting to {}:{}", opts.stream_id, opts.host, opts.port);
 
@@ -399,7 +363,8 @@ namespace psm::multiplex::smux
 
         if (code != fault::code::success || !trans)
         {
-            diagnose::warn(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host, opts.port);
+            diagnose::warn(prefix_, "stream {} connect to {}:{} failed", opts.stream_id, opts.host,
+                           opts.port);
             memory::vector<std::byte> error_buf(mr_);
             error_buf.push_back(std::byte{0x01});
             co_await send(opts.stream_id, std::move(error_buf));
@@ -424,7 +389,8 @@ namespace psm::multiplex::smux
             }
             pending_.erase(pit);
         }
-        diagnose::debug(prefix_, "[up] activate_tcp stream={} uplink {} bytes", opts.stream_id, opts.remaining.size());
+        diagnose::debug(prefix_, "[up] activate_tcp stream={} uplink {} bytes", opts.stream_id,
+                        opts.remaining.size());
 
         auto sp = make_stream(stream_options{
             .stream_id = opts.stream_id,
@@ -446,9 +412,7 @@ namespace psm::multiplex::smux
         diagnose::debug(prefix_, "stream {} connected to {}:{}", opts.stream_id, opts.host, opts.port);
     }
 
-
-    auto control::activate_stream(const std::uint32_t stream_id)
-        -> net::awaitable<void>
+    auto control::activate_stream(const std::uint32_t stream_id) -> net::awaitable<void>
     {
         const auto pit = pending_.find(stream_id);
         if (pit == pending_.end())
@@ -484,13 +448,12 @@ namespace psm::multiplex::smux
 
         if (is_udp)
         {
-            activate_opts udp_opts{
-                .stream_id = stream_id,
-                .host = std::move(host),
-                .port = port,
-                .addr_offset = offset,
-                .addr = addr_type,
-                .remaining = std::move(remaining_data)};
+            activate_opts udp_opts{.stream_id = stream_id,
+                                   .host = std::move(host),
+                                   .port = port,
+                                   .addr_offset = offset,
+                                   .addr = addr_type,
+                                   .remaining = std::move(remaining_data)};
             co_await activate_udp(std::move(udp_opts));
         }
         else
@@ -504,7 +467,6 @@ namespace psm::multiplex::smux
             co_await activate_tcp(std::move(tcp_opts));
         }
     }
-
 
     auto control::process_udp(const std::uint32_t stream_id, memory::vector<std::byte> payload)
         -> net::awaitable<void>
@@ -579,12 +541,12 @@ namespace psm::multiplex::smux
                 if (offset < local.size())
                 {
                     entry.buffer.insert(entry.buffer.begin(),
-                                        local.begin() + static_cast<std::ptrdiff_t>(offset),
-                                        local.end());
+                                        local.begin() + static_cast<std::ptrdiff_t>(offset), local.end());
                 }
 
                 has_progress = offset > 0;
-            } while (has_progress && !entry.buffer.empty() && is_active());
+            }
+            while (has_progress && !entry.buffer.empty() && is_active());
         }
         catch (const std::exception &e)
         {
@@ -597,9 +559,7 @@ namespace psm::multiplex::smux
         entry.processing = false;
     }
 
-
-    auto control::keepalive_loop()
-        -> net::awaitable<void>
+    auto control::keepalive_loop() -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "keepalive loop started, interval={}ms", config_.smux.keepalive_interval);
         net::steady_timer timer(transport_->executor());
@@ -632,25 +592,18 @@ namespace psm::multiplex::smux
         diagnose::debug(prefix_, "keepalive loop ended");
     }
 
-
-    auto control::make_resolve() const
-        -> resolve_fn
+    auto control::make_resolve() const -> resolve_fn
     {
-        return [this](std::string_view host, std::string_view port)
-            -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
-        {
-            co_return co_await router_fn_(host, port);
-        };
+        return [this](std::string_view host,
+                      std::string_view port) -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>
+        { co_return co_await router_fn_(host, port); };
     }
 
-
-    auto control::make_emit(const std::uint32_t stream_id, const addr_mode mode)
-        -> emit_fn
+    auto control::make_emit(const std::uint32_t stream_id, const addr_mode mode) -> emit_fn
     {
         auto self = std::static_pointer_cast<control>(shared_from_this());
         return [self, stream_id, mode](const std::string_view host, const std::uint16_t port,
-                                       const std::span<const std::byte> payload)
-            -> net::awaitable<void>
+                                       const std::span<const std::byte> payload) -> net::awaitable<void>
         {
             memory::vector<std::byte> encoded(self->mr_);
             if (mode == addr_mode::packet_addr)

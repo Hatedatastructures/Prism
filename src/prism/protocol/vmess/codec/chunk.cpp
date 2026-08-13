@@ -1,11 +1,10 @@
-﻿/**
+/**
  * @file chunk.cpp
  * @brief VMess 数据分块流编解码实现
  */
 
-#include <prism/protocol/vmess/codec/chunk.hpp>
-
 #include <prism/protocol/common/read.hpp>
+#include <prism/protocol/vmess/codec/chunk.hpp>
 
 #include <openssl/rand.h>
 
@@ -17,14 +16,24 @@ namespace psm::protocol::vmess::codec
 
     namespace
     {
-        /// 选项位掩码查询
+        /**
+         * @brief 选项位掩码查询
+         * @param option 选项字节
+         * @param bit 目标位掩码
+         * @return 是否包含该位
+         */
         [[nodiscard]] inline auto has_option(const std::uint8_t option, const std::uint8_t bit) noexcept
             -> bool
         {
             return (option & bit) != 0;
         }
 
-        /// 创建 AEAD 上下文
+        /**
+         * @brief 创建 AEAD 上下文
+         * @param security 加密算法类型
+         * @param key 16 字节 AES 密钥
+         * @return AEAD 上下文，创建失败返回空指针
+         */
         [[nodiscard]] auto make_aead(const std::uint8_t security, const std::span<const std::uint8_t, 16> key)
             -> std::unique_ptr<EVP_AEAD_CTX, void (*)(EVP_AEAD_CTX *)>
         {
@@ -32,14 +41,11 @@ namespace psm::protocol::vmess::codec
             switch (security)
             {
             case static_cast<std::uint8_t>(security::aes_128_gcm):
-            case static_cast<std::uint8_t>(security::auto_):
-                aead = EVP_aead_aes_128_gcm();
-                break;
+            case static_cast<std::uint8_t>(security::auto_): aead = EVP_aead_aes_128_gcm(); break;
             case static_cast<std::uint8_t>(security::chacha20_poly1305):
                 aead = EVP_aead_chacha20_poly1305();
                 break;
-            default:
-                return {nullptr, &EVP_AEAD_CTX_cleanup};
+            default: return {nullptr, &EVP_AEAD_CTX_cleanup};
             }
             auto *ctx = new EVP_AEAD_CTX;
             EVP_AEAD_CTX_zero(ctx);
@@ -59,8 +65,14 @@ namespace psm::protocol::vmess::codec
                     }};
         }
 
-        /// 组装数据层 nonce（2B 计数 + 10B 源）
-        [[nodiscard]] inline auto make_nonce(const std::uint16_t count, const std::span<const std::uint8_t, 16> src)
+        /**
+         * @brief 组装数据层 nonce（2B 计数 + 10B 源）
+         * @param count 数据包计数
+         * @param src 源端随机数
+         * @return 12 字节 nonce
+         */
+        [[nodiscard]] inline auto make_nonce(const std::uint16_t count,
+                                             const std::span<const std::uint8_t, 16> src)
             -> std::array<std::uint8_t, 12>
         {
             std::array<std::uint8_t, 12> nonce{};
@@ -73,14 +85,12 @@ namespace psm::protocol::vmess::codec
         // === Keccak-f[1600] ===
 
         constexpr std::array<std::uint64_t, 24> round_constants{
-            0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL,
-            0x8000000080008000ULL, 0x000000000000808bULL, 0x0000000080000001ULL,
-            0x8000000080008081ULL, 0x8000000000008009ULL, 0x000000000000008aULL,
-            0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
-            0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL,
-            0x8000000000008003ULL, 0x8000000000008002ULL, 0x8000000000000080ULL,
-            0x000000000000800aULL, 0x800000008000000aULL, 0x8000000080008081ULL,
-            0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL};
+            0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL, 0x8000000080008000ULL,
+            0x000000000000808bULL, 0x0000000080000001ULL, 0x8000000080008081ULL, 0x8000000000008009ULL,
+            0x000000000000008aULL, 0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
+            0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL, 0x8000000000008003ULL,
+            0x8000000000008002ULL, 0x8000000000000080ULL, 0x000000000000800aULL, 0x800000008000000aULL,
+            0x8000000080008081ULL, 0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL};
 
         [[nodiscard]] constexpr auto rotl(const std::uint64_t v, const int n) noexcept -> std::uint64_t
         {
@@ -101,15 +111,15 @@ namespace psm::protocol::vmess::codec
                 {
                     const auto d = c[(i + 4) % 5] ^ rotl(c[(i + 1) % 5], 1);
                     for (std::size_t j = 0; j < 25; j += 5)
+                    {
                         st[j + i] ^= d;
+                    }
                 }
                 // ρ + π：Go x/crypto/sha3 链式展开（piln/rotc 表）
-                static constexpr std::array<int, 24> piln{
-                    10, 7, 11, 17, 18, 3, 5, 16, 8, 21, 24, 4,
-                    15, 23, 19, 13, 12, 2, 20, 14, 22, 9, 6, 1};
-                static constexpr std::array<int, 24> rotc{
-                    1, 3, 6, 10, 15, 21, 28, 36, 45, 55, 2, 14,
-                    27, 41, 56, 8, 25, 43, 62, 18, 39, 61, 20, 44};
+                static constexpr std::array<int, 24> piln{10, 7,  11, 17, 18, 3, 5,  16, 8,  21, 24, 4,
+                                                          15, 23, 19, 13, 12, 2, 20, 14, 22, 9,  6,  1};
+                static constexpr std::array<int, 24> rotc{1,  3,  6,  10, 15, 21, 28, 36, 45, 55, 2,  14,
+                                                          27, 41, 56, 8,  25, 43, 62, 18, 39, 61, 20, 44};
                 std::uint64_t t = st[1];
                 for (int x = 0; x < 24; ++x)
                 {
@@ -123,9 +133,13 @@ namespace psm::protocol::vmess::codec
                 for (std::size_t y = 0; y < 25; y += 5)
                 {
                     for (std::size_t x = 0; x < 5; ++x)
+                    {
                         bc[x] = st[y + x];
+                    }
                     for (std::size_t x = 0; x < 5; ++x)
+                    {
                         st[y + x] = bc[x] ^ ((~bc[(x + 1) % 5]) & bc[(x + 2) % 5]);
+                    }
                 }
                 // ι
                 st[0] ^= rc;
@@ -141,7 +155,9 @@ namespace psm::protocol::vmess::codec
         while (seed.size() - offset >= 168)
         {
             for (std::size_t i = 0; i < 168; ++i)
+            {
                 block[i] ^= seed[offset + i];
+            }
             keccak_f(state_);
             offset += 168;
         }
@@ -151,7 +167,9 @@ namespace psm::protocol::vmess::codec
         if (rest > 0)
         {
             for (std::size_t i = 0; i < rest; ++i)
+            {
                 block[i] ^= seed[offset + i];
+            }
         }
         block[rest] ^= 0x1F;
         block[167] ^= 0x80;
@@ -173,32 +191,35 @@ namespace psm::protocol::vmess::codec
     }
 
     read_stream::read_stream(const stream_params params)
-        : params_(params)
-        , aead_(make_aead(params.security, std::span<const std::uint8_t, 16>(params.key.data(), 16)))
+        : params_(params),
+          aead_(make_aead(params.security, std::span<const std::uint8_t, 16>(params.key.data(), 16)))
     {
         const bool masking = has_option(params.option, static_cast<std::uint8_t>(option::chunk_masking));
         const bool padding = has_option(params.option, static_cast<std::uint8_t>(option::global_padding));
         if (masking)
+        {
             mask_stream_ = std::make_unique<shake_stream>(params.nonce);
+        }
         if (padding)
+        {
             padding_stream_ = std::make_unique<shake_stream>(params.nonce);
+        }
     }
 
-    auto read_stream::read_chunk(std::span<std::byte> out, std::error_code &ec)
-        -> net::awaitable<std::size_t>
+    auto read_stream::read_chunk(std::span<std::byte> out, std::error_code &ec) -> net::awaitable<std::size_t>
     {
         // 读长度头
         std::array<std::byte, 2> len_buf{};
-        const auto [read_ec, got] = co_await protocol::common::read_min(
-            *params_.transport, len_buf, len_buf.size());
+        const auto [read_ec, got] =
+            co_await protocol::common::read_min(*params_.transport, len_buf, len_buf.size());
         if (fault::failed(read_ec))
         {
             ec = std::make_error_code(std::errc::bad_message);
             co_return 0;
         }
         (void)got;
-        std::uint16_t len = static_cast<std::uint16_t>(
-            (static_cast<std::uint8_t>(len_buf[0]) << 8) | static_cast<std::uint8_t>(len_buf[1]));
+        std::uint16_t len = static_cast<std::uint16_t>((static_cast<std::uint8_t>(len_buf[0]) << 8) |
+                                                       static_cast<std::uint8_t>(len_buf[1]));
 
         // 消费 padding 长度（GlobalPadding 先于 ChunkMasking）
         std::size_t padding_len = 0;
@@ -286,8 +307,8 @@ namespace psm::protocol::vmess::codec
         std::size_t out_len = 0;
         if (!EVP_AEAD_CTX_open(aead_.get(), reinterpret_cast<std::uint8_t *>(out.data()), &out_len,
                                out.size(), nonce.data(), nonce.size(),
-                               reinterpret_cast<const std::uint8_t *>(cipher_buf.data()), data_len,
-                               nullptr, 0))
+                               reinterpret_cast<const std::uint8_t *>(cipher_buf.data()), data_len, nullptr,
+                               0))
         {
             ec = std::make_error_code(std::errc::bad_message);
             co_return 0;
@@ -297,15 +318,19 @@ namespace psm::protocol::vmess::codec
     }
 
     write_stream::write_stream(const stream_params params)
-        : params_(params)
-        , aead_(make_aead(params.security, std::span<const std::uint8_t, 16>(params.key.data(), 16)))
+        : params_(params),
+          aead_(make_aead(params.security, std::span<const std::uint8_t, 16>(params.key.data(), 16)))
     {
         const bool masking = has_option(params.option, static_cast<std::uint8_t>(option::chunk_masking));
         const bool padding = has_option(params.option, static_cast<std::uint8_t>(option::global_padding));
         if (masking)
+        {
             mask_stream_ = std::make_unique<shake_stream>(params.nonce);
+        }
         if (padding)
+        {
             padding_stream_ = std::make_unique<shake_stream>(params.nonce);
+        }
     }
 
     auto write_stream::write_chunk(std::span<const std::byte> data, std::error_code &ec)
@@ -325,8 +350,8 @@ namespace psm::protocol::vmess::codec
             const auto nonce = make_nonce(nonce_count_++, params_.nonce);
             if (!EVP_AEAD_CTX_seal(aead_.get(), reinterpret_cast<std::uint8_t *>(cipher_buf.data()),
                                    &cipher_len, cipher_buf.size(), nonce.data(), nonce.size(),
-                                   reinterpret_cast<const std::uint8_t *>(data.data()), data.size(),
-                                   nullptr, 0))
+                                   reinterpret_cast<const std::uint8_t *>(data.data()), data.size(), nullptr,
+                                   0))
             {
                 ec = std::make_error_code(std::errc::bad_message);
                 co_return 0;
@@ -364,8 +389,8 @@ namespace psm::protocol::vmess::codec
             masked_len ^= mask;
         }
 
-        std::array<std::byte, 2> len_buf{
-            static_cast<std::byte>(masked_len >> 8), static_cast<std::byte>(masked_len & 0xFF)};
+        std::array<std::byte, 2> len_buf{static_cast<std::byte>(masked_len >> 8),
+                                         static_cast<std::byte>(masked_len & 0xFF)};
 
         // 写出：len + 密文 + padding
         std::error_code w_ec;
@@ -390,8 +415,8 @@ namespace psm::protocol::vmess::codec
                 ec = std::make_error_code(std::errc::bad_message);
                 co_return 0;
             }
-            co_await params_.transport->async_write_some(
-                std::span<const std::byte>(pad.data(), padding_len), w_ec);
+            co_await params_.transport->async_write_some(std::span<const std::byte>(pad.data(), padding_len),
+                                                         w_ec);
             if (w_ec)
             {
                 ec = w_ec;
@@ -417,8 +442,8 @@ namespace psm::protocol::vmess::codec
             const std::uint16_t mask = static_cast<std::uint16_t>((stream[0] << 8) | stream[1]);
             masked_len ^= mask;
         }
-        std::array<std::byte, 2> len_buf{
-            static_cast<std::byte>(masked_len >> 8), static_cast<std::byte>(masked_len & 0xFF)};
+        std::array<std::byte, 2> len_buf{static_cast<std::byte>(masked_len >> 8),
+                                         static_cast<std::byte>(masked_len & 0xFF)};
         std::error_code w_ec;
         const auto n = co_await params_.transport->async_write_some(len_buf, w_ec);
         ec = w_ec;
@@ -426,4 +451,3 @@ namespace psm::protocol::vmess::codec
     }
 
 } // namespace psm::protocol::vmess::codec
-

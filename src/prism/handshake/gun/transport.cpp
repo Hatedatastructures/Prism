@@ -3,21 +3,17 @@
  * @brief gRPC (gun) 传输装饰器实现
  */
 
-#include <prism/handshake/gun/transport.hpp>
 #include <prism/handshake/gun/codec.hpp>
+#include <prism/handshake/gun/transport.hpp>
 
 #include <cstring>
 
 namespace psm::handshake::gun
 {
 
-    transport::transport(net::any_io_executor executor, write_cb write_fn,
-                         const memory::resource_pointer mr)
-        : executor_(std::move(executor))
-        , write_fn_(std::move(write_fn))
-        , mr_(mr)
-        , channel_(std::make_unique<channel_type>(executor_, 512))
-        , current_(mr)
+    transport::transport(net::any_io_executor executor, write_cb write_fn, const memory::resource_pointer mr)
+        : executor_(std::move(executor)), write_fn_(std::move(write_fn)), mr_(mr),
+          channel_(std::make_unique<channel_type>(executor_, 512)), current_(mr)
     {
     }
 
@@ -75,7 +71,8 @@ namespace psm::handshake::gun
         memory::vector<std::byte> frame(mr_);
         frame.resize(codec::header_fixed_len + codec::max_varint_len + buffer.size());
         const auto encoded = codec::encode_frame(
-            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(buffer.data()), buffer.size()),
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(buffer.data()),
+                                          buffer.size()),
             std::span<std::uint8_t>(reinterpret_cast<std::uint8_t *>(frame.data()), frame.size()));
         if (encoded == 0)
         {
@@ -104,7 +101,9 @@ namespace psm::handshake::gun
     auto transport::push(const std::span<const std::byte> data) -> bool
     {
         if (closed_ || data.empty())
+        {
             return true;
+        }
         memory::vector<std::byte> copy(data.begin(), data.end(), mr_);
         return channel_->try_send(boost::system::error_code{}, std::move(copy));
     }
@@ -112,7 +111,9 @@ namespace psm::handshake::gun
     void transport::notify_eof()
     {
         if (closed_)
+        {
             return;
+        }
         // 空块作为 EOF 哨兵
         channel_->try_send(boost::system::error_code{}, memory::vector<std::byte>(mr_));
     }

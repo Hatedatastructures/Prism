@@ -10,21 +10,20 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/stealth/trusttunnel/types.hpp>
-
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
 
+#include <common/core/error.hpp>
+#include <common/stealth/trusttunnel/types.hpp>
+
 namespace psmtest::trusttunnel
 {
 
     /// base64 编码表（标准，RFC 4648）
-    inline constexpr char base64_table[] =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    inline constexpr char base64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     /**
      * @brief 构造 Basic Auth 头值
@@ -32,8 +31,7 @@ namespace psmtest::trusttunnel
      * @param pass 密码
      * @return "Basic base64(user:pass)"
      */
-    [[nodiscard]] inline auto basic_auth(std::string_view user, std::string_view pass)
-    -> std::string
+    [[nodiscard]] inline auto basic_auth(std::string_view user, std::string_view pass) -> std::string
     {
         const std::string raw = std::string(user) + ":" + std::string(pass);
         std::string enc;
@@ -76,29 +74,43 @@ namespace psmtest::trusttunnel
      * @param pass 输出密码
      * @return true = 解析成功
      */
-    [[nodiscard]] inline auto parse_basic_auth(std::string_view authorization,
-                                               std::string &user, std::string &pass) -> bool
+    [[nodiscard]] inline auto parse_basic_auth(std::string_view authorization, std::string &user,
+                                               std::string &pass) -> bool
     {
         if (authorization.size() < basic_prefix.size() ||
             authorization.substr(0, basic_prefix.size()) != basic_prefix)
+        {
             return false;
+        }
         const auto encoded = authorization.substr(basic_prefix.size());
         if (encoded.empty())
+        {
             return false;
+        }
 
         // base64 解码
         auto val = [](char c) -> int
         {
             if (c >= 'A' && c <= 'Z')
+            {
                 return c - 'A';
+            }
             if (c >= 'a' && c <= 'z')
+            {
                 return c - 'a' + 26;
+            }
             if (c >= '0' && c <= '9')
+            {
                 return c - '0' + 52;
+            }
             if (c == '+')
+            {
                 return 62;
+            }
             if (c == '/')
+            {
                 return 63;
+            }
             return -1;
         };
         std::string raw;
@@ -107,10 +119,14 @@ namespace psmtest::trusttunnel
         for (const char c : encoded)
         {
             if (c == '=')
+            {
                 break;
+            }
             const int v = val(c);
             if (v < 0)
+            {
                 return false;
+            }
             acc = (acc << 6) | static_cast<std::uint32_t>(v);
             bits += 6;
             if (bits >= 8)
@@ -121,7 +137,9 @@ namespace psmtest::trusttunnel
         }
         const auto colon = raw.find(':');
         if (colon == std::string::npos)
+        {
             return false;
+        }
         user = raw.substr(0, colon);
         pass = raw.substr(colon + 1);
         return true;
@@ -134,13 +152,14 @@ namespace psmtest::trusttunnel
      * @param expect_pass 期望密码
      * @return true = 匹配
      */
-    [[nodiscard]] inline auto verify_basic_auth(std::string_view authorization,
-                                                std::string_view expect_user,
+    [[nodiscard]] inline auto verify_basic_auth(std::string_view authorization, std::string_view expect_user,
                                                 std::string_view expect_pass) -> bool
     {
         std::string user, pass;
         if (!parse_basic_auth(authorization, user, pass))
+        {
             return false;
+        }
         return user == expect_user && pass == expect_pass;
     }
 

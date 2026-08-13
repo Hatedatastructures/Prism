@@ -15,12 +15,12 @@
  */
 #pragma once
 
-#include <prism/user/stats/traffic.hpp>
-#include <prism/net/connection/outbound/direct.hpp>
-#include <prism/foundation/fault/code.hpp>
-#include <prism/net/transport/transmission.hpp>
-#include <prism/net/connection/target.hpp>
 #include <prism/diagnose/context.hpp>
+#include <prism/foundation/fault/code.hpp>
+#include <prism/net/connection/outbound/direct.hpp>
+#include <prism/net/connection/target.hpp>
+#include <prism/net/transport/transmission.hpp>
+#include <prism/user/stats/traffic.hpp>
 
 #include <boost/asio.hpp>
 
@@ -29,7 +29,6 @@
 #include <memory>
 #include <string_view>
 #include <utility>
-
 
 namespace psm::outbound
 {
@@ -42,10 +41,10 @@ namespace psm::outbound
      */
     struct dial_options
     {
-        std::shared_ptr<diagnose::context> trace;                        ///< 日志前缀
-        std::chrono::milliseconds timeout{std::chrono::seconds(10)};        ///< 拨号超时
-        bool allow_reverse{true};                                           ///< 是否允许反向路由（伪装层 fallback 应禁用）
-        bool report_traffic{true};                                          ///< 是否上报流量统计（traffic_state::on_connect）
+        std::shared_ptr<diagnose::context> trace;                    ///< 日志前缀
+        std::chrono::milliseconds timeout{std::chrono::seconds(10)}; ///< 拨号超时
+        bool allow_reverse{true};  ///< 是否允许反向路由（伪装层 fallback 应禁用）
+        bool report_traffic{true}; ///< 是否上报流量统计（traffic_state::on_connect）
     };
 
     /**
@@ -56,9 +55,9 @@ namespace psm::outbound
      */
     struct dial_handles
     {
-        psm::outbound::direct &outbound;                                     ///< 出站代理
-        boost::asio::io_context &ioc;                                       ///< 执行器
-        psm::stats::traffic::traffic_state &traffic;                        ///< 流量统计
+        psm::outbound::direct &outbound;             ///< 出站代理
+        boost::asio::io_context &ioc;                ///< 执行器
+        psm::stats::traffic::traffic_state &traffic; ///< 流量统计
     };
 
     /**
@@ -68,10 +67,10 @@ namespace psm::outbound
      */
     struct dial_result
     {
-        fault::code code{fault::code::success};     ///< 错误码
-        transport::shared_transmission transport;   ///< 传输层对象（失败时为空）
-        std::chrono::milliseconds elapsed{0};       ///< 拨号耗时
-        bool reverse_routed{false};                 ///< 反向路由命中标志
+        fault::code code{fault::code::success};   ///< 错误码
+        transport::shared_transmission transport; ///< 传输层对象（失败时为空）
+        std::chrono::milliseconds elapsed{0};     ///< 拨号耗时
+        bool reverse_routed{false};               ///< 反向路由命中标志
     };
 
     /**
@@ -80,11 +79,11 @@ namespace psm::outbound
      */
     struct dial_stats
     {
-        std::uint64_t total{0};                       ///< 总拨号次数
-        std::uint64_t succeeded{0};                   ///< 成功次数
-        std::uint64_t failed{0};                      ///< 失败次数
-        std::uint64_t reverse_routed{0};              ///< 反向路由命中次数
-        std::chrono::milliseconds avg_latency{0};     ///< 平均耗时（EMA 估算）
+        std::uint64_t total{0};                   ///< 总拨号次数
+        std::uint64_t succeeded{0};               ///< 成功次数
+        std::uint64_t failed{0};                  ///< 失败次数
+        std::uint64_t reverse_routed{0};          ///< 反向路由命中次数
+        std::chrono::milliseconds avg_latency{0}; ///< 平均耗时（EMA 估算）
     };
 
     /**
@@ -99,10 +98,8 @@ namespace psm::outbound
      *
      * 失败时 code 非 success，transport 为空。
      */
-    [[nodiscard]] auto dial(
-        dial_handles handles,
-        const psm::connect::target &target,
-        dial_options opts) -> net::awaitable<dial_result>;
+    [[nodiscard]] auto dial(dial_handles handles, const psm::connect::target &target, dial_options opts)
+        -> net::awaitable<dial_result>;
 
     /**
      * @brief 数据报端点解析（UDP）
@@ -112,10 +109,8 @@ namespace psm::outbound
      * @return 错误码和 UDP 端点
      * @details 仅解析，不创建 UDP socket。供 UDP_ASSOCIATE 等场景使用。
      */
-    [[nodiscard]] auto resolve_datagram(
-        psm::outbound::direct &outbound,
-        std::string_view host,
-        std::string_view port)
+    [[nodiscard]] auto resolve_datagram(psm::outbound::direct &outbound, std::string_view host,
+                                        std::string_view port)
         -> net::awaitable<std::pair<fault::code, net::ip::udp::endpoint>>;
 
 } // namespace psm::outbound

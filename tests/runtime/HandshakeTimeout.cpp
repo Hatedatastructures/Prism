@@ -6,16 +6,16 @@
  * 使用短超时（100ms ~ 1s）配合 socket pair 模拟对端无响应。
  */
 
-#include <prism/handshake/common.hpp>
-#include <prism/net/transport/reliable.hpp>
-#include <prism/protocol/vless/handler/conn.hpp>
-#include <prism/protocol/trojan/handler/conn.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <gtest/gtest.h>
+#include <prism/handshake/common.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/protocol/trojan/handler/conn.hpp>
+#include <prism/protocol/vless/handler/conn.hpp>
 
 #include <boost/asio.hpp>
+
+#include <gtest/gtest.h>
 
 namespace net = boost::asio;
 using tcp = net::ip::tcp;
@@ -29,8 +29,7 @@ namespace
      * @details 使用 localhost acceptor 在本地回环地址上建立连接，
      * 返回的两个 socket 可以直接用于双向通信。
      */
-    auto make_socket_pair(net::io_context &ioc)
-        -> std::pair<tcp::socket, tcp::socket>
+    auto make_socket_pair(net::io_context &ioc) -> std::pair<tcp::socket, tcp::socket>
     {
         tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
         auto server_ep = acceptor.local_endpoint();
@@ -65,17 +64,13 @@ namespace
         auto coro = [&]() -> net::awaitable<void>
         {
             // 设置 100ms deadline
-            net::steady_timer deadline(co_await net::this_coro::executor,
-                                       std::chrono::milliseconds(100));
+            net::steady_timer deadline(co_await net::this_coro::executor, std::chrono::milliseconds(100));
 
             std::error_code ec;
-            auto result = co_await psm::handshake::common::read_tls_frame(
-                client_sock, ec, &deadline);
+            auto result = co_await psm::handshake::common::read_tls_frame(client_sock, ec, &deadline);
 
-            EXPECT_TRUE(!result.has_value())
-                << "read_tls_frame should return nullopt on timeout";
-            EXPECT_TRUE(!!ec)
-                << "error code should be set on timeout";
+            EXPECT_TRUE(!result.has_value()) << "read_tls_frame should return nullopt on timeout";
+            EXPECT_TRUE(!!ec) << "error code should be set on timeout";
         };
 
         auto token = [&ioc, &ep](const std::exception_ptr &e)
@@ -88,7 +83,9 @@ namespace
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
     }
 
     /**
@@ -110,15 +107,12 @@ namespace
             server_sock.close();
 
             std::error_code ec;
-            auto result = co_await psm::handshake::common::read_tls_frame(
-                client_sock, ec, nullptr);
+            auto result = co_await psm::handshake::common::read_tls_frame(client_sock, ec, nullptr);
 
-            EXPECT_TRUE(!result.has_value())
-                << "read_tls_frame should return nullopt on EOF";
+            EXPECT_TRUE(!result.has_value()) << "read_tls_frame should return nullopt on EOF";
             // read_tls_frame uses boost::system::error_code internally,
             // writes to std::error_code via implicit conversion
-            EXPECT_TRUE(!!ec)
-                << "error code should be set when peer closes";
+            EXPECT_TRUE(!!ec) << "error code should be set when peer closes";
         };
 
         auto token = [&ioc, &ep](const std::exception_ptr &e)
@@ -131,7 +125,9 @@ namespace
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
     }
 
     /**
@@ -160,25 +156,20 @@ namespace
                 0x00              // Padding
             };
 
-            co_await net::async_write(server_sock, net::buffer(tls_record),
-                                      net::use_awaitable);
+            co_await net::async_write(server_sock, net::buffer(tls_record), net::use_awaitable);
 
             // 设置 1 秒 deadline（足够长）
-            net::steady_timer deadline(co_await net::this_coro::executor,
-                                       std::chrono::seconds(1));
+            net::steady_timer deadline(co_await net::this_coro::executor, std::chrono::seconds(1));
 
             std::error_code ec;
-            auto result = co_await psm::handshake::common::read_tls_frame(
-                client_sock, ec, &deadline);
+            auto result = co_await psm::handshake::common::read_tls_frame(client_sock, ec, &deadline);
 
-            EXPECT_TRUE(result.has_value())
-                << "read_tls_frame should return data before deadline";
+            EXPECT_TRUE(result.has_value()) << "read_tls_frame should return data before deadline";
             EXPECT_TRUE(!ec) << "error code should be success";
 
             if (result)
             {
-                EXPECT_TRUE(result->size() == 10)
-                    << "frame size should be 10 (5 header + 5 payload)";
+                EXPECT_TRUE(result->size() == 10) << "frame size should be 10 (5 header + 5 payload)";
             }
         };
 
@@ -192,7 +183,9 @@ namespace
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
     }
 
     // ─── VLESS 协议握手超时测试 ─────────────────────────────────────
@@ -221,8 +214,7 @@ namespace
             auto *raw_trans = trans.get();
 
             // 设置 100ms socket 超时，模拟 deadline 到期
-            net::steady_timer timeout(co_await net::this_coro::executor,
-                                      std::chrono::milliseconds(100));
+            net::steady_timer timeout(co_await net::this_coro::executor, std::chrono::milliseconds(100));
             timeout.async_wait(
                 [raw_trans](const boost::system::error_code &timer_ec)
                 {
@@ -236,10 +228,8 @@ namespace
             auto [ec, req] = co_await vless->handshake();
 
             // 超时后 deadline 会 cancel 传输层，VLESS 将 canceled 转为 timeout
-            bool is_timeout = (ec == psm::fault::code::timeout) ||
-                              (ec == psm::fault::code::canceled);
-            EXPECT_TRUE(is_timeout)
-                << "VLESS handshake should return timeout or canceled on no data";
+            bool is_timeout = (ec == psm::fault::code::timeout) || (ec == psm::fault::code::canceled);
+            EXPECT_TRUE(is_timeout) << "VLESS handshake should return timeout or canceled on no data";
             *handshake_ok = true;
         };
 
@@ -253,7 +243,9 @@ namespace
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
 
         EXPECT_TRUE(*handshake_ok) << "VLESS handshake timeout test completed";
     }
@@ -279,8 +271,7 @@ namespace
             auto *raw_trans = trans.get();
 
             // 设置 100ms socket 超时
-            net::steady_timer timeout(co_await net::this_coro::executor,
-                                      std::chrono::milliseconds(100));
+            net::steady_timer timeout(co_await net::this_coro::executor, std::chrono::milliseconds(100));
             timeout.async_wait(
                 [raw_trans](const boost::system::error_code &timer_ec)
                 {
@@ -293,10 +284,8 @@ namespace
             auto trojan = psm::protocol::trojan::make_conn(std::move(trans));
             auto [ec, req] = co_await trojan->handshake();
 
-            bool is_timeout = (ec == psm::fault::code::timeout) ||
-                              (ec == psm::fault::code::canceled);
-            EXPECT_TRUE(is_timeout)
-                << "Trojan handshake should return timeout or canceled on no data";
+            bool is_timeout = (ec == psm::fault::code::timeout) || (ec == psm::fault::code::canceled);
+            EXPECT_TRUE(is_timeout) << "Trojan handshake should return timeout or canceled on no data";
             *handshake_ok = true;
         };
 
@@ -310,7 +299,9 @@ namespace
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
 
         EXPECT_TRUE(*handshake_ok) << "Trojan handshake timeout test completed";
     }
@@ -330,8 +321,7 @@ namespace
 
         auto coro = [&]() -> net::awaitable<void>
         {
-            net::steady_timer timer(co_await net::this_coro::executor,
-                                    std::chrono::milliseconds(50));
+            net::steady_timer timer(co_await net::this_coro::executor, std::chrono::milliseconds(50));
 
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
@@ -350,7 +340,9 @@ namespace
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
 
         EXPECT_TRUE(*expired) << "deadline timer expiry callback fired";
     }
@@ -368,31 +360,24 @@ namespace
 
         auto coro = [&]() -> net::awaitable<void>
         {
-            net::steady_timer timer(co_await net::this_coro::executor,
-                                    std::chrono::seconds(30));
+            net::steady_timer timer(co_await net::this_coro::executor, std::chrono::seconds(30));
 
             // 启动一个内部协程来等待定时器，通过 shared_ptr 传递结果
             auto inner_result = std::make_shared<boost::system::error_code>();
             net::co_spawn(
-                co_await net::this_coro::executor,
-                [&timer, inner_result]() -> net::awaitable<void>
-                {
-                    co_await timer.async_wait(
-                        net::redirect_error(net::use_awaitable, *inner_result));
-                },
+                co_await net::this_coro::executor, [&timer, inner_result]() -> net::awaitable<void>
+                { co_await timer.async_wait(net::redirect_error(net::use_awaitable, *inner_result)); },
                 net::detached);
 
             // 让出执行权，确保内部协程开始等待
-            net::steady_timer yield_timer(co_await net::this_coro::executor,
-                                          std::chrono::milliseconds(10));
+            net::steady_timer yield_timer(co_await net::this_coro::executor, std::chrono::milliseconds(10));
             co_await yield_timer.async_wait(net::use_awaitable);
 
             // 取消定时器
             timer.cancel();
 
             // 等待内部协程的回调执行
-            net::steady_timer post_timer(co_await net::this_coro::executor,
-                                         std::chrono::milliseconds(10));
+            net::steady_timer post_timer(co_await net::this_coro::executor, std::chrono::milliseconds(10));
             co_await post_timer.async_wait(net::use_awaitable);
 
             EXPECT_EQ(*inner_result, boost::asio::error::operation_aborted)
@@ -410,7 +395,9 @@ namespace
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
 
         EXPECT_TRUE(*cancelled) << "deadline timer cancellation callback fired";
     }
@@ -434,8 +421,7 @@ namespace
             auto trans = psm::transport::make_reliable(std::move(client_sock));
 
             // 设置 100ms deadline
-            net::steady_timer deadline(co_await net::this_coro::executor,
-                                       std::chrono::milliseconds(100));
+            net::steady_timer deadline(co_await net::this_coro::executor, std::chrono::milliseconds(100));
             deadline.async_wait(
                 [&trans](const boost::system::error_code &timer_ec)
                 {
@@ -450,15 +436,13 @@ namespace
             std::error_code read_ec;
             co_await trans->async_read_some(buf, read_ec);
 
-            EXPECT_TRUE(!!read_ec)
-                << "read should fail after deadline cancels transport";
+            EXPECT_TRUE(!!read_ec) << "read should fail after deadline cancels transport";
             // 错误码应该是 canceled 或 eof（cancel 后 socket 被取消）
             auto fault_code = psm::fault::to_code(read_ec);
             bool is_expected = (fault_code == psm::fault::code::canceled) ||
                                (fault_code == psm::fault::code::eof) ||
                                (fault_code == psm::fault::code::io_error);
-            EXPECT_TRUE(is_expected)
-                << "error code should be canceled, eof, or io_error after cancel";
+            EXPECT_TRUE(is_expected) << "error code should be canceled, eof, or io_error after cancel";
             *read_cancelled = true;
         };
 
@@ -472,7 +456,9 @@ namespace
         ioc.run();
 
         if (ep)
+        {
             std::rethrow_exception(ep);
+        }
 
         EXPECT_TRUE(*read_cancelled) << "deadline cancel read test completed";
     }

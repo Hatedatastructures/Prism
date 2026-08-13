@@ -19,7 +19,6 @@
 #include <span>
 #include <string_view>
 
-
 namespace psm::handshake::shadowtls
 {
 
@@ -32,11 +31,12 @@ namespace psm::handshake::shadowtls
      */
     struct shadowtls_handover
     {
-        std::string_view password;                              ///< ShadowTLS 密码
-        std::span<const std::byte> server_random;               ///< ServerHello 的 ServerRandom（32 字节）
-        std::span<const std::byte> initial_data;                ///< 初始数据（handshake 期间已读取的第一帧 payload）
-        std::shared_ptr<HMAC_CTX> hmac_write_ctx;               ///< 写入方向累积 HMAC 上下文（初始：password + SR + "S"）
-        std::shared_ptr<HMAC_CTX> hmac_read_ctx;                ///< 读取方向累积 HMAC 上下文（初始：password + SR + "C" + payload + HMAC[:4]）
+        std::string_view password;                ///< ShadowTLS 密码
+        std::span<const std::byte> server_random; ///< ServerHello 的 ServerRandom（32 字节）
+        std::span<const std::byte> initial_data;  ///< 初始数据（handshake 期间已读取的第一帧 payload）
+        std::shared_ptr<HMAC_CTX> hmac_write_ctx; ///< 写入方向累积 HMAC 上下文（初始：password + SR + "S"）
+        std::shared_ptr<HMAC_CTX>
+            hmac_read_ctx; ///< 读取方向累积 HMAC 上下文（初始：password + SR + "C" + payload + HMAC[:4]）
     };
 
     /**
@@ -61,38 +61,75 @@ namespace psm::handshake::shadowtls
          * @param lower 下层传输（shared_transmission，装饰器链模式）
          * @param handover 握手阶段产出的参数包（password, server_random, initial_data, HMAC 上下文）
          */
-        explicit shadowtls_transport(transport::shared_transmission lower,
-                                     shadowtls_handover handover);
+        explicit shadowtls_transport(transport::shared_transmission lower, shadowtls_handover handover);
 
+        /**
+         * @brief 析构传输层
+         */
         ~shadowtls_transport() noexcept override;
 
-        [[nodiscard]] auto transport_type() const noexcept
-            -> type override
+        /**
+         * @brief 获取传输层类型
+         * @return type::tcp
+         */
+        [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             return type::tcp;
         }
 
+        /**
+         * @brief 获取内层传输
+         * @return 下层传输指针
+         */
         [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
             return lower_.get();
         }
 
+        /**
+         * @brief 获取内层传输（const 版本）
+         * @return 下层传输指针
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return lower_.get();
         }
 
+        /**
+         * @brief 获取执行器
+         * @return 下层传输的执行器，用于协程调度
+         */
         [[nodiscard]] auto executor() const -> executor_type override
         {
             return lower_->executor();
         }
 
+        /**
+         * @brief 异步读取数据
+         * @details 解包 TLS frame + 验证累积 HMAC 后返回裸数据。
+         * @param buffer 接收缓冲区
+         * @param ec 错误码输出参数
+         * @return 异步操作，返回读取字节数
+         */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
+        /**
+         * @brief 异步写入数据
+         * @details XOR 加密 + 累积 HMAC 标签 + TLS frame 后发送。
+         * @param buffer 发送缓冲区
+         * @param ec 错误码输出参数
+         * @return 异步操作，返回写入字节数
+         */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
+        /**
+         * @brief 完整写入数据（写入直至全部完成）
+         * @param data 发送数据
+         * @param ec 错误码输出参数
+         * @return 异步操作，返回写入字节数
+         */
         [[nodiscard]] auto async_write(std::span<const std::byte> data, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
@@ -103,20 +140,35 @@ namespace psm::handshake::shadowtls
          */
         void shutdown_write();
 
+        /**
+         * @brief 关闭传输层
+         */
         void close() override;
+        /**
+         * @brief 取消所有未完成的异步操作
+         */
         void cancel() override;
 
     private:
-        /// 读取一个完整的 TLS frame 并验证累积 HMAC
+        /**
+         * @brief 读取一个完整的 TLS frame 并验证累积 HMAC
+         * @param ec 错误码输出参数
+         * @return 读取到的帧数据，无数据时为 nullopt
+         */
         [[nodiscard]] auto read_tls_frame(std::error_code &ec)
             -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 
-        /// 写入一个带累积 HMAC 标签的 TLS frame
+        /**
+         * @brief 写入一个带累积 HMAC 标签的 TLS frame
+         * @param payload 待写入的载荷数据
+         * @param ec 错误码输出参数
+         * @return 实际写入的字节数
+         */
         [[nodiscard]] auto write_tls_frame(std::span<const std::byte> payload, std::error_code &ec)
             -> net::awaitable<std::size_t>;
 
-        transport::shared_transmission lower_;
-        std::array<std::byte, 32> server_random_;
+        transport::shared_transmission lower_;         // 下层传输
+        std::array<std::byte, 32> server_random_;      // ServerHello 的 ServerRandom
         memory::vector<std::uint8_t> write_key_; ///< XOR 密钥：SHA256(password + serverRandom)
 
         // 初始数据缓冲区（handshake 期间已读取的第一帧）

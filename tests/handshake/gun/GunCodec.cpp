@@ -6,9 +6,9 @@
 
 #include <prism/handshake/gun/codec.hpp>
 
-#include <gtest/gtest.h>
-
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -17,7 +17,7 @@ namespace
     using psm::handshake::gun::codec::encode_varint;
     using psm::handshake::gun::codec::frame_header;
     using psm::handshake::gun::codec::parse_frame_header;
-}
+} // namespace
 
 TEST(GunCodec, VarintKnownValues)
 {

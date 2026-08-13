@@ -8,9 +8,9 @@
 #include <prism/protocol/vmess/codec/header.hpp>
 #include <prism/protocol/vmess/codec/kdf.hpp>
 
-#include <gtest/gtest.h>
-
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -35,17 +35,22 @@ namespace
         header.request_nonce.fill(0x11);
         header.request_key.fill(0x22);
         header.response_header = 0x77;
-        header.option = static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_stream)
-            | static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_masking);
+        header.option = static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_stream) |
+                        static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_masking);
         header.security = static_cast<std::uint8_t>(psm::protocol::vmess::security::aes_128_gcm);
         header.command = static_cast<std::uint8_t>(psm::protocol::vmess::command::tcp);
-        header.destination = psm::protocol::common::domain_address{
-            .length = 11,
-            .value = []{ std::array<char, 255> v{}; std::memcpy(v.data(), "example.com", 11); return v; }()};
+        header.destination =
+            psm::protocol::common::domain_address{.length = 11,
+                                                  .value = []
+                                                  {
+                                                      std::array<char, 255> v{};
+                                                      std::memcpy(v.data(), "example.com", 11);
+                                                      return v;
+                                                  }()};
         header.port = 443;
         return header;
     }
-}
+} // namespace
 
 TEST(VmessHeader, SealOpenRoundtripDomain)
 {
@@ -53,15 +58,13 @@ TEST(VmessHeader, SealOpenRoundtripDomain)
     const auto header = make_header();
 
     std::array<std::uint8_t, 512> packet{};
-    const auto ec = seal_request(std::span<const std::uint8_t, 16>(cmd_key.data(), 16),
-                                 header, packet);
+    const auto ec = seal_request(std::span<const std::uint8_t, 16>(cmd_key.data(), 16), header, packet);
     ASSERT_EQ(ec, psm::fault::code::success);
 
     request_header out;
     std::array<std::uint8_t, 8> conn_nonce{};
     const auto open_ec = open_request(std::span<const std::uint8_t, 16>(cmd_key.data(), 16),
-                                      std::span<const std::uint8_t>(packet.data(), 512),
-                                      conn_nonce, out);
+                                      std::span<const std::uint8_t>(packet.data(), 512), conn_nonce, out);
     ASSERT_EQ(open_ec, psm::fault::code::success);
 
     EXPECT_EQ(out.version, psm::protocol::vmess::version);
@@ -90,8 +93,7 @@ TEST(VmessHeader, SealOpenRoundtripIpv4)
     request_header out;
     std::array<std::uint8_t, 8> conn_nonce{};
     const auto open_ec = open_request(std::span<const std::uint8_t, 16>(cmd_key.data(), 16),
-                                      std::span<const std::uint8_t>(packet.data(), 512),
-                                      conn_nonce, out);
+                                      std::span<const std::uint8_t>(packet.data(), 512), conn_nonce, out);
     ASSERT_EQ(open_ec, psm::fault::code::success);
     EXPECT_EQ(out.port, 8080U);
     const auto *ip4 = std::get_if<psm::protocol::common::ipv4_address>(&out.destination);
@@ -113,8 +115,7 @@ TEST(VmessHeader, WrongKeyOpenFails)
     request_header out;
     std::array<std::uint8_t, 8> conn_nonce{};
     const auto open_ec = open_request(std::span<const std::uint8_t, 16>(wrong.data(), 16),
-                                      std::span<const std::uint8_t>(packet.data(), 512),
-                                      conn_nonce, out);
+                                      std::span<const std::uint8_t>(packet.data(), 512), conn_nonce, out);
     EXPECT_NE(open_ec, psm::fault::code::success);
 }
 
@@ -126,15 +127,15 @@ TEST(VmessHeader, ResponseHeaderBuilds)
     req_nonce.fill(0x44);
 
     std::array<std::uint8_t, 38> resp{};
-    const auto ec = build_response(
-        std::span<const std::uint8_t, 16>(req_key.data(), 16),
-        std::span<const std::uint8_t, 16>(req_nonce.data(), 16),
-        0x77, 0x05, false,
-        std::span<std::uint8_t>(resp.data(), resp.size()));
+    const auto ec = build_response(std::span<const std::uint8_t, 16>(req_key.data(), 16),
+                                   std::span<const std::uint8_t, 16>(req_nonce.data(), 16), 0x77, 0x05, false,
+                                   std::span<std::uint8_t>(resp.data(), resp.size()));
     ASSERT_EQ(ec, psm::fault::code::success);
     // 38 字节非全零
     bool non_zero = false;
     for (const auto byte : resp)
+    {
         non_zero = non_zero || byte != 0;
+    }
     EXPECT_TRUE(non_zero);
 }

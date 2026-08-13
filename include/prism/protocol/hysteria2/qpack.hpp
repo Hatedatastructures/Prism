@@ -38,8 +38,7 @@ namespace psm::protocol::hysteria2::qpack
      * @details 仅支持静态表索引与字面量（无动态表），与 mihomo
      *          metacubex/qpack 客户端编码器对应。
      */
-    [[nodiscard]] auto decode_header_block(std::span<const std::uint8_t> data,
-                                           memory::resource_pointer mr)
+    [[nodiscard]] auto decode_header_block(std::span<const std::uint8_t> data, memory::resource_pointer mr)
         -> memory::vector<header_field>;
 
     /**
@@ -68,8 +67,8 @@ namespace psm::protocol::hysteria2::qpack
      * @param out 解码输出
      * @return 是否成功
      */
-    [[nodiscard]] auto huffman_decode(std::span<const std::uint8_t> in,
-                                      memory::vector<std::uint8_t> &out) -> bool;
+    [[nodiscard]] auto huffman_decode(std::span<const std::uint8_t> in, memory::vector<std::uint8_t> &out)
+        -> bool;
 
     /**
      * @brief HPACK huffman 编码

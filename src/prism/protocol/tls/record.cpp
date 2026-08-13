@@ -1,6 +1,6 @@
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/protocol/tls/record.hpp>
 
-#include <prism/diagnose/diagnose.hpp>
 #include <cstring>
 
 namespace psm::tls
@@ -12,32 +12,29 @@ namespace psm::tls
         auto parse_header(const std::span<const std::byte> raw) -> record_header
         {
             const auto *ptr = reinterpret_cast<const std::uint8_t *>(raw.data());
-            return record_header{
-                ptr[0],
-                static_cast<std::uint16_t>((static_cast<std::uint16_t>(ptr[1]) << 8) | static_cast<std::uint16_t>(ptr[2])),
-                static_cast<std::uint16_t>((static_cast<std::uint16_t>(ptr[3]) << 8) | static_cast<std::uint16_t>(ptr[4]))};
+            return record_header{ptr[0],
+                                 static_cast<std::uint16_t>((static_cast<std::uint16_t>(ptr[1]) << 8) |
+                                                            static_cast<std::uint16_t>(ptr[2])),
+                                 static_cast<std::uint16_t>((static_cast<std::uint16_t>(ptr[3]) << 8) |
+                                                            static_cast<std::uint16_t>(ptr[4]))};
         }
 
     } // namespace
-
 
     auto record::header() const noexcept -> const record_header &
     {
         return header_;
     }
 
-
     auto record::payload() const noexcept -> std::span<const std::byte>
     {
         return payload_;
     }
 
-
     auto record::size() const noexcept -> std::size_t
     {
         return protocol::tls::RECORD_HDR_LEN + payload_.size();
     }
-
 
     auto record::serialize() const -> memory::vector<std::byte>
     {
@@ -53,9 +50,7 @@ namespace psm::tls
         return buf;
     }
 
-
-    auto record::read(transport::transmission &trans)
-        -> net::awaitable<std::pair<fault::code, record>>
+    auto record::read(transport::transmission &trans) -> net::awaitable<std::pair<fault::code, record>>
     {
         // 读取 5 字节头
         std::array<std::byte, protocol::tls::RECORD_HDR_LEN> hdr_buf{};
@@ -64,8 +59,7 @@ namespace psm::tls
         {
             std::error_code ec;
             const auto n = co_await trans.async_read_some(
-                std::span<std::byte>(hdr_buf.data() + hdr_read,
-                                     protocol::tls::RECORD_HDR_LEN - hdr_read),
+                std::span<std::byte>(hdr_buf.data() + hdr_read, protocol::tls::RECORD_HDR_LEN - hdr_read),
                 ec);
             if (ec || n == 0)
             {
@@ -90,9 +84,7 @@ namespace psm::tls
             {
                 std::error_code ec;
                 const auto n = co_await trans.async_read_some(
-                    std::span<std::byte>(body.data() + body_read,
-                                         hdr.length - body_read),
-                    ec);
+                    std::span<std::byte>(body.data() + body_read, hdr.length - body_read), ec);
                 if (ec || n == 0)
                 {
                     co_return std::pair{fault::code::io_error, record{}};
@@ -107,15 +99,13 @@ namespace psm::tls
         co_return std::pair{fault::code::success, std::move(rec)};
     }
 
-
-    auto record::read(net::ip::tcp::socket &sock)
-        -> net::awaitable<std::pair<fault::code, record>>
+    auto record::read(net::ip::tcp::socket &sock) -> net::awaitable<std::pair<fault::code, record>>
     {
         std::array<std::byte, protocol::tls::RECORD_HDR_LEN> hdr_buf{};
         boost::system::error_code ec;
-        auto hdr_n = co_await net::async_read(
-            sock, net::buffer(hdr_buf.data(), protocol::tls::RECORD_HDR_LEN),
-            net::redirect_error(net::use_awaitable, ec));
+        auto hdr_n =
+            co_await net::async_read(sock, net::buffer(hdr_buf.data(), protocol::tls::RECORD_HDR_LEN),
+                                     net::redirect_error(net::use_awaitable, ec));
         if (ec || hdr_n < protocol::tls::RECORD_HDR_LEN)
         {
             co_return std::pair{fault::code::io_error, record{}};
@@ -131,9 +121,8 @@ namespace psm::tls
         memory::vector<std::byte> body(hdr.length);
         if (hdr.length > 0)
         {
-            auto body_n = co_await net::async_read(
-                sock, net::buffer(body.data(), hdr.length),
-                net::redirect_error(net::use_awaitable, ec));
+            auto body_n = co_await net::async_read(sock, net::buffer(body.data(), hdr.length),
+                                                   net::redirect_error(net::use_awaitable, ec));
             if (ec || body_n < hdr.length)
             {
                 co_return std::pair{fault::code::io_error, record{}};
@@ -146,9 +135,7 @@ namespace psm::tls
         co_return std::pair{fault::code::success, std::move(rec)};
     }
 
-
-    auto record::write(transport::transmission &trans) const
-        -> net::awaitable<fault::code>
+    auto record::write(transport::transmission &trans) const -> net::awaitable<fault::code>
     {
         auto bytes = serialize();
         std::error_code ec;
@@ -160,21 +147,18 @@ namespace psm::tls
         co_return fault::code::success;
     }
 
-
-    auto record::write(net::ip::tcp::socket &sock) const
-        -> net::awaitable<fault::code>
+    auto record::write(net::ip::tcp::socket &sock) const -> net::awaitable<fault::code>
     {
         auto bytes = serialize();
         boost::system::error_code ec;
         co_await net::async_write(sock, net::buffer(bytes.data(), bytes.size()),
-                                   net::redirect_error(net::use_awaitable, ec));
+                                  net::redirect_error(net::use_awaitable, ec));
         if (ec)
         {
             co_return fault::code::io_error;
         }
         co_return fault::code::success;
     }
-
 
     // === builder ===
 
@@ -184,13 +168,11 @@ namespace psm::tls
         return *this;
     }
 
-
     auto record::builder::version(std::uint16_t v) noexcept -> builder &
     {
         header_.version = v;
         return *this;
     }
-
 
     auto record::builder::payload(std::span<const std::byte> data) -> builder &
     {
@@ -199,7 +181,6 @@ namespace psm::tls
         return *this;
     }
 
-
     auto record::builder::payload_u8(std::span<const std::uint8_t> data) -> builder &
     {
         payload_.resize(data.size());
@@ -207,7 +188,6 @@ namespace psm::tls
         header_.length = static_cast<std::uint16_t>(payload_.size());
         return *this;
     }
-
 
     auto record::builder::build() const -> record
     {

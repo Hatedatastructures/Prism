@@ -7,11 +7,10 @@
  */
 #pragma once
 
-#include <prism/settings/settings.hpp>
 #include <prism/foundation/memory/container.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <string_view>
-
 
 namespace psm::settings_validator
 {
@@ -22,11 +21,10 @@ namespace psm::settings_validator
      */
     struct validation_result
     {
-        bool valid{true};                         ///< 是否通过验证
-        memory::vector<memory::string> errors;    ///< 错误描述列表（valid=false 时非空）
+        bool valid{true};                      ///< 是否通过验证
+        memory::vector<memory::string> errors; ///< 错误描述列表（valid=false 时非空）
 
-        explicit validation_result(memory::resource_pointer mr = memory::current_resource())
-            : errors(mr)
+        explicit validation_result(memory::resource_pointer mr = memory::current_resource()) : errors(mr)
         {
         }
     };

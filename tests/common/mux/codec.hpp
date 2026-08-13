@@ -12,14 +12,14 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/mux/types.hpp>
-
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
+
+#include <common/core/error.hpp>
+#include <common/mux/types.hpp>
 
 namespace psmtest::mux
 {
@@ -32,20 +32,29 @@ namespace psmtest::mux
      *          事件判定，以及四类帧构造（开流/数据/FIN 半关/RST 重置）。
      */
     template <typename C>
-    concept frame_codec = requires
-    {
+    concept frame_codec = requires {
         typename C::frame_type;
         requires std::default_initializable<typename C::frame_type>;
         { C::header_len } -> std::convertible_to<const std::size_t>;
         { C::max_payload_len } -> std::convertible_to<const std::size_t>;
-        { C::payload_len(std::declval<const typename C::frame_type &>()) } -> std::convertible_to<std::size_t>;
-        { C::parse_header(std::span<const std::uint8_t>{}, std::declval<typename C::frame_type &>()) } -> std::same_as<error>;
-        { C::parse_payload(std::declval<typename C::frame_type &>(), std::span<const std::uint8_t>{}) } -> std::same_as<error>;
+        {
+            C::payload_len(std::declval<const typename C::frame_type &>())
+        } -> std::convertible_to<std::size_t>;
+        {
+            C::parse_header(std::span<const std::uint8_t>{}, std::declval<typename C::frame_type &>())
+        } -> std::same_as<error>;
+        {
+            C::parse_payload(std::declval<typename C::frame_type &>(), std::span<const std::uint8_t>{})
+        } -> std::same_as<error>;
         { C::frame_event(std::declval<const typename C::frame_type &>()) } -> std::same_as<stream_event>;
         { C::is_control(std::declval<const typename C::frame_type &>()) } -> std::same_as<bool>;
-        { C::frame_stream_id(std::declval<const typename C::frame_type &>()) } -> std::convertible_to<std::uint32_t>;
+        {
+            C::frame_stream_id(std::declval<const typename C::frame_type &>())
+        } -> std::convertible_to<std::uint32_t>;
         { C::build_open(std::uint32_t{}) } -> std::convertible_to<std::vector<std::uint8_t>>;
-        { C::build_data(std::uint32_t{}, std::span<const std::uint8_t>{}) } -> std::convertible_to<std::vector<std::uint8_t>>;
+        {
+            C::build_data(std::uint32_t{}, std::span<const std::uint8_t>{})
+        } -> std::convertible_to<std::vector<std::uint8_t>>;
         { C::build_fin(std::uint32_t{}) } -> std::convertible_to<std::vector<std::uint8_t>>;
         { C::build_rst(std::uint32_t{}) } -> std::convertible_to<std::vector<std::uint8_t>>;
     };

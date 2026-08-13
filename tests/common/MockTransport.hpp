@@ -11,14 +11,14 @@
 
 #pragma once
 
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/transport/transmission.hpp>
+
 #include <algorithm>
 #include <optional>
 #include <span>
 #include <system_error>
 #include <vector>
-
-#include <prism/foundation/foundation.hpp>
-#include <prism/net/transport/transmission.hpp>
 
 namespace psm::testing
 {
@@ -40,9 +40,7 @@ namespace psm::testing
          * @brief 构造 MockTransport
          * @details 初始化内部 io_context 和 PMR 容器。
          */
-        MockTransport()
-            : read_queue_(&buffer_resource_)
-            , written_data_(&buffer_resource_)
+        MockTransport() : read_queue_(&buffer_resource_), written_data_(&buffer_resource_)
         {
         }
 

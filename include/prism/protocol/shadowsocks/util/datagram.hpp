@@ -8,14 +8,14 @@
 #pragma once
 
 #include <prism/crypto/aead.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/protocol/shadowsocks/codec/packet.hpp>
+#include <prism/protocol/shadowsocks/config.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/protocol/shadowsocks/util/tracker.hpp>
-#include <prism/diagnose/diagnose.hpp>
 
 #include <boost/asio.hpp>
 
@@ -25,7 +25,6 @@
 #include <span>
 #include <utility>
 #include <vector>
-
 
 namespace psm::protocol::shadowsocks
 {
@@ -41,12 +40,13 @@ namespace psm::protocol::shadowsocks
      */
     struct udp_dec_pkt
     {
-        std::array<std::uint8_t, session_id_len> relay_id{};              // SS2022 UDP relay session identifier
-        address destination_address;                                     // 目标地址
-        std::uint16_t destination_port{0};                               // 目标端口
-        memory::vector<std::uint8_t> buffer{memory::current_resource()}; // 解密明文缓冲区（PMR），payload span 指向其子区间
-        std::span<const std::uint8_t> payload;                           // 载荷数据（零拷贝，指向 buffer 内偏移）
-        net::ip::udp::endpoint sender_endpoint;                          // 发送者端点
+        std::array<std::uint8_t, session_id_len> relay_id{}; // SS2022 UDP relay session identifier
+        address destination_address;                         // 目标地址
+        std::uint16_t destination_port{0};                   // 目标端口
+        memory::vector<std::uint8_t> buffer{
+            memory::current_resource()};        // 解密明文缓冲区（PMR），payload span 指向其子区间
+        std::span<const std::uint8_t> payload;  // 载荷数据（零拷贝，指向 buffer 内偏移）
+        net::ip::udp::endpoint sender_endpoint; // 发送者端点
     };
 
     /**
@@ -59,7 +59,10 @@ namespace psm::protocol::shadowsocks
     class udp_relay : public std::enable_shared_from_this<udp_relay>
     {
     public:
-        void set_prefix(std::shared_ptr<diagnose::context> p) noexcept { prefix_ = std::move(p); }
+        void set_prefix(std::shared_ptr<diagnose::context> p) noexcept
+        {
+            prefix_ = std::move(p);
+        }
 
         /**
          * @brief 构造函数
@@ -88,7 +91,8 @@ namespace psm::protocol::shadowsocks
          * @param sender 发送者端点
          * @return 错误码和解密结果
          */
-        [[nodiscard]] auto decrypt_inbound(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
+        [[nodiscard]] auto decrypt_inbound(std::span<const std::byte> packet,
+                                           const net::ip::udp::endpoint &sender)
             -> std::pair<fault::code, udp_dec_pkt>;
 
         /**
@@ -98,22 +102,26 @@ namespace psm::protocol::shadowsocks
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        [[nodiscard]] auto encrypt_out(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &relay_id, const std::shared_ptr<udp_session> &entry)
+        [[nodiscard]] auto encrypt_out(std::span<const std::byte> payload,
+                                       const std::array<std::uint8_t, session_id_len> &relay_id,
+                                       const std::shared_ptr<udp_session> &entry)
             -> std::pair<fault::code, memory::vector<std::byte>>;
 
         /**
          * @brief 获取加密方法
          * @return 加密方法枚举
          */
-        [[nodiscard]] auto method() const noexcept
-            -> cipher_method { return method_; }
+        [[nodiscard]] auto method() const noexcept -> cipher_method
+        {
+            return method_;
+        }
 
     private:
         config config_;                                    // SS2022 协议配置
-        std::shared_ptr<diagnose::context> prefix_;     // 日志前缀
-        memory::vector<std::uint8_t> psk_;                    // 解码后的 PSK
+        std::shared_ptr<diagnose::context> prefix_;        // 日志前缀
+        memory::vector<std::uint8_t> psk_;                 // 解码后的 PSK
         cipher_method method_{cipher_method::aes_128_gcm}; // 加密方法
-        std::shared_ptr<session_tracker> sess_tracker_; // UDP 会话跟踪器
+        std::shared_ptr<session_tracker> sess_tracker_;    // UDP 会话跟踪器
         bool valid_{true};                                 // PSK 解码是否成功
 
         /**
@@ -122,7 +130,8 @@ namespace psm::protocol::shadowsocks
          * @param sender 发送者端点
          * @return 错误码和解密结果
          */
-        [[nodiscard]] auto recv_aes_gcm(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
+        [[nodiscard]] auto recv_aes_gcm(std::span<const std::byte> packet,
+                                        const net::ip::udp::endpoint &sender)
             -> std::pair<fault::code, udp_dec_pkt>;
 
         /**
@@ -132,7 +141,9 @@ namespace psm::protocol::shadowsocks
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        [[nodiscard]] auto send_aes_gcm(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &relay_id, const std::shared_ptr<udp_session> &entry)
+        [[nodiscard]] auto send_aes_gcm(std::span<const std::byte> payload,
+                                        const std::array<std::uint8_t, session_id_len> &relay_id,
+                                        const std::shared_ptr<udp_session> &entry)
             -> std::pair<fault::code, memory::vector<std::byte>>;
 
         /**
@@ -141,7 +152,8 @@ namespace psm::protocol::shadowsocks
          * @param sender 发送者端点
          * @return 错误码和解密结果
          */
-        [[nodiscard]] auto recv_chacha(std::span<const std::byte> packet, const net::ip::udp::endpoint &sender)
+        [[nodiscard]] auto recv_chacha(std::span<const std::byte> packet,
+                                       const net::ip::udp::endpoint &sender)
             -> std::pair<fault::code, udp_dec_pkt>;
 
         /**
@@ -151,7 +163,9 @@ namespace psm::protocol::shadowsocks
          * @param entry 目标会话条目
          * @return 错误码和密文数据包
          */
-        [[nodiscard]] auto send_chacha(std::span<const std::byte> payload, const std::array<std::uint8_t, session_id_len> &relay_id, const std::shared_ptr<udp_session> &entry)
+        [[nodiscard]] auto send_chacha(std::span<const std::byte> payload,
+                                       const std::array<std::uint8_t, session_id_len> &relay_id,
+                                       const std::shared_ptr<udp_session> &entry)
             -> std::pair<fault::code, memory::vector<std::byte>>;
 
         /**
@@ -161,7 +175,8 @@ namespace psm::protocol::shadowsocks
          * @param packet_id 8 字节 PacketID
          * @return 12 字节 nonce
          */
-        [[nodiscard]] static auto make_nonce_aes(const std::array<std::uint8_t, session_id_len> &relay_id, const std::array<std::uint8_t, packet_id_len> &packet_id)
+        [[nodiscard]] static auto make_nonce_aes(const std::array<std::uint8_t, session_id_len> &relay_id,
+                                                 const std::array<std::uint8_t, packet_id_len> &packet_id)
             -> std::array<std::uint8_t, 12>;
 
         /**
@@ -169,8 +184,7 @@ namespace psm::protocol::shadowsocks
          * @param data 数据指针
          * @uint64_t 大端序转换后的值
          */
-        [[nodiscard]] static auto read_u64_be(const std::uint8_t *data)
-            -> std::uint64_t;
+        [[nodiscard]] static auto read_u64_be(const std::uint8_t *data) -> std::uint64_t;
 
         /**
          * @brief 写入 8 字节大端序 uint64

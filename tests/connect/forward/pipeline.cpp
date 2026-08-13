@@ -6,11 +6,11 @@
  * 由集成测试覆盖。
  */
 
+#include <prism/diagnose/context.hpp>
 #include <prism/foundation/fault/code.hpp>
+#include <prism/net/connection/target.hpp>
 #include <prism/net/connection/tunnel/forward/pipeline.hpp>
 #include <prism/net/transport/transmission.hpp>
-#include <prism/net/connection/target.hpp>
-#include <prism/diagnose/context.hpp>
 
 #include <boost/asio.hpp>
 

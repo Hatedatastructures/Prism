@@ -7,12 +7,12 @@
  * 空白修剪、畸形输入、偏移量精度、路径提取等场景。
  */
 
-#include <prism/protocol/http/codec/parser.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+
 #include <string>
 #include <string_view>
-
 
 #include <gtest/gtest.h>
 
@@ -27,7 +27,8 @@ TEST(HttpParser, BasicGetRequest)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     // 解析成功是后续断言的前提
-    ASSERT_TRUE(result == psm::fault::code::success) << "parse_req should return success for valid GET request";
+    ASSERT_TRUE(result == psm::fault::code::success)
+        << "parse_req should return success for valid GET request";
     // 验证方法字段被正确提取
     EXPECT_EQ(req.method, "GET") << "method should be 'GET'";
     // 验证请求目标为路径形式
@@ -82,7 +83,8 @@ TEST(HttpParser, PostRequest)
 TEST(HttpParser, ProxyAuthorization)
 {
     // 验证 Basic 认证凭据被完整提取（含 scheme 和 token）
-    const std::string raw = "GET / HTTP/1.1\r\nHost: example.com\r\nProxy-Authorization: Basic dXNlcjpwYXNz\r\n\r\n";
+    const std::string raw =
+        "GET / HTTP/1.1\r\nHost: example.com\r\nProxy-Authorization: Basic dXNlcjpwYXNz\r\n\r\n";
     psm::protocol::http::proxy_request req{};
     auto result = psm::protocol::http::parse_req(raw, req);
 
@@ -97,7 +99,8 @@ TEST(HttpParser, ProxyAuthorization)
 TEST(HttpParser, BothAuthAndHost)
 {
     // Host 和 Proxy-Authorization 同时存在时均应被提取
-    const std::string raw = "GET /secret HTTP/1.1\r\nHost: secure.example.com\r\nProxy-Authorization: Bearer token123\r\n\r\n";
+    const std::string raw =
+        "GET /secret HTTP/1.1\r\nHost: secure.example.com\r\nProxy-Authorization: Bearer token123\r\n\r\n";
     psm::protocol::http::proxy_request req{};
     auto result = psm::protocol::http::parse_req(raw, req);
 
@@ -170,7 +173,8 @@ TEST(HttpParser, MalformedHeaderNoColon)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     // 解析不应因畸形行失败
-    ASSERT_TRUE(result == psm::fault::code::success) << "parse should succeed despite malformed header line (silently skipped)";
+    ASSERT_TRUE(result == psm::fault::code::success)
+        << "parse should succeed despite malformed header line (silently skipped)";
     // 有效头部应仍被正确提取
     EXPECT_EQ(req.host, "example.com") << "host should still be 'example.com'";
 }
@@ -181,7 +185,8 @@ TEST(HttpParser, MalformedHeaderNoColon)
 TEST(HttpParser, RequestWithBodyData)
 {
     // 请求附带 body，验证 header_end 定位到 body 起始
-    const std::string raw = "POST /api HTTP/1.1\r\nHost: example.com\r\nContent-Length: 11\r\n\r\nhello world";
+    const std::string raw =
+        "POST /api HTTP/1.1\r\nHost: example.com\r\nContent-Length: 11\r\n\r\nhello world";
     psm::protocol::http::proxy_request req{};
     auto result = psm::protocol::http::parse_req(raw, req);
 
@@ -228,7 +233,8 @@ TEST(HttpParser, MissingHeaderTerminator)
     auto result = psm::protocol::http::parse_req(raw, req);
 
     // 必须返回解析错误
-    EXPECT_EQ(result, psm::fault::code::parse_error) << "should return parse_error when \\r\\n\\r\\n is missing";
+    EXPECT_EQ(result, psm::fault::code::parse_error)
+        << "should return parse_error when \\r\\n\\r\\n is missing";
 }
 
 /**
@@ -241,7 +247,8 @@ TEST(HttpParser, MissingRequestLineCrlf)
     psm::protocol::http::proxy_request req{};
     auto result = psm::protocol::http::parse_req(raw, req);
 
-    EXPECT_EQ(result, psm::fault::code::parse_error) << "should return parse_error when request line has no CRLF";
+    EXPECT_EQ(result, psm::fault::code::parse_error)
+        << "should return parse_error when request line has no CRLF";
 }
 
 /**
@@ -265,7 +272,8 @@ TEST(HttpParser, ExtractPathFromAbsoluteUri)
     // 带 query 和 fragment 的完整 URI，提取路径部分
     {
         auto path = psm::protocol::http::rel_path("http://example.com/path?q=1#frag");
-        EXPECT_EQ(path, "/path?q=1#frag") << "http://example.com/path?q=1#frag should extract '/path?q=1#frag'";
+        EXPECT_EQ(path, "/path?q=1#frag")
+            << "http://example.com/path?q=1#frag should extract '/path?q=1#frag'";
     }
 
     // HTTPS 协议也应正确去除 authority 部分

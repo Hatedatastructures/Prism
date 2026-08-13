@@ -6,41 +6,40 @@
  */
 #pragma once
 
-#include <prism/user/directory.hpp>
 #include <prism/settings/settings.hpp>
+#include <prism/user/directory.hpp>
 
 #include <boost/asio/ssl.hpp>
 
 #include <memory>
 
-
 namespace psm::resource
 {
 
-/**
+    /**
  * @struct process
  * @brief 进程级资源（L1）
  */
-struct process
-{
-    /**
+    struct process
+    {
+        /**
      * @brief 构造参数
      */
-    struct options
-    {
-        std::shared_ptr<psm::settings>                  cfg;
-        std::shared_ptr<boost::asio::ssl::context>    ssl;
-        std::shared_ptr<psm::user::directory>      accounts;
+        struct options
+        {
+            std::shared_ptr<psm::settings> cfg;
+            std::shared_ptr<boost::asio::ssl::context> ssl;
+            std::shared_ptr<psm::user::directory> accounts;
+        };
+
+        explicit process(options opts);
+
+        process(const process &) = delete;
+        auto operator=(const process &) -> process & = delete;
+
+        std::shared_ptr<psm::settings> cfg;
+        std::shared_ptr<boost::asio::ssl::context> ssl;
+        std::shared_ptr<psm::user::directory> accounts;
     };
-
-    explicit process(options opts);
-
-    process(const process&) = delete;
-    auto operator=(const process&) -> process& = delete;
-
-    std::shared_ptr<psm::settings>                  cfg;
-    std::shared_ptr<boost::asio::ssl::context>    ssl;
-    std::shared_ptr<psm::user::directory>      accounts;
-};
 
 } // namespace psm::resource

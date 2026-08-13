@@ -1,12 +1,11 @@
-#include <prism/runtime/worker/launch.hpp>
-
-#include <prism/user/directory.hpp>
-#include <prism/settings/settings.hpp>
-#include <prism/foundation/rate/counter.hpp>
-#include <prism/runtime/session/session.hpp>
-#include <prism/resource/session.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/rate/counter.hpp>
 #include <prism/net/transport/reliable.hpp>
+#include <prism/resource/session.hpp>
+#include <prism/runtime/session/session.hpp>
+#include <prism/runtime/worker/launch.hpp>
+#include <prism/settings/settings.hpp>
+#include <prism/user/directory.hpp>
 
 #include <cstring>
 
@@ -34,7 +33,9 @@ namespace psm::runtime::worker::launch
         auto local_ep = sock.local_endpoint(ec);
         auto protocol = tcp::v4();
         if (!ec && local_ep.address().is_v6())
+        {
             protocol = tcp::v6();
+        }
 
         auto native_handle = sock.release();
 
@@ -89,9 +90,7 @@ namespace psm::runtime::worker::launch
 
         auto active_sessions = metrics.session_counter();
         auto on_closed = [active_sessions]() noexcept
-        {
-            active_sessions->fetch_sub(1U, std::memory_order_relaxed);
-        };
+        { active_sessions->fetch_sub(1U, std::memory_order_relaxed); };
 
         // 封装 socket 为可靠传输
         auto inbound = psm::transport::make_reliable(std::move(params.socket));
@@ -135,15 +134,16 @@ namespace psm::runtime::worker::launch
 
         metrics.handoff_push();
 
-        auto start_session = [worker_res, &metrics,
-                              sock = std::move(params.socket),
-                              ioc = &worker_res->ioc]() mutable
+        auto start_session =
+            [worker_res, &metrics, sock = std::move(params.socket), ioc = &worker_res->ioc]() mutable
         {
             metrics.handoff_pop();
 
             auto migrated = migrate_executor(sock, *ioc);
             if (!migrated)
+            {
                 return;
+            }
 
             prime(*migrated);
 

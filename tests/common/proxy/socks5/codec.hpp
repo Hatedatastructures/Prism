@@ -7,11 +7,6 @@
 
 #pragma once
 
-#include <common/core/byte_span.hpp>
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/proxy/socks5/types.hpp>
-
 #include <boost/asio/buffer.hpp>
 
 #include <array>
@@ -26,6 +21,11 @@
 #include <system_error>
 #include <vector>
 
+#include <common/core/byte_span.hpp>
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/proxy/socks5/types.hpp>
+
 namespace psmtest::socks5
 {
 
@@ -34,8 +34,7 @@ namespace psmtest::socks5
      * @param g 问候（版本 + 方法列表）
      * @return greeting 字节：[ver 1B][nmethods 1B][methods var]
      */
-    [[nodiscard]] inline auto build_greeting(const greeting &g)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_greeting(const greeting &g) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(2 + g.methods.size());
@@ -52,17 +51,23 @@ namespace psmtest::socks5
      * @param consumed 输出消耗字节数
      * @return 错误码；need_more = 数据不足
      */
-    [[nodiscard]] inline auto parse_greeting(std::span<const std::uint8_t> data,
-                                             greeting &out, std::size_t &consumed) -> error
+    [[nodiscard]] inline auto parse_greeting(std::span<const std::uint8_t> data, greeting &out,
+                                             std::size_t &consumed) -> error
     {
         if (data.size() < 2)
+        {
             return error::need_more;
+        }
         out.ver = data[0];
         if (out.ver != version)
+        {
             return error::version_mismatch;
+        }
         const auto nmethods = data[1];
         if (data.size() < 2 + nmethods)
+        {
             return error::need_more;
+        }
         out.methods.assign(data.begin() + 2, data.begin() + 2 + nmethods);
         consumed = 2 + nmethods;
         return error::none;
@@ -73,8 +78,7 @@ namespace psmtest::socks5
      * @param m 方法选择（版本 + 方法）
      * @return 2 字节回复
      */
-    [[nodiscard]] inline auto build_method_reply(const method_reply &m)
-    -> std::array<std::uint8_t, 2>
+    [[nodiscard]] inline auto build_method_reply(const method_reply &m) -> std::array<std::uint8_t, 2>
     {
         return {m.ver, static_cast<std::uint8_t>(m.method)};
     }
@@ -85,14 +89,18 @@ namespace psmtest::socks5
      * @param out 输出方法选择
      * @return 错误码；need_more = 数据不足
      */
-    [[nodiscard]] inline auto parse_method_reply(std::span<const std::uint8_t> data,
-                                                 method_reply &out) -> error
+    [[nodiscard]] inline auto parse_method_reply(std::span<const std::uint8_t> data, method_reply &out)
+        -> error
     {
         if (data.size() < 2)
+        {
             return error::need_more;
+        }
         out.ver = data[0];
         if (out.ver != version)
+        {
             return error::bad_magic;
+        }
         out.method = static_cast<auth_method>(data[1]);
         return error::none;
     }
@@ -102,45 +110,41 @@ namespace psmtest::socks5
      * @param addr 目标地址
      * @return 地址字节
      */
-    [[nodiscard]] inline auto encode_address(const address &addr)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
         switch (addr.type)
         {
-            case address_type::ipv4:
+        case address_type::ipv4: {
+            std::array<std::uint8_t, 4> ip{};
+            std::size_t a = 0, p = 0;
+            for (const char ch : addr.host)
             {
-                std::array<std::uint8_t, 4> ip{};
-                std::size_t a = 0, p = 0;
-                for (const char ch : addr.host)
+                if (ch == '.')
                 {
-                    if (ch == '.')
-                    {
-                        ip[a++] = static_cast<std::uint8_t>(p);
-                        p = 0;
-                    }
-                    else
-                    {
-                        p = p * 10 + static_cast<std::size_t>(ch - '0');
-                    }
+                    ip[a++] = static_cast<std::uint8_t>(p);
+                    p = 0;
                 }
-                ip[a] = static_cast<std::uint8_t>(p);
-                out.insert(out.end(), ip.begin(), ip.end());
-                break;
+                else
+                {
+                    p = p * 10 + static_cast<std::size_t>(ch - '0');
+                }
             }
-            case address_type::ipv6:
-            {
-                out.insert(out.end(), addr.host.begin(), addr.host.end());
-                break;
-            }
-            case address_type::domain:
-            default:
-            {
-                out.push_back(static_cast<std::uint8_t>(addr.host.size()));
-                out.insert(out.end(), addr.host.begin(), addr.host.end());
-                break;
-            }
+            ip[a] = static_cast<std::uint8_t>(p);
+            out.insert(out.end(), ip.begin(), ip.end());
+            break;
+        }
+        case address_type::ipv6: {
+            out.insert(out.end(), addr.host.begin(), addr.host.end());
+            break;
+        }
+        case address_type::domain:
+        default: {
+            out.push_back(static_cast<std::uint8_t>(addr.host.size()));
+            out.insert(out.end(), addr.host.begin(), addr.host.end());
+            break;
+        }
         }
         out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
@@ -154,47 +158,53 @@ namespace psmtest::socks5
      * @param consumed 输出消耗字节数
      * @return 错误码；need_more = 数据不足
      */
-    [[nodiscard]] inline auto parse_address(std::span<const std::uint8_t> data,
-                                            address &out, std::size_t &consumed) -> error
+    [[nodiscard]] inline auto parse_address(std::span<const std::uint8_t> data, address &out,
+                                            std::size_t &consumed) -> error
     {
         if (data.empty())
+        {
             return error::need_more;
+        }
         out.type = static_cast<address_type>(data[0]);
         std::size_t off = 1;
         switch (out.type)
         {
-            case address_type::ipv4:
+        case address_type::ipv4: {
+            if (data.size() < off + 4 + 2)
             {
-                if (data.size() < off + 4 + 2)
-                    return error::need_more;
-                std::array<char, 16> buf{};
-                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u",
-                              data[off], data[off + 1], data[off + 2], data[off + 3]);
-                out.host = buf.data();
-                off += 4;
-                break;
+                return error::need_more;
             }
-            case address_type::ipv6:
+            std::array<char, 16> buf{};
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", data[off], data[off + 1], data[off + 2],
+                          data[off + 3]);
+            out.host = buf.data();
+            off += 4;
+            break;
+        }
+        case address_type::ipv6: {
+            if (data.size() < off + 16 + 2)
             {
-                if (data.size() < off + 16 + 2)
-                    return error::need_more;
-                out.host.assign(reinterpret_cast<const char *>(data.data() + off), 16);
-                off += 16;
-                break;
+                return error::need_more;
             }
-            case address_type::domain:
+            out.host.assign(reinterpret_cast<const char *>(data.data() + off), 16);
+            off += 16;
+            break;
+        }
+        case address_type::domain: {
+            if (off >= data.size())
             {
-                if (off >= data.size())
-                    return error::need_more;
-                const auto len = data[off++];
-                if (data.size() < off + len + 2)
-                    return error::need_more;
-                out.host.assign(reinterpret_cast<const char *>(data.data() + off), len);
-                off += len;
-                break;
+                return error::need_more;
             }
-            default:
-                return error::bad_message;
+            const auto len = data[off++];
+            if (data.size() < off + len + 2)
+            {
+                return error::need_more;
+            }
+            out.host.assign(reinterpret_cast<const char *>(data.data() + off), len);
+            off += len;
+            break;
+        }
+        default: return error::bad_message;
         }
         out.port = static_cast<std::uint16_t>(data[off]) << 8 | data[off + 1];
         consumed = off + 2;
@@ -206,8 +216,7 @@ namespace psmtest::socks5
      * @param req 请求（命令 + 目标地址）
      * @return 请求字节：[ver][cmd][rsv][ATYP][ADDR][PORT]
      */
-    [[nodiscard]] inline auto build_request(const request &req)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_request(const request &req) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(req.ver);
@@ -225,22 +234,30 @@ namespace psmtest::socks5
      * @param consumed 输出消耗字节数
      * @return 错误码；need_more = 数据不足
      */
-    [[nodiscard]] inline auto parse_request(std::span<const std::uint8_t> data,
-                                            request &out, std::size_t &consumed) -> error
+    [[nodiscard]] inline auto parse_request(std::span<const std::uint8_t> data, request &out,
+                                            std::size_t &consumed) -> error
     {
         if (data.size() < 4)
+        {
             return error::need_more;
+        }
         out.ver = data[0];
         if (out.ver != version)
+        {
             return error::bad_magic;
+        }
         out.cmd = static_cast<command>(data[1]);
         if (out.cmd != command::connect && out.cmd != command::udp_associate)
+        {
             return error::not_supported;
+        }
         out.rsv = data[2];
         std::size_t addr_consumed = 0;
         const auto ec = parse_address(data.subspan(3), out.target, addr_consumed);
         if (ec != error::none)
+        {
             return ec;
+        }
         consumed = 3 + addr_consumed;
         return error::none;
     }
@@ -250,8 +267,7 @@ namespace psmtest::socks5
      * @param rep 响应（状态码 + 绑定地址）
      * @return 响应字节：[ver][code][rsv][ATYP][ADDR][PORT]
      */
-    [[nodiscard]] inline auto build_reply(const reply &rep)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_reply(const reply &rep) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.push_back(rep.ver);
@@ -269,18 +285,22 @@ namespace psmtest::socks5
      * @param consumed 输出消耗字节数
      * @return 错误码；need_more = 数据不足
      */
-    [[nodiscard]] inline auto parse_reply(std::span<const std::uint8_t> data,
-                                          reply &out, std::size_t &consumed) -> error
+    [[nodiscard]] inline auto parse_reply(std::span<const std::uint8_t> data, reply &out,
+                                          std::size_t &consumed) -> error
     {
         if (data.size() < 4)
+        {
             return error::need_more;
+        }
         out.ver = data[0];
         out.code = static_cast<reply_code>(data[1]);
         out.rsv = data[2];
         std::size_t addr_consumed = 0;
         const auto ec = parse_address(data.subspan(3), out.bind, addr_consumed);
         if (ec != error::none)
+        {
             return ec;
+        }
         consumed = 3 + addr_consumed;
         return error::none;
     }
@@ -293,9 +313,8 @@ namespace psmtest::socks5
      * @details 头部无长度字段，载荷边界由调用方（一次底层读）约定。
      * @note FRAG 固定 0x00（不支持分片）
      */
-    [[nodiscard]] inline auto build_udp_datagram(const address &target,
-                                                 std::span<const std::uint8_t> payload)
-    -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto build_udp_datagram(const address &target, std::span<const std::uint8_t> payload)
+        -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         const auto addr = encode_address(target);
@@ -316,20 +335,27 @@ namespace psmtest::socks5
      * @return 错误码；need_more = 数据不足
      * @details 校验 RSV 与 FRAG，地址解析后剩余全部字节即为载荷。
      */
-    [[nodiscard]] inline auto parse_udp_datagram(std::span<const std::uint8_t> data,
-                                                 address &target,
+    [[nodiscard]] inline auto parse_udp_datagram(std::span<const std::uint8_t> data, address &target,
                                                  std::span<const std::uint8_t> &payload) -> error
     {
         if (data.size() < 3)
+        {
             return error::need_more;
+        }
         if (data[0] != 0x00 || data[1] != 0x00)
+        {
             return error::bad_magic;
+        }
         if (data[2] != 0x00)
+        {
             return error::not_supported;
+        }
         std::size_t consumed = 0;
         auto err = parse_address(data.subspan(3), target, consumed);
         if (err != error::none)
+        {
             return err;
+        }
         payload = data.subspan(3 + consumed);
         return error::none;
     }
@@ -341,7 +367,7 @@ namespace psmtest::socks5
      * @return 认证请求字节：[ver 0x01][ulen][uname][plen][passwd]
      */
     [[nodiscard]] inline auto build_userpass(std::string_view user, std::string_view pass)
-    -> std::vector<std::uint8_t>
+        -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         out.reserve(2 + user.size() + 1 + pass.size());
@@ -361,13 +387,19 @@ namespace psmtest::socks5
     [[nodiscard]] inline auto parse_userpass_reply(std::span<const std::uint8_t> data) -> error
     {
         if (data.size() < 2)
+        {
             return error::need_more;
+        }
         if (data[0] != 0x01)
+        {
             return error::bad_magic;
+        }
         return data[1] == 0x00 ? error::none : error::bad_auth;
     }
 
-    /// @brief SOCKS5 消息（Beast 风格，供 serializer/parser 使用）
+    /**
+     * @brief SOCKS5 消息（Beast 风格，供 serializer/parser 使用）
+     */
     struct message
     {
         /// 消息类型
@@ -403,7 +435,9 @@ namespace psmtest::socks5
         std::string password;
     };
 
-    /// @brief SOCKS5 消息序列化器（对象 → wire，Beast 风格）
+    /**
+     * @brief SOCKS5 消息序列化器（对象 → wire，Beast 风格）
+     */
     class serializer
     {
     public:
@@ -418,45 +452,40 @@ namespace psmtest::socks5
             offset_ = 0;
             switch (msg.type)
             {
-                case message::kind::greeting:
-                {
-                    greeting g;
-                    g.ver = version;
-                    g.methods = msg.methods;
-                    wire_ = build_greeting(g);
-                    break;
-                }
-                case message::kind::method_reply:
-                {
-                    method_reply mr;
-                    mr.ver = version;
-                    mr.method = static_cast<auth_method>(msg.method);
-                    wire_.assign(build_method_reply(mr).begin(), build_method_reply(mr).end());
-                    break;
-                }
-                case message::kind::userpass:
-                {
-                    wire_ = build_userpass(msg.username, msg.password);
-                    break;
-                }
-                case message::kind::request:
-                {
-                    request req;
-                    req.ver = version;
-                    req.cmd = msg.cmd;
-                    req.target = msg.addr;
-                    wire_ = build_request(req);
-                    break;
-                }
-                case message::kind::reply:
-                {
-                    reply rep;
-                    rep.ver = version;
-                    rep.code = msg.rep;
-                    rep.bind = msg.addr;
-                    wire_ = build_reply(rep);
-                    break;
-                }
+            case message::kind::greeting: {
+                greeting g;
+                g.ver = version;
+                g.methods = msg.methods;
+                wire_ = build_greeting(g);
+                break;
+            }
+            case message::kind::method_reply: {
+                method_reply mr;
+                mr.ver = version;
+                mr.method = static_cast<auth_method>(msg.method);
+                wire_.assign(build_method_reply(mr).begin(), build_method_reply(mr).end());
+                break;
+            }
+            case message::kind::userpass: {
+                wire_ = build_userpass(msg.username, msg.password);
+                break;
+            }
+            case message::kind::request: {
+                request req;
+                req.ver = version;
+                req.cmd = msg.cmd;
+                req.target = msg.addr;
+                wire_ = build_request(req);
+                break;
+            }
+            case message::kind::reply: {
+                reply rep;
+                rep.ver = version;
+                rep.code = msg.rep;
+                rep.bind = msg.addr;
+                wire_ = build_reply(rep);
+                break;
+            }
             }
         }
 
@@ -489,10 +518,12 @@ namespace psmtest::socks5
         std::size_t offset_{0};
     };
 
-    /// @brief SOCKS5 消息解析器（wire → 对象，Beast 风格）
-    /// @details 增量喂入字节流，按 expect 的消息类型驱动状态机。
-    /// put() 返回本次消耗的字节数；不足时返回 need_more（ec 保持空）。
-    /// 解析完成后通过 get() 取结果，通过 remaining() 取未消耗的超读字节。
+    /**
+     * @brief SOCKS5 消息解析器（wire → 对象，Beast 风格）
+     * @details 增量喂入字节流，按 expect 的消息类型驱动状态机。
+     * put() 返回本次消耗的字节数；不足时返回 need_more（ec 保持空）。
+     * 解析完成后通过 get() 取结果，通过 remaining() 取未消耗的超读字节。
+     */
     class parser
     {
     public:
@@ -515,103 +546,102 @@ namespace psmtest::socks5
         auto put(boost::asio::const_buffer buffer, std::error_code &ec) -> std::size_t
         {
             ec.clear();
-            const auto data = std::span<const std::uint8_t>(
-                static_cast<const std::uint8_t *>(buffer.data()), buffer.size());
+            const auto data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(buffer.data()),
+                                                            buffer.size());
             prev_buf_size_ = buf_.size();
             buf_.insert(buf_.end(), data.begin(), data.end());
             if (done_)
+            {
                 return 0;
+            }
             std::size_t consumed = 0;
             error err = error::none;
 
             switch (expect_)
             {
-                case message::kind::greeting:
+            case message::kind::greeting: {
+                greeting g;
+                err = parse_greeting(buf_, g, consumed);
+                if (err == error::none)
                 {
-                    greeting g;
-                    err = parse_greeting(buf_, g, consumed);
-                    if (err == error::none)
-                    {
-                        msg_.type = message::kind::greeting;
-                        msg_.methods = std::move(g.methods);
-                    }
+                    msg_.type = message::kind::greeting;
+                    msg_.methods = std::move(g.methods);
+                }
+                break;
+            }
+            case message::kind::method_reply: {
+                method_reply mr;
+                err = parse_method_reply(buf_, mr);
+                if (err == error::none)
+                {
+                    msg_.type = message::kind::method_reply;
+                    msg_.method = static_cast<std::uint8_t>(mr.method);
+                    consumed = 2;
+                }
+                break;
+            }
+            case message::kind::userpass: {
+                // 认证子协商：[ver 0x01][ulen][uname][plen][passwd]
+                std::size_t off = 0;
+                if (buf_.size() < off + 2)
+                {
+                    err = error::need_more;
                     break;
                 }
-                case message::kind::method_reply:
+                if (buf_[0] != 0x01)
                 {
-                    method_reply mr;
-                    err = parse_method_reply(buf_, mr);
-                    if (err == error::none)
-                    {
-                        msg_.type = message::kind::method_reply;
-                        msg_.method = static_cast<std::uint8_t>(mr.method);
-                        consumed = 2;
-                    }
+                    err = error::bad_magic;
                     break;
                 }
-                case message::kind::userpass:
+                const auto ulen = buf_[1];
+                off = 2;
+                if (buf_.size() < off + ulen + 1)
                 {
-                    // 认证子协商：[ver 0x01][ulen][uname][plen][passwd]
-                    std::size_t off = 0;
-                    if (buf_.size() < off + 2)
-                    {
-                        err = error::need_more;
-                        break;
-                    }
-                    if (buf_[0] != 0x01)
-                    {
-                        err = error::bad_magic;
-                        break;
-                    }
-                    const auto ulen = buf_[1];
-                    off = 2;
-                    if (buf_.size() < off + ulen + 1)
-                    {
-                        err = error::need_more;
-                        break;
-                    }
-                    msg_.username.assign(reinterpret_cast<const char *>(buf_.data() + off), ulen);
-                    off += ulen;
-                    const auto plen = buf_[off++];
-                    if (buf_.size() < off + plen)
-                    {
-                        err = error::need_more;
-                        break;
-                    }
-                    msg_.password.assign(reinterpret_cast<const char *>(buf_.data() + off), plen);
-                    off += plen;
-                    consumed = off;
-                    msg_.type = message::kind::userpass;
+                    err = error::need_more;
                     break;
                 }
-                case message::kind::request:
+                msg_.username.assign(reinterpret_cast<const char *>(buf_.data() + off), ulen);
+                off += ulen;
+                const auto plen = buf_[off++];
+                if (buf_.size() < off + plen)
                 {
-                    request req;
-                    err = parse_request(buf_, req, consumed);
-                    if (err == error::none)
-                    {
-                        msg_.type = message::kind::request;
-                        msg_.cmd = req.cmd;
-                        msg_.addr = req.target;
-                    }
+                    err = error::need_more;
                     break;
                 }
-                case message::kind::reply:
+                msg_.password.assign(reinterpret_cast<const char *>(buf_.data() + off), plen);
+                off += plen;
+                consumed = off;
+                msg_.type = message::kind::userpass;
+                break;
+            }
+            case message::kind::request: {
+                request req;
+                err = parse_request(buf_, req, consumed);
+                if (err == error::none)
                 {
-                    reply rep;
-                    err = parse_reply(buf_, rep, consumed);
-                    if (err == error::none)
-                    {
-                        msg_.type = message::kind::reply;
-                        msg_.rep = rep.code;
-                        msg_.addr = rep.bind;
-                    }
-                    break;
+                    msg_.type = message::kind::request;
+                    msg_.cmd = req.cmd;
+                    msg_.addr = req.target;
                 }
+                break;
+            }
+            case message::kind::reply: {
+                reply rep;
+                err = parse_reply(buf_, rep, consumed);
+                if (err == error::none)
+                {
+                    msg_.type = message::kind::reply;
+                    msg_.rep = rep.code;
+                    msg_.addr = rep.bind;
+                }
+                break;
+            }
             }
 
             if (err == error::need_more)
+            {
                 return 0;
+            }
             if (err != error::none)
             {
                 ec = make_error_code(err);
@@ -649,7 +679,9 @@ namespace psmtest::socks5
         [[nodiscard]] auto remaining() const -> std::span<const std::uint8_t>
         {
             if (buf_.empty() || !done_)
+            {
                 return {};
+            }
             // 记录 consumed 偏移：put 成功时保存
             return std::span<const std::uint8_t>(buf_.data() + consumed_, buf_.size() - consumed_);
         }
@@ -658,11 +690,12 @@ namespace psmtest::socks5
          * @brief 提取未消耗的超读字节（所有权移交）
          * @return 剩余字节
          */
-        [[nodiscard]] auto take_remaining()
-        -> std::vector<std::uint8_t>
+        [[nodiscard]] auto take_remaining() -> std::vector<std::uint8_t>
         {
             if (!done_ || consumed_ >= buf_.size())
+            {
                 return {};
+            }
             std::vector<std::uint8_t> out(buf_.begin() + static_cast<std::ptrdiff_t>(consumed_), buf_.end());
             buf_.clear();
             consumed_ = 0;
@@ -699,8 +732,7 @@ namespace psmtest::socks5
      * @return 错误码（半帧等待由内部循环处理；EOF = unexpected_eof）
      * @details Beast 风格自由函数：循环 async_read_some → put，直到解析完成。
      */
-    [[nodiscard]] inline auto async_read(shared_transmission transport, parser &p)
-    -> net::awaitable<error>
+    [[nodiscard]] inline auto async_read(shared_transmission transport, parser &p) -> net::awaitable<error>
     {
         std::array<std::uint8_t, 512> buf{};
         while (!p.is_done())
@@ -709,13 +741,19 @@ namespace psmtest::socks5
             auto buffer = as_bytes(std::span<std::uint8_t>(buf));
             const auto n = co_await transport->async_read_some(buffer, ec);
             if (ec)
+            {
                 co_return error::io_error;
+            }
             if (n == 0)
+            {
                 co_return error::unexpected_eof;
+            }
             std::error_code perr;
             p.put(boost::asio::buffer(buf.data(), n), perr);
             if (perr)
+            {
                 co_return static_cast<error>(perr.value());
+            }
         }
         co_return error::none;
     }
@@ -728,7 +766,7 @@ namespace psmtest::socks5
      * @details Beast 风格自由函数：循环 get → async_write_some，直到输出完成。
      */
     [[nodiscard]] inline auto async_write(shared_transmission transport, serializer &s)
-    -> net::awaitable<error>
+        -> net::awaitable<error>
     {
         std::array<std::uint8_t, 512> buf{};
         while (!s.is_done())
@@ -736,18 +774,26 @@ namespace psmtest::socks5
             std::error_code ec;
             const auto n = s.get(boost::asio::buffer(buf.data(), buf.size()), ec);
             if (ec)
+            {
                 co_return error::io_error;
+            }
             if (n == 0)
+            {
                 co_return error::bad_length;
+            }
             std::size_t done = 0;
             while (done < n)
             {
                 auto view = as_bytes(std::span<const std::uint8_t>(buf.data() + done, n - done));
                 const auto w = co_await transport->async_write_some(view, ec);
                 if (ec)
+                {
                     co_return error::io_error;
+                }
                 if (w == 0)
+                {
                     co_return error::broken_pipe;
+                }
                 done += w;
             }
         }

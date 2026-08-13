@@ -4,12 +4,13 @@
  * @details 直接测试 read_u16/read_u24/parse_sni/parse_key_share/parse_versions/parse_extensions
  */
 
-#include <prism/foundation/foundation.hpp>
-#include "../../src/prism/handshake/recognition/tls/signal.cpp"
 #include <prism/diagnose/log.hpp>
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include <cstring>
+
+#include "../../src/prism/handshake/recognition/tls/signal.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -106,7 +107,9 @@ namespace
         buf.push_back(static_cast<std::uint8_t>((name_len >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(name_len & 0xFF));
         for (auto c : std::string_view(name))
+        {
             buf.push_back(static_cast<std::uint8_t>(c));
+        }
 
         psm::recognition::tls::parse_sni({buf.data(), buf.size()}, features);
         EXPECT_EQ(features.server_name, "example.com") << "parse_sni: hostname found";
@@ -127,14 +130,19 @@ namespace
         buf.push_back(static_cast<std::uint8_t>(total_list & 0xFF));
         // entry 1: type=0x01, len=3, data=0x00 0x00 0x00
         buf.push_back(0x01);
-        buf.push_back(0x00); buf.push_back(0x03);
-        buf.push_back(0x00); buf.push_back(0x00); buf.push_back(0x00);
+        buf.push_back(0x00);
+        buf.push_back(0x03);
+        buf.push_back(0x00);
+        buf.push_back(0x00);
+        buf.push_back(0x00);
         // entry 2: hostname
         buf.push_back(tls_proto::SNAME_TYPE_HOSTNAME);
         buf.push_back(static_cast<std::uint8_t>((host_len >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(host_len & 0xFF));
         for (auto c : std::string_view(host))
+        {
             buf.push_back(static_cast<std::uint8_t>(c));
+        }
 
         psm::recognition::tls::parse_sni({buf.data(), buf.size()}, features);
         EXPECT_EQ(features.server_name, "test.org") << "parse_sni: skips non-hostname, finds hostname";
@@ -145,10 +153,13 @@ namespace
         tls_proto::hello_features features;
         // name_len says 100 but only 2 bytes available
         psm::memory::vector<std::uint8_t> buf;
-        buf.push_back(0x00); buf.push_back(0x05); // list_len=5
+        buf.push_back(0x00);
+        buf.push_back(0x05); // list_len=5
         buf.push_back(tls_proto::SNAME_TYPE_HOSTNAME);
-        buf.push_back(0x00); buf.push_back(0x64); // name_len=100
-        buf.push_back(0x41); buf.push_back(0x42); // only 2 bytes
+        buf.push_back(0x00);
+        buf.push_back(0x64); // name_len=100
+        buf.push_back(0x41);
+        buf.push_back(0x42); // only 2 bytes
 
         psm::recognition::tls::parse_sni({buf.data(), buf.size()}, features);
         EXPECT_TRUE(features.server_name.empty()) << "parse_sni: truncated name -> no SNI";
@@ -168,7 +179,8 @@ namespace
     {
         tls_proto::hello_features features;
         std::array<std::uint8_t, 32> key{};
-        key[0] = 0xCA; key[31] = 0xFE;
+        key[0] = 0xCA;
+        key[31] = 0xFE;
 
         psm::memory::vector<std::uint8_t> buf;
         auto entry_len = static_cast<std::uint16_t>(2 + 2 + 32);
@@ -182,7 +194,9 @@ namespace
         buf.push_back(static_cast<std::uint8_t>((32 >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(32 & 0xFF));
         for (auto b : key)
+        {
             buf.push_back(b);
+        }
 
         psm::recognition::tls::parse_key_share({buf.data(), buf.size()}, features);
         EXPECT_TRUE(features.has_x25519) << "parse_key_share: X25519 found";
@@ -196,7 +210,8 @@ namespace
         // MLKEM768 hybrid: key is >= 32 bytes, first 32 are X25519 portion
         constexpr std::size_t hybrid_key_len = 32 + 1184; // X25519 + MLKEM768
         psm::memory::vector<std::uint8_t> key(hybrid_key_len, 0x00);
-        key[0] = 0xDE; key[31] = 0xAD;
+        key[0] = 0xDE;
+        key[31] = 0xAD;
 
         psm::memory::vector<std::uint8_t> buf;
         auto entry_len = static_cast<std::uint16_t>(2 + 2 + hybrid_key_len);
@@ -209,7 +224,9 @@ namespace
         buf.push_back(static_cast<std::uint8_t>((hybrid_key_len >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(hybrid_key_len & 0xFF));
         for (auto b : key)
+        {
             buf.push_back(b);
+        }
 
         psm::recognition::tls::parse_key_share({buf.data(), buf.size()}, features);
         EXPECT_TRUE(features.has_x25519) << "parse_key_share: X25519MLKEM768 found";
@@ -226,10 +243,14 @@ namespace
 
         buf.push_back(static_cast<std::uint8_t>((list_len >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(list_len & 0xFF));
-        buf.push_back(0x00); buf.push_back(0x17); // SECP256R1, not X25519
-        buf.push_back(0x00); buf.push_back(0x20); // key_len=32
+        buf.push_back(0x00);
+        buf.push_back(0x17); // SECP256R1, not X25519
+        buf.push_back(0x00);
+        buf.push_back(0x20); // key_len=32
         for (int i = 0; i < 32; ++i)
+        {
             buf.push_back(0x00);
+        }
 
         psm::recognition::tls::parse_key_share({buf.data(), buf.size()}, features);
         EXPECT_TRUE(!features.has_x25519) << "parse_key_share: wrong group -> no key";
@@ -239,12 +260,15 @@ namespace
     {
         tls_proto::hello_features features;
         psm::memory::vector<std::uint8_t> buf;
-        buf.push_back(0x00); buf.push_back(0x06); // list_len=6
+        buf.push_back(0x00);
+        buf.push_back(0x06); // list_len=6
         buf.push_back(static_cast<std::uint8_t>((tls_proto::GROUP_X25519 >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(tls_proto::GROUP_X25519 & 0xFF));
-        buf.push_back(0x00); buf.push_back(0x20); // key_len=32
+        buf.push_back(0x00);
+        buf.push_back(0x20); // key_len=32
         // But only 2 bytes of key data follow
-        buf.push_back(0x01); buf.push_back(0x02);
+        buf.push_back(0x01);
+        buf.push_back(0x02);
 
         psm::recognition::tls::parse_key_share({buf.data(), buf.size()}, features);
         EXPECT_TRUE(!features.has_x25519) << "parse_key_share: truncated key -> no key";
@@ -311,9 +335,12 @@ namespace
     {
         tls_proto::hello_features features;
         psm::memory::vector<std::uint8_t> buf;
-        buf.push_back(0x00); buf.push_back(0x04); // ext_total_len=4
-        buf.push_back(0xFF); buf.push_back(0x01); // unknown ext type
-        buf.push_back(0x00); buf.push_back(0x00); // ext_len=0
+        buf.push_back(0x00);
+        buf.push_back(0x04); // ext_total_len=4
+        buf.push_back(0xFF);
+        buf.push_back(0x01); // unknown ext type
+        buf.push_back(0x00);
+        buf.push_back(0x00); // ext_len=0
 
         psm::recognition::tls::parse_extensions({buf.data(), buf.size()}, features);
         EXPECT_TRUE(features.server_name.empty()) << "parse_extensions: unknown type ignored";
@@ -324,11 +351,15 @@ namespace
     {
         tls_proto::hello_features features;
         psm::memory::vector<std::uint8_t> buf;
-        buf.push_back(0x00); buf.push_back(0x08); // ext_total_len=8
-        buf.push_back(0x00); buf.push_back(0x00); // SNI type
-        buf.push_back(0x00); buf.push_back(0x10); // ext_len=16
+        buf.push_back(0x00);
+        buf.push_back(0x08); // ext_total_len=8
+        buf.push_back(0x00);
+        buf.push_back(0x00); // SNI type
+        buf.push_back(0x00);
+        buf.push_back(0x10); // ext_len=16
         // Only 2 bytes follow instead of 16
-        buf.push_back(0x00); buf.push_back(0x00);
+        buf.push_back(0x00);
+        buf.push_back(0x00);
 
         psm::recognition::tls::parse_extensions({buf.data(), buf.size()}, features);
         EXPECT_TRUE(features.server_name.empty()) << "parse_extensions: truncated ext -> break";
@@ -344,7 +375,8 @@ namespace
         // ECH extension
         buf.push_back(static_cast<std::uint8_t>((tls_proto::EXT_ENCRYPTED_CLIENT_HELLO >> 8) & 0xFF));
         buf.push_back(static_cast<std::uint8_t>(tls_proto::EXT_ENCRYPTED_CLIENT_HELLO & 0xFF));
-        buf.push_back(0x00); buf.push_back(0x00); // ext_len=0
+        buf.push_back(0x00);
+        buf.push_back(0x00); // ext_len=0
 
         psm::recognition::tls::parse_extensions({buf.data(), buf.size()}, features);
         EXPECT_TRUE(features.has_ech) << "parse_extensions: ECH found";

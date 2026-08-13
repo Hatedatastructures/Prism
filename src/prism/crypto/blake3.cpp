@@ -14,24 +14,20 @@ namespace psm::crypto
         blake3_hasher_finalize(&hasher, out.data(), out.size());
     }
 
-
-    auto derive_key(const std::string_view context, const std::span<const std::uint8_t> material, const std::size_t out_len)
-        -> std::vector<std::uint8_t>
+    auto derive_key(const std::string_view context, const std::span<const std::uint8_t> material,
+                    const std::size_t out_len) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out(out_len);
         derive_key(context, material, out);
         return out;
     }
 
-
-    auto keyed_hasher(const std::span<const std::uint8_t> key)
-        -> blake3_hasher
+    auto keyed_hasher(const std::span<const std::uint8_t> key) -> blake3_hasher
     {
         blake3_hasher hasher;
         blake3_hasher_init_keyed(&hasher, key.data());
         return hasher;
     }
-
 
     auto keyed_hash(const std::span<const std::uint8_t> key, const std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, 32>
@@ -44,9 +40,7 @@ namespace psm::crypto
         return out;
     }
 
-
-    auto hash(const std::span<const std::uint8_t> data)
-        -> std::array<std::uint8_t, 32>
+    auto hash(const std::span<const std::uint8_t> data) -> std::array<std::uint8_t, 32>
     {
         blake3_hasher hasher;
         blake3_hasher_init(&hasher);

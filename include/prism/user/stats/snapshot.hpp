@@ -9,7 +9,6 @@
 #include <cstddef>
 #include <cstdint>
 
-
 namespace psm::stats
 {
 
@@ -21,14 +20,14 @@ namespace psm::stats
      */
     struct worker_snapshot
     {
-        std::uint32_t active_sessions{0};       ///< 当前活跃会话数
-        std::uint32_t pending_handoffs{0};      ///< 等待分发的连接数
+        std::uint32_t active_sessions{0};  ///< 当前活跃会话数
+        std::uint32_t pending_handoffs{0}; ///< 等待分发的连接数
         std::uint64_t lag_us{0};           ///< 事件循环延迟（微秒，EMA 平滑后）
 
-        std::size_t active_tasks{0};            ///< 当前活跃 detached 协程数
-        std::size_t spawned_total{0};     ///< 历史累计 spawned 协程数
-        std::size_t cancelled_total{0};   ///< 历史累计取消协程数
-        bool alive{true};                       ///< worker 健康标志（崩溃后置 false）
+        std::size_t active_tasks{0};    ///< 当前活跃 detached 协程数
+        std::size_t spawned_total{0};   ///< 历史累计 spawned 协程数
+        std::size_t cancelled_total{0}; ///< 历史累计取消协程数
+        bool alive{true};               ///< worker 健康标志（崩溃后置 false）
     };
 
     /**
@@ -38,8 +37,8 @@ namespace psm::stats
      */
     struct runtime_snapshot
     {
-        std::uint64_t uptime_seconds{0};        ///< 进程运行时间（秒）
-        std::uint32_t worker_count{0};           ///< 工作线程数量
+        std::uint64_t uptime_seconds{0}; ///< 进程运行时间（秒）
+        std::uint32_t worker_count{0};   ///< 工作线程数量
     };
 
     /**
@@ -56,10 +55,10 @@ namespace psm::stats
      */
     struct protocol_snapshot
     {
-        std::uint64_t connections{0};            ///< 历史总连接数（仅增不减）
-        std::uint64_t active{0};                 ///< 当前活跃连接数
-        std::uint64_t uplink_bytes{0};           ///< 上行总字节数（含协议开销）
-        std::uint64_t downlink_bytes{0};         ///< 下行总字节数（含协议开销）
+        std::uint64_t connections{0};    ///< 历史总连接数（仅增不减）
+        std::uint64_t active{0};         ///< 当前活跃连接数
+        std::uint64_t uplink_bytes{0};   ///< 上行总字节数（含协议开销）
+        std::uint64_t downlink_bytes{0}; ///< 下行总字节数（含协议开销）
     };
 
     /**
@@ -70,13 +69,13 @@ namespace psm::stats
      */
     struct traffic_snapshot
     {
-        std::uint64_t total_connections{0};      ///< 全局总连接数
-        std::uint64_t total_active{0};           ///< 全局当前活跃连接数
-        std::uint64_t total_uplink{0};           ///< 全局上行总字节
-        std::uint64_t total_downlink{0};         ///< 全局下行总字节
-        protocol_snapshot protocols[slot_count]{};  ///< 按协议维度的流量明细
-        std::uint64_t auth_success{0};           ///< 认证成功次数
-        std::uint64_t auth_failure{0};           ///< 认证失败次数
+        std::uint64_t total_connections{0};        ///< 全局总连接数
+        std::uint64_t total_active{0};             ///< 全局当前活跃连接数
+        std::uint64_t total_uplink{0};             ///< 全局上行总字节
+        std::uint64_t total_downlink{0};           ///< 全局下行总字节
+        protocol_snapshot protocols[slot_count]{}; ///< 按协议维度的流量明细
+        std::uint64_t auth_success{0};             ///< 认证成功次数
+        std::uint64_t auth_failure{0};             ///< 认证失败次数
     };
     /**
      * @struct memory_snapshot
@@ -86,9 +85,9 @@ namespace psm::stats
      */
     struct memory_snapshot
     {
-        std::uint64_t total_allocated{0};    ///< 累计分配字节
-        std::uint64_t total_deallocated{0};  ///< 累计释放字节
-        std::uint64_t current_usage{0};      ///< 当前活跃字节
-        std::uint64_t allocation_count{0};   ///< 分配次数
+        std::uint64_t total_allocated{0};   ///< 累计分配字节
+        std::uint64_t total_deallocated{0}; ///< 累计释放字节
+        std::uint64_t current_usage{0};     ///< 当前活跃字节
+        std::uint64_t allocation_count{0};  ///< 分配次数
     };
 } // namespace psm::stats

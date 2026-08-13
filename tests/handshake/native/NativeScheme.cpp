@@ -4,20 +4,19 @@
  * @details 覆盖 native scheme 的 name/active/guess/tier/unique/weight 方法。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/handshake/native.hpp>
 #include <prism/settings/settings.hpp>
 
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace
 {
     TEST(NativeScheme, Name)
     {
         psm::handshake::native::native scheme;
-        EXPECT_EQ(scheme.name(), std::string_view{"native"})
-            << "native: name == 'native'";
+        EXPECT_EQ(scheme.name(), std::string_view{"native"}) << "native: name == 'native'";
     }
 
     TEST(NativeScheme, Tier)

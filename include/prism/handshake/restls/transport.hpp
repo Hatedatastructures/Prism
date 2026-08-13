@@ -13,9 +13,9 @@
 #pragma once
 
 #include <prism/foundation/memory/container.hpp>
-#include <prism/net/transport/reliable.hpp>
 #include <prism/handshake/restls/crypto.hpp>
 #include <prism/handshake/restls/script.hpp>
+#include <prism/net/transport/reliable.hpp>
 #include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
@@ -27,7 +27,6 @@
 #include <optional>
 #include <span>
 
-
 namespace psm::handshake::restls
 {
 
@@ -38,8 +37,8 @@ namespace psm::handshake::restls
      */
     enum class tls_version : std::uint8_t
     {
-        v12,  ///< TLS 1.2
-        v13   ///< TLS 1.3
+        v12, ///< TLS 1.2
+        v13  ///< TLS 1.3
     };
 
     /**
@@ -50,10 +49,11 @@ namespace psm::handshake::restls
     struct restls_handover
     {
         std::span<const std::uint8_t, 32> secret;        ///< RestlsSecret（32 字节）
-        std::span<const std::uint8_t, 32> server_random;  ///< ServerHello 的 server_random（32 字节）
-        script_engine script;                              ///< Restls script 引擎
-        tls_version version;                               ///< TLS 版本
-        memory::vector<std::byte> client_finished;        ///< 客户端 Finished（完整 TLS record，首次 c2s authMac 用）
+        std::span<const std::uint8_t, 32> server_random; ///< ServerHello 的 server_random（32 字节）
+        script_engine script;                            ///< Restls script 引擎
+        tls_version version;                             ///< TLS 版本
+        memory::vector<std::byte>
+            client_finished; ///< 客户端 Finished（完整 TLS record，首次 c2s authMac 用）
     };
 
     /**
@@ -71,92 +71,145 @@ namespace psm::handshake::restls
          * @param raw_trans raw TCP reliable transport（所有权转移）
          * @param handover 握手阶段产出的参数包（secret, server_random, script, version, client_finished, first_encrypted）
          */
-        explicit restls_transport(
-            transport::shared_transmission raw_trans,
-            restls_handover handover);
+        explicit restls_transport(transport::shared_transmission raw_trans, restls_handover handover);
 
+        /**
+         * @brief 析构传输层
+         */
         ~restls_transport() noexcept override;
 
-        [[nodiscard]] auto transport_type() const noexcept
-            -> type override
+        /**
+         * @brief 获取传输层类型
+         * @return type::tcp
+         */
+        [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             return type::tcp;
         }
 
+        /**
+         * @brief 获取内层传输
+         * @return 底层 raw TCP 传输指针
+         */
         [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
             return raw_trans_.get();
         }
 
+        /**
+         * @brief 获取内层传输（const 版本）
+         * @return 底层 raw TCP 传输指针
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
             return raw_trans_.get();
         }
 
+        /**
+         * @brief 获取执行器
+         * @return 底层传输的执行器，用于协程调度
+         */
         [[nodiscard]] auto executor() const -> executor_type override
         {
             return raw_trans_->executor();
         }
 
+        /**
+         * @brief 异步读取数据
+         * @details 逐 TLS record 验证 auth_mac 并用 mask XOR 解码后返回。
+         * @param buffer 接收缓冲区
+         * @param ec 错误码输出参数
+         * @return 异步操作，返回读取字节数
+         */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
+        /**
+         * @brief 异步写入数据
+         * @details 通过 script 引擎控制填充，构造完整 TLS record 后写入。
+         * @param buffer 发送缓冲区
+         * @param ec 错误码输出参数
+         * @return 异步操作，返回写入字节数
+         */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
+        /**
+         * @brief 关闭传输层
+         */
         void close() override;
+        /**
+         * @brief 取消所有未完成的异步操作
+         */
         void cancel() override;
 
     private:
-        /// 读取一个完整的 Restls 应用数据记录（封装为 TLS ApplicationData record）
+        /**
+         * @brief 读取一个完整的 Restls 应用数据记录（封装为 TLS ApplicationData record）
+         * @param ec 错误码输出参数
+         * @return 读取到的记录，无数据时为 nullopt
+         */
         [[nodiscard]] auto read_restls_frame(std::error_code &ec)
             -> net::awaitable<std::optional<memory::vector<std::byte>>>;
 
-        /// 写入一个 Restls 应用数据记录（封装为 TLS ApplicationData record）
-        /// @param force_noop 强制 cmd=ActNoop（用于 random-response，避免误触发 client 回 random-response）
-        [[nodiscard]] auto write_restls_frame(std::span<const std::byte> data, std::error_code &ec, bool force_noop = false)
-            -> net::awaitable<std::size_t>;
+        /**
+         * @brief 写入一个 Restls 应用数据记录（封装为 TLS ApplicationData record）
+         * @param data 待写入的应用数据
+         * @param ec 错误码输出
+         * @param force_noop 强制 cmd=ActNoop（用于 random-response，避免误触发 client 回 random-response）
+         * @return 实际写入的字节数
+         */
+        [[nodiscard]] auto write_restls_frame(std::span<const std::byte> data, std::error_code &ec,
+                                              bool force_noop = false) -> net::awaitable<std::size_t>;
 
-        /// 发送随机响应帧
+        /**
+         * @brief 发送随机响应帧
+         * @param count 随机响应帧数量
+         * @param ec 错误码输出参数
+         */
         [[nodiscard]] auto send_random_response(std::uint8_t count, std::error_code &ec)
             -> net::awaitable<void>;
 
-        /// 获取 s→c write 互斥锁（协程级 mutex）
-        /// write_restls_frame 入口 acquire，co_return 时由 write_lock_guard RAII 释放
+        /**
+         * @brief 获取 s→c write 互斥锁（协程级 mutex）
+         * @details write_restls_frame 入口 acquire，co_return 时由 write_lock_guard RAII 释放
+         */
         [[nodiscard]] auto acquire_write_lock() -> net::awaitable<void>;
 
-        /// 释放 s→c write 互斥锁
+        /**
+         * @brief 释放 s→c write 互斥锁
+         */
         void release_write_lock() noexcept;
 
-        transport::shared_transmission raw_trans_;
-        std::array<std::uint8_t, 32> secret_;
-        std::array<std::uint8_t, 32> server_random_;
-        script_engine script_;
-        tls_version tls_version_;
-        memory::vector<std::byte> client_finished_;  ///< 首次 c2s authMac 计算用，用后清空
+        transport::shared_transmission raw_trans_;     // 底层 raw TCP 传输
+        std::array<std::uint8_t, 32> secret_;          // RestlsSecret（32 字节）
+        std::array<std::uint8_t, 32> server_random_;   // ServerHello 的 server_random
+        script_engine script_;                         // Restls script 引擎
+        tls_version tls_version_;                      // TLS 版本
+        memory::vector<std::byte> client_finished_; ///< 首次 c2s authMac 计算用，用后清空
 
         // 读写计数器（方向独立的 restls 帧计数器）
-        std::uint64_t to_client_counter_{0};
-        std::uint64_t to_server_counter_{0};
-        std::uint64_t read_counter_{0};
-        std::uint64_t write_counter_{0};
-        bool first_write_{true};
-        int skip_count_{0};  // authMac 失败时跳过的帧计数
+        std::uint64_t to_client_counter_{0};           // 发往客户端方向计数
+        std::uint64_t to_server_counter_{0};           // 发往服务端方向计数
+        std::uint64_t read_counter_{0};                // 读取帧计数
+        std::uint64_t write_counter_{0};               // 写入帧计数
+        bool first_write_{true};                       // 是否首次写入
+        int skip_count_{0}; // authMac 失败时跳过的帧计数
 
         // 写阻塞机制
-        bool write_pending_{false};
-        net::steady_timer write_waiter_;
+        bool write_pending_{false};                    // 是否有写阻塞等待
+        net::steady_timer write_waiter_;               // 写阻塞等待定时器
 
         // s→c write 互斥锁：read 路径(send_random_response)和 write 路径(send_loop)
         // 都会调 write_restls_frame，两者交错会导致 counter 与 TCP 发送顺序不一致，
         // client authMac 验证失败。此锁保证 write_restls_frame 从读 counter 到
         // co_await async_write 到 ++counter 整个过程串行。
-        std::atomic<bool> write_busy_{false};
-        net::steady_timer write_signal_;
+        std::atomic<bool> write_busy_{false};          // 写锁占用标志
+        net::steady_timer write_signal_;               // 写锁释放信号
 
         // 预读缓冲区
-        memory::vector<std::byte> pending_buffer_;
-        std::size_t pending_offset_{0};
+        memory::vector<std::byte> pending_buffer_;     // 超出的预读数据
+        std::size_t pending_offset_{0};                // 预读缓冲消费游标
 
     }; // class restls_transport
 

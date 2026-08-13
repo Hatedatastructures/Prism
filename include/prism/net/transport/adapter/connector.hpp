@@ -18,7 +18,6 @@
 #include <span>
 #include <utility>
 
-
 namespace psm::transport
 {
 
@@ -66,8 +65,7 @@ namespace psm::transport
          * @param other 要移动的适配器对象
          */
         connector(connector &&other) noexcept
-            : trans_(std::move(other.trans_)),
-              preread_buffer_(std::move(other.preread_buffer_)),
+            : trans_(std::move(other.trans_)), preread_buffer_(std::move(other.preread_buffer_)),
               preread_offset_(other.preread_offset_)
         {
             other.preread_offset_ = 0;
@@ -80,8 +78,7 @@ namespace psm::transport
          * @param other 要移动的适配器对象
          * @return connector& 当前对象的引用
          */
-        auto operator=(connector &&other) noexcept
-            -> connector &
+        auto operator=(connector &&other) noexcept -> connector &
         {
             if (this != &other)
             {
@@ -99,8 +96,7 @@ namespace psm::transport
          * AsyncStream 概念要求。
          * @return executor_type 执行器对象
          */
-        [[nodiscard]] auto get_executor()
-            -> executor_type
+        [[nodiscard]] auto get_executor() -> executor_type
         {
             return trans_->executor();
         }
@@ -110,8 +106,7 @@ namespace psm::transport
          * @details 委托给 get_executor()，提供便捷的执行器访问。
          * @return executor_type 执行器对象
          */
-        [[nodiscard]] auto executor()
-            -> executor_type
+        [[nodiscard]] auto executor() -> executor_type
         {
             return get_executor();
         }
@@ -141,7 +136,8 @@ namespace psm::transport
                     auto buf = *buf_it;
                     std::size_t buf_size = buf.size();
                     std::size_t copy_size = std::min(buf_size, bytes_available - bytes_to_copy);
-                    std::memcpy(buf.data(), preread_buffer_.data() + preread_offset_ + bytes_to_copy, copy_size);
+                    std::memcpy(buf.data(), preread_buffer_.data() + preread_offset_ + bytes_to_copy,
+                                copy_size);
                     bytes_to_copy += copy_size;
                 }
                 preread_offset_ += bytes_to_copy;
@@ -150,17 +146,19 @@ namespace psm::transport
                     boost::system::error_code ec;
                     std::forward<Callback>(handler)(ec, bytes_to_copy);
                 };
-                return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(handler, token);
+                return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
+                    handler, token);
             }
 
             // 预读数据已耗尽，直接委托给传输层的 completion-handler 方法
             return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                [trans = trans_, first_buf = *net::buffer_sequence_begin(buffers)]
-                (auto &&handler) mutable
+                [trans = trans_, first_buf = *net::buffer_sequence_begin(buffers)](auto &&handler) mutable
                 {
-                    std::span<std::byte> span(reinterpret_cast<std::byte *>(first_buf.data()), first_buf.size());
+                    std::span<std::byte> span(reinterpret_cast<std::byte *>(first_buf.data()),
+                                              first_buf.size());
                     trans->async_read_some(span, std::forward<decltype(handler)>(handler));
-                }, token);
+                },
+                token);
         }
 
         /**
@@ -176,12 +174,13 @@ namespace psm::transport
         auto async_write_some(const ConstBufferSequence &buffers, CompletionToken &&token)
         {
             return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                [trans = trans_, first_buf = *net::buffer_sequence_begin(buffers)]
-                (auto &&handler) mutable
+                [trans = trans_, first_buf = *net::buffer_sequence_begin(buffers)](auto &&handler) mutable
                 {
-                    std::span<const std::byte> span(reinterpret_cast<const std::byte *>(first_buf.data()), first_buf.size());
+                    std::span<const std::byte> span(reinterpret_cast<const std::byte *>(first_buf.data()),
+                                                    first_buf.size());
                     trans->async_write_some(span, std::forward<decltype(handler)>(handler));
-                }, token);
+                },
+                token);
         }
 
         /**
@@ -220,8 +219,7 @@ namespace psm::transport
          * lowest_layer 访问要求。
          * @return lowest_layer_type& 当前对象的引用
          */
-        [[nodiscard]] auto lowest_layer()
-            -> lowest_layer_type &
+        [[nodiscard]] auto lowest_layer() -> lowest_layer_type &
         {
             return *this;
         }
@@ -232,8 +230,7 @@ namespace psm::transport
          * lowest_layer 常量访问要求。
          * @return const lowest_layer_type& 当前对象的常量引用
          */
-        [[nodiscard]] auto lowest_layer() const
-            -> const lowest_layer_type &
+        [[nodiscard]] auto lowest_layer() const -> const lowest_layer_type &
         {
             return *this;
         }
@@ -253,8 +250,7 @@ namespace psm::transport
          * @details 将内部持有的传输层指针移动返回，调用后对象不再持有传输层。
          * @return transmission_ptr 传输层对象指针
          */
-        [[nodiscard]] auto release()
-            -> transmission_ptr
+        [[nodiscard]] auto release() -> transmission_ptr
         {
             return std::move(trans_);
         }

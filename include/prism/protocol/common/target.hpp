@@ -11,6 +11,6 @@
 namespace psm::protocol
 {
 
-using psm::connect::target;
+    using psm::connect::target;
 
 } // namespace psm::protocol

@@ -20,7 +20,6 @@
 #include <string_view>
 #include <utility>
 
-
 namespace psm::diagnose
 {
 
@@ -31,38 +30,59 @@ namespace psm::diagnose
     void mdc_set(const std::string &key, const std::string &value);
     void mdc_remove(const std::string &key);
     void mdc_clear();
+
+    /**
+     * @brief 构建 MDC 前缀字符串
+     * @return 由 MDC 键值对拼装的日志前缀，空 MDC 返回空串
+     */
     [[nodiscard]] auto build_mdc_prefix() -> std::string;
+
+    /**
+     * @brief 初始化日志系统
+     * @param cfg 日志配置（文件/控制台/级别等）
+     */
     void init(const config &cfg);
     void shutdown();
+
+    /**
+     * @brief 获取当前日志记录器
+     * @return 共享的 spdlog logger 指针，未初始化时为空
+     */
     [[nodiscard]] auto recorder() noexcept -> std::shared_ptr<spdlog::logger>;
 
     namespace detail
     {
         template <typename... Args>
-        auto log(const char *pfx, spdlog::level::level_enum lvl,
-                 std::string_view fmt, Args &&...args) -> void
+        auto log(const char *pfx, spdlog::level::level_enum lvl, std::string_view fmt, Args &&...args) -> void
         {
             if (const auto rec = recorder())
             {
                 if (pfx)
-                    rec->log(lvl, spdlog::fmt_lib::runtime("{} " + std::string(fmt)),
-                             pfx, std::forward<Args>(args)...);
-                else
-                    rec->log(lvl, spdlog::fmt_lib::runtime(fmt),
+                {
+                    rec->log(lvl, spdlog::fmt_lib::runtime("{} " + std::string(fmt)), pfx,
                              std::forward<Args>(args)...);
+                }
+                else
+                {
+                    rec->log(lvl, spdlog::fmt_lib::runtime(fmt), std::forward<Args>(args)...);
+                }
             }
         }
-    }
+    } // namespace detail
 
     // ─── shared_ptr<context>（nullptr 安全）────────
 
     template <typename... Args>
     auto debug(const std::shared_ptr<context> &pfx, std::string_view fmt, Args &&...args) -> void
-    { detail::log(pfx ? pfx->prefix() : nullptr, spdlog::level::debug, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(pfx ? pfx->prefix() : nullptr, spdlog::level::debug, fmt, std::forward<Args>(args)...);
+    }
 
     template <typename... Args>
     auto info(const std::shared_ptr<context> &pfx, std::string_view fmt, Args &&...args) -> void
-    { detail::log(pfx ? pfx->prefix() : nullptr, spdlog::level::info, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(pfx ? pfx->prefix() : nullptr, spdlog::level::info, fmt, std::forward<Args>(args)...);
+    }
 
     // ─── ip（IP/连接统计，最高优先级）────────
     // access 模式（log_level="access"）：以 access_level 记录，只显示本级别；
@@ -73,77 +93,105 @@ namespace psm::diagnose
     {
         const auto rec = recorder();
         if (!rec)
+        {
             return;
+        }
         const auto level = rec->level() >= access_level ? access_level : spdlog::level::info;
         detail::log(pfx ? pfx->prefix() : nullptr, level, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     auto warn(const std::shared_ptr<context> &pfx, std::string_view fmt, Args &&...args) -> void
-    { detail::log(pfx ? pfx->prefix() : nullptr, spdlog::level::warn, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(pfx ? pfx->prefix() : nullptr, spdlog::level::warn, fmt, std::forward<Args>(args)...);
+    }
 
     template <typename... Args>
     auto error(const std::shared_ptr<context> &pfx, std::string_view fmt, Args &&...args) -> void
-    { detail::log(pfx ? pfx->prefix() : nullptr, spdlog::level::err, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(pfx ? pfx->prefix() : nullptr, spdlog::level::err, fmt, std::forward<Args>(args)...);
+    }
 
     // ─── context& ──────────────────────────
 
     template <typename... Args>
     auto debug(const context &pfx, std::string_view fmt, Args &&...args) -> void
-    { detail::log(pfx.prefix(), spdlog::level::debug, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(pfx.prefix(), spdlog::level::debug, fmt, std::forward<Args>(args)...);
+    }
 
     template <typename... Args>
     auto info(const context &pfx, std::string_view fmt, Args &&...args) -> void
-    { detail::log(pfx.prefix(), spdlog::level::info, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(pfx.prefix(), spdlog::level::info, fmt, std::forward<Args>(args)...);
+    }
 
     template <typename... Args>
     auto access(const context &pfx, std::string_view fmt, Args &&...args) -> void
     {
         const auto rec = recorder();
         if (!rec)
+        {
             return;
+        }
         const auto level = rec->level() >= access_level ? access_level : spdlog::level::info;
         detail::log(pfx.prefix(), level, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     auto warn(const context &pfx, std::string_view fmt, Args &&...args) -> void
-    { detail::log(pfx.prefix(), spdlog::level::warn, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(pfx.prefix(), spdlog::level::warn, fmt, std::forward<Args>(args)...);
+    }
 
     template <typename... Args>
     auto error(const context &pfx, std::string_view fmt, Args &&...args) -> void
-    { detail::log(pfx.prefix(), spdlog::level::err, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(pfx.prefix(), spdlog::level::err, fmt, std::forward<Args>(args)...);
+    }
 
     // ─── 无前缀 ──────────────────────────────────
 
     template <typename... Args>
     auto debug(std::string_view fmt, Args &&...args) -> void
-    { detail::log(nullptr, spdlog::level::debug, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(nullptr, spdlog::level::debug, fmt, std::forward<Args>(args)...);
+    }
 
     template <typename... Args>
     auto info(std::string_view fmt, Args &&...args) -> void
-    { detail::log(nullptr, spdlog::level::info, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(nullptr, spdlog::level::info, fmt, std::forward<Args>(args)...);
+    }
 
     template <typename... Args>
     auto access(std::string_view fmt, Args &&...args) -> void
     {
         const auto rec = recorder();
         if (!rec)
+        {
             return;
+        }
         const auto level = rec->level() >= access_level ? access_level : spdlog::level::info;
         detail::log(nullptr, level, fmt, std::forward<Args>(args)...);
     }
 
     template <typename... Args>
     auto warn(std::string_view fmt, Args &&...args) -> void
-    { detail::log(nullptr, spdlog::level::warn, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(nullptr, spdlog::level::warn, fmt, std::forward<Args>(args)...);
+    }
 
     template <typename... Args>
     auto error(std::string_view fmt, Args &&...args) -> void
-    { detail::log(nullptr, spdlog::level::err, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(nullptr, spdlog::level::err, fmt, std::forward<Args>(args)...);
+    }
 
     template <typename... Args>
     auto fatal(std::string_view fmt, Args &&...args) -> void
-    { detail::log(nullptr, spdlog::level::critical, fmt, std::forward<Args>(args)...); }
+    {
+        detail::log(nullptr, spdlog::level::critical, fmt, std::forward<Args>(args)...);
+    }
 
 } // namespace psm::diagnose

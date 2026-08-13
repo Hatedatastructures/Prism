@@ -13,13 +13,12 @@
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/protocol/common/framing.hpp>
-#include <prism/protocol/socks5/constants.hpp>
 #include <prism/protocol/socks5/codec/packet.hpp>
+#include <prism/protocol/socks5/constants.hpp>
 
 #include <cstring>
 #include <span>
 #include <utility>
-
 
 namespace psm::protocol::socks5::wire
 {
@@ -30,14 +29,14 @@ namespace psm::protocol::socks5::wire
      */
     enum class auth_result : std::uint8_t
     {
-        failed,  ///< 认证失败
-        success  ///< 认证成功
+        failed, ///< 认证失败
+        success ///< 认证成功
     };
 
     // 委托到共享地址解析函数
+    using common::framing::parse_domain;
     using common::framing::parse_ipv4;
     using common::framing::parse_ipv6;
-    using common::framing::parse_domain;
 
     /**
      * @brief 解析端口
@@ -224,8 +223,7 @@ namespace psm::protocol::socks5::wire
 
         switch (atyp)
         {
-        case address_type::ipv4:
-        {
+        case address_type::ipv4: {
             if (buffer.size() < offset + 4 + 2)
             {
                 return {fault::code::bad_message, {}};
@@ -239,8 +237,7 @@ namespace psm::protocol::socks5::wire
             addr_size = 4;
             break;
         }
-        case address_type::ipv6:
-        {
+        case address_type::ipv6: {
             if (buffer.size() < offset + 16 + 2)
             {
                 return {fault::code::bad_message, {}};
@@ -254,8 +251,7 @@ namespace psm::protocol::socks5::wire
             addr_size = 16;
             break;
         }
-        case address_type::domain:
-        {
+        case address_type::domain: {
             if (buffer.size() < offset + 1)
             {
                 return {fault::code::bad_message, {}};
@@ -274,8 +270,7 @@ namespace psm::protocol::socks5::wire
             addr_size = 1 + domain_len;
             break;
         }
-        default:
-            return {fault::code::unsupported_address, {}};
+        default: return {fault::code::unsupported_address, {}};
         }
 
         offset += addr_size;
@@ -304,8 +299,8 @@ namespace psm::protocol::socks5::wire
      * 首先调用 encode_hdr 编码头部，然后追加用户数据。
      * 输出缓冲区将包含完整的可发送数据报。
      */
-    [[nodiscard]] inline auto encode_dgram(const udp_header &header, std::span<const std::uint8_t> data, memory::vector<std::uint8_t> &out)
-        -> fault::code
+    [[nodiscard]] inline auto encode_dgram(const udp_header &header, std::span<const std::uint8_t> data,
+                                           memory::vector<std::uint8_t> &out) -> fault::code
     {
         if (fault::failed(encode_hdr(header, out)))
         {
@@ -354,8 +349,7 @@ namespace psm::protocol::socks5::wire
             return {fault::code::bad_message, {}};
         }
 
-        const auto username = std::string_view{
-            reinterpret_cast<const char *>(data.data() + 2), ulen};
+        const auto username = std::string_view{reinterpret_cast<const char *>(data.data() + 2), ulen};
 
         const auto plen_offset = std::size_t{2} + ulen;
         if (data.size() < (plen_offset + 1))
@@ -369,8 +363,8 @@ namespace psm::protocol::socks5::wire
             return {fault::code::bad_message, {}};
         }
 
-        const auto password = std::string_view{
-            reinterpret_cast<const char *>(data.data() + plen_offset + 1), plen};
+        const auto password =
+            std::string_view{reinterpret_cast<const char *>(data.data() + plen_offset + 1), plen};
 
         return {fault::code::success, {data[0], username, password}};
     }
@@ -382,14 +376,17 @@ namespace psm::protocol::socks5::wire
      * @details 构建格式为 VER(1) + STATUS(1) 的认证响应。
      * STATUS 0x00 表示成功，0x01 表示失败。
      */
-    [[nodiscard]] inline auto build_pw_auth_response(auth_result result)
-        -> std::array<std::uint8_t, 2>
+    [[nodiscard]] inline auto build_pw_auth_response(auth_result result) -> std::array<std::uint8_t, 2>
     {
         std::uint8_t status;
         if (result == auth_result::success)
+        {
             status = 0x00;
+        }
         else
+        {
             status = 0x01;
+        }
         return {0x01, status};
     }
-}
+} // namespace psm::protocol::socks5::wire

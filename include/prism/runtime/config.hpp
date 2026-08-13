@@ -9,26 +9,25 @@
 #pragma once
 
 #include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/socks5/config.hpp>
-#include <prism/protocol/trojan/config.hpp>
-#include <prism/protocol/vless/config.hpp>
-#include <prism/protocol/vmess/config.hpp>
-#include <prism/net/transport/pad.hpp>
 #include <prism/foundation/rate/counter.hpp>
 #include <prism/handshake/anytls/config.hpp>
 #include <prism/handshake/ech/config.hpp>
 #include <prism/handshake/gun/config.hpp>
+#include <prism/handshake/hysteria2/config.hpp>
 #include <prism/handshake/native/config.hpp>
 #include <prism/handshake/reality/config.hpp>
 #include <prism/handshake/restls/config.hpp>
 #include <prism/handshake/shadowtls/config.hpp>
 #include <prism/handshake/trusttunnel/config.hpp>
+#include <prism/handshake/tuic/config.hpp>
 #include <prism/handshake/ws/config.hpp>
 #include <prism/handshake/xhttp/config.hpp>
-#include <prism/handshake/hysteria2/config.hpp>
-#include <prism/handshake/tuic/config.hpp>
-
+#include <prism/net/transport/pad.hpp>
+#include <prism/protocol/shadowsocks/config.hpp>
+#include <prism/protocol/socks5/config.hpp>
+#include <prism/protocol/trojan/config.hpp>
+#include <prism/protocol/vless/config.hpp>
+#include <prism/protocol/vmess/config.hpp>
 
 namespace psm::runtime
 {
@@ -146,15 +145,21 @@ namespace psm::runtime
     namespace protocol
     {
 
+        /**
+         * @struct config
+         * @brief 各代理协议配置集合
+         * @details 聚合全部入站协议的独立配置项，
+         * 每个协议可单独控制启停与运行时参数。
+         */
         struct config
         {
-            psm::protocol::socks5::config socks5;
-            psm::protocol::trojan::config trojan;
-            psm::protocol::vless::config vless;
-            psm::protocol::shadowsocks::config shadowsocks;
-            psm::protocol::vmess::config vmess;
+            psm::protocol::socks5::config socks5;      ///< SOCKS5 协议配置
+            psm::protocol::trojan::config trojan;      ///< Trojan 协议配置
+            psm::protocol::vless::config vless;        ///< VLESS 协议配置
+            psm::protocol::shadowsocks::config shadowsocks; ///< Shadowsocks 协议配置
+            psm::protocol::vmess::config vmess;        ///< VMess 协议配置
         };
-    }
+    } // namespace protocol
 
     /**
      * @namespace stealth
@@ -165,24 +170,30 @@ namespace psm::runtime
     namespace stealth
     {
 
+        /**
+         * @struct config
+         * @brief 各伪装方案配置集合
+         * @details 聚合全部 TLS 伪装方案的独立配置项，
+         * 服务启动时按此处配置注册对应方案。
+         */
         struct config
         {
-            psm::handshake::reality::config reality;
-            psm::handshake::shadowtls::config shadowtls;
-            psm::handshake::restls::config restls;
-            psm::handshake::anytls::config anytls;
-            psm::handshake::trusttunnel::config trusttunnel;
-            psm::handshake::gun::config gun;
-            psm::handshake::ech::config ech;
-            psm::handshake::ws::config ws;
-            psm::handshake::xhttp::config xhttp;
-            psm::handshake::hysteria2::config hysteria2;
-            psm::handshake::tuic::config tuic;
-            psm::handshake::native::config native_tls;
-            psm::transport::pad_config pad;
-            psm::rate::probe_defense_config probe;
+            psm::handshake::reality::config reality;         ///< Reality 伪装配置
+            psm::handshake::shadowtls::config shadowtls;     ///< ShadowTLS 伪装配置
+            psm::handshake::restls::config restls;           ///< Restls 伪装配置
+            psm::handshake::anytls::config anytls;           ///< AnyTLS 伪装配置
+            psm::handshake::trusttunnel::config trusttunnel; ///< TrustTunnel 伪装配置
+            psm::handshake::gun::config gun;                 ///< gRPC 伪装配置
+            psm::handshake::ech::config ech;                 ///< ECH 伪装配置
+            psm::handshake::ws::config ws;                   ///< WebSocket 伪装配置
+            psm::handshake::xhttp::config xhttp;             ///< XHTTP 伪装配置
+            psm::handshake::hysteria2::config hysteria2;     ///< Hysteria2 伪装配置
+            psm::handshake::tuic::config tuic;               ///< TUIC 伪装配置
+            psm::handshake::native::config native_tls;       ///< 原生 TLS 配置
+            psm::transport::pad_config pad;                  ///< 填充配置
+            psm::rate::probe_defense_config probe;           ///< 探测防御配置
         };
-    }
+    } // namespace stealth
 
     /**
      * @struct config

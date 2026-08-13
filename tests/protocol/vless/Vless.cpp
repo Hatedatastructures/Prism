@@ -5,16 +5,17 @@
  * IPv4/IPv6/域名地址解析、命令字识别、无效输入处理以及协程集成握手。
  */
 
-#include <prism/protocol/vless/vless.hpp>
+#include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/transport/reliable.hpp>
 #include <prism/protocol/vless/codec/framing.hpp>
 #include <prism/protocol/vless/codec/packet.hpp>
 #include <prism/protocol/vless/constants.hpp>
 #include <prism/protocol/vless/handler/conn.hpp>
-#include <prism/net/transport/reliable.hpp>
-#include <prism/foundation/foundation.hpp>
-#include <prism/diagnose/log.hpp>
-#include <prism/foundation/foundation.hpp>
+#include <prism/protocol/vless/vless.hpp>
+
 #include <boost/asio.hpp>
+
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -22,7 +23,6 @@
 #include <optional>
 #include <span>
 #include <string>
-
 
 #include <gtest/gtest.h>
 
@@ -42,13 +42,17 @@ TEST(Vless, ParseRequestIPv4)
 {
     // [Version 1B][UUID 16B][AddnlLen 1B][Cmd 1B][Port 2B BE][Atyp 1B][Addr 4B]
     std::vector<std::uint8_t> buf;
-    buf.push_back(0x00);                                         // version
-    buf.insert(buf.end(), 16, 0x00);                             // UUID (全零)
-    buf.push_back(0x00);                                         // addnl_len = 0
-    buf.push_back(0x01);                                         // cmd = tcp
-    buf.push_back(0x00); buf.push_back(0x50);                    // port = 80 (big-endian)
-    buf.push_back(0x01);                                         // atyp = IPv4
-    buf.push_back(127); buf.push_back(0); buf.push_back(0); buf.push_back(1); // 127.0.0.1
+    buf.push_back(0x00);             // version
+    buf.insert(buf.end(), 16, 0x00); // UUID (全零)
+    buf.push_back(0x00);             // addnl_len = 0
+    buf.push_back(0x01);             // cmd = tcp
+    buf.push_back(0x00);
+    buf.push_back(0x50); // port = 80 (big-endian)
+    buf.push_back(0x01); // atyp = IPv4
+    buf.push_back(127);
+    buf.push_back(0);
+    buf.push_back(0);
+    buf.push_back(1); // 127.0.0.1
 
     auto result = protocol::vless::format::parse_request(buf);
     ASSERT_TRUE(result.has_value()) << "parse_request returned nullopt for valid IPv4 request";
@@ -71,14 +75,15 @@ TEST(Vless, ParseRequestDomain)
     const std::string domain = "example.com";
 
     std::vector<std::uint8_t> buf;
-    buf.push_back(0x00);                                         // version
-    buf.insert(buf.end(), 16, 0x00);                             // UUID
-    buf.push_back(0x00);                                         // addnl_len = 0
-    buf.push_back(0x01);                                         // cmd = tcp
-    buf.push_back(0x01); buf.push_back(0xBB);                    // port = 443 (big-endian)
-    buf.push_back(0x02);                                         // atyp = domain
-    buf.push_back(static_cast<std::uint8_t>(domain.size()));     // domain length
-    buf.insert(buf.end(), domain.begin(), domain.end());          // domain content
+    buf.push_back(0x00);             // version
+    buf.insert(buf.end(), 16, 0x00); // UUID
+    buf.push_back(0x00);             // addnl_len = 0
+    buf.push_back(0x01);             // cmd = tcp
+    buf.push_back(0x01);
+    buf.push_back(0xBB);                                     // port = 443 (big-endian)
+    buf.push_back(0x02);                                     // atyp = domain
+    buf.push_back(static_cast<std::uint8_t>(domain.size())); // domain length
+    buf.insert(buf.end(), domain.begin(), domain.end());     // domain content
 
     auto result = protocol::vless::format::parse_request(buf);
     ASSERT_TRUE(result.has_value()) << "parse_request returned nullopt for valid domain request";
@@ -96,12 +101,13 @@ TEST(Vless, ParseRequestDomain)
 TEST(Vless, ParseRequestIPv6)
 {
     std::vector<std::uint8_t> buf;
-    buf.push_back(0x00);                                         // version
-    buf.insert(buf.end(), 16, 0x00);                             // UUID
-    buf.push_back(0x00);                                         // addnl_len = 0
-    buf.push_back(0x01);                                         // cmd = tcp
-    buf.push_back(0x20); buf.push_back(0xFB);                    // port = 8443 (big-endian)
-    buf.push_back(0x03);                                         // atyp = IPv6
+    buf.push_back(0x00);             // version
+    buf.insert(buf.end(), 16, 0x00); // UUID
+    buf.push_back(0x00);             // addnl_len = 0
+    buf.push_back(0x01);             // cmd = tcp
+    buf.push_back(0x20);
+    buf.push_back(0xFB); // port = 8443 (big-endian)
+    buf.push_back(0x03); // atyp = IPv6
     // ::1 -- 15 个零 + 1
     buf.insert(buf.end(), 15, 0x00);
     buf.push_back(0x01);
@@ -124,8 +130,9 @@ TEST(Vless, ParseRequestMuxCommand)
     buf.push_back(0x00);
     buf.insert(buf.end(), 16, 0x00);
     buf.push_back(0x00);
-    buf.push_back(0x7F);                                         // cmd = mux (0x7F)
-    buf.push_back(0x00); buf.push_back(0x50);
+    buf.push_back(0x7F); // cmd = mux (0x7F)
+    buf.push_back(0x00);
+    buf.push_back(0x50);
     buf.push_back(0x01);
     buf.insert(buf.end(), 4, 0x00);
 
@@ -140,11 +147,12 @@ TEST(Vless, ParseRequestMuxCommand)
 TEST(Vless, ParseRequestInvalidVersion)
 {
     std::vector<std::uint8_t> buf;
-    buf.push_back(0x01);                                         // version = 1 (invalid)
+    buf.push_back(0x01); // version = 1 (invalid)
     buf.insert(buf.end(), 16, 0x00);
     buf.push_back(0x00);
     buf.push_back(0x01);
-    buf.push_back(0x00); buf.push_back(0x50);
+    buf.push_back(0x00);
+    buf.push_back(0x50);
     buf.push_back(0x01);
     buf.insert(buf.end(), 4, 0x00);
 
@@ -169,9 +177,9 @@ TEST(Vless, ParseRequestTruncated)
 TEST(Vless, ParseRequestNonZeroAddnl)
 {
     std::vector<std::uint8_t> buf;
-    buf.push_back(0x00);                                         // version
-    buf.insert(buf.end(), 16, 0x00);                             // UUID
-    buf.push_back(0x05);                                         // addnl_len = 5 (non-zero, unsupported)
+    buf.push_back(0x00);             // version
+    buf.insert(buf.end(), 16, 0x00); // UUID
+    buf.push_back(0x05);             // addnl_len = 5 (non-zero, unsupported)
 
     auto result = protocol::vless::format::parse_request(buf);
     EXPECT_TRUE(!result.has_value()) << "non-zero addnl_len should return nullopt";
@@ -185,7 +193,8 @@ TEST(Vless, MakeResponse)
     auto resp = protocol::vless::format::make_response();
 
     EXPECT_EQ(resp.size(), 2) << "response should be 2 bytes";
-    EXPECT_TRUE(resp[0] == std::byte{0x00} && resp[1] == std::byte{0x00}) << "response should be {0x00, 0x00}";
+    EXPECT_TRUE(resp[0] == std::byte{0x00} && resp[1] == std::byte{0x00})
+        << "response should be {0x00, 0x00}";
 }
 
 // ============================================================================
@@ -199,11 +208,14 @@ TEST(Vless, UdpParseIPv4)
 {
     // [ATYP=0x01][127.0.0.1][Port=0x0050][Payload]
     std::vector<std::byte> buf;
-    buf.push_back(std::byte{0x01});                                // ATYP = IPv4
-    buf.push_back(std::byte{127}); buf.push_back(std::byte{0});
-    buf.push_back(std::byte{0});   buf.push_back(std::byte{1});   // 127.0.0.1
-    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x50}); // port = 80
-    const char* payload = "hello";
+    buf.push_back(std::byte{0x01}); // ATYP = IPv4
+    buf.push_back(std::byte{127});
+    buf.push_back(std::byte{0});
+    buf.push_back(std::byte{0});
+    buf.push_back(std::byte{1}); // 127.0.0.1
+    buf.push_back(std::byte{0x00});
+    buf.push_back(std::byte{0x50}); // port = 80
+    const char *payload = "hello";
     for (auto c : std::string_view(payload))
     {
         buf.push_back(static_cast<std::byte>(c));
@@ -212,7 +224,7 @@ TEST(Vless, UdpParseIPv4)
     auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse_udp_pkt IPv4 failed: " << psm::fault::describe(ec);
 
-    auto* ipv4 = std::get_if<protocol::vless::ipv4_address>(&result.destination_address);
+    auto *ipv4 = std::get_if<protocol::vless::ipv4_address>(&result.destination_address);
     ASSERT_TRUE(ipv4 != nullptr) << "address type should be IPv4";
     EXPECT_EQ(result.destination_port, 80) << "port should be 80, got " << result.destination_port;
     EXPECT_EQ(result.payload_size, 5) << "payload size should be 5, got " << result.payload_size;
@@ -225,14 +237,15 @@ TEST(Vless, UdpParseIPv6)
 {
     // [ATYP=0x03][16B ::1][Port=0x01BB][Payload]
     std::vector<std::byte> buf;
-    buf.push_back(std::byte{0x03});                                // ATYP = IPv6 (VLESS uses 0x03 for IPv6)
+    buf.push_back(std::byte{0x03}); // ATYP = IPv6 (VLESS uses 0x03 for IPv6)
     for (int i = 0; i < 15; ++i)
     {
         buf.push_back(std::byte{0x00});
     }
-    buf.push_back(std::byte{0x01});                                // ::1
-    buf.push_back(std::byte{0x01}); buf.push_back(std::byte{0xBB}); // port = 443
-    const char* payload = "world";
+    buf.push_back(std::byte{0x01}); // ::1
+    buf.push_back(std::byte{0x01});
+    buf.push_back(std::byte{0xBB}); // port = 443
+    const char *payload = "world";
     for (auto c : std::string_view(payload))
     {
         buf.push_back(static_cast<std::byte>(c));
@@ -241,7 +254,7 @@ TEST(Vless, UdpParseIPv6)
     auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse_udp_pkt IPv6 failed: " << psm::fault::describe(ec);
 
-    auto* ipv6 = std::get_if<protocol::vless::ipv6_address>(&result.destination_address);
+    auto *ipv6 = std::get_if<protocol::vless::ipv6_address>(&result.destination_address);
     ASSERT_TRUE(ipv6 != nullptr) << "address type should be IPv6";
     EXPECT_EQ(result.destination_port, 443) << "port should be 443, got " << result.destination_port;
 }
@@ -253,14 +266,15 @@ TEST(Vless, UdpParseDomain)
 {
     const std::string domain = "example.com";
     std::vector<std::byte> buf;
-    buf.push_back(std::byte{0x02});                                // ATYP = Domain
-    buf.push_back(static_cast<std::byte>(domain.size()));          // domain length
+    buf.push_back(std::byte{0x02});                       // ATYP = Domain
+    buf.push_back(static_cast<std::byte>(domain.size())); // domain length
     for (auto c : domain)
     {
         buf.push_back(static_cast<std::byte>(c));
     }
-    buf.push_back(std::byte{0x01}); buf.push_back(std::byte{0xBB}); // port = 443
-    const char* payload = "test";
+    buf.push_back(std::byte{0x01});
+    buf.push_back(std::byte{0xBB}); // port = 443
+    const char *payload = "test";
     for (auto c : std::string_view(payload))
     {
         buf.push_back(static_cast<std::byte>(c));
@@ -269,7 +283,7 @@ TEST(Vless, UdpParseDomain)
     auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse_udp_pkt Domain failed: " << psm::fault::describe(ec);
 
-    auto* dom = std::get_if<protocol::vless::domain_address>(&result.destination_address);
+    auto *dom = std::get_if<protocol::vless::domain_address>(&result.destination_address);
     ASSERT_TRUE(dom != nullptr) << "address type should be domain";
     EXPECT_EQ(result.destination_port, 443) << "port should be 443";
     EXPECT_EQ(result.payload_size, 4) << "payload size should be 4, got " << result.payload_size;
@@ -294,9 +308,12 @@ TEST(Vless, UdpParseEmptyPayload)
     // [ATYP=0x01][127.0.0.1][Port=80] -- 无 payload
     std::vector<std::byte> buf;
     buf.push_back(std::byte{0x01});
-    buf.push_back(std::byte{127}); buf.push_back(std::byte{0});
-    buf.push_back(std::byte{0});   buf.push_back(std::byte{1});
-    buf.push_back(std::byte{0x00}); buf.push_back(std::byte{0x50});
+    buf.push_back(std::byte{127});
+    buf.push_back(std::byte{0});
+    buf.push_back(std::byte{0});
+    buf.push_back(std::byte{1});
+    buf.push_back(std::byte{0x00});
+    buf.push_back(std::byte{0x50});
 
     auto [ec, result] = protocol::vless::format::parse_udp_pkt(buf);
     ASSERT_TRUE(psm::fault::succeeded(ec)) << "parse_udp_pkt with empty payload should succeed";
@@ -314,23 +331,26 @@ TEST(Vless, UdpBuildParseRoundtrip)
     frame.destination_port = 8080;
 
     const std::string payload_str = "hello vless udp";
-    auto payload_span = std::span<const std::byte>(
-        reinterpret_cast<const std::byte*>(payload_str.data()), payload_str.size());
+    auto payload_span = std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload_str.data()),
+                                                   payload_str.size());
 
     psm::memory::vector<std::byte> out(psm::memory::current_resource());
     auto build_ec = protocol::vless::format::build_udp_pkt(frame, payload_span, out);
-    ASSERT_TRUE(psm::fault::succeeded(build_ec)) << "build_udp_pkt failed: " << psm::fault::describe(build_ec);
+    ASSERT_TRUE(psm::fault::succeeded(build_ec))
+        << "build_udp_pkt failed: " << psm::fault::describe(build_ec);
 
     // 解析回来
     auto [parse_ec, result] = protocol::vless::format::parse_udp_pkt(out);
-    ASSERT_TRUE(psm::fault::succeeded(parse_ec)) << "parse_udp_pkt roundtrip failed: " << psm::fault::describe(parse_ec);
+    ASSERT_TRUE(psm::fault::succeeded(parse_ec))
+        << "parse_udp_pkt roundtrip failed: " << psm::fault::describe(parse_ec);
 
-    EXPECT_EQ(result.destination_port, 8080) << "roundtrip port should be 8080, got " << result.destination_port;
+    EXPECT_EQ(result.destination_port, 8080)
+        << "roundtrip port should be 8080, got " << result.destination_port;
     EXPECT_EQ(result.payload_size, payload_str.size()) << "roundtrip payload_size mismatch";
 
     // 验证 payload 内容一致
-    std::string_view parsed_payload(reinterpret_cast<const char*>(out.data() + result.payload_offset),
-                                     result.payload_size);
+    std::string_view parsed_payload(reinterpret_cast<const char *>(out.data() + result.payload_offset),
+                                    result.payload_size);
     EXPECT_EQ(parsed_payload, payload_str) << "roundtrip payload content mismatch";
 }
 
@@ -350,10 +370,7 @@ namespace
             auto socket = co_await acceptor.async_accept(net::use_awaitable);
 
             // UUID 验证器：接受全零 UUID
-            auto verifier = [](std::string_view uuid) -> bool
-            {
-                return !uuid.empty();
-            };
+            auto verifier = [](std::string_view uuid) -> bool { return !uuid.empty(); };
 
             auto trans = transport::make_reliable(std::move(socket));
             auto vless = protocol::vless::make_conn(std::move(trans), {}, verifier);
@@ -405,13 +422,17 @@ namespace
 
             // 构造 VLESS 请求：[Version 1B][UUID 16B][AddnlLen 1B][Cmd 1B][Port 2B BE][Atyp 1B][Addr 4B]
             std::vector<std::uint8_t> req;
-            req.push_back(0x00);                                         // version
-            req.insert(req.end(), 16, 0x00);                             // UUID (全零)
-            req.push_back(0x00);                                         // addnl_len = 0
-            req.push_back(0x01);                                         // cmd = tcp
-            req.push_back(0x00); req.push_back(0x50);                    // port = 80
-            req.push_back(0x01);                                         // atyp = IPv4
-            req.push_back(127); req.push_back(0); req.push_back(0); req.push_back(1); // 127.0.0.1
+            req.push_back(0x00);             // version
+            req.insert(req.end(), 16, 0x00); // UUID (全零)
+            req.push_back(0x00);             // addnl_len = 0
+            req.push_back(0x01);             // cmd = tcp
+            req.push_back(0x00);
+            req.push_back(0x50); // port = 80
+            req.push_back(0x01); // atyp = IPv4
+            req.push_back(127);
+            req.push_back(0);
+            req.push_back(0);
+            req.push_back(1); // 127.0.0.1
 
             co_await net::async_write(socket, net::buffer(req), net::use_awaitable);
 
@@ -440,7 +461,7 @@ namespace
         {
         }
     }
-}
+} // namespace
 
 /**
  * @brief 测试 VLESS 完整握手与数据回显
@@ -470,8 +491,7 @@ TEST(Vless, RelayHandshake)
             {
             }
         },
-        [&](const std::exception_ptr &)
-        { ioc.stop(); });
+        [&](const std::exception_ptr &) { ioc.stop(); });
 
     ioc.run();
 

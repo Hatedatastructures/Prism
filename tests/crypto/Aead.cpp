@@ -6,16 +6,16 @@
  * 空明文、大载荷、移动语义、输出尺寸验证等场景。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/crypto/aead.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
+
 #include <array>
 #include <cstdint>
 #include <cstring>
 #include <vector>
+
+#include <gtest/gtest.h>
 
 /**
  * @brief 测试 AES-128-GCM seal/open 往返
@@ -307,13 +307,11 @@ TEST(Aead, InvalidCipher)
 
     std::vector<std::uint8_t> out_ciphertext(psm::crypto::aead_context::seal_size(plaintext.size()));
     auto seal_ec = ctx.seal(psm::crypto::seal_input{out_ciphertext, plaintext, nonce, {}});
-    EXPECT_EQ(seal_ec, psm::fault::code::crypto_error)
-        << "seal on invalid cipher should return crypto_error";
+    EXPECT_EQ(seal_ec, psm::fault::code::crypto_error) << "seal on invalid cipher should return crypto_error";
 
     std::vector<std::uint8_t> out_plaintext(psm::crypto::aead_context::open_size(ciphertext.size()));
     auto open_ec = ctx.open(psm::crypto::open_input{out_plaintext, ciphertext, nonce, {}});
-    EXPECT_EQ(open_ec, psm::fault::code::crypto_error)
-        << "open on invalid cipher should return crypto_error";
+    EXPECT_EQ(open_ec, psm::fault::code::crypto_error) << "open on invalid cipher should return crypto_error";
 }
 
 /**

@@ -11,14 +11,12 @@ namespace psm::stats::traffic
         total_active_.fetch_add(1, std::memory_order::relaxed);
     }
 
-
     void traffic_state::on_protocol_detected(psm::connect::protocol_type type) noexcept
     {
         const auto i = static_cast<std::uint8_t>(type);
         protocols_[i].connections.fetch_add(1, std::memory_order::relaxed);
         protocols_[i].active.fetch_add(1, std::memory_order::relaxed);
     }
-
 
     void traffic_state::on_disconnect(psm::connect::protocol_type type) noexcept
     {
@@ -27,8 +25,8 @@ namespace psm::stats::traffic
         protocols_[i].active.fetch_sub(1, std::memory_order::relaxed);
     }
 
-
-    void traffic_state::flush_traffic(psm::connect::protocol_type proto, std::uint64_t up, std::uint64_t down) noexcept
+    void traffic_state::flush_traffic(psm::connect::protocol_type proto, std::uint64_t up,
+                                      std::uint64_t down) noexcept
     {
         const auto i = static_cast<std::uint8_t>(proto);
         if (up)
@@ -43,21 +41,17 @@ namespace psm::stats::traffic
         }
     }
 
-
     void traffic_state::on_auth_success() noexcept
     {
         auth_success_.fetch_add(1, std::memory_order::relaxed);
     }
-
 
     void traffic_state::on_auth_failure() noexcept
     {
         auth_failure_.fetch_add(1, std::memory_order::relaxed);
     }
 
-
-    auto traffic_state::snapshot() const noexcept
-        -> traffic_snapshot
+    auto traffic_state::snapshot() const noexcept -> traffic_snapshot
     {
         traffic_snapshot s;
         s.total_connections = total_connections_.load(std::memory_order::relaxed);
@@ -76,7 +70,6 @@ namespace psm::stats::traffic
         }
         return s;
     }
-
 
     void traffic_state::reset() noexcept
     {
@@ -104,8 +97,7 @@ namespace psm::stats::traffic
 
         std::atomic<registry_vector *> g_registry{nullptr};
 
-        auto load_registry() noexcept
-            -> registry_vector *
+        auto load_registry() noexcept -> registry_vector *
         {
             return g_registry.load(std::memory_order::acquire);
         }
@@ -130,7 +122,6 @@ namespace psm::stats::traffic
 
     } // namespace
 
-
     void traffic_state::register_instance(traffic_state *s) noexcept
     {
         auto *old = load_registry();
@@ -143,7 +134,6 @@ namespace psm::stats::traffic
         store_registry(next);
         deferred_delete(old);
     }
-
 
     void traffic_state::unregister_instance(traffic_state *s) noexcept
     {
@@ -166,9 +156,7 @@ namespace psm::stats::traffic
         deferred_delete(old);
     }
 
-
-    auto traffic_state::aggregate() noexcept
-        -> traffic_snapshot
+    auto traffic_state::aggregate() noexcept -> traffic_snapshot
     {
         auto *reg = load_registry();
         if (!reg)

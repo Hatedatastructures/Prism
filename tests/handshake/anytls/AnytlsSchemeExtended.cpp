@@ -3,15 +3,15 @@
  * @brief AnyTLS 方案扩展接口测试 — verify 分支覆盖
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/settings/settings.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/anytls/scheme.hpp>
 #include <prism/handshake/scheme.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <cstddef>
 #include <span>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -36,8 +36,7 @@ namespace
     TEST(AnytlsSchemeExtended, AnytlsCategory)
     {
         psm::handshake::anytls::scheme s;
-        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
-            << "anytls: category=stack";
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack) << "anytls: category=stack";
     }
 
     TEST(AnytlsSchemeExtended, AnytlsActiveDisabled)

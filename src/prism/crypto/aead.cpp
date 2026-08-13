@@ -1,5 +1,4 @@
 #include <prism/crypto/aead.hpp>
-
 #include <prism/diagnose/diagnose.hpp>
 
 #include <openssl/evp.h>
@@ -20,7 +19,6 @@ namespace psm::crypto
             delete ctx;
         }
     }
-
 
     aead_context::aead_context(const aead_cipher cipher, const std::span<const std::uint8_t> key)
         : ctx_(nullptr, &release_ctx), key_length_(key.size())
@@ -44,8 +42,7 @@ namespace psm::crypto
             aead = EVP_aead_xchacha20_poly1305();
             nonce_len_ = 24;
             break;
-        default:
-            return;
+        default: return;
         }
 
         if (!aead)
@@ -64,19 +61,16 @@ namespace psm::crypto
         ctx_.reset(raw_ctx);
     }
 
-
     aead_context::~aead_context() = default;
 
-
     aead_context::aead_context(aead_context &&other) noexcept
-        : ctx_(std::move(other.ctx_)), nonce_(other.nonce_), key_length_(other.key_length_), nonce_len_(other.nonce_len_)
+        : ctx_(std::move(other.ctx_)), nonce_(other.nonce_), key_length_(other.key_length_),
+          nonce_len_(other.nonce_len_)
     {
         other.nonce_.fill(0);
     }
 
-
-    auto aead_context::operator=(aead_context &&other) noexcept
-        -> aead_context &
+    auto aead_context::operator=(aead_context &&other) noexcept -> aead_context &
     {
         if (this != &other)
         {
@@ -89,10 +83,8 @@ namespace psm::crypto
         return *this;
     }
 
-
     auto aead_context::seal(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> plaintext,
-                            const std::span<const std::uint8_t> ad)
-        -> fault::code
+                            const std::span<const std::uint8_t> ad) -> fault::code
     {
         if (!ctx_)
         {
@@ -105,11 +97,9 @@ namespace psm::crypto
         }
 
         std::size_t out_len = 0;
-        const auto result = EVP_AEAD_CTX_seal(
-            ctx_.get(), out.data(), &out_len, out.size(),
-            nonce_.data(), nonce_len_,
-            plaintext.data(), plaintext.size(),
-            ad.data(), ad.size());
+        const auto result =
+            EVP_AEAD_CTX_seal(ctx_.get(), out.data(), &out_len, out.size(), nonce_.data(), nonce_len_,
+                              plaintext.data(), plaintext.size(), ad.data(), ad.size());
 
         if (!result)
         {
@@ -119,11 +109,9 @@ namespace psm::crypto
         increment_nonce();
         return fault::code::success;
     }
-
 
     auto aead_context::open(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> ciphertext,
-                            const std::span<const std::uint8_t> ad)
-        -> fault::code
+                            const std::span<const std::uint8_t> ad) -> fault::code
     {
         if (!ctx_)
         {
@@ -136,11 +124,9 @@ namespace psm::crypto
         }
 
         std::size_t out_len = 0;
-        const auto result = EVP_AEAD_CTX_open(
-            ctx_.get(), out.data(), &out_len, out.size(),
-            nonce_.data(), nonce_len_,
-            ciphertext.data(), ciphertext.size(),
-            ad.data(), ad.size());
+        const auto result =
+            EVP_AEAD_CTX_open(ctx_.get(), out.data(), &out_len, out.size(), nonce_.data(), nonce_len_,
+                              ciphertext.data(), ciphertext.size(), ad.data(), ad.size());
 
         if (!result)
         {
@@ -151,9 +137,7 @@ namespace psm::crypto
         return fault::code::success;
     }
 
-
-    auto aead_context::seal(seal_input input)
-        -> fault::code
+    auto aead_context::seal(seal_input input) -> fault::code
     {
         if (!ctx_)
         {
@@ -161,11 +145,9 @@ namespace psm::crypto
         }
 
         std::size_t out_len = 0;
-        const auto result = EVP_AEAD_CTX_seal(
-            ctx_.get(), input.out.data(), &out_len, input.out.size(),
-            input.nonce.data(), input.nonce.size(),
-            input.plaintext.data(), input.plaintext.size(),
-            input.ad.data(), input.ad.size());
+        const auto result = EVP_AEAD_CTX_seal(ctx_.get(), input.out.data(), &out_len, input.out.size(),
+                                              input.nonce.data(), input.nonce.size(), input.plaintext.data(),
+                                              input.plaintext.size(), input.ad.data(), input.ad.size());
 
         if (!result)
         {
@@ -175,9 +157,7 @@ namespace psm::crypto
         return fault::code::success;
     }
 
-
-    auto aead_context::open(open_input input)
-        -> fault::code
+    auto aead_context::open(open_input input) -> fault::code
     {
         if (!ctx_)
         {
@@ -185,11 +165,9 @@ namespace psm::crypto
         }
 
         std::size_t out_len = 0;
-        const auto result = EVP_AEAD_CTX_open(
-            ctx_.get(), input.out.data(), &out_len, input.out.size(),
-            input.nonce.data(), input.nonce.size(),
-            input.ciphertext.data(), input.ciphertext.size(),
-            input.ad.data(), input.ad.size());
+        const auto result = EVP_AEAD_CTX_open(ctx_.get(), input.out.data(), &out_len, input.out.size(),
+                                              input.nonce.data(), input.nonce.size(), input.ciphertext.data(),
+                                              input.ciphertext.size(), input.ad.data(), input.ad.size());
 
         if (!result)
         {
@@ -198,7 +176,6 @@ namespace psm::crypto
 
         return fault::code::success;
     }
-
 
     void aead_context::increment_nonce() noexcept
     {
@@ -212,9 +189,7 @@ namespace psm::crypto
         }
     }
 
-
-    auto aead_context::is_nonce_exhausted() const noexcept
-        -> bool
+    auto aead_context::is_nonce_exhausted() const noexcept -> bool
     {
         for (std::size_t i = 0; i < nonce_len_; ++i)
         {

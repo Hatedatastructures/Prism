@@ -1,6 +1,6 @@
-#include <prism/net/transport/preview.hpp>
-#include <prism/foundation/memory/container.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/net/transport/preview.hpp>
 
 #include <boost/asio/any_completion_handler.hpp>
 
@@ -16,8 +16,7 @@ namespace psm::transport
     {
     }
 
-    auto preview::executor() const
-        -> executor_type
+    auto preview::executor() const -> executor_type
     {
         if (!inner_)
         {
@@ -79,7 +78,9 @@ namespace psm::transport
         }
     }
 
-    void preview::async_read_some(std::span<std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+    void preview::async_read_some(
+        std::span<std::byte> buffer,
+        net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
     {
         if (offset_ < preread_buffer_.size())
         {
@@ -96,22 +97,24 @@ namespace psm::transport
 
         if (!inner_)
         {
-            std::move(handler)(boost::system::error_code(
-                static_cast<int>(std::errc::bad_file_descriptor),
-                boost::system::generic_category()), 0);
+            std::move(handler)(boost::system::error_code(static_cast<int>(std::errc::bad_file_descriptor),
+                                                         boost::system::generic_category()),
+                               0);
             return;
         }
 
         inner_->async_read_some(buffer, std::move(handler));
     }
 
-    void preview::async_write_some(std::span<const std::byte> buffer, net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+    void preview::async_write_some(
+        std::span<const std::byte> buffer,
+        net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
     {
         if (!inner_)
         {
-            std::move(handler)(boost::system::error_code(
-                static_cast<int>(std::errc::bad_file_descriptor),
-                boost::system::generic_category()), 0);
+            std::move(handler)(boost::system::error_code(static_cast<int>(std::errc::bad_file_descriptor),
+                                                         boost::system::generic_category()),
+                               0);
             return;
         }
 

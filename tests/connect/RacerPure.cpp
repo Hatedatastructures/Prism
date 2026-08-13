@@ -6,18 +6,18 @@
  *          依赖真实网络连接，此处仅覆盖纯同步逻辑路径。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <boost/asio.hpp>
-
 
 #include <gtest/gtest.h>
 
 // 通过预处理器 hack 访问 private 内部类型 race_context（仅限测试翻译单元）
 #define private public
-#include "../../src/prism/net/connection/dialer/racer.cpp"
 #include <prism/net/connection/dialer/dialer.hpp>
+
+#include "../../src/prism/net/connection/dialer/racer.cpp"
 #undef private
 
 namespace
@@ -83,8 +83,7 @@ namespace
 
         // 先注册 async_wait，再让 complete() 触发 cancel
         boost::system::error_code wait_ec;
-        ctx.signal.async_wait([&](const boost::system::error_code &ec)
-                              { wait_ec = ec; });
+        ctx.signal.async_wait([&](const boost::system::error_code &ec) { wait_ec = ec; });
 
         ctx.complete();
         EXPECT_EQ(ctx.pending.load(), 0) << "complete: 1->0";
@@ -105,8 +104,7 @@ namespace
 
         // 先注册 async_wait，再让 complete() 触发 cancel
         boost::system::error_code wait_ec;
-        ctx.signal.async_wait([&](const boost::system::error_code &ec)
-                              { wait_ec = ec; });
+        ctx.signal.async_wait([&](const boost::system::error_code &ec) { wait_ec = ec; });
 
         ctx.complete();
         EXPECT_EQ(ctx.pending.load(), 0) << "complete single: pending->0";
@@ -179,8 +177,7 @@ namespace
         psm::connect::address_racer::race_context ctx(2, ioc.get_executor());
 
         auto expiry = ctx.signal.expiry();
-        EXPECT_EQ(expiry, net::steady_timer::time_point::max())
-            << "signal: 初始过期时间为 time_point::max";
+        EXPECT_EQ(expiry, net::steady_timer::time_point::max()) << "signal: 初始过期时间为 time_point::max";
     }
 
     /**
@@ -196,12 +193,10 @@ namespace
         // 但再次 async_wait + cancel 会返回 operation_aborted
         // 验证：先注册 async_wait，再 cancel，poll 后收到 aborted
         auto ec_result = boost::system::error_code{};
-        ctx.signal.async_wait([&](const boost::system::error_code &ec)
-                              { ec_result = ec; });
+        ctx.signal.async_wait([&](const boost::system::error_code &ec) { ec_result = ec; });
         ctx.signal.cancel();
         ioc.poll();
-        EXPECT_EQ(ec_result, net::error::operation_aborted)
-            << "signal cancel: operation_aborted";
+        EXPECT_EQ(ec_result, net::error::operation_aborted) << "signal cancel: operation_aborted";
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -214,11 +209,9 @@ namespace
     TEST(RacerPure, RacerConstruction)
     {
         // dialer::dial_endpoint 是私有成员，此处用占位回调验证 racer 构造
-        psm::connect::address_racer racer([](const auto &)
-            -> net::awaitable<std::pair<psm::fault::code, psm::connect::shared_transmission>>
-        {
-            co_return std::make_pair(psm::fault::code::success, psm::connect::shared_transmission{});
-        });
+        psm::connect::address_racer racer(
+            [](const auto &) -> net::awaitable<std::pair<psm::fault::code, psm::connect::shared_transmission>>
+            { co_return std::make_pair(psm::fault::code::success, psm::connect::shared_transmission{}); });
         EXPECT_TRUE(true) << "racer: 构造成功（拨号回调）";
     }
 
@@ -230,8 +223,7 @@ namespace
         // secondary_delay 是 address_racer 的 private static constexpr，
         // 通过 #include hack 已可访问
         constexpr auto delay = psm::connect::address_racer::secondary_delay;
-        EXPECT_EQ(delay.count(), 250)
-            << "secondary_delay: 250ms (RFC 8305)";
+        EXPECT_EQ(delay.count(), 250) << "secondary_delay: 250ms (RFC 8305)";
     }
 
 } // namespace

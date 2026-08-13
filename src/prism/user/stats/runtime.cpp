@@ -1,6 +1,5 @@
-#include <prism/user/stats/runtime.hpp>
-
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/user/stats/runtime.hpp>
 
 using namespace psm::diagnose;
 
@@ -9,52 +8,40 @@ namespace psm::stats::runtime
 
     // --- worker_load ---
 
-    worker_load::worker_load()
-        : active_sessions_(std::make_shared<std::atomic<std::uint32_t>>(0U))
+    worker_load::worker_load() : active_sessions_(std::make_shared<std::atomic<std::uint32_t>>(0U))
     {
     }
-
 
     void worker_load::session_open() noexcept
     {
         active_sessions_->fetch_add(1U, std::memory_order_relaxed);
     }
 
-
     void worker_load::session_close() noexcept
     {
         active_sessions_->fetch_sub(1U, std::memory_order_relaxed);
     }
-
 
     void worker_load::handoff_push() noexcept
     {
         pending_handoffs_.fetch_add(1U, std::memory_order_relaxed);
     }
 
-
     void worker_load::handoff_pop() noexcept
     {
         pending_handoffs_.fetch_sub(1U, std::memory_order_relaxed);
     }
 
-
-    auto worker_load::session_counter() const noexcept
-        -> const std::shared_ptr<std::atomic<std::uint32_t>> &
+    auto worker_load::session_counter() const noexcept -> const std::shared_ptr<std::atomic<std::uint32_t>> &
     {
         return active_sessions_;
     }
 
-
-    auto worker_load::snapshot() const noexcept
-        -> worker_snapshot
+    auto worker_load::snapshot() const noexcept -> worker_snapshot
     {
-        return {
-            active_sessions_->load(std::memory_order_relaxed),
-            pending_handoffs_.load(std::memory_order_relaxed),
-            lag_us_.load(std::memory_order_relaxed)};
+        return {active_sessions_->load(std::memory_order_relaxed),
+                pending_handoffs_.load(std::memory_order_relaxed), lag_us_.load(std::memory_order_relaxed)};
     }
-
 
     // 算法流程：
     // 1. 每 250ms 设置定时器并等待
@@ -62,8 +49,7 @@ namespace psm::stats::runtime
     // 3. 前 16 次采样为预热，建立抖动基线（jitter_baseline_us）
     // 4. 之后的有效延迟 = 实际延迟 - 抖动基线，低于 1ms 的忽略
     // 5. EMA 平滑系数 7/8，与 Linux 内核 load average 一致
-    auto worker_load::observe(net::io_context &ioc)
-        -> net::awaitable<void>
+    auto worker_load::observe(net::io_context &ioc) -> net::awaitable<void>
     {
         net::steady_timer timer(ioc);
         auto expected_time = std::chrono::steady_clock::now();
@@ -120,7 +106,8 @@ namespace psm::stats::runtime
 
             if (warmup_samples < 16U)
             {
-                jitter_baseline_us = (jitter_baseline_us * warmup_samples + capped_lag_us) / (warmup_samples + 1U);
+                jitter_baseline_us =
+                    (jitter_baseline_us * warmup_samples + capped_lag_us) / (warmup_samples + 1U);
                 ++warmup_samples;
                 lag_us_.store(0ULL, std::memory_order_relaxed);
                 continue;
@@ -146,16 +133,13 @@ namespace psm::stats::runtime
         }
     }
 
-
     // --- system_state ---
 
-    auto system_state::instance()
-        -> system_state &
+    auto system_state::instance() -> system_state &
     {
         static system_state inst;
         return inst;
     }
-
 
     void system_state::mark_started(std::uint32_t worker_count) noexcept
     {
@@ -167,9 +151,7 @@ namespace psm::stats::runtime
         worker_count_ = worker_count;
     }
 
-
-    auto system_state::snapshot() const noexcept
-        -> runtime_snapshot
+    auto system_state::snapshot() const noexcept -> runtime_snapshot
     {
         if (!started_.load(std::memory_order_relaxed))
         {

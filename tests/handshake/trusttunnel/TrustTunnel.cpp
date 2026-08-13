@@ -6,10 +6,10 @@
  *          以及公开接口 name/active/guess/snis。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/settings/settings.hpp>
+
+#include <gtest/gtest.h>
 
 // 直接 include 源文件以访问 anonymous namespace 函数
 #include <prism/protocol/multiplex/h2mux/control.hpp>
@@ -27,8 +27,8 @@ namespace
     {
         auto mr = psm::memory::current_resource();
         psm::memory::vector<psm::handshake::trusttunnel::user> users(mr);
-        users.push_back({.username = psm::memory::string("admin", mr),
-                         .password = psm::memory::string("secret123", mr)});
+        users.push_back(
+            {.username = psm::memory::string("admin", mr), .password = psm::memory::string("secret123", mr)});
 
         // "admin:secret123" base64 = "YWRtaW46c2VjcmV0MTIz"
         EXPECT_TRUE(verify_basic_auth("Basic YWRtaW46c2VjcmV0MTIz", users))
@@ -39,8 +39,8 @@ namespace
     {
         auto mr = psm::memory::current_resource();
         psm::memory::vector<psm::handshake::trusttunnel::user> users(mr);
-        users.push_back({.username = psm::memory::string("admin", mr),
-                         .password = psm::memory::string("secret123", mr)});
+        users.push_back(
+            {.username = psm::memory::string("admin", mr), .password = psm::memory::string("secret123", mr)});
 
         // "admin:wrongpass" base64 = "YWRtaW46d3JvmdwYXNz"
         EXPECT_TRUE(!verify_basic_auth("Basic YWRtaW46d3JvbmdwYXNz", users))
@@ -51,24 +51,21 @@ namespace
     {
         auto mr = psm::memory::current_resource();
         psm::memory::vector<psm::handshake::trusttunnel::user> users(mr);
-        users.push_back({.username = psm::memory::string("admin", mr),
-                         .password = psm::memory::string("secret", mr)});
+        users.push_back(
+            {.username = psm::memory::string("admin", mr), .password = psm::memory::string("secret", mr)});
 
-        EXPECT_TRUE(!verify_basic_auth("YWRtaW46c2VjcmV0", users))
-            << "verify_basic_auth: no prefix -> false";
+        EXPECT_TRUE(!verify_basic_auth("YWRtaW46c2VjcmV0", users)) << "verify_basic_auth: no prefix -> false";
     }
 
     TEST(TrustTunnel, VerifyBasicAuthEmptyHeader)
     {
         auto mr = psm::memory::current_resource();
         psm::memory::vector<psm::handshake::trusttunnel::user> users(mr);
-        users.push_back({.username = psm::memory::string("admin", mr),
-                         .password = psm::memory::string("secret", mr)});
+        users.push_back(
+            {.username = psm::memory::string("admin", mr), .password = psm::memory::string("secret", mr)});
 
-        EXPECT_TRUE(!verify_basic_auth("", users))
-            << "verify_basic_auth: empty -> false";
-        EXPECT_TRUE(!verify_basic_auth("Basic ", users))
-            << "verify_basic_auth: 'Basic ' only -> false";
+        EXPECT_TRUE(!verify_basic_auth("", users)) << "verify_basic_auth: empty -> false";
+        EXPECT_TRUE(!verify_basic_auth("Basic ", users)) << "verify_basic_auth: 'Basic ' only -> false";
     }
 
     TEST(TrustTunnel, VerifyBasicAuthOverflowProtection)
@@ -78,8 +75,7 @@ namespace
         // 超长用户名+密码 > 192 字节
         psm::memory::string long_name(200, 'A', mr);
         psm::memory::string long_pass(200, 'B', mr);
-        users.push_back({.username = std::move(long_name),
-                         .password = std::move(long_pass)});
+        users.push_back({.username = std::move(long_name), .password = std::move(long_pass)});
 
         // 即使 base64 匹配，超过 max_cred_len 也会被跳过
         EXPECT_TRUE(!verify_basic_auth("Basic AAAA", users))
@@ -94,8 +90,7 @@ namespace
         headers.authority = psm::memory::string("server_check.example.com:443", mr);
 
         auto info = resolve_stream_target(1, headers);
-        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::check)
-            << "resolve: _check -> type=check";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::check) << "resolve: _check -> type=check";
         EXPECT_EQ(info.valid, true) << "resolve: _check -> valid=true";
     }
 
@@ -107,8 +102,7 @@ namespace
         headers.authority = psm::memory::string("server_udp2.example.com:8443", mr);
 
         auto info = resolve_stream_target(3, headers);
-        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::udp)
-            << "resolve: _udp2 -> type=udp";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::udp) << "resolve: _udp2 -> type=udp";
         EXPECT_EQ(info.port, 8443) << "resolve: _udp2 -> port=8443";
         EXPECT_EQ(info.valid, true) << "resolve: _udp2 -> valid=true";
     }
@@ -121,8 +115,7 @@ namespace
         headers.authority = psm::memory::string("server_icmp.example.com:0", mr);
 
         auto info = resolve_stream_target(5, headers);
-        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::icmp)
-            << "resolve: _icmp -> type=icmp";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::icmp) << "resolve: _icmp -> type=icmp";
     }
 
     TEST(TrustTunnel, ResolveStreamTargetTcp)
@@ -133,8 +126,7 @@ namespace
         headers.authority = psm::memory::string("server.example.com:443", mr);
 
         auto info = resolve_stream_target(7, headers);
-        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp)
-            << "resolve: default -> type=tcp";
+        EXPECT_EQ(info.type, psm::multiplex::h2mux::stream_type::tcp) << "resolve: default -> type=tcp";
         EXPECT_EQ(info.host, "server.example.com") << "resolve: host match";
         EXPECT_EQ(info.port, 443) << "resolve: port=443";
         EXPECT_EQ(info.valid, true) << "resolve: valid=true";
@@ -165,12 +157,10 @@ namespace
     TEST(TrustTunnel, SchemeMetadata)
     {
         psm::handshake::trusttunnel::scheme s;
-        EXPECT_EQ(s.name(), std::string_view{"trusttunnel"})
-            << "scheme: name=trusttunnel";
+        EXPECT_EQ(s.name(), std::string_view{"trusttunnel"}) << "scheme: name=trusttunnel";
         EXPECT_EQ(s.tier(), 2) << "scheme: tier=2";
         EXPECT_EQ(s.unique(), false) << "scheme: unique=false";
-        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
-            << "scheme: category=stack";
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack) << "scheme: category=stack";
 
         psm::settings cfg;
         auto guess = s.guess(cfg);

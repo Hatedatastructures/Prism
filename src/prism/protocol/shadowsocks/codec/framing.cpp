@@ -1,6 +1,6 @@
-#include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/crypto/base64.hpp>
 #include <prism/protocol/common/framing.hpp>
+#include <prism/protocol/shadowsocks/codec/framing.hpp>
 
 #include <cstring>
 
@@ -22,8 +22,7 @@ namespace psm::protocol::shadowsocks::format
 
         switch (atyp)
         {
-        case atyp_ipv4:
-        {
+        case atyp_ipv4: {
             if (buffer.size() < 1 + 4 + 2)
             {
                 return {fault::code::bad_message, result};
@@ -37,8 +36,7 @@ namespace psm::protocol::shadowsocks::format
             result.addr = addr4;
             break;
         }
-        case atyp_domain:
-        {
+        case atyp_domain: {
             if (buffer.size() < 1 + 1)
             {
                 return {fault::code::bad_message, result};
@@ -52,8 +50,7 @@ namespace psm::protocol::shadowsocks::format
             result.addr = addrd;
             break;
         }
-        case atyp_ipv6:
-        {
+        case atyp_ipv6: {
             if (buffer.size() < 1 + 16 + 2)
             {
                 return {fault::code::bad_message, result};
@@ -67,8 +64,7 @@ namespace psm::protocol::shadowsocks::format
             result.addr = addr6;
             break;
         }
-        default:
-            return {fault::code::unsupported_address, result};
+        default: return {fault::code::unsupported_address, result};
         }
 
         // 读取端口（2 字节大端序）
@@ -84,9 +80,7 @@ namespace psm::protocol::shadowsocks::format
         return {fault::code::success, result};
     }
 
-
-    auto decode_psk(const std::string_view base64_psk)
-        -> std::pair<fault::code, memory::vector<std::uint8_t>>
+    auto decode_psk(const std::string_view base64_psk) -> std::pair<fault::code, memory::vector<std::uint8_t>>
     {
         if (base64_psk.empty())
         {
@@ -103,7 +97,6 @@ namespace psm::protocol::shadowsocks::format
         std::memcpy(psk.data(), decoded.data(), decoded.size());
         return {fault::code::success, std::move(psk)};
     }
-
 
     auto resolve_method(const std::string_view method_str, const std::size_t psk_len) noexcept
         -> cipher_method
@@ -126,7 +119,9 @@ namespace psm::protocol::shadowsocks::format
 
         // 自动推断：16B → aes-128, 32B → aes-256
         if (psk_len == 16)
+        {
             return cipher_method::aes_128_gcm;
+        }
         return cipher_method::aes_256_gcm;
     }
 

@@ -4,23 +4,21 @@
  * @details 覆盖 handshake::common 中的 aead_nonce、record_ad、xor_key 三个内联函数。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/handshake/common.hpp>
 
 #include <array>
 #include <cstdint>
 #include <cstring>
 
+#include <gtest/gtest.h>
+
 namespace
 {
     TEST(StealthCommonPure, AeadNonceZeroSequence)
     {
-        const std::uint8_t iv[12] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05,
-                                      0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b};
+        const std::uint8_t iv[12] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b};
         auto nonce = psm::handshake::common::aead_nonce(iv, 0);
-        EXPECT_TRUE(std::memcmp(nonce.data(), iv, 12) == 0)
-            << "aead_nonce: sequence=0 返回原始 IV";
+        EXPECT_TRUE(std::memcmp(nonce.data(), iv, 12) == 0) << "aead_nonce: sequence=0 返回原始 IV";
     }
 
     TEST(StealthCommonPure, AeadNonceNonZeroSequence)
@@ -44,8 +42,7 @@ namespace
 
     TEST(StealthCommonPure, AeadNonceXorOverlap)
     {
-        const std::uint8_t iv[12] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
-                                      0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+        const std::uint8_t iv[12] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
         auto nonce = psm::handshake::common::aead_nonce(iv, 0xFF);
         EXPECT_EQ(nonce[11], 0x00) << "aead_nonce: XOR 0xFF^0xFF=0";
         EXPECT_EQ(nonce[10], 0xFF) << "aead_nonce: 未影响位保持 0xFF";
@@ -100,8 +97,7 @@ namespace
         const std::uint8_t key[] = {0xAB, 0xCD};
         psm::handshake::common::xor_key(data, key);
         psm::handshake::common::xor_key(data, key);
-        EXPECT_EQ(std::memcmp(data, original, 3), 0)
-            << "xor_key: 两次异或恢复原始数据";
+        EXPECT_EQ(std::memcmp(data, original, 3), 0) << "xor_key: 两次异或恢复原始数据";
     }
 
     TEST(StealthCommonPure, XorKeyEmptyData)

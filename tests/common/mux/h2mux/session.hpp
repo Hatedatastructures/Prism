@@ -18,10 +18,14 @@ namespace psmtest::mux::h2mux
     /// h2mux 会话（共享框架实例化）
     using session = mux::session<codec>;
 
-    /// 创建 h2mux 会话
+    /**
+     * @brief 创建 h2mux 会话
+     * @param raw 底层传输（所有权移交）
+     * @param opt 会话选项
+     * @return 会话实例
+     */
     [[nodiscard]] inline auto make_session(std::shared_ptr<transport_base> raw,
-                                           const session_options &opt = {})
-        -> std::shared_ptr<session>
+                                           const session_options &opt = {}) -> std::shared_ptr<session>
     {
         return session::create(std::move(raw), opt);
     }

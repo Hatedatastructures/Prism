@@ -9,15 +9,14 @@
 #include <cstddef>
 #include <cstdint>
 
-
 namespace psm::handshake::shadowtls
 {
 
     // TLS 记录层常量
-    constexpr std::size_t tls_hdrsize = 5;               // TLS 记录头长度
-    constexpr std::size_t tls_rndsize = 32;              // TLS Random 长度
-    constexpr std::size_t tls_session_id_sz = 32;        // ShadowTLS 要求的 SessionID 长度
-    constexpr std::size_t hmac_size = 4;                 // HMAC 标签长度（4 字节）
+    constexpr std::size_t tls_hdrsize = 5;        // TLS 记录头长度
+    constexpr std::size_t tls_rndsize = 32;       // TLS Random 长度
+    constexpr std::size_t tls_session_id_sz = 32; // ShadowTLS 要求的 SessionID 长度
+    constexpr std::size_t hmac_size = 4;          // HMAC 标签长度（4 字节）
 
     // TLS 内容类型
     constexpr std::uint8_t content_handshake = 0x16;

@@ -8,19 +8,20 @@
  * 4. 403 认证失败（错误凭证）
  */
 
-#include <prism/protocol/http/handler/conn.hpp>
-#include <prism/protocol/http/codec/parser.hpp>
-#include <prism/user/directory.hpp>
 #include <prism/crypto/sha224.hpp>
-#include <prism/net/transport/reliable.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-#include <boost/asio.hpp>
-#include <string>
-#include <memory>
-#include <cstring>
-#include <array>
+#include <prism/foundation/foundation.hpp>
+#include <prism/net/transport/reliable.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
+#include <prism/protocol/http/handler/conn.hpp>
+#include <prism/user/directory.hpp>
 
+#include <boost/asio.hpp>
+
+#include <array>
+#include <cstring>
+#include <memory>
+#include <string>
 
 #include <gtest/gtest.h>
 
@@ -104,7 +105,7 @@ namespace
         {
         }
     }
-}
+} // namespace
 
 /**
  * @brief 测试 CONNECT 隧道握手 + echo
@@ -130,7 +131,8 @@ TEST(Http, ConnectTunnel)
                 co_await socket.async_connect(endpoint, net::use_awaitable);
 
                 // 发送 CONNECT 请求
-                const std::string request = "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n";
+                const std::string request =
+                    "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n";
                 co_await net::async_write(socket, net::buffer(request), net::use_awaitable);
 
                 // 读取 200 响应
@@ -261,11 +263,10 @@ TEST(Http, AuthForbidden403)
 
                 // 发送带错误凭证的请求（wrong_password 的 Base64 编码）
                 // "wrong:wrong_password" -> Base64 -> "d3Jvbmc6d3JvbmdfcGFzc3dvcmQ="
-                const std::string request =
-                    "GET http://example.com/ HTTP/1.1\r\n"
-                    "Host: example.com\r\n"
-                    "Proxy-Authorization: Basic d3Jvbmc6d3JvbmdfcGFzc3dvcmQ=\r\n"
-                    "\r\n";
+                const std::string request = "GET http://example.com/ HTTP/1.1\r\n"
+                                            "Host: example.com\r\n"
+                                            "Proxy-Authorization: Basic d3Jvbmc6d3JvbmdfcGFzc3dvcmQ=\r\n"
+                                            "\r\n";
                 co_await net::async_write(socket, net::buffer(request), net::use_awaitable);
 
                 // 读取响应，应包含 403

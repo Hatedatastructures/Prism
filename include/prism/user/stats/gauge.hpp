@@ -21,7 +21,9 @@ namespace psm::stats
          * @brief 构造函数
          * @param alpha EMA 平滑系数，默认 7/8，越大平滑越强
          */
-        explicit gauge(double alpha = 7.0 / 8.0) noexcept : alpha_(alpha) {}
+        explicit gauge(double alpha = 7.0 / 8.0) noexcept : alpha_(alpha)
+        {
+        }
 
         /**
          * @brief 输入新采样值
@@ -36,8 +38,7 @@ namespace psm::stats
          * @brief 获取当前平滑值
          * @return EMA 平滑后的值
          */
-        [[nodiscard]] auto value() const noexcept
-            -> double
+        [[nodiscard]] auto value() const noexcept -> double
         {
             return value_;
         }

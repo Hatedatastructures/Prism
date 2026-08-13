@@ -22,7 +22,6 @@
 #include <span>
 #include <system_error>
 
-
 namespace psm::transport
 {
 
@@ -43,8 +42,7 @@ namespace psm::transport
          * @param inner 被包装的内层传输
          * @param mr PMR 内存资源，用于 captured_ 缓冲区分配
          */
-        explicit snapshot(shared_transmission inner,
-                          memory::resource_pointer mr = memory::current_resource())
+        explicit snapshot(shared_transmission inner, memory::resource_pointer mr = memory::current_resource())
             : inner_(std::move(inner)), captured_(mr)
         {
         }
@@ -53,11 +51,12 @@ namespace psm::transport
          * @brief 获取传输层类型
          * @details 委托给内层传输
          */
-        [[nodiscard]] auto transport_type() const noexcept
-            -> type override
+        [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             if (inner_)
+            {
                 return inner_->transport_type();
+            }
             return type::tcp;
         }
 
@@ -83,7 +82,9 @@ namespace psm::transport
         [[nodiscard]] auto executor() const -> executor_type override
         {
             if (!inner_)
+            {
                 throw std::runtime_error("snapshot::executor() called on null inner");
+            }
             return inner_->executor();
         }
 
@@ -120,8 +121,7 @@ namespace psm::transport
             const auto n = co_await inner_->async_read_some(buffer, ec);
             if (n > 0 && !ec)
             {
-                captured_.insert(captured_.end(),
-                                 buffer.data(), buffer.data() + n);
+                captured_.insert(captured_.end(), buffer.data(), buffer.data() + n);
                 read_pos_ += n;
             }
             co_return n;
@@ -153,7 +153,9 @@ namespace psm::transport
         void close() override
         {
             if (inner_)
+            {
                 inner_->close();
+            }
         }
 
         /**
@@ -163,7 +165,9 @@ namespace psm::transport
         void cancel() override
         {
             if (inner_)
+            {
                 inner_->cancel();
+            }
         }
 
         /**
@@ -181,8 +185,7 @@ namespace psm::transport
          * @details 仅在未发生写入时可回滚。一旦写入过，transport 状态不可恢复。
          * @return true 如果可以回滚（未写入过数据）
          */
-        [[nodiscard]] auto can_rewind() const noexcept
-            -> bool
+        [[nodiscard]] auto can_rewind() const noexcept -> bool
         {
             return !wrote_;
         }
@@ -191,8 +194,7 @@ namespace psm::transport
          * @brief 获取内层传输
          * @return 内层传输的 shared_ptr
          */
-        [[nodiscard]] auto inner() const noexcept
-            -> shared_transmission
+        [[nodiscard]] auto inner() const noexcept -> shared_transmission
         {
             return inner_;
         }
@@ -210,7 +212,8 @@ namespace psm::transport
      * @param mr PMR 内存资源
      * @return 包装后的 snapshot 传输
      */
-    [[nodiscard]] inline auto make_snapshot(shared_transmission inner, memory::resource_pointer mr = memory::current_resource())
+    [[nodiscard]] inline auto make_snapshot(shared_transmission inner,
+                                            memory::resource_pointer mr = memory::current_resource())
         -> shared_transmission
     {
         return std::make_shared<snapshot>(std::move(inner), mr);

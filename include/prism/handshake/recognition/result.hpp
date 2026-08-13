@@ -9,9 +9,8 @@
 
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/tls/types.hpp>
 #include <prism/handshake/recognition/confidence.hpp>
-
+#include <prism/protocol/tls/types.hpp>
 
 namespace psm::recognition
 {

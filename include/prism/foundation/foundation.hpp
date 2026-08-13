@@ -22,11 +22,11 @@
 #include <prism/foundation/fault/handling.hpp>
 
 // Exception 子模块
+#include <prism/foundation/coroutine/registry.hpp>
 #include <prism/foundation/exception/deviant.hpp>
 #include <prism/foundation/exception/network.hpp>
 #include <prism/foundation/exception/protocol.hpp>
 #include <prism/foundation/exception/security.hpp>
-#include <prism/foundation/coroutine/registry.hpp>
 
 // Probe 子模块
 #include <prism/foundation/rate/counter.hpp>

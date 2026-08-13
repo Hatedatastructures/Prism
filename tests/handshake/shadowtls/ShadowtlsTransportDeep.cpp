@@ -6,17 +6,17 @@
  *          close()、cancel()、shutdown_write()、transport_type()、next_layer()。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/transport/reliable.hpp>
 
 #include <boost/asio.hpp>
+#include <openssl/hmac.h>
+
 #include <cstdint>
 #include <cstring>
 #include <vector>
 
-#include <openssl/hmac.h>
+#include <gtest/gtest.h>
 
 #define private public
 #include <prism/handshake/shadowtls/transport.hpp>
@@ -49,20 +49,17 @@ namespace
         const char *password = "test_password";
         std::array<std::byte, 32> server_random{};
         for (int i = 0; i < 32; ++i)
+        {
             server_random[i] = std::byte{static_cast<uint8_t>(i)};
+        }
 
         auto write_ctx = make_hmac_ctx(password, server_random, 'S');
         auto read_ctx = make_hmac_ctx(password, server_random, 'C');
 
-        shadowtls_handover handover{
-            password,
-            server_random,
-            {},
-            write_ctx,
-            read_ctx
-        };
+        shadowtls_handover handover{password, server_random, {}, write_ctx, read_ctx};
 
-        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
+        shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_TRUE(!transport.write_key_.empty()) << "hmac: write_key not empty";
         EXPECT_EQ(transport.write_key_.size(), 32) << "hmac: write_key 32 bytes";
@@ -87,15 +84,10 @@ namespace
 
         auto write_ctx = make_hmac_ctx(password, server_random, 'S');
 
-        shadowtls_handover handover{
-            password,
-            server_random,
-            init_data,
-            write_ctx,
-            nullptr
-        };
+        shadowtls_handover handover{password, server_random, init_data, write_ctx, nullptr};
 
-        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
+        shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_EQ(transport.initial_buffer_.size(), 4) << "init: size=4";
         EXPECT_EQ(transport.initial_buffer_[0], std::byte{0x01}) << "init: [0]=0x01";
@@ -110,15 +102,10 @@ namespace
         const char *password = "pwd";
         std::array<std::byte, 32> server_random{};
 
-        shadowtls_handover handover{
-            password,
-            server_random,
-            {},
-            nullptr,
-            nullptr
-        };
+        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
 
-        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
+        shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_EQ(transport.hmac_write_ctx_, nullptr) << "null: write ctx null";
         EXPECT_EQ(transport.hmac_read_ctx_, nullptr) << "null: read ctx null";
@@ -132,15 +119,10 @@ namespace
         const char *password = "pwd";
         std::array<std::byte, 32> server_random{};
 
-        shadowtls_handover handover{
-            password,
-            server_random,
-            {},
-            nullptr,
-            nullptr
-        };
+        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
 
-        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
+        shadowtls_transport transport(std::move(reliable), std::move(handover));
 
         EXPECT_EQ(transport.transport_type(), psm::transport::transmission::type::tcp) << "type: tcp";
         EXPECT_NE(transport.next_layer(), nullptr) << "layer: reliable";
@@ -154,15 +136,10 @@ namespace
         const char *password = "pwd";
         std::array<std::byte, 32> server_random{};
 
-        shadowtls_handover handover{
-            password,
-            server_random,
-            {},
-            nullptr,
-            nullptr
-        };
+        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
 
-        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
+        shadowtls_transport transport(std::move(reliable), std::move(handover));
         transport.close();
         transport.close();
         EXPECT_TRUE(true) << "close: idempotent, double close safe";
@@ -176,15 +153,10 @@ namespace
         const char *password = "pwd";
         std::array<std::byte, 32> server_random{};
 
-        shadowtls_handover handover{
-            password,
-            server_random,
-            {},
-            nullptr,
-            nullptr
-        };
+        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
 
-        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
+        shadowtls_transport transport(std::move(reliable), std::move(handover));
         try
         {
             transport.cancel();
@@ -204,15 +176,10 @@ namespace
         const char *password = "pwd";
         std::array<std::byte, 32> server_random{};
 
-        shadowtls_handover handover{
-            password,
-            server_random,
-            {},
-            nullptr,
-            nullptr
-        };
+        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
 
-        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock)); shadowtls_transport transport(std::move(reliable), std::move(handover));
+        auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
+        shadowtls_transport transport(std::move(reliable), std::move(handover));
         transport.shutdown_write();
         transport.shutdown_write();
         EXPECT_TRUE(true) << "shutdown_write: idempotent on unconnected socket";

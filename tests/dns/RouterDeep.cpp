@@ -6,13 +6,11 @@
  *          string_equal 和所有访问器方法。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/net/connection/dialer/dialer.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -70,20 +68,16 @@ namespace
     {
         connect::dialer::string_equal eq;
         psm::memory::string s("test");
-        EXPECT_TRUE(eq(s, std::string_view("test")))
-            << "string_equal: mem == view -> true";
-        EXPECT_TRUE(!eq(s, std::string_view("other")))
-            << "string_equal: mem != view -> false";
+        EXPECT_TRUE(eq(s, std::string_view("test"))) << "string_equal: mem == view -> true";
+        EXPECT_TRUE(!eq(s, std::string_view("other"))) << "string_equal: mem != view -> false";
     }
 
     TEST(RouterDeep, StringEqualViewMem)
     {
         connect::dialer::string_equal eq;
         psm::memory::string s("test");
-        EXPECT_TRUE(eq(std::string_view("test"), s))
-            << "string_equal: view == mem -> true";
-        EXPECT_TRUE(!eq(std::string_view("other"), s))
-            << "string_equal: view != mem -> false";
+        EXPECT_TRUE(eq(std::string_view("test"), s)) << "string_equal: view == mem -> true";
+        EXPECT_TRUE(!eq(std::string_view("other"), s)) << "string_equal: view != mem -> false";
     }
 
     TEST(RouterDeep, StringEqualMemMem)
@@ -99,10 +93,8 @@ namespace
     TEST(RouterDeep, StringEqualEmpty)
     {
         connect::dialer::string_equal eq;
-        EXPECT_TRUE(eq(std::string_view(""), std::string_view("")))
-            << "string_equal: empty == empty -> true";
-        EXPECT_TRUE(!eq(std::string_view(""), std::string_view("x")))
-            << "string_equal: empty != x -> false";
+        EXPECT_TRUE(eq(std::string_view(""), std::string_view(""))) << "string_equal: empty == empty -> true";
+        EXPECT_TRUE(!eq(std::string_view(""), std::string_view("x"))) << "string_equal: empty != x -> false";
     }
 
     // ─── 构造函数 + 访问器 ──────────────────────

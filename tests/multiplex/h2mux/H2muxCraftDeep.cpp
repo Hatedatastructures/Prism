@@ -8,14 +8,13 @@
  *          避免同步 start() + poll()/run_for() 导致的 Access violation。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include "common/MockTransport.hpp"
-
+#include <prism/foundation/foundation.hpp>
 #include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/dns/resolver.hpp>
 #include <prism/protocol/multiplex/h2mux/control.hpp>
+
+#include "common/MockTransport.hpp"
 
 using MockTransport = psm::testing::MockTransport;
 namespace multiplex = psm::multiplex;
@@ -119,7 +118,6 @@ namespace
         EXPECT_TRUE(!fx.craft_obj->is_active()) << "close: second close -> still inactive";
     }
 
-
     // ─── 析构函数 ─────────────────────────────
 
     TEST(H2muxCraftDeep, DestructorNoInit)
@@ -170,8 +168,12 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)

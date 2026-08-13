@@ -10,17 +10,16 @@
  */
 #pragma once
 
-#include <prism/user/directory.hpp>
-#include <prism/settings/settings.hpp>
-#include <prism/settings/validator.hpp>
 #include <prism/crypto/sha224.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/settings/settings.hpp>
 #include <prism/settings/transformer.hpp>
+#include <prism/settings/validator.hpp>
+#include <prism/user/directory.hpp>
 
 #include <fstream>
 #include <string>
-
 
 namespace psm::loader
 {
@@ -35,8 +34,7 @@ namespace psm::loader
      * 内部的 psm::settings 结构。
      * @note 配置文件必须是有效的 JSON 格式，且符合 psm::settings 的结构定义
      */
-    [[nodiscard]] inline auto load(const std::string_view path)
-        -> psm::settings
+    [[nodiscard]] inline auto load(const std::string_view path) -> psm::settings
     {
         std::ifstream file(std::string(path), std::ios::binary);
         if (!file.is_open())

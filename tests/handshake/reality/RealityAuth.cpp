@@ -6,20 +6,19 @@
  *          session_id 过短）。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/foundation/foundation.hpp>
-#include <prism/handshake/reality/util/auth.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/hkdf.hpp>
 #include <prism/crypto/x25519.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/handshake/reality/util/auth.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <array>
 #include <cstdint>
 #include <cstring>
 #include <span>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -29,8 +28,7 @@ namespace
         names.emplace_back("example.com");
         names.emplace_back("test.local");
 
-        EXPECT_TRUE(psm::handshake::reality::match_sni("example.com", names))
-            << "match_sni exact match";
+        EXPECT_TRUE(psm::handshake::reality::match_sni("example.com", names)) << "match_sni exact match";
         EXPECT_TRUE(psm::handshake::reality::match_sni("test.local", names))
             << "match_sni second entry match";
     }
@@ -40,8 +38,7 @@ namespace
         psm::memory::vector<psm::memory::string> names;
         names.emplace_back("example.com");
 
-        EXPECT_FALSE(psm::handshake::reality::match_sni("other.com", names))
-            << "match_sni no match";
+        EXPECT_FALSE(psm::handshake::reality::match_sni("other.com", names)) << "match_sni no match";
     }
 
     TEST(RealityAuth, MatchSniEmpty)
@@ -49,8 +46,7 @@ namespace
         psm::memory::vector<psm::memory::string> names;
         names.emplace_back("example.com");
 
-        EXPECT_FALSE(psm::handshake::reality::match_sni("", names))
-            << "match_sni empty SNI returns false";
+        EXPECT_FALSE(psm::handshake::reality::match_sni("", names)) << "match_sni empty SNI returns false";
     }
 
     TEST(RealityAuth, MatchSniEmptyList)
@@ -77,8 +73,7 @@ namespace
         allowed.emplace_back("0102030405060708");
 
         std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        EXPECT_TRUE(psm::handshake::reality::match_shortid(short_id, allowed))
-            << "match_shortid exact match";
+        EXPECT_TRUE(psm::handshake::reality::match_shortid(short_id, allowed)) << "match_shortid exact match";
     }
 
     TEST(RealityAuth, MatchShortidNoMatch)
@@ -87,8 +82,7 @@ namespace
         allowed.emplace_back("AABBCCDD");
 
         std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        EXPECT_FALSE(psm::handshake::reality::match_shortid(short_id, allowed))
-            << "match_shortid no match";
+        EXPECT_FALSE(psm::handshake::reality::match_shortid(short_id, allowed)) << "match_shortid no match";
     }
 
     TEST(RealityAuth, MatchShortidOddLength)
@@ -196,10 +190,8 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_EQ(ec, psm::fault::code::badsni)
-            << "authenticate: SNI mismatch -> badsni";
-        EXPECT_EQ(result.authenticated, false)
-            << "authenticate: SNI mismatch -> not authenticated";
+        EXPECT_EQ(ec, psm::fault::code::badsni) << "authenticate: SNI mismatch -> badsni";
+        EXPECT_EQ(result.authenticated, false) << "authenticate: SNI mismatch -> not authenticated";
     }
 
     TEST(RealityAuth, AuthenticateNoX25519)
@@ -213,10 +205,8 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_EQ(ec, psm::fault::code::unauth)
-            << "authenticate: no X25519 -> unauth";
-        EXPECT_EQ(result.authenticated, false)
-            << "authenticate: no X25519 -> not authenticated";
+        EXPECT_EQ(ec, psm::fault::code::unauth) << "authenticate: no X25519 -> unauth";
+        EXPECT_EQ(result.authenticated, false) << "authenticate: no X25519 -> not authenticated";
     }
 
     TEST(RealityAuth, AuthenticateNoTls13)
@@ -231,10 +221,8 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_EQ(ec, psm::fault::code::unauth)
-            << "authenticate: no TLS 1.3 -> unauth";
-        EXPECT_EQ(result.authenticated, false)
-            << "authenticate: no TLS 1.3 -> not authenticated";
+        EXPECT_EQ(ec, psm::fault::code::unauth) << "authenticate: no TLS 1.3 -> unauth";
+        EXPECT_EQ(result.authenticated, false) << "authenticate: no TLS 1.3 -> not authenticated";
     }
 
     TEST(RealityAuth, AuthenticateSessionIdTooShort)
@@ -249,10 +237,8 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_EQ(ec, psm::fault::code::unauth)
-            << "authenticate: short session_id -> unauth";
-        EXPECT_EQ(result.authenticated, false)
-            << "authenticate: short session_id -> not authenticated";
+        EXPECT_EQ(ec, psm::fault::code::unauth) << "authenticate: short session_id -> unauth";
+        EXPECT_EQ(result.authenticated, false) << "authenticate: short session_id -> not authenticated";
     }
 
     TEST(RealityAuth, AuthenticateEmptySniAllowed)
@@ -268,8 +254,7 @@ namespace
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
         // 空 SNI 跳过 SNI 检查，但后续 X25519/AEAD 会失败
-        EXPECT_NE(ec, psm::fault::code::badsni)
-            << "authenticate: empty SNI -> not badsni";
+        EXPECT_NE(ec, psm::fault::code::badsni) << "authenticate: empty SNI -> not badsni";
         EXPECT_EQ(result.authenticated, false)
             << "authenticate: empty SNI -> not authenticated (crypto fails)";
     }
@@ -315,8 +300,7 @@ namespace
 
         // 2. 客户端使用服务端公钥 + 自己的临时私钥执行 X25519
         auto client_kp = psm::crypto::generate_keypair();
-        auto [kex_ec, shared_secret] = psm::crypto::x25519(
-            client_kp.private_key, server_kp.public_key);
+        auto [kex_ec, shared_secret] = psm::crypto::x25519(client_kp.private_key, server_kp.public_key);
         ASSERT_TRUE(psm::fault::succeeded(kex_ec)) << "authenticate success: X25519 kex ok";
 
         // 3. HKDF 派生 auth_key（与 auth.cpp 中 authenticate() 相同的流程）
@@ -336,8 +320,7 @@ namespace
         constexpr std::array<std::uint8_t, 7> reality_info{'R', 'E', 'A', 'L', 'I', 'T', 'Y'};
         const auto [expand_ec, auth_key_vec] = psm::crypto::hkdf_expand(
             std::span<const std::uint8_t>(prk.data(), prk.size()),
-            std::span<const std::uint8_t>(reality_info.data(), reality_info.size()),
-            32);
+            std::span<const std::uint8_t>(reality_info.data(), reality_info.size()), 32);
         ASSERT_TRUE(psm::fault::succeeded(expand_ec)) << "authenticate success: HKDF-Expand ok";
 
         // 5. 构造明文 session_id：version(1) + random(7) + short_id(8) + padding(16) = 32 字节
@@ -346,11 +329,14 @@ namespace
         plaintext_sid[0] = 0x01; // version marker
         // bytes 8-15 = short_id（全 0x42）
         for (std::size_t i = 8; i < 16; ++i)
+        {
             plaintext_sid[i] = 0x42;
+        }
 
         // 6. AEAD 加密 -> 密文(16) + tag(16) = 32 字节 = SESSION_ID_MAX_LEN
-        psm::crypto::aead_context aead(psm::crypto::aead_cipher::aes_256_gcm,
-                                        std::span<const std::uint8_t>(auth_key_vec.data(), auth_key_vec.size()));
+        psm::crypto::aead_context aead(
+            psm::crypto::aead_cipher::aes_256_gcm,
+            std::span<const std::uint8_t>(auth_key_vec.data(), auth_key_vec.size()));
 
         feat.raw_msg.resize(128, 0x00);
 
@@ -358,11 +344,11 @@ namespace
         std::memcpy(nonce.data(), feat.random.data() + 20, psm::protocol::tls::AEAD_NONCE_LEN);
 
         std::array<std::uint8_t, 32> encrypted_sid{};
-        const auto seal_ec = aead.seal(psm::crypto::seal_input{
-            std::span<std::uint8_t>(encrypted_sid.data(), encrypted_sid.size()),
-            std::span<const std::uint8_t>(plaintext_sid.data(), plaintext_sid.size()),
-            std::span<const std::uint8_t>(nonce.data(), nonce.size()),
-            std::span<const std::uint8_t>(feat.raw_msg.data(), feat.raw_msg.size())});
+        const auto seal_ec = aead.seal(
+            psm::crypto::seal_input{std::span<std::uint8_t>(encrypted_sid.data(), encrypted_sid.size()),
+                                    std::span<const std::uint8_t>(plaintext_sid.data(), plaintext_sid.size()),
+                                    std::span<const std::uint8_t>(nonce.data(), nonce.size()),
+                                    std::span<const std::uint8_t>(feat.raw_msg.data(), feat.raw_msg.size())});
         ASSERT_TRUE(psm::fault::succeeded(seal_ec)) << "authenticate success: AEAD seal ok";
 
         // 7. 设置 session_id（32 字节密文+tag）
@@ -396,10 +382,8 @@ namespace
         auto [ec, result] = psm::handshake::reality::authenticate(
             cfg, feat, std::span<const std::uint8_t>{key.data(), key.size()});
 
-        EXPECT_EQ(ec, psm::fault::code::kexfail)
-            << "authenticate: zero pubkey -> kexfail";
-        EXPECT_EQ(result.authenticated, false)
-            << "authenticate: zero pubkey -> not authenticated";
+        EXPECT_EQ(ec, psm::fault::code::kexfail) << "authenticate: zero pubkey -> kexfail";
+        EXPECT_EQ(result.authenticated, false) << "authenticate: zero pubkey -> not authenticated";
     }
 
 } // namespace

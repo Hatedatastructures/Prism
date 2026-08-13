@@ -5,8 +5,8 @@
  *          以及 build_header 的字节序正确性。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/protocol/multiplex/smux/control.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
 
@@ -99,7 +99,9 @@ TEST(SmuxCraftPure, DataFrameRoundtrip)
 {
     psm::memory::vector<std::byte> payload;
     for (int i = 0; i < 100; ++i)
+    {
         payload.push_back(std::byte{static_cast<unsigned char>(i)});
+    }
 
     auto frame = smux::make_data_frame(5678, payload);
 

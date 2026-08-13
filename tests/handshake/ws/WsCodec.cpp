@@ -7,9 +7,9 @@
 
 #include <prism/handshake/ws/codec.hpp>
 
-#include <gtest/gtest.h>
-
 #include <cstring>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -23,17 +23,18 @@ namespace
     {
         std::vector<std::byte> out;
         for (const auto b : list)
+        {
             out.push_back(static_cast<std::byte>(b));
+        }
         return out;
     }
-}
+} // namespace
 
 TEST(WsCodec, AcceptKeyKnownVector)
 {
     // RFC 6455 示例：key "dGhlIHNhbXBsZSBub25jZQ==" → "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
     std::array<char, 29> accept{};
-    ASSERT_TRUE(compute_accept("dGhlIHNhbXBsZSBub25jZQ==",
-                               std::span<char, 28>(accept.data(), 28)));
+    ASSERT_TRUE(compute_accept("dGhlIHNhbXBsZSBub25jZQ==", std::span<char, 28>(accept.data(), 28)));
     EXPECT_EQ(std::string_view(accept.data(), 28), "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
 }
 
@@ -98,10 +99,9 @@ TEST(WsCodec, EncodeServerFrame)
 {
     const std::string payload = "ws data";
     std::array<std::byte, 64> buf{};
-    const auto n = encode_frame(opcode::binary, true,
-                                std::span<const std::byte>(
-                                    reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
-                                buf);
+    const auto n = encode_frame(
+        opcode::binary, true,
+        std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), payload.size()), buf);
     ASSERT_GT(n, 0);
     // 服务端帧不掩码：byte0 = 0x82，byte1 = len
     EXPECT_EQ(static_cast<std::uint8_t>(buf[0]), 0x82);

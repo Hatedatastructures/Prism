@@ -9,15 +9,14 @@
  */
 #pragma once
 
-#include <prism/net/transport/transmission.hpp>
-#include <functional>
 #include <prism/diagnose/context.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 
 #include <chrono>
+#include <functional>
 #include <span>
-
 
 namespace psm::connect
 {
@@ -42,7 +41,8 @@ namespace psm::connect
     {
     public:
         /// 拨号回调：给定端点返回连接结果（RAII 所有权）
-        using dial_fn = std::function<net::awaitable<std::pair<fault::code, shared_transmission>>(const tcp::endpoint &)>;
+        using dial_fn =
+            std::function<net::awaitable<std::pair<fault::code, shared_transmission>>(const tcp::endpoint &)>;
 
         /**
          * @brief 构造竞速器
@@ -60,7 +60,8 @@ namespace psm::connect
          * @return 成功连接，或空连接（全部失败时）
          * @note 如果 endpoints 为空，返回空连接
          */
-        [[nodiscard]] auto race(std::span<const tcp::endpoint> endpoints, std::shared_ptr<diagnose::context> trace = nullptr)
+        [[nodiscard]] auto race(std::span<const tcp::endpoint> endpoints,
+                                std::shared_ptr<diagnose::context> trace = nullptr)
             -> net::awaitable<shared_transmission>;
 
     private:
@@ -68,7 +69,8 @@ namespace psm::connect
 
         dial_fn dial_; // 拨号回调，用于建立 TCP 连接
 
-        static constexpr auto secondary_delay = std::chrono::milliseconds(250); // 后续端点延迟时间，RFC 8305 建议值 250ms
+        static constexpr auto secondary_delay =
+            std::chrono::milliseconds(250); // 后续端点延迟时间，RFC 8305 建议值 250ms
 
         /**
          * @brief 单端点竞速协程

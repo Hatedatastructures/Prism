@@ -13,8 +13,6 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-
 #include <boost/asio/any_completion_handler.hpp>
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -27,6 +25,8 @@
 #include <system_error>
 #include <utility>
 
+#include <common/core/error.hpp>
+
 namespace psmtest
 {
 
@@ -35,13 +35,18 @@ namespace psmtest
     namespace detail
     {
 
-        /// 将 std::error_code 转为 boost::system::error_code
-        /// @details 协议库错误分类映射到 boost 侧，其余归 generic。
-        [[nodiscard]] inline auto to_ec(const std::error_code &ec) noexcept
-            -> boost::system::error_code
+        /**
+         * @brief 将 std::error_code 转为 boost::system::error_code
+         * @details 协议库错误分类映射到 boost 侧，其余归 generic。
+         * @param ec 源错误码
+         * @return 转换后的 boost 错误码
+         */
+        [[nodiscard]] inline auto to_ec(const std::error_code &ec) noexcept -> boost::system::error_code
         {
             if (!ec)
+            {
                 return {};
+            }
             if (ec.category() == error_category())
             {
                 return make_error_code(static_cast<error>(ec.value()));
@@ -87,7 +92,9 @@ namespace psmtest
         {
             auto *n = next_layer();
             if (n)
+            {
                 return n->transport_type();
+            }
             return type::tcp;
         }
 
@@ -134,18 +141,20 @@ namespace psmtest
          * @param buffer 目标缓冲区
          * @param handler 完成处理器
          */
-        virtual void async_read_some(std::span<std::byte> buffer,
-                                     net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+        virtual void
+        async_read_some(std::span<std::byte> buffer,
+                        net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
         {
             auto ex = executor();
-            net::co_spawn(ex,
-                          [this, buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
-                          {
-                              std::error_code ec;
-                              const auto n = co_await async_read_some(buffer, ec);
-                              std::move(h)(detail::to_ec(ec), n);
-                          },
-                          net::detached);
+            net::co_spawn(
+                ex,
+                [this, buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
+                {
+                    std::error_code ec;
+                    const auto n = co_await async_read_some(buffer, ec);
+                    std::move(h)(detail::to_ec(ec), n);
+                },
+                net::detached);
         }
 
         /**
@@ -153,18 +162,20 @@ namespace psmtest
          * @param buffer 源数据缓冲区
          * @param handler 完成处理器
          */
-        virtual void async_write_some(std::span<const std::byte> buffer,
-                                      net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+        virtual void
+        async_write_some(std::span<const std::byte> buffer,
+                         net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
         {
             auto ex = executor();
-            net::co_spawn(ex,
-                          [this, buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
-                          {
-                              std::error_code ec;
-                              const auto n = co_await async_write_some(buffer, ec);
-                              std::move(h)(detail::to_ec(ec), n);
-                          },
-                          net::detached);
+            net::co_spawn(
+                ex,
+                [this, buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
+                {
+                    std::error_code ec;
+                    const auto n = co_await async_write_some(buffer, ec);
+                    std::move(h)(detail::to_ec(ec), n);
+                },
+                net::detached);
         }
 
         /**
@@ -183,9 +194,13 @@ namespace psmtest
             {
                 const auto n = co_await async_read_some(buffer.subspan(done), ec);
                 if (ec)
+                {
                     co_return done;
+                }
                 if (n == 0)
+                {
                     co_return done; // EOF / 半关 / 取消
+                }
                 done += n;
             }
             co_return done;
@@ -207,7 +222,9 @@ namespace psmtest
             {
                 const auto n = co_await async_write_some(buffer.subspan(done), ec);
                 if (ec)
+                {
                     co_return done;
+                }
                 if (n == 0)
                 {
                     ec = make_error_code(error::broken_pipe);
@@ -305,14 +322,14 @@ namespace psmtest
      * transmission 基类自身满足本概念，具体派生类亦满足。
      */
     template <typename T>
-    concept transmission_like = requires(T &t, std::span<std::byte> buf,std::span<const std::byte> wbuf, std::error_code &ec)
-    {
-        { t.async_read_some(buf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
-        { t.async_write_some(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
-        { t.close() } -> std::same_as<void>;
-        { t.cancel() } -> std::same_as<void>;
-        { t.executor() } -> std::same_as<net::any_io_executor>;
-    };
+    concept transmission_like =
+        requires(T &t, std::span<std::byte> buf, std::span<const std::byte> wbuf, std::error_code &ec) {
+            { t.async_read_some(buf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            { t.async_write_some(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            { t.close() } -> std::same_as<void>;
+            { t.cancel() } -> std::same_as<void>;
+            { t.executor() } -> std::same_as<net::any_io_executor>;
+        };
 
     static_assert(transmission_like<transmission>);
 

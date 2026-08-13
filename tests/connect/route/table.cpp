@@ -11,8 +11,8 @@
 
 namespace
 {
-    using psm::connect::route_table;
     using psm::connect::route_stats;
+    using psm::connect::route_table;
 
     auto make_endpoint(const std::string &ip, std::uint16_t port) -> boost::asio::ip::tcp::endpoint
     {

@@ -13,11 +13,6 @@
 
 #pragma once
 
-#include <common/core/byte_span.hpp>
-#include <common/core/error.hpp>
-#include <common/core/transport/stream.hpp>
-#include <common/core/transmission.hpp>
-
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/error.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
@@ -34,6 +29,11 @@
 #include <utility>
 #include <vector>
 
+#include <common/core/byte_span.hpp>
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/core/transport/stream.hpp>
+
 namespace psmtest
 {
 
@@ -47,8 +47,7 @@ namespace psmtest
         /// 内部状态：入向队列（对端写、本端读）
         struct state
         {
-            explicit state(net::any_io_executor ex)
-                : read_channel(ex, 1), timer(ex)
+            explicit state(net::any_io_executor ex) : read_channel(ex, 1), timer(ex)
             {
             }
 
@@ -68,15 +67,18 @@ namespace psmtest
             std::chrono::milliseconds timeout{default_timeout};
         };
 
-        /// @brief 构造（未连接，需通过 make_memory_pair 成对使用）
-        /// @param ex 执行器
-        explicit memory_stream(net::any_io_executor ex)
-            : in_(std::make_shared<state>(std::move(ex)))
+        /**
+         * @brief 构造（未连接，需通过 make_memory_pair 成对使用）
+         * @param ex 执行器
+         */
+        explicit memory_stream(net::any_io_executor ex) : in_(std::make_shared<state>(std::move(ex)))
         {
         }
 
-        /// @brief 读取最多 buf.size() 字节
-        /// @return 实际读取字节数；0 = 对端半关 / 超时 / 取消
+        /**
+         * @brief 读取最多 buf.size() 字节
+         * @return 实际读取字节数；0 = 对端半关 / 超时 / 取消
+         */
         auto read_some(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t>
         {
             using namespace boost::asio::experimental::awaitable_operators;
@@ -89,32 +91,42 @@ namespace psmtest
                     co_return 0;
                 }
                 if (in_->closed)
+                {
                     co_return 0;
+                }
                 if (!in_->rx_queue.empty())
                 {
                     const auto &front = in_->rx_queue.front();
                     const auto n = std::min(buf.size(), front.size());
                     std::memcpy(buf.data(), front.data(), n);
                     if (n < front.size())
+                    {
                         in_->rx_queue.front().erase(in_->rx_queue.front().begin(),
-                                                    in_->rx_queue.front().begin() + static_cast<std::ptrdiff_t>(n));
+                                                    in_->rx_queue.front().begin() +
+                                                        static_cast<std::ptrdiff_t>(n));
+                    }
                     else
+                    {
                         in_->rx_queue.pop_front();
+                    }
                     co_return n;
                 }
                 if (in_->peer_eof)
+                {
                     co_return 0;
+                }
 
                 // 挂起等待数据 / EOF / 关闭 / 取消 / 超时
                 in_->read_channel.reset();
                 if (in_->timeout.count() > 0)
                 {
                     in_->timer.expires_after(in_->timeout);
-                    auto result = co_await (
-                        in_->read_channel.async_receive(net::use_awaitable) ||
-                        in_->timer.async_wait(net::use_awaitable));
+                    auto result = co_await (in_->read_channel.async_receive(net::use_awaitable) ||
+                                            in_->timer.async_wait(net::use_awaitable));
                     if (result.index() == 1) // 超时
+                    {
                         co_return 0;
+                    }
                 }
                 else
                 {
@@ -123,20 +135,26 @@ namespace psmtest
             }
         }
 
-        /// @brief 写入全部数据到对端
-        /// @return 错误码（成功 = 空；对端全关 = broken_pipe）
+        /**
+         * @brief 写入全部数据到对端
+         * @return 错误码（成功 = 空；对端全关 = broken_pipe）
+         */
         auto write_all(std::span<const std::uint8_t> buf) -> net::awaitable<protocol_ec>
         {
             const auto peer = peer_.lock();
             if (!peer || peer->closed)
+            {
                 co_return net::error::broken_pipe;
+            }
             std::vector<std::uint8_t> data(buf.begin(), buf.end());
             peer->rx_queue.push_back(std::move(data));
             peer->read_channel.try_send(boost::system::error_code{});
             co_return boost::system::error_code{};
         }
 
-        /// @brief 半关：发送 EOF（对端读返回 0），本端仍可读
+        /**
+         * @brief 半关：发送 EOF（对端读返回 0），本端仍可读
+         */
         auto shutdown() -> net::awaitable<void>
         {
             const auto peer = peer_.lock();
@@ -148,7 +166,9 @@ namespace psmtest
             co_return;
         }
 
-        /// @brief 全关：本端不可读，对端写返回 broken_pipe
+        /**
+         * @brief 全关：本端不可读，对端写返回 broken_pipe
+         */
         auto close() -> void override
         {
             in_->closed = true;
@@ -161,38 +181,49 @@ namespace psmtest
             }
         }
 
-        /// @brief 取消挂起的读（立即返回 0）
+        /**
+         * @brief 取消挂起的读（立即返回 0）
+         */
         auto cancel() -> void override
         {
             in_->canceled = true;
             in_->read_channel.try_send(boost::system::error_code{});
         }
 
-        /// @brief 设置读超时（0 = 禁用）
+        /**
+         * @brief 设置读超时（0 = 禁用）
+         */
         auto set_timeout(std::chrono::milliseconds ms) -> void
         {
             in_->timeout = ms;
         }
 
-        /// 流是否打开（未全关）
+        /**
+         * @brief 流是否打开（未全关）
+         * @return 打开返回 true
+         */
         [[nodiscard]] auto is_open() const -> bool
         {
             return !in_->closed;
         }
 
-        /// @brief 异步读取（transmission 接口，字节视图）
-        /// @details 桥接到 read_some 内部逻辑，ec 恒为空（超时/取消返回 0）。
+        /**
+         * @brief 异步读取（transmission 接口，字节视图）
+         * @details 桥接到 read_some 内部逻辑，ec 恒为空（超时/取消返回 0）。
+         */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ec.clear();
-            const auto n = co_await read_some(std::span<std::uint8_t>(
-                reinterpret_cast<std::uint8_t *>(buffer.data()), buffer.size()));
+            const auto n = co_await read_some(
+                std::span<std::uint8_t>(reinterpret_cast<std::uint8_t *>(buffer.data()), buffer.size()));
             co_return n;
         }
 
-        /// @brief 异步写入（transmission 接口，字节视图）
-        /// @details 桥接到 write_all，错误码存入 ec。
+        /**
+         * @brief 异步写入（transmission 接口，字节视图）
+         * @details 桥接到 write_all，错误码存入 ec。
+         */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
@@ -206,7 +237,10 @@ namespace psmtest
             co_return buffer.size();
         }
 
-        /// 获取执行器
+        /**
+         * @brief 获取执行器
+         * @return 关联的执行器
+         */
         [[nodiscard]] auto executor() const -> net::any_io_executor override
         {
             return in_->read_channel.get_executor();
@@ -216,21 +250,24 @@ namespace psmtest
         std::shared_ptr<state> in_;
         std::weak_ptr<state> peer_;
 
-        /// 内部：绑定对端（仅 make_memory_pair 使用）
+        /**
+         * @brief 内部：绑定对端（仅 make_memory_pair 使用）
+         */
         explicit memory_stream(std::shared_ptr<state> in, std::weak_ptr<state> peer)
             : in_(std::move(in)), peer_(std::move(peer))
         {
         }
 
-        friend auto make_memory_pair(net::any_io_executor)
-            -> std::pair<memory_stream, memory_stream>;
+        friend auto make_memory_pair(net::any_io_executor) -> std::pair<memory_stream, memory_stream>;
     };
 
     static_assert(stream<memory_stream>, "memory_stream 必须满足 stream concept");
 
-    /// @brief 创建成对内存管道端点
-    /// @param ex 执行器（通常来自 io_context）
-    /// @return 两个互为对端的流
+    /**
+     * @brief 创建成对内存管道端点
+     * @param ex 执行器（通常来自 io_context）
+     * @return 两个互为对端的流
+     */
     [[nodiscard]] inline auto make_memory_pair(net::any_io_executor ex)
         -> std::pair<memory_stream, memory_stream>
     {

@@ -8,8 +8,8 @@
  *       对 frame_loop 的阻塞，否则 ioc.run() 不会返回。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include "common/MockTransport.hpp"
 
@@ -110,14 +110,24 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         EXPECT_TRUE(wrote_data) << "send: bytes written to transport";
@@ -153,14 +163,24 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         EXPECT_TRUE(fin_ok) << "fin: completed without crash";
@@ -194,14 +214,24 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         EXPECT_TRUE(empty_ok) << "send: empty payload handled";
@@ -230,14 +260,24 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         EXPECT_TRUE(closed_ok) << "frame_loop: read error -> graceful shutdown";
@@ -266,14 +306,24 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         EXPECT_TRUE(!result.has_value()) << "wait_first_connect: no CONNECT -> nullopt";
@@ -310,19 +360,28 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         ASSERT_TRUE(result.has_value()) << "wait_first_connect: immediate result";
-        EXPECT_TRUE(result->authority == "test.local:443")
-            << "wait_first_connect: authority preserved";
+        EXPECT_TRUE(result->authority == "test.local:443") << "wait_first_connect: authority preserved";
     }
 
     // ─── wait_first_connect 立即返回空（resolved 但 authority 为空）──
@@ -353,14 +412,24 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         EXPECT_TRUE(!result.has_value()) << "wait_first_connect: resolved but empty -> nullopt";
@@ -413,14 +482,24 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         EXPECT_TRUE(second_resolved) << "activate_stream(check): resolved";
@@ -464,14 +543,24 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         EXPECT_TRUE(not_connecting) << "handle_connect: invalid -> not connecting";
@@ -504,14 +593,24 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->get_io_context();
-        net::co_spawn(mock_ioc.get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; mock_ioc.stop(); });
+        net::co_spawn(mock_ioc.get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          mock_ioc.stop();
+                      });
         mock_ioc.run();
 
         if (ep)
         {
-            try { std::rethrow_exception(ep); }
-            catch (const std::exception &e) { FAIL() << e.what(); }
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
         }
 
         EXPECT_TRUE(respond_200_ok) << "respond_connect(200): success";

@@ -11,15 +11,14 @@
 
 #include <prism/foundation/fault/code.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/tls/types.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <boost/asio.hpp>
 
 #include <cstdint>
 #include <span>
 #include <utility>
-
 
 namespace psm::transport
 {

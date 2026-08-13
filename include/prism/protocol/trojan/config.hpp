@@ -11,7 +11,6 @@
 
 #include <cstdint>
 
-
 namespace psm::protocol::trojan
 {
 
@@ -27,9 +26,9 @@ namespace psm::protocol::trojan
      */
     struct config
     {
-        bool enable_tcp = true;                 // 是否允许 CONNECT 命令（TCP 隧道），默认启用
-        bool enable_udp = false;                // 是否允许 UDP_ASSOCIATE 命令（UDP over TLS），默认禁用
-        std::uint32_t idle_timeout = 60;    // UDP 会话空闲超时时间（秒），默认 60 秒
+        bool enable_tcp = true;          // 是否允许 CONNECT 命令（TCP 隧道），默认启用
+        bool enable_udp = false;         // 是否允许 UDP_ASSOCIATE 命令（UDP over TLS），默认禁用
+        std::uint32_t idle_timeout = 60; // UDP 会话空闲超时时间（秒），默认 60 秒
         std::uint32_t max_dgram = 65535; // UDP 数据报最大长度，默认 65535 字节
     };
-}
+} // namespace psm::protocol::trojan

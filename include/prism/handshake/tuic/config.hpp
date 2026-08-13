@@ -32,10 +32,13 @@ namespace psm::handshake::tuic
      */
     struct config
     {
-        bool enable{false}; ///< 是否启用
+        bool enable{false};         ///< 是否启用
         memory::vector<user> users; ///< 认证用户表
 
-        /// 是否启用
+        /**
+         * @brief 是否启用
+         * @return 是否启用
+         */
         [[nodiscard]] auto enabled() const noexcept -> bool
         {
             return enable;

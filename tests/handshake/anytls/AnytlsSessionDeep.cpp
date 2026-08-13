@@ -15,23 +15,21 @@
  *          所有涉及 start() 的测试均使用 co_spawn + ioc.run() 模式。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/foundation/foundation.hpp>
-
-#include "common/MockTransport.hpp"
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/anytls/mux/frame.hpp>
 #include <prism/handshake/anytls/padding.hpp>
+
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
+
+#include "common/MockTransport.hpp"
+#include <gtest/gtest.h>
 
 // 必须在 session.hpp 之前定义，否则 transport.hpp 内部已包含 session.hpp
 #define private public
 #define protected public
-#include <prism/handshake/anytls/mux/transport.hpp>
 #include <prism/handshake/anytls/mux/session.hpp>
+#include <prism/handshake/anytls/mux/transport.hpp>
 #undef protected
 #undef private
 
@@ -44,8 +42,7 @@ namespace net = boost::asio;
 namespace
 {
     auto make_frame_bytes(anytls::command cmd, std::uint32_t stream_id,
-                          std::span<const std::uint8_t> payload = {})
-        -> std::vector<std::byte>
+                          std::span<const std::uint8_t> payload = {}) -> std::vector<std::byte>
     {
         anytls::frame_header hdr;
         hdr.cmd = cmd;
@@ -55,14 +52,17 @@ namespace
         std::vector<std::byte> out;
         out.reserve(7 + payload.size());
         for (auto b : ser)
+        {
             out.push_back(static_cast<std::byte>(b));
+        }
         for (auto b : payload)
+        {
             out.push_back(static_cast<std::byte>(b));
+        }
         return out;
     }
 
-    auto make_settings_payload(std::string_view text)
-        -> std::vector<std::uint8_t>
+    auto make_settings_payload(std::string_view text) -> std::vector<std::uint8_t>
     {
         return {text.begin(), text.end()};
     }
@@ -77,16 +77,14 @@ namespace
         std::shared_ptr<psm::transport::transmission> cb_transport;
         psm::memory::vector<std::uint8_t> cb_preread;
 
-        SessionFixture()
-            : cb_preread(psm::memory::current_resource())
+        SessionFixture() : cb_preread(psm::memory::current_resource())
         {
         }
 
         void init(std::shared_ptr<anytls::padding_factory> padding = nullptr)
         {
             transport = std::make_shared<MockTransport>();
-            auto cb = [this](std::uint32_t sid,
-                             std::shared_ptr<psm::transport::transmission> trans,
+            auto cb = [this](std::uint32_t sid, std::shared_ptr<psm::transport::transmission> trans,
                              psm::memory::vector<std::uint8_t> preread)
             {
                 callback_called = true;
@@ -94,11 +92,13 @@ namespace
                 cb_transport = std::move(trans);
                 cb_preread = std::move(preread);
             };
-            session = std::make_shared<anytls::anytls_session>(
-                transport, std::move(padding), std::move(cb));
+            session = std::make_shared<anytls::anytls_session>(transport, std::move(padding), std::move(cb));
         }
 
-        auto &ioc() { return transport->get_io_context(); }
+        auto &ioc()
+        {
+            return transport->get_io_context();
+        }
     };
 
     // ─── constructor + close + get_stream_channel ──
@@ -137,8 +137,7 @@ namespace
         fx.session->received_settings_ = true;
 
         // 手动注入一个 stream channel
-        auto ch = std::make_shared<anytls::anytls_session::channel_type>(
-            fx.transport->get_io_context(), 64);
+        auto ch = std::make_shared<anytls::anytls_session::channel_type>(fx.transport->get_io_context(), 64);
         fx.session->streams_[1] = ch;
 
         auto found = fx.session->get_stream_channel(1);
@@ -169,11 +168,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->received_settings_) << "settings v1: received";
         EXPECT_TRUE(fx.session->peer_version_ == 1) << "settings v1: version 1";
@@ -199,11 +212,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->peer_version_ == 2) << "settings v2: version 2";
 
@@ -217,8 +244,7 @@ namespace
     TEST(AnytlsSessionDeep, OnSettingsV2PaddingMismatch)
     {
         SessionFixture fx;
-        auto pad = std::make_shared<anytls::padding_factory>(
-            "stop=1\n0=c,30-30\n");
+        auto pad = std::make_shared<anytls::padding_factory>("stop=1\n0=c,30-30\n");
         fx.init(pad);
 
         // padding 的 md5 不匹配 "abc"
@@ -235,11 +261,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->peer_version_ == 2) << "pad mismatch: version 2";
 
@@ -258,8 +298,7 @@ namespace
         fx.init(pad);
 
         // 发送匹配的 md5
-        auto payload = make_settings_payload(
-            std::string("v=2\npadding-md5=") + std::string(pad->md5) + "\n");
+        auto payload = make_settings_payload(std::string("v=2\npadding-md5=") + std::string(pad->md5) + "\n");
         auto frame = make_frame_bytes(anytls::command::settings, 0, payload);
         fx.transport->inject_read(frame.data(), frame.size());
 
@@ -272,11 +311,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->peer_version_ == 2) << "pad match: version 2";
 
@@ -305,11 +358,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->streams_.count(1) == 1) << "syn: stream 1 created";
         EXPECT_TRUE(fx.session->init_id_ == 1) << "syn: init_id = 1";
@@ -337,11 +404,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->streams_.count(2) == 1) << "syn sub: stream 2 created";
         EXPECT_TRUE(fx.session->pending_syns_.count(2) == 1) << "syn sub: stream 2 pending";
@@ -367,11 +448,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->streams_.empty()) << "syn no settings: ignored";
     }
@@ -396,11 +491,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->streams_.empty()) << "syn zero: ignored";
     }
@@ -415,8 +524,7 @@ namespace
         fx.session->init_id_ = 1;
 
         // 创建 stream channel
-        auto ch = std::make_shared<anytls::anytls_session::channel_type>(
-            fx.transport->get_io_context(), 64);
+        auto ch = std::make_shared<anytls::anytls_session::channel_type>(fx.transport->get_io_context(), 64);
         fx.session->streams_[1] = ch;
 
         auto data = std::vector<std::uint8_t>{0x01, 0x02, 0x03};
@@ -432,11 +540,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->init_resolved_) << "psh preread: init resolved";
         EXPECT_TRUE(fx.session->init_id_ == 1) << "psh preread: init_id 1";
@@ -454,8 +576,7 @@ namespace
         fx.session->init_resolved_ = true;
         fx.session->peer_version_ = 1;
 
-        auto ch2 = std::make_shared<anytls::anytls_session::channel_type>(
-            fx.transport->get_io_context(), 64);
+        auto ch2 = std::make_shared<anytls::anytls_session::channel_type>(fx.transport->get_io_context(), 64);
         fx.session->streams_[2] = ch2;
         fx.session->pending_syns_.insert(2);
 
@@ -472,11 +593,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.callback_called) << "psh sub callback: called";
         EXPECT_EQ(fx.cb_stream_id, 2) << "psh sub callback: stream_id 2";
@@ -495,8 +630,7 @@ namespace
         fx.session->init_resolved_ = true;
         fx.session->peer_version_ = 2;
 
-        auto ch2 = std::make_shared<anytls::anytls_session::channel_type>(
-            fx.transport->get_io_context(), 64);
+        auto ch2 = std::make_shared<anytls::anytls_session::channel_type>(fx.transport->get_io_context(), 64);
         fx.session->streams_[2] = ch2;
         fx.session->pending_syns_.insert(2);
 
@@ -513,11 +647,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // v2 会发送 synack 帧
         auto &written = fx.transport->written_data();
@@ -534,8 +682,7 @@ namespace
         fx.session->init_id_ = 1;
         fx.session->init_resolved_ = true;
 
-        auto ch = std::make_shared<anytls::anytls_session::channel_type>(
-            fx.transport->get_io_context(), 64);
+        auto ch = std::make_shared<anytls::anytls_session::channel_type>(fx.transport->get_io_context(), 64);
         fx.session->streams_[1] = ch;
 
         auto data = std::vector<std::uint8_t>{0xAA, 0xBB};
@@ -551,11 +698,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // 验证 session 仍在运行且没有意外写入
         auto &written = fx.transport->written_data();
@@ -587,11 +748,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // 未知 stream 的 PSH 应被忽略，不应创建新 stream
         EXPECT_EQ(fx.session->streams_.count(99), 0u) << "psh unknown: no stream 99 created";
@@ -605,8 +780,7 @@ namespace
         fx.init();
         fx.session->received_settings_ = true;
 
-        auto ch = std::make_shared<anytls::anytls_session::channel_type>(
-            fx.transport->get_io_context(), 64);
+        auto ch = std::make_shared<anytls::anytls_session::channel_type>(fx.transport->get_io_context(), 64);
         fx.session->streams_[5] = ch;
 
         auto frame = make_frame_bytes(anytls::command::fin, 5);
@@ -621,11 +795,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->streams_.count(5) == 0) << "fin: stream 5 removed";
     }
@@ -650,11 +838,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->streams_.empty()) << "fin unknown: no streams";
     }
@@ -667,8 +869,7 @@ namespace
         fx.init();
         fx.session->received_settings_ = true;
 
-        auto ch = std::make_shared<anytls::anytls_session::channel_type>(
-            fx.transport->get_io_context(), 64);
+        auto ch = std::make_shared<anytls::anytls_session::channel_type>(fx.transport->get_io_context(), 64);
         fx.session->streams_[3] = ch;
 
         auto frame = make_frame_bytes(anytls::command::alert, 3);
@@ -683,11 +884,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->streams_.count(3) == 0) << "alert: stream 3 removed";
     }
@@ -712,11 +927,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->received_settings_) << "alert unknown: settings still set";
     }
@@ -741,11 +970,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // heart_resp 应被写入
         auto &written = fx.transport->written_data();
@@ -754,8 +997,7 @@ namespace
         if (written.size() >= 7)
         {
             auto resp_cmd = static_cast<anytls::command>(written[0]);
-            EXPECT_EQ(resp_cmd, anytls::command::heart_resp)
-                << "heart_req: cmd = heart_resp";
+            EXPECT_EQ(resp_cmd, anytls::command::heart_resp) << "heart_req: cmd = heart_resp";
         }
     }
 
@@ -779,11 +1021,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // waste 命令应被静默忽略，不应产生写入
         EXPECT_TRUE(fx.session->received_settings_) << "waste: session alive after waste";
@@ -805,7 +1061,9 @@ namespace
         auto ser = hdr.serialize();
         std::vector<std::byte> frame_bytes;
         for (auto b : ser)
+        {
             frame_bytes.push_back(static_cast<std::byte>(b));
+        }
         fx.transport->inject_read(frame_bytes.data(), frame_bytes.size());
 
         std::exception_ptr ep;
@@ -817,11 +1075,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // 未知命令应被静默忽略
         EXPECT_TRUE(fx.session->received_settings_) << "unknown cmd: session alive";
@@ -846,15 +1118,28 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->init_resolved_) << "recv closed: init resolved";
-        EXPECT_TRUE(fx.session->init_error_ == psm::fault::code::eof)
-            << "recv closed: error = eof";
+        EXPECT_TRUE(fx.session->init_error_ == psm::fault::code::eof) << "recv closed: error = eof";
     }
 
     // ─── recv_loop 无效帧头 ─────────────────────
@@ -886,11 +1171,25 @@ namespace
             timer.expires_after(std::chrono::milliseconds(50));
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // read_exact 返回 false → recv_loop 退出 → init_error_ = eof
         EXPECT_TRUE(fx.session->init_error_ == psm::fault::code::eof)
@@ -918,11 +1217,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->received_settings_) << "payload frame: settings received";
     }
@@ -943,11 +1256,25 @@ namespace
             auto n = co_await fx.session->write_psh(1, data, ec);
             EXPECT_EQ(n, 2) << "write_psh: returned 2";
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(!ec) << "write_psh: no error";
         auto &written = fx.transport->written_data();
@@ -963,15 +1290,26 @@ namespace
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
-        {
-            co_await fx.session->write_fin(1, ec);
-        };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->write_fin(1, ec); };
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(!ec) << "write_fin: no error";
     }
@@ -985,15 +1323,26 @@ namespace
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
-        {
-            co_await fx.session->write_synack(1, ec);
-        };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->write_synack(1, ec); };
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(!ec) << "write_synack: no error";
         auto &written = fx.transport->written_data();
@@ -1009,15 +1358,26 @@ namespace
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
-        {
-            co_await fx.session->send_waste_frame(0, ec);
-        };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->send_waste_frame(0, ec); };
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(!ec) << "waste no pad: no error";
         auto &written = fx.transport->written_data();
@@ -1029,21 +1389,31 @@ namespace
     TEST(AnytlsSessionDeep, SendWasteFrameWithPadding)
     {
         SessionFixture fx;
-        auto pad = std::make_shared<anytls::padding_factory>(
-            "stop=2\n0=10-10\n1=c,20-20\n");
+        auto pad = std::make_shared<anytls::padding_factory>("stop=2\n0=10-10\n1=c,20-20\n");
         fx.init(pad);
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
-        {
-            co_await fx.session->send_waste_frame(0, ec);
-        };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->send_waste_frame(0, ec); };
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(!ec) << "waste with pad: no error";
         // pkt=0 -> "10-10" -> 一个 10 字节 waste 帧
@@ -1056,21 +1426,31 @@ namespace
     TEST(AnytlsSessionDeep, SendWasteFrameBeyondStop)
     {
         SessionFixture fx;
-        auto pad = std::make_shared<anytls::padding_factory>(
-            "stop=1\n0=c\n");
+        auto pad = std::make_shared<anytls::padding_factory>("stop=1\n0=c\n");
         fx.init(pad);
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
-        {
-            co_await fx.session->send_waste_frame(1, ec);
-        };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->send_waste_frame(1, ec); };
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // pkt=1 >= stop=1, generate_sizes 返回 checkmark，不 padding
         EXPECT_TRUE(!ec) << "waste beyond stop: no error";
@@ -1087,15 +1467,26 @@ namespace
         std::error_code ec;
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
-        {
-            co_await fx.session->write_frame(
-                anytls::frame_input{anytls::command::psh, 1, {}, ec});
-        };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        { co_await fx.session->write_frame(anytls::frame_input{anytls::command::psh, 1, {}, ec}); };
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(ec.operator bool()) << "write error: has error";
     }
@@ -1105,8 +1496,7 @@ namespace
     TEST(AnytlsSessionDeep, RecvLoopWithPadding)
     {
         SessionFixture fx;
-        auto pad = std::make_shared<anytls::padding_factory>(
-            "stop=10\n0=c,20-20\n");
+        auto pad = std::make_shared<anytls::padding_factory>("stop=10\n0=c,20-20\n");
         fx.init(pad);
 
         auto payload = make_settings_payload("v=1\n");
@@ -1122,11 +1512,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // padding enabled 且 pkt_counter_ 递增
         EXPECT_TRUE(fx.session->pkt_counter_ >= 1) << "recv pad: counter incremented";
@@ -1149,13 +1553,29 @@ namespace
             auto [ec, tup] = co_await fx.session->wait_first_stream();
             auto &[id, preread] = tup;
             if (id == 42 && preread.size() == 2)
+            {
                 ok = true;
+            }
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(ok) << "wait resolved: got cached result";
     }
@@ -1179,11 +1599,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // recv 异常应触发 init resolve 为错误
         EXPECT_TRUE(fx.session->init_resolved_) << "recv exception: init resolved";
@@ -1223,11 +1657,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->received_settings_) << "full seq: settings";
         EXPECT_TRUE(fx.session->streams_.count(1) == 1) << "full seq: stream 1";
@@ -1251,7 +1699,9 @@ namespace
         auto ser = hdr.serialize();
         std::vector<std::byte> frame_bytes;
         for (auto b : ser)
+        {
             frame_bytes.push_back(static_cast<std::byte>(b));
+        }
 
         // 注入 header 后关闭
         fx.transport->inject_read(frame_bytes.data(), frame_bytes.size());
@@ -1266,11 +1716,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // payload 读取中途关闭应触发错误但不崩溃
         EXPECT_TRUE(fx.session->init_resolved_ || !fx.session->received_settings_)
@@ -1300,11 +1764,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         // 后续 PSH 到未知 stream 应被忽略
         EXPECT_EQ(fx.session->streams_.count(99), 0u) << "psh sub unknown: no stream 99";
@@ -1329,11 +1807,25 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(), [&](std::exception_ptr e)
-                      { ep = e; fx.ioc().stop(); });
+        net::co_spawn(fx.ioc().get_executor(), coro(),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          fx.ioc().stop();
+                      });
         fx.ioc().run();
 
-        if (ep) { try { std::rethrow_exception(ep); } catch (const std::exception &e) { FAIL() << e.what(); } }
+        if (ep)
+        {
+            try
+            {
+                std::rethrow_exception(ep);
+            }
+            catch (const std::exception &e)
+            {
+                FAIL() << e.what();
+            }
+        }
 
         EXPECT_TRUE(fx.session->received_settings_) << "settings empty: received";
         EXPECT_TRUE(fx.session->peer_version_ == 1) << "settings empty: version unchanged";

@@ -1,8 +1,7 @@
-#include <prism/protocol/multiplex/stream.hpp>
-
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/net/transport/reliable.hpp>
-#include <prism/diagnose/diagnose.hpp>
+#include <prism/protocol/multiplex/stream.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 
@@ -20,10 +19,7 @@ namespace psm::multiplex
     constexpr std::size_t max_frame_payload = 65535;
 
     stream::stream(stream_options opts)
-        : id_(opts.stream_id),
-          egress_(std::move(opts.egress)),
-          mr_(opts.mr),
-          target_(std::move(opts.target)),
+        : id_(opts.stream_id), egress_(std::move(opts.egress)), mr_(opts.mr), target_(std::move(opts.target)),
           prefix_(std::move(opts.prefix)),
 
           write_channel_(target_->executor(), 32)
@@ -32,12 +28,10 @@ namespace psm::multiplex
         read_size_ = std::min(opts.buffer_size, static_cast<std::uint32_t>(max_frame_payload));
     }
 
-
     stream::~stream() noexcept
     {
         close();
     }
-
 
     void stream::start()
     {
@@ -45,31 +39,29 @@ namespace psm::multiplex
 
         // target 读循环：target → mux → 客户端（下载方向）
         net::co_spawn(target_->executor(), target_readloop(),
-            [self](const std::exception_ptr &ep)
-            {
-                if (ep)
-                {
-                    diagnose::debug(self->prefix_, "stream {} target read loop error", self->id_);
-                }
-                self->close();
-            });
+                      [self](const std::exception_ptr &ep)
+                      {
+                          if (ep)
+                          {
+                              diagnose::debug(self->prefix_, "stream {} target read loop error", self->id_);
+                          }
+                          self->close();
+                      });
 
         // target 写循环：客户端 → mux → target（上传方向），写错误自行关闭。
         // completion 捕获 self 保活：协程挂起期间 stream 可能被 control drop
         // 析构（如连接失败/超时），detached 不保活会 UAF 崩溃
         net::co_spawn(target_->executor(), target_writeloop(),
-            [self](const std::exception_ptr &ep)
-            {
-                if (ep)
-                {
-                    diagnose::debug(self->prefix_, "stream {} target write loop error", self->id_);
-                }
-            });
+                      [self](const std::exception_ptr &ep)
+                      {
+                          if (ep)
+                          {
+                              diagnose::debug(self->prefix_, "stream {} target write loop error", self->id_);
+                          }
+                      });
     }
 
-
-    auto stream::on_data(memory::vector<std::byte> data)
-        -> net::awaitable<void>
+    auto stream::on_data(memory::vector<std::byte> data) -> net::awaitable<void>
     {
         diagnose::debug(prefix_, "[up] on_data stream={} {} bytes", id_, data.size());
         if (closed_)
@@ -86,7 +78,6 @@ namespace psm::multiplex
             co_return;
         }
     }
-
 
     void stream::on_fin()
     {
@@ -108,7 +99,6 @@ namespace psm::multiplex
             close();
         }
     }
-
 
     void stream::close()
     {
@@ -137,11 +127,9 @@ namespace psm::multiplex
         diagnose::debug(prefix_, "stream {} closed", id_);
     }
 
-
     // target 读循环（客户端下行/下载方向）
     // 从 target 读取数据，经 egress->send 回传会话层编码成帧发往客户端。
-    auto stream::target_readloop()
-        -> net::awaitable<void>
+    auto stream::target_readloop() -> net::awaitable<void>
     {
         std::error_code ec;
 
@@ -198,12 +186,10 @@ namespace psm::multiplex
         }
     }
 
-
     // target 写循环（客户端上行/上传方向）
     // 从 write_channel_ 取数据写入 target。
     // write_channel_ 解耦帧循环与 target 写入，避免慢速 target 阻塞帧循环。
-    auto stream::target_writeloop()
-        -> net::awaitable<void>
+    auto stream::target_writeloop() -> net::awaitable<void>
     {
         while (!closed_)
         {

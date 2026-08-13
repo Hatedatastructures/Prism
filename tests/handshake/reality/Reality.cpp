@@ -5,23 +5,24 @@
  * 使用 OpenSSL 解析叶子证书，验证 DER 是否可被正常解析且公钥类型为 Ed25519。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/handshake/reality/util/response.hpp>
-#include <prism/handshake/reality/util/keygen.hpp>
 #include <prism/crypto/x25519.hpp>
-#include <openssl/x509.h>
+#include <prism/handshake/reality/util/keygen.hpp>
+#include <prism/handshake/reality/util/response.hpp>
+
 #include <openssl/evp.h>
+#include <openssl/x509.h>
+
 #include <cstring>
-#include <string>
 #include <span>
+#include <string>
+
+#include <gtest/gtest.h>
 
 namespace
 {
     auto ReadU24(const std::uint8_t *p) -> std::size_t
     {
-        return (static_cast<std::size_t>(p[0]) << 16) |
-               (static_cast<std::size_t>(p[1]) << 8) |
+        return (static_cast<std::size_t>(p[0]) << 16) | (static_cast<std::size_t>(p[1]) << 8) |
                static_cast<std::size_t>(p[2]);
     }
 
@@ -92,10 +93,7 @@ TEST(Reality, CertificateParsesAsEd25519)
 
     protocol::tls::hello_features client_hello;
     client_hello.session_id = {0x01, 0x02, 0x03, 0x04};
-    client_hello.raw_msg = {
-        0x01, 0x00, 0x00, 0x05,
-        0x03, 0x03, 0x00, 0x00, 0x00
-    };
+    client_hello.raw_msg = {0x01, 0x00, 0x00, 0x05, 0x03, 0x03, 0x00, 0x00, 0x00};
 
     auto eph = crypto::generate_keypair();
 
@@ -120,13 +118,12 @@ TEST(Reality, CertificateParsesAsEd25519)
     }
 
     const auto [ec, sh] = generate_shello(
-        hello_request{
-            client_hello,
-            std::span<const std::uint8_t>(eph.public_key.data(), eph.public_key.size()),
-            keys,
-            {},
-            std::span<const std::uint8_t>(client_hello.raw_msg.data(), client_hello.raw_msg.size()),
-            std::span<const std::uint8_t>(auth_key.data(), auth_key.size())});
+        hello_request{client_hello,
+                      std::span<const std::uint8_t>(eph.public_key.data(), eph.public_key.size()),
+                      keys,
+                      {},
+                      std::span<const std::uint8_t>(client_hello.raw_msg.data(), client_hello.raw_msg.size()),
+                      std::span<const std::uint8_t>(auth_key.data(), auth_key.size())});
 
     ASSERT_FALSE(fault::failed(ec)) << "generate_shello failed";
 

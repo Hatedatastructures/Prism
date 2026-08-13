@@ -8,7 +8,6 @@
 
 #include <prism/foundation/memory/container.hpp>
 
-
 namespace psm::protocol::shadowsocks
 {
 
@@ -27,10 +26,10 @@ namespace psm::protocol::shadowsocks
         // 显式设置时支持 "2022-blake3-chacha20-poly1305"
         memory::string method;
 
-        bool enable_tcp = true; // 是否启用 TCP 代理
-        bool enable_udp = false; // 是否启用 UDP 代理
+        bool enable_tcp = true;             // 是否启用 TCP 代理
+        bool enable_udp = false;            // 是否启用 UDP 代理
         std::int64_t timestamp_window = 30; // 时间戳重放窗口（秒）
-        std::int64_t salt_ttl = 60; // Salt 池 TTL（秒）
-        std::uint32_t idle_timeout = 60; // UDP 会话空闲超时（秒）
+        std::int64_t salt_ttl = 60;         // Salt 池 TTL（秒）
+        std::uint32_t idle_timeout = 60;    // UDP 会话空闲超时（秒）
     };
 } // namespace psm::protocol::shadowsocks

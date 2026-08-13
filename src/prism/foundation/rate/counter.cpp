@@ -22,7 +22,6 @@ namespace psm::rate
         return h;
     }
 
-
     auto address_hash::from_v6(std::span<const std::byte, 16> addr) noexcept -> address_hash
     {
         address_hash h{};
@@ -30,9 +29,8 @@ namespace psm::rate
         return h;
     }
 
-
-    auto address_hash::from_endpoint(
-        bool is_v6, const std::uint8_t *addr_bytes, std::size_t addr_len) noexcept -> address_hash
+    auto address_hash::from_endpoint(bool is_v6, const std::uint8_t *addr_bytes,
+                                     std::size_t addr_len) noexcept -> address_hash
     {
         if (is_v6 && addr_len >= 16)
         {
@@ -51,7 +49,6 @@ namespace psm::rate
         return {};
     }
 
-
     auto address_hasher::operator()(const address_hash &key) const noexcept -> std::size_t
     {
         // FNV-1a hash,简单高效
@@ -64,7 +61,6 @@ namespace psm::rate
         return h;
     }
 
-
     auto counter::record(const address_hash &src, std::uint16_t tier) -> void
     {
         auto now = std::chrono::steady_clock::now();
@@ -72,7 +68,9 @@ namespace psm::rate
         if (it == records_.end())
         {
             if (records_.size() >= max_records_)
+            {
                 expire();
+            }
             records_.emplace(src, probe_record{now, 1, tier});
         }
         else
@@ -83,29 +81,29 @@ namespace psm::rate
         }
     }
 
-
     auto counter::fail_count(const address_hash &src) const noexcept -> std::uint16_t
     {
         auto it = records_.find(src);
         if (it == records_.end())
+        {
             return 0;
+        }
         return it->second.fail_count;
     }
-
 
     auto counter::should_challenge(const address_hash &src) const noexcept -> bool
     {
         if (threshold_ == 0)
+        {
             return false;
+        }
         return fail_count(src) >= threshold_;
     }
-
 
     auto counter::reset(const address_hash &src) -> void
     {
         records_.erase(src);
     }
-
 
     auto counter::expire() -> void
     {
@@ -116,9 +114,13 @@ namespace psm::rate
         for (auto it = records_.begin(); it != records_.end();)
         {
             if (now - it->second.timestamp > window)
+            {
                 it = records_.erase(it);
+            }
             else
+            {
                 ++it;
+            }
         }
 
         // 如果仍超限,淘汰最旧记录
@@ -128,7 +130,9 @@ namespace psm::rate
             for (auto it = records_.begin(); it != records_.end(); ++it)
             {
                 if (it->second.timestamp < oldest->second.timestamp)
+                {
                     oldest = it;
+                }
             }
             records_.erase(oldest);
         }

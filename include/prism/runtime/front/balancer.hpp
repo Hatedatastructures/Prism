@@ -19,7 +19,6 @@
 #include <cstdint>
 #include <functional>
 
-
 namespace psm::runtime::front
 {
 
@@ -35,15 +34,15 @@ namespace psm::runtime::front
      */
     struct distribute_config
     {
-        double enter_overload{0.90};                // 进入过载状态的负载阈值
-        double exit_overload{0.80};                 // 退出过载状态的负载阈值
-        double backpressure_thresh{0.95}; // 全局反压触发阈值
-        double weight_session{0.60};                // 会话数权重
-        double weight_pending{0.10};                // 待处理数权重
-        double weight_lag{0.30};                    // 延迟权重
-        std::uint32_t session_capacity{1024};       // 会话容量基准值
-        std::uint32_t pending_capacity{256};        // 待处理容量基准值
-        std::uint64_t lag_cap{5000};        // 延迟容量基准值，单位微秒
+        double enter_overload{0.90};          // 进入过载状态的负载阈值
+        double exit_overload{0.80};           // 退出过载状态的负载阈值
+        double backpressure_thresh{0.95};     // 全局反压触发阈值
+        double weight_session{0.60};          // 会话数权重
+        double weight_pending{0.10};          // 待处理数权重
+        double weight_lag{0.30};              // 延迟权重
+        std::uint32_t session_capacity{1024}; // 会话容量基准值
+        std::uint32_t pending_capacity{256};  // 待处理容量基准值
+        std::uint64_t lag_cap{5000};          // 延迟容量基准值，单位微秒
     };
 
     /**
@@ -111,8 +110,7 @@ namespace psm::runtime::front
          * 线程均过载，则选择评分最低的过载线程并设置相应标志。该函数
          * 不抛出异常，可安全在热路径中调用。
          */
-        [[nodiscard]] auto select(std::uint64_t affinity_value) noexcept
-            -> select_result;
+        [[nodiscard]] auto select(std::uint64_t affinity_value) noexcept -> select_result;
 
         /**
          * @brief 分发连接至指定工作线程
@@ -128,8 +126,7 @@ namespace psm::runtime::front
          * @brief 获取工作线程数量
          * @return 工作线程数量
          */
-        [[nodiscard]] auto size() const noexcept
-            -> std::size_t;
+        [[nodiscard]] auto size() const noexcept -> std::size_t;
 
     private:
         /**
@@ -139,8 +136,7 @@ namespace psm::runtime::front
          * @details 使用 MurmurHash3 混合函数对输入值进行混淆，提高哈希
          * 分布的随机性，减少亲和性选择时的聚集效应。
          */
-        [[nodiscard]] static constexpr auto mix_hash(std::uint64_t value) noexcept
-            -> std::uint64_t;
+        [[nodiscard]] static constexpr auto mix_hash(std::uint64_t value) noexcept -> std::uint64_t;
 
         /**
          * @brief 计算负载评分
@@ -149,8 +145,7 @@ namespace psm::runtime::front
          * @details 根据配置的权重参数，计算会话数、待处理数和延迟三个
          * 维度的加权评分。评分值在 0.0 到 1.0 之间，表示相对负载水平。
          */
-        [[nodiscard]] auto score(const stats::worker_snapshot &snapshot) const noexcept
-            -> double;
+        [[nodiscard]] auto score(const stats::worker_snapshot &snapshot) const noexcept -> double;
 
         /**
          * @brief 刷新工作线程过载状态

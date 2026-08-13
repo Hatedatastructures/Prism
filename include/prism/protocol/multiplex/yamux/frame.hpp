@@ -20,7 +20,6 @@
 #include <optional>
 #include <span>
 
-
 namespace psm::multiplex::yamux
 {
 
@@ -136,8 +135,7 @@ namespace psm::multiplex::yamux
      * @param hdr 帧头结构
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] auto build_header(const frame_header &hdr) noexcept
-        -> std::array<std::byte, frame_hdrsize>;
+    [[nodiscard]] auto build_header(const frame_header &hdr) noexcept -> std::array<std::byte, frame_hdrsize>;
 
     /**
      * @brief 解析 12 字节帧头
@@ -154,8 +152,7 @@ namespace psm::multiplex::yamux
      * @param delta 窗口增量（字节数）
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] auto build_winupd(
-        flags f, std::uint32_t stream_id, std::uint32_t delta) noexcept
+    [[nodiscard]] auto build_winupd(flags f, std::uint32_t stream_id, std::uint32_t delta) noexcept
         -> std::array<std::byte, frame_hdrsize>;
 
     /**
@@ -164,8 +161,7 @@ namespace psm::multiplex::yamux
      * @param ping_id ping 标识符，响应帧必须携带与请求相同的 ID
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] auto build_ping(
-        flags f, std::uint32_t ping_id) noexcept
+    [[nodiscard]] auto build_ping(flags f, std::uint32_t ping_id) noexcept
         -> std::array<std::byte, frame_hdrsize>;
 
     /**
@@ -173,8 +169,7 @@ namespace psm::multiplex::yamux
      * @param code 终止原因码
      * @return 编码后的 12 字节数组
      */
-    [[nodiscard]] auto build_goaway(away_code code) noexcept
-        -> std::array<std::byte, frame_hdrsize>;
+    [[nodiscard]] auto build_goaway(away_code code) noexcept -> std::array<std::byte, frame_hdrsize>;
 
     /**
      * @struct data_frame
@@ -185,7 +180,7 @@ namespace psm::multiplex::yamux
     struct data_frame
     {
         std::array<std::byte, frame_hdrsize> header{}; // 编码后的帧头
-        memory::vector<std::byte> payload;                     // 帧载荷
+        memory::vector<std::byte> payload;             // 帧载荷
     }; // struct data_frame
 
     /**
@@ -196,8 +191,7 @@ namespace psm::multiplex::yamux
      * @return 包含帧头和载荷的 data_frame 结构
      */
     [[nodiscard]] auto build_data(flags f, std::uint32_t stream_id,
-                                             std::span<const std::byte> payload) noexcept
-        -> data_frame;
+                                  std::span<const std::byte> payload) noexcept -> data_frame;
 
     /**
      * @brief 构建 Data(SYN) 帧（帧头 + 载荷）
@@ -207,8 +201,7 @@ namespace psm::multiplex::yamux
      * @details 等价于 build_data(flags::syn, stream_id, payload)，
      * 用于 sing-mux 兼容模式的新流创建。
      */
-    [[nodiscard]] auto build_syn(std::uint32_t stream_id,
-                                            std::span<const std::byte> payload) noexcept
+    [[nodiscard]] auto build_syn(std::uint32_t stream_id, std::span<const std::byte> payload) noexcept
         -> data_frame;
 
     /**
@@ -217,7 +210,6 @@ namespace psm::multiplex::yamux
      * @return 编码后的 12 字节数组
      * @details FIN 帧不携带载荷，Length 字段为 0。
      */
-    [[nodiscard]] auto build_fin(std::uint32_t stream_id) noexcept
-        -> std::array<std::byte, frame_hdrsize>;
+    [[nodiscard]] auto build_fin(std::uint32_t stream_id) noexcept -> std::array<std::byte, frame_hdrsize>;
 
 } // namespace psm::multiplex::yamux

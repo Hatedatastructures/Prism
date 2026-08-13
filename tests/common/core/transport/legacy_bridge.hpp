@@ -10,16 +10,16 @@
 
 #pragma once
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
-#include <common/core/transport/transport_base.hpp>
-
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <utility>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/core/transport/transport_base.hpp>
 
 namespace psmtest
 {
@@ -35,91 +35,123 @@ namespace psmtest
     class legacy_bridge : public transport_base
     {
     public:
-        /// @brief 构造
-        /// @param raw 新接口底层传输（所有权移交）
-        explicit legacy_bridge(shared_transmission raw)
-            : raw_(std::move(raw))
+        /**
+         * @brief 构造
+         * @param raw 新接口底层传输（所有权移交）
+         */
+        explicit legacy_bridge(shared_transmission raw) : raw_(std::move(raw))
         {
         }
 
-        /// @brief 读取最多 buf.size() 字节
-        /// @param buf 接收缓冲区
-        /// @return 实际读取字节数；0 = EOF / 错误（错误不区分，符合旧接口语义）
+        /**
+         * @brief 读取最多 buf.size() 字节
+         * @param buf 接收缓冲区
+         * @return 实际读取字节数；0 = EOF / 错误（错误不区分，符合旧接口语义）
+         */
         auto read_some(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t> override
         {
             if (!raw_)
+            {
                 co_return 0;
+            }
             std::error_code ec;
             const auto n = co_await raw_->async_read_some(
-                std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()),
-                ec);
+                std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
             if (ec)
+            {
                 co_return 0;
+            }
             co_return n;
         }
 
-        /// @brief 写入全部 buf 字节
-        /// @param buf 待写数据
-        /// @return 错误码（成功 = 空）；底层错误经 to_ec 映射为协议错误
+        /**
+         * @brief 写入全部 buf 字节
+         * @param buf 待写数据
+         * @return 错误码（成功 = 空）；底层错误经 to_ec 映射为协议错误
+         */
         auto write_all(std::span<const std::uint8_t> buf) -> net::awaitable<protocol_ec> override
         {
             if (!raw_)
+            {
                 co_return make_error_code(error::broken_pipe);
+            }
             std::size_t done = 0;
             while (done < buf.size())
             {
                 std::error_code ec;
                 const auto n = co_await raw_->async_write_some(
-                    std::span<const std::byte>(
-                        reinterpret_cast<const std::byte *>(buf.data() + done), buf.size() - done),
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(buf.data() + done),
+                                               buf.size() - done),
                     ec);
                 if (ec)
+                {
                     co_return detail::to_ec(ec);
+                }
                 if (n == 0)
+                {
                     co_return make_error_code(error::broken_pipe);
+                }
                 done += n;
             }
             co_return boost::system::error_code{};
         }
 
-        /// @brief 优雅半关
-        /// @details transmission 接口无半关概念，空操作（尽力而为）。
+        /**
+         * @brief 优雅半关
+         * @details transmission 接口无半关概念，空操作（尽力而为）。
+         */
         auto shutdown() -> net::awaitable<void> override
         {
             co_return;
         }
 
-        /// @brief 立即关闭
-        /// @details 同步调用 transmission::close() 关闭底层连接，随后直接返回。
+        /**
+         * @brief 立即关闭
+         * @details 同步调用 transmission::close() 关闭底层连接，随后直接返回。
+         */
         auto close() -> net::awaitable<void> override
         {
             closed_ = true;
             if (raw_)
+            {
                 raw_->close();
+            }
             co_return;
         }
 
-        /// @brief 取消挂起操作
+        /**
+         * @brief 取消挂起操作
+         */
         auto cancel() -> void override
         {
             if (raw_)
+            {
                 raw_->cancel();
+            }
         }
 
-        /// @brief 设置读超时
-        /// @param ms 超时毫秒数（忽略）
-        /// @details transmission 接口无超时概念，空操作。
+        /**
+         * @brief 设置读超时
+         * @param ms 超时毫秒数（忽略）
+         * @details transmission 接口无超时概念，空操作。
+         */
         auto set_timeout(std::chrono::milliseconds /*ms*/) -> void override
         {
         }
 
-        /// 流是否打开（未主动关闭）
+        /**
+         * @brief 流是否打开（未主动关闭）
+         * @return 打开返回 true
+         */
         [[nodiscard]] auto is_open() const -> bool override
         {
             return !closed_ && raw_ != nullptr;
         }
 
-        /// 获取执行器
+        /**
+         * @brief 获取执行器
+         * @return 关联的执行器
+         */
         [[nodiscard]] auto executor() const -> net::any_io_executor override
         {
             return raw_ ? raw_->executor() : net::any_io_executor{};

@@ -1,10 +1,13 @@
 #pragma once
 
-#include <chrono>
-#include <boost/asio.hpp>
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/protocol/http/codec/parser.hpp>
-#include <prism/diagnose/diagnose.hpp>
+
+#include <boost/asio.hpp>
+
+#include <chrono>
+
 #include "handler.hpp"
 
 namespace srv
@@ -12,9 +15,7 @@ namespace srv
     class conversation final : public std::enable_shared_from_this<conversation>
     {
     public:
-        explicit conversation(
-            boost::asio::ip::tcp::socket socket,
-            std::chrono::milliseconds delay)
+        explicit conversation(boost::asio::ip::tcp::socket socket, std::chrono::milliseconds delay)
             : socket_(std::move(socket)), delay_(delay)
         {
         }
@@ -23,9 +24,7 @@ namespace srv
         {
             auto self = shared_from_this();
             auto process = [self = std::move(self)]() -> boost::asio::awaitable<void>
-            {
-                co_await self->run();
-            };
+            { co_await self->run(); };
 
             boost::asio::co_spawn(socket_.get_executor(), std::move(process), boost::asio::detached);
         }
@@ -46,9 +45,8 @@ namespace srv
                     break;
                 }
 
-                auto n = co_await socket_.async_read_some(
-                    net::buffer(buf.data() + used, buf.size() - used),
-                    net::redirect_error(net::use_awaitable, ec));
+                auto n = co_await socket_.async_read_some(net::buffer(buf.data() + used, buf.size() - used),
+                                                          net::redirect_error(net::use_awaitable, ec));
                 if (ec)
                 {
                     if (ec != net::error::eof)
@@ -86,9 +84,8 @@ namespace srv
 
         boost::asio::awaitable<void> HandleConcurrent()
         {
-            const auto response_data = BuildHttpResponse(
-                200, "OK", JSON_CONTENT,
-                R"({"code":0,"message":"success"})");
+            const auto response_data =
+                BuildHttpResponse(200, "OK", JSON_CONTENT, R"({"code":0,"message":"success"})");
             co_await net::async_write(socket_, net::buffer(response_data), net::use_awaitable);
             co_return;
         }
@@ -96,4 +93,4 @@ namespace srv
         boost::asio::ip::tcp::socket socket_;
         std::chrono::milliseconds delay_;
     };
-}
+} // namespace srv

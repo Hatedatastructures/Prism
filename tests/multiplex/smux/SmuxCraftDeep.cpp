@@ -5,12 +5,11 @@
  *          以及公开的 make_data_frame、make_syn、make_fin。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/protocol/multiplex/smux/control.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {

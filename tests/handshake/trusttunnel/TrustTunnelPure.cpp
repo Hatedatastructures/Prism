@@ -3,15 +3,15 @@
  * @brief TrustTunnel 方案纯函数与元数据接口测试
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/settings/settings.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/handshake/trusttunnel/scheme.hpp>
 #include <prism/handshake/scheme.hpp>
+#include <prism/handshake/trusttunnel/scheme.hpp>
+#include <prism/settings/settings.hpp>
 
 #include <string>
 #include <string_view>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -36,8 +36,7 @@ namespace
     TEST(TrustTunnelPure, Category)
     {
         psm::handshake::trusttunnel::scheme s;
-        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack)
-            << "category: stack";
+        EXPECT_EQ(s.category(), psm::handshake::scheme_category::stack) << "category: stack";
     }
 
     TEST(TrustTunnelPure, Guess)

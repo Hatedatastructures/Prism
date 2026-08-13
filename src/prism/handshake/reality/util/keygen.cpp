@@ -1,6 +1,5 @@
-#include <prism/handshake/reality/util/keygen.hpp>
-
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/handshake/reality/util/keygen.hpp>
 
 #include <cstring>
 
@@ -19,7 +18,6 @@ namespace psm::handshake::reality
         }
     } // namespace
 
-
     auto derive_hs_keys(constspan shared_secret, constspan chello_msg, constspan shello_msg)
         -> std::pair<fault::code, key_material>
     {
@@ -30,7 +28,8 @@ namespace psm::handshake::reality
         const auto early_secret = crypto::hkdf_extract(zero_salt, zero_ikm);
 
         const auto empty_hash = crypto::sha256(std::span<const std::uint8_t>{});
-        auto [ec1, derived_secret] = crypto::expand_label({early_secret, "derived", empty_hash, crypto::sha256_len});
+        auto [ec1, derived_secret] =
+            crypto::expand_label({early_secret, "derived", empty_hash, crypto::sha256_len});
         if (fault::failed(ec1))
         {
             return {fault::code::kdferr, keys};
@@ -40,15 +39,15 @@ namespace psm::handshake::reality
 
         const auto hello_hash = crypto::sha256(chello_msg, shello_msg);
 
-        auto [ec2, c_hs_traffic] = crypto::expand_label(
-            {handshake_secret, "c hs traffic", hello_hash, crypto::sha256_len});
+        auto [ec2, c_hs_traffic] =
+            crypto::expand_label({handshake_secret, "c hs traffic", hello_hash, crypto::sha256_len});
         if (fault::failed(ec2))
         {
             return {fault::code::kdferr, keys};
         }
 
-        auto [ec3, s_hs_traffic] = crypto::expand_label(
-            {handshake_secret, "s hs traffic", hello_hash, crypto::sha256_len});
+        auto [ec3, s_hs_traffic] =
+            crypto::expand_label({handshake_secret, "s hs traffic", hello_hash, crypto::sha256_len});
         if (fault::failed(ec3))
         {
             return {fault::code::kdferr, keys};
@@ -76,8 +75,8 @@ namespace psm::handshake::reality
             return {fault::code::kdferr, keys};
         }
 
-        auto [ec8, derived_master] = crypto::expand_label(
-            {handshake_secret, "derived", empty_hash, crypto::sha256_len});
+        auto [ec8, derived_master] =
+            crypto::expand_label({handshake_secret, "derived", empty_hash, crypto::sha256_len});
         if (fault::failed(ec8))
         {
             return {fault::code::kdferr, keys};
@@ -90,8 +89,7 @@ namespace psm::handshake::reality
         copy_key(c_hs_iv, keys.client_hsiv);
 
         // 服务端 Finished 密钥
-        auto [ec9, finished_key] = crypto::expand_label(
-            {s_hs_traffic, "finished", {}, crypto::sha256_len});
+        auto [ec9, finished_key] = crypto::expand_label({s_hs_traffic, "finished", {}, crypto::sha256_len});
         if (fault::failed(ec9))
         {
             return {fault::code::kdferr, keys};
@@ -101,19 +99,19 @@ namespace psm::handshake::reality
         return {fault::code::success, std::move(keys)};
     }
 
-
-    auto derive_app_keys(const std::span<const std::uint8_t> master_secret, const std::span<const std::uint8_t> server_finhash, key_material &keys)
+    auto derive_app_keys(const std::span<const std::uint8_t> master_secret,
+                         const std::span<const std::uint8_t> server_finhash, key_material &keys)
         -> fault::code
     {
-        auto [ec1, s_ap_traffic] = crypto::expand_label(
-            {master_secret, "s ap traffic", server_finhash, crypto::sha256_len});
+        auto [ec1, s_ap_traffic] =
+            crypto::expand_label({master_secret, "s ap traffic", server_finhash, crypto::sha256_len});
         if (fault::failed(ec1))
         {
             return fault::code::kdferr;
         }
 
-        auto [ec2, c_ap_traffic] = crypto::expand_label(
-            {master_secret, "c ap traffic", server_finhash, crypto::sha256_len});
+        auto [ec2, c_ap_traffic] =
+            crypto::expand_label({master_secret, "c ap traffic", server_finhash, crypto::sha256_len});
         if (fault::failed(ec2))
         {
             return fault::code::kdferr;
@@ -149,8 +147,8 @@ namespace psm::handshake::reality
         return fault::code::success;
     }
 
-
-    auto compute_verify(const std::span<const std::uint8_t> finished_key, const std::span<const std::uint8_t> transcript_hash)
+    auto compute_verify(const std::span<const std::uint8_t> finished_key,
+                        const std::span<const std::uint8_t> transcript_hash)
         -> std::array<std::uint8_t, crypto::sha256_len>
     {
         return crypto::hmac_sha256(finished_key, transcript_hash);

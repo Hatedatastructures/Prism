@@ -5,8 +5,6 @@
  *          非法命令、超长帧、多字节字段字节序。
  */
 
-#include <gtest/gtest.h>
-
 #include <array>
 #include <cstdint>
 #include <string>
@@ -16,6 +14,7 @@
 #include <common/mux/h2mux/codec.hpp>
 #include <common/mux/smux/codec.hpp>
 #include <common/mux/yamux/codec.hpp>
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -154,7 +153,7 @@ namespace
     {
         // 帧头 length 超过 h2mux 上限（16MB）→ bad_length
         const std::array<std::uint8_t, 9> wire{
-            0x00, // type = data
+            0x00,                   // type = data
             0x01, 0x00, 0x00, 0x01, // length = 0x01000001 > 16MB
             0x00, 0x00, 0x00, 0x01, // stream_id = 1
         };

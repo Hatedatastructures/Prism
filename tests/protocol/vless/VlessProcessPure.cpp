@@ -7,30 +7,29 @@
  *          此测试覆盖其依赖的类型定义和配置对象。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/protocol/vless/handler/handler.hpp>
-#include <prism/protocol/vless/config.hpp>
-#include <prism/protocol/vless/codec/packet.hpp>
-#include <prism/protocol/vless/constants.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/protocol/vless/codec/packet.hpp>
+#include <prism/protocol/vless/config.hpp>
+#include <prism/protocol/vless/constants.hpp>
+#include <prism/protocol/vless/handler/handler.hpp>
 
 #include <array>
 #include <cstdint>
 #include <cstring>
 
-
 #include <gtest/gtest.h>
 
 namespace
 {
-    using psm::protocol::vless::command;
+    using psm::protocol::vless::address;
     using psm::protocol::vless::address_type;
+    using psm::protocol::vless::command;
     using psm::protocol::vless::config;
-    using psm::protocol::vless::request;
+    using psm::protocol::vless::domain_address;
     using psm::protocol::vless::ipv4_address;
     using psm::protocol::vless::ipv6_address;
-    using psm::protocol::vless::domain_address;
-    using psm::protocol::vless::address;
+    using psm::protocol::vless::request;
     using psm::protocol::vless::to_string;
     using psm::protocol::vless::version;
 
@@ -44,22 +43,16 @@ namespace
 
     TEST(VlessProcessPure, CommandEnumValues)
     {
-        EXPECT_EQ(static_cast<std::uint8_t>(command::tcp), 0x01)
-            << "command: tcp=0x01";
-        EXPECT_EQ(static_cast<std::uint8_t>(command::udp), 0x02)
-            << "command: udp=0x02";
-        EXPECT_EQ(static_cast<std::uint8_t>(command::mux), 0x7F)
-            << "command: mux=0x7F";
+        EXPECT_EQ(static_cast<std::uint8_t>(command::tcp), 0x01) << "command: tcp=0x01";
+        EXPECT_EQ(static_cast<std::uint8_t>(command::udp), 0x02) << "command: udp=0x02";
+        EXPECT_EQ(static_cast<std::uint8_t>(command::mux), 0x7F) << "command: mux=0x7F";
     }
 
     TEST(VlessProcessPure, AddressTypeEnumValues)
     {
-        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv4), 0x01)
-            << "address_type: ipv4=0x01";
-        EXPECT_EQ(static_cast<std::uint8_t>(address_type::domain), 0x02)
-            << "address_type: domain=0x02";
-        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv6), 0x03)
-            << "address_type: ipv6=0x03";
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv4), 0x01) << "address_type: ipv4=0x01";
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::domain), 0x02) << "address_type: domain=0x02";
+        EXPECT_EQ(static_cast<std::uint8_t>(address_type::ipv6), 0x03) << "address_type: ipv6=0x03";
     }
 
     TEST(VlessProcessPure, VersionConstant)

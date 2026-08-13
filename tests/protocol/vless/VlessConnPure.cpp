@@ -4,10 +4,10 @@
  * @details 测试 uuid_to_string 格式化
  */
 
-#include <prism/foundation/foundation.hpp>
-#include "../../src/prism/protocol/vless/handler/conn.cpp"
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
+#include "../../src/prism/protocol/vless/handler/conn.cpp"
 #include <gtest/gtest.h>
 
 namespace
@@ -29,11 +29,8 @@ namespace
 
     TEST(VlessConnPure, UuidKnownPattern)
     {
-        std::array<std::uint8_t, 16> uuid = {
-            0x01, 0x23, 0x45, 0x67,
-            0x89, 0xab, 0xcd, 0xef,
-            0x01, 0x23, 0x45, 0x67,
-            0x89, 0xab, 0xcd, 0xef};
+        std::array<std::uint8_t, 16> uuid = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                                             0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
         auto str = psm::protocol::vless::uuid_to_string(uuid);
         EXPECT_EQ(str, "01234567-89ab-cdef-0123-456789abcdef") << "uuid: known pattern";
     }
@@ -47,11 +44,8 @@ namespace
 
     TEST(VlessConnPure, UuidDashPositions)
     {
-        std::array<std::uint8_t, 16> uuid = {
-            0x01, 0x23, 0x45, 0x67,
-            0x89, 0xab, 0xcd, 0xef,
-            0x01, 0x23, 0x45, 0x67,
-            0x89, 0xab, 0xcd, 0xef};
+        std::array<std::uint8_t, 16> uuid = {0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+                                             0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef};
         auto str = psm::protocol::vless::uuid_to_string(uuid);
         EXPECT_EQ(str[8], '-') << "uuid: dash at 8";
         EXPECT_EQ(str[13], '-') << "uuid: dash at 13";
@@ -59,4 +53,3 @@ namespace
         EXPECT_EQ(str[23], '-') << "uuid: dash at 23";
     }
 } // namespace
-

@@ -29,7 +29,6 @@
 #include <memory>
 #include <string_view>
 
-
 namespace psm::dns
 {
 
@@ -52,7 +51,7 @@ namespace psm::dns
     {
         message response;                        // DNS 响应报文
         memory::vector<net::ip::address> ips;    // 从响应中提取的 IP 地址
-        std::uint64_t rtt_ms{0};                      // 往返时间（毫秒）
+        std::uint64_t rtt_ms{0};                 // 往返时间（毫秒）
         memory::string server_addr;              // 响应来自哪个上游服务器
         fault::code error{fault::code::success}; // 错误码
 
@@ -95,7 +94,7 @@ namespace psm::dns
          * 协议、地址、端口和超时时间。
          * @param servers 上游服务器配置向量
          */
-        void set_servers(const memory::vector<server>& servers);
+        void set_servers(const memory::vector<server> &servers);
 
         /**
          * @brief 设置解析策略模式
@@ -119,8 +118,7 @@ namespace psm::dns
          * @param qt 查询类型（A / AAAA 等）
          * @return 协程对象，返回 query_result
          */
-        [[nodiscard]] auto resolve(std::string_view domain, qtype qt)
-            -> net::awaitable<query_result>;
+        [[nodiscard]] auto resolve(std::string_view domain, qtype qt) -> net::awaitable<query_result>;
 
     private:
         /**
@@ -182,8 +180,7 @@ namespace psm::dns
          * @param query_msg DNS 查询报文
          * @return 协程对象，返回 query_result
          */
-        [[nodiscard]] auto resolve_concurrent(const message &query_msg)
-            -> net::awaitable<query_result>;
+        [[nodiscard]] auto resolve_concurrent(const message &query_msg) -> net::awaitable<query_result>;
 
         /**
          * @brief 从并发结果中选择最佳响应
@@ -192,14 +189,13 @@ namespace psm::dns
          * @param results 所有上游的查询结果
          * @return 最佳结果的移动引用
          */
-        [[nodiscard]] auto select_best_result(memory::vector<query_result> &results)
-            -> query_result;
+        [[nodiscard]] auto select_best_result(memory::vector<query_result> &results) -> query_result;
 
-        net::io_context &ioc_;                     // IO 上下文
-        memory::resource_pointer mr_;              // 内存资源
-        memory::vector<server> servers_;       // 上游服务器列表
-        mode mode_{mode::fastest}; // 解析策略
-        std::uint32_t timeout_ms_{4000};                // 默认超时（毫秒）
+        net::io_context &ioc_;           // IO 上下文
+        memory::resource_pointer mr_;    // 内存资源
+        memory::vector<server> servers_; // 上游服务器列表
+        mode mode_{mode::fastest};       // 解析策略
+        std::uint32_t timeout_ms_{4000}; // 默认超时（毫秒）
 
         /**
          * @struct ssl_key
@@ -212,6 +208,11 @@ namespace psm::dns
             memory::string hostname; // TLS 主机名
             bool verify_peer;        // 是否验证对端证书
 
+            /**
+             * @brief 比较两个缓存键是否相等
+             * @param other 另一缓存键
+             * @return 主机名和验证标志均相同返回 true
+             */
             bool operator==(const ssl_key &other) const noexcept
             {
                 return hostname == other.hostname && verify_peer == other.verify_peer;
@@ -225,6 +226,11 @@ namespace psm::dns
          */
         struct ssl_key_hash
         {
+            /**
+             * @brief 计算缓存键的哈希值
+             * @param k 缓存键
+             * @return 哈希值
+             */
             [[nodiscard]] auto operator()(const ssl_key &k) const noexcept -> std::size_t
             {
                 auto h = std::hash<memory::string>{}(k.hostname);
@@ -233,7 +239,8 @@ namespace psm::dns
             }
         };
 
-        memory::unordered_map<ssl_key, std::shared_ptr<ssl::context>, ssl_key_hash> ssl_cache_; // SSL 上下文缓存
+        memory::unordered_map<ssl_key, std::shared_ptr<ssl::context>, ssl_key_hash>
+            ssl_cache_; // SSL 上下文缓存
 
         /**
          * @brief 根据协议类型选择查询方法
@@ -252,8 +259,7 @@ namespace psm::dns
          * @param server 上游服务器配置
          * @return SSL 上下文的共享指针
          */
-        [[nodiscard]] auto get_ssl_ctx(const server &server)
-            -> std::shared_ptr<ssl::context>;
+        [[nodiscard]] auto get_ssl_ctx(const server &server) -> std::shared_ptr<ssl::context>;
     };
 
 } // namespace psm::dns

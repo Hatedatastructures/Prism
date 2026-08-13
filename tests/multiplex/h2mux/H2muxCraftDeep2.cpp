@@ -8,8 +8,9 @@
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+
 #include <boost/asio.hpp>
 
 #include "common/MockTransport.hpp"
@@ -287,8 +288,7 @@ namespace
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 4, hvalue, 11, 0, fx.craft_obj.get());
         EXPECT_EQ(rc, 0) << "on_header: host -> 0";
-        EXPECT_TRUE(fx.craft_obj->h2_pending_[2].headers.host == "example.com")
-            << "on_header: host set";
+        EXPECT_TRUE(fx.craft_obj->h2_pending_[2].headers.host == "example.com") << "on_header: host set";
     }
 
     TEST(H2muxCraftDeep2, OnHeaderHostCapitalized)
@@ -309,8 +309,7 @@ namespace
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 4, hvalue, 10, 0, fx.craft_obj.get());
         EXPECT_EQ(rc, 0) << "on_header: Host -> 0";
-        EXPECT_TRUE(fx.craft_obj->h2_pending_[3].headers.host == "test.local")
-            << "on_header: Host set";
+        EXPECT_TRUE(fx.craft_obj->h2_pending_[3].headers.host == "test.local") << "on_header: Host set";
     }
 
     TEST(H2muxCraftDeep2, OnHeaderUserAgent)
@@ -375,7 +374,8 @@ namespace
 
         auto rc = h2mux::control::on_header(nullptr, &frame, hname, 8, hvalue, 5, 0, fx.craft_obj.get());
         EXPECT_EQ(rc, 0) << "on_header: unknown -> 0";
-        EXPECT_TRUE(fx.craft_obj->h2_pending_[6].headers.authority.empty()) << "on_header: unknown -> no fields";
+        EXPECT_TRUE(fx.craft_obj->h2_pending_[6].headers.authority.empty())
+            << "on_header: unknown -> no fields";
     }
 
     TEST(H2muxCraftDeep2, OnHeaderNotInPending)

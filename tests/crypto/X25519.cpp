@@ -6,15 +6,15 @@
  * Diffie-Hellman 交换以及 RFC 7748 标准测试向量。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/crypto/x25519.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include <array>
 #include <cstdint>
 #include <format>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -62,10 +62,8 @@ TEST(X25519, Keygen)
 {
     auto keypair = psm::crypto::generate_keypair();
 
-    EXPECT_FALSE(is_all_zero(keypair.private_key))
-        << "private key should not be all zeros";
-    EXPECT_FALSE(is_all_zero(keypair.public_key))
-        << "public key should not be all zeros";
+    EXPECT_FALSE(is_all_zero(keypair.private_key)) << "private key should not be all zeros";
+    EXPECT_FALSE(is_all_zero(keypair.public_key)) << "public key should not be all zeros";
 }
 
 // ============================================================================
@@ -82,12 +80,10 @@ TEST(X25519, DerivePublic)
 
     auto derived = psm::crypto::derive_pubkey(keypair.private_key);
 
-    EXPECT_FALSE(is_all_zero(derived))
-        << "derived public key should not be all zeros";
+    EXPECT_FALSE(is_all_zero(derived)) << "derived public key should not be all zeros";
 
-    EXPECT_EQ(derived, keypair.public_key)
-        << std::format("derived public key mismatch: derived={}, keypair={}",
-                        to_hex(derived), to_hex(keypair.public_key));
+    EXPECT_EQ(derived, keypair.public_key) << std::format(
+        "derived public key mismatch: derived={}, keypair={}", to_hex(derived), to_hex(keypair.public_key));
 }
 
 // ============================================================================
@@ -107,16 +103,13 @@ TEST(X25519, KeyExchange)
     auto bob = psm::crypto::generate_keypair();
 
     auto alice_side = psm::crypto::x25519(alice.private_key, bob.public_key);
-    ASSERT_EQ(alice_side.first, psm::fault::code::success)
-        << "alice x25519 key exchange failed";
+    ASSERT_EQ(alice_side.first, psm::fault::code::success) << "alice x25519 key exchange failed";
 
     auto bob_side = psm::crypto::x25519(bob.private_key, alice.public_key);
-    ASSERT_EQ(bob_side.first, psm::fault::code::success)
-        << "bob x25519 key exchange failed";
+    ASSERT_EQ(bob_side.first, psm::fault::code::success) << "bob x25519 key exchange failed";
 
-    EXPECT_EQ(alice_side.second, bob_side.second)
-        << std::format("shared secrets mismatch: alice={}, bob={}",
-                        to_hex(alice_side.second), to_hex(bob_side.second));
+    EXPECT_EQ(alice_side.second, bob_side.second) << std::format(
+        "shared secrets mismatch: alice={}, bob={}", to_hex(alice_side.second), to_hex(bob_side.second));
 }
 
 // ============================================================================
@@ -134,22 +127,18 @@ TEST(X25519, Rfc7748)
     auto keypair = psm::crypto::generate_keypair();
     auto derived = psm::crypto::derive_pubkey(keypair.private_key);
 
-    ASSERT_EQ(derived, keypair.public_key)
-        << "derive public key should match keypair public key";
+    ASSERT_EQ(derived, keypair.public_key) << "derive public key should match keypair public key";
 
     // 用同一对密钥进行 x25519 运算（自己与自己交换）
     auto result = psm::crypto::x25519(keypair.private_key, keypair.public_key);
-    ASSERT_EQ(result.first, psm::fault::code::success)
-        << "x25519 key exchange failed";
+    ASSERT_EQ(result.first, psm::fault::code::success) << "x25519 key exchange failed";
 
     // 共享密钥不应为空（全零）
-    EXPECT_FALSE(is_all_zero(result.second))
-        << "shared secret should not be all zeros";
+    EXPECT_FALSE(is_all_zero(result.second)) << "shared secret should not be all zeros";
 
     // 确定性：重复相同操作应产生相同结果
     auto result2 = psm::crypto::x25519(keypair.private_key, keypair.public_key);
-    EXPECT_EQ(result2.second, result.second)
-        << "x25519 should be deterministic";
+    EXPECT_EQ(result2.second, result.second) << "x25519 should be deterministic";
 }
 
 // ============================================================================
@@ -166,14 +155,12 @@ TEST(X25519, DerivePubkeyInvalidSize)
     // 过短：16 字节
     const std::array<std::uint8_t, 16> short_key = {};
     auto derived_short = psm::crypto::derive_pubkey(short_key);
-    EXPECT_TRUE(is_all_zero(derived_short))
-        << "derive_pubkey with 16-byte key should return all zeros";
+    EXPECT_TRUE(is_all_zero(derived_short)) << "derive_pubkey with 16-byte key should return all zeros";
 
     // 过长：48 字节
     const std::array<std::uint8_t, 48> long_key = {};
     auto derived_long = psm::crypto::derive_pubkey(long_key);
-    EXPECT_TRUE(is_all_zero(derived_long))
-        << "derive_pubkey with 48-byte key should return all zeros";
+    EXPECT_TRUE(is_all_zero(derived_long)) << "derive_pubkey with 48-byte key should return all zeros";
 }
 
 /**
@@ -190,8 +177,7 @@ TEST(X25519, InvalidPrivateKeySize)
 
     EXPECT_EQ(ec, psm::fault::code::invalid_argument)
         << "x25519 with 16-byte private key should return invalid_argument";
-    EXPECT_TRUE(is_all_zero(shared))
-        << "shared secret should be all zeros for invalid private key";
+    EXPECT_TRUE(is_all_zero(shared)) << "shared secret should be all zeros for invalid private key";
 }
 
 /**

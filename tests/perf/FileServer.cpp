@@ -21,8 +21,7 @@ namespace
     {
     public:
         session(net::ip::tcp::socket sock, std::string root)
-            : sock_(std::move(sock)), root_(std::move(root)),
-              strand_(net::make_strand(sock_.get_executor()))
+            : sock_(std::move(sock)), root_(std::move(root)), strand_(net::make_strand(sock_.get_executor()))
         {
         }
 
@@ -35,36 +34,47 @@ namespace
         auto read_request() -> void
         {
             auto self = shared_from_this();
-            sock_.async_read_some(net::buffer(req_buf_),
-                net::bind_executor(strand_, [self](const boost::system::error_code &ec, std::size_t n)
-                {
-                    if (ec)
-                        return;
-                    self->handle_request(n);
-                }));
+            sock_.async_read_some(
+                net::buffer(req_buf_),
+                net::bind_executor(strand_,
+                                   [self](const boost::system::error_code &ec, std::size_t n)
+                                   {
+                                       if (ec)
+                                       {
+                                           return;
+                                       }
+                                       self->handle_request(n);
+                                   }));
         }
 
         auto handle_request(const std::size_t n) -> void
         {
             std::string_view req(req_buf_.data(), n);
             if (req.substr(0, 4) != "GET ")
+            {
                 return;
+            }
             const auto sp = req.find(' ', 4);
             if (sp == std::string_view::npos)
+            {
                 return;
+            }
             std::string path(req.substr(4, sp - 4));
             if (path.empty() || path[0] != '/')
+            {
                 return;
+            }
 
             const auto full = std::filesystem::path(root_) / path.substr(1);
             file_.open(full, std::ios::binary);
             if (!file_.is_open())
             {
-                const auto resp = std::make_shared<std::string>(
-                    "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+                const auto resp =
+                    std::make_shared<std::string>("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
                 auto self = shared_from_this();
                 net::async_write(sock_, net::buffer(*resp),
-                    net::bind_executor(strand_, [self, resp](const boost::system::error_code &, std::size_t) {}));
+                                 net::bind_executor(strand_, [self, resp](const boost::system::error_code &,
+                                                                          std::size_t) {}));
                 return;
             }
 
@@ -72,9 +82,10 @@ namespace
             const auto size = file_.tellg();
             file_.seekg(0, std::ios::beg);
 
-            pending_ = std::make_shared<std::string>(
-                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
-                "Content-Length: " + std::to_string(size) + "\r\nConnection: close\r\n\r\n");
+            pending_ =
+                std::make_shared<std::string>("HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+                                              "Content-Length: " +
+                                              std::to_string(size) + "\r\nConnection: close\r\n\r\n");
             write_pending();
         }
 
@@ -82,12 +93,15 @@ namespace
         {
             auto self = shared_from_this();
             net::async_write(sock_, net::buffer(*pending_),
-                net::bind_executor(strand_, [self](const boost::system::error_code &ec, std::size_t)
-                {
-                    if (ec)
-                        return;
-                    self->send_file();
-                }));
+                             net::bind_executor(strand_,
+                                                [self](const boost::system::error_code &ec, std::size_t)
+                                                {
+                                                    if (ec)
+                                                    {
+                                                        return;
+                                                    }
+                                                    self->send_file();
+                                                }));
         }
 
         auto send_file() -> void
@@ -96,14 +110,19 @@ namespace
             file_.read(file_buf_.data(), file_buf_.size());
             const auto n = static_cast<std::size_t>(file_.gcount());
             if (n == 0)
+            {
                 return;
+            }
             net::async_write(sock_, net::buffer(file_buf_.data(), n),
-                net::bind_executor(strand_, [self](const boost::system::error_code &ec, std::size_t)
-                {
-                    if (ec)
-                        return;
-                    self->send_file();
-                }));
+                             net::bind_executor(strand_,
+                                                [self](const boost::system::error_code &ec, std::size_t)
+                                                {
+                                                    if (ec)
+                                                    {
+                                                        return;
+                                                    }
+                                                    self->send_file();
+                                                }));
         }
 
         net::ip::tcp::socket sock_;
@@ -128,28 +147,32 @@ auto main(int argc, char **argv) -> int
     const auto threads = argc > 3 ? std::stoi(argv[3]) : 8;
 
     net::io_context ioc;
-    net::ip::tcp::acceptor acc(ioc,
-        net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), port));
+    net::ip::tcp::acceptor acc(ioc, net::ip::tcp::endpoint(net::ip::make_address("127.0.0.1"), port));
 
     auto accept_loop = [&](auto &&self) -> void
     {
         acc.async_accept(ioc,
-            [&](const boost::system::error_code &ec, net::ip::tcp::socket sock)
-            {
-                if (!ec)
-                    std::make_shared<session>(std::move(sock), root)->start();
-                self(self);
-            });
+                         [&](const boost::system::error_code &ec, net::ip::tcp::socket sock)
+                         {
+                             if (!ec)
+                             {
+                                 std::make_shared<session>(std::move(sock), root)->start();
+                             }
+                             self(self);
+                         });
     };
     accept_loop(accept_loop);
 
     std::vector<std::thread> pool;
     pool.reserve(threads);
     for (int i = 0; i < threads; ++i)
+    {
         pool.emplace_back([&ioc] { ioc.run(); });
+    }
 
-    std::cerr << "file server listening on " << port << ", root=" << root
-              << ", threads=" << threads << "\n";
+    std::cerr << "file server listening on " << port << ", root=" << root << ", threads=" << threads << "\n";
     for (auto &t : pool)
+    {
         t.join();
+    }
 }

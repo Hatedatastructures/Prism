@@ -1,9 +1,9 @@
+#include <prism/diagnose/diagnose.hpp>
 #include <prism/net/dns/detail/rules.hpp>
 
-#include <prism/diagnose/diagnose.hpp>
+#include <boost/asio.hpp>
 
 #include <algorithm>
-#include <boost/asio.hpp>
 #include <cctype>
 #include <cstdint>
 #include <string>
@@ -11,21 +11,16 @@
 namespace psm::dns::detail
 {
 
-    auto domain_trie::to_lower(const std::string_view s)
-        -> memory::string
+    auto domain_trie::to_lower(const std::string_view s) -> memory::string
     {
         // 使用默认内存资源（静态函数无法访问实例 mr_）
         memory::string result(s.size(), '\0');
-        auto to_lower = [](const std::uint8_t ch)
-        {
-            return static_cast<char>(std::tolower(ch));
-        };
+        auto to_lower = [](const std::uint8_t ch) { return static_cast<char>(std::tolower(ch)); };
         std::transform(s.begin(), s.end(), result.begin(), to_lower);
         return result;
     }
 
-    auto domain_trie::split_labels(const std::string_view domain)
-        -> memory::vector<memory::string>
+    auto domain_trie::split_labels(const std::string_view domain) -> memory::vector<memory::string>
     {
         // 默认分配器用于静态函数
         memory::vector<memory::string> labels;
@@ -103,7 +98,9 @@ namespace psm::dns::detail
         // 例如 "*.example.com" → 标签 ["com", "example"]，在 "example" 节点标记 wildcard
         std::size_t wildcard_depth = 0;
         if (is_wildcard)
+        {
             wildcard_depth = labels.size() - 1;
+        }
 
         node *current = root_.get();
         for (std::size_t i = 0; i < labels.size(); ++i)
@@ -114,8 +111,7 @@ namespace psm::dns::detail
             auto it = current->children.find(label);
             if (it == current->children.end())
             {
-                auto [inserted, success] = current->children.emplace(
-                    label, std::make_unique<node>(mr_));
+                auto [inserted, success] = current->children.emplace(label, std::make_unique<node>(mr_));
                 it = inserted;
             }
             current = it->second.get();
@@ -132,8 +128,7 @@ namespace psm::dns::detail
         current->is_end = true;
     }
 
-    auto domain_trie::search(const std::string_view domain) const
-        -> std::optional<std::any>
+    auto domain_trie::search(const std::string_view domain) const -> std::optional<std::any>
     {
         if (domain.empty())
         {
@@ -195,13 +190,13 @@ namespace psm::dns::detail
         return std::nullopt;
     }
 
-    auto domain_trie::match(const std::string_view domain) const
-        -> bool
+    auto domain_trie::match(const std::string_view domain) const -> bool
     {
         return search(domain).has_value();
     }
 
-    void rules_engine::add_addr_rule(const std::string_view domain, const memory::vector<net::ip::address> &ips)
+    void rules_engine::add_addr_rule(const std::string_view domain,
+                                     const memory::vector<net::ip::address> &ips)
     {
         address_trie_.insert(domain, std::any(ips));
     }
@@ -220,8 +215,7 @@ namespace psm::dns::detail
         cname_trie_.insert(domain, std::any(std::move(target_str)));
     }
 
-    auto rules_engine::match(const std::string_view domain) const
-        -> std::optional<rule_result>
+    auto rules_engine::match(const std::string_view domain) const -> std::optional<rule_result>
     {
         // 在地址规则树中查找
         const auto addr_value = address_trie_.search(domain);

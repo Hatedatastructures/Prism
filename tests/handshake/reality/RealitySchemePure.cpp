@@ -4,12 +4,12 @@
  * @details 覆盖 sniff() 的 7 条分支路径
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/reality/scheme.hpp>
 #include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/protocol/tls/types.hpp>
+
+#include <gtest/gtest.h>
 
 namespace
 {

@@ -12,11 +12,11 @@
 #pragma once
 
 #include <prism/foundation/memory/container.hpp>
-#include <prism/net/transport/transmission.hpp>
 #include <prism/handshake/restls/config.hpp>
 #include <prism/handshake/restls/script.hpp>
 #include <prism/handshake/restls/transport.hpp>
 #include <prism/handshake/scheme.hpp>
+#include <prism/net/transport/transmission.hpp>
 
 #include <boost/asio.hpp>
 
@@ -24,7 +24,6 @@
 #include <cstdint>
 #include <memory>
 #include <span>
-
 
 namespace psm::handshake::restls
 {
@@ -37,12 +36,12 @@ namespace psm::handshake::restls
      */
     struct handshake_detail
     {
-        std::array<std::uint8_t, 32> restls_secret{};  ///< RestlsSecret
-        std::array<std::uint8_t, 32> server_random{};  ///< ServerHello 的 server_random
-        memory::vector<std::byte> client_finished;     ///< 客户端 Finished（完整加密 TLS record，含 5B header）
-        memory::vector<std::byte> first_encrypted;     ///< 后端第一个加密帧（XOR 后的内容，含 5B header）
-        tls_version version{tls_version::v13};         ///< TLS 版本
-        script_engine script;                          ///< Restls script 引擎
+        std::array<std::uint8_t, 32> restls_secret{}; ///< RestlsSecret
+        std::array<std::uint8_t, 32> server_random{}; ///< ServerHello 的 server_random
+        memory::vector<std::byte> client_finished; ///< 客户端 Finished（完整加密 TLS record，含 5B header）
+        memory::vector<std::byte> first_encrypted; ///< 后端第一个加密帧（XOR 后的内容，含 5B header）
+        tls_version version{tls_version::v13};     ///< TLS 版本
+        script_engine script;                      ///< Restls script 引擎
     };
 
     /**
@@ -51,17 +50,16 @@ namespace psm::handshake::restls
      */
     struct handshake_opts
     {
-        transport::shared_transmission raw_trans;  ///< 客户端传输层（装饰器链,所有权转移）
-        const config &cfg;                                ///< Restls 配置
-        memory::vector<std::byte> client_hello;           ///< 预读的 ClientHello
-        handshake_detail &detail;                         ///< 握手输出
+        transport::shared_transmission raw_trans; ///< 客户端传输层（装饰器链,所有权转移）
+        const config &cfg;                        ///< Restls 配置
+        memory::vector<std::byte> client_hello;   ///< 预读的 ClientHello
+        handshake_detail &detail;                 ///< 握手输出
         std::shared_ptr<diagnose::context> prefix;
     };
 
     /**
      * @brief Restls 服务端握手
      */
-    [[nodiscard]] auto handshake(handshake_opts opts)
-        -> net::awaitable<handshake::handshake_result>;
+    [[nodiscard]] auto handshake(handshake_opts opts) -> net::awaitable<handshake::handshake_result>;
 
 } // namespace psm::handshake::restls

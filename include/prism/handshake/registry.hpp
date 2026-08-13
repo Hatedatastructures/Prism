@@ -13,7 +13,6 @@
 #include <string_view>
 #include <vector>
 
-
 namespace psm::handshake
 {
 
@@ -37,8 +36,7 @@ namespace psm::handshake
          * @brief 获取全局单例
          * @return scheme_registry 引用
          */
-        [[nodiscard]] static auto instance()
-            -> scheme_registry &;
+        [[nodiscard]] static auto instance() -> scheme_registry &;
 
         /**
          * @brief 注册方案
@@ -51,16 +49,14 @@ namespace psm::handshake
          * @brief 获取所有已注册的方案
          * @return 方案列表（按注册顺序 = 默认优先级）
          */
-        [[nodiscard]] auto all() const
-            -> const std::vector<shared_scheme> &;
+        [[nodiscard]] auto all() const -> const std::vector<shared_scheme> &;
 
         /**
          * @brief 按名称查找方案
          * @param name 方案名称
          * @return 方案实例，未找到返回 nullptr
          */
-        [[nodiscard]] auto find(std::string_view name) const
-            -> shared_scheme;
+        [[nodiscard]] auto find(std::string_view name) const -> shared_scheme;
 
     private:
         std::vector<shared_scheme> schemes_;

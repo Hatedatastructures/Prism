@@ -4,10 +4,10 @@
  * @details 测试 script_engine 构造、parse_line、allocate 等纯逻辑函数。
  */
 
-#include <gtest/gtest.h>
-
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/restls/script.hpp>
+
+#include <gtest/gtest.h>
 
 namespace
 {

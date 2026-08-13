@@ -7,28 +7,27 @@
  *          此测试覆盖其依赖的类型定义和配置对象。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/protocol/shadowsocks/handler/handler.hpp>
-#include <prism/protocol/shadowsocks/config.hpp>
-#include <prism/protocol/shadowsocks/codec/packet.hpp>
-#include <prism/protocol/shadowsocks/constants.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/protocol/shadowsocks/codec/packet.hpp>
+#include <prism/protocol/shadowsocks/config.hpp>
+#include <prism/protocol/shadowsocks/constants.hpp>
+#include <prism/protocol/shadowsocks/handler/handler.hpp>
 
 #include <cstdint>
 #include <cstring>
-
 
 #include <gtest/gtest.h>
 
 namespace
 {
+    using psm::protocol::shadowsocks::address;
     using psm::protocol::shadowsocks::cipher_method;
     using psm::protocol::shadowsocks::config;
-    using psm::protocol::shadowsocks::request;
+    using psm::protocol::shadowsocks::domain_address;
     using psm::protocol::shadowsocks::ipv4_address;
     using psm::protocol::shadowsocks::ipv6_address;
-    using psm::protocol::shadowsocks::domain_address;
-    using psm::protocol::shadowsocks::address;
+    using psm::protocol::shadowsocks::request;
 
     TEST(ShadowsocksProcessPure, ConfigDefaults)
     {
@@ -85,7 +84,7 @@ namespace
         EXPECT_EQ(req.method, cipher_method::aes_256_gcm) << "request: method=aes_256_gcm";
         EXPECT_EQ(req.port, 443) << "request: port=443";
         EXPECT_TRUE(std::holds_alternative<ipv4_address>(req.destination_address))
-                     << "request: 地址类型=ipv4";
+            << "request: 地址类型=ipv4";
     }
 
     TEST(ShadowsocksProcessPure, RequestDefaultValues)
@@ -96,13 +95,13 @@ namespace
 
     TEST(ShadowsocksProcessPure, Constants)
     {
-        using psm::protocol::shadowsocks::request_type;
-        using psm::protocol::shadowsocks::response_type;
         using psm::protocol::shadowsocks::aead_tag_len;
         using psm::protocol::shadowsocks::fixed_hdr_plain;
         using psm::protocol::shadowsocks::fixed_hdr_size;
         using psm::protocol::shadowsocks::len_block_size;
         using psm::protocol::shadowsocks::max_chunk_size;
+        using psm::protocol::shadowsocks::request_type;
+        using psm::protocol::shadowsocks::response_type;
 
         EXPECT_EQ(request_type, 0x00) << "constant: request_type=0x00";
         EXPECT_EQ(response_type, 0x01) << "constant: response_type=0x01";
@@ -133,8 +132,7 @@ namespace
 
         // variant 地址
         address addr = v4;
-        EXPECT_TRUE(std::holds_alternative<ipv4_address>(addr))
-                     << "address: variant holds ipv4";
+        EXPECT_TRUE(std::holds_alternative<ipv4_address>(addr)) << "address: variant holds ipv4";
     }
 
 } // namespace

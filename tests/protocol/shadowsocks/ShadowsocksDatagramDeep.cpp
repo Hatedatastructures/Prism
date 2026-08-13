@@ -5,16 +5,13 @@
  *          以及完整的 AES-GCM / ChaCha20 解密成功路径。
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/diagnose/log.hpp>
-#include <prism/foundation/foundation.hpp>
 #include <prism/crypto/aead.hpp>
 #include <prism/crypto/block.hpp>
-
-
-#include <gtest/gtest.h>
+#include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/protocol/shadowsocks/util/datagram.cpp"
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -32,9 +29,13 @@ namespace
         {
             std::uint32_t n = static_cast<std::uint32_t>(data[i]) << 16;
             if (i + 1 < data.size())
+            {
                 n |= static_cast<std::uint32_t>(data[i + 1]) << 8;
+            }
             if (i + 2 < data.size())
+            {
                 n |= static_cast<std::uint32_t>(data[i + 2]);
+            }
             out.push_back(table[(n >> 18) & 0x3F]);
             out.push_back(table[(n >> 12) & 0x3F]);
             out.push_back((i + 1 < data.size()) ? table[(n >> 6) & 0x3F] : '=');
@@ -48,7 +49,9 @@ namespace
         ss_config cfg;
         std::array<std::uint8_t, 16> key{};
         for (std::size_t i = 0; i < 16; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
         cfg.psk = b64_encode(key);
         cfg.method = "";
         cfg.enable_udp = true;
@@ -60,7 +63,9 @@ namespace
         ss_config cfg;
         std::array<std::uint8_t, 32> key{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             key[i] = static_cast<std::uint8_t>(i + 1);
+        }
         cfg.psk = b64_encode(key);
         cfg.method = "2022-blake3-chacha20-poly1305";
         cfg.enable_udp = true;
@@ -68,11 +73,9 @@ namespace
     }
 
     // 构造包含当前时间戳 + IPv4 地址的 AES-GCM 入站包
-    auto build_aes_ipv4_packet(
-        const memory::vector<std::uint8_t> &psk,
-        const std::array<std::uint8_t, 8> &session_id,
-        const std::array<std::uint8_t, 8> &packet_id)
-        -> memory::vector<std::byte>
+    auto build_aes_ipv4_packet(const memory::vector<std::uint8_t> &psk,
+                               const std::array<std::uint8_t, 8> &session_id,
+                               const std::array<std::uint8_t, 8> &packet_id) -> memory::vector<std::byte>
     {
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                              std::chrono::system_clock::now().time_since_epoch())
@@ -85,12 +88,19 @@ namespace
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         // SOCKS5 IPv4: ATYP=0x01
         plain[9] = atyp_ipv4;
-        plain[10] = 127; plain[11] = 0; plain[12] = 0; plain[13] = 1;
-        plain[14] = 0; plain[15] = 80; // port 80
-        plain[16] = 0; plain[17] = 0;  // padding_len = 0
+        plain[10] = 127;
+        plain[11] = 0;
+        plain[12] = 0;
+        plain[13] = 1;
+        plain[14] = 0;
+        plain[15] = 80; // port 80
+        plain[16] = 0;
+        plain[17] = 0; // padding_len = 0
         plain[18] = payload_byte;
 
         // 派生会话子密钥
@@ -98,8 +108,8 @@ namespace
         const auto total = psk.size() + session_id.size();
         std::memcpy(material.data(), psk.data(), psk.size());
         std::memcpy(material.data() + psk.size(), session_id.data(), session_id.size());
-        const auto derived_key = crypto::derive_key(
-            kdf_context, std::span<const std::uint8_t>(material.data(), total), 16);
+        const auto derived_key =
+            crypto::derive_key(kdf_context, std::span<const std::uint8_t>(material.data(), total), 16);
         crypto::aead_context ctx(crypto::aead_cipher::aes_128_gcm, derived_key);
 
         // nonce: sessionID[4..8] + packetID[0..8]
@@ -115,9 +125,9 @@ namespace
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);
         std::memcpy(separate_plain.data() + 8, packet_id.data(), 8);
-        const auto header_enc = crypto::ecb_encrypt(
-            std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
-            std::span<const std::uint8_t>(psk.data(), psk.size()));
+        const auto header_enc =
+            crypto::ecb_encrypt(std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
+                                std::span<const std::uint8_t>(psk.data(), psk.size()));
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), header_enc.data(), 16);
@@ -126,11 +136,9 @@ namespace
     }
 
     // 构造包含当前时间戳 + 域名地址的 AES-GCM 入站包
-    auto build_aes_domain_packet(
-        const memory::vector<std::uint8_t> &psk,
-        const std::array<std::uint8_t, 8> &session_id,
-        const std::array<std::uint8_t, 8> &packet_id)
-        -> memory::vector<std::byte>
+    auto build_aes_domain_packet(const memory::vector<std::uint8_t> &psk,
+                                 const std::array<std::uint8_t, 8> &session_id,
+                                 const std::array<std::uint8_t, 8> &packet_id) -> memory::vector<std::byte>
     {
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                              std::chrono::system_clock::now().time_since_epoch())
@@ -144,7 +152,9 @@ namespace
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         plain[9] = atyp_domain;
         plain[10] = domain_len;
         std::memcpy(plain.data() + 11, domain, domain_len);
@@ -158,8 +168,8 @@ namespace
         const auto total = psk.size() + session_id.size();
         std::memcpy(material.data(), psk.data(), psk.size());
         std::memcpy(material.data() + psk.size(), session_id.data(), session_id.size());
-        const auto derived_key = crypto::derive_key(
-            kdf_context, std::span<const std::uint8_t>(material.data(), total), 16);
+        const auto derived_key =
+            crypto::derive_key(kdf_context, std::span<const std::uint8_t>(material.data(), total), 16);
         crypto::aead_context ctx(crypto::aead_cipher::aes_128_gcm, derived_key);
 
         std::array<std::uint8_t, 12> nonce{};
@@ -173,9 +183,9 @@ namespace
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);
         std::memcpy(separate_plain.data() + 8, packet_id.data(), 8);
-        const auto header_enc = crypto::ecb_encrypt(
-            std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
-            std::span<const std::uint8_t>(psk.data(), psk.size()));
+        const auto header_enc =
+            crypto::ecb_encrypt(std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
+                                std::span<const std::uint8_t>(psk.data(), psk.size()));
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), header_enc.data(), 16);
@@ -184,11 +194,9 @@ namespace
     }
 
     // 构造带 padding 的 AES-GCM 入站包
-    auto build_aes_with_padding(
-        const memory::vector<std::uint8_t> &psk,
-        const std::array<std::uint8_t, 8> &session_id,
-        const std::array<std::uint8_t, 8> &packet_id)
-        -> memory::vector<std::byte>
+    auto build_aes_with_padding(const memory::vector<std::uint8_t> &psk,
+                                const std::array<std::uint8_t, 8> &session_id,
+                                const std::array<std::uint8_t, 8> &packet_id) -> memory::vector<std::byte>
     {
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                              std::chrono::system_clock::now().time_since_epoch())
@@ -200,22 +208,30 @@ namespace
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         plain[9] = atyp_ipv4;
-        plain[10] = 10; plain[11] = 0; plain[12] = 0; plain[13] = 1;
-        plain[14] = 0; plain[15] = 80;
+        plain[10] = 10;
+        plain[11] = 0;
+        plain[12] = 0;
+        plain[13] = 1;
+        plain[14] = 0;
+        plain[15] = 80;
         // padding_len = 4
-        plain[16] = 0; plain[17] = 4;
+        plain[16] = 0;
+        plain[17] = 4;
         // padding data (zeros, already zero-initialized)
         // payload
-        plain[22] = 0xDD; plain[23] = 0xEE;
+        plain[22] = 0xDD;
+        plain[23] = 0xEE;
 
         std::array<std::uint8_t, 64> material{};
         const auto total = psk.size() + session_id.size();
         std::memcpy(material.data(), psk.data(), psk.size());
         std::memcpy(material.data() + psk.size(), session_id.data(), session_id.size());
-        const auto derived_key = crypto::derive_key(
-            kdf_context, std::span<const std::uint8_t>(material.data(), total), 16);
+        const auto derived_key =
+            crypto::derive_key(kdf_context, std::span<const std::uint8_t>(material.data(), total), 16);
         crypto::aead_context ctx(crypto::aead_cipher::aes_128_gcm, derived_key);
 
         std::array<std::uint8_t, 12> nonce{};
@@ -229,9 +245,9 @@ namespace
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);
         std::memcpy(separate_plain.data() + 8, packet_id.data(), 8);
-        const auto header_enc = crypto::ecb_encrypt(
-            std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
-            std::span<const std::uint8_t>(psk.data(), psk.size()));
+        const auto header_enc =
+            crypto::ecb_encrypt(std::span<const std::uint8_t, 16>{separate_plain.data(), 16},
+                                std::span<const std::uint8_t>(psk.data(), psk.size()));
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), header_enc.data(), 16);
@@ -240,11 +256,9 @@ namespace
     }
 
     // 构造 IPv6 地址的 ChaCha20 入站包
-    auto build_chacha_ipv6_packet(
-        const memory::vector<std::uint8_t> &psk,
-        const std::array<std::uint8_t, 8> &session_id,
-        const std::array<std::uint8_t, 8> &packet_id)
-        -> memory::vector<std::byte>
+    auto build_chacha_ipv6_packet(const memory::vector<std::uint8_t> &psk,
+                                  const std::array<std::uint8_t, 8> &session_id,
+                                  const std::array<std::uint8_t, 8> &packet_id) -> memory::vector<std::byte>
     {
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                              std::chrono::system_clock::now().time_since_epoch())
@@ -256,19 +270,35 @@ namespace
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         plain[9] = atyp_ipv6;
         // ::1
-        plain[10] = 0; plain[11] = 0; plain[12] = 0; plain[13] = 0;
-        plain[14] = 0; plain[15] = 0; plain[16] = 0; plain[17] = 0;
-        plain[18] = 0; plain[19] = 0; plain[20] = 0; plain[21] = 0;
-        plain[22] = 0; plain[23] = 0; plain[24] = 0; plain[25] = 1;
-        plain[26] = 0; plain[27] = 80; // port 80
-        plain[28] = 0; plain[29] = 0;  // padding_len = 0
+        plain[10] = 0;
+        plain[11] = 0;
+        plain[12] = 0;
+        plain[13] = 0;
+        plain[14] = 0;
+        plain[15] = 0;
+        plain[16] = 0;
+        plain[17] = 0;
+        plain[18] = 0;
+        plain[19] = 0;
+        plain[20] = 0;
+        plain[21] = 0;
+        plain[22] = 0;
+        plain[23] = 0;
+        plain[24] = 0;
+        plain[25] = 1;
+        plain[26] = 0;
+        plain[27] = 80; // port 80
+        plain[28] = 0;
+        plain[29] = 0; // padding_len = 0
         plain[30] = 0xFF;
 
         crypto::aead_context ctx(crypto::aead_cipher::xchacha20_poly1305,
-            std::span<const std::uint8_t>(psk.data(), psk.size()));
+                                 std::span<const std::uint8_t>(psk.data(), psk.size()));
 
         // 24 字节 nonce
         std::array<std::uint8_t, 24> nonce{};
@@ -287,11 +317,9 @@ namespace
     }
 
     // 构造 ChaCha20 域名地址包
-    auto build_chacha_domain_packet(
-        const memory::vector<std::uint8_t> &psk,
-        const std::array<std::uint8_t, 8> &session_id,
-        const std::array<std::uint8_t, 8> &packet_id)
-        -> memory::vector<std::byte>
+    auto build_chacha_domain_packet(const memory::vector<std::uint8_t> &psk,
+                                    const std::array<std::uint8_t, 8> &session_id,
+                                    const std::array<std::uint8_t, 8> &packet_id) -> memory::vector<std::byte>
     {
         const auto now = std::chrono::duration_cast<std::chrono::seconds>(
                              std::chrono::system_clock::now().time_since_epoch())
@@ -304,7 +332,9 @@ namespace
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         plain[9] = atyp_domain;
         plain[10] = domain_len;
         std::memcpy(plain.data() + 11, domain, domain_len);
@@ -315,7 +345,7 @@ namespace
         plain[15 + domain_len] = 0x77;
 
         crypto::aead_context ctx(crypto::aead_cipher::xchacha20_poly1305,
-            std::span<const std::uint8_t>(psk.data(), psk.size()));
+                                 std::span<const std::uint8_t>(psk.data(), psk.size()));
 
         std::array<std::uint8_t, 24> nonce{};
         std::memcpy(nonce.data(), session_id.data(), 8);
@@ -359,7 +389,9 @@ namespace
         body[0] = request_type;
         const std::uint64_t old_ts = 100;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             body[1 + i] = static_cast<std::uint8_t>((old_ts >> (56 - 8 * i)) & 0xFF);
+        }
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
         EXPECT_EQ(ec, psm::fault::code::timestamp_expired) << "parse_body: expired ts -> timestamp_expired";
@@ -376,7 +408,9 @@ namespace
         memory::vector<std::uint8_t> body(15, memory::current_resource());
         body[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         body[9] = 0x05; // 无效 ATYP
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
@@ -394,12 +428,21 @@ namespace
         memory::vector<std::uint8_t> body(21, memory::current_resource());
         body[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         body[9] = atyp_ipv4;
-        body[10] = 192; body[11] = 168; body[12] = 1; body[13] = 1;
-        body[14] = 0x1F; body[15] = 0x90; // port 8080
-        body[16] = 0; body[17] = 0;    // padding_len = 0
-        body[18] = 0xAA; body[19] = 0xBB; body[20] = 0xCC;
+        body[10] = 192;
+        body[11] = 168;
+        body[12] = 1;
+        body[13] = 1;
+        body[14] = 0x1F;
+        body[15] = 0x90; // port 8080
+        body[16] = 0;
+        body[17] = 0; // padding_len = 0
+        body[18] = 0xAA;
+        body[19] = 0xBB;
+        body[20] = 0xCC;
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
@@ -422,7 +465,9 @@ namespace
         memory::vector<std::uint8_t> body(total, memory::current_resource());
         body[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         body[9] = atyp_domain;
         body[10] = dlen;
         std::memcpy(body.data() + 11, domain, dlen);
@@ -452,13 +497,21 @@ namespace
         memory::vector<std::uint8_t> body(total, memory::current_resource());
         body[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         body[9] = atyp_ipv4;
-        body[10] = 10; body[11] = 0; body[12] = 0; body[13] = 1;
-        body[14] = 0; body[15] = 80;
-        body[16] = 0; body[17] = 8; // padding_len = 8
+        body[10] = 10;
+        body[11] = 0;
+        body[12] = 0;
+        body[13] = 1;
+        body[14] = 0;
+        body[15] = 80;
+        body[16] = 0;
+        body[17] = 8; // padding_len = 8
         // padding data is zeros (already)
-        body[26] = 0x11; body[27] = 0x22;
+        body[26] = 0x11;
+        body[27] = 0x22;
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
@@ -478,11 +531,18 @@ namespace
         memory::vector<std::uint8_t> body(18, memory::current_resource());
         body[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         body[9] = atyp_ipv4;
-        body[10] = 127; body[11] = 0; body[12] = 0; body[13] = 1;
-        body[14] = 0; body[15] = 80;
-        body[16] = 0; body[17] = 0; // padding = 0, no payload
+        body[10] = 127;
+        body[11] = 0;
+        body[12] = 0;
+        body[13] = 1;
+        body[14] = 0;
+        body[15] = 80;
+        body[16] = 0;
+        body[17] = 0; // padding = 0, no payload
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
@@ -501,10 +561,16 @@ namespace
         memory::vector<std::uint8_t> body(16, memory::current_resource());
         body[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
+        {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
+        }
         body[9] = atyp_ipv4;
-        body[10] = 127; body[11] = 0; body[12] = 0; body[13] = 1;
-        body[14] = 0; body[15] = 80;
+        body[10] = 127;
+        body[11] = 0;
+        body[12] = 0;
+        body[13] = 1;
+        body[14] = 0;
+        body[15] = 80;
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
@@ -734,7 +800,9 @@ namespace
         auto packet = build_aes_ipv4_packet(psk_bytes, session_id, packet_id);
         // 篡改 body 密文
         if (packet.size() > 20)
+        {
             packet[20] = static_cast<std::byte>(~static_cast<unsigned char>(packet[20]));
+        }
 
         net::ip::udp::endpoint sender(net::ip::make_address("127.0.0.1"), 9999);
         auto [ec, result] = relay->decrypt_inbound(packet, sender);
@@ -757,7 +825,9 @@ namespace
 
         auto packet = build_chacha_ipv6_packet(psk_bytes, session_id, packet_id);
         if (packet.size() > 20)
+        {
             packet[20] = static_cast<std::byte>(~static_cast<unsigned char>(packet[20]));
+        }
 
         net::ip::udp::endpoint sender(net::ip::make_address("::1"), 9999);
         auto [ec, result] = relay->decrypt_inbound(packet, sender);

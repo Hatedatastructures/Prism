@@ -10,9 +10,9 @@
 
 #include <prism/crypto/aead.hpp>
 #include <prism/foundation/memory/container.hpp>
-#include <prism/protocol/tls/types.hpp>
 #include <prism/handshake/reality/util/keygen.hpp>
 #include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <boost/asio.hpp>
 
@@ -21,7 +21,6 @@
 #include <memory>
 #include <span>
 #include <system_error>
-
 
 namespace psm::handshake::reality
 {
@@ -46,15 +45,13 @@ namespace psm::handshake::reality
          * @details 使用密钥材料初始化加密和解密上下文，
          * 服务端密钥用于加密（写入），客户端密钥用于解密（读取）
          */
-        explicit seal(transport::shared_transmission transport,
-                      key_material keys);
+        explicit seal(transport::shared_transmission transport, key_material keys);
 
         /**
          * @brief 获取传输层类型
          * @return type::tcp seal 基于 TCP 传输
          */
-        [[nodiscard]] auto transport_type() const noexcept
-            -> type override
+        [[nodiscard]] auto transport_type() const noexcept -> type override
         {
             return type::tcp;
         }
@@ -68,6 +65,10 @@ namespace psm::handshake::reality
             return transport_.get();
         }
 
+        /**
+         * @brief 获取内层传输（const 版本）
+         * @return 底层传输指针
+         */
         [[nodiscard]] auto next_layer() const noexcept -> const transport::transmission * override
         {
             return transport_.get();
@@ -78,8 +79,7 @@ namespace psm::handshake::reality
          * @details 返回底层传输的执行器，用于协程调度
          * @return executor_type 执行器
          */
-        [[nodiscard]] auto executor() const
-            -> executor_type override;
+        [[nodiscard]] auto executor() const -> executor_type override;
 
         /**
          * @brief 异步读取解密后的数据
@@ -122,8 +122,7 @@ namespace psm::handshake::reality
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，返回解密后的明文长度
          */
-        [[nodiscard]] auto recv_record(std::error_code &ec)
-            -> net::awaitable<std::size_t>;
+        [[nodiscard]] auto recv_record(std::error_code &ec) -> net::awaitable<std::size_t>;
 
         /**
          * @brief 加密并写入一个 TLS 记录
@@ -136,7 +135,7 @@ namespace psm::handshake::reality
             -> net::awaitable<std::size_t>;
 
         transport::shared_transmission transport_; // 底层传输连接
-        key_material keys_;                                 // TLS 1.3 密钥材料
+        key_material keys_;                        // TLS 1.3 密钥材料
 
         crypto::aead_context srv_encryptor_; // 服务端加密上下文（用于写入）
         crypto::aead_context cli_decryptor_; // 客户端解密上下文（用于读取）
@@ -147,11 +146,11 @@ namespace psm::handshake::reality
         bool first_write_log_ = false; // 首次写入日志标志
         bool first_read_log_ = false;  // 首次读取日志标志
 
-        memory::vector<std::byte> plainbuf_;    // 解密后的明文缓冲区
-        std::size_t plain_off_ = 0;             // 明文缓冲区当前读取偏移
+        memory::vector<std::byte> plainbuf_; // 解密后的明文缓冲区
+        std::size_t plain_off_ = 0;          // 明文缓冲区当前读取偏移
 
-        memory::vector<std::uint8_t> dec_buf_;           // 解密输出缓冲区
-        memory::vector<std::uint8_t> wr_plain_buf_;      // 写入明文拼接缓冲区
-        memory::vector<std::uint8_t> wr_cipher_buf_;     // 写入密文缓冲区
+        memory::vector<std::uint8_t> dec_buf_;       // 解密输出缓冲区
+        memory::vector<std::uint8_t> wr_plain_buf_;  // 写入明文拼接缓冲区
+        memory::vector<std::uint8_t> wr_cipher_buf_; // 写入密文缓冲区
     };
 } // namespace psm::handshake::reality

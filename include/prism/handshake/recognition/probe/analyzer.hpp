@@ -19,7 +19,6 @@
 #include <cstdint>
 #include <string_view>
 
-
 namespace psm::recognition::probe
 {
 
@@ -31,21 +30,18 @@ namespace psm::recognition::probe
      * HTTP 方法名（GET/POST 等）→ Shadowsocks（排除法 fallback）。
      * 空数据返回 unknown。函数为纯计算操作，无状态，线程安全。
      */
-    [[nodiscard]] auto detect(std::string_view peek_data)
-        -> psm::connect::protocol_type;
+    [[nodiscard]] auto detect(std::string_view peek_data) -> psm::connect::protocol_type;
 
     /// HTTP 方法列表，用于协议检测（最短 4 字节 "GET "）
     inline constexpr std::array<std::string_view, 9> tls_http_methods = {
-        "GET ", "POST ", "HEAD ", "PUT ", "DELETE ",
-        "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
+        "GET ", "POST ", "HEAD ", "PUT ", "DELETE ", "CONNECT ", "OPTIONS ", "TRACE ", "PATCH "};
 
     /**
      * @brief 检查数据是否以已知 HTTP 方法前缀开头
      * @param data 待检查数据
      * @return 若匹配任何 HTTP 方法前缀则返回 true
      */
-    [[nodiscard]] inline auto is_http_request(const std::string_view data) noexcept
-        -> bool
+    [[nodiscard]] inline auto is_http_request(const std::string_view data) noexcept -> bool
     {
         for (const auto &method : tls_http_methods)
         {
@@ -68,8 +64,7 @@ namespace psm::recognition::probe
      * @note 数据不足 60 字节且不匹配 HTTP/VLESS 时返回 protocol_type::unknown。
      *       60+ 字节且不匹配任何已知协议也返回 unknown，不自动 fallback。
      */
-    [[nodiscard]] inline auto detect_tls(std::string_view peek_data)
-        -> psm::connect::protocol_type
+    [[nodiscard]] inline auto detect_tls(std::string_view peek_data) -> psm::connect::protocol_type
     {
         // 阶段 1：HTTP 检测（最少 4 字节）
         if (peek_data.size() >= 4 && is_http_request(peek_data))
@@ -103,8 +98,8 @@ namespace psm::recognition::probe
             for (std::size_t i = 0; i < 56; ++i)
             {
                 const auto c = static_cast<std::uint8_t>(peek_data[i]);
-                const bool is_hex_digit = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
-                                          (c >= 'A' && c <= 'F');
+                const bool is_hex_digit =
+                    (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
                 if (!is_hex_digit)
                 {
                     is_trojan = false;

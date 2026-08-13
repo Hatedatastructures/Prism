@@ -5,20 +5,20 @@
  * 不走完整 TLS 握手（需要自定义 BIO，过于复杂），直接测试认证和帧处理。
  */
 
-#include <gtest/gtest.h>
-
-#include <prism/handshake/shadowtls/util/auth.hpp>
-#include <prism/handshake/shadowtls/util/constants.hpp>
+#include <prism/foundation/foundation.hpp>
 #include <prism/handshake/shadowtls/config.hpp>
 #include <prism/handshake/shadowtls/handshake.hpp>
-#include <prism/foundation/foundation.hpp>
+#include <prism/handshake/shadowtls/util/auth.hpp>
+#include <prism/handshake/shadowtls/util/constants.hpp>
 
 #include <openssl/hmac.h>
 
 #include <array>
-#include <vector>
 #include <cstring>
 #include <random>
+#include <vector>
+
+#include <gtest/gtest.h>
 
 using namespace psm::handshake::shadowtls;
 
@@ -29,7 +29,9 @@ namespace
         std::vector<std::uint8_t> buf(n);
         std::random_device rd;
         for (auto &b : buf)
+        {
             b = static_cast<std::uint8_t>(rd());
+        }
         return buf;
     }
 
@@ -108,15 +110,15 @@ namespace
         constexpr std::size_t hmac_offset_in_ch = 72;
         std::memset(ch.data() + hmac_offset_in_ch, 0, 4);
 
-        auto hmac = compute_hmac(password,
-            reinterpret_cast<const std::byte *>(ch.data() + 5),
-            ch.size() - 5);
+        auto hmac = compute_hmac(password, reinterpret_cast<const std::byte *>(ch.data() + 5), ch.size() - 5);
         std::memcpy(ch.data() + hmac_offset_in_ch, hmac.data(), 4);
 
         // 转换为 std::byte
         std::vector<std::byte> result(ch.size());
         for (std::size_t i = 0; i < ch.size(); ++i)
+        {
             result[i] = static_cast<std::byte>(ch[i]);
+        }
 
         return result;
     }
@@ -127,8 +129,7 @@ namespace
      * HMAC = HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
      * @note 参照 sing-shadowtls hmacVerify（含 "C" 标签）
      */
-    auto build_app_data_frame(const std::string &password,
-                              const std::array<std::byte, 32> &server_random,
+    auto build_app_data_frame(const std::string &password, const std::array<std::byte, 32> &server_random,
                               const std::vector<std::uint8_t> &payload) -> std::vector<std::byte>
     {
         // 计算 HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
@@ -152,9 +153,13 @@ namespace
         frame.push_back(static_cast<std::byte>(total_len >> 8));
         frame.push_back(static_cast<std::byte>(total_len & 0xFF));
         for (int i = 0; i < 4; ++i)
+        {
             frame.push_back(static_cast<std::byte>(md[i]));
+        }
         for (auto b : payload)
+        {
             frame.push_back(static_cast<std::byte>(b));
+        }
 
         return frame;
     }
@@ -203,7 +208,9 @@ namespace
         auto server_random = generate_random_bytes(32);
         std::array<std::byte, 32> sr{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             sr[i] = static_cast<std::byte>(server_random[i]);
+        }
 
         std::vector<std::uint8_t> payload = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
         auto frame = build_app_data_frame(password, sr, payload);
@@ -211,7 +218,9 @@ namespace
         // 提取 HMAC（frame 偏移 5 处的 4 字节）
         std::array<std::uint8_t, 4> client_hmac{};
         for (int i = 0; i < 4; ++i)
+        {
             client_hmac[i] = static_cast<std::uint8_t>(frame[5 + i]);
+        }
 
         // payload 在 frame 偏移 9 处
         auto payload_span = std::span<const std::byte>(frame.data() + 9, frame.size() - 9);
@@ -230,15 +239,17 @@ namespace
         auto server_random = generate_random_bytes(32);
         std::array<std::byte, 32> sr{};
         for (std::size_t i = 0; i < 32; ++i)
+        {
             sr[i] = static_cast<std::byte>(server_random[i]);
+        }
 
         std::vector<std::uint8_t> payload = {0x01, 0x02, 0x03, 0x04};
 
         // 使用错误的 HMAC
         std::array<std::uint8_t, 4> wrong_hmac = {0xDE, 0xAD, 0xBE, 0xEF};
 
-        auto payload_span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(payload.data()), payload.size());
+        auto payload_span =
+            std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), payload.size());
 
         bool ok = verify_frame_hmac(verify_input{password, sr, payload_span, wrong_hmac});
 

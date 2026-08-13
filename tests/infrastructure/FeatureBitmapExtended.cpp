@@ -3,20 +3,20 @@
  * @brief TLS 特征位图扩展测试 — build_bitmap/has_feature/has_all 分支覆盖
  */
 
-#include <prism/foundation/foundation.hpp>
-#include <prism/protocol/tls/types.hpp>
-#include <prism/handshake/recognition/tls/features.hpp>
 #include <prism/diagnose/log.hpp>
+#include <prism/foundation/foundation.hpp>
+#include <prism/handshake/recognition/tls/features.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <gtest/gtest.h>
 
 namespace
 {
+    using psm::protocol::tls::hello_features;
     using psm::recognition::tls::build_bitmap;
     using psm::recognition::tls::feature_bit;
     using psm::recognition::tls::has_all;
     using psm::recognition::tls::has_feature;
-    using psm::protocol::tls::hello_features;
 
     TEST(FeatureBitmapExtended, BitmapEmpty)
     {

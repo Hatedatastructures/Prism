@@ -1,13 +1,14 @@
 #pragma once
 
-#include <string_view>
-#include <chrono>
-#include <array>
-#include <cstring>
+#include <prism/diagnose/diagnose.hpp>
+#include <prism/protocol/http/codec/parser.hpp>
 
 #include <boost/asio.hpp>
-#include <prism/protocol/http/codec/parser.hpp>
-#include <prism/diagnose/diagnose.hpp>
+
+#include <array>
+#include <chrono>
+#include <cstring>
+#include <string_view>
 
 namespace srv
 {
@@ -16,7 +17,7 @@ namespace srv
     constexpr std::string_view JSON_CONTENT = "application/json; charset=utf-8";
 
     inline auto BuildHttpResponse(const unsigned int status_code, const std::string_view reason,
-                                    const std::string_view content_type, const std::string_view body)
+                                  const std::string_view content_type, const std::string_view body)
         -> std::string
     {
         std::string res;
@@ -38,8 +39,7 @@ namespace srv
         return res;
     }
 
-    inline auto BuildStressResponse(const std::string_view chunk_data)
-        -> std::string
+    inline auto BuildStressResponse(const std::string_view chunk_data) -> std::string
     {
         return BuildHttpResponse(200, "OK", JSON_CONTENT, chunk_data);
     }
@@ -65,7 +65,8 @@ namespace srv
         return mode::concurrent;
     }
 
-    inline auto HandleStress(net::ip::tcp::socket &socket, [[maybe_unused]] psm::memory::resource_pointer mr = nullptr)
+    inline auto HandleStress(net::ip::tcp::socket &socket,
+                             [[maybe_unused]] psm::memory::resource_pointer mr = nullptr)
         -> net::awaitable<void>
     {
         constexpr std::size_t chunk_size = 4 * 1024;
@@ -120,14 +121,16 @@ namespace srv
             }
 
             ec.clear();
-            co_await net::async_write(socket, net::buffer(response_data), net::redirect_error(net::use_awaitable, ec));
+            co_await net::async_write(socket, net::buffer(response_data),
+                                      net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
                 psm::diagnose::debug("stress mode: write failed ({})", ec.message());
                 break;
             }
 
-            psm::diagnose::debug("stress mode: sent 4KB response ({})", has_data ? "client triggered" : "timeout");
+            psm::diagnose::debug("stress mode: sent 4KB response ({})",
+                                 has_data ? "client triggered" : "timeout");
         }
     }
-}
+} // namespace srv

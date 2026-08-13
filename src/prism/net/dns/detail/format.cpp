@@ -1,7 +1,6 @@
-#include <prism/net/dns/detail/format.hpp>
-
-#include <prism/foundation/memory/container.hpp>
 #include <prism/diagnose/diagnose.hpp>
+#include <prism/foundation/memory/container.hpp>
+#include <prism/net/dns/detail/format.hpp>
 
 #include <algorithm>
 #include <array>
@@ -20,14 +19,16 @@ namespace psm::dns::detail
     namespace
     {
         // 向缓冲区写入 16 位大端整数
-        void write_u16_be(memory::vector<std::uint8_t> &buf, const std::size_t offset, const std::uint16_t value)
+        void write_u16_be(memory::vector<std::uint8_t> &buf, const std::size_t offset,
+                          const std::uint16_t value)
         {
             buf[offset] = static_cast<std::uint8_t>(value >> 8);
             buf[offset + 1] = static_cast<std::uint8_t>(value & 0xFF);
         }
 
         // 向缓冲区写入 32 位大端整数
-        void write_u32_be(memory::vector<std::uint8_t> &buf, const std::size_t offset, const std::uint32_t value)
+        void write_u32_be(memory::vector<std::uint8_t> &buf, const std::size_t offset,
+                          const std::uint32_t value)
         {
             buf[offset] = static_cast<std::uint8_t>(value >> 24);
             buf[offset + 1] = static_cast<std::uint8_t>((value >> 16) & 0xFF);
@@ -39,22 +40,23 @@ namespace psm::dns::detail
         [[nodiscard]] auto read_u16_be(const std::span<const std::uint8_t> data, const std::size_t offset)
             -> std::uint16_t
         {
-            return (static_cast<std::uint16_t>(data[offset]) << 8) | static_cast<std::uint16_t>(data[offset + 1]);
+            return (static_cast<std::uint16_t>(data[offset]) << 8) |
+                   static_cast<std::uint16_t>(data[offset + 1]);
         }
 
         // 从缓冲区读取 32 位大端整数
         [[nodiscard]] auto read_u32_be(const std::span<const std::uint8_t> data, const std::size_t offset)
             -> std::uint32_t
         {
-            return (static_cast<std::uint32_t>(data[offset]) << 24) | (static_cast<std::uint32_t>(data[offset + 1]) << 16) |
+            return (static_cast<std::uint32_t>(data[offset]) << 24) |
+                   (static_cast<std::uint32_t>(data[offset + 1]) << 16) |
                    (static_cast<std::uint32_t>(data[offset + 2]) << 8) |
                    static_cast<std::uint32_t>(data[offset + 3]);
         }
 
         // 将域名转换为小写并去除末尾点号
         // 调用方需保证原始域名在返回值使用期间有效
-        [[nodiscard]] auto normalize_domain(const std::string_view domain)
-            -> std::string_view
+        [[nodiscard]] auto normalize_domain(const std::string_view domain) -> std::string_view
         {
             auto trimmed = domain;
             if (!trimmed.empty() && trimmed.back() == '.')
@@ -85,7 +87,8 @@ namespace psm::dns::detail
         //   "com"              -> 未命中，登记偏移
         // 全部未命中则按标签逐段写入；若某后缀命中则写入压缩指针。
         [[nodiscard]] auto encode_name(const std::string_view domain, memory::vector<std::uint8_t> &buf,
-                                       std::size_t pos, memory::unordered_map<std::string_view, std::uint16_t> &compression)
+                                       std::size_t pos,
+                                       memory::unordered_map<std::string_view, std::uint16_t> &compression)
             -> std::size_t
         {
             // 逐段写入域名标签，逐标签检查压缩机会
@@ -147,8 +150,8 @@ namespace psm::dns::detail
         // - < 0xC0: 普通标签，读长度 + 内容
         // - >= 0xC0: 压缩指针，低 14 位为偏移量，递归跳转
         // - 跳转计数 > 255 视为循环，返回空 string_view
-        [[nodiscard]] auto decode_name_raw(const std::span<const std::uint8_t> data, std::size_t &offset, std::size_t &jumps)
-            -> std::string_view
+        [[nodiscard]] auto decode_name_raw(const std::span<const std::uint8_t> data, std::size_t &offset,
+                                           std::size_t &jumps) -> std::string_view
         {
             // 使用栈上小缓冲区拼接域名标签，避免中间分配
             // DNS 域名最大 253 字节，加上分隔符足够
@@ -249,9 +252,8 @@ namespace psm::dns::detail
         }
 
         // 解码 DNS 域名并返回 PMR string；解码失败时返回空字符串
-        [[nodiscard]] auto decode_name(const std::span<const std::uint8_t> data,
-                                       std::size_t &offset, std::size_t &jumps, memory::resource_pointer mr)
-            -> memory::string
+        [[nodiscard]] auto decode_name(const std::span<const std::uint8_t> data, std::size_t &offset,
+                                       std::size_t &jumps, memory::resource_pointer mr) -> memory::string
         {
             const auto sv = decode_name_raw(data, offset, jumps);
             if (sv.empty())
@@ -263,8 +265,7 @@ namespace psm::dns::detail
 
     } // anonymous namespace
 
-    auto extract_ipv4(const record &rec)
-        -> std::optional<net::ip::address_v4>
+    auto extract_ipv4(const record &rec) -> std::optional<net::ip::address_v4>
     {
         if (rec.type != qtype::a || rec.rdata.size() != 4)
         {
@@ -279,8 +280,7 @@ namespace psm::dns::detail
         return addr;
     }
 
-    auto extract_ipv6(const record &rec)
-        -> std::optional<net::ip::address_v6>
+    auto extract_ipv6(const record &rec) -> std::optional<net::ip::address_v6>
     {
         if (rec.type != qtype::aaaa || rec.rdata.size() != 16)
         {
@@ -302,8 +302,7 @@ namespace psm::dns::detail
         }
     }
 
-    auto message::pack() const
-        -> memory::vector<std::uint8_t>
+    auto message::pack() const -> memory::vector<std::uint8_t>
     {
         // 预分配容量 512 字节（DNS 传统最大报文长度），初始大小仅 12 字节 Header
         // 避免构造时零填充 512 字节的无谓开销
@@ -319,12 +318,27 @@ namespace psm::dns::detail
 
         // FLAGS: QR(1bit) OPCODE(4bit) AA(1bit) TC(1bit) RD(1bit) RA(1bit) Z(3bit) RCODE(4bit)
         std::uint16_t flags = 0;
-        if (qr) flags |= 0x8000u;
+        if (qr)
+        {
+            flags |= 0x8000u;
+        }
         flags |= (static_cast<std::uint16_t>(opcode) & 0x0Fu) << 11;
-        if (aa) flags |= 0x0400u;
-        if (tc) flags |= 0x0200u;
-        if (rd) flags |= 0x0100u;
-        if (ra) flags |= 0x0080u;
+        if (aa)
+        {
+            flags |= 0x0400u;
+        }
+        if (tc)
+        {
+            flags |= 0x0200u;
+        }
+        if (rd)
+        {
+            flags |= 0x0100u;
+        }
+        if (ra)
+        {
+            flags |= 0x0080u;
+        }
         flags |= static_cast<std::uint16_t>(rcode) & 0x0Fu;
 
         write_u16_be(buf, 2, flags);
@@ -519,8 +533,7 @@ namespace psm::dns::detail
         return msg;
     }
 
-    auto message::extract_ips() const
-        -> memory::vector<net::ip::address>
+    auto message::extract_ips() const -> memory::vector<net::ip::address>
     {
         memory::vector<net::ip::address> ips(mr_);
 
@@ -552,8 +565,7 @@ namespace psm::dns::detail
         return ips;
     }
 
-    auto message::min_ttl() const
-        -> std::uint32_t
+    auto message::min_ttl() const -> std::uint32_t
     {
         std::uint32_t result = std::numeric_limits<std::uint32_t>::max();
         bool found = false;

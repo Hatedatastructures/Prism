@@ -5,12 +5,12 @@
  *          使用本地 TCP socket pair 构建双向管道。
  */
 
-#include <prism/protocol/vmess/codec/chunk.hpp>
 #include <prism/net/transport/reliable.hpp>
-
-#include <gtest/gtest.h>
+#include <prism/protocol/vmess/codec/chunk.hpp>
 
 #include <memory>
+
+#include <gtest/gtest.h>
 
 namespace
 {
@@ -21,32 +21,38 @@ namespace
     namespace net = boost::asio;
     using tcp = net::ip::tcp;
 
-    constexpr std::uint8_t k_option = static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_stream)
-        | static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_masking);
-    constexpr std::uint8_t k_security = static_cast<std::uint8_t>(psm::protocol::vmess::security::aes_128_gcm);
+    constexpr std::uint8_t k_option = static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_stream) |
+                                      static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_masking);
+    constexpr std::uint8_t k_security =
+        static_cast<std::uint8_t>(psm::protocol::vmess::security::aes_128_gcm);
 
     /// 建立本地 TCP socket pair（client/server 传输层）
     auto make_pair_transport(net::io_context &ioc)
-        -> std::pair<psm::transport::shared_transmission,
-                     psm::transport::shared_transmission>
+        -> std::pair<psm::transport::shared_transmission, psm::transport::shared_transmission>
     {
         tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
         const auto ep = acceptor.local_endpoint();
 
         std::pair<psm::transport::shared_transmission, psm::transport::shared_transmission> result;
 
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
-        {
-            auto server_sock = co_await acceptor.async_accept(net::use_awaitable);
-            result.second = psm::transport::make_reliable(std::move(server_sock));
-        }, net::detached);
+        net::co_spawn(
+            ioc,
+            [&]() -> net::awaitable<void>
+            {
+                auto server_sock = co_await acceptor.async_accept(net::use_awaitable);
+                result.second = psm::transport::make_reliable(std::move(server_sock));
+            },
+            net::detached);
 
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
-        {
-            tcp::socket client_sock(ioc);
-            co_await client_sock.async_connect(ep, net::use_awaitable);
-            result.first = psm::transport::make_reliable(std::move(client_sock));
-        }, net::detached);
+        net::co_spawn(
+            ioc,
+            [&]() -> net::awaitable<void>
+            {
+                tcp::socket client_sock(ioc);
+                co_await client_sock.async_connect(ep, net::use_awaitable);
+                result.first = psm::transport::make_reliable(std::move(client_sock));
+            },
+            net::detached);
 
         // 驱动到连接建立
         ioc.restart();
@@ -54,7 +60,7 @@ namespace
         ioc.restart();
         return result;
     }
-}
+} // namespace
 
 TEST(VmessChunk, ShakeStreamIncremental)
 {
@@ -73,7 +79,9 @@ TEST(VmessChunk, ShakeStreamIncremental)
     EXPECT_EQ(b.size(), 168);
     // a1 是流前 168 字节，与另一实例 b 完全一致
     for (std::size_t i = 0; i < 168; ++i)
+    {
         EXPECT_EQ(a1[i], b[i]);
+    }
     // a2 是后续段，首字节与 a1 不同（连续流不会重复）
     EXPECT_NE(a2[0], a1[0]);
 }
@@ -101,24 +109,32 @@ TEST(VmessChunk, WriteReadRoundtrip)
     bool client_ok = false;
     bool server_ok = false;
 
-    net::co_spawn(ioc, [&]() -> net::awaitable<void>
-    {
-        std::error_code ec;
-        co_await writer.write_chunk(
-            std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), payload.size()), ec);
-        client_ok = !ec;
-        co_await writer.finish(ec);
-        client_ok = client_ok && !ec;
-    }, net::detached);
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
+        {
+            std::error_code ec;
+            co_await writer.write_chunk(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
+                                           payload.size()),
+                ec);
+            client_ok = !ec;
+            co_await writer.finish(ec);
+            client_ok = client_ok && !ec;
+        },
+        net::detached);
 
-    net::co_spawn(ioc, [&]() -> net::awaitable<void>
-    {
-        std::array<std::byte, 4096> buf{};
-        std::error_code ec;
-        const auto n = co_await reader.read_chunk(buf, ec);
-        server_ok = !ec && n == payload.size()
-            && std::string_view(reinterpret_cast<const char *>(buf.data()), n) == payload;
-    }, net::detached);
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
+        {
+            std::array<std::byte, 4096> buf{};
+            std::error_code ec;
+            const auto n = co_await reader.read_chunk(buf, ec);
+            server_ok = !ec && n == payload.size() &&
+                        std::string_view(reinterpret_cast<const char *>(buf.data()), n) == payload;
+        },
+        net::detached);
 
     ioc.run();
     EXPECT_TRUE(client_ok);
@@ -148,33 +164,43 @@ TEST(VmessChunk, MultipleChunksOrdered)
     std::vector<std::string> received;
     bool ok = false;
 
-    net::co_spawn(ioc, [&]() -> net::awaitable<void>
-    {
-        for (const auto &c : chunks)
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
         {
+            for (const auto &c : chunks)
+            {
+                std::error_code ec;
+                co_await writer.write_chunk(
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(c.data()), c.size()), ec);
+                if (ec)
+                {
+                    co_return;
+                }
+            }
             std::error_code ec;
-            co_await writer.write_chunk(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(c.data()), c.size()), ec);
-            if (ec)
-                co_return;
-        }
-        std::error_code ec;
-        co_await writer.finish(ec);
-    }, net::detached);
+            co_await writer.finish(ec);
+        },
+        net::detached);
 
-    net::co_spawn(ioc, [&]() -> net::awaitable<void>
-    {
-        std::array<std::byte, 4096> buf{};
-        while (true)
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
         {
-            std::error_code ec;
-            const auto n = co_await reader.read_chunk(buf, ec);
-            if (ec || n == 0)
-                break;
-            received.emplace_back(reinterpret_cast<const char *>(buf.data()), n);
-        }
-        ok = (received == std::vector<std::string>(chunks.begin(), chunks.end()));
-    }, net::detached);
+            std::array<std::byte, 4096> buf{};
+            while (true)
+            {
+                std::error_code ec;
+                const auto n = co_await reader.read_chunk(buf, ec);
+                if (ec || n == 0)
+                {
+                    break;
+                }
+                received.emplace_back(reinterpret_cast<const char *>(buf.data()), n);
+            }
+            ok = (received == std::vector<std::string>(chunks.begin(), chunks.end()));
+        },
+        net::detached);
 
     ioc.run();
     EXPECT_TRUE(ok);

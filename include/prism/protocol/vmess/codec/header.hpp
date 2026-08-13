@@ -27,15 +27,15 @@ namespace psm::protocol::vmess::codec
      */
     struct request_header
     {
-        std::uint8_t version{0};                         ///< 版本号
-        std::array<std::uint8_t, 16> request_nonce{};    ///< 请求随机数（数据 nonce 源）
-        std::array<std::uint8_t, 16> request_key{};      ///< 请求密钥（数据加密密钥）
-        std::uint8_t response_header{0};                 ///< 响应头回显字节
-        std::uint8_t option{0};                          ///< 选项位
-        std::uint8_t security{0};                        ///< 安全类型
-        std::uint8_t command{0};                         ///< 命令码
-        psm::protocol::common::address destination;      ///< 目标地址
-        std::uint16_t port{0};                           ///< 目标端口
+        std::uint8_t version{0};                      ///< 版本号
+        std::array<std::uint8_t, 16> request_nonce{}; ///< 请求随机数（数据 nonce 源）
+        std::array<std::uint8_t, 16> request_key{};   ///< 请求密钥（数据加密密钥）
+        std::uint8_t response_header{0};              ///< 响应头回显字节
+        std::uint8_t option{0};                       ///< 选项位
+        std::uint8_t security{0};                     ///< 安全类型
+        std::uint8_t command{0};                      ///< 命令码
+        psm::protocol::common::address destination;   ///< 目标地址
+        std::uint16_t port{0};                        ///< 目标端口
     };
 
     /**
@@ -45,9 +45,8 @@ namespace psm::protocol::vmess::codec
      * @param out 输出序列化字节
      * @return 错误码
      */
-    [[nodiscard]] auto seal_request(
-        std::span<const std::uint8_t, 16> cmd_key, const request_header &header,
-        std::span<std::uint8_t> out) -> fault::code;
+    [[nodiscard]] auto seal_request(std::span<const std::uint8_t, 16> cmd_key, const request_header &header,
+                                    std::span<std::uint8_t> out) -> fault::code;
 
     /**
      * @brief 解开完整请求首包（服务端用）
@@ -57,10 +56,10 @@ namespace psm::protocol::vmess::codec
      * @param header 输出指令头明文
      * @return 错误码（auth_failed / bad_message / crypto_error）
      */
-    [[nodiscard]] auto open_request(
-        std::span<const std::uint8_t, 16> cmd_key,
-        std::span<const std::uint8_t> first_packet,
-        std::array<std::uint8_t, 8> &conn_nonce, request_header &header) -> fault::code;
+    [[nodiscard]] auto open_request(std::span<const std::uint8_t, 16> cmd_key,
+                                    std::span<const std::uint8_t> first_packet,
+                                    std::array<std::uint8_t, 8> &conn_nonce, request_header &header)
+        -> fault::code;
 
     /**
      * @brief 解开请求长度块（服务端精确分段读取第二步）
@@ -71,11 +70,11 @@ namespace psm::protocol::vmess::codec
      * @param header_len 输出指令头明文长度
      * @return 错误码
      */
-    [[nodiscard]] auto open_len_block(
-        std::span<const std::uint8_t, 16> cmd_key,
-        std::span<const std::uint8_t, 16> auth_id,
-        std::span<const std::uint8_t, 18> len_block,
-        std::span<const std::uint8_t, 8> conn_nonce, std::size_t &header_len) -> fault::code;
+    [[nodiscard]] auto open_len_block(std::span<const std::uint8_t, 16> cmd_key,
+                                      std::span<const std::uint8_t, 16> auth_id,
+                                      std::span<const std::uint8_t, 18> len_block,
+                                      std::span<const std::uint8_t, 8> conn_nonce, std::size_t &header_len)
+        -> fault::code;
 
     /**
      * @brief 解开请求载荷块（服务端精确分段读取第二步）
@@ -86,11 +85,11 @@ namespace psm::protocol::vmess::codec
      * @param header 输出指令头明文
      * @return 错误码
      */
-    [[nodiscard]] auto open_payload(
-        std::span<const std::uint8_t, 16> cmd_key,
-        std::span<const std::uint8_t, 16> auth_id,
-        std::span<const std::uint8_t, 8> conn_nonce,
-        std::span<const std::uint8_t> payload_block, request_header &header) -> fault::code;
+    [[nodiscard]] auto open_payload(std::span<const std::uint8_t, 16> cmd_key,
+                                    std::span<const std::uint8_t, 16> auth_id,
+                                    std::span<const std::uint8_t, 8> conn_nonce,
+                                    std::span<const std::uint8_t> payload_block, request_header &header)
+        -> fault::code;
 
     /**
      * @brief 构造响应头字节流（AEAD 双段 GCM 或 legacy CFB）
@@ -102,10 +101,9 @@ namespace psm::protocol::vmess::codec
      * @param out 输出缓冲区（38 字节）
      * @return 错误码
      */
-    [[nodiscard]] auto build_response(
-        std::span<const std::uint8_t, 16> request_key,
-        std::span<const std::uint8_t, 16> request_nonce,
-        std::uint8_t response_header, std::uint8_t option, bool legacy,
-        std::span<std::uint8_t> out) -> fault::code;
+    [[nodiscard]] auto build_response(std::span<const std::uint8_t, 16> request_key,
+                                      std::span<const std::uint8_t, 16> request_nonce,
+                                      std::uint8_t response_header, std::uint8_t option, bool legacy,
+                                      std::span<std::uint8_t> out) -> fault::code;
 
 } // namespace psm::protocol::vmess::codec

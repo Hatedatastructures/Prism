@@ -12,7 +12,6 @@
 
 #include <prism/foundation/exception/deviant.hpp>
 
-
 namespace psm::exception
 {
 
@@ -107,6 +106,9 @@ namespace psm::exception
          * @details 重写基类的虚函数，返回协议异常的
          * 类型标识符，用于异常分类和日志记录。
          */
-        [[nodiscard]] auto type_name() const noexcept -> std::string_view override { return "PROTOCOL"; }
+        [[nodiscard]] auto type_name() const noexcept -> std::string_view override
+        {
+            return "PROTOCOL";
+        }
     }; // class protocol
 } // namespace psm::exception
