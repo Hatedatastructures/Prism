@@ -10,33 +10,35 @@ IndentWidth: 4
 TabWidth: 4
 UseTab: Never
 AccessModifierOffset: -4
-NamespaceIndentation: None
+NamespaceIndentation: All
 IndentCaseLabels: false
 IndentCaseBlocks: false
 
 # ═══════════════════════════════════════════════════════════════
 # 行宽
 # ═══════════════════════════════════════════════════════════════
-ColumnLimit: 120
-ReflowComments: true
+ColumnLimit: 110
+ReflowComments: false
 
 # ═══════════════════════════════════════════════════════════════
 # 大括号风格
-# 函数/类/命名空间：换行开大括号
+# 函数/类/枚举/命名空间：换行开大括号
 # 控制语句 (if/for/while)：不换行
 # ═══════════════════════════════════════════════════════════════
 BreakBeforeBraces: Custom
 BraceWrapping:
   AfterFunction: true
-  AfterControlStatement: Never
-  AfterStruct: false
-  AfterClass: false
+  AfterControlStatement: Always
+  AfterStruct: true
+  AfterClass: true
   AfterNamespace: true
-  AfterEnum: false
-  AfterUnion: false
+  AfterEnum: true
+  AfterUnion: true
   AfterExternBlock: true
-  BeforeElse: false
-  BeforeWhile: false
+  BeforeCatch: true
+  BeforeElse: true
+  BeforeLambdaBody: true
+  BeforeWhile: true
   IndentBraces: false
   SplitEmptyFunction: true
   SplitEmptyRecord: true
@@ -44,6 +46,7 @@ BraceWrapping:
 
 # ═══════════════════════════════════════════════════════════════
 # 对齐
+# 换行续行对齐到开括号（Align）
 # ═══════════════════════════════════════════════════════════════
 AlignAfterOpenBracket: Align
 AlignOperands: Align
@@ -54,21 +57,20 @@ AlignEscapedNewlines: Right
 
 # ═══════════════════════════════════════════════════════════════
 # 短函数/短 if 风格
-# Prism 风格：所有函数体换行，不放在单行
+# 所有函数体换行，不放在单行
 # ═══════════════════════════════════════════════════════════════
 AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Never
-AllowShortCaseLabelsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: true
 AllowShortEnumsOnASingleLine: true
 
 # ═══════════════════════════════════════════════════════════════
-# 指针与引用对齐
-# Prism 风格：左对齐 (int* p, const string& s)
+# 指针与引用对齐：右对齐贴类型 (const string &s, session_params &&p)
 # ═══════════════════════════════════════════════════════════════
-PointerAlignment: Left
-ReferenceAlignment: Left
+PointerAlignment: Right
+ReferenceAlignment: Right
 DerivePointerAlignment: false
 
 # ═══════════════════════════════════════════════════════════════
@@ -82,7 +84,7 @@ SpaceBeforeParens: ControlStatements
 SpaceBeforeRangeBasedForLoopColon: true
 SpaceInEmptyBlock: false
 SpaceInEmptyParentheses: false
-SpacesBeforeTrailingComments: 2
+SpacesBeforeTrailingComments: 1
 SpacesInAngles: Never
 SpacesInCStyleCastParentheses: false
 SpacesInConditionalStatement: false
@@ -92,23 +94,25 @@ BitFieldColonSpacing: Both
 
 # ═══════════════════════════════════════════════════════════════
 # 换行策略
+# 短参数不换行（紧凑），长参数换行（对齐开括号）
+# 尾随返回类型：短签名同行，长签名独立行（Penalty 控制）
 # ═══════════════════════════════════════════════════════════════
 AlwaysBreakTemplateDeclarations: Yes
 AlwaysBreakBeforeMultilineStrings: false
-BinPackArguments: false
-BinPackParameters: false
+BinPackParameters: true
+BinPackArguments: true
+AllowAllParametersOfDeclarationOnNextLine: false
+AllowAllArgumentsOnNextLine: false
 BreakBeforeBinaryOperators: None
 BreakBeforeTernaryOperators: true
 BreakConstructorInitializers: BeforeColon
 BreakInheritanceList: BeforeColon
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
-AllowAllArgumentsOnNextLine: false
-AllowAllParametersOfDeclarationOnNextLine: false
 
 # ═══════════════════════════════════════════════════════════════
 # Include 排序
-# Prism 风格：对应文件优先 → 项目头文件 → 第三方库 → 标准库
+# 对应文件优先 → 项目头文件 → 第三方库 → 标准库
 # ═══════════════════════════════════════════════════════════════
 SortIncludes: CaseInsensitive
 IncludeBlocks: Regroup
@@ -135,8 +139,8 @@ InsertBraces: true
 EmptyLineAfterAccessModifier: Never
 EmptyLineBeforeAccessModifier: LogicalBlock
 AttributeMacros:
-  - [[nodiscard]]
-  - [[deprecated]]
+  - NODISCARD
+  - DEPRECATED
 StatementMacros:
   - co_return
   - co_yield
