@@ -48,6 +48,32 @@ namespace psmtest
         }
 
         /**
+         * @brief 从已接受/已连接的套接字构造
+         * @param sock 已连接的 TCP 套接字（所有权移交）
+         */
+        explicit socket_stream(net::ip::tcp::socket sock) : sock_(std::move(sock)), timer_(sock_.get_executor())
+        {
+        }
+
+        /**
+         * @brief 获取底层套接字引用（供 accept 流程持有）
+         * @return 套接字引用
+         */
+        [[nodiscard]] auto socket() noexcept -> net::ip::tcp::socket &
+        {
+            return sock_;
+        }
+
+        /**
+         * @brief 获取底层套接字引用（const）
+         * @return 套接字引用
+         */
+        [[nodiscard]] auto socket() const noexcept -> const net::ip::tcp::socket &
+        {
+            return sock_;
+        }
+
+        /**
          * @brief 不可拷贝
          */
         socket_stream(const socket_stream &) = delete;
