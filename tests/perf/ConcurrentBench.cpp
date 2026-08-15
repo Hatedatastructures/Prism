@@ -42,8 +42,8 @@ namespace
         req.target.host = "example.com";
         req.target.port = 443;
 
-        psm::memory::session_memory<> mem;
-        typename psm::memory::session_memory<>::buffer<std::uint8_t> buf(mem.arena());
+        psmtest::memory::session_memory<> mem;
+        typename psmtest::memory::session_memory<>::buffer<std::uint8_t> buf(mem.arena());
         std::vector<std::int64_t> lat;
         lat.reserve(iters);
         for (int i = 0; i < iters; ++i)

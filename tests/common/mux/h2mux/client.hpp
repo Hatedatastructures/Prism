@@ -13,7 +13,11 @@
 namespace psmtest::mux::h2mux
 {
 
-    /// h2mux client 会话（共享模板实例化）
-    using client = mux::client<codec>;
+    /**
+     * @brief h2mux client 会话（共享模板实例化，可注入内存策略）
+     * @tparam Memory 会话内存策略（默认 8KB arena）
+     */
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
+    using client = mux::client<codec, Memory>;
 
 } // namespace psmtest::mux::h2mux

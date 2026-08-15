@@ -17,7 +17,7 @@
 #include <span>
 #include <utility>
 
-namespace psm::protocol::common::framing
+namespace psmtest::protocol::common::framing
 {
 
     /**
@@ -97,4 +97,4 @@ namespace psm::protocol::common::framing
             static_cast<std::uint16_t>(buffer[0]) << 8 | static_cast<std::uint16_t>(buffer[1]);
         return {fault::code::success, port};
     }
-} // namespace psm::protocol::common::framing
+} // namespace psmtest::protocol::common::framing

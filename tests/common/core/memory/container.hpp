@@ -22,7 +22,7 @@ namespace psm
 
 }
 
-namespace psm::memory
+namespace psmtest::memory
 {
 
     using resource =
@@ -85,4 +85,4 @@ namespace psm::memory
     template <typename Key, typename Hash = std::hash<Key>, typename KeyEqual = std::equal_to<Key>>
     using unordered_set = std::pmr::unordered_set<Key, Hash, KeyEqual>; // PMR 哈希集合模板
 
-} // namespace psm::memory
+} // namespace psmtest::memory

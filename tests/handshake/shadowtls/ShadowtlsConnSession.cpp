@@ -151,7 +151,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 未握手 conn：读写返回 not_open
-                     auto c = std::make_shared<shadowtls::conn>(
+                     auto c = std::make_shared<shadowtls::conn<>>(
                          std::make_shared<memory_stream>(std::move(a)), "pw");
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
@@ -166,7 +166,7 @@ namespace
                      EXPECT_TRUE(c->executor());
                      EXPECT_NE(c->next_layer(), nullptr);
                      EXPECT_NE(c->lowest_layer<memory_stream>(), nullptr);
-                     const shadowtls::conn *const_c = c.get();
+                     const shadowtls::conn<> *const_c = c.get();
                      EXPECT_NE(const_c->next_layer(), nullptr);
                      auto released = c->release();
                      EXPECT_TRUE(released);

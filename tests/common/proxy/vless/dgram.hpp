@@ -43,7 +43,7 @@ namespace psmtest::vless
      * 对外暴露包级 API（async_send_to / async_receive_from）。
      * 由工厂（connect_packet / accept_packet）创建。
      */
-    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram<Memory>>
     {
     public:

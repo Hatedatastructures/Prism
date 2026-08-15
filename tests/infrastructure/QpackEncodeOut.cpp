@@ -12,14 +12,14 @@ namespace
     TEST(QpackInterop, EncodeOutputForGo)
     {
         // ?? C++ ??? hex?? Go ? qpackcmp decode ???
-        auto mr = psm::memory::current_resource();
+        auto mr = psmtest::memory::current_resource();
         std::array<std::uint8_t, 512> buf{};
-        auto offset = psm::protocol::hysteria2::qpack::encode_prefix(buf);
-        offset += psm::protocol::hysteria2::qpack::encode_literal(
+        auto offset = psmtest::protocol::hysteria2::qpack::encode_prefix(buf);
+        offset += psmtest::protocol::hysteria2::qpack::encode_literal(
             ":method", "POST", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
-        offset += psm::protocol::hysteria2::qpack::encode_literal(
+        offset += psmtest::protocol::hysteria2::qpack::encode_literal(
             ":path", "/auth", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
-        offset += psm::protocol::hysteria2::qpack::encode_literal(
+        offset += psmtest::protocol::hysteria2::qpack::encode_literal(
             "hysteria-auth", "password123",
             std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
 

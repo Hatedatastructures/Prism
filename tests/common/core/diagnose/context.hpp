@@ -20,7 +20,7 @@
 #include <cstring>
 #include <memory>
 
-namespace psm::diagnose
+namespace psmtest::diagnose
 {
 
     /// @brief 生命周期阶段
@@ -92,4 +92,4 @@ namespace psm::diagnose
         mutable std::uint8_t render_gen = 0;
     };
 
-} // namespace psm::diagnose
+} // namespace psmtest::diagnose

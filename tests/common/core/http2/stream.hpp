@@ -21,7 +21,7 @@
 #include <span>
 #include <system_error>
 
-namespace psm::http2
+namespace psmtest::http2
 {
 
     /**
@@ -222,4 +222,4 @@ namespace psm::http2
         return std::make_shared<stream_handle>(result.stream_id, std::move(session));
     }
 
-} // namespace psm::http2
+} // namespace psmtest::http2

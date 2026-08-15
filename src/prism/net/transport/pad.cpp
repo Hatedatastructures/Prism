@@ -33,8 +33,8 @@ namespace psm::transport
     {
         ec.clear();
 
-        /// 超过 stop_after 后直接透传,零开销
-        if (write_count_ >= cfg_.stop_after || buffer.empty())
+        /// 未启用或超过 stop_after 后直接透传,零开销
+        if (!cfg_.enabled() || write_count_ >= cfg_.stop_after || buffer.empty())
         {
             co_return co_await inner_->async_write_some(buffer, ec);
         }

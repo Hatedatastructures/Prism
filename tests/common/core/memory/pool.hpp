@@ -11,7 +11,7 @@
 
 #include <cstdint>
 
-namespace psm::memory
+namespace psmtest::memory
 {
 
     /**
@@ -261,4 +261,4 @@ namespace psm::memory
         auto operator=(const frame_arena &) -> frame_arena & = delete;
     }; // class frame_arena
 
-} // namespace psm::memory
+} // namespace psmtest::memory

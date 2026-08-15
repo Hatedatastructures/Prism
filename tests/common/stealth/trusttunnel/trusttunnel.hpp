@@ -77,7 +77,7 @@ namespace psmtest::trusttunnel
                                       std::string_view target, std::uint16_t port)
         -> net::awaitable<std::pair<error, shared_conn>>
     {
-        auto c = std::make_shared<conn>(std::move(upstream), cfg.username, cfg.password);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.username, cfg.password);
         const auto err = co_await c->write_handshake(target, port);
         co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
@@ -111,7 +111,7 @@ namespace psmtest::trusttunnel
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
         -> net::awaitable<std::tuple<error, std::string, shared_conn>>
     {
-        auto c = std::make_shared<conn>(std::move(upstream), cfg.username, cfg.password);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.username, cfg.password);
         std::string target;
         const auto err = co_await c->read_handshake(target);
         co_return std::tuple{err, std::move(target),

@@ -639,4 +639,4 @@ namespace psm_test
         return s;
     }
 
-} // namespace psm_test
+} // namespace psmtest_test

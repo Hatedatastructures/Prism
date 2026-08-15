@@ -16,7 +16,7 @@
 #include <span>
 #include <unordered_map>
 
-namespace psm::rate
+namespace psmtest::rate
 {
 
     /**
@@ -258,4 +258,4 @@ namespace psm::rate
     }
 
 
-} // namespace psm::rate
+} // namespace psmtest::rate

@@ -42,7 +42,7 @@ namespace psmtest::tuic
      * transmission 接口透传 TCP 帧载荷，或通过 async_send_datagram
      * / async_receive_datagram 收发 UDP 数据报。
      */
-    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
@@ -255,7 +255,7 @@ namespace psmtest::tuic
          * @return 非拥有资源指针（供握手/解析的临时分配）
          * @note 分配的对象随 conn 存活，conn 析构时一次性回收
          */
-        [[nodiscard]] auto arena() noexcept -> psm::memory::resource_pointer
+        [[nodiscard]] auto arena() noexcept -> psmtest::memory::resource_pointer
         {
             return mem_.arena();
         }

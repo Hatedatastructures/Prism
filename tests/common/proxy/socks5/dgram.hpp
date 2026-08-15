@@ -44,7 +44,7 @@ namespace psmtest::socks5
      * 由工厂（connect_packet / accept_packet）创建。
      * @tparam Memory 会话内存策略（默认 8KB arena；可注入自定义策略）
      */
-    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram<Memory>>
     {
     public:

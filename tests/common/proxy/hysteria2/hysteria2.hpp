@@ -26,6 +26,7 @@
 #include <common/core/transmission.hpp>
 #include <common/core/transport/udp_transmission.hpp>
 #include <common/proxy/hysteria2/codec.hpp>
+#include <common/core/authenticator.hpp>
 #include <common/proxy/hysteria2/conn.hpp>
 #include <common/proxy/hysteria2/dgram.hpp>
 #include <common/proxy/hysteria2/types.hpp>
@@ -57,6 +58,8 @@ namespace psmtest::hysteria2
     {
         /// 服务端认证密码
         std::string password;
+        /// 认证器（非拥有；nullptr = 静态比对 password）
+        const psmtest::authenticator *authenticator{nullptr};
     };
 
     // =========================================================================
@@ -107,7 +110,7 @@ namespace psmtest::hysteria2
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
         -> net::awaitable<std::tuple<error, message, shared_conn>>
     {
-        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.password);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.password, cfg.authenticator);
         auto [err, req] = co_await c->read_handshake();
         co_return std::tuple{err, std::move(req),
                              err == error::none ? shared_conn(std::move(c)) : shared_conn{}};

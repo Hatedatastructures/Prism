@@ -15,7 +15,7 @@
 #include <string>
 #include <string_view>
 
-namespace psm::crypto
+namespace psmtest::crypto
 {
 
     namespace detail
@@ -229,4 +229,4 @@ namespace psm::crypto
 
         return result;
     }
-} // namespace psm::crypto
+} // namespace psmtest::crypto

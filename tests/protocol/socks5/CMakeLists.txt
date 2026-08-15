@@ -10,4 +10,4 @@ prism_add_test(Socks5DgramSession.cpp)
 target_link_libraries(Socks5DgramSession PRIVATE vmtest_common)
 prism_add_test(Socks5StressTest.cpp)
 target_link_libraries(Socks5StressTest PRIVATE vmtest_common)
-
+prism_add_test(Socks5ConnErrorMatrix.cpp)

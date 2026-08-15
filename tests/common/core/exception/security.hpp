@@ -12,7 +12,7 @@
 
 #include <common/core/exception/deviant.hpp>
 
-namespace psm::exception
+namespace psmtest::exception
 {
 
     /**
@@ -34,9 +34,9 @@ namespace psm::exception
          * @param err 安全错误码
          * @param loc 源码位置，默认自动获取
          */
-        explicit security(::psm::fault::code err,
+        explicit security(::psmtest::fault::code err,
                           const std::source_location &loc = std::source_location::current())
-            : deviant(::psm::fault::make_error_code(err), {}, loc)
+            : deviant(::psmtest::fault::make_error_code(err), {}, loc)
         {
         }
 
@@ -46,9 +46,9 @@ namespace psm::exception
          * @param desc 额外描述信息
          * @param loc 源码位置，默认自动获取
          */
-        explicit security(psm::fault::code err, std::string_view desc,
+        explicit security(psmtest::fault::code err, std::string_view desc,
                           const std::source_location &loc = std::source_location::current())
-            : deviant(psm::fault::make_error_code(err), desc, loc)
+            : deviant(psmtest::fault::make_error_code(err), desc, loc)
         {
         }
 
@@ -106,4 +106,4 @@ namespace psm::exception
             return "SECURITY";
         }
     }; // class security
-} // namespace psm::exception
+} // namespace psmtest::exception

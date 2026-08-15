@@ -11,14 +11,14 @@
 #pragma once
 
 #include <common/core/memory/container.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio.hpp>
 
 #include <span>
 #include <utility>
 
-namespace psm::transport {
+namespace psmtest::transport {
 
     namespace net = boost::asio;
 
@@ -193,7 +193,7 @@ namespace psm::transport {
         [[nodiscard]] auto async_write(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
-            co_return co_await transport::async_write(*trans_, buffer, ec);
+            co_return co_await trans_->async_write(buffer, ec);
         }
 
         /**
@@ -207,7 +207,7 @@ namespace psm::transport {
         [[nodiscard]] auto async_read(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
-            co_return co_await transport::async_read(*trans_, buffer, ec);
+            co_return co_await trans_->async_read(buffer, ec);
         }
 
         using lowest_layer_type = connector;
@@ -259,4 +259,4 @@ namespace psm::transport {
         memory::vector<std::byte> preread_buffer_; // 预读数据缓冲区
         std::size_t preread_offset_ = 0;           // 预读数据当前消费偏移量
     }; // class connector
-} // namespace psm::transport
+} // namespace psmtest::transport

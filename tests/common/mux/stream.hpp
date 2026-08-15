@@ -42,7 +42,7 @@ namespace psmtest::mux
          * @brief 构造
          * @param handle mux 虚拟流句柄（所有权移交）
          */
-        explicit stream_transmission(std::shared_ptr<stream_handle> handle) : handle_(std::move(handle))
+        explicit stream_transmission(std::shared_ptr<stream_handle<>> handle) : handle_(std::move(handle))
         {
         }
 
@@ -167,13 +167,13 @@ namespace psmtest::mux
          * @brief 获取底层流句柄
          * @return mux 虚拟流句柄
          */
-        [[nodiscard]] auto handle() const noexcept -> std::shared_ptr<stream_handle>
+        [[nodiscard]] auto handle() const noexcept -> std::shared_ptr<stream_handle<>>
         {
             return handle_;
         }
 
     private:
-        std::shared_ptr<stream_handle> handle_; ///< mux 虚拟流句柄
+        std::shared_ptr<stream_handle<>> handle_; ///< mux 虚拟流句柄
     };
 
     /// 流传输共享指针

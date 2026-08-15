@@ -12,7 +12,7 @@
 #include <openssl/rand.h>
 
 #include <common/core/memory/container.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio.hpp>
 
@@ -22,7 +22,7 @@
 
 #include <blake3.h>
 
-namespace psm::transport {
+namespace psmtest::transport {
 
 
     namespace net = boost::asio;
@@ -215,8 +215,8 @@ namespace psm::transport {
     {
         ec.clear();
 
-        /// 超过 stop_after 后直接透传,零开销
-        if (write_count_ >= cfg_.stop_after || buffer.empty())
+        /// 未启用或超过 stop_after 后直接透传,零开销
+        if (!cfg_.enabled() || write_count_ >= cfg_.stop_after || buffer.empty())
         {
             co_return co_await inner_->async_write_some(buffer, ec);
         }
@@ -237,7 +237,7 @@ namespace psm::transport {
             rng_next_bytes(std::span<std::byte>(pad_buf_.data() + data_len, pad_size));
         }
 
-        co_await async_write(*inner_, std::span<const std::byte>(pad_buf_.data(), total), ec);
+        co_await inner_->async_write(std::span<const std::byte>(pad_buf_.data(), total), ec);
 
         ++write_count_;
 
@@ -383,4 +383,4 @@ namespace psm::transport {
     }
 
 
-} // namespace psm::transport
+} // namespace psmtest::transport

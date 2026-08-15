@@ -22,7 +22,7 @@
 #include <span>
 #include <string_view>
 
-namespace psm::protocol::hysteria2::h3 {
+namespace psmtest::protocol::hysteria2::h3 {
 
     /// Hysteria2 认证相关常量
     inline constexpr std::uint64_t frame_headers = 0x01;  ///< HTTP/3 HEADERS 帧类型
@@ -187,4 +187,4 @@ namespace psm::protocol::hysteria2::h3 {
     }
 
 
-} // namespace psm::protocol::hysteria2::h3
+} // namespace psmtest::protocol::hysteria2::h3

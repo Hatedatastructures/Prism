@@ -24,9 +24,9 @@
 #include <common/core/fault/handling.hpp>
 #include <common/core/middleware/context.hpp>
 #include <common/core/middleware/pipeline.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
-namespace psm::middleware::builtin
+namespace psmtest::middleware::builtin
 {
 
     namespace net = boost::asio;
@@ -46,7 +46,7 @@ namespace psm::middleware::builtin
          * @param outbound 上游传输（已拨号；可为空，由管线前序注入）
          * @param idle_timeout 空闲超时（0 = 禁用）
          */
-        explicit relay_middleware(psm::transport::shared_transmission outbound,
+        explicit relay_middleware(psmtest::shared_transmission outbound,
                                   std::chrono::milliseconds idle_timeout = std::chrono::seconds(300))
             : outbound_(std::move(outbound)), idle_timeout_(idle_timeout)
         {
@@ -66,14 +66,14 @@ namespace psm::middleware::builtin
          * @param ctx 管线上下文
          * @return 隧道结束码（success = 正常关闭）
          */
-        auto handle(psm::transport::shared_transmission &inbound, context &ctx)
-            -> net::awaitable<psm::fault::code> override
+        auto handle(psmtest::shared_transmission &inbound, context &ctx)
+            -> net::awaitable<psmtest::fault::code> override
         {
             // 优先使用管线上下文注入的 outbound（dial 中间件产出）
             auto outbound = ctx.outbound ? ctx.outbound : outbound_;
             if (!inbound || !outbound)
             {
-                co_return psm::fault::code::bad_gateway;
+                co_return psmtest::fault::code::bad_gateway;
             }
 
             const auto buffer_size = (std::max)(ctx.buffer_size, std::size_t{2});
@@ -132,14 +132,14 @@ namespace psm::middleware::builtin
 
             if (ctx.traffic)
             {
-                ctx.traffic->report(total[0], total[1]);
+                ctx.traffic->report(ctx.identity, total[0], total[1]);
             }
-            co_return psm::fault::code::success;
+            co_return psmtest::fault::code::success;
         }
 
     private:
-        psm::transport::shared_transmission outbound_; ///< 上游传输
+        psmtest::shared_transmission outbound_; ///< 上游传输
         std::chrono::milliseconds idle_timeout_;       ///< 空闲超时
     };
 
-} // namespace psm::middleware::builtin
+} // namespace psmtest::middleware::builtin

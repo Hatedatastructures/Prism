@@ -220,7 +220,7 @@ namespace
         if (reuse)
         {
             // 资源指针：arena 缓冲复用（vmess conn 实际路径）
-            psm::memory::session_memory<> mem;
+            psmtest::memory::session_memory<> mem;
             auto out = mem.make_buffer<std::uint8_t>(kChunk + chunk_encryptor::overhead);
             volatile std::size_t sink = 0;
             for (int i = 0; i < kIters; ++i)

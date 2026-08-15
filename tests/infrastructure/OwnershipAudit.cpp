@@ -46,10 +46,10 @@ namespace
     }
 
     /**
-     * @brief 内存写入端 fake 传输（psm::transport 体系）
+     * @brief 内存写入端 fake 传输（psmtest::transport 体系）
      * @details pad_transport 仅测试填充逻辑，写入直接落内存。
      */
-    class fake_sink final : public psm::transport::transmission
+    class fake_sink final : public psmtest::transmission
     {
     public:
         explicit fake_sink(net::any_io_executor ex) : ex_(std::move(ex))
@@ -141,9 +141,9 @@ namespace
         net::io_context ioc;
         auto sink = std::make_shared<fake_sink>(ioc.get_executor());
 
-        psm::transport::pad_config cfg;
+        psmtest::transport::pad_config cfg;
         cfg.pad_targets = "0-65535";
-        psm::transport::pad_transport pad(sink, cfg);
+        psmtest::transport::pad_transport pad(sink, cfg);
 
         std::array<std::byte, 1> buf{std::byte{0x42}};
         std::error_code ec;
@@ -226,7 +226,7 @@ namespace
     {
         auto ioc = std::make_unique<net::io_context>();
         {
-            psm::coroutine::task_registry reg(*ioc);
+            psmtest::coroutine::task_registry reg(*ioc);
             reg.spawn_tracked(
                 "dangling-owner", [ioc_ptr = ioc.get()]() -> net::awaitable<void>
                 {

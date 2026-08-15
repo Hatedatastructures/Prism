@@ -23,7 +23,7 @@
 #include <cstring>
 #include <vector>
 
-namespace psm::testing
+namespace psmtest::testing
 {
     namespace net = boost::asio;
 
@@ -174,4 +174,4 @@ namespace psm::testing
         }
     };
 
-} // namespace psm::testing
+} // namespace psmtest::testing

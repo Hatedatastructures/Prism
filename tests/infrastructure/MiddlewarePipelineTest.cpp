@@ -23,7 +23,7 @@
 #include <common/core/middleware/builtin/dial.hpp>
 #include <common/core/middleware/builtin/relay.hpp>
 #include <common/core/transport/memory_stream.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 #include <common/core/fault/handling.hpp>
 #include <common/core/fault/code.hpp>
 
@@ -32,10 +32,10 @@ namespace
 
     namespace net = boost::asio;
     namespace psmnet = boost::asio;
-    using psm::transport::shared_transmission;
-    using psm::transport::transmission;
+    using psmtest::shared_transmission;
+    using psmtest::transmission;
 
-    /// psm::transport 内存 mock（成对传输）
+    /// psmtest::transport 内存 mock（成对传输）
     class memory_transport final : public transmission
     {
     public:
@@ -146,18 +146,18 @@ namespace
             upstream->bind_peer(outbound);
 
             // 管线：dial（注入已建立的 outbound 作为"上游"）→ relay
-            psm::middleware::context ctx;
+            psmtest::middleware::context ctx;
             ctx.target.positive = true;
 
-            auto dial = std::make_shared<psm::middleware::builtin::dial_middleware>(
-                [outbound](const psm::connect::target &) -> net::awaitable<
-                    std::pair<psm::fault::code, psm::transport::shared_transmission>>
+            auto dial = std::make_shared<psmtest::middleware::builtin::dial_middleware>(
+                [outbound](const psmtest::connect::target &) -> net::awaitable<
+                    std::pair<psmtest::fault::code, psmtest::shared_transmission>>
                 {
-                    co_return std::pair{psm::fault::code::success, outbound};
+                    co_return std::pair{psmtest::fault::code::success, outbound};
                 });
 
-            psm::middleware::pipeline pipe;
-            pipe.add(dial).add(std::make_shared<psm::middleware::builtin::relay_middleware>(
+            psmtest::middleware::pipeline pipe;
+            pipe.add(dial).add(std::make_shared<psmtest::middleware::builtin::relay_middleware>(
                 nullptr, std::chrono::milliseconds(100)));
 
             // 启动管线（detached，relay 内部跑隧道）

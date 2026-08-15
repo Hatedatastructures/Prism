@@ -69,7 +69,7 @@ namespace psmtest::restls
                                       std::span<const std::uint8_t> server_random)
         -> net::awaitable<std::pair<error, shared_conn>>
     {
-        auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.password);
         const auto err = co_await c->write_handshake(server_random);
         co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
@@ -85,7 +85,7 @@ namespace psmtest::restls
                                      std::span<const std::uint8_t> server_random)
         -> net::awaitable<std::pair<error, shared_conn>>
     {
-        auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.password);
         const auto err = co_await c->read_handshake(server_random);
         co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }

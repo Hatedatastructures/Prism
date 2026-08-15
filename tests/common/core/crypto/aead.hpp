@@ -25,7 +25,7 @@
 // 前向声明，避免暴露 OpenSSL 头文件
 struct evp_aead_ctx_st;
 
-namespace psm::crypto
+namespace psmtest::crypto
 {
 
     /**
@@ -442,4 +442,4 @@ namespace psm::crypto
     }
 
 
-} // namespace psm::crypto
+} // namespace psmtest::crypto

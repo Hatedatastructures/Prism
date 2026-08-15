@@ -13,6 +13,8 @@
 #include <cstdint>
 #include <string>
 
+#include <common/core/authenticator.hpp>
+
 namespace psmtest::socks5
 {
 
@@ -168,10 +170,12 @@ namespace psmtest::socks5
         bool enable_udp = true;
         /// 是否启用用户名/密码认证（RFC 1929）
         bool enable_auth = false;
-        /// 认证用户名（enable_auth 为 true 时生效）
+        /// 认证用户名（enable_auth 为 true 时有效）
         std::string username;
-        /// 认证密码（enable_auth 为 true 时生效）
+        /// 认证密码（enable_auth 为 true 时有效）
         std::string password;
+        /// 认证器（非拥有；nullptr = 静态比对 username/password）
+        const psmtest::authenticator *authenticator{nullptr};
     };
 
 } // namespace psmtest::socks5

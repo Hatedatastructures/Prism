@@ -21,7 +21,7 @@
 #include <system_error>
 #include <type_traits>
 
-namespace psm::fault
+namespace psmtest::fault
 {
 
     /**
@@ -86,7 +86,7 @@ namespace psm::fault
             return code::success;
         }
 
-        if (std::string_view(ec.category().name()) == "psm::fault")
+        if (std::string_view(ec.category().name()) == "psmtest::fault")
         {
             const auto value = ec.value();
             if (value >= 0 && value < static_cast<std::int32_t>(code::_count))
@@ -151,7 +151,7 @@ namespace psm::fault
             return code::success;
         }
 
-        if (&ec.category() == &psm::fault::category())
+        if (&ec.category() == &psmtest::fault::category())
         {
             const auto value = ec.value();
             if (value >= 0 && value < static_cast<std::int32_t>(code::_count))
@@ -202,4 +202,4 @@ namespace psm::fault
         return code::io_error;
     }
 
-} // namespace psm::fault
+} // namespace psmtest::fault

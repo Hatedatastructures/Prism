@@ -128,8 +128,8 @@ namespace
                      EXPECT_EQ(herr, error::bad_length);
                      EXPECT_FALSE(cli);
 
-                     auto c = std::make_shared<restls::conn>(std::make_shared<memory_stream>(std::move(b)),
-                                                             "pw");
+                     auto c = std::make_shared<restls::conn<>>(std::make_shared<memory_stream>(std::move(b)),
+                                                              "pw");
                      const std::array<std::uint8_t, 33> long_rnd{};
                      const auto serr = co_await c->read_handshake(std::span<const std::uint8_t>(long_rnd));
                      EXPECT_EQ(serr, error::bad_length);
@@ -145,8 +145,8 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 未握手 conn：读写返回 not_open
-                     auto c = std::make_shared<restls::conn>(std::make_shared<memory_stream>(std::move(a)),
-                                                             "pw");
+                     auto c = std::make_shared<restls::conn<>>(std::make_shared<memory_stream>(std::move(a)),
+                                                              "pw");
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
                      const auto n = co_await c->async_read_some(buf, ec);
@@ -160,7 +160,7 @@ namespace
                      EXPECT_TRUE(c->executor());
                      EXPECT_NE(c->next_layer(), nullptr);
                      EXPECT_NE(c->lowest_layer<memory_stream>(), nullptr);
-                     const restls::conn *const_c = c.get();
+                     const restls::conn<> *const_c = c.get();
                      EXPECT_NE(const_c->next_layer(), nullptr);
                      auto released = c->release();
                      EXPECT_TRUE(released);

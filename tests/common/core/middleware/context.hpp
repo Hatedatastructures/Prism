@@ -13,9 +13,9 @@
 #include <memory>
 
 #include <common/core/protocol/target.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
-namespace psm::middleware
+namespace psmtest::middleware
 {
 
     /**
@@ -29,21 +29,24 @@ namespace psm::middleware
     {
     public:
         /// 入站传输（中间件可替换包装）
-        psm::transport::shared_transmission inbound;
+        psmtest::shared_transmission inbound;
         /// 上游传输（dial 中间件产出，relay 中间件消费）
-        psm::transport::shared_transmission outbound;
+        psmtest::shared_transmission outbound;
         /// 目标地址（拨号中间件消费）
-        psm::connect::target target;
+        psmtest::connect::target target;
         /// 检测到的协议类型
         std::uint16_t detected{0};
         /// 流量统计回调（relay 中间件消费）
         struct traffic_sink
         {
             /// 上报流量
-            virtual auto report(std::size_t up, std::size_t down) -> void = 0;
+            /// �ϱ�����（�� identity ���������ˣ�
+            virtual auto report(std::string_view identity, std::size_t up, std::size_t down) -> void = 0;
             virtual ~traffic_sink() = default;
         };
         traffic_sink *traffic{nullptr};
+        /// 认证通过后的用户标识（auth 中间件写入，relay 统计按此聚合）
+        std::string identity{};
         /// 填充配置（可选，pad 中间件消费）
         struct pad_config
         {
@@ -56,4 +59,4 @@ namespace psm::middleware
         std::size_t buffer_size{16384};
     };
 
-} // namespace psm::middleware
+} // namespace psmtest::middleware

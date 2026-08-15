@@ -7,7 +7,7 @@
  *   - exception：异常层次（deviant 基类 + network/protocol/security）
  * 该模块为整个项目的基础层，所有上层模块都依赖此处定义的类型。
  * 遵循热路径零开销原则，所有函数 constexpr/noexcept，无动态分配。
- * @note 命名空间保留为原子形式：psm::memory、psm::fault、psm::exception
+ * @note 命名空间保留为原子形式：psmtest::memory、psmtest::fault、psmtest::exception
  * @warning 线程局部资源分配的内存严禁跨线程使用
  */
 #pragma once

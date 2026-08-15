@@ -23,6 +23,7 @@
 #include <common/core/error.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/vless/codec.hpp>
+#include <common/core/authenticator.hpp>
 #include <common/proxy/vless/conn.hpp>
 #include <common/proxy/vless/dgram.hpp>
 #include <common/proxy/vless/types.hpp>
@@ -52,10 +53,12 @@ namespace psmtest::vless
      */
     struct server_config
     {
-        /// 客户端 UUID（16 字节，握手校验用）
+        /// 客户端 UUID（16 字节，凭据校验用）
         std::array<std::uint8_t, uuid_len> uuid{};
-        /// 是否允许 UDP 命令（mux 命令恒允许）
+        /// 是否允许 UDP 命令（mux 连接除外）
         bool enable_udp = true;
+        /// 认证器（非拥有；nullptr = 静态比对 uuid）
+        const psmtest::authenticator *authenticator{nullptr};
     };
 
     // =========================================================================
@@ -107,7 +110,7 @@ namespace psmtest::vless
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
         -> net::awaitable<std::tuple<error, request_header, shared_conn>>
     {
-        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.uuid);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.uuid, cfg.authenticator);
         auto [err, req] = co_await c->read_handshake(true, cfg.enable_udp, true);
         co_return std::tuple{err, std::move(req),
                              err == error::none ? shared_conn(std::move(c)) : shared_conn{}};

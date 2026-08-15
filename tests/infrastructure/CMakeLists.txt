@@ -2,6 +2,7 @@ prism_add_test(Config.cpp)
 prism_add_test(Exception.cpp)
 prism_add_test(Fault.cpp)
 prism_add_test(CoreFault.cpp)
+prism_add_test(FaultCoverage.cpp)
 prism_add_test(CoreError.cpp)
 prism_add_test(CoreTransmission.cpp)
 prism_add_test(CoreAead.cpp)
@@ -28,11 +29,17 @@ prism_add_test(QpackInteropTest.cpp)
 
 prism_add_test(QpackEncodeOut.cpp)
 
+prism_add_test(HttpQuicCoverage.cpp)
+
 prism_add_test(TestRunnerDeep.cpp)
 target_compile_options(TestRunnerDeep PRIVATE -O0 -fno-inline)
 
 prism_add_test(TuicDgramDeep.cpp)
 target_link_libraries(TuicDgramDeep PRIVATE vmtest_common)
+
+prism_add_test(DgramErrorCoverage.cpp)
+target_link_libraries(DgramErrorCoverage PRIVATE vmtest_common)
+target_compile_options(DgramErrorCoverage PRIVATE -O0 -fno-inline)
 
 prism_add_test(ConnDecoratorDeep.cpp)
 target_link_libraries(ConnDecoratorDeep PRIVATE vmtest_common)
@@ -46,11 +53,26 @@ prism_add_test(TestCommonCodecDeep2.cpp)
 target_link_libraries(TestCommonCodecDeep2 PRIVATE vmtest_common)
 target_compile_options(TestCommonCodecDeep2 PRIVATE -O0 -fno-inline)
 
+prism_add_test(StealthVmessErrorCoverage.cpp)
+target_link_libraries(StealthVmessErrorCoverage PRIVATE vmtest_common)
+target_compile_options(StealthVmessErrorCoverage PRIVATE -O0 -fno-inline)
+
 prism_add_test(TestPsmTransport.cpp)
 target_link_libraries(TestPsmTransport PRIVATE vmtest_common)
 target_compile_options(TestPsmTransport PRIVATE -O0 -fno-inline)
+
+prism_add_test(TransportDecoratorCoverage.cpp)
+target_link_libraries(TransportDecoratorCoverage PRIVATE vmtest_common)
+target_compile_options(TransportDecoratorCoverage PRIVATE -O0 -fno-inline)
+
+prism_add_test(CoreModulesCoverage.cpp)
+target_link_libraries(CoreModulesCoverage PRIVATE vmtest_common)
 
 prism_add_test(OwnershipAudit.cpp)
 
 prism_add_test(MemoryPointerTest.cpp)
 prism_add_test(MemoryLifecycleTest.cpp)
+prism_add_test(AuthenticatorTest.cpp)
+prism_add_test(TrafficIdentityTest.cpp)
+prism_add_test(CodecFuzzTest.cpp)
+prism_add_test(CryptoExceptionCoverage.cpp)

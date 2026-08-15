@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace psm::fault
+namespace psmtest::fault
 {
 
     /**
@@ -271,4 +271,4 @@ namespace psm::fault
         return !succeeded(c);
     }
 
-} // namespace psm::fault
+} // namespace psmtest::fault

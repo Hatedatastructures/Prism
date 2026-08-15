@@ -21,7 +21,7 @@
 
 #include <common/core/memory/container.hpp>
 
-namespace psm::protocol::common
+namespace psmtest::protocol::common
 {
 
     /**
@@ -132,4 +132,4 @@ namespace psm::protocol::common
         };
         return std::visit(translate, addr);
     }
-} // namespace psm::protocol::common
+} // namespace psmtest::protocol::common

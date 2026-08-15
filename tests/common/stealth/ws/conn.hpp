@@ -13,6 +13,8 @@
 
 #include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
+#include <common/core/memory/container.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/stealth/ws/codec.hpp>
 #include <common/stealth/ws/types.hpp>
@@ -37,11 +39,15 @@ namespace psmtest::ws
      * @brief WebSocket 会话连接（transmission 装饰器）
      * @details 持有底层传输的独占所有权。握手成功后数据面
      * 为帧边界恢复后的裸流。
+     * @tparam Memory 会话内存策略（默认 8KB arena；可注入自定义策略）
      */
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class conn : public psmtest::transmission,
-                 public std::enable_shared_from_this<conn>
+                 public std::enable_shared_from_this<conn<Memory>>
     {
     public:
+        /// 内存策略类型（对外暴露，供嵌套层/测试使用）
+        using memory_type = Memory;
         /**
          * @brief 构造函数
          * @param upstream 底层传输（所有权移交）
@@ -252,9 +258,9 @@ namespace psmtest::ws
         bool handshaken_{false};          ///< 握手完成标志
     };
 
-    /// 流连接共享指针
-    using shared_conn = std::shared_ptr<conn>;
+    /// 流连接共享指针（默认内存策略）
+    using shared_conn = std::shared_ptr<conn<>>;
 
-    static_assert(psmtest::transmission_like<conn>);
+    static_assert(psmtest::transmission_like<conn<>>);
 
 } // namespace psmtest::ws

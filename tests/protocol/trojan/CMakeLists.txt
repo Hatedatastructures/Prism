@@ -12,4 +12,4 @@ target_link_libraries(TrojanStressTest PRIVATE vmtest_common)
 prism_add_test(TrojanCodecDeep.cpp)
 target_link_libraries(TrojanCodecDeep PRIVATE vmtest_common)
 target_compile_options(TrojanCodecDeep PRIVATE -O0 -fno-inline)
-
+prism_add_test(TrojanConnErrorMatrix.cpp)

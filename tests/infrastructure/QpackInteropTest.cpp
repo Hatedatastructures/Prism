@@ -42,8 +42,8 @@ namespace
             "0000d451846076a67f50869fd2125b0c3f2f029fd2125b0c35876a6788ac684783d92044cf2f039fd2125b0c358845acf38107";
         const auto data = hex_to_bytes(go_hex);
 
-        auto mr = psm::memory::current_resource();
-        const auto fields = psm::protocol::hysteria2::qpack::decode_header_block(data, mr);
+        auto mr = psmtest::memory::current_resource();
+        const auto fields = psmtest::protocol::hysteria2::qpack::decode_header_block(data, mr);
 
         // 期望至少解码出认证字段
         ASSERT_FALSE(fields.empty());
@@ -56,17 +56,17 @@ namespace
     TEST(QpackInterop, EncodeDecodeRoundtrip)
     {
         // C++ 编码 → 解码回环
-        auto mr = psm::memory::current_resource();
+        auto mr = psmtest::memory::current_resource();
         std::array<std::uint8_t, 512> buf{};
-        auto offset = psm::protocol::hysteria2::qpack::encode_prefix(buf);
-        offset += psm::protocol::hysteria2::qpack::encode_literal(
+        auto offset = psmtest::protocol::hysteria2::qpack::encode_prefix(buf);
+        offset += psmtest::protocol::hysteria2::qpack::encode_literal(
             ":method", "POST", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
-        offset += psm::protocol::hysteria2::qpack::encode_literal(
+        offset += psmtest::protocol::hysteria2::qpack::encode_literal(
             "hysteria-auth", "password123",
             std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
 
         const auto fields =
-            psm::protocol::hysteria2::qpack::decode_header_block(
+            psmtest::protocol::hysteria2::qpack::decode_header_block(
                 std::span<const std::uint8_t>(buf.data(), offset), mr);
         ASSERT_EQ(fields.size(), 2);
         EXPECT_EQ(std::string_view(fields[0].name.data(), fields[0].name.size()), ":method");

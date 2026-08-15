@@ -43,7 +43,7 @@ namespace psmtest::tuic
      * 编解码（codec.hpp 纯函数）。由工厂（connect_packet /
      * accept_packet）创建。
      */
-    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram<Memory>>
     {
     public:

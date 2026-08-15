@@ -43,7 +43,7 @@ namespace psmtest::vless
      * 实现 transmission 接口可挂载装饰器链。由工厂创建，
      * 调用方以 shared_ptr 持有。
      */
-    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
@@ -51,9 +51,11 @@ namespace psmtest::vless
          * @brief 构造函数（工厂调用）
          * @param upstream 上游传输（所有权移交）
          * @param uuid 协议 UUID（16 字节，凭据/校验用）
+         * @param auth 认证器（非拥有；nullptr = 静态比对 uuid）
          */
-        explicit conn(shared_transmission upstream, std::array<std::uint8_t, uuid_len> uuid)
-            : next_layer_(std::move(upstream)), uuid_(uuid)
+        explicit conn(shared_transmission upstream, std::array<std::uint8_t, uuid_len> uuid,
+                      const psmtest::authenticator *auth = nullptr)
+            : next_layer_(std::move(upstream)), uuid_(uuid), auth_(auth)
         {
         }
 
@@ -170,7 +172,7 @@ namespace psmtest::vless
          * @return 非拥有资源指针（供握手/解析的临时分配）
          * @note 分配的对象随 conn 存活，conn 析构时一次性回收
          */
-        [[nodiscard]] auto arena() noexcept -> psm::memory::resource_pointer
+        [[nodiscard]] auto arena() noexcept -> psmtest::memory::resource_pointer
         {
             return mem_.arena();
         }
@@ -274,8 +276,10 @@ namespace psmtest::vless
                 co_return std::pair{err, request_header{}};
             }
 
-            // 5. UUID 校验（memcmp，不匹配则静默断开）
-            if (!std::equal(prefix.begin() + 1, prefix.begin() + 17, uuid_.begin()))
+            // 5. UUID 校验（memcmp，不匹配则静默断开；可注入认证器）
+            const std::string_view got_uuid(reinterpret_cast<const char *>(prefix.data() + 1), uuid_len);
+            const std::string_view expect_uuid(reinterpret_cast<const char *>(uuid_.data()), uuid_len);
+            if (auth_ ? !auth_->check("", got_uuid).ok : (got_uuid != expect_uuid))
             {
                 co_return std::pair{error::bad_auth, request_header{}};
             }
@@ -427,6 +431,7 @@ namespace psmtest::vless
 
         shared_transmission next_layer_;          ///< 上游传输（独占所有权）
         std::array<std::uint8_t, uuid_len> uuid_; ///< 协议 UUID（凭据/校验）
+        const psmtest::authenticator *auth_{nullptr}; ///< 认证器（非拥有）
         request_header parsed_;                   ///< 服务端握手解析结果
         Memory mem_;                     ///< 会话内存策略（arena，热路径零释放分配）
         typename Memory::template buffer<std::uint8_t> buf_{mem_.arena()}; ///< 预读缓冲（隧道数据暂存）

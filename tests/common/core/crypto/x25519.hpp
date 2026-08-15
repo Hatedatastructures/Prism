@@ -23,7 +23,7 @@
 #include <span>
 #include <utility>
 
-namespace psm::crypto
+namespace psmtest::crypto
 {
 
     /**
@@ -175,4 +175,4 @@ namespace psm::crypto
     }
 
 
-} // namespace psm::crypto
+} // namespace psmtest::crypto

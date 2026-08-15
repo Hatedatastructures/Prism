@@ -12,9 +12,10 @@
 #include <common/core/fault/code.hpp>
 #include <common/core/fault/handling.hpp>
 #include <common/core/transport/connector.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/ssl.hpp>
 #include <openssl/ssl.h>
 
@@ -23,7 +24,7 @@
 #include <span>
 #include <system_error>
 
-namespace psm::transport {
+namespace psmtest::transport {
 
 
     namespace net = boost::asio;
@@ -45,7 +46,7 @@ namespace psm::transport {
     class encrypted final : public transmission
     {
     public:
-        using connector_type = psm::transport::connector;
+        using connector_type = psmtest::transport::connector;
         using stream_type = ssl::stream<connector_type>;
         using shared_stream = std::shared_ptr<stream_type>;
 
@@ -111,7 +112,7 @@ namespace psm::transport {
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n =
                 co_await ssl_stream_->async_read_some(net::buffer(buffer.data(), buffer.size()), token);
-            ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
+            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -130,7 +131,7 @@ namespace psm::transport {
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n =
                 co_await ssl_stream_->async_write_some(net::buffer(buffer.data(), buffer.size()), token);
-            ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
+            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -183,9 +184,11 @@ namespace psm::transport {
         /**
          * @brief 释放 TLS 流所有权
          * @details 将内部持有的 TLS 流共享指针移动返回，调用后对象不再持有流。
+         * @note 与基类 virtual release()（返回 shared_transmission）签名冲突，
+         * 故命名为 release_stream()。
          * @return shared_stream TLS 流共享指针
          */
-        [[nodiscard]] auto release() -> shared_stream
+        [[nodiscard]] auto release_stream() -> shared_stream
         {
             return std::move(ssl_stream_);
         }
@@ -239,12 +242,12 @@ namespace psm::transport {
         // TLS 握手超时（30 秒）：防恶意客户端连接后不发 ClientHello 挂起
         using boost::asio::experimental::awaitable_operators::operator||;
         net::steady_timer deadline(stream->get_executor(), std::chrono::seconds(30));
-        auto do_handshake = [&stream]() -> net::awaitable<bool>
+        auto do_handshake = [&stream]() -> net::awaitable<boost::system::error_code>
         {
             boost::system::error_code h_ec;
             co_await stream->async_handshake(ssl::stream_base::server,
                                              net::redirect_error(net::use_awaitable, h_ec));
-            co_return !h_ec;
+            co_return h_ec;
         };
         const auto result = co_await (do_handshake() || deadline.async_wait(net::use_awaitable));
         if (result.index() == 1)
@@ -253,11 +256,12 @@ namespace psm::transport {
             auto recovered = stream->lowest_layer().release();
             co_return std::make_tuple(fault::code::timeout, nullptr, std::move(recovered));
         }
-        if (!std::get<0>(result))
+        const auto h_ec = std::get<0>(result);
+        if (h_ec)
         {
-            diagnose::warn("TLS handshake failed: {} ({})", ec.message(), ec.value());
+            diagnose::warn("TLS handshake failed: {} ({})", h_ec.message(), h_ec.value());
             auto recovered = stream->lowest_layer().release();
-            co_return std::make_tuple(fault::to_code(ec), nullptr, std::move(recovered));
+            co_return std::make_tuple(fault::to_code(h_ec), nullptr, std::move(recovered));
         }
 
         diagnose::debug("TLS handshake succeeded");
@@ -265,4 +269,4 @@ namespace psm::transport {
     }
 
 
-} // namespace psm::transport
+} // namespace psmtest::transport

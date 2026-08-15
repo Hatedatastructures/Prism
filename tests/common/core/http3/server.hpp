@@ -1,8 +1,8 @@
 /**
  * @file server.hpp
- * @brief HTTP/3 服务端独立入口（psm::http3 通用封装）
+ * @brief HTTP/3 服务端独立入口（psmtest::http3 通用封装）
  * @details 从 core/http3/session.hpp 的 hysteria2::h3::server 提炼
- * 通用服务端入口：统一命名空间 psm::http3，以 server_options
+ * 通用服务端入口：统一命名空间 psmtest::http3，以 server_options
  * 收敛构造参数（内存资源 / 认证回调 / 数据回调），并提供
  * make_server 工厂。内部薄封装 hysteria2::h3::server，不重复
  * 实现 nghttp3 接线逻辑（session.hpp 已字节级兼容 quic-go）。
@@ -27,7 +27,7 @@
 #include <span>
 #include <string_view>
 
-namespace psm::http3
+namespace psmtest::http3
 {
 
     /**
@@ -58,7 +58,7 @@ namespace psm::http3
     };
 
     /// nghttp3 输出包（目标 QUIC 流 + 待发字节，对齐后端类型）
-    using out_packet = psm::protocol::hysteria2::h3::out_packet;
+    using out_packet = psmtest::protocol::hysteria2::h3::out_packet;
 
     /**
      * @class server
@@ -220,7 +220,7 @@ namespace psm::http3
 
     private:
         server_options options_; ///< 构造选项
-        psm::protocol::hysteria2::h3::server inner_; ///< 后端实现（nghttp3 接线）
+        psmtest::protocol::hysteria2::h3::server inner_; ///< 后端实现（nghttp3 接线）
     };
 
     /// 服务端共享指针
@@ -238,4 +238,4 @@ namespace psm::http3
         return std::make_shared<server>(options);
     }
 
-} // namespace psm::http3
+} // namespace psmtest::http3

@@ -18,9 +18,9 @@
 #include <common/core/middleware/context.hpp>
 #include <common/core/middleware/pipeline.hpp>
 #include <common/core/protocol/target.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
-namespace psm::middleware::builtin
+namespace psmtest::middleware::builtin
 {
 
     namespace net = boost::asio;
@@ -36,8 +36,8 @@ namespace psm::middleware::builtin
     public:
         /// 拨号函数签名（host:port → 传输）
         using dial_fn =
-            std::function<net::awaitable<std::pair<psm::fault::code, psm::transport::shared_transmission>>(
-                const psm::connect::target &)>;
+            std::function<net::awaitable<std::pair<psmtest::fault::code, psmtest::shared_transmission>>(
+                const psmtest::connect::target &)>;
 
         /**
          * @brief 构造函数
@@ -61,24 +61,24 @@ namespace psm::middleware::builtin
          * @param ctx 管线上下文（消费 target）
          * @return 拨号结果码
          */
-        auto handle(psm::transport::shared_transmission & /*inbound*/, context &ctx)
-            -> net::awaitable<psm::fault::code> override
+        auto handle(psmtest::shared_transmission & /*inbound*/, context &ctx)
+            -> net::awaitable<psmtest::fault::code> override
         {
             if (!dial_)
             {
-                co_return psm::fault::code::not_supported;
+                co_return psmtest::fault::code::not_supported;
             }
             auto [ec, outbound] = co_await dial_(ctx.target);
-            if (psm::fault::failed(ec) || !outbound)
+            if (psmtest::fault::failed(ec) || !outbound)
             {
                 co_return ec;
             }
             ctx.outbound = std::move(outbound);
-            co_return psm::fault::code::success;
+            co_return psmtest::fault::code::success;
         }
 
     private:
         dial_fn dial_; ///< 拨号函数（可注入）
     };
 
-} // namespace psm::middleware::builtin
+} // namespace psmtest::middleware::builtin

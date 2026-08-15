@@ -1,7 +1,7 @@
 /**
  * @file CoreAead.cpp
  * @brief tests/common/core/crypto/aead.hpp 单元测试
- * @details 覆盖 psm::crypto::aead_context：
+ * @details 覆盖 psmtest::crypto::aead_context：
  * 1. 4 种 cipher（aes_128_gcm/aes_256_gcm/chacha20_poly1305/xchacha20_poly1305）
  *    构造、nonce 长度、seal/open 往返
  * 2. seal/open 失败路径：非法 cipher、密钥长度不匹配、输出缓冲区过小、
@@ -29,7 +29,7 @@
 
 namespace
 {
-    namespace aead = psm::crypto;
+    namespace aead = psmtest::crypto;
 
     /// 构造指定字节数的密钥（按序填充 0..n-1）
     auto make_key(std::size_t n) -> std::vector<std::uint8_t>
@@ -77,14 +77,14 @@ namespace
         aead::aead_context ctx(static_cast<aead::aead_cipher>(99), make_key(32));
         std::array<std::uint8_t, 64> out{};
         std::array<std::uint8_t, 16> buf{};
-        EXPECT_EQ(ctx.seal(out, g_plain), psm::fault::code::crypto_error);
-        EXPECT_EQ(ctx.open(buf, out), psm::fault::code::crypto_error);
+        EXPECT_EQ(ctx.seal(out, g_plain), psmtest::fault::code::crypto_error);
+        EXPECT_EQ(ctx.open(buf, out), psmtest::fault::code::crypto_error);
         // 显式 nonce 重载的 !ctx_ 分支
         const std::array<std::uint8_t, 12> nonce{};
         aead::seal_input sin{std::span(out), g_plain, nonce, g_ad};
-        EXPECT_EQ(ctx.seal(sin), psm::fault::code::crypto_error);
+        EXPECT_EQ(ctx.seal(sin), psmtest::fault::code::crypto_error);
         aead::open_input oin{buf, std::span(out).first(16), nonce, g_ad};
-        EXPECT_EQ(ctx.open(oin), psm::fault::code::crypto_error);
+        EXPECT_EQ(ctx.open(oin), psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, ConstructWrongKeySize)
@@ -92,7 +92,7 @@ namespace
         // 密钥长度与算法不匹配：EVP_AEAD_CTX_init 失败 → ctx 为 null
         aead::aead_context ctx(aead::aead_cipher::aes_128_gcm, make_key(32));
         std::array<std::uint8_t, 64> out{};
-        EXPECT_EQ(ctx.seal(out, g_plain), psm::fault::code::crypto_error);
+        EXPECT_EQ(ctx.seal(out, g_plain), psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, RoundTripAllCiphers)
@@ -113,12 +113,12 @@ namespace
             aead::aead_context dec(cipher, key);
 
             std::array<std::uint8_t, 128> ciphertext{};
-            EXPECT_EQ(enc.seal(ciphertext, g_plain), psm::fault::code::success)
+            EXPECT_EQ(enc.seal(ciphertext, g_plain), psmtest::fault::code::success)
                 << "seal failed, cipher=" << static_cast<int>(cipher);
 
             std::array<std::uint8_t, 128> decrypted{};
             EXPECT_EQ(dec.open(decrypted, std::span(ciphertext).first(g_plain.size() + 16)),
-                      psm::fault::code::success)
+                      psmtest::fault::code::success)
                 << "open failed, cipher=" << static_cast<int>(cipher);
             EXPECT_TRUE(std::equal(decrypted.begin(), decrypted.begin() + g_plain.size(),
                                    g_plain.begin()))
@@ -133,15 +133,15 @@ namespace
         aead::aead_context enc(aead::aead_cipher::chacha20_poly1305, key);
         aead::aead_context dec(aead::aead_cipher::chacha20_poly1305, key);
         std::array<std::uint8_t, 128> ciphertext{};
-        EXPECT_EQ(enc.seal(ciphertext, g_plain, g_ad), psm::fault::code::success);
+        EXPECT_EQ(enc.seal(ciphertext, g_plain, g_ad), psmtest::fault::code::success);
 
         std::array<std::uint8_t, 128> decrypted{};
         EXPECT_EQ(dec.open(decrypted, std::span(ciphertext).first(g_plain.size() + 16), g_ad),
-                  psm::fault::code::success);
+                  psmtest::fault::code::success);
         // AD 不一致时解密失败
         const std::array<std::uint8_t, 1> bad_ad{'x'};
         EXPECT_EQ(dec.open(decrypted, std::span(ciphertext).first(g_plain.size() + 16), bad_ad),
-                  psm::fault::code::crypto_error);
+                  psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, NonceAutoIncrement)
@@ -150,9 +150,9 @@ namespace
         aead::aead_context ctx(aead::aead_cipher::aes_128_gcm, make_key(16));
         EXPECT_EQ(ctx.nonce()[0], 0);
         std::array<std::uint8_t, 128> ciphertext{};
-        EXPECT_EQ(ctx.seal(ciphertext, g_plain), psm::fault::code::success);
+        EXPECT_EQ(ctx.seal(ciphertext, g_plain), psmtest::fault::code::success);
         EXPECT_EQ(ctx.nonce()[0], 1);
-        EXPECT_EQ(ctx.seal(ciphertext, g_plain), psm::fault::code::success);
+        EXPECT_EQ(ctx.seal(ciphertext, g_plain), psmtest::fault::code::success);
         EXPECT_EQ(ctx.nonce()[0], 2);
     }
 
@@ -161,18 +161,18 @@ namespace
         // 密文被篡改 → 认证失败
         aead::aead_context ctx(aead::aead_cipher::aes_256_gcm, make_key(32));
         std::array<std::uint8_t, 128> ciphertext{};
-        ASSERT_EQ(ctx.seal(ciphertext, g_plain), psm::fault::code::success);
+        ASSERT_EQ(ctx.seal(ciphertext, g_plain), psmtest::fault::code::success);
 
         std::array<std::uint8_t, 128> decrypted{};
         auto tampered = ciphertext;
         tampered[0] ^= 0x01;
         EXPECT_EQ(ctx.open(decrypted, std::span(tampered).first(g_plain.size() + 16)),
-                  psm::fault::code::crypto_error);
+                  psmtest::fault::code::crypto_error);
         // 篡改 tag 尾部
         auto tampered_tag = ciphertext;
         tampered_tag[g_plain.size() + 15] ^= 0x01;
         EXPECT_EQ(ctx.open(decrypted, std::span(tampered_tag).first(g_plain.size() + 16)),
-                  psm::fault::code::crypto_error);
+                  psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, SealOutputTooSmall)
@@ -180,7 +180,7 @@ namespace
         // 输出缓冲区不足（缺 tag 空间）→ EVP seal 失败
         aead::aead_context ctx(aead::aead_cipher::chacha20_poly1305, make_key(32));
         std::array<std::uint8_t, 8> small{};
-        EXPECT_EQ(ctx.seal(small, g_plain), psm::fault::code::crypto_error);
+        EXPECT_EQ(ctx.seal(small, g_plain), psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, ExplicitNonceRoundTrip)
@@ -191,13 +191,13 @@ namespace
         std::array<std::uint8_t, 128> ciphertext{};
 
         aead::seal_input sin{std::span(ciphertext), g_plain, nonce, g_ad};
-        EXPECT_EQ(ctx.seal(sin), psm::fault::code::success);
+        EXPECT_EQ(ctx.seal(sin), psmtest::fault::code::success);
         // 内部 nonce 不受显式 nonce 调用影响
         EXPECT_EQ(ctx.nonce()[0], 0);
 
         std::array<std::uint8_t, 128> decrypted{};
         aead::open_input oin{decrypted, std::span(ciphertext).first(g_plain.size() + 16), nonce, g_ad};
-        EXPECT_EQ(ctx.open(oin), psm::fault::code::success);
+        EXPECT_EQ(ctx.open(oin), psmtest::fault::code::success);
         EXPECT_TRUE(std::equal(decrypted.begin(), decrypted.begin() + g_plain.size(), g_plain.begin()));
         EXPECT_EQ(ctx.nonce()[0], 0);
     }
@@ -213,11 +213,11 @@ namespace
         }
         std::array<std::uint8_t, 128> ciphertext{};
         aead::seal_input sin{std::span(ciphertext), g_plain, nonce, g_ad};
-        EXPECT_EQ(ctx.seal(sin), psm::fault::code::success);
+        EXPECT_EQ(ctx.seal(sin), psmtest::fault::code::success);
 
         std::array<std::uint8_t, 128> decrypted{};
         aead::open_input oin{decrypted, std::span(ciphertext).first(g_plain.size() + 16), nonce, g_ad};
-        EXPECT_EQ(ctx.open(oin), psm::fault::code::success);
+        EXPECT_EQ(ctx.open(oin), psmtest::fault::code::success);
     }
 
     TEST(CoreAead, ExplicitNonceBadNonce)
@@ -227,7 +227,7 @@ namespace
         const std::array<std::uint8_t, 12> bad_nonce{};
         std::array<std::uint8_t, 128> ciphertext{};
         aead::seal_input sin{std::span(ciphertext), g_plain, bad_nonce, g_ad};
-        EXPECT_EQ(ctx.seal(sin), psm::fault::code::crypto_error);
+        EXPECT_EQ(ctx.seal(sin), psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, ExplicitNonceSmallOutput)
@@ -237,7 +237,7 @@ namespace
         const std::array<std::uint8_t, 12> nonce{};
         std::array<std::uint8_t, 8> small{};
         aead::seal_input sin{std::span(small), g_plain, nonce, g_ad};
-        EXPECT_EQ(ctx.seal(sin), psm::fault::code::crypto_error);
+        EXPECT_EQ(ctx.seal(sin), psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, ExplicitNonceOpenBadCiphertext)
@@ -249,18 +249,18 @@ namespace
         const std::array<std::uint8_t, 12> nonce{};
         std::array<std::uint8_t, 128> ciphertext{};
         aead::seal_input sin{std::span(ciphertext), g_plain, nonce, g_ad};
-        ASSERT_EQ(enc.seal(sin), psm::fault::code::success);
+        ASSERT_EQ(enc.seal(sin), psmtest::fault::code::success);
 
         auto tampered = ciphertext;
         tampered[g_plain.size() + 15] ^= 0x01;
         std::array<std::uint8_t, 128> decrypted{};
         aead::open_input oin{decrypted, std::span(tampered).first(g_plain.size() + 16), nonce, g_ad};
-        EXPECT_EQ(dec.open(oin), psm::fault::code::crypto_error);
+        EXPECT_EQ(dec.open(oin), psmtest::fault::code::crypto_error);
         // 错误 nonce 同样失败
         const std::array<std::uint8_t, 12> wrong_nonce{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
         aead::open_input oin2{decrypted, std::span(ciphertext).first(g_plain.size() + 16), wrong_nonce,
                               g_ad};
-        EXPECT_EQ(dec.open(oin2), psm::fault::code::crypto_error);
+        EXPECT_EQ(dec.open(oin2), psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, MoveConstructor)
@@ -268,14 +268,14 @@ namespace
         // 移动构造：目标可继续使用，源对象失效（seal 返回 crypto_error）
         aead::aead_context src(aead::aead_cipher::aes_128_gcm, make_key(16));
         std::array<std::uint8_t, 128> ciphertext{};
-        ASSERT_EQ(src.seal(ciphertext, g_plain), psm::fault::code::success);
+        ASSERT_EQ(src.seal(ciphertext, g_plain), psmtest::fault::code::success);
 
         aead::aead_context dst(std::move(src));
         // 源对象失效
-        EXPECT_EQ(src.seal(ciphertext, g_plain), psm::fault::code::crypto_error);
+        EXPECT_EQ(src.seal(ciphertext, g_plain), psmtest::fault::code::crypto_error);
         // 目标持有原状态（nonce 已递增为 1），可继续执行新操作
         EXPECT_EQ(dst.nonce()[0], 1);
-        EXPECT_EQ(dst.seal(ciphertext, g_plain), psm::fault::code::success);
+        EXPECT_EQ(dst.seal(ciphertext, g_plain), psmtest::fault::code::success);
         EXPECT_EQ(dst.nonce()[0], 2);
         // 源对象析构时 release_ctx(nullptr) 分支
     }
@@ -289,8 +289,8 @@ namespace
         dst = std::move(src);
         EXPECT_EQ(dst.nonce_length(), 12);
         std::array<std::uint8_t, 128> ciphertext{};
-        EXPECT_EQ(dst.seal(ciphertext, g_plain), psm::fault::code::success);
-        EXPECT_EQ(src.seal(ciphertext, g_plain), psm::fault::code::crypto_error);
+        EXPECT_EQ(dst.seal(ciphertext, g_plain), psmtest::fault::code::success);
+        EXPECT_EQ(src.seal(ciphertext, g_plain), psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, MoveAssignSelf)
@@ -300,7 +300,7 @@ namespace
         aead::aead_context &self = ctx;
         ctx = std::move(self);
         std::array<std::uint8_t, 128> ciphertext{};
-        EXPECT_EQ(ctx.seal(ciphertext, g_plain), psm::fault::code::success);
+        EXPECT_EQ(ctx.seal(ciphertext, g_plain), psmtest::fault::code::success);
         EXPECT_EQ(ctx.nonce()[0], 1);
     }
 
@@ -313,8 +313,8 @@ namespace
         EXPECT_TRUE(ctx.is_nonce_exhausted());
 
         std::array<std::uint8_t, 128> ciphertext{};
-        EXPECT_EQ(ctx.seal(ciphertext, g_plain), psm::fault::code::crypto_error);
-        EXPECT_EQ(ctx.open(ciphertext, ciphertext), psm::fault::code::crypto_error);
+        EXPECT_EQ(ctx.seal(ciphertext, g_plain), psmtest::fault::code::crypto_error);
+        EXPECT_EQ(ctx.open(ciphertext, ciphertext), psmtest::fault::code::crypto_error);
     }
 
     TEST(CoreAead, NoncePartialFull)

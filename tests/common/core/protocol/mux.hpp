@@ -9,7 +9,7 @@
 #include <cstdint>
 #include <string_view>
 
-namespace psm::protocol
+namespace psmtest::protocol
 {
 
     /**
@@ -40,4 +40,4 @@ namespace psm::protocol
         return host.size() >= suffix.size() && host.substr(host.size() - suffix.size()) == suffix;
     }
 
-} // namespace psm::protocol
+} // namespace psmtest::protocol

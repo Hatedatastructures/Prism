@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -87,15 +88,22 @@ namespace psmtest
          * @param buffer 接收缓冲区
          * @param ec 错误码输出参数
          * @return 实际接收字节数（一个完整数据报）
+         * @details 记录来源端点，供未 connect 的写路径回发。
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code bec;
-            const auto n =
-                co_await udp_.async_receive(net::buffer(buffer.data(), buffer.size()),
-                                            boost::asio::redirect_error(boost::asio::use_awaitable, bec));
+            net::ip::udp::endpoint peer;
+            const auto n = co_await udp_.async_receive_from(net::buffer(buffer.data(), buffer.size()),
+                                                            peer,
+                                                            boost::asio::redirect_error(boost::asio::use_awaitable,
+                                                                                        bec));
             ec = bec;
+            if (!bec)
+            {
+                last_peer_ = peer;
+            }
             co_return n;
         }
 
@@ -104,11 +112,21 @@ namespace psmtest
          * @param buffer 待发数据
          * @param ec 错误码输出参数
          * @return 实际发送字节数
+         * @details 已 connect 用 async_send；未 connect 回发到最近
+         * 一次接收记录的对端（async_send_to）。
          */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code bec;
+            if (udp_.is_open() && last_peer_)
+            {
+                const auto n =
+                    co_await udp_.async_send_to(net::buffer(buffer.data(), buffer.size()), *last_peer_,
+                                                boost::asio::redirect_error(boost::asio::use_awaitable, bec));
+                ec = bec;
+                co_return n;
+            }
             const auto n =
                 co_await udp_.async_send(net::buffer(buffer.data(), buffer.size()),
                                          boost::asio::redirect_error(boost::asio::use_awaitable, bec));
@@ -144,7 +162,8 @@ namespace psmtest
         }
 
     private:
-        mutable net::ip::udp::socket udp_; ///< UDP socket
+        mutable net::ip::udp::socket udp_;                       ///< UDP socket
+        std::optional<net::ip::udp::endpoint> last_peer_;        ///< 最近一次接收的来源端点
     };
 
     /// UDP 传输共享指针

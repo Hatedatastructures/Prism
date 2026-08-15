@@ -1,5 +1,5 @@
 /**
- * @file h3_server.hpp
+ * @file session.hpp
  * @brief Hysteria2 HTTP/3 认证会话（nghttp3 服务端封装）
  * @details 基于 nghttp3（ngtcp2 官方 HTTP/3 帧层 + QPACK 完整实现）封装
  *          服务端认证状态机：
@@ -17,6 +17,9 @@
 #include <common/core/fault/code.hpp>
 #include <common/core/memory/container.hpp>
 
+#include <array>
+#include <charconv>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -26,7 +29,7 @@
 #include <nghttp3/nghttp3.h>
 #include <ngtcp2/ngtcp2.h>
 
-namespace psm::protocol::hysteria2::h3 {
+namespace psmtest::protocol::hysteria2::h3 {
 
     /**
      * @struct out_packet
@@ -509,4 +512,4 @@ namespace psm::protocol::hysteria2::h3 {
     }
 
 
-} // namespace psm::protocol::hysteria2::h3
+} // namespace psmtest::protocol::hysteria2::h3

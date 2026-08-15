@@ -67,7 +67,7 @@ namespace psmtest::anytls
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg)
         -> net::awaitable<std::pair<error, shared_conn>>
     {
-        auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.password);
         const auto err = co_await c->write_handshake();
         co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
@@ -81,7 +81,7 @@ namespace psmtest::anytls
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
         -> net::awaitable<std::pair<error, shared_conn>>
     {
-        auto c = std::make_shared<conn>(std::move(upstream), cfg.password);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.password);
         const auto err = co_await c->read_handshake();
         co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }

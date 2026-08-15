@@ -20,7 +20,7 @@
 
 #include <blake3.h>
 
-namespace psm::crypto
+namespace psmtest::crypto
 {
 
     /**
@@ -125,4 +125,4 @@ namespace psm::crypto
     }
 
 
-} // namespace psm::crypto
+} // namespace psmtest::crypto

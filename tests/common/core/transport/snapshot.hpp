@@ -14,7 +14,7 @@
 #pragma once
 
 #include <common/core/memory/container.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio.hpp>
 
@@ -22,7 +22,7 @@
 #include <span>
 #include <system_error>
 
-namespace psm::transport
+namespace psmtest::transport
 {
 
     namespace net = boost::asio;
@@ -219,4 +219,4 @@ namespace psm::transport
         return std::make_shared<snapshot>(std::move(inner), mr);
     }
 
-} // namespace psm::transport
+} // namespace psmtest::transport

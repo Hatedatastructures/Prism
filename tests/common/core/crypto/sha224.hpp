@@ -15,7 +15,7 @@
 #include <string>
 #include <string_view>
 
-namespace psm::crypto
+namespace psmtest::crypto
 {
 
     /**
@@ -71,4 +71,4 @@ namespace psm::crypto
         }
         return sha224(credential);
     }
-} // namespace psm::crypto
+} // namespace psmtest::crypto

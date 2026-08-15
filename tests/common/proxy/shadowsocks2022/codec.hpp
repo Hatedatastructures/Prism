@@ -332,15 +332,18 @@ namespace psmtest::ss2022
          * @param plain 明文
          * @return 密文 + tag
          */
+        template <typename Alloc>
         [[nodiscard]] inline auto aead_seal(std::span<const std::uint8_t> key,
                                             std::span<const std::uint8_t> nonce12,
-                                            std::span<const std::uint8_t> plain) -> std::vector<std::uint8_t>
+                                            std::span<const std::uint8_t> plain,
+                                            std::vector<std::uint8_t, Alloc> &out) -> std::size_t
         {
-            std::vector<std::uint8_t> out(plain.size() + aead_tag_len);
+            out.clear();
+            out.resize(plain.size() + aead_tag_len);
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
             {
-                return {};
+                return 0;
             }
             int len = 0;
             EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), nonce12.data());
@@ -351,6 +354,51 @@ namespace psmtest::ss2022
             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + out_len);
             out.resize(static_cast<std::size_t>(out_len) + aead_tag_len);
             EVP_CIPHER_CTX_free(ctx);
+            return out.size();
+        }
+
+        /**
+         * @brief AEAD 加密（写入 out 偏移处）
+         * @param key 密钥
+         * @param nonce12 12 字节 nonce
+         * @param plain 明文
+         * @param out 输出缓冲
+         * @param offset 写入偏移（out 已预分配 offset + plain + tag）
+         * @return 写入字节数（含 tag）；0 = 失败
+         */
+        template <typename Alloc>
+        [[nodiscard]] inline auto aead_seal(std::span<const std::uint8_t> key,
+                                            std::span<const std::uint8_t> nonce12,
+                                            std::span<const std::uint8_t> plain,
+                                            std::vector<std::uint8_t, Alloc> &out,
+                                            const std::size_t offset) -> std::size_t
+        {
+            if (out.size() < offset + plain.size() + aead_tag_len)
+            {
+                out.resize(offset + plain.size() + aead_tag_len);
+            }
+            EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+            if (!ctx)
+            {
+                return 0;
+            }
+            int len = 0;
+            EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), nonce12.data());
+            EVP_EncryptUpdate(ctx, out.data() + offset, &len, plain.data(), static_cast<int>(plain.size()));
+            int out_len = len;
+            EVP_EncryptFinal_ex(ctx, out.data() + offset + out_len, &len);
+            out_len += len;
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + offset + out_len);
+            EVP_CIPHER_CTX_free(ctx);
+            return out_len + aead_tag_len;
+        }
+
+        [[nodiscard]] inline auto aead_seal(std::span<const std::uint8_t> key,
+                                            std::span<const std::uint8_t> nonce12,
+                                            std::span<const std::uint8_t> plain) -> std::vector<std::uint8_t>
+        {
+            std::vector<std::uint8_t> out;
+            aead_seal(key, nonce12, plain, out);
             return out;
         }
 
@@ -430,6 +478,7 @@ namespace psmtest::ss2022
             EVP_CIPHER_CTX_free(ctx);
             if (ok != 1)
             {
+                out.clear();
                 return false;
             }
             out.resize(static_cast<std::size_t>(out_len));
@@ -472,17 +521,12 @@ namespace psmtest::ss2022
             out.clear();
             std::array<std::uint8_t, 2> len_plain{static_cast<std::uint8_t>((plain.size() >> 8) & 0xFF),
                                                   static_cast<std::uint8_t>(plain.size() & 0xFF)};
-            const auto len_enc = detail::aead_seal(key_, nonce_, len_plain);
+            // 直接写 out：头 18B（len 密文）+ 尾部（body 密文），零中间分配
+            const auto len_n = detail::aead_seal(key_, nonce_, len_plain, out);
             detail::inc_nonce(nonce_);
-            const auto body_enc = detail::aead_seal(key_, nonce_, plain);
+            out.resize(len_n + plain.size() + aead_tag_len);
+            detail::aead_seal(key_, nonce_, plain, out, len_n);
             detail::inc_nonce(nonce_);
-            if (len_enc.empty() || body_enc.empty())
-            {
-                return 0;
-            }
-            out.reserve(len_enc.size() + body_enc.size());
-            out.insert(out.end(), len_enc.begin(), len_enc.end());
-            out.insert(out.end(), body_enc.begin(), body_enc.end());
             return out.size();
         }
 
@@ -540,6 +584,7 @@ namespace psmtest::ss2022
             }
             if (!detail::aead_open(key_, nonce_, data, out))
             {
+                out.clear();
                 return 0;
             }
             detail::inc_nonce(nonce_);

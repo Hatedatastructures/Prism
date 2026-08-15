@@ -9,7 +9,7 @@
 
 #include <common/core/memory/container.hpp>
 
-namespace psm::connect
+namespace psmtest::connect
 {
 
     /**
@@ -33,4 +33,4 @@ namespace psm::connect
         bool positive{false};
     };
 
-} // namespace psm::connect
+} // namespace psmtest::connect

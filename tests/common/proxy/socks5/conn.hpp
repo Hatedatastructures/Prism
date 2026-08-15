@@ -31,6 +31,7 @@
 #include <common/core/memory/container.hpp>
 #include <common/core/memory/pointer.hpp>
 
+#include <common/core/authenticator.hpp>
 #include <common/core/error.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/socks5/codec.hpp>
@@ -47,7 +48,7 @@ namespace psmtest::socks5
      * 由工厂创建，调用方以 shared_ptr 持有。
      * @tparam Memory 会话内存策略（默认 8KB arena；可注入自定义策略）
      */
-    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
@@ -324,7 +325,7 @@ namespace psmtest::socks5
             // 4. 认证（如需）
             if (want == static_cast<std::uint8_t>(auth_method::user_pass))
             {
-                const bool ok = co_await userpass_auth(username, password);
+                const bool ok = co_await userpass_auth(username, password, cfg.authenticator);
                 if (!ok)
                 {
                     co_return std::pair{error::bad_auth, request{}};
@@ -398,13 +399,14 @@ namespace psmtest::socks5
         }
 
         /**
-         * @brief RFC 1929 用户名/密码认证子协商（服务端）
+         * @brief RFC 1929 用户名/密码认证（服务端）
          * @param username 期望用户名
          * @param password 期望密码
+         * @param auth 认证器（nullptr = 静态比对）
          * @return 认证结果
          */
-        [[nodiscard]] auto userpass_auth(const std::string &username, const std::string &password)
-            -> net::awaitable<bool>
+        [[nodiscard]] auto userpass_auth(const std::string &username, const std::string &password,
+                                         const psmtest::authenticator *auth) -> net::awaitable<bool>
         {
             std::array<std::uint8_t, 2> head{};
             if (co_await read_exact(std::span<std::uint8_t>(head)))
@@ -430,8 +432,10 @@ namespace psmtest::socks5
             {
                 co_return false;
             }
-            const bool ok = std::string(user.begin(), user.end()) == username &&
-                            std::string(pass.begin(), pass.end()) == password;
+            const std::string user_str(user.begin(), user.end());
+            const std::string pass_str(pass.begin(), pass.end());
+            const bool ok = auth ? auth->check(user_str, pass_str).ok
+                                 : (user_str == username && pass_str == password);
             const std::array<std::uint8_t, 2> resp{0x01, ok ? std::uint8_t{0x00} : std::uint8_t{0x01}};
             co_await send_bytes(resp);
             co_return ok;

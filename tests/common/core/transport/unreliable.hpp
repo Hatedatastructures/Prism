@@ -13,14 +13,14 @@
 
 #include <common/core/diagnose/log.hpp>
 #include <common/core/fault/handling.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio.hpp>
 
 #include <memory>
 #include <optional>
 
-namespace psm::transport
+namespace psmtest::transport
 {
 
     namespace net = boost::asio;
@@ -149,18 +149,18 @@ namespace psm::transport
                                                                     sender_endpoint_, token);
                 if (sys_ec)
                 {
-                    ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
+                    ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
                     co_return 0;
                 }
                 if (!remote_endpoint_)
                 {
                     remote_endpoint_ = sender_endpoint_;
-                    ec = psm::fault::make_error_code(psm::fault::code::success);
+                    ec = psmtest::fault::make_error_code(psmtest::fault::code::success);
                     co_return n;
                 }
                 else if (sender_endpoint_ == *remote_endpoint_)
                 {
-                    ec = psm::fault::make_error_code(psm::fault::code::success);
+                    ec = psmtest::fault::make_error_code(psmtest::fault::code::success);
                     co_return n;
                 }
             }
@@ -179,14 +179,14 @@ namespace psm::transport
         {
             if (!remote_endpoint_)
             {
-                ec = psm::fault::make_error_code(psm::fault::code::io_error);
+                ec = psmtest::fault::make_error_code(psmtest::fault::code::io_error);
                 co_return 0;
             }
             boost::system::error_code sys_ec;
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n = co_await socket_.async_send_to(net::buffer(buffer.data(), buffer.size()),
                                                           *remote_endpoint_, token);
-            ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
+            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -269,4 +269,4 @@ namespace psm::transport
     {
         return std::make_shared<unreliable>(std::move(socket), std::move(remote_endpoint));
     }
-} // namespace psm::transport
+} // namespace psmtest::transport

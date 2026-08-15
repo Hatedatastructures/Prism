@@ -12,7 +12,6 @@ target_sources(prism_test_common INTERFACE
         core/error.hpp
         core/flat_buffer.hpp
         core/parser.hpp
-        core/protocol_base.hpp
         core/session_base.hpp
         core/codec_traits.hpp
         core/transport/algorithm.hpp
@@ -45,7 +44,6 @@ target_sources(prism_test_common INTERFACE
         core/rate/counter.hpp
         core/diagnose/context.hpp
         core/diagnose/log.hpp
-        core/transport/transmission.hpp
         core/transport/reliable.hpp
         core/transport/unreliable.hpp
         core/transport/preview.hpp
@@ -114,7 +112,6 @@ target_sources(vmtest_common INTERFACE
         core/error.hpp
         core/flat_buffer.hpp
         core/parser.hpp
-        core/protocol_base.hpp
         core/session_base.hpp
         core/transport/algorithm.hpp
         core/transport/bench.hpp
@@ -122,6 +119,7 @@ target_sources(vmtest_common INTERFACE
         core/transport/socket_stream.hpp
         core/transport/stream.hpp
         core/transport/transport_base.hpp
+        programmable_transport.hpp
         mux/codec.hpp
         mux/session.hpp
         mux/types.hpp

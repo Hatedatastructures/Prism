@@ -13,6 +13,8 @@
 
 #include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
+#include <common/core/memory/container.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/stealth/shadowtls/codec.hpp>
 #include <common/stealth/shadowtls/types.hpp>
@@ -37,11 +39,15 @@ namespace psmtest::shadowtls
      * @brief ShadowTLS v3 会话连接（transmission 装饰器）
      * @details 持有底层传输的独占所有权。握手成功后通过
      * transmission 接口透传数据。
+     * @tparam Memory 会话内存策略（默认 8KB arena；可注入自定义策略）
      */
-    class conn : public psmtest::transmission,
-                 public std::enable_shared_from_this<conn>
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
+        /// 内存策略类型（对外暴露，供嵌套层/测试使用）
+        using memory_type = Memory;
+
         /**
          * @brief 构造函数
          * @param upstream 底层传输（所有权移交）
@@ -248,13 +254,15 @@ namespace psmtest::shadowtls
 
         shared_transmission next_layer_;      ///< 底层传输（独占所有权）
         std::string password_;                ///< 认证密码
-        std::vector<std::uint8_t> server_random_; ///< 服务端随机数（握手后）
+        /// 服务端随机数（握手后，arena 分配）
+        typename Memory::template buffer<std::uint8_t> server_random_{mem_.arena()};
         bool handshaken_{false};              ///< 握手完成标志
+        Memory mem_;                          ///< 会话内存策略（arena，热路径零释放分配）
     };
 
-    /// 流连接共享指针
-    using shared_conn = std::shared_ptr<conn>;
+    /// 流连接共享指针（默认内存策略）
+    using shared_conn = std::shared_ptr<conn<>>;
 
-    static_assert(psmtest::transmission_like<conn>);
+    static_assert(psmtest::transmission_like<conn<>>);
 
 } // namespace psmtest::shadowtls

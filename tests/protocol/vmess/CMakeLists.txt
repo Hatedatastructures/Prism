@@ -15,4 +15,4 @@ target_link_libraries(VmessStressTest PRIVATE vmtest_common)
 prism_add_test(VmessCodecDeep.cpp)
 target_link_libraries(VmessCodecDeep PRIVATE vmtest_common)
 target_compile_options(VmessCodecDeep PRIVATE -O0 -fno-inline)
-
+prism_add_test(VmessConnErrorMatrix.cpp)

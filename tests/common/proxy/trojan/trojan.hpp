@@ -26,6 +26,7 @@
 #include <common/core/error.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/trojan/codec.hpp>
+#include <common/core/authenticator.hpp>
 #include <common/proxy/trojan/conn.hpp>
 #include <common/proxy/trojan/dgram.hpp>
 #include <common/proxy/trojan/types.hpp>
@@ -56,12 +57,14 @@ namespace psmtest::trojan
      */
     struct server_config
     {
-        /// 服务端密码（连接构造时派生 SHA224 hex 凭据）
+        /// 认证密码（连接时算 SHA224 hex 凭据）
         std::string password;
         /// 是否允许 CONNECT 命令（TCP 转发）
         bool enable_tcp = true;
         /// 是否允许 UDP_ASSOCIATE 命令（UDP 中继）
         bool enable_udp = false;
+        /// 认证器（非拥有；nullptr = 静态比对 password）
+        const psmtest::authenticator *authenticator{nullptr};
     };
 
     /**
@@ -119,7 +122,7 @@ namespace psmtest::trojan
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
         -> net::awaitable<std::tuple<error, request_header, shared_conn>>
     {
-        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.password);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.password, cfg.authenticator);
         auto [err, req] = co_await c->read_handshake(cfg.enable_tcp, cfg.enable_udp);
         co_return std::tuple{err, std::move(req),
                              err == error::none ? shared_conn(std::move(c)) : shared_conn{}};

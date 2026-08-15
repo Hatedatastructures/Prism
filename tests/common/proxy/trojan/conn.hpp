@@ -30,6 +30,7 @@
 #include <utility>
 #include <vector>
 
+#include <common/core/authenticator.hpp>
 #include <common/core/error.hpp>
 #include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
@@ -47,7 +48,7 @@ namespace psmtest::trojan
      * 数据透传、预读缓冲。读写静态分派到 T（无虚表）。
      * 由工厂（connect / accept）创建，调用方以 shared_ptr 持有。
      */
-    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
@@ -55,8 +56,11 @@ namespace psmtest::trojan
          * @brief 构造函数（工厂调用）
          * @param upstream 上游传输（所有权移交）
          * @param password 协议密码（派生 SHA224 hex 凭据）
+         * @param auth 认证器（非拥有；nullptr = 静态比对 password）
          */
-        explicit conn(shared_transmission upstream, std::string password) : next_layer_(std::move(upstream))
+        explicit conn(shared_transmission upstream, std::string password,
+                      const psmtest::authenticator *auth = nullptr)
+            : next_layer_(std::move(upstream)), auth_(auth)
         {
             cred_ = credential(password);
         }
@@ -223,7 +227,7 @@ namespace psmtest::trojan
          * @return 非拥有资源指针（供握手/解析的临时分配）
          * @note 分配的对象随 conn 存活，conn 析构时一次性回收
          */
-        [[nodiscard]] auto arena() noexcept -> psm::memory::resource_pointer
+        [[nodiscard]] auto arena() noexcept -> psmtest::memory::resource_pointer
         {
             return mem_.arena();
         }
@@ -264,7 +268,7 @@ namespace psmtest::trojan
                 co_return std::pair{error::io_error, request_header{}};
             }
             const std::string_view got(reinterpret_cast<const char *>(prefix.data()), credential_len);
-            if (got != cred_)
+            if (auth_ ? !auth_->check("", got).ok : (got != cred_))
             {
                 co_return std::pair{error::bad_auth, request_header{}};
             }
@@ -461,6 +465,7 @@ namespace psmtest::trojan
 
         shared_transmission next_layer_; ///< 上游传输（基类传参，运行时多态）
         std::string cred_;               ///< 预计算凭据（SHA224 hex）
+        const psmtest::authenticator *auth_{nullptr}; ///< 认证器（非拥有）
         request_header request_;         ///< 服务端握手解析结果
         Memory mem_;                     ///< 会话内存策略（arena，热路径零释放分配）
         typename Memory::template buffer<std::uint8_t> buf_{mem_.arena()};  ///< 预读缓冲（隧道数据暂存）

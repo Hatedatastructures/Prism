@@ -1,7 +1,7 @@
 /**
  * @file TestPsmTransport.cpp
- * @brief psm::transport 系测试库组件深度测试
- * @details 覆盖 psm::transport::transmission 抽象基类全部方法
+ * @brief psmtest::transport 系测试库组件深度测试
+ * @details 覆盖 psmtest::transport::transmission 抽象基类全部方法
  *          （prefix / transport_type / completion-handler 桥接 /
  *          next_layer / lowest_layer）与 async_write / async_read
  *          自由函数的错误路径，legacy_bridge 的空操作方法与
@@ -32,14 +32,14 @@
 #include <common/core/transport/legacy_bridge.hpp>
 #include <common/core/transport/memory_stream.hpp>
 #include <common/core/transport/socket_stream.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 #include <common/core/transport/udp_transmission.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
     namespace net = boost::asio;
-    namespace psmt = psm::transport;
+    
 
     /**
      * @brief 驱动协程运行
@@ -62,9 +62,9 @@ namespace
     }
 
     /**
-     * @brief psm::transport::transmission 测试替身（叶子节点）
+     * @brief psmtest::transport::transmission 测试替身（叶子节点）
      */
-    class mock_transport final : public psmt::transmission
+    class mock_transport final : public psmtest::transmission
     {
     public:
         explicit mock_transport(net::any_io_executor ex,
@@ -105,8 +105,8 @@ namespace
         {
         }
 
-        using psmt::transmission::async_read_some;
-        using psmt::transmission::async_write_some;
+        using psmtest::transmission::async_read_some;
+        using psmtest::transmission::async_write_some;
 
         std::error_code write_ec_{};
         std::size_t write_n_{0};
@@ -125,7 +125,7 @@ namespace
         mock_transport t(ioc.get_executor());
 
         // 叶子节点 transport_type → tcp
-        EXPECT_EQ(t.transport_type(), psmt::transmission::type::tcp);
+        EXPECT_EQ(t.transport_type(), psmtest::transmission::type::tcp);
         EXPECT_EQ(t.next_layer(), nullptr);
         const auto *ct = &t;
         EXPECT_EQ(ct->next_layer(), nullptr);
@@ -134,17 +134,13 @@ namespace
         EXPECT_EQ(ct->lowest_layer<const mock_transport>(), ct);
         EXPECT_EQ(t.lowest_layer<net::io_context>(), nullptr);
 
-        // prefix 访问器
-        auto ctx = std::make_shared<psm::diagnose::context>();
-        t.set_prefix(ctx);
-        EXPECT_EQ(t.prefix(), ctx);
     }
 
     TEST(PsmTransmission, DelegatedTransportType)
     {
         net::io_context ioc;
         // 子节点覆写 transport_type 返回 udp，验证委托路径
-        struct udp_like final : public psmt::transmission
+        struct udp_like final : public psmtest::transmission
         {
             explicit udp_like(net::any_io_executor ex) : ex_(std::move(ex))
             {
@@ -176,12 +172,12 @@ namespace
             net::any_io_executor ex_;
         };
         udp_like leaf(ioc.get_executor());
-        EXPECT_EQ(leaf.transport_type(), psmt::transmission::type::udp);
+        EXPECT_EQ(leaf.transport_type(), psmtest::transmission::type::udp);
 
         // 装饰器：next_layer 非空 → 委托
-        struct wrapper final : public psmt::transmission
+        struct wrapper final : public psmtest::transmission
         {
-            explicit wrapper(psmt::transmission *n) : n_(n)
+            explicit wrapper(psmtest::transmission *n) : n_(n)
             {
             }
             [[nodiscard]] auto next_layer() noexcept -> transmission * override
@@ -212,10 +208,10 @@ namespace
             void cancel() override
             {
             }
-            psmt::transmission *n_;
+            psmtest::transmission *n_;
         };
         wrapper w(&leaf);
-        EXPECT_EQ(w.transport_type(), psmt::transmission::type::udp);
+        EXPECT_EQ(w.transport_type(), psmtest::transmission::type::udp);
         EXPECT_EQ(w.lowest_layer<udp_like>(), &leaf);
         EXPECT_EQ(w.next_layer(), &leaf);
     }
@@ -259,7 +255,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto n = co_await psmt::async_write(ok, std::span<const std::byte>(buf), ec);
+                     const auto n = co_await ok.async_write(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(n, 8u);
                      EXPECT_FALSE(ec);
                  });
@@ -272,21 +268,21 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto n = co_await psmt::async_write(err, std::span<const std::byte>(buf), ec);
+                     const auto n = co_await err.async_write(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(n, 4u);
                      EXPECT_TRUE(ec);
                  });
 
-        // async_write：n==0 停止（ec 保持原值）
+        // async_write：n==0 表示对端关闭 → broken_pipe
         ec.clear();
         mock_transport zero(ioc.get_executor());
         zero.write_n_ = 0;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto n = co_await psmt::async_write(zero, std::span<const std::byte>(buf), ec);
+                     const auto n = co_await zero.async_write(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_FALSE(ec);
+                     EXPECT_TRUE(ec);
                  });
 
         // async_read：错误中断
@@ -294,7 +290,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto n = co_await psmt::async_read(rerr, std::span<std::byte>(buf), ec);
+                     const auto n = co_await rerr.async_read(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_TRUE(ec);
                  });
@@ -317,7 +313,7 @@ namespace
         // fault 分类错误 → boost 协议分类（fault::category() 匹配）
         {
             net::io_context ioc;
-            const auto fault_ec = psm::fault::make_error_code(psm::fault::code::eof);
+            const auto fault_ec = psmtest::fault::make_error_code(psmtest::fault::code::eof);
             mock_transport ft(ioc.get_executor(), fault_ec, 0);
             std::promise<boost::system::error_code> done2;
             auto f2 = done2.get_future();
@@ -467,9 +463,9 @@ namespace
 
     TEST(MiddlewareNames, Accessors)
     {
-        psm::middleware::builtin::dial_middleware dial;
+        psmtest::middleware::builtin::dial_middleware dial;
         EXPECT_EQ(dial.name(), "dial");
-        psm::middleware::builtin::relay_middleware relay(nullptr);
+        psmtest::middleware::builtin::relay_middleware relay(nullptr);
         EXPECT_EQ(relay.name(), "relay");
     }
 

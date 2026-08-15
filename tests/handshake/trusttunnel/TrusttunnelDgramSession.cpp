@@ -95,7 +95,7 @@ namespace
                          EXPECT_NE(const_dg->next_layer(), nullptr);
                          // 底层 conn 的 const 装饰器导航
                          auto inner = dg->stream();
-                         const auto *const_conn = dynamic_cast<const trusttunnel::conn *>(inner.get());
+                         const auto *const_conn = dynamic_cast<const trusttunnel::conn<> *>(inner.get());
                          EXPECT_NE(const_conn, nullptr);
                          if (const_conn)
                          {

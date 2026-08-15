@@ -16,7 +16,7 @@
 
 #include <cstdint>
 
-namespace psm::protocol
+namespace psmtest::protocol
 {
 
     /**
@@ -35,4 +35,4 @@ namespace psm::protocol
         /** @brief UDP 数据报传输 */
         datagram
     };
-} // namespace psm::protocol
+} // namespace psmtest::protocol

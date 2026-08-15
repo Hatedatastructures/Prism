@@ -22,7 +22,7 @@
 #include <common/core/memory/container.hpp>
 #include <common/core/memory/pool.hpp>
 
-namespace psm::memory
+namespace psmtest::memory
 {
 
     /**
@@ -42,7 +42,7 @@ namespace psm::memory
         typename Memory::dynamic_string;
 
         // 分配接口（返回类型精确匹配）
-        { mem.arena() } -> std::same_as<psm::memory::resource_pointer>;
+        { mem.arena() } -> std::same_as<psmtest::memory::resource_pointer>;
         { mem.template make_buffer<std::uint8_t>(std::size_t{0}) }
             -> std::same_as<typename Memory::template buffer<std::uint8_t>>;
         { mem.template make_vector<std::uint8_t>() }
@@ -59,7 +59,7 @@ namespace psm::memory
      * - 缓冲耗尽自动回退线程局部池（仍无锁）
      * - reset() 在会话边界调用，回收全部内存
      * @tparam ArenaSize 栈缓冲字节数（默认 8192；特殊协议可自定义）
-     * @note 对齐主项目 psm::resource::session::arena
+     * @note 对齐主项目 psmtest::resource::session::arena
      */
     template <std::size_t ArenaSize = 8192>
     class session_arena
@@ -237,4 +237,4 @@ namespace psm::memory
      */
     using shared_session_memory = std::shared_ptr<session_memory<>>;
 
-} // namespace psm::memory
+} // namespace psmtest::memory

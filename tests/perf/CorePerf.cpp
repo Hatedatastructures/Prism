@@ -33,20 +33,20 @@ namespace
 
     static void BM_FaultSucceeded(benchmark::State &state)
     {
-        psm::fault::code c = psm::fault::code::success;
+        psmtest::fault::code c = psmtest::fault::code::success;
         for (auto _ : state)
         {
-            benchmark::DoNotOptimize(psm::fault::succeeded(c));
+            benchmark::DoNotOptimize(psmtest::fault::succeeded(c));
         }
     }
     BENCHMARK(BM_FaultSucceeded);
 
     static void BM_FaultDescribe(benchmark::State &state)
     {
-        const auto c = psm::fault::code::timeout;
+        const auto c = psmtest::fault::code::timeout;
         for (auto _ : state)
         {
-            benchmark::DoNotOptimize(psm::fault::describe(c));
+            benchmark::DoNotOptimize(psmtest::fault::describe(c));
         }
     }
     BENCHMARK(BM_FaultDescribe);
@@ -55,7 +55,7 @@ namespace
 
     static void BM_MemoryPoolAlloc(benchmark::State &state)
     {
-        auto mr = psm::memory::current_resource();
+        auto mr = psmtest::memory::current_resource();
         for (auto _ : state)
         {
             auto *p = mr->allocate(64, alignof(std::max_align_t));
@@ -67,10 +67,10 @@ namespace
 
     static void BM_MemoryStringAppend(benchmark::State &state)
     {
-        auto mr = psm::memory::current_resource();
+        auto mr = psmtest::memory::current_resource();
         for (auto _ : state)
         {
-            psm::memory::string s(mr);
+            psmtest::memory::string s(mr);
             s.append("hello");
             s.append("world");
             benchmark::DoNotOptimize(s.size());
@@ -84,7 +84,7 @@ namespace
     {
         std::array<std::uint8_t, 32> key{};
         std::fill(key.begin(), key.end(), 0x42);
-        psm::crypto::aead_context ctx(psm::crypto::aead_cipher::aes_128_gcm, key);
+        psmtest::crypto::aead_context ctx(psmtest::crypto::aead_cipher::aes_128_gcm, key);
 
         std::array<std::uint8_t, 16384> plain{};
         std::array<std::uint8_t, 32> seed{};
@@ -112,12 +112,12 @@ namespace
         std::array<std::uint8_t, 512> buf{};
         for (auto _ : state)
         {
-            auto offset = psm::protocol::hysteria2::qpack::encode_prefix(buf);
-            offset += psm::protocol::hysteria2::qpack::encode_literal(
+            auto offset = psmtest::protocol::hysteria2::qpack::encode_prefix(buf);
+            offset += psmtest::protocol::hysteria2::qpack::encode_literal(
                 ":method", "POST", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
-            offset += psm::protocol::hysteria2::qpack::encode_literal(
+            offset += psmtest::protocol::hysteria2::qpack::encode_literal(
                 ":path", "/auth", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
-            offset += psm::protocol::hysteria2::qpack::encode_literal(
+            offset += psmtest::protocol::hysteria2::qpack::encode_literal(
                 "hysteria-auth", "password123",
                 std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
             benchmark::DoNotOptimize(offset);
@@ -127,18 +127,18 @@ namespace
 
     static void BM_QpackDecodeAuth(benchmark::State &state)
     {
-        auto mr = psm::memory::current_resource();
+        auto mr = psmtest::memory::current_resource();
         std::array<std::uint8_t, 512> buf{};
-        auto offset = psm::protocol::hysteria2::qpack::encode_prefix(buf);
-        offset += psm::protocol::hysteria2::qpack::encode_literal(
+        auto offset = psmtest::protocol::hysteria2::qpack::encode_prefix(buf);
+        offset += psmtest::protocol::hysteria2::qpack::encode_literal(
             ":method", "POST", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
-        offset += psm::protocol::hysteria2::qpack::encode_literal(
+        offset += psmtest::protocol::hysteria2::qpack::encode_literal(
             "hysteria-auth", "password123",
             std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
 
         for (auto _ : state)
         {
-            auto fields = psm::protocol::hysteria2::qpack::decode_header_block(
+            auto fields = psmtest::protocol::hysteria2::qpack::decode_header_block(
                 std::span<const std::uint8_t>(buf.data(), offset), mr);
             benchmark::DoNotOptimize(fields.size());
         }

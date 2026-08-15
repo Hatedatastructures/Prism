@@ -22,9 +22,9 @@
 #include <span>
 #include <system_error>
 
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
-namespace psm::quic
+namespace psmtest::quic
 {
 
     namespace net = boost::asio;
@@ -86,7 +86,7 @@ namespace psm::quic
      * 协议层（hysteria2/tuic）通过本适配器把 QUIC 流当作普通
      * 字节流处理，屏蔽 QUIC 细节。
      */
-    class stream_adapter final : public psm::transport::transmission
+    class stream_adapter final : public transmission
     {
     public:
         /**
@@ -169,4 +169,4 @@ namespace psm::quic
     /// 适配器共享指针
     using shared_stream_adapter = std::shared_ptr<stream_adapter>;
 
-} // namespace psm::quic
+} // namespace psmtest::quic

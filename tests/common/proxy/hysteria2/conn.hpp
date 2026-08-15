@@ -44,7 +44,7 @@ namespace psmtest::hysteria2
      * transmission 接口透传 TCP 帧载荷，或通过 async_send_datagram
      * / async_receive_datagram 收发 UDP 数据报。
      */
-    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
@@ -53,8 +53,9 @@ namespace psmtest::hysteria2
          * @param upstream 底层传输（所有权移交）
          * @param password 认证密码
          */
-        explicit conn(shared_transmission upstream, std::string password)
-            : next_layer_(std::move(upstream)), password_(std::move(password))
+        explicit conn(shared_transmission upstream, std::string password,
+                      const psmtest::authenticator *auth = nullptr)
+            : next_layer_(std::move(upstream)), password_(std::move(password)), auth_(auth)
         {
         }
 
@@ -114,7 +115,21 @@ namespace psmtest::hysteria2
                 co_return std::pair{error::io_error, message{}};
             }
             const std::string auth(auth_body.begin(), auth_body.end());
-            if (auth.find("Authorization: " + password_) == std::string::npos)
+            // 提取 Authorization 头值（RFC 7235）：'Authorization: ' 前缀后到行尾
+            constexpr std::string_view kAuthPrefix = "Authorization: ";
+            const auto pos = auth.find(kAuthPrefix);
+            std::string credential;
+            if (pos != std::string::npos)
+            {
+                const auto value_start = pos + kAuthPrefix.size();
+                const auto value_end = auth.find("\r\n", value_start);
+                credential = auth.substr(value_start,
+                                         value_end == std::string::npos ? std::string::npos
+                                                                        : value_end - value_start);
+            }
+            const bool ok = auth_ ? auth_->check("", credential).ok
+                                  : (credential == password_);
+            if (!ok)
             {
                 co_return std::pair{error::bad_auth, message{}};
             }
@@ -276,7 +291,7 @@ namespace psmtest::hysteria2
          * @return 非拥有资源指针（供握手/解析的临时分配）
          * @note 分配的对象随 conn 存活，conn 析构时一次性回收
          */
-        [[nodiscard]] auto arena() noexcept -> psm::memory::resource_pointer
+        [[nodiscard]] auto arena() noexcept -> psmtest::memory::resource_pointer
         {
             return mem_.arena();
         }
@@ -439,6 +454,7 @@ namespace psmtest::hysteria2
 
         shared_transmission next_layer_; ///< 底层传输（独占所有权）
         std::string password_;           ///< 认证密码
+        const psmtest::authenticator *auth_{nullptr}; ///< 认证器（非拥有）
         address target_;                 ///< TCP 目标地址（握手后）
         message parsed_{};               ///< 服务端握手解析结果
         std::uint32_t session_id_{0};    ///< UDP 会话 ID（自增）

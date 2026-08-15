@@ -15,7 +15,7 @@
 
 #include <common/core/memory/container.hpp>
 #include <common/core/memory/pool.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
@@ -25,7 +25,7 @@
 #include <span>
 #include <system_error>
 
-namespace psm::transport {
+namespace psmtest::transport {
 
 
     namespace net = boost::asio;
@@ -145,7 +145,7 @@ namespace psm::transport {
                 ec = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await transport::async_write(*inner_, buffer, ec);
+            co_return co_await inner_->async_write(buffer, ec);
         }
 
         /**
@@ -310,4 +310,4 @@ namespace psm::transport {
     }
 
 
-} // namespace psm::transport
+} // namespace psmtest::transport

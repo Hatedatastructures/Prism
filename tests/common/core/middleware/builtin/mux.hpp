@@ -19,9 +19,9 @@
 #include <common/core/fault/handling.hpp>
 #include <common/core/middleware/context.hpp>
 #include <common/core/middleware/pipeline.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
-namespace psm::middleware::builtin
+namespace psmtest::middleware::builtin
 {
 
     namespace net = boost::asio;
@@ -37,7 +37,7 @@ namespace psm::middleware::builtin
     public:
         /// mux 引导函数签名（inbound → 是否成功）
         using mux_fn =
-            std::function<net::awaitable<bool>(psm::transport::shared_transmission &, context &)>;
+            std::function<net::awaitable<bool>(psmtest::shared_transmission &, context &)>;
 
         /**
          * @brief 构造函数
@@ -61,19 +61,19 @@ namespace psm::middleware::builtin
          * @param ctx 管线上下文
          * @return success = mux 已接管（管线终止）；not_supported = 未启用
          */
-        auto handle(psm::transport::shared_transmission &inbound, context &ctx)
-            -> net::awaitable<psm::fault::code> override
+        auto handle(psmtest::shared_transmission &inbound, context &ctx)
+            -> net::awaitable<psmtest::fault::code> override
         {
             if (!mux_)
             {
-                co_return psm::fault::code::not_supported;
+                co_return psmtest::fault::code::not_supported;
             }
             const auto ok = co_await mux_(inbound, ctx);
-            co_return ok ? psm::fault::code::success : psm::fault::code::bad_gateway;
+            co_return ok ? psmtest::fault::code::success : psmtest::fault::code::bad_gateway;
         }
 
     private:
         mux_fn mux_; ///< mux 引导函数（可注入）
     };
 
-} // namespace psm::middleware::builtin
+} // namespace psmtest::middleware::builtin

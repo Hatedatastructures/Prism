@@ -9,6 +9,9 @@
 
 #pragma once
 
+// DEPRECATED: 旧骨架（Beast 模板方法模式），新协议 conn 统一使用 psmtest::transmission
+// （core/transmission.hpp）。本文件仅保留供迁移期兼容，勿在新代码中使用。
+
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 

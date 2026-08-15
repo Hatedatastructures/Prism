@@ -1,6 +1,6 @@
 /**
  * @file transmission.hpp
- * @brief 传输层抽象接口（对齐主库 psm::transport::transmission）
+ * @brief 传输层抽象接口（对齐主库 psmtest::transmission）
  * @details 借鉴 Boost.Asio AsyncReadStream/AsyncWriteStream 的最小接口设计。
  *          核心职责：统一的异步读写、关闭、取消、装饰器链导航。
  *          协议封装（socks5/vless/vmess/...）继承本基类成为传输层装饰器，
@@ -71,7 +71,7 @@ namespace psmtest
         /// 执行器类型
         using executor_type = net::any_io_executor;
 
-        /// 传输类型（对齐主库 psm::transport::transmission::type）
+        /// 传输类型（对齐主库 psmtest::transmission::type）
         enum class type : std::uint8_t
         {
             /// 可靠流式传输（TCP）

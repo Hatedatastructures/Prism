@@ -19,6 +19,8 @@
 #include <utility>
 
 #include <common/core/error.hpp>
+#include <common/core/memory/container.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/core/transport/legacy_bridge.hpp>
 #include <common/mux/session.hpp>
@@ -31,14 +33,18 @@ namespace psmtest::mux
      * @class server
      * @brief 多路复用服务端会话容器
      * @tparam C 帧编解码策略（frame_codec concept）
-     * @details 持有 session<C> 引擎，服务端角色（偶数流 ID）。
+     * @tparam Memory 会话内存策略（默认 8KB arena；下发给会话引擎）
+     * @details 持有 session<C, Memory> 引擎，服务端角色（偶数流 ID）。
      */
-    template <typename C>
+    template <typename C, psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class server
     {
     public:
         /// 会话类型
-        using session_type = session<C>;
+        using session_type = session<C, Memory>;
+
+        /// 内存策略类型（对外暴露，供嵌套层/测试使用）
+        using memory_type = Memory;
 
         /**
          * @brief 绑定底层传输并启动会话
@@ -110,21 +116,22 @@ namespace psmtest::mux
     };
 
     /// 多路复用服务端共享指针
-    template <typename C>
-    using shared_server = std::shared_ptr<server<C>>;
+    template <typename C, psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
+    using shared_server = std::shared_ptr<server<C, Memory>>;
 
     /**
      * @brief 创建服务端会话并绑定底层传输（工厂）
      * @tparam C 帧编解码（frame_codec concept）
+     * @tparam Memory 会话内存策略（默认 8KB arena）
      * @param upstream 上游传输（所有权移交）
      * @param opt 会话选项
      * @return 服务端会话容器
      */
-    template <typename C>
+    template <typename C, psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     [[nodiscard]] inline auto accept(shared_transmission upstream, const session_options &opt = {})
-        -> server<C>
+        -> server<C, Memory>
     {
-        server<C> s;
+        server<C, Memory> s;
         s.accept(std::move(upstream), opt);
         return s;
     }

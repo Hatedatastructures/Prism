@@ -28,31 +28,31 @@ namespace
 
     TEST(MemoryPointer, ArenaAllocateAndReset)
     {
-        psm::memory::session_arena arena;
+        psmtest::memory::session_arena arena;
         auto mr = arena.get();
         ASSERT_NE(mr, nullptr);
 
         // 分配字符串
-        psm::memory::string s(mr);
+        psmtest::memory::string s(mr);
         s.assign("hello");
         EXPECT_EQ(s, "hello");
 
         // 分配 vector
-        psm::memory::vector<std::uint8_t> v(mr);
+        psmtest::memory::vector<std::uint8_t> v(mr);
         v.push_back(1);
         v.push_back(2);
         EXPECT_EQ(v.size(), 2U);
 
         // reset 后旧对象失效但可重新分配
         arena.reset();
-        psm::memory::string s2(mr);
+        psmtest::memory::string s2(mr);
         s2.assign("world");
         EXPECT_EQ(s2, "world");
     }
 
     TEST(MemoryPointer, SessionMemoryContext)
     {
-        psm::memory::session_memory mem;
+        psmtest::memory::session_memory mem;
         auto s = mem.make_string("context-string");
         EXPECT_EQ(s, "context-string");
 
@@ -67,12 +67,12 @@ namespace
     TEST(MemoryPointer, ArenaBufferExhaustionFallback)
     {
         // 8KB 缓冲耗尽后回退上游（local_pool），不崩溃
-        psm::memory::session_arena arena;
+        psmtest::memory::session_arena arena;
         auto mr = arena.get();
-        std::vector<psm::memory::string> objs;
+        std::vector<psmtest::memory::string> objs;
         for (int i = 0; i < 200; ++i)
         {
-            psm::memory::string s(mr);
+            psmtest::memory::string s(mr);
             s.assign(64, static_cast<char>('a' + (i % 26)));
             objs.push_back(std::move(s));
         }
@@ -86,11 +86,11 @@ namespace
 
     TEST(MemoryPointer, ArenaLifetimeWithinScope)
     {
-        psm::memory::string *ptr = nullptr;
+        psmtest::memory::string *ptr = nullptr;
         {
-            psm::memory::session_arena arena;
+            psmtest::memory::session_arena arena;
             auto mr = arena.get();
-            auto s = std::make_unique<psm::memory::string>(mr);
+            auto s = std::make_unique<psmtest::memory::string>(mr);
             s->assign("scoped");
             ptr = s.get();
             EXPECT_EQ(*ptr, "scoped");
@@ -117,7 +117,7 @@ namespace
                           .count();
 
         // arena（无释放）
-        psm::memory::session_arena arena;
+        psmtest::memory::session_arena arena;
         auto mr = arena.get();
         start = std::chrono::steady_clock::now();
         for (int i = 0; i < kIters; ++i)
@@ -142,8 +142,8 @@ namespace
         // 模拟 conn 持有 session_memory：arena 分配随 conn 存活
         struct fake_conn
         {
-            psm::memory::session_memory<> mem;
-            auto target_string() -> psm::memory::string
+            psmtest::memory::session_memory<> mem;
+            auto target_string() -> psmtest::memory::string
             {
                 return mem.make_string("conn-target");
             }
@@ -183,8 +183,8 @@ namespace
                            .count();
 
         // 复用缓冲（arena 分配，首次扩容后零分配）
-        psm::memory::session_memory mem;
-        psm::memory::vector<std::uint8_t> tx_wire(mem.arena());
+        psmtest::memory::session_memory mem;
+        psmtest::memory::vector<std::uint8_t> tx_wire(mem.arena());
         start = std::chrono::steady_clock::now();
         for (int i = 0; i < kIters; ++i)
         {
@@ -226,8 +226,8 @@ namespace
                            std::chrono::steady_clock::now() - start)
                            .count();
 
-        psm::memory::session_memory mem;
-        psm::memory::vector<std::uint8_t> tx_wire(mem.arena());
+        psmtest::memory::session_memory mem;
+        psmtest::memory::vector<std::uint8_t> tx_wire(mem.arena());
         start = std::chrono::steady_clock::now();
         for (int i = 0; i < kIters; ++i)
         {
@@ -247,17 +247,17 @@ namespace
     // ── 6. 策略约束（memory_policy concept） ──
 
     // 合法策略：session_memory<> 应满足约束
-    static_assert(psm::memory::memory_policy<psm::memory::session_memory<>>);
+    static_assert(psmtest::memory::memory_policy<psmtest::memory::session_memory<>>);
     // 自定义大小同样满足
-    static_assert(psm::memory::memory_policy<psm::memory::session_memory<32768>>);
+    static_assert(psmtest::memory::memory_policy<psmtest::memory::session_memory<32768>>);
     // 非策略类型不满足约束（编译期拒绝）
-    static_assert(!psm::memory::memory_policy<int>);
-    static_assert(!psm::memory::memory_policy<std::string>);
+    static_assert(!psmtest::memory::memory_policy<int>);
+    static_assert(!psmtest::memory::memory_policy<std::string>);
 
     TEST(MemoryPointer, MemoryPolicyConstraint)
     {
         // 策略容器类型可用性
-        using Mem = psm::memory::session_memory<>;
+        using Mem = psmtest::memory::session_memory<>;
         Mem mem;
         typename Mem::buffer<std::uint8_t> buf = mem.make_buffer<std::uint8_t>(64);
         EXPECT_EQ(buf.size(), 64U);

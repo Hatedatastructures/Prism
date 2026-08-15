@@ -72,7 +72,7 @@ namespace
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
         auto peer = std::make_shared<memory_stream>(std::move(b));
-        auto conn = std::make_shared<gun::conn>(std::make_shared<memory_stream>(std::move(a)));
+        auto conn = std::make_shared<gun::conn<>>(std::make_shared<memory_stream>(std::move(a)));
 
         // 未握手读写 → not_open
         run_coro(ioc,
@@ -110,7 +110,7 @@ namespace
     {
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto conn = std::make_shared<reality::conn>(
+        auto conn = std::make_shared<reality::conn<>>(
             std::make_shared<memory_stream>(std::move(a)), std::array<std::uint8_t, 32>{});
         check_decorator(conn, ioc);
     }
@@ -120,7 +120,7 @@ namespace
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
         auto conn =
-            std::make_shared<anytls::conn>(std::make_shared<memory_stream>(std::move(a)), "secret");
+            std::make_shared<anytls::conn<>>(std::make_shared<memory_stream>(std::move(a)), "secret");
         check_decorator(conn, ioc);
     }
 

@@ -13,7 +13,11 @@
 namespace psmtest::mux::yamux
 {
 
-    /// yamux server 会话（共享模板实例化）
-    using server = mux::server<codec>;
+    /**
+     * @brief yamux server 会话（共享模板实例化，可注入内存策略）
+     * @tparam Memory 会话内存策略（默认 8KB arena）
+     */
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
+    using server = mux::server<codec, Memory>;
 
 } // namespace psmtest::mux::yamux

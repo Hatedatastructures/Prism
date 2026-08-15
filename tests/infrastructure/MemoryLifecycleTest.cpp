@@ -175,8 +175,8 @@ namespace
         req.target.host = "example.com";
         req.target.port = 443;
 
-        psm::memory::session_memory<> mem;
-        typename psm::memory::session_memory<>::buffer<std::uint8_t> tx(mem.arena());
+        psmtest::memory::session_memory<> mem;
+        typename psmtest::memory::session_memory<>::buffer<std::uint8_t> tx(mem.arena());
 
         // 预热（首次扩容）
         build_request(req, tx);
@@ -205,14 +205,14 @@ namespace
         std::size_t peak_alloc = 0;
         for (int i = 0; i < kIters; ++i)
         {
-            psm::memory::session_memory<> mem;
+            psmtest::memory::session_memory<> mem;
             // 分配 + 释放循环（arena 随析构回收）
             auto v = mem.make_vector<std::uint8_t>();
             v.resize(256 + (i % 64));
             v[0] = static_cast<std::uint8_t>(i);
             peak_alloc = std::max(peak_alloc, v.capacity());
             // 模拟 conn 生命周期：成员缓冲 + 帧缓冲
-            typename psm::memory::session_memory<>::buffer<std::uint8_t> tx(mem.arena());
+            typename psmtest::memory::session_memory<>::buffer<std::uint8_t> tx(mem.arena());
             tx.resize(4096);
             tx[0] = 0xAB;
         }

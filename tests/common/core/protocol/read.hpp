@@ -10,7 +10,7 @@
 #pragma once
 
 #include <common/core/fault/handling.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio.hpp>
 
@@ -19,7 +19,7 @@
 #include <system_error>
 #include <utility>
 
-namespace psm::protocol::common
+namespace psmtest::protocol::common
 {
 
     namespace net = boost::asio;
@@ -95,4 +95,4 @@ namespace psm::protocol::common
         }
         co_return std::pair{fault::code::success, opts.current};
     }
-} // namespace psm::protocol::common
+} // namespace psmtest::protocol::common

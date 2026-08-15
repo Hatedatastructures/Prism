@@ -14,7 +14,7 @@
 
 #include <common/core/diagnose/log.hpp>
 #include <common/core/fault/handling.hpp>
-#include <common/core/transport/transmission.hpp>
+#include <common/core/transmission.hpp>
 
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
@@ -25,7 +25,7 @@
 #include <optional>
 #include <utility>
 
-namespace psm::transport
+namespace psmtest::transport
 {
 
     namespace net = boost::asio;
@@ -127,7 +127,7 @@ namespace psm::transport
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n =
                 co_await native_socket().async_read_some(net::buffer(buffer.data(), buffer.size()), token);
-            ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
+            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -175,7 +175,7 @@ namespace psm::transport
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n =
                 co_await native_socket().async_write_some(net::buffer(buffer.data(), buffer.size()), token);
-            ec = psm::fault::make_error_code(psm::fault::to_code(sys_ec));
+            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -289,4 +289,4 @@ namespace psm::transport
         return std::make_shared<reliable>(std::move(socket));
     }
 
-} // namespace psm::transport
+} // namespace psmtest::transport

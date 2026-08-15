@@ -35,6 +35,8 @@
 #include <vector>
 
 #include <common/core/error.hpp>
+#include <common/core/memory/container.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/role.hpp>
 #include <common/core/session_base.hpp>
 #include <common/core/transport/stream.hpp>
@@ -99,6 +101,8 @@ namespace psmtest::mux
     /**
      * @class stream_handle
      * @brief 虚拟流句柄（复用会话底层连接，满足 session_base）
+     * @tparam Memory 会话内存策略（默认 8KB arena；接收队列经
+     *                mem_.arena() 分配，随流析构一次性回收）
      * @details 每条虚拟流维护独立接收队列与通知通道，数据由会话
      *          帧循环经 push_rx 投递。关闭语义三态：
      *          - shutdown()：半关（本端发 FIN，仍可读对端数据）
@@ -107,9 +111,13 @@ namespace psmtest::mux
      *          对端事件经 set_peer_eof（FIN）/ on_rst（RST）唤醒
      *          挂起读并返回 0。
      */
+    template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
     class stream_handle : public session_base
     {
     public:
+        /// 内存策略类型（对外暴露，供嵌套层/测试使用）
+        using memory_type = Memory;
+
         /**
          * @brief 构造
          * @param id 流标识
@@ -314,10 +322,11 @@ namespace psmtest::mux
         /**
          * @brief 内部：推送数据到接收队列（会话帧循环调用）
          * @param data 负载数据
+         * @details 队列元素经流内存策略的 arena 分配（热路径零释放）。
          */
         auto push_rx(std::span<const std::uint8_t> data) -> void
         {
-            rx_.emplace_back(data.begin(), data.end());
+            rx_.emplace_back(data.begin(), data.end(), mem_.arena());
             notify_.try_send(boost::system::error_code{});
         }
 
@@ -343,7 +352,8 @@ namespace psmtest::mux
         std::uint32_t id_;                                                           ///< 流标识符
         std::shared_ptr<session_iface> session_;                                     ///< 所属会话
         net::any_io_executor ex_;                                                    ///< 执行器
-        std::deque<std::vector<std::uint8_t>> rx_;                                   ///< 接收队列
+        Memory mem_;                                                                 ///< 会话内存策略（arena，接收队列零释放分配）
+        std::deque<typename Memory::template buffer<std::uint8_t>> rx_;              ///< 接收队列
         boost::asio::experimental::channel<void(boost::system::error_code)> notify_; ///< 数据到达通知
         net::steady_timer timer_;                                                    ///< 读超时定时器
         std::chrono::milliseconds timeout_{0};                                       ///< 读超时（0 = 禁用）
@@ -372,16 +382,20 @@ namespace psmtest::mux
      * @class session
      * @brief 多路复用会话（共享框架，模板注入帧编解码策略）
      * @tparam C 帧编解码策略（frame_codec concept）
+     * @tparam Memory 会话内存策略（默认 8KB arena；下发给流句柄）
      * @details 维护流表与入向队列，后台帧循环读取底层传输并分发
      *          帧事件（open/data/fin/rst）。accept_stream / open_stream
      *          分别对应服务端/客户端开流视角；cancel() 可唤醒挂起
      *          的 accept_stream 而不关闭会话。
      */
-    template <typename C>
-    class session : public session_iface, public std::enable_shared_from_this<session<C>>
+    template <typename C, psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
+    class session : public session_iface, public std::enable_shared_from_this<session<C, Memory>>
     {
     public:
         using frame_type = typename C::frame_type;
+
+        /// 内存策略类型（对外暴露，供嵌套层/测试使用）
+        using memory_type = Memory;
 
         /**
          * @brief 创建会话（同时启动帧循环）
@@ -390,9 +404,9 @@ namespace psmtest::mux
          * @return 会话实例
          */
         static auto create(std::shared_ptr<transport_base> raw, const session_options &opt)
-            -> std::shared_ptr<session<C>>
+            -> std::shared_ptr<session<C, Memory>>
         {
-            auto self = std::shared_ptr<session<C>>(new session<C>(std::move(raw), opt));
+            auto self = std::shared_ptr<session<C, Memory>>(new session<C, Memory>(std::move(raw), opt));
             self->start();
             return self;
         }
@@ -402,7 +416,7 @@ namespace psmtest::mux
          * @return 流句柄；nullptr = 会话已关闭 / 流数达上限
          * @details 分配流 ID（奇偶随角色）并发送开流帧。
          */
-        auto open_stream() -> net::awaitable<std::shared_ptr<stream_handle>>
+        auto open_stream() -> net::awaitable<std::shared_ptr<stream_handle<Memory>>>
         {
             if (!raw_ || !raw_->is_open())
             {
@@ -414,7 +428,7 @@ namespace psmtest::mux
                 co_return nullptr;
             }
             co_await raw_->write_all(C::build_open(id));
-            auto handle = std::make_shared<stream_handle>(id, this->shared_from_this(), ex_);
+            auto handle = std::make_shared<stream_handle<Memory>>(id, this->shared_from_this(), ex_);
             streams_[id] = handle;
             co_return handle;
         }
@@ -424,7 +438,7 @@ namespace psmtest::mux
          * @return 流句柄；nullptr = 会话关闭 / cancel() 唤醒
          * @details 经 cancel() 唤醒后返回 nullptr（一次性，可再次调用）。
          */
-        auto accept_stream() -> net::awaitable<std::shared_ptr<stream_handle>>
+        auto accept_stream() -> net::awaitable<std::shared_ptr<stream_handle<Memory>>>
         {
             while (raw_ && raw_->is_open())
             {
@@ -673,7 +687,7 @@ namespace psmtest::mux
                 {
                     break;
                 }
-                auto handle = std::make_shared<stream_handle>(id, this->shared_from_this(), ex_);
+                auto handle = std::make_shared<stream_handle<Memory>>(id, this->shared_from_this(), ex_);
                 streams_[id] = handle;
                 incoming_.push_back(handle);
                 accept_notify_.try_send(boost::system::error_code{});
@@ -696,7 +710,7 @@ namespace psmtest::mux
                 {
                     break;
                 }
-                auto handle = std::make_shared<stream_handle>(id, this->shared_from_this(), ex_);
+                auto handle = std::make_shared<stream_handle<Memory>>(id, this->shared_from_this(), ex_);
                 streams_[id] = handle;
                 incoming_.push_back(handle);
                 accept_notify_.try_send(boost::system::error_code{});
@@ -782,8 +796,8 @@ namespace psmtest::mux
         session_options opt_;                                                               ///< 会话选项
         net::any_io_executor ex_;                                                           ///< 执行器
         boost::asio::experimental::channel<void(boost::system::error_code)> accept_notify_; ///< 新流通知
-        std::map<std::uint32_t, std::shared_ptr<stream_handle>> streams_; ///< 流表（ID → 句柄）
-        std::deque<std::shared_ptr<stream_handle>> incoming_;             ///< 入向流队列（待 accept）
+        std::map<std::uint32_t, std::shared_ptr<stream_handle<Memory>>> streams_; ///< 流表（ID → 句柄）
+        std::deque<std::shared_ptr<stream_handle<Memory>>> incoming_;             ///< 入向流队列（待 accept）
         std::uint32_t next_id_{0};                                        ///< 下一个流 ID 候选
         bool session_closed_{false};                                      ///< 会话已关闭
         bool canceled_{false};                                            ///< accept 被取消（一次性）

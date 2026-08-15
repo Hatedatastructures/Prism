@@ -1,7 +1,7 @@
 /**
  * @file log.hpp
  * @brief 轻量日志 stub（测试库用）
- * @details 对齐主库 psm::diagnose 的日志接口签名，但实现为空操作：
+ * @details 对齐主库 psmtest::diagnose 的日志接口签名，但实现为空操作：
  *          测试环境不依赖 spdlog。后续需要日志输出时，可将本文件
  *          替换为 spdlog 实现或接入测试日志框架。
  * @note 所有函数均为模板，编译期零开销（空实现）。
@@ -14,7 +14,7 @@
 
 #include <common/core/diagnose/context.hpp>
 
-namespace psm::diagnose
+namespace psmtest::diagnose
 {
 
     /**
@@ -114,4 +114,4 @@ namespace psm::diagnose
     {
     }
 
-} // namespace psm::diagnose
+} // namespace psmtest::diagnose

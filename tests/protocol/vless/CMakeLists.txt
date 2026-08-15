@@ -8,4 +8,4 @@ prism_add_test(VlessConnSession.cpp)
 target_link_libraries(VlessConnSession PRIVATE vmtest_common)
 prism_add_test(VlessStressTest.cpp)
 target_link_libraries(VlessStressTest PRIVATE vmtest_common)
-
+prism_add_test(VlessConnErrorMatrix.cpp)

@@ -22,7 +22,7 @@
 #include <span>
 #include <string_view>
 
-namespace psm::protocol::hysteria2::qpack
+namespace psmtest::protocol::hysteria2::qpack
 {
 
     /**
@@ -817,7 +817,7 @@ namespace psm::protocol::hysteria2::qpack
             }
             // 热路径零分配：短值走栈缓冲，超长才回退堆
             std::array<std::uint8_t, 255> stack{};
-            memory::vector<std::uint8_t> heap(psm::memory::current_resource());
+            memory::vector<std::uint8_t> heap(psmtest::memory::current_resource());
             if (huffman)
             {
                 const auto est = static_cast<std::size_t>(len) * 2;
@@ -875,7 +875,7 @@ namespace psm::protocol::hysteria2::qpack
             }
             // 热路径零分配：短值走栈缓冲，超长才回退堆
             std::array<std::uint8_t, 255> stack{};
-            memory::vector<std::uint8_t> heap(psm::memory::current_resource());
+            memory::vector<std::uint8_t> heap(psmtest::memory::current_resource());
             if (huffman)
             {
                 const auto est = static_cast<std::size_t>(len) * 2;
@@ -1131,4 +1131,4 @@ namespace psm::protocol::hysteria2::qpack
         return huffman_encode_impl(in, out);
     }
 
-} // namespace psm::protocol::hysteria2::qpack
+} // namespace psmtest::protocol::hysteria2::qpack

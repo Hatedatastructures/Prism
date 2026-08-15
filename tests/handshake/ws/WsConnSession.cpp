@@ -241,7 +241,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 未握手 conn：读写返回 not_open
-                     auto c = std::make_shared<ws::conn>(std::make_shared<memory_stream>(std::move(a)));
+                     auto c = std::make_shared<ws::conn<>>(std::make_shared<memory_stream>(std::move(a)));
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
                      const auto n = co_await c->async_read_some(buf, ec);
@@ -255,7 +255,7 @@ namespace
                      EXPECT_TRUE(c->executor());
                      EXPECT_NE(c->next_layer(), nullptr);
                      EXPECT_NE(c->lowest_layer<memory_stream>(), nullptr);
-                     const ws::conn *const_c = c.get();
+                     const ws::conn<> *const_c = c.get();
                      EXPECT_NE(const_c->next_layer(), nullptr);
                      auto released = c->release();
                      EXPECT_TRUE(released);
