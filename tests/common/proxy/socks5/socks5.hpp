@@ -51,7 +51,7 @@ namespace psmtest::socks5
         request req;
         req.cmd = cmd;
         req.target = target;
-        auto c = std::make_shared<conn>(std::move(upstream));
+        auto c = std::make_shared<conn<>>(std::move(upstream));
         const auto err = co_await c->write_handshake(req, cfg);
         co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
@@ -72,7 +72,7 @@ namespace psmtest::socks5
         {
             co_return std::pair{err, shared_dgram{}};
         }
-        co_return std::pair{error::none, std::make_shared<dgram>(std::move(conn))};
+        co_return std::pair{error::none, std::make_shared<dgram<>>(std::move(conn))};
     }
 
     /**
@@ -86,7 +86,7 @@ namespace psmtest::socks5
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
         -> net::awaitable<std::tuple<error, request, shared_conn>>
     {
-        auto c = std::make_shared<conn>(std::move(upstream));
+        auto c = std::make_shared<conn<>>(std::move(upstream));
         auto [err, req] = co_await c->read_handshake(cfg);
         co_return std::tuple{err, std::move(req),
                              err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
@@ -106,7 +106,7 @@ namespace psmtest::socks5
         {
             co_return std::tuple{err, std::move(req), shared_dgram{}};
         }
-        co_return std::tuple{error::none, std::move(req), std::make_shared<dgram>(std::move(conn))};
+        co_return std::tuple{error::none, std::move(req), std::make_shared<dgram<>>(std::move(conn))};
     }
 
 } // namespace psmtest::socks5

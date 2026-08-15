@@ -30,6 +30,8 @@
 
 #include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
+#include <common/core/memory/container.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/shadowsocks2022/codec.hpp>
 #include <common/proxy/shadowsocks2022/types.hpp>
@@ -47,7 +49,8 @@ namespace psmtest::shadowsocks2022
      * 编解码（codec.hpp 纯函数）。由工厂（connect_packet /
      * accept_packet）创建。
      */
-    class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram>
+    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram<Memory>>
     {
     public:
         /**
@@ -85,14 +88,14 @@ namespace psmtest::shadowsocks2022
         [[nodiscard]] auto async_send_to(const ss::address &dest, std::span<const std::uint8_t> payload)
             -> net::awaitable<error>
         {
-            const auto packet = ss::build_udp_packet(ss::udp_build_input{key_, ++packet_id_, &dest, payload});
-            if (packet.empty())
+            if (!ss::build_udp_packet(ss::udp_build_input{key_, ++packet_id_, &dest, payload}, tx_wire_))
             {
                 co_return error::bad_length;
             }
             std::error_code ec;
-            const auto n = co_await next_layer_->async_write_some(as_bytes(packet), ec);
-            co_return (ec || n != packet.size()) ? error::io_error : error::none;
+            const auto n = co_await next_layer_->async_write_some(
+                as_bytes(std::span<const std::uint8_t>(tx_wire_)), ec);
+            co_return (ec || n != tx_wire_.size()) ? error::io_error : error::none;
         }
 
         /**
@@ -187,11 +190,13 @@ namespace psmtest::shadowsocks2022
 
     private:
         shared_transmission next_layer_;   ///< 底层数据报传输（独占所有权）
-        std::array<std::uint8_t, 16> key_; ///< UDP 密钥（PSK 派生）
-        std::uint64_t packet_id_{0};       ///< 发包递增计数（nonce 派生）
+        std::array<std::uint8_t, 16> key_; ///< UDP 会话密钥（PSK 派生）
+        std::uint64_t packet_id_{0};       ///< 包序号（自增，nonce 派生）
+        Memory mem_;                       ///< 会话内存策略（arena，热路径零释放分配）
+        typename Memory::template buffer<std::uint8_t> tx_wire_{mem_.arena()}; ///< 发送缓冲（arena 复用，热路径零分配）
     };
 
     /// 包连接共享指针
-    using shared_dgram = std::shared_ptr<dgram>;
+    using shared_dgram = std::shared_ptr<dgram<>>;
 
 } // namespace psmtest::shadowsocks2022

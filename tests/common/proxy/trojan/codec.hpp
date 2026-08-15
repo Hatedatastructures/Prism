@@ -68,11 +68,13 @@ namespace psmtest::trojan
     }
 
     /**
-     * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE）
+     * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE，追加到缓冲）
+     * @param addr 目标地址
+     * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
      */
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    template <typename Alloc>
+    inline auto encode_address(const address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
         switch (addr.type)
         {
@@ -108,6 +110,15 @@ namespace psmtest::trojan
         }
         out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+    }
+
+    /**
+     * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE）
+     */
+    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        encode_address(addr, out);
         return out;
     }
 
@@ -173,6 +184,26 @@ namespace psmtest::trojan
     }
 
     /**
+     * @brief 构造 Trojan UDP 帧（写入复用缓冲）
+     * @param target 目标地址
+     * @param payload UDP 载荷
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
+     */
+    template <typename Alloc>
+    inline auto build_udp_pkt(const address &target, std::span<const std::uint8_t> payload,
+                              std::vector<std::uint8_t, Alloc> &out) -> void
+    {
+        out.clear();
+        out.reserve(target.host.size() + 12 + payload.size());
+        encode_address(target, out);
+        out.push_back(static_cast<std::uint8_t>((payload.size() >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(payload.size() & 0xFF));
+        out.push_back('\r');
+        out.push_back('\n');
+        out.insert(out.end(), payload.begin(), payload.end());
+    }
+
+    /**
      * @brief 构造 Trojan UDP 帧（mihomo 兼容）
      * @param target 目标地址
      * @param payload UDP 载荷
@@ -184,14 +215,7 @@ namespace psmtest::trojan
         -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        const auto addr = encode_address(target);
-        out.reserve(addr.size() + 4 + payload.size());
-        out.insert(out.end(), addr.begin(), addr.end());
-        out.push_back(static_cast<std::uint8_t>((payload.size() >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(payload.size() & 0xFF));
-        out.push_back('\r');
-        out.push_back('\n');
-        out.insert(out.end(), payload.begin(), payload.end());
+        build_udp_pkt(target, payload, out);
         return out;
     }
 
@@ -232,6 +256,28 @@ namespace psmtest::trojan
     }
 
     /**
+     * @brief 构造完整请求头（写入复用缓冲）
+     * @param cred 56 字符凭据
+     * @param cmd 命令
+     * @param target 目标地址
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
+     */
+    template <typename Alloc>
+    inline auto build_request(std::string_view cred, command cmd, const address &target,
+                              std::vector<std::uint8_t, Alloc> &out) -> void
+    {
+        out.clear();
+        out.reserve(credential_len + 2 + 1 + target.host.size() + 2 + 2);
+        out.insert(out.end(), cred.begin(), cred.end());
+        out.push_back('\r');
+        out.push_back('\n');
+        out.push_back(static_cast<std::uint8_t>(cmd));
+        encode_address(target, out);
+        out.push_back('\r');
+        out.push_back('\n');
+    }
+
+    /**
      * @brief 构造完整请求头（凭据 + CRLF + 命令地址 + CRLF）
      * @param cred 56 字符凭据
      * @param cmd 命令
@@ -242,15 +288,7 @@ namespace psmtest::trojan
         -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        out.reserve(credential_len + 2 + 1 + target.host.size() + 2 + 2);
-        out.insert(out.end(), cred.begin(), cred.end());
-        out.push_back('\r');
-        out.push_back('\n');
-        out.push_back(static_cast<std::uint8_t>(cmd));
-        const auto addr = encode_address(target);
-        out.insert(out.end(), addr.begin(), addr.end());
-        out.push_back('\r');
-        out.push_back('\n');
+        build_request(cred, cmd, target, out);
         return out;
     }
 

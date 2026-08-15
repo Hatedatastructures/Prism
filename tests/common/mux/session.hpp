@@ -544,16 +544,7 @@ namespace psmtest::mux
          */
         auto close() -> net::awaitable<void>
         {
-            session_closed_ = true;
-            accept_notify_.try_send(boost::system::error_code{});
-            for (auto &[id, handle] : streams_)
-            {
-                if (handle)
-                {
-                    handle->set_peer_eof();
-                }
-            }
-            streams_.clear();
+            teardown();
             if (raw_)
             {
                 co_await raw_->close();
@@ -615,8 +606,7 @@ namespace psmtest::mux
                         std::span<std::uint8_t>(header.data() + done, C::header_len - done));
                     if (n == 0)
                     {
-                        session_closed_ = true;
-                        accept_notify_.try_send(boost::system::error_code{});
+                        teardown();
                         co_return;
                     }
                     done += n;
@@ -648,16 +638,14 @@ namespace psmtest::mux
                         co_await raw_->read_some(std::span<std::uint8_t>(payload.data() + done, len - done));
                     if (n == 0)
                     {
-                        session_closed_ = true;
-                        accept_notify_.try_send(boost::system::error_code{});
+                        teardown();
                         co_return;
                     }
                     done += n;
                 }
                 dispatch(frame, payload);
             }
-            session_closed_ = true;
-            accept_notify_.try_send(boost::system::error_code{});
+            teardown();
             co_return;
         }
 
@@ -766,6 +754,28 @@ namespace psmtest::mux
                 }
             }
             return 0;
+        }
+
+        /**
+         * @brief 会话拆除：置关闭标志，唤醒挂起读并清空流表/入向队列
+         * @details 打破 session ↔ stream_handle 的 shared_ptr 循环：
+         * 帧循环退出或 close() 时清空 streams_ 与 incoming_，释放
+         * 句柄对会话的引用，避免底层断开后残余句柄与会话互相保活
+         * 造成泄漏。
+         */
+        auto teardown() -> void
+        {
+            session_closed_ = true;
+            accept_notify_.try_send(boost::system::error_code{});
+            for (auto &[id, handle] : streams_)
+            {
+                if (handle)
+                {
+                    handle->set_peer_eof();
+                }
+            }
+            streams_.clear();
+            incoming_.clear();
         }
 
         std::shared_ptr<transport_base> raw_;                                               ///< 底层传输

@@ -28,6 +28,7 @@
 #include <vector>
 
 #include <common/core/error.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/vless/codec.hpp>
 #include <common/proxy/vless/types.hpp>
@@ -42,7 +43,8 @@ namespace psmtest::vless
      * 实现 transmission 接口可挂载装饰器链。由工厂创建，
      * 调用方以 shared_ptr 持有。
      */
-    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn>
+    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
         /**
@@ -145,6 +147,33 @@ namespace psmtest::vless
         {
             return std::move(next_layer_);
         }
+        /**
+         * @brief 会话是否有效（已握手且底层存在）
+         * @return 有效返回 true
+         */
+        [[nodiscard]] auto is_valid() const noexcept -> bool
+        {
+            return next_layer_ != nullptr && handshaken_;
+        }
+
+        /**
+         * @brief 获取底层传输引用（非拥有）
+         * @return 底层传输
+         */
+        [[nodiscard]] auto underlying() noexcept -> shared_transmission
+        {
+            return next_layer_;
+        }
+
+        /**
+         * @brief 获取会话级内存竞技场
+         * @return 非拥有资源指针（供握手/解析的临时分配）
+         * @note 分配的对象随 conn 存活，conn 析构时一次性回收
+         */
+        [[nodiscard]] auto arena() noexcept -> psm::memory::resource_pointer
+        {
+            return mem_.arena();
+        }
 
         /**
          * @brief 客户端握手：发送请求头 + 读取 2 字节响应
@@ -177,6 +206,7 @@ namespace psmtest::vless
             {
                 co_return error::bad_magic;
             }
+            handshaken_ = true;
             co_return error::none;
         }
 
@@ -258,6 +288,7 @@ namespace psmtest::vless
             }
 
             parsed_ = req;
+            handshaken_ = true;
             co_return std::pair{error::none, std::move(req)};
         }
 
@@ -397,13 +428,16 @@ namespace psmtest::vless
         shared_transmission next_layer_;          ///< 上游传输（独占所有权）
         std::array<std::uint8_t, uuid_len> uuid_; ///< 协议 UUID（凭据/校验）
         request_header parsed_;                   ///< 服务端握手解析结果
-        std::vector<std::uint8_t> buf_;           ///< 预读缓冲（隧道数据暂存）
+        Memory mem_;                     ///< 会话内存策略（arena，热路径零释放分配）
+        typename Memory::template buffer<std::uint8_t> buf_{mem_.arena()}; ///< 预读缓冲（隧道数据暂存）
         std::size_t used_{0};                     ///< 缓冲中有效字节数
+        bool handshaken_{false};         ///< 握手完成标志
     };
 
-    /// 流连接共享指针
-    using shared_conn = std::shared_ptr<conn>;
 
-    static_assert(psmtest::transmission_like<conn>);
+    /// 流连接共享指针
+    using shared_conn = std::shared_ptr<conn<>>;
+
+    static_assert(psmtest::transmission_like<conn<>>);
 
 } // namespace psmtest::vless

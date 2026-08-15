@@ -31,6 +31,7 @@
 #include <vector>
 
 #include <common/core/error.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/trojan/codec.hpp>
 #include <common/proxy/trojan/types.hpp>
@@ -46,7 +47,8 @@ namespace psmtest::trojan
      * 数据透传、预读缓冲。读写静态分派到 T（无虚表）。
      * 由工厂（connect / accept）创建，调用方以 shared_ptr 持有。
      */
-    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn>
+    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
         /**
@@ -199,6 +201,34 @@ namespace psmtest::trojan
         }
 
         /**
+         * @brief 会话是否有效（已握手且底层存在）
+         * @return 有效返回 true
+         */
+        [[nodiscard]] auto is_valid() const noexcept -> bool
+        {
+            return next_layer_ != nullptr && handshaken_;
+        }
+
+        /**
+         * @brief 获取底层传输引用（非拥有）
+         * @return 底层传输
+         */
+        [[nodiscard]] auto underlying() noexcept -> shared_transmission
+        {
+            return next_layer_;
+        }
+
+        /**
+         * @brief 获取会话级内存竞技场
+         * @return 非拥有资源指针（供握手/解析的临时分配）
+         * @note 分配的对象随 conn 存活，conn 析构时一次性回收
+         */
+        [[nodiscard]] auto arena() noexcept -> psm::memory::resource_pointer
+        {
+            return mem_.arena();
+        }
+
+        /**
          * @brief 客户端握手：发送请求头（凭据 + 命令 + 地址）
          * @param target 目标地址
          * @param cmd 命令（CONNECT / udp_associate / mux）
@@ -210,7 +240,9 @@ namespace psmtest::trojan
             -> net::awaitable<error>
         {
             const auto wire = build_request(cred_, cmd, target);
-            co_return co_await send_bytes(wire) ? error::io_error : error::none;
+            const bool ok = co_await send_bytes(wire);
+            handshaken_ = !ok;
+            co_return ok ? error::io_error : error::none;
         }
 
         /**
@@ -289,6 +321,7 @@ namespace psmtest::trojan
             }
 
             request_ = req;
+            handshaken_ = true;
             co_return std::pair{error::none, std::move(req)};
         }
 
@@ -429,14 +462,17 @@ namespace psmtest::trojan
         shared_transmission next_layer_; ///< 上游传输（基类传参，运行时多态）
         std::string cred_;               ///< 预计算凭据（SHA224 hex）
         request_header request_;         ///< 服务端握手解析结果
-        std::vector<std::uint8_t> buf_;  ///< 预读缓冲（隧道数据暂存）
+        Memory mem_;                     ///< 会话内存策略（arena，热路径零释放分配）
+        typename Memory::template buffer<std::uint8_t> buf_{mem_.arena()};  ///< 预读缓冲（隧道数据暂存）
         std::size_t used_{0};            ///< 缓冲中有效字节数
+        bool handshaken_{false};         ///< 握手完成标志
     };
 
+
     /// 流连接共享指针
-    using shared_conn = std::shared_ptr<conn>;
+    using shared_conn = std::shared_ptr<conn<>>;
 
     // 编译期验证：conn 满足传输接口概念（可被其他协议工厂接收）
-    static_assert(psmtest::transmission_like<conn>);
+    static_assert(psmtest::transmission_like<conn<>>);
 
 } // namespace psmtest::trojan

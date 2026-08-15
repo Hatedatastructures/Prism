@@ -76,7 +76,7 @@ namespace psmtest::tuic
     [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg,
                                       const address &target) -> net::awaitable<std::pair<error, shared_conn>>
     {
-        auto c = std::make_shared<conn>(std::move(upstream), cfg.uuid);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.uuid);
         const auto err = co_await c->write_handshake(target);
         co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
@@ -98,7 +98,7 @@ namespace psmtest::tuic
         {
             return nullptr;
         }
-        return std::make_shared<dgram>(std::move(udp));
+        return std::make_shared<dgram<>>(std::move(udp));
     }
 
     /**
@@ -110,7 +110,7 @@ namespace psmtest::tuic
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
         -> net::awaitable<std::tuple<error, message, shared_conn>>
     {
-        auto c = std::make_shared<conn>(std::move(upstream), cfg.uuid);
+        auto c = std::make_shared<conn<>>(std::move(upstream), cfg.uuid);
         auto [err, req] = co_await c->read_handshake();
         co_return std::tuple{err, std::move(req),
                              err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
@@ -132,7 +132,7 @@ namespace psmtest::tuic
         {
             return nullptr;
         }
-        return std::make_shared<dgram>(std::move(udp));
+        return std::make_shared<dgram<>>(std::move(udp));
     }
 
 } // namespace psmtest::tuic

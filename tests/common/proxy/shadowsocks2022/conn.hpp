@@ -36,6 +36,7 @@
 
 #include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/shadowsocks2022/codec.hpp>
 #include <common/proxy/shadowsocks2022/types.hpp>
@@ -53,9 +54,12 @@ namespace psmtest::shadowsocks2022
      * 通过 transmission 接口透传（加解密）隧道数据，或通过
      * async_send_datagram / async_receive_datagram 收发 UDP 数据报。
      */
-    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn>
+    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
+        /// 底层预读批量大小（多 chunk 共享一次 IOCP 往返）
+
         /**
          * @brief 构造函数
          * @param next_layer 已建立连接的底层传输
@@ -141,16 +145,18 @@ namespace psmtest::shadowsocks2022
                 co_return 0;
             }
             std::size_t done = 0;
+            // 循环外复用加密缓冲（消除每块堆分配）；16KB+ 走线程局部池（分级分配）
+            auto out = mem_.template make_buffer<std::uint8_t>(ss::max_chunk_size + 2 * ss::aead_tag_len + 2);
             while (done < buffer.size())
             {
                 const auto n = std::min(static_cast<std::size_t>(ss::max_chunk_size), buffer.size() - done);
-                const auto out = enc_->seal(as_u8(buffer.subspan(done, n)));
-                if (out.empty())
+                const auto enc = enc_->seal(as_u8(buffer.subspan(done, n)), out);
+                if (enc == 0)
                 {
                     ec = make_error_code(error::bad_length);
                     co_return 0;
                 }
-                if (co_await send_bytes(out))
+                if (co_await send_bytes(std::span<const std::uint8_t>(out.data(), enc)))
                 {
                     ec = make_error_code(error::io_error);
                     co_return 0;
@@ -210,6 +216,33 @@ namespace psmtest::shadowsocks2022
         [[nodiscard]] auto release() -> shared_transmission override
         {
             return std::move(next_layer_);
+        }
+        /**
+         * @brief 会话是否有效（已握手且底层存在）
+         * @return 有效返回 true
+         */
+        [[nodiscard]] auto is_valid() const noexcept -> bool
+        {
+            return next_layer_ != nullptr && handshaken_;
+        }
+
+        /**
+         * @brief 获取底层传输引用（非拥有）
+         * @return 底层传输
+         */
+        [[nodiscard]] auto underlying() noexcept -> shared_transmission
+        {
+            return next_layer_;
+        }
+
+        /**
+         * @brief 获取会话级内存竞技场
+         * @return 非拥有资源指针（供握手/解析的临时分配）
+         * @note 分配的对象随 conn 存活，conn 析构时一次性回收
+         */
+        [[nodiscard]] auto arena() noexcept -> psm::memory::resource_pointer
+        {
+            return mem_.arena();
         }
 
         /**
@@ -520,19 +553,18 @@ namespace psmtest::shadowsocks2022
             }
 
             // 3. 读取载荷密文（len + 16 tag）并解密
-            std::vector<std::uint8_t> enc(*len + ss::aead_tag_len);
+            typename Memory::template buffer<std::uint8_t> enc =
+                mem_.template make_buffer<std::uint8_t>(*len + ss::aead_tag_len);
             if (co_await recv_exact(enc))
             {
                 co_return error::unexpected_eof;
             }
-            auto plain = dec_->open_payload(enc);
-            if (plain.empty())
+            // 解密直接写入 plain_rx_（消除临时 vector + 拷贝）
+            plain_rx_.resize(*len);
+            if (dec_->open_payload(enc, plain_rx_) == 0)
             {
                 co_return error::bad_auth;
             }
-
-            // 4. 存入待读缓冲
-            plain_rx_ = std::move(plain);
             plain_off_ = 0;
             co_return error::none;
         }
@@ -729,17 +761,19 @@ namespace psmtest::shadowsocks2022
         ss::message parsed_{};                       ///< 服务端握手解析结果
         std::optional<ss::chunk_codec> enc_;         ///< 发送侧编解码器
         std::optional<ss::chunk_codec> dec_;         ///< 接收侧编解码器
-        std::vector<std::uint8_t> plain_rx_;         ///< 解密后明文缓冲
+        Memory mem_;                                 ///< 会话内存策略（arena，热路径零释放分配）
+        typename Memory::template buffer<std::uint8_t> plain_rx_{mem_.arena()}; ///< 解密后明文缓冲
         std::size_t plain_off_{0};                   ///< 明文缓冲消费偏移
-        std::vector<std::uint8_t> udp_rx_;           ///< UDP 数据报暂存缓冲（独立于隧道）
+        typename Memory::template buffer<std::uint8_t> udp_rx_{mem_.arena()};   ///< UDP 数据报暂存缓冲
         std::uint64_t udp_pkt_id_{0};                ///< UDP 数据报递增包序号
-        std::vector<std::uint8_t> udp_buf_;          ///< UDP 预读缓冲（超读保留）
+        typename Memory::template buffer<std::uint8_t> udp_buf_{mem_.arena()};  ///< UDP 预读缓冲
         std::size_t udp_used_{0};                    ///< UDP 缓冲有效字节数
         bool handshaken_{false};                     ///< 握手完成标志
         bool eof_{false};                            ///< 已读到结束块 / 对端关闭
     };
 
+
     /// 流连接共享指针
-    using shared_conn = std::shared_ptr<conn>;
+    using shared_conn = std::shared_ptr<conn<>>;
 
 } // namespace psmtest::shadowsocks2022

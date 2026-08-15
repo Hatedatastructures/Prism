@@ -28,6 +28,9 @@
 #include <utility>
 #include <vector>
 
+#include <common/core/memory/container.hpp>
+#include <common/core/memory/pointer.hpp>
+
 #include <common/core/error.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/socks5/codec.hpp>
@@ -42,10 +45,15 @@ namespace psmtest::socks5
      * @details 单条连接的协议状态：双端握手、数据透传、预读缓冲、
      * 认证状态。实现 transmission 接口可挂载装饰器链。
      * 由工厂创建，调用方以 shared_ptr 持有。
+     * @tparam Memory 会话内存策略（默认 8KB arena；可注入自定义策略）
      */
-    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn>
+    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
+        /// 内存策略类型（对外暴露，供嵌套层/测试使用）
+        using memory_type = Memory;
+
         /**
          * @brief 构造函数（工厂调用）
          * @param upstream 上游传输（所有权移交）
@@ -123,6 +131,33 @@ namespace psmtest::socks5
         }
 
         /**
+         * @brief 会话是否有效（已握手且底层存在）
+         * @return 有效返回 true
+         */
+        [[nodiscard]] auto is_valid() const noexcept -> bool
+        {
+            return next_layer_ != nullptr && handshaken_;
+        }
+
+        /**
+         * @brief 获取底层传输引用（非拥有）
+         * @return 底层传输
+         */
+        [[nodiscard]] auto underlying() noexcept -> shared_transmission
+        {
+            return next_layer_;
+        }
+
+        /**
+         * @brief 获取底层传输引用（const 版本）
+         * @return 底层传输
+         */
+        [[nodiscard]] auto underlying() const noexcept -> shared_transmission
+        {
+            return next_layer_;
+        }
+
+        /**
          * @brief 获取内层传输（装饰器链导航）
          */
         [[nodiscard]] auto next_layer() noexcept -> psmtest::transmission * override
@@ -168,7 +203,8 @@ namespace psmtest::socks5
             g.methods = enable_auth
                             ? std::vector<std::uint8_t>{static_cast<std::uint8_t>(auth_method::user_pass)}
                             : std::vector<std::uint8_t>{static_cast<std::uint8_t>(auth_method::no_auth)};
-            if (co_await send_bytes(build_greeting(g)))
+                        build_greeting(g, tx_wire_);
+            if (co_await send_bytes(tx_wire_))
             {
                 co_return error::io_error;
             }
@@ -191,8 +227,8 @@ namespace psmtest::socks5
             // 3. 认证（如需，RFC 1929）
             if (sel[1] == static_cast<std::uint8_t>(auth_method::user_pass))
             {
-                const auto auth = build_userpass(username, password);
-                if (co_await send_bytes(auth))
+                            build_userpass(username, password, tx_wire_);
+                            if (co_await send_bytes(tx_wire_))
                 {
                     co_return error::io_error;
                 }
@@ -212,7 +248,8 @@ namespace psmtest::socks5
             }
 
             // 4. 发送请求
-            if (co_await send_bytes(build_request(req)))
+                        build_request(req, tx_wire_);
+            if (co_await send_bytes(tx_wire_))
             {
                 co_return error::io_error;
             }
@@ -229,6 +266,7 @@ namespace psmtest::socks5
                 co_return error::bad_auth;
             }
             bind_ = rep.bind;
+            handshaken_ = true;
             co_return error::none;
         }
 
@@ -317,6 +355,7 @@ namespace psmtest::socks5
             // 7. 发送成功响应（bind 固定 0.0.0.0:0）
             co_await send_reply(reply_code::success);
             req_ = req;
+            handshaken_ = true;
             co_return std::pair{error::none, std::move(req)};
         }
 
@@ -417,7 +456,8 @@ namespace psmtest::socks5
             {
                 rep.bind = bind;
             }
-            co_return co_await send_bytes(build_reply(rep)) ? error::io_error : error::none;
+            build_reply(rep, tx_wire_);
+            co_return co_await send_bytes(tx_wire_) ? error::io_error : error::none;
         }
 
         /**
@@ -583,13 +623,17 @@ namespace psmtest::socks5
         shared_transmission next_layer_; ///< 上游传输（独占所有权）
         request req_;                    ///< 服务端握手解析结果
         address bind_;                   ///< 客户端握手 BND 地址
-        std::vector<std::uint8_t> buf_;  ///< 预读缓冲（隧道数据暂存）
+        typename Memory::template buffer<std::uint8_t> buf_{mem_.arena()}; ///< 预读缓冲（隧道数据暂存）
         std::size_t used_{0};            ///< 缓冲中有效字节数
+        bool handshaken_{false};         ///< 握手完成标志
+        Memory mem_;                     ///< 会话内存策略（arena，热路径零释放分配）
+        /// 发送缓冲（arena 复用，热路径零分配）；mutable：const 握手方法内可写
+        mutable typename Memory::template buffer<std::uint8_t> tx_wire_{mem_.arena()};
     };
 
-    /// 流连接共享指针
-    using shared_conn = std::shared_ptr<conn>;
+    /// 流连接共享指针（默认内存策略）
+    using shared_conn = std::shared_ptr<conn<>>;
 
-    static_assert(psmtest::transmission_like<conn>);
+    static_assert(psmtest::transmission_like<conn<>>);
 
 } // namespace psmtest::socks5

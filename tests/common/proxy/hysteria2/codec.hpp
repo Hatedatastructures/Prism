@@ -30,11 +30,13 @@ namespace psmtest::hysteria2
 {
 
     /**
-     * @brief 编码地址（ATYP + ADDR + PORT 2B BE）
+     * @brief 编码地址（ATYP + ADDR + PORT 2B BE，追加到缓冲）
+     * @param addr 目标地址
+     * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
      */
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    template <typename Alloc>
+    inline auto encode_address(const address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
         switch (addr.type)
         {
@@ -70,6 +72,15 @@ namespace psmtest::hysteria2
         }
         out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+    }
+
+    /**
+     * @brief 编码地址（ATYP + ADDR + PORT 2B BE）
+     */
+    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        encode_address(addr, out);
         return out;
     }
 
@@ -159,15 +170,18 @@ namespace psmtest::hysteria2
     };
 
     /**
-     * @brief 构造 UDP 帧
+     * @brief 构造 UDP 帧（写入复用缓冲）
+     * @param in 输入
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
      */
-    [[nodiscard]] inline auto build_udp(const udp_frame_input &in) -> std::vector<std::uint8_t>
+    template <typename Alloc>
+    inline auto build_udp(const udp_frame_input &in, std::vector<std::uint8_t, Alloc> &out) -> void
     {
+        out.clear();
         if (!in.dst)
         {
-            return {};
+            return;
         }
-        std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(message::kind::udp));
         out.push_back(static_cast<std::uint8_t>(in.session_id & 0xFF));
         out.push_back(static_cast<std::uint8_t>((in.session_id >> 8) & 0xFF));
@@ -177,9 +191,17 @@ namespace psmtest::hysteria2
         out.push_back(static_cast<std::uint8_t>((in.packet_id >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>((in.packet_id >> 16) & 0xFF));
         out.push_back(static_cast<std::uint8_t>((in.packet_id >> 24) & 0xFF));
-        const auto addr = encode_address(*in.dst);
-        out.insert(out.end(), addr.begin(), addr.end());
+        encode_address(*in.dst, out);
         out.insert(out.end(), in.payload.begin(), in.payload.end());
+    }
+
+    /**
+     * @brief 构造 UDP 帧
+     */
+    [[nodiscard]] inline auto build_udp(const udp_frame_input &in) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        build_udp(in, out);
         return out;
     }
 

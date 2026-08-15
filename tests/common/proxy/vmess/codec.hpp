@@ -1238,6 +1238,8 @@ namespace psmtest::vmess
          * @param wire 密文（完整块：长度 + tag + 载荷 + tag）
          * @param plain 输出明文
          * @return 解密结果
+         * @note 结束块（长度 0）时 consumed = 18，明文为空串；
+         *       计算明文长度前先校验，避免无符号下溢越界读。
          */
         auto decrypt(std::span<const std::uint8_t> wire, std::string &plain) -> result
         {
@@ -1255,7 +1257,8 @@ namespace psmtest::vmess
                 r.ec = make_error_code(ec);
                 return r;
             }
-            plain.assign(reinterpret_cast<const char *>(out.data()), consumed - 18 - 16);
+            const auto plain_len = consumed >= 18 + 16 ? consumed - 18 - 16 : 0;
+            plain.assign(reinterpret_cast<const char *>(out.data()), plain_len);
             r.consumed = consumed;
             return r;
         }

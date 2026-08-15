@@ -72,7 +72,7 @@ namespace psmtest::vmess
                                       const address &target, command cmd = command::tcp)
         -> net::awaitable<std::pair<error, shared_conn>>
     {
-        auto c = std::make_shared<conn>(cfg.uuid);
+        auto c = std::make_shared<conn<>>(cfg.uuid);
         const auto err = co_await c->write_handshake(std::move(upstream), target, cmd);
         co_return std::pair{err, err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
     }
@@ -93,7 +93,7 @@ namespace psmtest::vmess
         {
             co_return std::pair{err, shared_dgram{}};
         }
-        co_return std::pair{error::none, std::make_shared<dgram>(std::move(conn))};
+        co_return std::pair{error::none, std::make_shared<dgram<>>(std::move(conn))};
     }
 
     /**
@@ -105,7 +105,7 @@ namespace psmtest::vmess
     [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
         -> net::awaitable<std::tuple<error, message, shared_conn>>
     {
-        auto c = std::make_shared<conn>(cfg.uuid);
+        auto c = std::make_shared<conn<>>(cfg.uuid);
         auto [err, req] = co_await c->read_handshake(std::move(upstream));
         co_return std::tuple{err, std::move(req),
                              err == error::none ? shared_conn(std::move(c)) : shared_conn{}};
@@ -125,7 +125,7 @@ namespace psmtest::vmess
         {
             co_return std::tuple{err, std::move(req), shared_dgram{}};
         }
-        co_return std::tuple{error::none, std::move(req), std::make_shared<dgram>(std::move(conn))};
+        co_return std::tuple{error::none, std::move(req), std::make_shared<dgram<>>(std::move(conn))};
     }
 
 } // namespace psmtest::vmess

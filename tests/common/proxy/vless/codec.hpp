@@ -35,9 +35,14 @@ namespace psmtest::vless
      * @param addr 目标地址
      * @return 字节序列
      */
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    /**
+     * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE，追加到缓冲）
+     * @param addr 目标地址
+     * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
+     */
+    template <typename Alloc>
+    [[nodiscard]] inline auto encode_address(const address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
         switch (addr.type)
         {
@@ -73,6 +78,16 @@ namespace psmtest::vless
         }
         out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+    }
+
+    /**
+     * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE）
+     * @return 字节序列
+     */
+    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        encode_address(addr, out);
         return out;
     }
 
@@ -140,15 +155,14 @@ namespace psmtest::vless
     }
 
     /**
-     * @brief 构造 VLESS 请求头字节
+     * @brief 构造 VLESS 请求头字节（写入复用缓冲）
      * @param hdr 请求头
-     * @return 字节序列
-     * @details 格式 [Version 1B][UUID 16B][AddnlLen 1B][Addnl var][Cmd 1B]
-     * [Port 2B BE][Atyp 1B][Addr var]（Port 在 ATYP 之前，与 UDP 帧相反）。
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
      */
-    [[nodiscard]] inline auto build_request(const request_header &hdr) -> std::vector<std::uint8_t>
+    template <typename Alloc>
+    inline auto build_request(const request_header &hdr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        std::vector<std::uint8_t> out;
+        out.clear();
         out.reserve(22 + hdr.addons.size() + hdr.target.host.size());
         out.push_back(hdr.version);
         out.insert(out.end(), hdr.uuid.begin(), hdr.uuid.end());
@@ -190,6 +204,19 @@ namespace psmtest::vless
             break;
         }
         }
+    }
+
+    /**
+     * @brief 构造 VLESS 请求头字节
+     * @param hdr 请求头
+     * @return 字节序列
+     * @details 格式 [Version 1B][UUID 16B][AddnlLen 1B][Addnl var][Cmd 1B]
+     * [Port 2B BE][Atyp 1B][Addr var]（Port 在 ATYP 之前，与 UDP 帧相反）。
+     */
+    [[nodiscard]] inline auto build_request(const request_header &hdr) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        build_request(hdr, out);
         return out;
     }
 
@@ -268,7 +295,23 @@ namespace psmtest::vless
     }
 
     /**
-     * @brief 构造 VLESS UDP 帧（Xray 兼容）
+     * @brief 构造 VLESS UDP 帧（写入复用缓冲）
+     * @param target 目标地址
+     * @param payload UDP 载荷
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
+     */
+    template <typename Alloc>
+    inline auto build_udp_pkt(const address &target, std::span<const std::uint8_t> payload,
+                              std::vector<std::uint8_t, Alloc> &out) -> void
+    {
+        out.clear();
+        out.reserve(1 + target.host.size() + 2 + payload.size());
+        encode_address(target, out);
+        out.insert(out.end(), payload.begin(), payload.end());
+    }
+
+    /**
+     * @brief 构造 VLESS UDP 帧
      * @param target 目标地址
      * @param payload UDP 载荷
      * @return 帧字节：[ATYP 1B][ADDR var][PORT 2B BE][payload]
@@ -280,10 +323,7 @@ namespace psmtest::vless
         -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        out.reserve(1 + target.host.size() + 2 + payload.size());
-        const auto addr = encode_address(target);
-        out.insert(out.end(), addr.begin(), addr.end());
-        out.insert(out.end(), payload.begin(), payload.end());
+        build_udp_pkt(target, payload, out);
         return out;
     }
 

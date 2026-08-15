@@ -29,11 +29,13 @@ namespace psmtest::tuic
 {
 
     /**
-     * @brief 编码地址（ATYP + ADDR + PORT 2B BE）
+     * @brief 编码地址（ATYP + ADDR + PORT 2B BE，追加到缓冲）
+     * @param addr 目标地址
+     * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
      */
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    template <typename Alloc>
+    inline auto encode_address(const address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
         switch (addr.type)
         {
@@ -69,6 +71,15 @@ namespace psmtest::tuic
         }
         out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+    }
+
+    /**
+     * @brief 编码地址（ATYP + ADDR + PORT 2B BE）
+     */
+    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        encode_address(addr, out);
         return out;
     }
 
@@ -133,13 +144,15 @@ namespace psmtest::tuic
     }
 
     /**
-     * @brief 构造消息帧
+     * @brief 构造消息帧（写入复用缓冲）
      * @param msg 消息
-     * @return wire 字节
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
      */
-    [[nodiscard]] inline auto build(const message &msg) -> std::vector<std::uint8_t>
+    template <typename Alloc>
+    inline auto build(const message &msg, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        std::vector<std::uint8_t> out;
+        out.clear();
+        out.reserve(2 + 8 + 1 + msg.dst.host.size() + 2 + msg.payload.size());
         out.push_back(protocol_version);
         out.push_back(msg.cmd);
         if (msg.cmd == cmd_packet)
@@ -155,13 +168,23 @@ namespace psmtest::tuic
         }
         if (msg.cmd == cmd_connect || msg.cmd == cmd_packet)
         {
-            const auto addr = encode_address(msg.dst);
-            out.insert(out.end(), addr.begin(), addr.end());
+            encode_address(msg.dst, out);
         }
         if (msg.cmd == cmd_packet)
         {
             out.insert(out.end(), msg.payload.begin(), msg.payload.end());
         }
+    }
+
+    /**
+     * @brief 构造消息帧
+     * @param msg 消息
+     * @return wire 字节
+     */
+    [[nodiscard]] inline auto build(const message &msg) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        build(msg, out);
         return out;
     }
 

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <boost/asio.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
@@ -91,7 +92,10 @@ namespace psm::testing
                 SSL_set_bio(ssl, read_bio, write_bio);
 
                 // 协程：持续从 write_bio 读取 TLS 记录并写入 socket
-                auto relay_out = [&socket, write_bio]() -> net::awaitable<void>
+                // 完成时经 relay_done 通知主协程，确保 SSL_free（释放
+                // write_bio）前 detached 协程已退出，避免 use-after-free
+                net::experimental::channel<void()> relay_done(co_await net::this_coro::executor, 1);
+                auto relay_out = [&socket, write_bio, &relay_done]() -> net::awaitable<void>
                 {
                     std::array<std::byte, 16384> buf{};
                     while (true)
@@ -122,6 +126,7 @@ namespace psm::testing
                             }
                         }
                     }
+                    relay_done.try_send();
                 };
                 net::co_spawn(co_await net::this_coro::executor, std::move(relay_out), net::detached);
 
@@ -156,6 +161,10 @@ namespace psm::testing
                         SSL_write(ssl, app_buf.data(), app_n);
                     }
                 }
+
+                // 等待 relay_out 退出后再释放 SSL（连带释放 write_bio），
+                // 防止 detached 协程在 BIO 上执行 use-after-free
+                co_await relay_done.async_receive(net::use_awaitable);
 
                 SSL_free(ssl); // 这也会释放 read_bio 和 write_bio
             }

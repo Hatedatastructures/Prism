@@ -27,6 +27,7 @@
 
 #include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/tuic/codec.hpp>
 #include <common/proxy/tuic/types.hpp>
@@ -41,7 +42,8 @@ namespace psmtest::tuic
      * transmission 接口透传 TCP 帧载荷，或通过 async_send_datagram
      * / async_receive_datagram 收发 UDP 数据报。
      */
-    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn>
+    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
         /**
@@ -230,6 +232,33 @@ namespace psmtest::tuic
         {
             return std::move(next_layer_);
         }
+        /**
+         * @brief 会话是否有效（已握手且底层存在）
+         * @return 有效返回 true
+         */
+        [[nodiscard]] auto is_valid() const noexcept -> bool
+        {
+            return next_layer_ != nullptr && handshaken_;
+        }
+
+        /**
+         * @brief 获取底层传输引用（非拥有）
+         * @return 底层传输
+         */
+        [[nodiscard]] auto underlying() noexcept -> shared_transmission
+        {
+            return next_layer_;
+        }
+
+        /**
+         * @brief 获取会话级内存竞技场
+         * @return 非拥有资源指针（供握手/解析的临时分配）
+         * @note 分配的对象随 conn 存活，conn 析构时一次性回收
+         */
+        [[nodiscard]] auto arena() noexcept -> psm::memory::resource_pointer
+        {
+            return mem_.arena();
+        }
 
     private:
         /**
@@ -399,11 +428,13 @@ namespace psmtest::tuic
         std::uint32_t assoc_id_{0};           ///< UDP 关联 ID
         std::uint32_t packet_id_{0};          ///< UDP 包 ID（自增）
         bool handshaken_{false};              ///< 握手完成标志
+        Memory mem_;     ///< 会话级内存竞技场（热路径零释放分配）
     };
 
-    /// 流连接共享指针
-    using shared_conn = std::shared_ptr<conn>;
 
-    static_assert(psmtest::transmission_like<conn>);
+    /// 流连接共享指针
+    using shared_conn = std::shared_ptr<conn<>>;
+
+    static_assert(psmtest::transmission_like<conn<>>);
 
 } // namespace psmtest::tuic

@@ -30,6 +30,23 @@ namespace psmtest::socks5
 {
 
     /**
+     * @brief 编码 greeting（写入复用缓冲）
+     * @param g 问候（版本 + 方法列表）
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
+     * @details 覆盖式写入；缓冲容量不足时自动扩容（首次分配后复用）。
+     * 接受任意分配器 vector（std::vector / pmr vector 均可）。
+     */
+    template <typename Alloc>
+    inline auto build_greeting(const greeting &g, std::vector<std::uint8_t, Alloc> &out) -> void
+    {
+        out.clear();
+        out.reserve(2 + g.methods.size());
+        out.push_back(g.ver);
+        out.push_back(static_cast<std::uint8_t>(g.methods.size()));
+        out.insert(out.end(), g.methods.begin(), g.methods.end());
+    }
+
+    /**
      * @brief 编码 greeting
      * @param g 问候（版本 + 方法列表）
      * @return greeting 字节：[ver 1B][nmethods 1B][methods var]
@@ -37,10 +54,7 @@ namespace psmtest::socks5
     [[nodiscard]] inline auto build_greeting(const greeting &g) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        out.reserve(2 + g.methods.size());
-        out.push_back(g.ver);
-        out.push_back(static_cast<std::uint8_t>(g.methods.size()));
-        out.insert(out.end(), g.methods.begin(), g.methods.end());
+        build_greeting(g, out);
         return out;
     }
 
@@ -106,13 +120,13 @@ namespace psmtest::socks5
     }
 
     /**
-     * @brief 编码地址（ATYP + ADDR + PORT 2B BE）
+     * @brief 编码地址（ATYP + ADDR + PORT 2B BE，追加到缓冲）
      * @param addr 目标地址
-     * @return 地址字节
+     * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
      */
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    template <typename Alloc>
+    inline auto encode_address(const address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
         switch (addr.type)
         {
@@ -148,6 +162,17 @@ namespace psmtest::socks5
         }
         out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+    }
+
+    /**
+     * @brief 编码地址（ATYP + ADDR + PORT 2B BE）
+     * @param addr 目标地址
+     * @return 地址字节
+     */
+    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        encode_address(addr, out);
         return out;
     }
 
@@ -212,6 +237,23 @@ namespace psmtest::socks5
     }
 
     /**
+     * @brief 编码请求（写入复用缓冲）
+     * @param req 请求（命令 + 目标地址）
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
+     * @details 头部 3 字节后直接续写地址，无中间缓冲。
+     */
+    template <typename Alloc>
+    inline auto build_request(const request &req, std::vector<std::uint8_t, Alloc> &out) -> void
+    {
+        out.clear();
+        out.reserve(3 + req.target.host.size() + 8);
+        out.push_back(req.ver);
+        out.push_back(static_cast<std::uint8_t>(req.cmd));
+        out.push_back(req.rsv);
+        encode_address(req.target, out);
+    }
+
+    /**
      * @brief 编码请求
      * @param req 请求（命令 + 目标地址）
      * @return 请求字节：[ver][cmd][rsv][ATYP][ADDR][PORT]
@@ -219,11 +261,7 @@ namespace psmtest::socks5
     [[nodiscard]] inline auto build_request(const request &req) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        out.push_back(req.ver);
-        out.push_back(static_cast<std::uint8_t>(req.cmd));
-        out.push_back(req.rsv);
-        const auto addr = encode_address(req.target);
-        out.insert(out.end(), addr.begin(), addr.end());
+        build_request(req, out);
         return out;
     }
 
@@ -263,6 +301,22 @@ namespace psmtest::socks5
     }
 
     /**
+     * @brief 编码响应（写入复用缓冲）
+     * @param rep 响应（状态码 + 绑定地址）
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
+     */
+    template <typename Alloc>
+    inline auto build_reply(const reply &rep, std::vector<std::uint8_t, Alloc> &out) -> void
+    {
+        out.clear();
+        out.reserve(3 + rep.bind.host.size() + 8);
+        out.push_back(rep.ver);
+        out.push_back(static_cast<std::uint8_t>(rep.code));
+        out.push_back(rep.rsv);
+        encode_address(rep.bind, out);
+    }
+
+    /**
      * @brief 编码响应
      * @param rep 响应（状态码 + 绑定地址）
      * @return 响应字节：[ver][code][rsv][ATYP][ADDR][PORT]
@@ -270,11 +324,7 @@ namespace psmtest::socks5
     [[nodiscard]] inline auto build_reply(const reply &rep) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        out.push_back(rep.ver);
-        out.push_back(static_cast<std::uint8_t>(rep.code));
-        out.push_back(rep.rsv);
-        const auto addr = encode_address(rep.bind);
-        out.insert(out.end(), addr.begin(), addr.end());
+        build_reply(rep, out);
         return out;
     }
 
@@ -306,6 +356,25 @@ namespace psmtest::socks5
     }
 
     /**
+     * @brief 构造 SOCKS5 UDP 数据报（写入复用缓冲）
+     * @param target 目标地址
+     * @param payload UDP 载荷
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
+     */
+    template <typename Alloc>
+    inline auto build_udp_datagram(const address &target, std::span<const std::uint8_t> payload,
+                                   std::vector<std::uint8_t, Alloc> &out) -> void
+    {
+        out.clear();
+        out.reserve(3 + target.host.size() + 8 + payload.size());
+        out.push_back(0x00);
+        out.push_back(0x00);
+        out.push_back(0x00);
+        encode_address(target, out);
+        out.insert(out.end(), payload.begin(), payload.end());
+    }
+
+    /**
      * @brief 构造 SOCKS5 UDP 数据报（RFC 1928 UDP ASSOCIATE 数据面）
      * @param target 目标地址
      * @param payload UDP 载荷
@@ -317,13 +386,7 @@ namespace psmtest::socks5
         -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        const auto addr = encode_address(target);
-        out.reserve(3 + addr.size() + payload.size());
-        out.push_back(0x00);
-        out.push_back(0x00);
-        out.push_back(0x00);
-        out.insert(out.end(), addr.begin(), addr.end());
-        out.insert(out.end(), payload.begin(), payload.end());
+        build_udp_datagram(target, payload, out);
         return out;
     }
 
@@ -361,6 +424,25 @@ namespace psmtest::socks5
     }
 
     /**
+     * @brief 用户名/密码认证请求（写入复用缓冲）
+     * @param user 用户名
+     * @param pass 密码
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
+     */
+    template <typename Alloc>
+    inline auto build_userpass(std::string_view user, std::string_view pass,
+                               std::vector<std::uint8_t, Alloc> &out) -> void
+    {
+        out.clear();
+        out.reserve(2 + user.size() + 1 + pass.size());
+        out.push_back(0x01);
+        out.push_back(static_cast<std::uint8_t>(user.size()));
+        out.insert(out.end(), user.begin(), user.end());
+        out.push_back(static_cast<std::uint8_t>(pass.size()));
+        out.insert(out.end(), pass.begin(), pass.end());
+    }
+
+    /**
      * @brief 用户名/密码认证请求（RFC 1929）
      * @param user 用户名
      * @param pass 密码
@@ -370,12 +452,7 @@ namespace psmtest::socks5
         -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        out.reserve(2 + user.size() + 1 + pass.size());
-        out.push_back(0x01);
-        out.push_back(static_cast<std::uint8_t>(user.size()));
-        out.insert(out.end(), user.begin(), user.end());
-        out.push_back(static_cast<std::uint8_t>(pass.size()));
-        out.insert(out.end(), pass.begin(), pass.end());
+        build_userpass(user, pass, out);
         return out;
     }
 

@@ -36,6 +36,7 @@
 
 #include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/vmess/codec.hpp>
 #include <common/proxy/vmess/types.hpp>
@@ -52,7 +53,8 @@ namespace psmtest::vmess
      * 或通过 async_send_datagram / async_receive_datagram 收发
      * UDP 数据报。
      */
-    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn>
+    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    class conn : public psmtest::transmission, public std::enable_shared_from_this<conn<Memory>>
     {
     public:
         /**
@@ -140,18 +142,18 @@ namespace psmtest::vmess
                 co_return 0;
             }
             std::size_t done = 0;
+            // 循环外复用加密缓冲（消除每块堆分配）；16KB+ 走线程局部池（分级分配）
+            auto out = mem_.template make_buffer<std::uint8_t>(max_chunk_len + chunk_encryptor::overhead);
             while (done < buffer.size())
             {
                 const auto n = std::min(max_chunk_len, buffer.size() - done);
-                std::vector<std::uint8_t> out(n + chunk_encryptor::overhead);
                 const auto enc = enc_->seal(as_u8(buffer.subspan(done, n)), out);
                 if (enc == 0)
                 {
                     ec = make_error_code(error::bad_length);
                     co_return 0;
                 }
-                const auto wire = std::span<const std::uint8_t>(out.data(), enc);
-                if (co_await send_bytes(wire))
+                if (co_await send_bytes(std::span<const std::uint8_t>(out.data(), enc)))
                 {
                     ec = make_error_code(error::io_error);
                     co_return 0;
@@ -211,6 +213,33 @@ namespace psmtest::vmess
         [[nodiscard]] auto release() -> shared_transmission override
         {
             return std::move(next_layer_);
+        }
+        /**
+         * @brief 会话是否有效（已握手且底层存在）
+         * @return 有效返回 true
+         */
+        [[nodiscard]] auto is_valid() const noexcept -> bool
+        {
+            return next_layer_ != nullptr && handshaken_;
+        }
+
+        /**
+         * @brief 获取底层传输引用（非拥有）
+         * @return 底层传输
+         */
+        [[nodiscard]] auto underlying() noexcept -> shared_transmission
+        {
+            return next_layer_;
+        }
+
+        /**
+         * @brief 获取会话级内存竞技场
+         * @return 非拥有资源指针（供握手/解析的临时分配）
+         * @note 分配的对象随 conn 存活，conn 析构时一次性回收
+         */
+        [[nodiscard]] auto arena() noexcept -> psm::memory::resource_pointer
+        {
+            return mem_.arena();
         }
 
         /**
@@ -380,7 +409,7 @@ namespace psmtest::vmess
             {
                 co_return error::unexpected_eof;
             }
-            payload = std::move(plain_rx_);
+            payload.assign(plain_rx_.begin(), plain_rx_.end());
             plain_off_ = 0;
             co_return error::none;
         }
@@ -583,7 +612,8 @@ namespace psmtest::vmess
             {
                 co_return error::unexpected_eof;
             }
-            std::vector<std::uint8_t> plain(*len);
+            typename Memory::template buffer<std::uint8_t> plain =
+                mem_.template make_buffer<std::uint8_t>(*len);
             const auto err = dec_->open_payload(enc, plain);
             if (err != error::none)
             {
@@ -644,15 +674,17 @@ namespace psmtest::vmess
         std::array<std::uint8_t, 16> uuid_;      ///< 协议 UUID（凭据）
         std::optional<chunk_encryptor> enc_;     ///< 分块加密器（发送侧）
         std::optional<chunk_decryptor> dec_;     ///< 分块解密器（接收侧）
-        std::vector<std::uint8_t> plain_rx_;     ///< 解密后明文缓冲
+        Memory mem_;                             ///< 会话内存策略（arena，热路径零释放分配）
+        typename Memory::template buffer<std::uint8_t> plain_rx_{mem_.arena()}; ///< 解密后的明文缓冲
         std::size_t plain_off_{0};               ///< 明文缓冲消费偏移
         bool handshaken_{false};                 ///< 握手完成标志
-        bool eof_{false};                        ///< 已读到结束块 / 对端关闭
+        bool eof_{false};                        ///< 已读到 EOF（对端关闭）
     };
 
-    /// 流连接共享指针
-    using shared_conn = std::shared_ptr<conn>;
 
-    static_assert(psmtest::transmission_like<conn>);
+    /// 流连接共享指针
+    using shared_conn = std::shared_ptr<conn<>>;
+
+    static_assert(psmtest::transmission_like<conn<>>);
 
 } // namespace psmtest::vmess

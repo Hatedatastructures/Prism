@@ -26,6 +26,8 @@
 
 #include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
+#include <common/core/memory/container.hpp>
+#include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
 #include <common/proxy/tuic/codec.hpp>
 #include <common/proxy/tuic/types.hpp>
@@ -41,7 +43,8 @@ namespace psmtest::tuic
      * 编解码（codec.hpp 纯函数）。由工厂（connect_packet /
      * accept_packet）创建。
      */
-    class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram>
+    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram<Memory>>
     {
     public:
         /**
@@ -83,12 +86,13 @@ namespace psmtest::tuic
             msg.pkt_id = ++packet_id_;
             msg.dst = dest;
             msg.payload.assign(reinterpret_cast<const char *>(payload.data()), payload.size());
-            const auto wire = build(msg);
+            build(msg, tx_wire_);
             std::size_t done = 0;
-            while (done < wire.size())
+            while (done < tx_wire_.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->async_write_some(as_bytes(wire).subspan(done), ec);
+                const auto n = co_await next_layer_->async_write_some(
+                    as_bytes(std::span<const std::uint8_t>(tx_wire_)).subspan(done), ec);
                 if (ec)
                 {
                     co_return error::io_error;
@@ -288,11 +292,13 @@ namespace psmtest::tuic
         shared_transmission next_layer_; ///< 底层数据报传输（独占所有权）
         std::uint32_t assoc_id_{0};      ///< UDP 关联 ID
         std::uint32_t packet_id_{0};     ///< UDP 包 ID（自增）
+        Memory mem_;                     ///< 会话内存策略（arena，热路径零释放分配）
+        typename Memory::template buffer<std::uint8_t> tx_wire_{mem_.arena()}; ///< 发送缓冲（arena 复用，热路径零分配）
     };
 
     /// 包连接共享指针
-    using shared_dgram = std::shared_ptr<dgram>;
+    using shared_dgram = std::shared_ptr<dgram<>>;
 
-    static_assert(psmtest::transmission_like<dgram>);
+    static_assert(psmtest::transmission_like<dgram<>>);
 
 } // namespace psmtest::tuic

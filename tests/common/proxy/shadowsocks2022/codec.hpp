@@ -89,11 +89,13 @@ namespace psmtest::ss2022
     }
 
     /**
-     * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE）
+     * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE，追加到缓冲）
+     * @param addr 目标地址
+     * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
      */
-    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    template <typename Alloc>
+    inline auto encode_address(const address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(addr.type));
         switch (addr.type)
         {
@@ -129,6 +131,15 @@ namespace psmtest::ss2022
         }
         out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+    }
+
+    /**
+     * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE）
+     */
+    [[nodiscard]] inline auto encode_address(const address &addr) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        encode_address(addr, out);
         return out;
     }
 
@@ -382,6 +393,49 @@ namespace psmtest::ss2022
             return out;
         }
 
+        /**
+         * @brief 解密（写入复用缓冲）
+         * @param key 密钥
+         * @param nonce12 12 字节 nonce
+         * @param cipher 密文（含 tag）
+         * @param out 输出缓冲（调用方持有复用，热路径零分配）
+         * @return true = 解密成功
+         */
+        template <typename Alloc>
+        [[nodiscard]] inline auto aead_open(std::span<const std::uint8_t> key,
+                                            std::span<const std::uint8_t> nonce12,
+                                            std::span<const std::uint8_t> cipher,
+                                            std::vector<std::uint8_t, Alloc> &out) -> bool
+        {
+            out.clear();
+            if (cipher.size() < aead_tag_len)
+            {
+                return false;
+            }
+            out.resize(cipher.size() - aead_tag_len);
+            EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
+            if (!ctx)
+            {
+                return false;
+            }
+            int len = 0;
+            EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), nonce12.data());
+            EVP_DecryptUpdate(ctx, out.data(), &len, cipher.data(),
+                              static_cast<int>(cipher.size() - aead_tag_len));
+            int out_len = len;
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(aead_tag_len),
+                                const_cast<std::uint8_t *>(cipher.data()) + cipher.size() - aead_tag_len);
+            const auto ok = EVP_DecryptFinal_ex(ctx, out.data() + out_len, &len);
+            out_len += len;
+            EVP_CIPHER_CTX_free(ctx);
+            if (ok != 1)
+            {
+                return false;
+            }
+            out.resize(static_cast<std::size_t>(out_len));
+            return true;
+        }
+
     } // namespace detail
 
     /**
@@ -406,22 +460,41 @@ namespace psmtest::ss2022
         }
 
         /**
-         * @brief 加密单块（长度 nonce 递增）
+         * @brief 加密单块（写入复用缓冲）
          * @param plain 明文
-         * @return [len 密文 18B][载荷密文 len+16B]
+         * @param out 输出缓冲（调用方持有复用，热路径零分配）
+         * @return 写入字节数；0 = 失败
          */
-        [[nodiscard]] auto seal(std::span<const std::uint8_t> plain) -> std::vector<std::uint8_t>
+        template <typename Alloc>
+        [[nodiscard]] auto seal(std::span<const std::uint8_t> plain,
+                                std::vector<std::uint8_t, Alloc> &out) -> std::size_t
         {
+            out.clear();
             std::array<std::uint8_t, 2> len_plain{static_cast<std::uint8_t>((plain.size() >> 8) & 0xFF),
                                                   static_cast<std::uint8_t>(plain.size() & 0xFF)};
             const auto len_enc = detail::aead_seal(key_, nonce_, len_plain);
             detail::inc_nonce(nonce_);
             const auto body_enc = detail::aead_seal(key_, nonce_, plain);
             detail::inc_nonce(nonce_);
-            std::vector<std::uint8_t> out;
+            if (len_enc.empty() || body_enc.empty())
+            {
+                return 0;
+            }
             out.reserve(len_enc.size() + body_enc.size());
             out.insert(out.end(), len_enc.begin(), len_enc.end());
             out.insert(out.end(), body_enc.begin(), body_enc.end());
+            return out.size();
+        }
+
+        /**
+         * @brief 加密单块（长度 nonce 递增）
+         * @param plain 明文
+         * @return [len 密文 18B][载荷密文 len+16B]
+         */
+        [[nodiscard]] auto seal(std::span<const std::uint8_t> plain) -> std::vector<std::uint8_t>
+        {
+            std::vector<std::uint8_t> out;
+            seal(plain, out);
             return out;
         }
 
@@ -451,23 +524,38 @@ namespace psmtest::ss2022
         }
 
         /**
+         * @brief 解密载荷块（写入复用缓冲）
+         * @param data 载荷密文块
+         * @param out 输出缓冲（调用方持有复用，热路径零分配）
+         * @return 明文长度；0 = 校验失败
+         */
+        template <typename Alloc>
+        [[nodiscard]] auto open_payload(std::span<const std::uint8_t> data,
+                                        std::vector<std::uint8_t, Alloc> &out) -> std::size_t
+        {
+            out.clear();
+            if (data.size() < aead_tag_len)
+            {
+                return 0;
+            }
+            if (!detail::aead_open(key_, nonce_, data, out))
+            {
+                return 0;
+            }
+            detail::inc_nonce(nonce_);
+            return out.size();
+        }
+
+        /**
          * @brief 解密载荷块（n 字节密文 + 16 tag）
          * @param data 载荷密文块
          * @return 明文（空 = 校验失败）
          */
         [[nodiscard]] auto open_payload(std::span<const std::uint8_t> data) -> std::vector<std::uint8_t>
         {
-            if (data.size() < aead_tag_len)
-            {
-                return {};
-            }
-            const auto body = detail::aead_open(key_, nonce_, data);
-            if (body.empty() && data.size() > aead_tag_len)
-            {
-                return {};
-            }
-            detail::inc_nonce(nonce_);
-            return body;
+            std::vector<std::uint8_t> out;
+            open_payload(data, out);
+            return out;
         }
 
         /**
@@ -897,17 +985,19 @@ namespace psmtest::ss2022
     };
 
     /**
-     * @brief 构造 UDP 数据报（逐包 AEAD 无状态加密）
+     * @brief 构造 UDP 数据报（写入复用缓冲）
      * @param in 构造输入
-     * @return 完整数据报字节；参数非法返回空
-     * @details 格式见文件头注释。与 parse_udp_packet 配对使用，
-     * 不依赖任何会话状态，可用任意递增 packet_id 序列。
+     * @param out 输出缓冲（调用方持有复用，热路径零分配）
+     * @return false = 参数非法
      */
-    [[nodiscard]] inline auto build_udp_packet(const udp_build_input &in) -> std::vector<std::uint8_t>
+    template <typename Alloc>
+    [[nodiscard]] inline auto build_udp_packet(const udp_build_input &in,
+                                               std::vector<std::uint8_t, Alloc> &out) -> bool
     {
+        out.clear();
         if (!in.target || in.session_key.size() < session_id_len + packet_id_len)
         {
-            return {};
+            return false;
         }
 
         // 1. SeparateHeader（明文）：SessionID(8) + PacketID(8 BE)
@@ -929,8 +1019,7 @@ namespace psmtest::ss2022
         {
             head.push_back(static_cast<std::uint8_t>((ts >> (56 - i * 8)) & 0xFF));
         }
-        const auto addr = encode_address(*in.target);
-        head.insert(head.end(), addr.begin(), addr.end());
+        encode_address(*in.target, head);
 
         // 3. nonce = SessionID[4..8] + PacketID[0..8]（12 字节）
         std::array<std::uint8_t, 12> nonce{};
@@ -942,13 +1031,26 @@ namespace psmtest::ss2022
             detail::udp_seal(detail::udp_seal_input{in.session_key, nonce, in.payload, separate});
         if (body_enc.empty())
         {
-            return {};
+            return false;
         }
-        std::vector<std::uint8_t> out;
         out.reserve(separate.size() + head.size() + body_enc.size());
         out.insert(out.end(), separate.begin(), separate.end());
         out.insert(out.end(), head.begin(), head.end());
         out.insert(out.end(), body_enc.begin(), body_enc.end());
+        return true;
+    }
+
+    /**
+     * @brief 构造 UDP 数据报（逐包 AEAD 无状态加密）
+     * @param in 构造输入
+     * @return 完整数据报字节；参数非法返回空
+     * @details 格式见文件头注释。与 parse_udp_packet 配对使用，
+     * 不依赖任何会话状态，可用任意递增 packet_id 序列。
+     */
+    [[nodiscard]] inline auto build_udp_packet(const udp_build_input &in) -> std::vector<std::uint8_t>
+    {
+        std::vector<std::uint8_t> out;
+        build_udp_packet(in, out);
         return out;
     }
 

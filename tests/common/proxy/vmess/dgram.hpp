@@ -35,7 +35,8 @@ namespace psmtest::vmess
      * 对外暴露包级 API（async_send_to / async_receive_from）。
      * 由工厂（connect_packet / accept_packet）创建。
      */
-    class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram>
+    template <psm::memory::memory_policy Memory = psm::memory::session_memory<>>
+    class dgram : public psmtest::transmission, public std::enable_shared_from_this<dgram<Memory>>
     {
     public:
         /**
@@ -155,7 +156,7 @@ namespace psmtest::vmess
         [[nodiscard]] auto async_send_datagram_impl(std::span<const std::uint8_t> payload)
             -> net::awaitable<error>
         {
-            auto *c = dynamic_cast<conn *>(next_layer_.get());
+            auto *c = dynamic_cast<conn<Memory> *>(next_layer_.get());
             if (!c)
             {
                 co_return error::not_open;
@@ -169,7 +170,7 @@ namespace psmtest::vmess
         [[nodiscard]] auto async_receive_datagram_impl(std::vector<std::uint8_t> &payload)
             -> net::awaitable<error>
         {
-            auto *c = dynamic_cast<conn *>(next_layer_.get());
+            auto *c = dynamic_cast<conn<Memory> *>(next_layer_.get());
             if (!c)
             {
                 co_return error::not_open;
@@ -181,6 +182,6 @@ namespace psmtest::vmess
     };
 
     /// 包连接共享指针
-    using shared_dgram = std::shared_ptr<dgram>;
+    using shared_dgram = std::shared_ptr<dgram<>>;
 
 } // namespace psmtest::vmess
