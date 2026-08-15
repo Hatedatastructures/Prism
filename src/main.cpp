@@ -4,6 +4,18 @@
  */
 
 #include <boost/asio/signal_set.hpp>
+#include <boost/throw_exception.hpp>
+
+// GCC 16 + boost header-only：强制生成 wrapexcept 虚析构 thunk
+// （通过 deleter 的 delete 路径触发 non-virtual thunk 实例化）
+namespace
+{
+    [[maybe_unused]] auto force_boost_wrapexcept_thunk() -> void
+    {
+        boost::wrapexcept<std::logic_error> *p = nullptr;
+        delete p;
+    }
+}
 
 #include <cstdio>
 #include <ctime>

@@ -14,12 +14,67 @@ target_sources(prism_test_common INTERFACE
         core/parser.hpp
         core/protocol_base.hpp
         core/session_base.hpp
+        core/codec_traits.hpp
         core/transport/algorithm.hpp
         core/transport/bench.hpp
         core/transport/memory_stream.hpp
         core/transport/socket_stream.hpp
         core/transport/stream.hpp
         core/transport/transport_base.hpp
+        # ── 主库底层工具（header-only 拷贝，命名空间 psm::） ──
+        core/fault/code.hpp
+        core/fault/compatible.hpp
+        core/fault/handling.hpp
+        core/exception/deviant.hpp
+        core/exception/network.hpp
+        core/exception/protocol.hpp
+        core/exception/security.hpp
+        core/foundation.hpp
+        core/memory/container.hpp
+        core/memory/pointer.hpp
+        core/memory/pool.hpp
+        core/crypto/aead.hpp
+        core/crypto/base64.hpp
+        core/crypto/blake3.hpp
+        core/crypto/block.hpp
+        core/crypto/crypto.hpp
+        core/crypto/hkdf.hpp
+        core/crypto/sha224.hpp
+        core/crypto/x25519.hpp
+        core/coroutine/registry.hpp
+        core/rate/counter.hpp
+        core/diagnose/context.hpp
+        core/diagnose/log.hpp
+        core/transport/transmission.hpp
+        core/transport/reliable.hpp
+        core/transport/unreliable.hpp
+        core/transport/preview.hpp
+        core/transport/pad.hpp
+        core/transport/snapshot.hpp
+        core/transport/encrypted.hpp
+        core/transport/connector.hpp
+        core/protocol/address.hpp
+        core/protocol/form.hpp
+        core/protocol/framing.hpp
+        core/protocol/read.hpp
+        core/protocol/mux.hpp
+        core/protocol/target.hpp
+        # ── HTTP/2、HTTP/3、QUIC 工具层 ──
+        core/http2/session.hpp
+        core/http2/stream.hpp
+        core/http3/auth.hpp
+        core/http3/qpack.hpp
+        core/http3/session.hpp
+        core/http3/server.hpp
+        core/quic/stream_adapter.hpp
+        core/quic/gateway_common.hpp
+        # ── 中间件管线 ──
+        core/middleware/context.hpp
+        core/middleware/pipeline.hpp
+        core/middleware/builtin/dial.hpp
+        core/middleware/builtin/mux.hpp
+        core/middleware/builtin/pad.hpp
+        core/middleware/builtin/relay.hpp
         mux/codec.hpp
         mux/session.hpp
         mux/types.hpp

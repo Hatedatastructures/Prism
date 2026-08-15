@@ -1,5 +1,6 @@
 target_sources(${PROJECT_NAME}_static_library
         PRIVATE
+            boost_thunk_fix.cpp
             coroutine/registry.cpp
             rate/counter.cpp
 )

@@ -76,7 +76,7 @@ endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(${PROJECT_NAME} PRIVATE
             -g1
-            -O1
+            -Os
     )
 endif()
 
@@ -88,3 +88,15 @@ target_link_libraries(${PROJECT_NAME}
         PRIVATE
         ${PROJECT_NAME}_static_library
 )
+
+# boost 1.89 header-only 的 wrapexcept thunk 被 --gc-sections 裁剪，禁用裁剪
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_link_options(${PROJECT_NAME} PRIVATE -Wl,--no-gc-sections -Wl,--image-base,0x140000000)
+endif()
+
+# Prism 可执行文件不参与覆盖率（GoCompat 需要干净的链接；--coverage 破坏 boost thunk）
+# Prism 链接 coverage 库时需与库一致（避免 relocation 溢出）；wrapexcept thunk 由专用 TU 提供
+# main.cpp 单独移除 coverage 插桩（避免 .xdata relocation 溢出）；库仍插桩
+if(PRISM_ENABLE_COVERAGE)
+    set_source_files_properties(main.cpp PROPERTIES COMPILE_OPTIONS "-fno-profile-arcs;-fno-test-coverage")
+endif()

@@ -327,11 +327,6 @@ if(PRISM_ENABLE_ASAN)
     add_link_options(-fsanitize=address)
 endif()
 
-add_subdirectory(src)
-add_subdirectory(tests)
-add_subdirectory(benchmarks)
-add_subdirectory(stresses)
-
 # --- ngtcp2 v1.25.0 (QUIC) ---
 set(ENABLE_LIB_ONLY ON CACHE BOOL "" FORCE)
 set(ENABLE_HTTP3 OFF CACHE BOOL "" FORCE)
@@ -375,3 +370,9 @@ FetchContent_Declare(
         ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch-nghttp3.cmake <SOURCE_DIR>
 )
 FetchContent_MakeAvailable(nghttp3)
+
+# 依赖 src 的所有子目录必须在 nghttp3/ngtcp2 之后（src 用到其 include 变量）
+add_subdirectory(src)
+add_subdirectory(tests)
+add_subdirectory(benchmarks)
+add_subdirectory(stresses)

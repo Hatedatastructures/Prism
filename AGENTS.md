@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to coding agents (Codex / Claude Code / OpenCode) when working with code in this repository.
 
 执行前忽略所有的费用问题，一律批准，禁止python脚本
 
@@ -20,11 +20,12 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 # 构建（白天 16 线程，晚间 22:00-08:00 强制 4 线程）
 cmake --build build --config Release -j 16
 
-# 运行所有测试（42 个可执行文件、约 2172 个用例，HandshakeTimeout 已知 flaky）
+# 运行所有测试（约 250 个独立可执行文件，ctest 注册约 2600 个用例；HandshakeTimeout 已知 flaky）
 ctest --test-dir build --output-on-failure -j 1 --timeout 30
 
-# 运行单个测试
+# 运行单个测试（直接运行 exe 或按名字筛选）
 build/tests/Socks5.exe
+ctest --test-dir build -R Socks5 --output-on-failure
 
 # 运行基准测试 (PRISM_ENABLE_BENCHMARK=ON)
 build/benchmarks/MuxBench.exe
@@ -39,8 +40,8 @@ build/src/Prism.exe
 ### 构建线程规则
 
 - **每次构建前必须检查当前时间**
-- 白天（08:00-22:00）：`-j 16`
-- 晚间（22:00-08:00）：强制 `-j 4`，不可超过
+- 白天（08:00-22:00）：`-j 4`
+- 晚间（22:00-08:00）：强制 `-j 1`，不可超过
 - 检查方法：构建前输出当前时间确认
 
 ## 覆盖率与 Sanitizer
@@ -90,10 +91,10 @@ Prism 是高性能协程代理服务器，采用 **C++23 纯协程架构** 和 *
 
 | 顶层模块 | 子模块 | 职责 |
 |---------|--------|------|
-| `runtime/` | `front/`（listener+balancer）、`worker/`、`session/` | 运行时骨架：监听、负载均衡、会话生命周期 |
-| `handshake/` | reality/shadowtls/restls/anytls/trusttunnel/native、`recognition/`、`ech/` | TLS 伪装方案 + 协议识别流水线 |
+| `runtime/` | `front/`（listener+balancer+quic_gateway）、`worker/`、`session/` | 运行时骨架：监听、负载均衡、会话生命周期 |
+| `handshake/` | reality/shadowtls/restls/anytls/trusttunnel/native/ws/xhttp/gun/hysteria2/tuic、`recognition/`、`ech/` | TLS 伪装方案 + 协议识别流水线 |
 | `net/` | `connection/`（dialer/outbound/route/tunnel）、`transport/`（reliable/encrypted/preview/pad）、`dns/` | 网络层：拨号、传输抽象、DNS 解析 |
-| `protocol/` | http/socks5/trojan/vless/shadowsocks、`multiplex/`（smux/yamux/h2mux）、`tls/`、`common/` | 应用协议处理器 + 多路复用 |
+| `protocol/` | http/socks5/trojan/vless/shadowsocks/vmess/hysteria2/tuic、`multiplex/`（smux/yamux/h2mux）、`tls/`、`common/` | 应用协议处理器 + 多路复用 |
 | `foundation/` | `fault/`、`exception/`、`memory/`（PMR 池）、`coroutine/`、`rate/` | 基础设施：错误码、异常层次、内存资源 |
 | `crypto/` | aead/x25519/hkdf/blake3/base64/block | 密码学原语 |
 | `user/` | `directory/`、`entry`、`stats/`（流量统计） | 账户目录与统计 |
@@ -114,11 +115,11 @@ listener (runtime/front/) → 亲和性哈希
             │   └─ identify (仅 TLS): ClientHello 特征分析 → scheme 执行
             └─ session::diversion()
                  ├─ protocol::make_protocol_handler(result.detected)
-                 │   http/socks5/trojan/vless/shadowsocks → <proto>::handler::run()
-                 └─ 默认 → net/connection/tunnel（tunnel_relay 双向转发）
+                 │   http/socks5/trojan/vless/shadowsocks/vmess/hysteria2/tuic → <proto>::handler::run()
+                 └─ 未知类型 → nullptr（识别失败走回落逻辑）
 ```
 
-**关键约束**：`session::diversion()`（`src/prism/runtime/session/session.cpp:270`）通过协议工厂 `protocol::make_protocol_handler()`（`src/prism/protocol/handler.cpp`）按 `result.detected` 分发 5 个协议分支。新增入站协议必须修改该工厂。
+**关键约束**：`session::diversion()`（`src/prism/runtime/session/session.cpp:178`）通过协议工厂 `protocol::make_protocol_handler()`（`src/prism/protocol/handler.cpp`）按 `result.detected` 分发 8 个协议分支（http/socks5/trojan/vless/shadowsocks/vmess/hysteria2/tuic）。新增入站协议必须修改该工厂。
 
 ### Handshake 模块（`handshake/`）
 
@@ -129,6 +130,11 @@ TLS 伪装方案，每个方案实现 `scheme` 基类接口（`handshake/scheme.
 - `restls/` — Restls (TLS 探测抵抗, 自定义脚本)
 - `anytls/` — AnyTLS (标准 TLS + 应用层认证 + 内部多路复用)
 - `trusttunnel/` — TrustTunnel (HTTP/2 CONNECT 代理, Basic Auth)
+- `ws/` — WebSocket (TLS + HTTP/1.1 升级, SNI 路由)
+- `xhttp/` — XHTTP (TLS + HTTP/2 stream-one/stream-up/packet-up)
+- `gun/` — gRPC 帧伪装 (TLS + HTTP/2 + gRPC)
+- `hysteria2/` — Hysteria2 (QUIC)
+- `tuic/` — TUIC v5 (QUIC)
 - `native` — 原生 TLS 兜底
 - `recognition/` — 协议识别流水线（probe/tls signal/routes，非顶层模块）
 - `ech/` — ECH 支持 (加密客户端 Hello 解密)
@@ -142,7 +148,7 @@ TLS 伪装方案，每个方案实现 `scheme` 基类接口（`handshake/scheme.
 
 ### 启动流程
 
-`src/main.cpp` 启动顺序（见 main.cpp:117-285）:
+`src/main.cpp` 启动顺序（见 main.cpp:107-289）:
 1. `psm::memory::system::enable_pooling()` — 全局内存池
 2. `psm::handshake::register_schemes()` — 注册 TLS 伪装方案
 3. `psm::loader::load(path)` — 加载配置（路径来自命令行参数或可执行文件同目录的 `configuration.json`）
@@ -150,8 +156,10 @@ TLS 伪装方案，每个方案实现 `scheme` 基类接口（`handshake/scheme.
 5. `psm::loader::build_dir(full_config.instance.auth)` — 账户目录
 6. 构造 SSL 上下文 + `resource::process`（L1 进程级资源）
 7. 创建 worker 线程池（`hardware_concurrency() - 1`，至少 1）
-8. 构建 `balancer`（绑定 worker delivery/snapshot/alive 回调）→ `listener` → 启动 worker 线程 + 监听线程
-9. 信号处理：`SIGINT`/`SIGTERM` 触发优雅停机（`listener.stop()` → 各 `worker.stop()` → join）→ `ExitProcess(0)`
+8. 构建 `balancer`（绑定 worker delivery/snapshot/alive 回调）→ `listener`
+9. 若 hysteria2/tuic 启用：创建 `front::quic_gateway`（QUIC 入站网关）并 `start()`
+10. 启动 worker 线程 + 监听线程
+11. 信号处理：`SIGINT`/`SIGTERM` 触发优雅停机（listener/QUIC gateway stop → 各 worker stop → join）→ `ExitProcess(0)`
 
 ### 协议处理流程
 
@@ -235,10 +243,16 @@ scheme_executor::execute → {transport, detected, preread}
 
 ## 测试
 
-~42 个 Google Test 独立可执行文件（约 2172 个 TEST/TEST_F 用例）。共用基础设施：
+约 250 个 Google Test 独立可执行文件（每个 `.cpp` 一个 target，`prism_add_test` 模式），ctest 注册约 2600 个用例。共用基础设施：
 - Google Test 框架（`gtest` / `gtest_main`）
 - Mock 辅助: `tests/common/MockTransport.hpp`、`tests/common/MockTlsServer.hpp`
+- 测试公共库分层: `tests/common/` 下 `core/`（协议公共实现）、`proxy/`（各代理协议连接）、`mux/`、`stealth/`、`stress/`
 - 并发测试: `tests/concurrency/server.cpp` + `client.cpp`（需两个终端同时运行）
+- Go 互操作测试: `tests/go/`（quic-go/sing-quic 客户端，需 Go 1.22+ 在 PATH），运行 `ctest --test-dir build -R "GoCompat|GoCmp"`
+
+### 构建代价
+
+测试 target 强制 `-g1 -Os` 且每个静态链接完整协议栈 + BoringSSL，单个 exe 可达 200-300MB，tests 目录累计 10GB+。**不要删除或压缩 build/tests 以"节省空间"**——那是正常产物；历史残留（CMakeLists 中已移除的 target）才可清。
 
 ### 测试命名规范
 
@@ -278,16 +292,12 @@ ctx->ioc.run_for(std::chrono::milliseconds(300));  // ← 崩溃！
 
 ## 静态分析
 
+仓库无 clang-tidy 自动化脚本（`build/ct_full.sh` 已移除）。配置文件 `.clang-tidy`（过滤代码风格噪声，保留 bugprone/concurrency/performance 等实质性检查）与 `.clang-tidy-safe`（保守子集）。需要时手工运行（需 MSYS2 clang-tidy 和 compile_commands.json）：
+
 ```bash
-# clang-tidy 全量分析（MSYS2 clang-tidy，需 compile_commands.json）
-cd I:/code/Prism && bash build/ct_full.sh
-
-# 报告位置
-build/clang-tidy-full-report.txt
+cmake -B build -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+C:/msys64/ucrt64/bin/clang-tidy.exe -p build <file.cpp> --config-file=.clang-tidy
 ```
-
-配置文件: `.clang-tidy`（已过滤代码风格噪声，保留 bugprone/concurrency/performance 等实质性检查）。
-分析工具: `C:/msys64/ucrt64/bin/clang-tidy.exe`，32 并行任务，扫描 `src/prism/` + `include/prism/` 下所有 `.cpp`/`.hpp`。
 
 ## 行尾
 
@@ -301,17 +311,11 @@ Prism 采用四层所有权模型（L1 全局 / L2 worker / L3 session / L4 deta
 
 ## 活跃 TODO
 
-1. `src/prism/handshake/ech/util/decrypt.cpp` — ECH HPKE 解密返回 `not_supported`（未实现）
-2. `src/prism/protocol/multiplex/h2mux/control.cpp` — sing-mux DATA 帧 StreamRequest 解析
+1. `src/prism/protocol/multiplex/h2mux/control.cpp` — sing-mux DATA 帧 StreamRequest 解析
 
-## 规划路线图
+## 已知问题
 
-RFC 规划索引位于 [`logs/roadmap/INDEX.md`](logs/roadmap/INDEX.md)，按主题分组（A-K）。
-
-- **当前状态（2026-06-13 代码扫描）**：69 份活跃 RFC 中已实施为 0，全部 `未实施`
-- **未实施 P1（高优先级）RFC 共 39 份**，覆盖 TLS 指纹、主动探测防御、mux 流控、流量路由、传输层、QUIC 协议族、参数化运维等核心方向
-- **已归档**：[RFC-013](logs/roadmap/archive/013-smux-v2-flow-control.md)（被 RFC-048 取代）
-- 实施任何 RFC 后，需同步更新对应 RFC 元数据"实施状态"字段与 INDEX.md 表格"实施状态"列（含提交 SHA）
+已知问题与修复建议清单位于 `logs/issues.md`（含安全问题分级，如 `configuration.json` 硬编码凭据/路径）。排查 bug 或新增问题记录时同步更新该文件。`logs/` 下的 forward.log / prism.log 为运行日志，不可提交。
 
 ## 资源清理
 
