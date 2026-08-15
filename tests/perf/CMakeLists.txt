@@ -1,5 +1,6 @@
 # 性能测量工具：连接运行中的 Prism 代理，不注册 ctest（依赖外部进程）
-add_executable(ProtocolPerf ProtocolPerf.cpp)
+add_executable(ProtocolPerf ProtocolPerf.cpp
+)
 target_compile_options(ProtocolPerf PRIVATE -g1 -Os)
 target_link_libraries(ProtocolPerf PRIVATE ${PROJECT_NAME}_static_library)
 target_include_directories(ProtocolPerf BEFORE PRIVATE
@@ -32,3 +33,44 @@ target_compile_options(EncryptParallel PRIVATE -g1 -Os)
 target_link_libraries(EncryptParallel PRIVATE ${PROJECT_NAME}_static_library)
 target_include_directories(EncryptParallel BEFORE PRIVATE ${CMAKE_SOURCE_DIR}/tests ${CMAKE_SOURCE_DIR}/src)
 set_target_properties(EncryptParallel PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+
+# 底层工具层性能基准（新 core 模块，链接 prism_test_common）
+add_executable(CorePerf CorePerf.cpp)
+target_compile_options(CorePerf PRIVATE -g1 -Os)
+target_link_libraries(CorePerf PRIVATE prism_test_common benchmark::benchmark)
+target_include_directories(CorePerf BEFORE PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests
+    ${CMAKE_SOURCE_DIR}/src)
+if(MINGW)
+    target_compile_options(CorePerf PRIVATE -Wa,-mbig-obj -fno-keep-inline-dllexport)
+    set_target_properties(CorePerf PROPERTIES
+        ENABLE_EXPORTS OFF
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+endif()
+
+# Э���ⴿ���룩���ܻ�׼��header-only codec��ʹ�� prism_test_common��
+add_executable(CodecPerf CodecPerf.cpp)
+target_compile_options(CodecPerf PRIVATE -g1 -Os)
+target_link_libraries(CodecPerf PRIVATE prism_test_common)
+target_include_directories(CodecPerf BEFORE PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests
+    ${CMAKE_SOURCE_DIR}/src)
+if(MINGW)
+    target_compile_options(CodecPerf PRIVATE -Wa,-mbig-obj -fno-keep-inline-dllexport)
+    set_target_properties(CodecPerf PROPERTIES
+        ENABLE_EXPORTS OFF
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+endif()
+# ����ͨ���������ܻ���
+add_executable(TransferPerf TransferPerf.cpp)
+target_compile_options(TransferPerf PRIVATE -g1 -Os)
+target_link_libraries(TransferPerf PRIVATE prism_test_common)
+target_include_directories(TransferPerf BEFORE PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests
+    ${CMAKE_SOURCE_DIR}/src)
+if(MINGW)
+    target_compile_options(TransferPerf PRIVATE -Wa,-mbig-obj -fno-keep-inline-dllexport)
+    set_target_properties(TransferPerf PROPERTIES
+        ENABLE_EXPORTS OFF
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/tests")
+endif()

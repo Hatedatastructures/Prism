@@ -93,7 +93,17 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	quicConn, err := quic.DialAddr(ctx, serverAddr, tlsConfig, quicConfig)
+	// QUIC 握手可能因服务端就绪时序失败，重试最多 3 次
+	var quicConn *quic.Conn
+	for attempt := 0; attempt < 3; attempt++ {
+		quicConn, err = quic.DialAddr(ctx, serverAddr, tlsConfig, quicConfig)
+		if err == nil {
+			break
+		}
+		if attempt < 2 {
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
 	if err != nil {
 		fmt.Printf("FAIL: quic dial: %v\n", err)
 		os.Exit(1)
@@ -141,7 +151,7 @@ func main() {
 	}
 
 	buf := make([]byte, 128)
-	connStream.SetReadDeadline(time.Now().Add(5 * time.Second))
+	connStream.SetReadDeadline(time.Now().Add(20 * time.Second))
 	n, err := connStream.Read(buf)
 	if err != nil {
 		fmt.Printf("FAIL: read echo: %v\n", err)

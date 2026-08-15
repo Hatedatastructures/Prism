@@ -12,7 +12,9 @@ Start-Sleep -Seconds 1
 
 $prism = $null
 try {
-    $prism = Start-Process -FilePath $PrismExe -ArgumentList $Config -PassThru -WindowStyle Hidden
+    $log = Join-Path $env:TEMP ("prism_gotest_" + [System.Guid]::NewGuid().ToString("N") + ".log")
+    Write-Output "PRISM_LOG=$log"
+    $prism = Start-Process -FilePath $PrismExe -ArgumentList $Config -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError $log
     # 轮询等待监听就绪（UDP 8081 由 Prism 绑定；以 TCP 监听为就绪信号）
     $ready = $false
     for ($i = 0; $i -lt 20; $i++) {
@@ -32,6 +34,8 @@ try {
         Write-Error "Prism did not start listening within 10s"
         exit 1
     }
+    # QUIC 握手栈就绪需要额外时间（ngtcp2 会话初始化），等待后再启动 Go 客户端
+    Start-Sleep -Milliseconds 800
     & $GoExe
     exit $LASTEXITCODE
 }
