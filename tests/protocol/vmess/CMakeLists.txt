@@ -7,3 +7,12 @@ prism_add_test(VmessBeastTest.cpp)
 prism_add_test(VmessClientServerPerf.cpp)
 target_link_libraries(VmessBeastTest PRIVATE vmtest_common)
 target_link_libraries(VmessClientServerPerf PRIVATE vmtest_common)
+prism_add_test(VmessConnSession.cpp)
+target_link_libraries(VmessConnSession PRIVATE vmtest_common)
+prism_add_test(VmessStressTest.cpp)
+target_link_libraries(VmessStressTest PRIVATE vmtest_common)
+
+prism_add_test(VmessCodecDeep.cpp)
+target_link_libraries(VmessCodecDeep PRIVATE vmtest_common)
+target_compile_options(VmessCodecDeep PRIVATE -O0 -fno-inline)
+

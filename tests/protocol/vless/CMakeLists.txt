@@ -4,3 +4,8 @@ prism_add_test(VlessFramingPure.cpp)
 prism_add_test(VlessProcessPure.cpp)
 prism_add_test(VlessConnPure.cpp)
 prism_add_test(VlessClientServerPerf.cpp)
+prism_add_test(VlessConnSession.cpp)
+target_link_libraries(VlessConnSession PRIVATE vmtest_common)
+prism_add_test(VlessStressTest.cpp)
+target_link_libraries(VlessStressTest PRIVATE vmtest_common)
+

@@ -5,3 +5,11 @@ target_link_libraries(Hysteria2TuicBeastTest PRIVATE vmtest_common)
 
 prism_add_test(Hysteria2ClientServerPerf.cpp)
 target_link_libraries(Hysteria2ClientServerPerf PRIVATE vmtest_common)
+
+prism_add_test(Hysteria2ConnSession.cpp)
+target_link_libraries(Hysteria2ConnSession PRIVATE vmtest_common)
+
+prism_add_test(Hysteria2ConnErrorMatrix.cpp)
+target_link_libraries(Hysteria2ConnErrorMatrix PRIVATE vmtest_common)
+prism_add_test(Hysteria2StressTest.cpp)
+target_link_libraries(Hysteria2StressTest PRIVATE vmtest_common)

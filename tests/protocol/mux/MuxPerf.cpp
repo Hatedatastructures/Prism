@@ -7,6 +7,7 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/use_awaitable.hpp>
@@ -71,12 +72,16 @@ namespace
             ioc,
             [&]() -> net::awaitable<void>
             {
+                // 服务端完成通知：防止 detached 协程在 ioc 析构时
+                // 仍挂起（use-after-free）
+                net::experimental::channel<void(boost::system::error_code)> server_done(ioc.get_executor(), 1);
                 auto server_coro = [&]() -> net::awaitable<void>
                 {
                     auto s = co_await sv.accept_stream();
                     if (!s)
                     {
                         EXPECT_TRUE(false) << "accept failed";
+                        server_done.try_send(boost::system::error_code{});
                         co_return;
                     }
                     std::array<std::byte, kBlock> buf{};
@@ -93,6 +98,7 @@ namespace
                     }
                     EXPECT_EQ(got, kTotal);
                     s->close();
+                    server_done.try_send(boost::system::error_code{});
                 };
                 net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -127,6 +133,8 @@ namespace
                 s->close();
                 cl.close();
                 sv.close();
+                // 等待服务端协程完成，避免 ioc 析构时挂起协程帧悬垂
+                co_await server_done.async_receive(net::use_awaitable);
             });
     }
 
@@ -142,11 +150,15 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
+                     // 服务端完成通知：防止 detached 协程在 ioc 析构时
+                     // 仍挂起（use-after-free）
+                     net::experimental::channel<void(boost::system::error_code)> server_done(ioc.get_executor(), 1);
                      auto server_coro = [&]() -> net::awaitable<void>
                      {
                          auto s = co_await sv.accept_stream();
                          if (!s)
                          {
+                             server_done.try_send(boost::system::error_code{});
                              co_return;
                          }
                          std::array<std::byte, 128 * 1024> buf{};
@@ -163,6 +175,7 @@ namespace
                                                                 ec);
                          }
                          s->close();
+                         server_done.try_send(boost::system::error_code{});
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -177,7 +190,14 @@ namespace
                      rep = co_await bench_throughput_tx(*s, *s, opt);
                      s->close();
                      cl.close();
-                     sv.close();
+                     // 显式 co_await 服务端会话关闭：触发 teardown 唤醒
+                     // 服务端挂起读（sv.close() 是 void，丢弃 awaitable 不执行）
+                     if (sv.session())
+                     {
+                         co_await sv.session()->close();
+                     }
+                     // 等待服务端协程完成，避免 ioc 析构时挂起协程帧悬垂
+                     co_await server_done.async_receive(net::use_awaitable);
                  });
 
         std::printf("%s throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min %.3f "
