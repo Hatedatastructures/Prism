@@ -7,7 +7,7 @@
  *          （open/data/fin/rst），实现"一套会话逻辑，三个协议"。
  *          会话拥有多条虚拟流（stream_handle），每条流满足统一
  *          session_base 接口，供上层协议（vmess/vless/...）承载。
- *          底层传输经 transport_base 类型擦除，支持内存流/套接字流。
+ *          底层传输经 transmission 类型擦除，支持内存流/套接字流。
  * @note 帧策略需额外提供（concept 之外，经 if constexpr 检测）：
  *          - frame_event(frame) / frame_stream_id(frame)
  *          - is_control(frame)（会话级控制帧判定）
@@ -34,13 +34,14 @@
 #include <span>
 #include <vector>
 
+#include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
 #include <common/core/memory/container.hpp>
 #include <common/core/memory/pointer.hpp>
 #include <common/core/role.hpp>
 #include <common/core/session_base.hpp>
+#include <common/core/transmission.hpp>
 #include <common/core/transport/stream.hpp>
-#include <common/core/transport/transport_base.hpp>
 #include <common/mux/codec.hpp>
 
 namespace psmtest::mux
@@ -403,7 +404,7 @@ namespace psmtest::mux
          * @param opt 会话选项
          * @return 会话实例
          */
-        static auto create(std::shared_ptr<transport_base> raw, const session_options &opt)
+        static auto create(shared_transmission raw, const session_options &opt)
             -> std::shared_ptr<session<C, Memory>>
         {
             auto self = std::shared_ptr<session<C, Memory>>(new session<C, Memory>(std::move(raw), opt));
@@ -427,7 +428,7 @@ namespace psmtest::mux
             {
                 co_return nullptr;
             }
-            co_await raw_->write_all(C::build_open(id));
+            co_await raw_write(C::build_open(id));
             auto handle = std::make_shared<stream_handle<Memory>>(id, this->shared_from_this(), ex_);
             streams_[id] = handle;
             co_return handle;
@@ -483,7 +484,7 @@ namespace psmtest::mux
             while (done < data.size())
             {
                 const auto n = std::min(chunk, data.size() - done);
-                co_await raw_->write_all(C::build_data(stream_id, data.subspan(done, n)));
+                co_await raw_write(C::build_data(stream_id, data.subspan(done, n)));
                 done += n;
             }
             co_return boost::system::error_code{};
@@ -497,7 +498,7 @@ namespace psmtest::mux
         {
             if (raw_ && raw_->is_open())
             {
-                co_await raw_->write_all(C::build_fin(stream_id));
+                co_await raw_write(C::build_fin(stream_id));
             }
             co_return;
         }
@@ -510,7 +511,7 @@ namespace psmtest::mux
         {
             if (raw_ && raw_->is_open())
             {
-                co_await raw_->write_all(C::build_rst(stream_id));
+                co_await raw_write(C::build_rst(stream_id));
             }
             co_return;
         }
@@ -561,7 +562,7 @@ namespace psmtest::mux
             teardown();
             if (raw_)
             {
-                co_await raw_->close();
+                raw_->close();
             }
             co_return;
         }
@@ -579,11 +580,36 @@ namespace psmtest::mux
 
     private:
         /**
+         * @brief 底层读取（transmission 适配：u8 视图 + 无 ec）
+         * @param buf 接收缓冲区（uint8_t 视图）
+         * @return 实际读取字节数；0 = 对端关闭 / EOF
+         */
+        auto raw_read(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t>
+        {
+            std::error_code ec;
+            const auto n = co_await raw_->async_read_some(as_bytes(buf), ec);
+            co_return ec ? 0 : n;
+        }
+
+        /**
+         * @brief 底层写入（transmission 适配：u8 视图 + ec 转错误码）
+         * @param buf 待写数据（uint8_t 视图）
+         * @return 错误码（成功 = 空）
+         */
+        auto raw_write(std::span<const std::uint8_t> buf) -> net::awaitable<protocol_ec>
+        {
+            std::error_code ec;
+            co_await raw_->async_write_some(as_bytes(buf), ec);
+            co_return ec ? boost::system::error_code(ec.value(), boost::system::generic_category())
+                         : boost::system::error_code{};
+        }
+
+        /**
          * @brief 构造（私有，经 create 创建）
          * @param raw 底层传输
          * @param opt 会话选项
          */
-        session(std::shared_ptr<transport_base> raw, const session_options &opt)
+        session(shared_transmission raw, const session_options &opt)
             : raw_(std::move(raw)), opt_(opt), ex_(raw_->executor()), accept_notify_(ex_, 1)
         {
         }
@@ -616,7 +642,7 @@ namespace psmtest::mux
                 std::size_t done = 0;
                 while (done < C::header_len)
                 {
-                    const auto n = co_await raw_->read_some(
+                    const auto n = co_await raw_read(
                         std::span<std::uint8_t>(header.data() + done, C::header_len - done));
                     if (n == 0)
                     {
@@ -649,7 +675,7 @@ namespace psmtest::mux
                 while (done < len)
                 {
                     const auto n =
-                        co_await raw_->read_some(std::span<std::uint8_t>(payload.data() + done, len - done));
+                        co_await raw_read(std::span<std::uint8_t>(payload.data() + done, len - done));
                     if (n == 0)
                     {
                         teardown();
@@ -792,7 +818,7 @@ namespace psmtest::mux
             incoming_.clear();
         }
 
-        std::shared_ptr<transport_base> raw_;                                               ///< 底层传输
+        shared_transmission raw_;                                                     ///< 底层传输
         session_options opt_;                                                               ///< 会话选项
         net::any_io_executor ex_;                                                           ///< 执行器
         boost::asio::experimental::channel<void(boost::system::error_code)> accept_notify_; ///< 新流通知

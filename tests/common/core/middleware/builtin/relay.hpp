@@ -10,8 +10,11 @@
 #pragma once
 
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/error.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <array>
 #include <chrono>
@@ -80,14 +83,21 @@ namespace psmtest::middleware::builtin
             auto buffer = std::make_shared<std::vector<std::byte>>(buffer_size);
             std::array<std::size_t, 2> total{0, 0};
 
-            net::steady_timer idle_timer(co_await net::this_coro::executor);
-            if (idle_timeout_ > std::chrono::milliseconds::zero())
+            // 空闲超时：ctx.timeout 优先（>0），否则构造参数（0 = 禁用）
+            auto effective_timeout = idle_timeout_;
+            if (ctx.timeout > std::chrono::milliseconds::zero())
             {
-                idle_timer.expires_after(idle_timeout_);
+                effective_timeout = ctx.timeout;
+            }
+
+            net::steady_timer idle_timer(co_await net::this_coro::executor);
+            if (effective_timeout > std::chrono::milliseconds::zero())
+            {
+                idle_timer.expires_after(effective_timeout);
             }
 
             // 上行：inbound → outbound
-            auto up = [inbound, outbound, buffer, &total]() -> net::awaitable<void>
+            auto up = [inbound, outbound, buffer, &total, &idle_timer, &effective_timeout]() -> net::awaitable<void>
             {
                 std::error_code ec;
                 while (true)
@@ -104,11 +114,15 @@ namespace psmtest::middleware::builtin
                         break;
                     }
                     total[0] += n;
+                    if (effective_timeout > std::chrono::milliseconds::zero())
+                    {
+                        idle_timer.expires_after(effective_timeout);
+                    }
                 }
             };
 
             // 下行：outbound → inbound
-            auto down = [inbound, outbound, buffer, &total]() -> net::awaitable<void>
+            auto down = [inbound, outbound, buffer, &total, &idle_timer, &effective_timeout]() -> net::awaitable<void>
             {
                 std::error_code ec;
                 while (true)
@@ -124,11 +138,40 @@ namespace psmtest::middleware::builtin
                         break;
                     }
                     total[1] += n;
+                    if (effective_timeout > std::chrono::milliseconds::zero())
+                    {
+                        idle_timer.expires_after(effective_timeout);
+                    }
+                }
+            };
+
+            // 空闲超时循环：被转发活动重置（aborted）继续等待，到期关闭两端
+            auto idle_loop = [&]() -> net::awaitable<void>
+            {
+                if (effective_timeout <= std::chrono::milliseconds::zero())
+                {
+                    // 禁用超时：挂起直到隧道结束
+                    std::array<std::byte, 1> dummy{};
+                    std::error_code ec;
+                    co_await inbound->async_read_some(dummy, ec);
+                    co_return;
+                }
+                while (true)
+                {
+                    boost::system::error_code ec;
+                    co_await idle_timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+                    if (ec == net::error::operation_aborted)
+                    {
+                        continue; // 被转发活动重置
+                    }
+                    inbound->close();
+                    outbound->close();
+                    co_return;
                 }
             };
 
             using boost::asio::experimental::awaitable_operators::operator||;
-            co_await (up() || down());
+            co_await (up() || down() || idle_loop());
 
             if (ctx.traffic)
             {

@@ -1,6 +1,6 @@
 /**
  * @file transmission.hpp
- * @brief 传输层抽象接口（对齐主库 psmtest::transmission）
+ * @brief 传输层抽象接口
  * @details 借鉴 Boost.Asio AsyncReadStream/AsyncWriteStream 的最小接口设计。
  *          核心职责：统一的异步读写、关闭、取消、装饰器链导航。
  *          协议封装（socks5/vless/vmess/...）继承本基类成为传输层装饰器，
@@ -19,6 +19,7 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 
+#include <chrono>
 #include <cstddef>
 #include <memory>
 #include <span>
@@ -71,7 +72,7 @@ namespace psmtest
         /// 执行器类型
         using executor_type = net::any_io_executor;
 
-        /// 传输类型（对齐主库 psmtest::transmission::type）
+        /// 传输类型（tcp / udp）
         enum class type : std::uint8_t
         {
             /// 可靠流式传输（TCP）
@@ -248,6 +249,47 @@ namespace psmtest
         virtual void cancel() = 0;
 
         /**
+         * @brief 半关写方向（向对端发送 EOF）
+         * @details 默认实现沿装饰器链转发；叶子节点必须实现。
+         * 半关后本端仍可读，对端读返回 0（EOF）。
+         */
+        virtual void shutdown()
+        {
+            if (auto *n = next_layer())
+            {
+                n->shutdown();
+            }
+        }
+
+        /**
+         * @brief 设置读超时
+         * @param ms 超时毫秒数（0 = 禁用）
+         * @details 默认实现沿装饰器链转发；叶子节点必须实现。
+         * 超时后挂起的读以 operation_timed_out 完成。
+         */
+        virtual void set_timeout(std::chrono::milliseconds ms)
+        {
+            if (auto *n = next_layer())
+            {
+                n->set_timeout(ms);
+            }
+        }
+
+        /**
+         * @brief 检查传输层是否打开
+         * @return 打开返回 true
+         * @details 默认实现沿装饰器链转发；叶子节点必须实现。
+         */
+        [[nodiscard]] virtual auto is_open() const -> bool
+        {
+            if (auto *n = next_layer())
+            {
+                return n->is_open();
+            }
+            return false;
+        }
+
+        /**
          * @brief 获取内层传输（装饰器链导航）
          * @details 装饰器（协议 conn）覆写此方法返回被包装的内层传输。
          * 叶子节点（如 memory_stream 的裸传输）返回 nullptr。
@@ -328,6 +370,9 @@ namespace psmtest
             { t.async_write_some(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
             { t.close() } -> std::same_as<void>;
             { t.cancel() } -> std::same_as<void>;
+            { t.shutdown() } -> std::same_as<void>;
+            { t.set_timeout(std::chrono::milliseconds{0}) } -> std::same_as<void>;
+            { t.is_open() } -> std::same_as<bool>;
             { t.executor() } -> std::same_as<net::any_io_executor>;
         };
 

@@ -57,6 +57,7 @@ add_subdirectory(settings)
 add_subdirectory(infrastructure)
 add_subdirectory(integration)
 add_subdirectory(concurrency)
+add_subdirectory(stress)
 add_subdirectory(perf)
 
 # 协议测试公共库（header-only，纯逻辑客户端/服务端实现）

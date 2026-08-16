@@ -22,7 +22,7 @@
 #include <common/core/memory/container.hpp>
 #include <common/core/memory/pointer.hpp>
 #include <common/core/transmission.hpp>
-#include <common/core/transport/legacy_bridge.hpp>
+
 #include <common/mux/session.hpp>
 #include <common/mux/stream.hpp>
 
@@ -60,7 +60,7 @@ namespace psmtest::mux
             }
             auto o = opt;
             o.role = psmtest::role::client;
-            session_ = session_type::create(make_legacy(std::move(raw)), o);
+            session_ = session_type::create(std::move(raw), o);
             return session_ != nullptr;
         }
 

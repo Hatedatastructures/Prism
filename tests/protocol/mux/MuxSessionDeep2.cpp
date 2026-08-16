@@ -72,8 +72,7 @@ namespace
         auto peer = std::make_shared<memory_stream>(std::move(b));
         session_options opt{};
         opt.role = psmtest::role::server;
-        auto session = mux::session<smux::codec>::create(
-            make_legacy(std::make_shared<memory_stream>(std::move(a))), opt);
+        auto session = mux::session<smux::codec>::create(std::make_shared<memory_stream>(std::move(a)), opt);
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -168,8 +167,7 @@ namespace
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
         auto peer = std::make_shared<memory_stream>(std::move(b));
-        auto session = mux::session<yamux::codec>::create(
-            make_legacy(std::make_shared<memory_stream>(std::move(a))), session_options{});
+        auto session = mux::session<yamux::codec>::create(std::make_shared<memory_stream>(std::move(a)), session_options{});
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -229,8 +227,7 @@ namespace
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
         auto peer = std::make_shared<memory_stream>(std::move(b));
-        auto session = mux::session<h2mux::codec>::create(
-            make_legacy(std::make_shared<memory_stream>(std::move(a))), session_options{});
+        auto session = mux::session<h2mux::codec>::create(std::make_shared<memory_stream>(std::move(a)), session_options{});
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -275,8 +272,7 @@ namespace
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
         auto peer = std::make_shared<memory_stream>(std::move(b));
-        auto session = mux::session<smux::codec>::create(
-            make_legacy(std::make_shared<memory_stream>(std::move(a))), session_options{});
+        auto session = mux::session<smux::codec>::create(std::make_shared<memory_stream>(std::move(a)), session_options{});
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -346,8 +342,7 @@ namespace
     {
         net::io_context ioc;
         auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto session = mux::session<smux::codec>::create(
-            make_legacy(std::make_shared<memory_stream>(std::move(a))), session_options{});
+        auto session = mux::session<smux::codec>::create(std::make_shared<memory_stream>(std::move(a)), session_options{});
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -380,8 +375,7 @@ namespace
         session_options opt{};
         opt.role = psmtest::role::client;
         opt.max_streams = 40000;
-        auto session = mux::session<smux::codec>::create(
-            make_legacy(std::make_shared<memory_stream>(std::move(a))), opt);
+        auto session = mux::session<smux::codec>::create(std::make_shared<memory_stream>(std::move(a)), opt);
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>

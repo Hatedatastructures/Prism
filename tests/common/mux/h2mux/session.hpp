@@ -30,7 +30,7 @@ namespace psmtest::mux::h2mux
      * @return 会话实例
      */
     template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
-    [[nodiscard]] inline auto make_session(std::shared_ptr<transport_base> raw,
+    [[nodiscard]] inline auto make_session(shared_transmission raw,
                                            const session_options &opt = {}) -> std::shared_ptr<session<Memory>>
     {
         return session<Memory>::create(std::move(raw), opt);

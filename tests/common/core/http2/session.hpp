@@ -25,27 +25,13 @@
 #include <system_error>
 #include <vector>
 
+#include <common/core/http2/frame.hpp>
 #include <common/core/transmission.hpp>
 
 namespace psmtest::http2
 {
 
     namespace net = boost::asio;
-
-    /// HTTP/2 帧类型（对齐 nghttp2 语义）
-    enum class frame_type : std::uint8_t
-    {
-        data = 0x0,
-        headers = 0x1,
-        priority = 0x2,
-        rst_stream = 0x3,
-        settings = 0x4,
-        push_promise = 0x5,
-        ping = 0x6,
-        goaway = 0x7,
-        window_update = 0x8,
-        continuation = 0x9,
-    };
 
     /// HTTP 头键值对
     struct header

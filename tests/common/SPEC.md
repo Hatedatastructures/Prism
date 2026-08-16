@@ -1,178 +1,202 @@
 # psmtest 协议库规范（tests/common）
 
-本规范定义 `tests/common/` 下所有协议测试库的统一设计标准。
-参考 Go 参考实现（mihomo transport / sing 系列库）的接口模式，目标：
-**可维护性与性能兼得**。所有重构必须遵守本规范。
+> 本规范描述 `tests/common/`（psmtest 库）的**真实架构**与统一设计标准。
+> 参考 Go 参考实现（mihomo transport / sing 系列）的接口模式。目标：
+> **可替换主项目 src/prism 的新一代架构**（NEXTGEN_TASK.md）。
+> 更新：2026-08-16（T1-6，按真实架构重写）。
 
-## 1. 目录结构：一协议一目录，按职责拆分
-
-禁止把所有代码塞进单个头文件。每个协议一个目录：
+## 1. 目录结构与模块归属
 
 ```
-tests/common/<proto>/
-  types.hpp     — 常量、枚举、标志位、基础结构
-  codec.hpp     — 帧编解码（build/parse，纯函数，零状态）
-  kdf.hpp       — 密钥派生（仅需要时）
-  chunk.hpp     — 数据块编解码（流式，含状态机）
-  handshake.hpp — 握手会话（仅需要时）
-  client.hpp    — 客户端封装（对象，包装传输）
-  server.hpp    — 服务端封装（对象，包装传输）
+tests/common/
+  core/                无外部依赖的基础层
+    memory/ fault/ exception/ crypto/ coroutine/ rate/
+    error.hpp  transmission.hpp  authenticator.hpp  flat_buffer.hpp  parser.hpp
+    session_base.hpp  codec_traits.hpp  byte_span.hpp  role.hpp  programmable_transport.hpp
+    transport/        reliable/unreliable/encrypted/pad/preview/snapshot/
+                      memory_stream/socket_stream/udp_transmission/connector/
+                      algorithm/bench/stream
+    protocol/         address/form/framing/read/mux/target
+    http2/ http3/ quic/   （骨架/接口，T2 自包含化）
+    middleware/       pipeline/context + builtin(dial/mux/pad/relay)
+    diagnose/         context/log
+  proxy/              7 协议（vmess/vless/trojan/shadowsocks2022/socks5/hysteria2/tuic）
+  stealth/            7 伪装方案（reality/shadowtls/restls/anytls/trusttunnel/ws/gun）
+  mux/                smux/yamux/h2mux（模板化 frame_codec + client/server/session）
 ```
 
-聚合头 `<proto>.hpp` 仅 re-export 子头，供旧测试过渡引用。
+### 1.1 协议目录（proxy/stealth）
 
-`tests/common/core/`：跨协议基础设施（error / crypto / flat_buffer / transport）。
-`tests/common/mux/`：多路复用底层工具（smux / yamux / h2mux 统一框架）。
+每个协议一个目录，**聚合头四件套**（扁平结构，无 codec/kdf/chunk 子目录）：
 
-## 2. 接口设计：面向对象 + 协程 + 编译期约束
+```
+tests/common/proxy/<proto>/
+  types.hpp   — 常量、枚举、标志位、配置结构
+  codec.hpp   — 帧编解码（build/parse 纯函数 + 解析状态机）
+  conn.hpp    — 连接装饰器（继承 transmission，模板化 memory_policy）
+  dgram.hpp   — UDP 数据报封装（需要时）
+  <proto>.hpp — 聚合头（re-export 上述）
+```
 
-### 2.1 传输抽象（concept）
+伪装方案（stealth/）同构：types/codec/conn + 聚合头（无 dgram 或按需）。
 
-所有协议对象工作在统一的异步流抽象上：
+### 1.2 多路复用（mux/）
+
+```
+tests/common/mux/smux/（yamux/h2mux 同构）
+  types.hpp   — 帧类型/常量
+  codec.hpp   — 帧编解码（模板化 frame_codec 策略）
+  session.hpp — 会话状态机（流表/帧循环/背压，模板注入 codec）
+  client.hpp  — 客户端封装（open_stream 视角）
+  server.hpp  — 服务端封装（accept_stream 视角）
+  smux.hpp    — 聚合头
+```
+
+共享 `mux/session.hpp` 模板框架 + `mux/stream.hpp`（流句柄）。
+
+## 2. 接口设计（统一 transmission + 模板策略 + 多态）
+
+### 2.1 传输抽象（core/transmission.hpp）
+
+单一 `psmtest::transmission` 虚接口（全部模块统一使用）：
+
+| 方法 | 语义 |
+|---|---|
+| `async_read_some(span<byte>, ec)` | 异步读，返回实际字节数 |
+| `async_write_some(span<const byte>, ec)` | 异步写，返回实际字节数 |
+| `async_read/async_write` | 组合操作（读满/写满） |
+| `close()` / `cancel()` | 全关 / 取消挂起操作 |
+| `shutdown()` | 半关写方向（对端读 EOF） |
+| `set_timeout(ms)` | 读超时（0=禁用） |
+| `is_open()` | 打开状态 |
+| `next_layer()` / `lowest_layer<T>()` | 装饰器链导航 |
+| `transport_type()` | tcp / udp |
+| `release()` | 释放底层所有权 |
+
+- **装饰器模式**：协议 conn 继承 transmission 包装底层（preview → conn → reliable）。
+- **叶子节点**：memory_stream / socket_stream / reliable / unreliable / udp_transmission。
+- **concept**：`transmission_like` / `stream` 约束模板参数。
+- 生命周期：`shared_transmission`（shared_ptr）管理。
+
+### 2.2 会话接口（core/session_base.hpp）
+
+虚拟流/会话的统一接口（mux stream_handle 实现）：
+
+| 方法 | 语义 |
+|---|---|
+| `read_some(span<u8>)` | 读，返回字节数（0=EOF/超时/取消） |
+| `write_all(span<const u8>)` | 全写，返回错误码 |
+| `shutdown()` | 半关（发 FIN） |
+| `close()` / `cancel()` | 关闭 / 取消 |
+| `set_timeout(ms)` | 读超时 |
+| `is_open()` | 状态 |
+| `executor()` | 执行器 |
+
+### 2.3 协议 conn 模板化
 
 ```cpp
-template <typename T>
-concept stream = requires(T &s, std::span<std::uint8_t> buf) {
-    { s.read_some(buf) } -> std::same_as<net::awaitable<std::size_t>>;
-    { s.write_all(buf) } -> std::same_as<net::awaitable<std::error_code>>;
-    { s.close() }        -> std::same_as<net::awaitable<void>>;
+template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
+class conn : public transmission, public std::enable_shared_from_this<conn<Memory>>;
+```
+
+- `Memory` 注入会话内存策略（arena 复用零分配）。
+- 聚合头内联 `connect(shared_transmission, config)` / `accept(shared_transmission, config)` 工厂。
+
+## 3. 错误体系边界（T1-2 决策）
+
+| 体系 | 用途 | 定义 |
+|---|---|---|
+| `core/error.hpp` | **协议编解码**（细粒度：need_more/unexpected_eof/bad_length/bad_auth/...） | `psmtest::error`（boost::system::error_category） |
+| `core/fault/code.hpp` | **中间件/流程**（粗粒度：io_error/timeout/canceled/auth_failed/...） | `psmtest::fault::code` |
+
+- 桥接：`fault::to_code(boost::system::error_code)` 已支持 error 转换。
+- **禁止第三种体系**；新错误优先入 error.hpp（编解码）或 fault（流程）。
+
+## 4. 认证抽象（core/authenticator.hpp）
+
+```cpp
+struct auth_result { bool ok; std::string identity; };
+class authenticator {
+    virtual auto check(std::string_view identity, std::string_view secret) const -> auth_result = 0;
 };
 ```
 
-- 全部协程（`net::awaitable`），禁止阻塞 I/O
-- 测试用内存管道实现（`core/transport/memory_stream.hpp`），性能测试用真实 socket
+- `static_authenticator` / `reject_authenticator` 内置。
+- 已接入：socks5/trojan/vless/hysteria2（vmess/ss2022 密码学校验豁免、tuic 无认证）。
 
-### 2.2 协议封装（对齐 Prism `transmission` + Boost.Beast/Asio）
-
-每个协议必须提供完整的三层 API（对齐 `include/prism/net/transport/transmission.hpp`）：
-
-**a) 会话接口（`session`，连接级）**——满足统一 concept：
-
-```cpp
-template <typename S>
-concept protocol_session = requires(S &s, std::span<std::uint8_t> wbuf,
-                                    std::span<const std::uint8_t> rbuf,
-                                    std::chrono::milliseconds ms)
-{
-    { s.read_some(wbuf) } -> std::same_as<net::awaitable<std::size_t>>;   // 0 = 对端关闭
-    { s.write_all(rbuf) } -> std::same_as<net::awaitable<boost::system::error_code>>;
-    { s.shutdown() }      -> std::same_as<net::awaitable<void>>;          // 优雅半关（发 FIN，仍可读）
-    { s.close() }         -> std::same_as<net::awaitable<void>>;
-    { s.cancel() }        -> std::same_as<void>;                          // 取消挂起操作
-    { s.set_timeout(ms) } -> std::same_as<void>;                          // 读超时
-    { s.is_open() }       -> std::same_as<bool>;
-    { s.executor() }      -> std::same_as<net::any_io_executor>;
-};
-```
-
-**b) 客户端**——`connect(raw, options)` 执行完整握手（带超时）返回会话：
-
-```cpp
-class vmess::client {
-public:
-    struct options { uuid; security; timeout; };
-    explicit client(options);
-    auto connect(stream auto &raw, const address &dst)
-        -> net::awaitable<std::shared_ptr<session>>;   // nullptr = 握手失败/超时
-};
-```
-
-**c) 服务端**——`accept(raw, message&)` 解析握手 + 认证 + 响应，返回会话：
-
-```cpp
-class vmess::server {
-public:
-    struct options { uuid; timeout; };
-    explicit server(options);
-    auto accept(stream auto &raw, message &msg)
-        -> net::awaitable<std::shared_ptr<session>>;
-};
-```
-
-**d) 组合算法（自由函数，Beast/Asio 风格）**——`core/transport/algorithm.hpp`：
-
-```cpp
-auto async_read_exact(stream auto &s, std::span<std::uint8_t> buf, timeout)
-    -> net::awaitable<std::error_code>;   // 读满 buf 或超时/关闭
-auto async_write_exact(stream auto &s, std::span<const std::uint8_t> buf, timeout)
-    -> net::awaitable<std::error_code>;
-```
-
-**e) 多路复用流**——`stream_handle` 除会话接口外补 `id()`、窗口状态查询。
-
-### 2.3 编译期约束（模板策略）
-
-- 帧编解码、块编解码为**无状态纯函数**，通过 concept 约束作为策略模板参数复用逻辑
-- 多路复用：`template <frame_codec C> class session` 共享会话逻辑，smux/yamux/h2mux 仅提供各自的 `C`
-
-## 3. 函数参数规则
-
-- 普通逻辑函数参数 **≤ 2 个**
-- 上限 **3 个**，超过必须收敛为 `options` / `frame` / `message` 结构体
-- 构造函数参数收敛为 `options` 结构体
-- 帧构造统一签名：`build(const frame_meta&, payload, out)` 或并入对象方法
-
-## 4. 错误处理
-
-- 编解码：`std::error_code`（`core/error.hpp`，Beast 风格），成功 = 空 code
-- 增量解析：数据不足返回 `error::need_more`，消费量经出参或返回值
-- 协程错误：`std::expected<T, std::error_code>` 或 `net::awaitable<std::error_code>`（无 T 时）
-
-## 5. 命名
-
-- 命名空间 `psmtest::<proto>`，子模块命名空间 `psmtest::<proto>::detail`
-- 类 / 结构 / 枚举：snake_case；枚举成员：snake_case
-- 文件：snake_case；头文件保护 `#pragma once`
-- 注释：Doxygen 风格中文（`@brief` / `@param` / `@return` / `@note`）
-
-## 6. 测试分层（每个协议必须覆盖）
+## 5. 中间件管线（core/middleware/）
 
 ```
-tests/protocol/<proto>/
-  <Proto>Codec.cpp     — 帧/块编解码单测（边界：半包、超长、坏数据）
-  <Proto>Session.cpp   — 回环会话测试（对象全链路）
-  <Proto>Perf.cpp      — 性能测试
+pipeline（add/run）→ context（inbound/outbound/target/detected/traffic/identity/pad_cfg）
+  ├─ builtin/dial    （默认函数 = outbound 拨号）
+  ├─ builtin/mux     （多路复用判断）
+  ├─ builtin/pad     （按 detected 决定是否填充）
+  └─ builtin/relay   （双向转发 + 统计）
 ```
 
-### 6.1 传输完整性测试
-- 100 MB 随机数据回环传输，逐块 SHA-256 校验明文一致
-- 1 GB 传输（Release 构建），校验字节数与分段摘要
+- 消费 `ctx.identity`（认证结果）与 `ctx.traffic`（流量统计回调）。
+- 超时/背压：T4-5 扩展（context.timeout 字段，relay 优先于构造参数）。
 
-### 6.2 性能指标（benchmark 输出）
-- **吞吐量**：MB/s（send + recv 全链路）
-- **延迟**：单块 RTT 均值、p50 / p95 / p99（ms），以及波动区间（min/max）
-- 报告格式：`<proto> throughput: 1234.5 MB/s | latency(ms): avg 0.12 p50 0.11 p95 0.14 p99 0.18 (min 0.10 max 0.25)`
-
-### 6.3 互操作测试
-- 保留 Go 对端（mihomo / sing 系列）验证线上协议兼容性
-
-## 7. 多路复用框架（mux/ 底层工具）
+## 5.1 中间件扩展（T4/T5）
 
 ```
-tests/common/mux/
-  frame.hpp    — 三套帧头常量 + 结构（smux/yamux/h2mux）
-  codec.hpp    — 帧编解码策略（concept frame_codec：build/parse/header_len）
-  session.hpp  — 协程会话框架：template <frame_codec> session
-                 open_stream / accept_stream / close / 流窗口管理
-  client.hpp   — mux 客户端（协议选择、连接管理）
-  smux.hpp     — psmtest::mux::smux::codec（帧策略实现）
-  yamux.hpp    — psmtest::mux::yamux::codec
-  h2mux.hpp    — psmtest::mux::h2mux::codec
+builtin/auth      （authenticator 校验 → ctx.identity；T4-1）
+builtin/throttle  （token_bucket 限速 → blocked；T5-4）
+builtin/ban       （失败计数封禁，窗口过期解封；T5-4）
 ```
 
-会话逻辑（流表、id 分配、窗口、FIN/RST 状态机）只实现一次，
-三个协议仅提供帧策略。性能测试覆盖单会话 100 MB 传输与多流并发。
+## 5.2 运行时骨架（core/runtime/，T4/T5）
 
-## 8. 性能原则
+```
+session            （recognize → prepare → pipeline auth/dial/relay；T4-2）
+listener           （TCP accept + 亲和性分发 FNV-1a + 会话工厂；T4-3）
+statistics         （traffic_counter：identity 维度聚合；T4-4）
+per_worker_traffic （alignas(64) 原子槽 + identity 聚合；T5-2）
+session_registry   （COW 值拷贝快照，严禁 L3 引用；T5-7）
+```
 
-- 热路径零堆分配：复用缓冲区（`core/flat_buffer`）、span 切片不拷贝
-- 编解码函数 `[[nodiscard]]`、`noexcept` 可行处标注
-- 禁止在编解码中 throw（错误走 error_code）
-- 性能测试必须 Release 构建，报告机器基础信息（CPU/构建类型）
+## 5.3 账户与限速（core/account/ + core/rate/，T5）
 
-## 9. 重构流程（逐协议）
+```
+account/cow_map    （模板化 COW：快照 + CAS 更新；O3/O6 复用）
+account/directory  （entry 原子活跃 + lease RAII + try_acquire CAS；T5-3）
+account/authenticator（directory_authenticator：未禁用/未过期/配额；T5-1）
+rate/token_bucket  （惰性补发 + 单 CAS；T5-4）
+```
 
-1. 按本规范拆分目录与接口
-2. 补齐三层测试（codec / session / perf）
-3. 对照 Go 参考源码深度评估：逻辑正确性、性能热点、边界 bug、可维护性
-4. 通过评估后进入下一协议
+## 5.4 网络协议补充（T3）
+
+```
+net/udp_relay   （D5：动态关联会话表 + 超时回收 + 端口不匹配丢弃 + 单侧关闭终止）
+http/parser     （CONNECT 请求解析：method/target/Host/Proxy-Authorization）
+http/conn       （CONNECT 握手：read_request + send_response + check_basic(407)）
+```
+
+## 5.5 运营与可观测（T5/T6）
+
+```
+api/api_manager   （资源树契约：list_sessions/traffic_summary/config_snapshot；O7）
+settings/json     （自包含 JSON 解析：递归下降 + 深度 32 + 转义）
+settings/loader   （配置加载校验：必填/范围/类型；生产用 glaze）
+diagnose/observability（HDR 指数桶 + EWMA + 1/N 采样 SPSC ring；O5）
+```
+
+## 6. 命名空间与编码规范
+
+- **全库 `psmtest`**；禁止历史命名体系混用与 psm:: 混用。
+- snake_case；Doxygen 中文注释（@file/@brief/@details/@return）。
+- 头文件保护 `#pragma once`；聚合头同步（新增子头必须入聚合头 + CMake）。
+
+## 7. 测试三层模型
+
+1. **codec 纯函数**：build/parse 无 I/O 单测。
+2. **回环 session**：client/server 配对（memory_stream 或 loopback socket）。
+3. **错误矩阵**：坏数据/边界/超时/取消/错误码传播。
+
+异步测试必须 `co_spawn + ioc.run()` 模式（MuxLifecycle 模式），禁止 `run_for/poll` 驱动。
+
+## 8. 构建（CMake）
+
+- 单一 `prism_ngx` INTERFACE 库（tests/common/CMakeLists.txt）。
+- `prism_test_common` / `vmtest_common` 为兼容别名（指向 prism_ngx）。
+- 全部头文件列于 target_sources（G7 完整性门禁）。

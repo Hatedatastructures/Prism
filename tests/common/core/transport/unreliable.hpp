@@ -17,6 +17,7 @@
 
 #include <boost/asio.hpp>
 
+#include <chrono>
 #include <memory>
 #include <optional>
 
@@ -210,6 +211,30 @@ namespace psmtest::transport
         {
             boost::system::error_code ec;
             socket_.cancel(ec);
+        }
+
+        /**
+         * @brief 半关（UDP 无连接语义，空操作）
+         */
+        void shutdown() override
+        {
+        }
+
+        /**
+         * @brief 设置读超时（UDP 叶子由上层处理，空操作）
+         * @param ms 超时毫秒数（0 = 禁用）
+         */
+        void set_timeout(std::chrono::milliseconds /*ms*/) override
+        {
+        }
+
+        /**
+         * @brief 检查底层 socket 是否打开
+         * @return 打开返回 true
+         */
+        [[nodiscard]] auto is_open() const -> bool override
+        {
+            return socket_.is_open();
         }
 
         /**

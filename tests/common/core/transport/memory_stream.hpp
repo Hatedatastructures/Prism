@@ -63,6 +63,8 @@ namespace psmtest
             bool closed{false};
             /// 读被取消（cancel 唤醒后返回 0）
             bool canceled{false};
+            /// 读超时触发标记（async_read_some 据此设置 timed_out 错误）
+            bool read_timed_out{false};
             /// 当前读超时
             std::chrono::milliseconds timeout{default_timeout};
         };
@@ -125,6 +127,7 @@ namespace psmtest
                                             in_->timer.async_wait(net::use_awaitable));
                     if (result.index() == 1) // 超时
                     {
+                        in_->read_timed_out = true;
                         co_return 0;
                     }
                 }
@@ -155,7 +158,7 @@ namespace psmtest
         /**
          * @brief 半关：发送 EOF（对端读返回 0），本端仍可读
          */
-        auto shutdown() -> net::awaitable<void>
+        auto shutdown() -> void override
         {
             const auto peer = peer_.lock();
             if (peer)
@@ -163,7 +166,6 @@ namespace psmtest
                 peer->peer_eof = true;
                 peer->read_channel.try_send(boost::system::error_code{});
             }
-            co_return;
         }
 
         /**
@@ -193,7 +195,7 @@ namespace psmtest
         /**
          * @brief 设置读超时（0 = 禁用）
          */
-        auto set_timeout(std::chrono::milliseconds ms) -> void
+        auto set_timeout(std::chrono::milliseconds ms) -> void override
         {
             in_->timeout = ms;
         }
@@ -202,21 +204,27 @@ namespace psmtest
          * @brief 流是否打开（未全关）
          * @return 打开返回 true
          */
-        [[nodiscard]] auto is_open() const -> bool
+        [[nodiscard]] auto is_open() const -> bool override
         {
             return !in_->closed;
         }
 
         /**
          * @brief 异步读取（transmission 接口，字节视图）
-         * @details 桥接到 read_some 内部逻辑，ec 恒为空（超时/取消返回 0）。
+         * @details 桥接到 read_some 内部逻辑。超时返回
+         * operation_timed_out，取消/EOF 返回 0（ec 为空）。
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ec.clear();
+            in_->read_timed_out = false;
             const auto n = co_await read_some(
                 std::span<std::uint8_t>(reinterpret_cast<std::uint8_t *>(buffer.data()), buffer.size()));
+            if (in_->read_timed_out)
+            {
+                ec = std::make_error_code(std::errc::timed_out);
+            }
             co_return n;
         }
 

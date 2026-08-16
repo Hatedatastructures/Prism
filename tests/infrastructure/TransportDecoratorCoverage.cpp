@@ -510,7 +510,7 @@ namespace
                      auto sa = std::make_shared<psmtest::memory_stream>(std::move(a));
                      auto sb = std::make_shared<psmtest::memory_stream>(std::move(b));
 
-                     co_await sa->shutdown(); // 对端半关（EOF）
+                     sa->shutdown(); // 对端半关（EOF）
 
                      psmtest::transport::preview pv(sb, sv_bytes("ab"));
                      std::array<std::byte, 4> buf{};

@@ -140,7 +140,7 @@ namespace
                      co_await a.async_write_some(
                          as_bytes(as_u8_span(frame).first(anytls::auth_frame_hdrlen)), ec);
                      EXPECT_FALSE(ec);
-                     co_await a.shutdown();
+                     a.shutdown();
                      const auto err = co_await server->read_handshake();
                      EXPECT_EQ(err, error::unexpected_eof);
                  });

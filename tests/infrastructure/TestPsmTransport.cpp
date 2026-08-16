@@ -4,7 +4,7 @@
  * @details 覆盖 psmtest::transport::transmission 抽象基类全部方法
  *          （prefix / transport_type / completion-handler 桥接 /
  *          next_layer / lowest_layer）与 async_write / async_read
- *          自由函数的错误路径，legacy_bridge 的空操作方法与
+ *          自由函数的错误路径，传输层的空操作方法与
  *          cancel / set_timeout，socket_stream / udp_transmission
  *          的真实 socket 收发，以及 middleware dial / relay 的
  *          name() 访问器。
@@ -29,7 +29,7 @@
 #include <common/core/fault/compatible.hpp>
 #include <common/core/middleware/builtin/dial.hpp>
 #include <common/core/middleware/builtin/relay.hpp>
-#include <common/core/transport/legacy_bridge.hpp>
+
 #include <common/core/transport/memory_stream.hpp>
 #include <common/core/transport/socket_stream.hpp>
 #include <common/core/transmission.hpp>
@@ -338,32 +338,6 @@ namespace
         }
     }
 
-    TEST(LegacyBridge, NoopMethods)
-    {
-        net::io_context ioc;
-        auto [a, b] = psmtest::make_memory_pair(ioc.get_executor());
-        auto bridge = psmtest::make_legacy(std::make_shared<psmtest::memory_stream>(std::move(a)));
-
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     std::fprintf(stderr, "[dbg] s1\n");
-                     co_await bridge->shutdown();
-                     std::fprintf(stderr, "[dbg] s2\n");
-                     bridge->set_timeout(std::chrono::milliseconds(100));
-                     std::fprintf(stderr, "[dbg] s3\n");
-                     bridge->cancel();
-                     std::fprintf(stderr, "[dbg] s4\n");
-                     EXPECT_TRUE(bridge->is_open());
-                     std::fprintf(stderr, "[dbg] s5\n");
-                     (void)bridge->executor();
-                     std::fprintf(stderr, "[dbg] s6\n");
-                     co_await bridge->close();
-                     std::fprintf(stderr, "[dbg] s7\n");
-                     EXPECT_FALSE(bridge->is_open());
-                 });
-    }
-
     TEST(SocketStream, LoopbackTransfer)
     {
         net::io_context ioc;
@@ -399,7 +373,7 @@ namespace
                      EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(rbuf.data()), n), "ping");
 
                      // 半关
-                     co_await client_sock.shutdown();
+                     client_sock.shutdown();
                      client_sock.cancel();
                      server_sock.close();
                      client_sock.close();

@@ -164,11 +164,10 @@ namespace psmtest
         /**
          * @brief 半关（发送侧）
          */
-        auto shutdown() -> net::awaitable<void>
+        auto shutdown() -> void override
         {
             boost::system::error_code ec;
             sock_.shutdown(net::ip::tcp::socket::shutdown_send, ec);
-            co_return;
         }
 
         /**

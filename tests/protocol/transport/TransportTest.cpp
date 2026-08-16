@@ -13,6 +13,7 @@
 
 #include <common/core/transport/bench.hpp>
 #include <common/core/transport/memory_stream.hpp>
+#include <common/core/transport/socket_stream.hpp>
 #include <common/core/transport/stream.hpp>
 #include <gtest/gtest.h>
 
@@ -119,7 +120,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     co_await a.shutdown();
+                     a.shutdown();
                      // 对端读返回 0（半关）
                      std::array<std::uint8_t, 8> buf{};
                      const auto n = co_await b.read_some(buf);
@@ -151,6 +152,101 @@ namespace
                      co_await net::post(a.executor(), net::use_awaitable);
                      co_await net::post(a.executor(), net::use_awaitable);
                      a.cancel();
+                 });
+    }
+
+    // ══════════════ T0-3 超时语义（transmission 虚接口） ══════════════
+
+    TEST(Transport, AsyncReadTimeoutError)
+    {
+        // async_read_some 超时 → operation_timed_out 错误
+        net::io_context ioc;
+        auto [a, b] = make_memory_pair(ioc.get_executor());
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     a.set_timeout(std::chrono::milliseconds(30));
+                     std::array<std::byte, 16> buf{};
+                     std::error_code ec;
+                     const auto n = co_await a.async_read_some(buf, ec);
+                     EXPECT_EQ(n, 0u);
+                     EXPECT_EQ(ec, std::make_error_code(std::errc::timed_out));
+                 });
+    }
+
+    TEST(Transport, AsyncReadTimeoutDisabled)
+    {
+        // set_timeout(0) 禁用 → 挂起直到数据到达
+        net::io_context ioc;
+        auto [a, b] = make_memory_pair(ioc.get_executor());
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     a.set_timeout(std::chrono::milliseconds(0));
+                     auto writer = [&]() -> net::awaitable<void>
+                     {
+                         std::array<std::byte, 4> data{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
+                         co_await net::post(a.executor(), net::use_awaitable);
+                         co_await net::post(a.executor(), net::use_awaitable);
+                         std::error_code wec;
+                         co_await b.async_write_some(data, wec);
+                     };
+                     net::co_spawn(a.executor(), writer(), net::detached);
+                     std::array<std::byte, 16> buf{};
+                     std::error_code ec;
+                     const auto n = co_await a.async_read_some(buf, ec);
+                     EXPECT_EQ(n, 4u);
+                     EXPECT_FALSE(ec);
+                 });
+    }
+
+    TEST(Transport, InterfaceTransmissionLike)
+    {
+        // transmission 派生类满足扩展 concept（shutdown/set_timeout/is_open）
+        static_assert(psmtest::transmission_like<psmtest::memory_stream>);
+        static_assert(psmtest::transmission_like<psmtest::socket_stream>);
+    }
+
+    TEST(Transport, InterfaceIsOpen)
+    {
+        net::io_context ioc;
+        auto [a, b] = make_memory_pair(ioc.get_executor());
+        EXPECT_TRUE(a.is_open());
+        a.close();
+        EXPECT_FALSE(a.is_open());
+    }
+
+    TEST(Transport, InterfaceShutdownEof)
+    {
+        // 通过虚接口多态调用 shutdown：对端读 EOF
+        net::io_context ioc;
+        auto [a, b] = make_memory_pair(ioc.get_executor());
+        psmtest::transmission &ref = a;
+        ref.shutdown();
+        std::array<std::uint8_t, 8> buf{};
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     const auto n = co_await b.read_some(buf);
+                     EXPECT_EQ(n, 0u);
+                 });
+    }
+
+    TEST(Transport, InterfaceSetTimeoutPolymorphic)
+    {
+        // 通过基类指针设置超时 → 读超时错误
+        net::io_context ioc;
+        auto [a, b] = make_memory_pair(ioc.get_executor());
+        psmtest::transmission *base = &a;
+        base->set_timeout(std::chrono::milliseconds(20));
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     std::array<std::byte, 8> buf{};
+                     std::error_code ec;
+                     const auto n = co_await a.async_read_some(buf, ec);
+                     EXPECT_EQ(n, 0u);
+                     EXPECT_EQ(ec, std::make_error_code(std::errc::timed_out));
                  });
     }
 

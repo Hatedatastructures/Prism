@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -40,13 +41,15 @@ namespace psmtest::middleware
         struct traffic_sink
         {
             /// 上报流量
-            /// �ϱ�����（�� identity ���������ˣ�
             virtual auto report(std::string_view identity, std::size_t up, std::size_t down) -> void = 0;
             virtual ~traffic_sink() = default;
         };
         traffic_sink *traffic{nullptr};
         /// 认证通过后的用户标识（auth 中间件写入，relay 统计按此聚合）
         std::string identity{};
+        /// 原始凭据（auth 中间件默认提取：identity + secret）
+        std::string raw_identity{};
+        std::string raw_secret{};
         /// 填充配置（可选，pad 中间件消费）
         struct pad_config
         {
@@ -57,6 +60,8 @@ namespace psmtest::middleware
         const pad_config *pad{nullptr};
         /// 缓冲区大小（relay 中间件消费）
         std::size_t buffer_size{16384};
+        /// 管线空闲超时（>0 时 relay 优先使用；0 = 用 relay 构造参数）
+        std::chrono::milliseconds timeout{0};
     };
 
 } // namespace psmtest::middleware
