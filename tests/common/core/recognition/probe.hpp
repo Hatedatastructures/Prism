@@ -17,7 +17,7 @@
 #include <common/core/transmission.hpp>
 #include <common/core/transport/preview.hpp>
 
-namespace psmtest::recognition
+namespace preview::recognition
 {
 
     namespace net = boost::asio;
@@ -75,14 +75,14 @@ namespace psmtest::recognition
      * @param preread 预读数据
      * @return 包装后的传输（回放预读）
      */
-    [[nodiscard]] inline auto wrap_preread(shared_transmission transport,
-                                           std::span<const std::byte> preread) -> shared_transmission
+    [[nodiscard]] inline auto wrap_preread(shared_transmission transport,std::span<const std::byte> preread) 
+        -> shared_transmission
     {
         if (preread.empty())
         {
             return transport;
         }
-        return psmtest::transport::wrap_with_preview(std::move(transport), preread);
+        return preview::transport::wrap_with_preview(std::move(transport), preread);
     }
 
-} // namespace psmtest::recognition
+} // namespace preview::recognition

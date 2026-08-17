@@ -28,7 +28,7 @@
 
 #include <common/core/error.hpp>
 
-namespace psmtest
+namespace preview
 {
 
     namespace net = boost::asio;
@@ -312,7 +312,7 @@ namespace psmtest
         /**
          * @brief 沿装饰器链导航到链底并转型为目标类型
          * @details 替代逐层 dynamic_cast 剥壳循环。
-         * @tparam T 目标类型（如 memory_stream、socket_stream）
+         * @tparam T 目标类型（如 memory_stream、reliable）
          * @return 目标类型指针，找不到返回 nullptr
          */
         template <typename T>
@@ -378,4 +378,4 @@ namespace psmtest
 
     static_assert(transmission_like<transmission>);
 
-} // namespace psmtest
+} // namespace preview

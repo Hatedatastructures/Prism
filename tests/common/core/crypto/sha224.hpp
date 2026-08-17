@@ -15,7 +15,7 @@
 #include <string>
 #include <string_view>
 
-namespace psmtest::crypto
+namespace preview::crypto
 {
 
     /**
@@ -23,7 +23,7 @@ namespace psmtest::crypto
      * @param input 输入字符串
      * @return 56 字节的十六进制哈希字符串
      */
-    [[nodiscard]] inline auto sha224(const std::string_view input) -> memory::string
+    [[nodiscard]] inline auto sha224(std::string_view input) -> memory::string
     {
         std::array<std::uint8_t, SHA224_DIGEST_LENGTH> hash{};
         SHA224(reinterpret_cast<const std::uint8_t *>(input.data()), input.size(), hash.data());
@@ -44,7 +44,7 @@ namespace psmtest::crypto
      * @param str 输入字符串
      * @return 如果字符串只包含十六进制字符则返回 true
      */
-    [[nodiscard]] inline auto is_hex(const std::string_view str) -> bool
+    [[nodiscard]] inline auto is_hex(std::string_view str) -> bool
     {
         for (const auto c : str)
         {
@@ -63,7 +63,7 @@ namespace psmtest::crypto
      * @details 如果输入已经是 56 字节的十六进制字符串，直接返回；
      * 否则计算其 SHA224 哈希值。
      */
-    [[nodiscard]] inline auto normalize_credential(const std::string_view credential) -> memory::string
+    [[nodiscard]] inline auto normalize_credential(std::string_view credential) -> memory::string
     {
         if (credential.size() == 56 && is_hex(credential))
         {
@@ -71,4 +71,4 @@ namespace psmtest::crypto
         }
         return sha224(credential);
     }
-} // namespace psmtest::crypto
+} // namespace preview::crypto

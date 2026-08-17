@@ -15,7 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace psmtest::rate
+namespace preview::rate
 {
 
     /**
@@ -35,10 +35,24 @@ namespace psmtest::rate
          */
         explicit token_bucket(std::size_t capacity, std::chrono::milliseconds refill_interval,
                               std::size_t refill_count)
-            : capacity_(capacity), refill_interval_ms_(static_cast<std::uint64_t>(
-                                       refill_interval.count() > 0 ? refill_interval.count() : 1)),
-              refill_count_(refill_count > 0 ? refill_count : 1)
+            : capacity_(capacity)
         {
+            if (refill_interval.count() > 0)
+            {
+                refill_interval_ms_ = static_cast<std::uint64_t>(refill_interval.count());
+            }
+            else
+            {
+                refill_interval_ms_ = 1;
+            }
+            if (refill_count > 0)
+            {
+                refill_count_ = refill_count;
+            }
+            else
+            {
+                refill_count_ = 1;
+            }
             tokens_.store(capacity, std::memory_order_relaxed);
         }
 
@@ -120,4 +134,4 @@ namespace psmtest::rate
         std::atomic<std::uint64_t> last_refill_{0};  ///< 上次补发时刻（0 = 未初始化）
     };
 
-} // namespace psmtest::rate
+} // namespace preview::rate

@@ -1,0 +1,13 @@
+# runtime 子模块测试
+prism_add_test(ListenerE2ETest.cpp)
+target_link_libraries(ListenerE2ETest PRIVATE vmtest_common)
+prism_add_test(PerWorkerTrafficTest.cpp)
+target_link_libraries(PerWorkerTrafficTest PRIVATE vmtest_common)
+prism_add_test(SessionOrchestrationTest.cpp)
+target_link_libraries(SessionOrchestrationTest PRIVATE vmtest_common)
+prism_add_test(SessionRegistryTest.cpp)
+target_link_libraries(SessionRegistryTest PRIVATE vmtest_common)
+prism_add_test(TrafficIdentityTest.cpp)
+target_link_libraries(TrafficIdentityTest PRIVATE vmtest_common)
+prism_add_test(TrafficMiddlewareTest.cpp)
+target_link_libraries(TrafficMiddlewareTest PRIVATE vmtest_common)

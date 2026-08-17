@@ -17,7 +17,7 @@
 #include <string>
 #include <system_error>
 
-namespace psmtest
+namespace preview
 {
 
     /// 错误分类：协议、传输、编码解码、密钥派生
@@ -71,7 +71,7 @@ namespace psmtest
         public:
             [[nodiscard]] auto name() const noexcept -> const char * override
             {
-                return "psmtest.protocol";
+                return "preview.protocol";
             }
 
             [[nodiscard]] auto message(int ev) const -> std::string override
@@ -107,7 +107,8 @@ namespace psmtest
      * @brief 获取协议库错误分类器
      * @return 协议库错误分类器（const 引用）
      */
-    [[nodiscard]] inline auto error_category() noexcept -> const boost::system::error_category &
+    [[nodiscard]] inline auto error_category() noexcept 
+        -> const boost::system::error_category &
     {
         static const detail::protocol_category category;
         return category;
@@ -118,7 +119,8 @@ namespace psmtest
      * @param e 协议错误枚举值
      * @return 对应的 boost::system::error_code
      */
-    [[nodiscard]] inline auto make_error_code(error e) noexcept -> boost::system::error_code
+    [[nodiscard]] inline auto make_error_code(error e) noexcept 
+        -> boost::system::error_code
     {
         return {static_cast<int>(e), error_category()};
     }
@@ -126,11 +128,11 @@ namespace psmtest
     /// 协议错误码别名（协程返回值常用）
     using protocol_ec = boost::system::error_code;
 
-} // namespace psmtest
+} // namespace preview
 
 /// 使 error 枚举可隐式转换为 error_code（std::error_code 场景）
 template <>
-struct std::is_error_code_enum<psmtest::error> : std::true_type
+struct std::is_error_code_enum<preview::error> : std::true_type
 {
 };
 
@@ -138,7 +140,7 @@ struct std::is_error_code_enum<psmtest::error> : std::true_type
 namespace boost::system
 {
     template <>
-    struct is_error_code_enum<psmtest::error> : std::true_type
+    struct is_error_code_enum<preview::error> : std::true_type
     {
     };
 } // namespace boost::system

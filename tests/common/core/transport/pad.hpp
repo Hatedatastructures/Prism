@@ -22,7 +22,7 @@
 
 #include <blake3.h>
 
-namespace psmtest::transport {
+namespace preview::transport {
 
 
     namespace net = boost::asio;
@@ -326,8 +326,15 @@ namespace psmtest::transport {
                 rng_refill();
             }
 
-            const auto chunk =
-                (out.size() - offset < 32 - rng_cache_pos_) ? (out.size() - offset) : (32 - rng_cache_pos_);
+            std::size_t chunk = 0;
+            if (out.size() - offset < 32 - rng_cache_pos_)
+            {
+                chunk = out.size() - offset;
+            }
+            else
+            {
+                chunk = 32 - rng_cache_pos_;
+            }
             std::memcpy(out.data() + offset, rng_cache_.data() + rng_cache_pos_, chunk);
             rng_cache_pos_ += chunk;
             offset += chunk;
@@ -383,4 +390,4 @@ namespace psmtest::transport {
     }
 
 
-} // namespace psmtest::transport
+} // namespace preview::transport

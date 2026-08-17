@@ -32,7 +32,7 @@
 #include <common/core/transmission.hpp>
 #include <common/core/transport/unreliable.hpp>
 
-namespace psmtest::net_udp
+namespace preview::network::udp
 {
 
     namespace net = boost::asio;
@@ -61,8 +61,8 @@ namespace psmtest::net_udp
          * @param b 端 B（unreliable 包装）
          * @param opts 中继选项
          */
-        udp_relay(std::shared_ptr<psmtest::transport::unreliable> a,
-                  std::shared_ptr<psmtest::transport::unreliable> b, relay_options opts = {})
+        udp_relay(std::shared_ptr<preview::transport::unreliable> a,
+                  std::shared_ptr<preview::transport::unreliable> b, relay_options opts = {})
             : a_(std::move(a)), b_(std::move(b)), opts_(opts)
         {
         }
@@ -78,8 +78,8 @@ namespace psmtest::net_udp
             auto assoc = std::make_shared<assoc_table>();
 
             // 单向转发：from 收 → 按会话表配对目标发 to
-            auto relay_one = [&](psmtest::transport::unreliable &from,
-                                 psmtest::transport::unreliable &to,
+            auto relay_one = [&](preview::transport::unreliable &from,
+                                 preview::transport::unreliable &to,
                                  std::shared_ptr<assoc_table> table,
                                  bool from_is_a) -> net::awaitable<void>
             {
@@ -144,7 +144,13 @@ namespace psmtest::net_udp
             [[nodiscard]] auto peer_of(const net::ip::udp::endpoint &src, bool from_a) const
                 -> std::optional<net::ip::udp::endpoint>
             {
-                const auto &table = from_a ? a_to_b_ : b_to_a_;
+                const auto &table = [&]() -> const decltype(a_to_b_) & {
+                    if (from_a)
+                    {
+                        return a_to_b_;
+                    }
+                    return b_to_a_;
+                }();
                 const auto it = table.find(src);
                 if (it == table.end() || it->second.peer == net::ip::udp::endpoint{})
                 {
@@ -163,8 +169,20 @@ namespace psmtest::net_udp
                        std::chrono::milliseconds timeout)
             {
                 (void)timeout;
-                auto &self = from_a ? a_to_b_ : b_to_a_;
-                auto &other = from_a ? b_to_a_ : a_to_b_;
+                auto &self = [&]() -> decltype(a_to_b_) & {
+                    if (from_a)
+                    {
+                        return a_to_b_;
+                    }
+                    return b_to_a_;
+                }();
+                auto &other = [&]() -> decltype(a_to_b_) & {
+                    if (from_a)
+                    {
+                        return b_to_a_;
+                    }
+                    return a_to_b_;
+                }();
                 const auto now = now_ms();
                 auto it = self.find(src);
                 if (it == self.end())
@@ -285,9 +303,9 @@ namespace psmtest::net_udp
             }
         }
 
-        std::shared_ptr<psmtest::transport::unreliable> a_; ///< 端 A
-        std::shared_ptr<psmtest::transport::unreliable> b_; ///< 端 B
+        std::shared_ptr<preview::transport::unreliable> a_; ///< 端 A
+        std::shared_ptr<preview::transport::unreliable> b_; ///< 端 B
         relay_options opts_;                               ///< 中继选项
     };
 
-} // namespace psmtest::net_udp
+} // namespace preview::network::udp

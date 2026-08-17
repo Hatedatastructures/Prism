@@ -19,7 +19,7 @@
 #include <system_error>
 #include <type_traits>
 
-namespace psmtest::fault
+namespace preview::fault
 {
 
     /**
@@ -64,11 +64,11 @@ namespace psmtest::fault
     public:
         /**
          * @brief 获取分类名称
-         * @return 分类名称字符串 "psmtest::fault"
+         * @return 分类名称字符串 "preview::fault"
          */
         [[nodiscard]] auto name() const noexcept -> const char * override
         {
-            return "psmtest::fault";
+            return "preview::fault";
         }
 
         /**
@@ -94,20 +94,24 @@ namespace psmtest::fault
         return instance;
     }
 
+} // namespace preview::fault
+
+namespace preview::fault
+{
+
     /**
-     * @brief 创建错误码
+     * @brief 创建错误码（std 路径 ADL 入口）
      * @param c 自定义错误码枚举值
      * @return 对应的标准错误码对象
-     * @details 将 fault::code 枚举值转换为 std::error_code，
-     * 配合 is_error_code_enum 特化支持隐式转换。
-     * @note 通常不需要显式调用此函数。
+     * @details 将 fault::code 枚举值转换为 std::error_code。
+     * 留在 preview::fault 供 std::error_code 构造 ADL 查找。
      */
     [[nodiscard]] inline auto make_error_code(code c) noexcept -> std::error_code
     {
         return {static_cast<int>(c), category()};
     }
 
-} // namespace psmtest::fault
+} // namespace preview::fault
 
 namespace std
 {
@@ -118,7 +122,7 @@ namespace std
      * std::error_code 的隐式转换。
      */
     template <>
-    struct is_error_code_enum<psmtest::fault::code> : std::true_type
+    struct is_error_code_enum<preview::fault::code> : std::true_type
     {
     };
 
@@ -128,14 +132,14 @@ namespace std
      * 可用于无序容器。哈希实现委托给 std::hash<int>。
      */
     template <>
-    struct hash<psmtest::fault::code>
+    struct hash<preview::fault::code>
     {
         /**
          * @brief 计算错误码的哈希值
          * @param c 错误码枚举值
          * @return 哈希值
          */
-        [[nodiscard]] auto operator()(const psmtest::fault::code c) const noexcept -> std::size_t
+        [[nodiscard]] auto operator()(const preview::fault::code c) const noexcept -> std::size_t
         {
             return hash<int>{}(static_cast<int>(c));
         }
@@ -151,7 +155,7 @@ namespace boost::system
      * 与 boost::system::error_code 的隐式转换。
      */
     template <>
-    struct is_error_code_enum<psmtest::fault::code> : std::true_type
+    struct is_error_code_enum<preview::fault::code> : std::true_type
     {
     };
 
@@ -168,11 +172,11 @@ namespace boost::system
     public:
         /**
          * @brief 获取分类名称
-         * @return 分类名称字符串 "psmtest::fault"
+         * @return 分类名称字符串 "preview::fault"
          */
         [[nodiscard]] auto name() const noexcept -> const char * override
         {
-            return "psmtest::fault";
+            return "preview::fault";
         }
 
         /**
@@ -182,7 +186,7 @@ namespace boost::system
          */
         [[nodiscard]] auto message(int c) const -> std::string override
         {
-            return psmtest::fault::cached_message(static_cast<psmtest::fault::code>(c));
+            return preview::fault::cached_message(static_cast<preview::fault::code>(c));
         }
     }; // class fault_category
 
@@ -205,9 +209,11 @@ namespace boost::system
      * @details 将 fault::code 枚举值转换为
      * boost::system::error_code，配合特化支持隐式转换。
      */
-    [[nodiscard]] inline auto make_error_code(const psmtest::fault::code c) noexcept -> error_code
+    [[nodiscard]] inline auto make_error_code(const preview::fault::code c) noexcept -> error_code
     {
         return {static_cast<int>(c), category()};
     }
 
 } // namespace boost::system
+
+

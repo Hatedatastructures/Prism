@@ -1,4 +1,4 @@
-# 协议组件库（纯 header-only，命名空间 psmtest）
+# 协议组件库（纯 header-only，命名空间 preview）
 # 单一 prism_ngx INTERFACE 库：core 基础设施 + 7 协议 + 7 伪装 + 3 mux
 add_library(prism_ngx INTERFACE)
 
@@ -22,7 +22,7 @@ target_sources(prism_ngx INTERFACE
         # ── core/crypto ──
         core/crypto/aead.hpp
         # ── core/account ──
-        core/account/cow_map.hpp
+        core/memory/cow_map.hpp
         core/account/directory.hpp
         core/account/authenticator.hpp
         core/crypto/base64.hpp
@@ -46,19 +46,19 @@ target_sources(prism_ngx INTERFACE
         core/fault/compatible.hpp
         core/fault/handling.hpp
         # ── core/http2 ──
-        core/http2/session.hpp
-        core/http2/stream.hpp
-        core/http2/frame.hpp
-        core/http2/codec.hpp
-        core/http2/impl.hpp
+        protocols/http2/session.hpp
+        protocols/http2/stream.hpp
+        protocols/http2/frame.hpp
+        protocols/http2/codec.hpp
+        protocols/http2/impl.hpp
         # ── core/http ──
-        core/http/parser.hpp
-        core/http/conn.hpp
+        protocols/http1/parser.hpp
+        protocols/http1/conn.hpp
         # ── core/http3 ──
-        core/http3/auth.hpp
-        core/http3/qpack.hpp
-        core/http3/server.hpp
-        core/http3/session.hpp
+        protocols/http3/auth.hpp
+        protocols/http3/qpack.hpp
+        protocols/http3/server.hpp
+        protocols/http3/session.hpp
         # ── core/memory ──
         core/memory/container.hpp
         core/memory/pointer.hpp
@@ -75,7 +75,7 @@ target_sources(prism_ngx INTERFACE
         core/runtime/session.hpp
         core/runtime/listener.hpp
         core/runtime/statistics.hpp
-        core/runtime/per_worker_traffic.hpp
+        core/runtime/statistics.hpp
         core/api/api_manager.hpp
         # ── core/settings ──
         core/settings/json.hpp
@@ -93,9 +93,9 @@ target_sources(prism_ngx INTERFACE
         core/protocol/framing.hpp
         core/protocol/mux.hpp
         core/protocol/read.hpp
-        core/protocol/target.hpp
+        core/net/target.hpp
         # ── core/quic ──
-        core/quic/gateway_common.hpp
+        protocols/quic/gateway_common.hpp
         # ── core/net ──
         core/net/dialer/dialer.hpp
         core/net/route/route.hpp
@@ -103,13 +103,13 @@ target_sources(prism_ngx INTERFACE
         # ── core/net/dns ──
         core/net/dns/resolver.hpp
         core/net/udp_relay.hpp
-        core/quic/stream_adapter.hpp
+        protocols/quic/stream_adapter.hpp
         # ── core/rate ──
         core/rate/token_bucket.hpp
-        core/rate/counter.hpp
+        core/recognition/probe_defense.hpp
         # ── core/transport ──
         core/transport/algorithm.hpp
-        core/transport/bench.hpp
+        bench/bench.hpp
         core/transport/connector.hpp
         core/transport/encrypted.hpp
         core/transport/memory_stream.hpp
@@ -117,128 +117,136 @@ target_sources(prism_ngx INTERFACE
         core/transport/preview.hpp
         core/transport/reliable.hpp
         core/transport/snapshot.hpp
-        core/transport/socket_stream.hpp
+        core/transport/reliable.hpp
         core/transport/stream.hpp
         core/transport/unreliable.hpp
-        core/transport/udp_transmission.hpp
+        core/transport/unreliable.hpp
         # ── mux ──
-        mux/codec.hpp
-        mux/session.hpp
-        mux/types.hpp
+        protocols/mux/client.hpp
+        protocols/mux/codec.hpp
+        protocols/mux/server.hpp
+        protocols/mux/session.hpp
+        protocols/mux/stream.hpp
+        protocols/mux/types.hpp
         # ── mux/h2mux ──
-        mux/h2mux/client.hpp
-        mux/h2mux/codec.hpp
-        mux/h2mux/h2mux.hpp
-        mux/h2mux/server.hpp
-        mux/h2mux/session.hpp
-        mux/h2mux/types.hpp
+        protocols/mux/h2mux/client.hpp
+        protocols/mux/h2mux/codec.hpp
+        protocols/mux/h2mux/h2mux.hpp
+        protocols/mux/h2mux/server.hpp
+        protocols/mux/h2mux/session.hpp
+        protocols/mux/h2mux/types.hpp
         # ── mux/smux ──
-        mux/smux/client.hpp
-        mux/smux/codec.hpp
-        mux/smux/server.hpp
-        mux/smux/session.hpp
-        mux/smux/smux.hpp
-        mux/smux/types.hpp
+        protocols/mux/smux/client.hpp
+        protocols/mux/smux/codec.hpp
+        protocols/mux/smux/server.hpp
+        protocols/mux/smux/session.hpp
+        protocols/mux/smux/smux.hpp
+        protocols/mux/smux/types.hpp
         # ── mux/yamux ──
-        mux/yamux/client.hpp
-        mux/yamux/codec.hpp
-        mux/yamux/server.hpp
-        mux/yamux/session.hpp
-        mux/yamux/types.hpp
-        mux/yamux/yamux.hpp
+        protocols/mux/yamux/client.hpp
+        protocols/mux/yamux/codec.hpp
+        protocols/mux/yamux/server.hpp
+        protocols/mux/yamux/session.hpp
+        protocols/mux/yamux/types.hpp
+        protocols/mux/yamux/yamux.hpp
         # ── proxy/hysteria2 ──
-        proxy/hysteria2/codec.hpp
-        proxy/hysteria2/conn.hpp
-        proxy/hysteria2/dgram.hpp
-        proxy/hysteria2/hysteria2.hpp
-        proxy/hysteria2/types.hpp
+        protocols/hysteria2/codec.hpp
+        protocols/hysteria2/conn.hpp
+        protocols/hysteria2/dgram.hpp
+        protocols/hysteria2/hysteria2.hpp
+        protocols/hysteria2/types.hpp
         # ── proxy/shadowsocks2022 ──
-        proxy/shadowsocks2022/codec.hpp
-        proxy/shadowsocks2022/conn.hpp
-        proxy/shadowsocks2022/dgram.hpp
-        proxy/shadowsocks2022/shadowsocks2022.hpp
-        proxy/shadowsocks2022/types.hpp
+        protocols/shadowsocks2022/codec.hpp
+        protocols/shadowsocks2022/conn.hpp
+        protocols/shadowsocks2022/dgram.hpp
+        protocols/shadowsocks2022/shadowsocks2022.hpp
+        protocols/shadowsocks2022/types.hpp
         # ── proxy/socks5 ──
-        proxy/socks5/codec.hpp
-        proxy/socks5/conn.hpp
-        proxy/socks5/dgram.hpp
-        proxy/socks5/socks5.hpp
-        proxy/socks5/types.hpp
+        protocols/socks5/codec.hpp
+        protocols/socks5/conn.hpp
+        protocols/socks5/dgram.hpp
+        protocols/socks5/socks5.hpp
+        protocols/socks5/types.hpp
         # ── proxy/trojan ──
-        proxy/trojan/codec.hpp
-        proxy/trojan/conn.hpp
-        proxy/trojan/dgram.hpp
-        proxy/trojan/trojan.hpp
-        proxy/trojan/types.hpp
+        protocols/trojan/codec.hpp
+        protocols/trojan/conn.hpp
+        protocols/trojan/dgram.hpp
+        protocols/trojan/trojan.hpp
+        protocols/trojan/types.hpp
         # ── proxy/tuic ──
-        proxy/tuic/codec.hpp
-        proxy/tuic/conn.hpp
-        proxy/tuic/dgram.hpp
-        proxy/tuic/tuic.hpp
-        proxy/tuic/types.hpp
+        protocols/tuic/codec.hpp
+        protocols/tuic/conn.hpp
+        protocols/tuic/dgram.hpp
+        protocols/tuic/tuic.hpp
+        protocols/tuic/types.hpp
         # ── proxy/vless ──
-        proxy/vless/codec.hpp
-        proxy/vless/conn.hpp
-        proxy/vless/dgram.hpp
-        proxy/vless/types.hpp
-        proxy/vless/vless.hpp
+        protocols/vless/codec.hpp
+        protocols/vless/conn.hpp
+        protocols/vless/dgram.hpp
+        protocols/vless/types.hpp
+        protocols/vless/vless.hpp
         # ── proxy/vmess ──
-        proxy/vmess/codec.hpp
-        proxy/vmess/conn.hpp
-        proxy/vmess/dgram.hpp
-        proxy/vmess/types.hpp
-        proxy/vmess/vmess.hpp
+        protocols/vmess/codec.hpp
+        protocols/vmess/conn.hpp
+        protocols/vmess/dgram.hpp
+        protocols/vmess/types.hpp
+        protocols/vmess/vmess.hpp
         # ── stealth/anytls ──
-        stealth/anytls/anytls.hpp
-        stealth/anytls/codec.hpp
-        stealth/anytls/conn.hpp
-        stealth/anytls/types.hpp
+        protocols/anytls/anytls.hpp
+        protocols/anytls/codec.hpp
+        protocols/anytls/conn.hpp
+        protocols/anytls/types.hpp
         # ── stealth/gun ──
-        stealth/gun/codec.hpp
-        stealth/gun/conn.hpp
-        stealth/gun/gun.hpp
-        stealth/gun/types.hpp
+        protocols/gun/codec.hpp
+        protocols/gun/conn.hpp
+        protocols/gun/gun.hpp
+        protocols/gun/types.hpp
         # ── stealth/native ──
-        stealth/native/types.hpp
-        stealth/native/conn.hpp
-        stealth/native/native.hpp
+        protocols/native/types.hpp
+        protocols/native/conn.hpp
+        protocols/native/native.hpp
         # ── stealth/reality ──
-        stealth/reality/codec.hpp
-        stealth/reality/conn.hpp
-        stealth/reality/reality.hpp
-        stealth/reality/types.hpp
+        protocols/reality/codec.hpp
+        protocols/reality/conn.hpp
+        protocols/reality/reality.hpp
+        protocols/reality/types.hpp
         # ── stealth/restls ──
-        stealth/restls/codec.hpp
-        stealth/restls/conn.hpp
-        stealth/restls/restls.hpp
-        stealth/restls/types.hpp
+        protocols/restls/codec.hpp
+        protocols/restls/conn.hpp
+        protocols/restls/restls.hpp
+        protocols/restls/types.hpp
         # ── stealth/shadowtls ──
-        stealth/shadowtls/codec.hpp
-        stealth/shadowtls/conn.hpp
-        stealth/shadowtls/shadowtls.hpp
-        stealth/shadowtls/types.hpp
+        protocols/shadowtls/codec.hpp
+        protocols/shadowtls/conn.hpp
+        protocols/shadowtls/shadowtls.hpp
+        protocols/shadowtls/types.hpp
         # ── stealth/trusttunnel ──
-        stealth/trusttunnel/codec.hpp
-        stealth/trusttunnel/conn.hpp
-        stealth/trusttunnel/dgram.hpp
-        stealth/trusttunnel/trusttunnel.hpp
-        stealth/trusttunnel/types.hpp
+        protocols/trusttunnel/codec.hpp
+        protocols/trusttunnel/conn.hpp
+        protocols/trusttunnel/dgram.hpp
+        protocols/trusttunnel/trusttunnel.hpp
+        protocols/trusttunnel/types.hpp
         # ── stealth/ws ──
-        stealth/ws/codec.hpp
-        stealth/ws/conn.hpp
-        stealth/ws/types.hpp
-        stealth/ws/ws.hpp
+        protocols/ws/codec.hpp
+        protocols/ws/conn.hpp
+        protocols/ws/types.hpp
+        protocols/ws/ws.hpp
         # ── stealth/xhttp ──
-        stealth/xhttp/types.hpp
-        stealth/xhttp/conn.hpp
-        stealth/xhttp/xhttp.hpp
+        protocols/xhttp/types.hpp
+        protocols/xhttp/conn.hpp
+        protocols/xhttp/xhttp.hpp
         # ── stealth/ech ──
-        stealth/ech/types.hpp
-        stealth/ech/keygen.hpp
-        stealth/ech/scan.hpp
-        stealth/ech/ech.hpp
+        protocols/ech/types.hpp
+        protocols/ech/keygen.hpp
+        protocols/ech/scan.hpp
+        protocols/ech/ech.hpp
         # ── top ──
+        TestRunner.hpp
+        MockTransport.hpp
+        MockTlsServer.hpp
         programmable_transport.hpp
+        # ── stress ──
+        stress/stress_helper.hpp
 )
 
 target_link_libraries(prism_ngx INTERFACE

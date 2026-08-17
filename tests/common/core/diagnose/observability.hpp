@@ -18,7 +18,7 @@
 #include <memory>
 #include <vector>
 
-namespace psmtest::observability
+namespace preview::diagnose
 {
 
     /**
@@ -37,8 +37,12 @@ namespace psmtest::observability
          * @param max_value 最大可记录值（封顶）
          */
         explicit hdr_histogram(std::uint64_t max_value)
-            : max_value_(max_value > 0 ? max_value : 1)
+            : max_value_(1)
         {
+            if (max_value > 0)
+            {
+                max_value_ = max_value;
+            }
             // bucket 数 = log2(max_value) + 1（0 值也占一桶）
             std::uint64_t v = max_value_;
             while (v > 0)
@@ -136,7 +140,11 @@ namespace psmtest::observability
          */
         [[nodiscard]] auto bucket_value(std::size_t idx) const -> std::uint64_t
         {
-            return idx == 0 ? 0 : (std::uint64_t{1} << (idx - 1));
+            if (idx == 0)
+            {
+                return 0;
+            }
+            return (std::uint64_t{1} << (idx - 1));
         }
 
         std::uint64_t max_value_{1};                              ///< 封顶值
@@ -162,8 +170,12 @@ namespace psmtest::observability
          * @param window_ms 移动平均窗口（毫秒）
          */
         explicit ewma_meter(std::uint64_t window_ms = 1000)
-            : window_ms_(window_ms > 0 ? window_ms : 1), last_read_(uninit)
+            : window_ms_(1), last_read_(uninit)
         {
+            if (window_ms > 0)
+            {
+                window_ms_ = window_ms;
+            }
         }
 
         /**
@@ -187,7 +199,11 @@ namespace psmtest::observability
                 return 0.0;
             }
             const auto sum = sum_.load(std::memory_order_relaxed);
-            const auto elapsed = now > last ? now - last : 1;
+            std::uint64_t elapsed = 1;
+            if (now > last)
+            {
+                elapsed = now - last;
+            }
             // 衰减因子：经过窗口数越多，速率越接近平均
             const auto windows = static_cast<double>(elapsed) / static_cast<double>(window_ms_);
             return static_cast<double>(sum) / windows;
@@ -215,8 +231,16 @@ namespace psmtest::observability
          * @param ring_size 环容量（须 2 的幂）
          */
         explicit sample_tracer(std::uint64_t ratio = 1, std::size_t ring_size = 256)
-            : ratio_(ratio < 1 ? 1 : ratio), ring_size_(ring_size), ring_(ring_size)
+            : ratio_(1), ring_size_(ring_size), ring_(ring_size)
         {
+            if (ratio < 1)
+            {
+                ratio_ = 1;
+            }
+            else
+            {
+                ratio_ = ratio;
+            }
         }
 
         /**
@@ -286,4 +310,4 @@ namespace psmtest::observability
         std::atomic<std::uint64_t> sampled_{0};          ///< 已采样数
     };
 
-} // namespace psmtest::observability
+} // namespace preview::diagnose

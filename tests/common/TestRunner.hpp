@@ -27,7 +27,7 @@ namespace psm::testing
          * @brief 构造测试运行器
          * @param tag 日志标签，用于区分不同测试模块（如 "Session", "Crypto" 等）
          */
-        explicit TestRunner(const std::string_view tag) noexcept : tag_(tag)
+        explicit TestRunner(std::string_view tag) noexcept : tag_(tag)
         {
         }
 
@@ -47,7 +47,7 @@ namespace psm::testing
          * @brief 输出信息级别日志
          * @param msg 日志消息
          */
-        void LogInfo(const std::string_view msg) const
+        void LogInfo(std::string_view msg) const
         {
             psm::diagnose::info("[{}] {}", tag_, msg);
         }
@@ -56,7 +56,7 @@ namespace psm::testing
          * @brief 记录测试通过并递增计数器
          * @param msg 测试名称
          */
-        void LogPass(const std::string_view msg)
+        void LogPass(std::string_view msg)
         {
             ++passed_;
             psm::diagnose::info("[{}] PASS: {}", tag_, msg);
@@ -66,7 +66,7 @@ namespace psm::testing
          * @brief 记录测试失败并递增计数器
          * @param msg 失败原因
          */
-        void LogFail(const std::string_view msg)
+        void LogFail(std::string_view msg)
         {
             ++failed_;
             psm::diagnose::error("[{}] FAIL: {}", tag_, msg);
@@ -77,7 +77,7 @@ namespace psm::testing
          * @param condition 待检查的条件
          * @param message 条件描述
          */
-        void Check(const bool condition, const std::string_view message)
+        void Check(const bool condition, std::string_view message)
         {
             if (condition)
             {
@@ -98,7 +98,11 @@ namespace psm::testing
         {
             psm::diagnose::info("[{}] Results: {} passed, {} failed", tag_, passed_, failed_);
             psm::diagnose::shutdown();
-            return failed_ > 0 ? 1 : 0;
+            if (failed_ > 0)
+            {
+                return 1;
+            }
+            return 0;
         }
 
     private:

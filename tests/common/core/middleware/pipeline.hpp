@@ -23,7 +23,7 @@
 #include <common/core/middleware/context.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest::middleware
+namespace preview::middleware
 {
 
     namespace net = boost::asio;
@@ -54,8 +54,8 @@ namespace psmtest::middleware
          * @param ctx 管线上下文
          * @return 处理后的错误码（success = 继续下一中间件）
          */
-        virtual auto handle(psmtest::shared_transmission &inbound, context &ctx)
-            -> net::awaitable<psmtest::fault::code> = 0;
+        virtual auto handle(preview::shared_transmission &inbound, context &ctx)
+            -> net::awaitable<preview::fault::code> = 0;
     };
 
     /// 中间件共享指针
@@ -87,23 +87,23 @@ namespace psmtest::middleware
          * @param ctx 管线上下文
          * @return 最终错误码（success = 全部通过）
          */
-        auto run(psmtest::shared_transmission inbound, context &ctx)
-            -> net::awaitable<psmtest::fault::code>
+        auto run(preview::shared_transmission inbound, context &ctx)
+            -> net::awaitable<preview::fault::code>
         {
             for (const auto &mw : chain_)
             {
                 const auto ec = co_await mw->handle(inbound, ctx);
-                if (psmtest::fault::failed(ec))
+                if (preview::fault::failed(ec))
                 {
                     co_return ec;
                 }
             }
             ctx.inbound = std::move(inbound);
-            co_return psmtest::fault::code::success;
+            co_return preview::fault::code::success;
         }
 
     private:
         std::vector<shared_middleware> chain_; ///< 中间件链
     };
 
-} // namespace psmtest::middleware
+} // namespace preview::middleware

@@ -39,7 +39,7 @@ TEST(ForwardPipeline, OptionsFields)
 {
     // transmission 是抽象类，用 nullptr 占位（仅验证字段赋值，不实际转发）
     psm::transport::shared_transmission inbound;
-    psm::connect::target target;
+    preview::network::target target;
     target.host = psm::memory::string{"example.com", psm::memory::current_resource()};
     target.port = psm::memory::string{"443", psm::memory::current_resource()};
     target.positive = true;
@@ -55,7 +55,7 @@ TEST(ForwardPipeline, OptionsFields)
  */
 TEST(ForwardPipeline, FailsWithNullHandle)
 {
-    psm::connect::target target;
+    preview::network::target target;
     target.host = psm::memory::string{"127.0.0.1", psm::memory::current_resource()};
     target.port = psm::memory::string{"80", psm::memory::current_resource()};
     target.positive = true;

@@ -28,7 +28,7 @@
 #include <utility>
 #include <vector>
 
-namespace psmtest::crypto
+namespace preview::crypto
 {
 
     /**
@@ -143,7 +143,7 @@ namespace psmtest::crypto
 
 
 
-    auto hmac_sha256(const std::span<const std::uint8_t> key, const std::span<const std::uint8_t> data)
+    auto hmac_sha256(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> result{};
@@ -160,7 +160,7 @@ namespace psmtest::crypto
         return result;
     }
 
-    auto hmac_sha512(const std::span<const std::uint8_t> key, const std::span<const std::uint8_t> data)
+    auto hmac_sha512(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, sha512_len>
     {
         std::array<std::uint8_t, sha512_len> result{};
@@ -177,7 +177,7 @@ namespace psmtest::crypto
         return result;
     }
 
-    auto hkdf_extract(const std::span<const std::uint8_t> salt, const std::span<const std::uint8_t> ikm)
+    auto hkdf_extract(std::span<const std::uint8_t> salt, std::span<const std::uint8_t> ikm)
         -> std::array<std::uint8_t, sha256_len>
     {
         if (salt.empty())
@@ -188,7 +188,7 @@ namespace psmtest::crypto
         return hmac_sha256(salt, ikm);
     }
 
-    auto hkdf_expand(const std::span<const std::uint8_t> prk, const std::span<const std::uint8_t> info,
+    auto hkdf_expand(std::span<const std::uint8_t> prk, std::span<const std::uint8_t> info,
                      const std::size_t length) -> std::pair<fault::code, std::vector<std::uint8_t>>
     {
         if (length > 255 * sha256_len)
@@ -286,14 +286,14 @@ namespace psmtest::crypto
         return hkdf_expand(secret, {label_buf.data(), pos}, length);
     }
 
-    auto sha256(const std::span<const std::uint8_t> data) -> std::array<std::uint8_t, sha256_len>
+    auto sha256(std::span<const std::uint8_t> data) -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> hash{};
         ::SHA256(data.data(), data.size(), hash.data());
         return hash;
     }
 
-    auto sha256(const std::span<const std::uint8_t> data1, const std::span<const std::uint8_t> data2)
+    auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2)
         -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> hash{};
@@ -324,7 +324,7 @@ namespace psmtest::crypto
         return hash;
     }
 
-    auto sha256(const std::span<const std::uint8_t> data1, const std::span<const std::uint8_t> data2,
+    auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2,
                 const std::span<const std::uint8_t> data3) -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> hash{};
@@ -357,4 +357,4 @@ namespace psmtest::crypto
     }
 
 
-} // namespace psmtest::crypto
+} // namespace preview::crypto

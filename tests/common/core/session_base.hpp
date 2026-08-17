@@ -9,8 +9,10 @@
 
 #pragma once
 
-// DEPRECATED: 旧骨架（Beast 模板方法模式），新协议 conn 统一使用 psmtest::transmission
-// （core/transmission.hpp）。本文件仅保留供迁移期兼容，勿在新代码中使用。
+// DEPRECATED: 旧骨架（Beast 模板方法模式），新协议 conn 统一使用 preview::transmission
+// （core/transmission.hpp）。当前仅 protocols/mux/session.hpp 的 stream_handle 使用
+// （经 stream_transmission 适配器桥接上层）；迁移 TODO：stream_handle 直连 transmission 后删除本文件。
+// 勿在新代码中使用。
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -23,7 +25,7 @@
 #include <common/core/error.hpp>
 #include <common/core/transport/stream.hpp>
 
-namespace psmtest
+namespace preview
 {
 
     /// 会话抽象基类
@@ -77,4 +79,4 @@ namespace psmtest
         [[nodiscard]] virtual auto executor() const -> net::any_io_executor = 0;
     };
 
-} // namespace psmtest
+} // namespace preview

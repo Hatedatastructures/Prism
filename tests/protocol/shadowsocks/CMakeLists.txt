@@ -5,12 +5,5 @@ prism_add_test(ShadowsocksDatagramPure.cpp)
 prism_add_test(ShadowsocksDatagramDeep.cpp)
 prism_add_test(ShadowsocksFramingPure.cpp)
 prism_add_test(ShadowsocksProcessPure.cpp)
-prism_add_test(Ss2022ClientServerPerf.cpp)
-prism_add_test(Shadowsocks2022BeastTest.cpp)
-target_link_libraries(Shadowsocks2022BeastTest PRIVATE vmtest_common)
 
-prism_add_test(Ss2022CodecDeep.cpp)
-target_link_libraries(Ss2022CodecDeep PRIVATE vmtest_common)
-target_compile_options(Ss2022CodecDeep PRIVATE -O0 -fno-inline)
 
-prism_add_test(Ss2022ConnErrorMatrix.cpp)

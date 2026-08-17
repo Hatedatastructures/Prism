@@ -1,0 +1,8 @@
+prism_add_test(YamuxCraftDeep2.cpp)
+target_link_libraries(YamuxCraftDeep2 PRIVATE vmtest_common)
+
+prism_add_test(YamuxCraftDeep.cpp)
+target_link_libraries(YamuxCraftDeep PRIVATE vmtest_common)
+
+prism_add_test(YamuxCodecError.cpp)
+target_link_libraries(YamuxCodecError PRIVATE vmtest_common)

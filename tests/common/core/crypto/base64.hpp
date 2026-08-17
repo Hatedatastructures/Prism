@@ -15,7 +15,7 @@
 #include <string>
 #include <string_view>
 
-namespace psmtest::crypto
+namespace preview::crypto
 {
 
     namespace detail
@@ -62,7 +62,7 @@ namespace psmtest::crypto
      * 输入长度不是 4 的倍数时返回空字符串。
      * @note 遵循 RFC 4648 标准 Base64 解码规则。
      */
-    [[nodiscard]] inline auto base64_decode(const std::string_view input) -> memory::string
+    [[nodiscard]] inline auto base64_decode(std::string_view input) -> memory::string
     {
         if (input.empty())
         {
@@ -229,4 +229,4 @@ namespace psmtest::crypto
 
         return result;
     }
-} // namespace psmtest::crypto
+} // namespace preview::crypto

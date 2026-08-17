@@ -21,7 +21,7 @@
 #include <memory>
 #include <optional>
 
-namespace psmtest::transport
+namespace preview::transport
 {
 
     namespace net = boost::asio;
@@ -69,6 +69,58 @@ namespace psmtest::transport
         explicit unreliable(socket_type socket, std::optional<endpoint_type> remote_endpoint = std::nullopt)
             : socket_(std::move(socket)), remote_endpoint_(std::move(remote_endpoint))
         {
+        }
+
+        /**
+         * @brief 连接远端（host:port 解析 + 设置发送目标）
+         * @param remote 远端地址（"host:port"）
+         * @return 解析成功返回 true
+         */
+        auto connect(const std::string &remote) -> bool
+        {
+            const auto colon = remote.rfind(':');
+            if (colon == std::string::npos)
+            {
+                return false;
+            }
+            boost::system::error_code ec;
+            const auto host = remote.substr(0, colon);
+            const auto port = static_cast<unsigned short>(std::strtoul(remote.c_str() + colon + 1, nullptr, 10));
+            const auto ep = net::ip::udp::endpoint(net::ip::make_address(host, ec), port);
+            if (ec)
+            {
+                return false;
+            }
+            if (!socket_.is_open())
+            {
+                socket_.open(ep.protocol(), ec);
+                if (ec)
+                {
+                    return false;
+                }
+            }
+            remote_endpoint_ = ep;
+            return true;
+        }
+
+        /**
+         * @brief 绑定本地端口（IPv4）
+         * @param port 端口（0 = 系统分配）
+         * @return 绑定成功返回 true
+         */
+        auto bind(const unsigned short port) -> bool
+        {
+            boost::system::error_code ec;
+            if (!socket_.is_open())
+            {
+                socket_.open(net::ip::udp::v4(), ec);
+                if (ec)
+                {
+                    return false;
+                }
+            }
+            socket_.bind(net::ip::udp::endpoint(net::ip::udp::v4(), port), ec);
+            return !ec;
         }
 
         /**
@@ -150,18 +202,18 @@ namespace psmtest::transport
                                                                     sender_endpoint_, token);
                 if (sys_ec)
                 {
-                    ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
+                    ec = ::preview::fault::make_error_code(::preview::fault::to_code(sys_ec));
                     co_return 0;
                 }
                 if (!remote_endpoint_)
                 {
                     remote_endpoint_ = sender_endpoint_;
-                    ec = psmtest::fault::make_error_code(psmtest::fault::code::success);
+                    ec = ::preview::fault::make_error_code(::preview::fault::code::success);
                     co_return n;
                 }
                 else if (sender_endpoint_ == *remote_endpoint_)
                 {
-                    ec = psmtest::fault::make_error_code(psmtest::fault::code::success);
+                    ec = ::preview::fault::make_error_code(::preview::fault::code::success);
                     co_return n;
                 }
             }
@@ -180,14 +232,14 @@ namespace psmtest::transport
         {
             if (!remote_endpoint_)
             {
-                ec = psmtest::fault::make_error_code(psmtest::fault::code::io_error);
+                ec = ::preview::fault::make_error_code(::preview::fault::code::io_error);
                 co_return 0;
             }
             boost::system::error_code sys_ec;
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n = co_await socket_.async_send_to(net::buffer(buffer.data(), buffer.size()),
                                                           *remote_endpoint_, token);
-            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
+            ec = ::preview::fault::make_error_code(::preview::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -294,4 +346,4 @@ namespace psmtest::transport
     {
         return std::make_shared<unreliable>(std::move(socket), std::move(remote_endpoint));
     }
-} // namespace psmtest::transport
+} // namespace preview::transport

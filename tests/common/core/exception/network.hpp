@@ -12,7 +12,7 @@
 
 #include <common/core/exception/deviant.hpp>
 
-namespace psmtest::exception
+namespace preview::exception
 {
 
     /**
@@ -36,7 +36,7 @@ namespace psmtest::exception
          */
         explicit network(const fault::code err,
                          const std::source_location &loc = std::source_location::current())
-            : deviant(psmtest::fault::make_error_code(err), {}, loc)
+            : deviant(preview::fault::make_error_code(err), {}, loc)
         {
         }
 
@@ -48,7 +48,7 @@ namespace psmtest::exception
          */
         explicit network(const fault::code err, std::string_view desc,
                          const std::source_location &loc = std::source_location::current())
-            : deviant(psmtest::fault::make_error_code(err), desc, loc)
+            : deviant(preview::fault::make_error_code(err), desc, loc)
         {
         }
 
@@ -106,4 +106,4 @@ namespace psmtest::exception
             return "NETWORK";
         }
     }; // class network
-} // namespace psmtest::exception
+} // namespace preview::exception

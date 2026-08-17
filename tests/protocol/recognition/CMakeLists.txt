@@ -1,2 +1,0 @@
-prism_add_test(RecognitionTest.cpp)
-target_link_libraries(RecognitionTest PRIVATE vmtest_common)

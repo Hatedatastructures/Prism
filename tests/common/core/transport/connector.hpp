@@ -18,7 +18,7 @@
 #include <span>
 #include <utility>
 
-namespace psmtest::transport {
+namespace preview::transport {
 
     namespace net = boost::asio;
 
@@ -101,6 +101,24 @@ namespace psmtest::transport {
         }
 
         /**
+         * @brief 获取内层传输（装饰器链导航）
+         * @return 底层 transmission 指针
+         */
+        [[nodiscard]] auto next_layer() noexcept -> transmission *
+        {
+            return trans_.get();
+        }
+
+        /**
+         * @brief 获取内层传输（const 版本）
+         * @return 底层 transmission 指针
+         */
+        [[nodiscard]] auto next_layer() const noexcept -> const transmission *
+        {
+            return trans_.get();
+        }
+
+        /**
          * @brief 获取执行器
          * @details 委托给 get_executor()，提供便捷的执行器访问。
          * @return executor_type 执行器对象
@@ -150,9 +168,12 @@ namespace psmtest::transport {
             }
 
             // 预读数据已耗尽，直接委托给传输层的 completion-handler 方法
+            // 读语义：填充首个非空缓冲（read_some 语义允许；非连续缓冲无法单次填充）
             return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
                 [trans = trans_, first_buf = *net::buffer_sequence_begin(buffers)](auto &&handler) mutable
                 {
+                    // asio mutable_buffer::data() 返回 void*，byte_span helper 不覆盖，
+                    // 保留显式转换
                     std::span<std::byte> span(reinterpret_cast<std::byte *>(first_buf.data()),
                                               first_buf.size());
                     trans->async_read_some(span, std::forward<decltype(handler)>(handler));
@@ -173,11 +194,37 @@ namespace psmtest::transport {
         auto async_write_some(const ConstBufferSequence &buffers, CompletionToken &&token)
         {
             return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                [trans = trans_, first_buf = *net::buffer_sequence_begin(buffers)](auto &&handler) mutable
+                [trans = trans_, buffers](auto &&handler) mutable
                 {
-                    std::span<const std::byte> span(reinterpret_cast<const std::byte *>(first_buf.data()),
-                                                    first_buf.size());
-                    trans->async_write_some(span, std::forward<decltype(handler)>(handler));
+                    // 遍历全部缓冲逐段写入（不静默丢弃后续缓冲）
+                    auto it = net::buffer_sequence_begin(buffers);
+                    const auto end = net::buffer_sequence_end(buffers);
+                    auto h = std::make_shared<std::decay_t<decltype(handler)>>(
+                        std::forward<decltype(handler)>(handler));
+                    auto next = [trans, end, h](auto &&self, auto it, std::size_t done) mutable -> void
+                    {
+                        if (it == end)
+                        {
+                            boost::system::error_code ec;
+                            (*h)(ec, done);
+                            return;
+                        }
+                        auto buf = *it;
+                        std::span<const std::byte> span(reinterpret_cast<const std::byte *>(buf.data()),
+                                                        buf.size());
+                        trans->async_write_some(span,
+                                                [self, it, end, h, done](boost::system::error_code ec,
+                                                                         std::size_t n) mutable
+                                                {
+                                                    if (ec)
+                                                    {
+                                                        (*h)(ec, done + n);
+                                                        return;
+                                                    }
+                                                    self(self, ++it, done + n);
+                                                });
+                    };
+                    next(next, it, 0);
                 },
                 token);
         }
@@ -259,4 +306,4 @@ namespace psmtest::transport {
         memory::vector<std::byte> preread_buffer_; // 预读数据缓冲区
         std::size_t preread_offset_ = 0;           // 预读数据当前消费偏移量
     }; // class connector
-} // namespace psmtest::transport
+} // namespace preview::transport

@@ -25,7 +25,7 @@
 #include <span>
 #include <system_error>
 
-namespace psmtest::transport {
+namespace preview::transport {
 
 
     namespace net = boost::asio;
@@ -239,7 +239,7 @@ namespace psmtest::transport {
         co_return co_await inner_->async_read_some(buffer, ec);
     }
 
-    inline auto preview::async_write_some(const std::span<const std::byte> buffer, std::error_code &ec)
+    inline auto preview::async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         if (!inner_)
@@ -310,4 +310,4 @@ namespace psmtest::transport {
     }
 
 
-} // namespace psmtest::transport
+} // namespace preview::transport

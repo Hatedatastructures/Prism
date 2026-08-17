@@ -34,7 +34,7 @@
 #include <common/core/transmission.hpp>
 #include <common/core/transport/stream.hpp>
 
-namespace psmtest
+namespace preview
 {
 
     /// 内存管道流端点
@@ -219,8 +219,7 @@ namespace psmtest
         {
             ec.clear();
             in_->read_timed_out = false;
-            const auto n = co_await read_some(
-                std::span<std::uint8_t>(reinterpret_cast<std::uint8_t *>(buffer.data()), buffer.size()));
+            const auto n = co_await read_some(as_u8(buffer));
             if (in_->read_timed_out)
             {
                 ec = std::make_error_code(std::errc::timed_out);
@@ -284,4 +283,4 @@ namespace psmtest
         return {memory_stream{a, b}, memory_stream{b, a}};
     }
 
-} // namespace psmtest
+} // namespace preview

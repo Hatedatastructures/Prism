@@ -22,7 +22,7 @@
 #include <span>
 #include <system_error>
 
-namespace psmtest::transport
+namespace preview::transport
 {
 
     namespace net = boost::asio;
@@ -219,4 +219,4 @@ namespace psmtest::transport
         return std::make_shared<snapshot>(std::move(inner), mr);
     }
 
-} // namespace psmtest::transport
+} // namespace preview::transport

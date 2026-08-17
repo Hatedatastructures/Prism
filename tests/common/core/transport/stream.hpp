@@ -19,13 +19,13 @@
 #include <span>
 #include <system_error>
 
-namespace psmtest
+namespace preview
 {
 
     namespace net = boost::asio;
 
     /// 统一异步传输 concept
-    /// @tparam T 传输类型（memory_stream / socket_stream / 协议连接）
+    /// @tparam T 传输类型（memory_stream / reliable / 协议连接）
     template <typename T>
     concept stream =
         requires(T &s, std::span<std::byte> wbuf, std::span<const std::byte> rbuf, std::error_code &ec) {
@@ -47,4 +47,4 @@ namespace psmtest
     template <typename T>
     concept closable_stream = stream<T>;
 
-} // namespace psmtest
+} // namespace preview

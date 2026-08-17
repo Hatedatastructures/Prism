@@ -2,7 +2,7 @@
  * @file dial.hpp
  * @brief 拨号中间件
  * @details 消费 ctx.target，拨号建立上游传输并注入管线上下文。
- * 支持注入自定义拨号函数（测试用内存实现 / 生产用 outbound::dial）。
+ * 支持注入自定义拨号函数（测试用内存实现 / 生产用 preview::network::outbound::dial）。
  * 对应生产库 net/connection/outbound/dial 的中间件化。
  */
 
@@ -17,10 +17,10 @@
 #include <common/core/fault/handling.hpp>
 #include <common/core/middleware/context.hpp>
 #include <common/core/middleware/pipeline.hpp>
-#include <common/core/protocol/target.hpp>
+#include <common/core/net/target.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest::middleware::builtin
+namespace preview::middleware::builtin
 {
 
     namespace net = boost::asio;
@@ -36,8 +36,8 @@ namespace psmtest::middleware::builtin
     public:
         /// 拨号函数签名（host:port → 传输）
         using dial_fn =
-            std::function<net::awaitable<std::pair<psmtest::fault::code, psmtest::shared_transmission>>(
-                const psmtest::connect::target &)>;
+            std::function<net::awaitable<std::pair<preview::fault::code, preview::shared_transmission>>(
+                const preview::network::target &)>;
 
         /**
          * @brief 构造函数
@@ -61,24 +61,24 @@ namespace psmtest::middleware::builtin
          * @param ctx 管线上下文（消费 target）
          * @return 拨号结果码
          */
-        auto handle(psmtest::shared_transmission & /*inbound*/, context &ctx)
-            -> net::awaitable<psmtest::fault::code> override
+        auto handle(preview::shared_transmission & /*inbound*/, context &ctx)
+            -> net::awaitable<preview::fault::code> override
         {
             if (!dial_)
             {
-                co_return psmtest::fault::code::not_supported;
+                co_return preview::fault::code::not_supported;
             }
             auto [ec, outbound] = co_await dial_(ctx.target);
-            if (psmtest::fault::failed(ec) || !outbound)
+            if (preview::fault::failed(ec) || !outbound)
             {
                 co_return ec;
             }
             ctx.outbound = std::move(outbound);
-            co_return psmtest::fault::code::success;
+            co_return preview::fault::code::success;
         }
 
     private:
         dial_fn dial_; ///< 拨号函数（可注入）
     };
 
-} // namespace psmtest::middleware::builtin
+} // namespace preview::middleware::builtin

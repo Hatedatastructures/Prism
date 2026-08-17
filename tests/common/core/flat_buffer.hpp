@@ -17,7 +17,7 @@
 #include <span>
 #include <vector>
 
-namespace psmtest
+namespace preview
 {
 
     /// 连续缓冲区（flat buffer）
@@ -230,4 +230,4 @@ namespace psmtest
         }
     };
 
-} // namespace psmtest
+} // namespace preview

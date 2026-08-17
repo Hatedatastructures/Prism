@@ -14,17 +14,17 @@
 
 #include <common/core/memory/container.hpp>
 
-namespace psmtest::recognition
+namespace preview::recognition
 {
 
     /**
-     * @class route_table
+     * @class sni_route_table
      * @brief SNI 路由表
      * @details 域名 → 方案名映射。支持：
      *          - 精确匹配："example.com"
      *          - 通配匹配："*.example.com"（子域）
      */
-    class route_table
+    class sni_route_table
     {
     public:
         /**
@@ -86,4 +86,4 @@ namespace psmtest::recognition
         std::unordered_map<std::string, std::string> routes_;
     };
 
-} // namespace psmtest::recognition
+} // namespace preview::recognition

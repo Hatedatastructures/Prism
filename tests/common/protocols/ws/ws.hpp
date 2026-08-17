@@ -1,0 +1,107 @@
+/**
+ * @file ws.hpp
+ * @brief WebSocket 协议入口（聚合头 + 工厂函数）
+ * @details 协议族统一入口：
+ * - 工厂函数（本文件）：connect / accept ——HTTP 升级握手在工厂内部完成
+ * - 配置：client_config / server_config（本文件，字段分开定义）
+ * - 连接：conn（流，conn.hpp，Upgrade 握手 + 数据透传）
+ * - 编解码：codec.hpp（Accept 计算 + 帧头解析/编码/掩码）
+ */
+
+#pragma once
+
+#include <boost/asio/awaitable.hpp>
+
+#include <cstddef>
+#include <memory>
+#include <string>
+#include <tuple>
+#include <utility>
+
+#include <common/core/error.hpp>
+#include <common/core/transmission.hpp>
+#include <common/protocols/ws/codec.hpp>
+#include <common/protocols/ws/conn.hpp>
+#include <common/protocols/ws/types.hpp>
+
+namespace preview::ws
+{
+
+    // =========================================================================
+    // 配置（客户端与服务端字段分开定义）
+    // =========================================================================
+
+    /**
+     * @struct client_config
+     * @brief WebSocket 客户端配置
+     * @details 控制客户端的行为：目标主机。构造后只读。
+     */
+    struct client_config
+    {
+        /// 目标主机（Host 头）
+        std::string host;
+        /// Sec-WebSocket-Key（base64 24 字符）
+        std::string key{"dGhlIHNhbXBsZSBub25jZQ=="};
+    };
+
+    /**
+     * @struct server_config
+     * @brief WebSocket 服务端配置
+     * @details 控制服务端的行为。构造后只读。
+     */
+    struct server_config
+    {
+    };
+
+    // =========================================================================
+    // 工厂（自由函数，握手在内部完成）
+    // =========================================================================
+
+    /**
+     * @brief 创建客户端流连接并完成 Upgrade 握手
+     * @param upstream 上游传输（所有权移交）
+     * @param cfg 客户端配置
+     * @return 错误码与协议连接（失败时连接为空）
+     */
+    [[nodiscard]] inline auto connect(shared_transmission upstream, const client_config &cfg)
+        -> net::awaitable<std::pair<error, shared_conn>>
+    {
+        auto c = std::make_shared<conn<>>(std::move(upstream));
+        const auto err = co_await c->write_handshake(cfg.key, cfg.host);
+        shared_conn conn;
+        if (err == error::none)
+        {
+            conn = shared_conn(std::move(c));
+        }
+        else
+        {
+            conn = shared_conn{};
+        }
+        co_return std::pair{err, std::move(conn)};
+    }
+
+    /**
+     * @brief 接收服务端流连接并完成 Upgrade 握手
+     * @param upstream 上游传输（所有权移交）
+     * @param cfg 服务端配置
+     * @return 错误码、客户端 Key 与协议连接（失败时连接为空）
+     */
+    [[nodiscard]] inline auto accept(shared_transmission upstream, const server_config &cfg)
+        -> net::awaitable<std::tuple<error, std::string, shared_conn>>
+    {
+        auto c = std::make_shared<conn<>>(std::move(upstream));
+        std::string key;
+        const auto err = co_await c->read_handshake(key);
+        shared_conn conn;
+        if (err == error::none)
+        {
+            conn = shared_conn(std::move(c));
+        }
+        else
+        {
+            conn = shared_conn{};
+        }
+        co_return std::tuple{err, std::move(key), std::move(conn)};
+    }
+
+} // namespace preview::ws

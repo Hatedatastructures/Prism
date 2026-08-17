@@ -7,6 +7,4 @@ prism_add_test(RestlsScript.cpp)
 prism_add_test(RestlsHandshakeParse2.cpp)
 # prism_add_test(RestlsTransportPure.cpp)
 # prism_add_test(RestlsTransportDeep.cpp)
-prism_add_test(RestlsConnSession.cpp)
-target_link_libraries(RestlsConnSession PRIVATE vmtest_common)
 

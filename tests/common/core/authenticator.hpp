@@ -16,7 +16,7 @@
 #include <string>
 #include <string_view>
 
-namespace psmtest
+namespace preview
 {
 
     /**
@@ -105,4 +105,4 @@ namespace psmtest
      */
     using shared_authenticator = std::shared_ptr<authenticator>;
 
-} // namespace psmtest
+} // namespace preview

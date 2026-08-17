@@ -1,6 +1,6 @@
 /**
  * @file programmable_transport.hpp
- * @brief 可编程传输桩（psmtest 共享测试设施）
+ * @brief 可编程传输桩（preview 共享测试设施）
  * @details 供各协议 dgram / conn 错误路径测试复用，可编程行为：
  * - 注入读取字节流（to_read，按需消费；耗尽后返回 0 = EOF）
  * - 按调用次数注入读取错误（fail_next_read / read_fail_at）
@@ -27,7 +27,7 @@
 #include <common/core/error.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest
+namespace preview
 {
 
     namespace net = boost::asio;
@@ -100,7 +100,15 @@ namespace psmtest
                 ec = make_error_code(error::io_error);
                 co_return 0;
             }
-            const auto cap = max_write == 0 ? buffer.size() : std::min(buffer.size(), max_write);
+            std::size_t cap;
+            if (max_write == 0)
+            {
+                cap = buffer.size();
+            }
+            else
+            {
+                cap = std::min(buffer.size(), max_write);
+            }
             const auto *src = reinterpret_cast<const std::uint8_t *>(buffer.data());
             written.insert(written.end(), src, src + cap);
             co_return cap;
@@ -142,4 +150,4 @@ namespace psmtest
         bool closed{false};
     };
 
-} // namespace psmtest
+} // namespace preview

@@ -24,7 +24,7 @@
 #include <span>
 #include <system_error>
 
-namespace psmtest::transport {
+namespace preview::transport {
 
 
     namespace net = boost::asio;
@@ -46,7 +46,7 @@ namespace psmtest::transport {
     class encrypted final : public transmission
     {
     public:
-        using connector_type = psmtest::transport::connector;
+        using connector_type = ::preview::transport::connector;
         using stream_type = ssl::stream<connector_type>;
         using shared_stream = std::shared_ptr<stream_type>;
 
@@ -71,20 +71,20 @@ namespace psmtest::transport {
 
         /**
          * @brief 获取内层传输
-         * @return nullptr encrypted 持有 ssl::stream 而非 transmission*
+         * @return 底层传输（穿透 ssl::stream → connector 链）
          */
         [[nodiscard]] auto next_layer() noexcept -> transmission * override
         {
-            return nullptr;
+            return ssl_stream_->next_layer().next_layer();
         }
 
         /**
          * @brief 获取内层传输（const 版本）
-         * @return nullptr encrypted 持有 ssl::stream 而非 transmission*
+         * @return 底层传输（穿透 ssl::stream → connector 链）
          */
         [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
         {
-            return nullptr;
+            return ssl_stream_->next_layer().next_layer();
         }
 
         /**
@@ -112,7 +112,7 @@ namespace psmtest::transport {
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n =
                 co_await ssl_stream_->async_read_some(net::buffer(buffer.data(), buffer.size()), token);
-            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
+            ec = ::preview::fault::make_error_code(::preview::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -131,7 +131,7 @@ namespace psmtest::transport {
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n =
                 co_await ssl_stream_->async_write_some(net::buffer(buffer.data(), buffer.size()), token);
-            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
+            ec = ::preview::fault::make_error_code(::preview::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -269,4 +269,4 @@ namespace psmtest::transport {
     }
 
 
-} // namespace psmtest::transport
+} // namespace preview::transport

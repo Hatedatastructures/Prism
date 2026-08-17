@@ -12,6 +12,7 @@
  */
 #pragma once
 
+#include <common/core/error.hpp>
 #include <common/core/fault/code.hpp>
 #include <common/core/fault/compatible.hpp>
 
@@ -21,7 +22,7 @@
 #include <system_error>
 #include <type_traits>
 
-namespace psmtest::fault
+namespace preview::fault
 {
 
     /**
@@ -86,7 +87,7 @@ namespace psmtest::fault
             return code::success;
         }
 
-        if (std::string_view(ec.category().name()) == "psmtest::fault")
+        if (std::string_view(ec.category().name()) == "preview::fault")
         {
             const auto value = ec.value();
             if (value >= 0 && value < static_cast<std::int32_t>(code::_count))
@@ -94,6 +95,34 @@ namespace psmtest::fault
                 return static_cast<code>(value);
             }
             return code::generic_error;
+        }
+
+        // 协议层错误（preview::error，类别名 preview.protocol）→ fault 映射
+        if (std::string_view(ec.category().name()) == "preview.protocol")
+        {
+            switch (static_cast<preview::error>(ec.value()))
+            {
+            case preview::error::none: return code::success;
+            case preview::error::need_more: return code::would_block;
+            case preview::error::unexpected_eof: return code::eof;
+            case preview::error::bad_length:
+            case preview::error::bad_magic:
+            case preview::error::bad_message:
+            case preview::error::version_mismatch: return code::bad_message;
+            case preview::error::bad_auth:
+            case preview::error::auth_failed: return code::auth_failed;
+            case preview::error::not_supported:
+            case preview::error::unsupported: return code::not_supported;
+            case preview::error::bad_address: return code::unsupported_address;
+            case preview::error::not_open:
+            case preview::error::broken_pipe:
+            case preview::error::io_error: return code::io_error;
+            case preview::error::canceled: return code::canceled;
+            case preview::error::timeout: return code::timeout;
+            case preview::error::protocol_error: return code::protocol_error;
+            case preview::error::kdf_error: return code::generic_error;
+            default: return code::generic_error;
+            }
         }
 
         if (ec == boost::asio::error::eof)
@@ -151,7 +180,7 @@ namespace psmtest::fault
             return code::success;
         }
 
-        if (&ec.category() == &psmtest::fault::category())
+        if (&ec.category() == &preview::fault::category())
         {
             const auto value = ec.value();
             if (value >= 0 && value < static_cast<std::int32_t>(code::_count))
@@ -202,4 +231,4 @@ namespace psmtest::fault
         return code::io_error;
     }
 
-} // namespace psmtest::fault
+} // namespace preview::fault

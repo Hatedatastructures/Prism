@@ -13,7 +13,7 @@
  *   - cancel_and_wait 通过 io_context::stop() 触发取消，配合外部 ioc.run()
  *     退出后 token 自然 release，避免引入跨线程同步。
  *
- * @note 命名空间 psmtest::coroutine，与 psmtest::net（boost::asio）解耦
+ * @note 命名空间 preview::coroutine，与 preview::net（boost::asio）解耦
  * @warning 跨线程调用 spawn_tracked 行为未定义
  */
 #pragma once
@@ -28,7 +28,7 @@
 #include <string_view>
 #include <utility>
 
-namespace psmtest::coroutine
+namespace preview::coroutine
 {
     namespace net = boost::asio;
 
@@ -269,4 +269,4 @@ namespace psmtest::coroutine
     }
 
 
-} // namespace psmtest::coroutine
+} // namespace preview::coroutine

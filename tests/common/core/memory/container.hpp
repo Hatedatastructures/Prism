@@ -17,12 +17,7 @@
 #include <unordered_set>
 #include <vector>
 
-namespace psm
-{
-
-}
-
-namespace psmtest::memory
+namespace preview::memory
 {
 
     using resource =
@@ -37,7 +32,8 @@ namespace psmtest::memory
      * global_pool()，否则返回系统堆分配器。
      * @return 当前默认内存资源指针，永不返回 nullptr
      */
-    [[nodiscard]] inline auto current_resource() -> resource_pointer
+    [[nodiscard]] inline auto current_resource()
+         -> resource_pointer
     {
         return std::pmr::get_default_resource();
     }
@@ -49,7 +45,8 @@ namespace psmtest::memory
      * @param mr 可选的内存资源指针
      * @return 有效的内存资源指针，永不返回 nullptr
      */
-    [[nodiscard]] inline auto effective_mr(resource_pointer mr) noexcept -> resource_pointer
+    [[nodiscard]] inline auto effective_mr(resource_pointer mr) noexcept 
+        -> resource_pointer
     {
         if (mr)
         {
@@ -85,4 +82,4 @@ namespace psmtest::memory
     template <typename Key, typename Hash = std::hash<Key>, typename KeyEqual = std::equal_to<Key>>
     using unordered_set = std::pmr::unordered_set<Key, Hash, KeyEqual>; // PMR 哈希集合模板
 
-} // namespace psmtest::memory
+} // namespace preview::memory

@@ -23,7 +23,7 @@
 #include <string_view>
 #include <system_error>
 
-namespace psmtest::exception
+namespace preview::exception
 {
 
     /**
@@ -152,4 +152,4 @@ namespace psmtest::exception
         std::error_code ec_;            // 错误码
         std::source_location location_; // 异常发生的位置
     }; // class deviant
-} // namespace psmtest::exception
+} // namespace preview::exception

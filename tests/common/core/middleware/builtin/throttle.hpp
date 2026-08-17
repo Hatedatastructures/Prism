@@ -24,7 +24,7 @@
 #include <common/core/middleware/pipeline.hpp>
 #include <common/core/rate/token_bucket.hpp>
 
-namespace psmtest::middleware::builtin
+namespace preview::middleware::builtin
 {
 
     namespace net = boost::asio;
@@ -43,7 +43,7 @@ namespace psmtest::middleware::builtin
          * @param bucket 令牌桶（调用方持有）
          * @param now_fn 时钟函数（毫秒；nullptr = 用 steady_clock）
          */
-        explicit throttle_middleware(psmtest::rate::token_bucket *bucket,
+        explicit throttle_middleware(preview::rate::token_bucket *bucket,
                                      std::uint64_t (*now_fn)() = nullptr)
             : bucket_(bucket), now_fn_(now_fn)
         {
@@ -61,26 +61,34 @@ namespace psmtest::middleware::builtin
          * @brief 限速检查
          * @return success / blocked / not_supported
          */
-        auto handle(psmtest::shared_transmission & /*inbound*/, context & /*ctx*/)
-            -> net::awaitable<psmtest::fault::code> override
+        auto handle(preview::shared_transmission & /*inbound*/, context & /*ctx*/)
+            -> net::awaitable<preview::fault::code> override
         {
             if (!bucket_)
             {
-                co_return psmtest::fault::code::not_supported;
+                co_return preview::fault::code::not_supported;
             }
-            const auto now = now_fn_ ? now_fn_() : static_cast<std::uint64_t>(
-                                                       std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                           std::chrono::steady_clock::now().time_since_epoch())
-                                                           .count());
+            std::uint64_t now = 0;
+            if (now_fn_)
+            {
+                now = now_fn_();
+            }
+            else
+            {
+                now = static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch())
+                        .count());
+            }
             if (!bucket_->try_take(1, now))
             {
-                co_return psmtest::fault::code::blocked;
+                co_return preview::fault::code::blocked;
             }
-            co_return psmtest::fault::code::success;
+            co_return preview::fault::code::success;
         }
 
     private:
-        psmtest::rate::token_bucket *bucket_; ///< 令牌桶（非拥有）
+        preview::rate::token_bucket *bucket_; ///< 令牌桶（非拥有）
         std::uint64_t (*now_fn_)();           ///< 时钟函数
     };
 
@@ -117,22 +125,26 @@ namespace psmtest::middleware::builtin
          * @brief 封禁判定（按 ctx 远端键）
          * @return success / blocked
          */
-        auto handle(psmtest::shared_transmission & /*inbound*/, context &ctx)
-            -> net::awaitable<psmtest::fault::code> override
+        auto handle(preview::shared_transmission & /*inbound*/, context &ctx)
+            -> net::awaitable<preview::fault::code> override
         {
-            const auto key = ctx.raw_identity.empty() ? "unknown" : ctx.raw_identity;
+            std::string key = "unknown";
+            if (!ctx.raw_identity.empty())
+            {
+                key = ctx.raw_identity;
+            }
             if (is_banned(key))
             {
-                co_return psmtest::fault::code::blocked;
+                co_return preview::fault::code::blocked;
             }
-            co_return psmtest::fault::code::success;
+            co_return preview::fault::code::success;
         }
 
         /**
          * @brief 记录失败（超阈值触发封禁）
          * @param key 键（如远端地址）
          */
-        void record_failure(const std::string_view key)
+        void record_failure(std::string_view key)
         {
             const auto now = now_fn_();
             auto &state = failures_[std::string(key)];
@@ -155,7 +167,7 @@ namespace psmtest::middleware::builtin
          * @brief 是否被封禁
          * @param key 键
          */
-        [[nodiscard]] auto is_banned(const std::string_view key) const -> bool
+        [[nodiscard]] auto is_banned(std::string_view key) const -> bool
         {
             const auto it = banned_.find(std::string(key));
             if (it == banned_.end())
@@ -183,4 +195,4 @@ namespace psmtest::middleware::builtin
         mutable std::unordered_map<std::string, std::uint64_t> banned_;   ///< 封禁表
     };
 
-} // namespace psmtest::middleware::builtin
+} // namespace preview::middleware::builtin

@@ -24,7 +24,7 @@
 #include <common/core/middleware/context.hpp>
 #include <common/core/middleware/pipeline.hpp>
 
-namespace psmtest::middleware::builtin
+namespace preview::middleware::builtin
 {
 
     namespace net = boost::asio;
@@ -47,7 +47,7 @@ namespace psmtest::middleware::builtin
          * @param auth 认证器（可空，运行时校验）
          * @param cred 凭据提取函数（可空，默认读 ctx 内预设字段）
          */
-        explicit auth_middleware(psmtest::shared_authenticator auth,
+        explicit auth_middleware(preview::shared_authenticator auth,
                                  credential_fn cred = default_credential)
             : auth_(std::move(auth)), cred_(std::move(cred))
         {
@@ -67,25 +67,25 @@ namespace psmtest::middleware::builtin
          * @param ctx 上下文（成功后写入 identity）
          * @return success / auth_failed / not_supported
          */
-        auto handle(psmtest::shared_transmission & /*inbound*/, context &ctx)
-            -> net::awaitable<psmtest::fault::code> override
+        auto handle(preview::shared_transmission & /*inbound*/, context &ctx)
+            -> net::awaitable<preview::fault::code> override
         {
             if (!auth_ || !cred_)
             {
-                co_return psmtest::fault::code::not_supported;
+                co_return preview::fault::code::not_supported;
             }
             const auto cred = cred_(ctx);
             if (!cred)
             {
-                co_return psmtest::fault::code::auth_failed;
+                co_return preview::fault::code::auth_failed;
             }
             const auto result = auth_->check(cred->first, cred->second);
             if (!result.ok)
             {
-                co_return psmtest::fault::code::auth_failed;
+                co_return preview::fault::code::auth_failed;
             }
             ctx.identity = std::move(result.identity);
-            co_return psmtest::fault::code::success;
+            co_return preview::fault::code::success;
         }
 
     private:
@@ -100,8 +100,8 @@ namespace psmtest::middleware::builtin
             return std::make_pair(ctx.raw_identity, ctx.raw_secret);
         }
 
-        psmtest::shared_authenticator auth_; ///< 认证器
+        preview::shared_authenticator auth_; ///< 认证器
         credential_fn cred_;                 ///< 凭据提取
     };
 
-} // namespace psmtest::middleware::builtin
+} // namespace preview::middleware::builtin

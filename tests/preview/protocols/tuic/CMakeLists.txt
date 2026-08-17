@@ -1,0 +1,9 @@
+# tuic 子模块测试
+prism_add_test(TuicClientServerPerf.cpp)
+target_link_libraries(TuicClientServerPerf PRIVATE vmtest_common)
+prism_add_test(TuicConnErrorMatrix.cpp)
+target_link_libraries(TuicConnErrorMatrix PRIVATE vmtest_common)
+prism_add_test(TuicDgramDeep.cpp)
+target_link_libraries(TuicDgramDeep PRIVATE vmtest_common)
+prism_add_test(TuicConnSession.cpp)
+target_link_libraries(TuicConnSession PRIVATE vmtest_common)

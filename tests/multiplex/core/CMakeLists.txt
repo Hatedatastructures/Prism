@@ -1,12 +1,8 @@
 prism_add_test(MultiplexDuct.cpp)
-prism_add_test(DuctDeep.cpp)
-#prism_add_test(MuxBootstrap.cpp)  // DISABLED: needs session_resources*
 prism_add_test(MuxBootstrapPure.cpp)
 prism_add_test(MuxCorePure.cpp)
-prism_add_test(MuxCoreDeep.cpp)
 prism_add_test(MuxLifecycle.cpp)
 prism_add_test(MuxMaxStreams.cpp)
 prism_add_test(MuxParcel.cpp)
-prism_add_test(ParcelDeep.cpp)
 prism_add_test(MuxStressTest.cpp)
 prism_add_test(MuxUploadSim.cpp)

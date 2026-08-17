@@ -1,7 +1,7 @@
 /**
  * @file protocol.hpp
  * @brief 协议类型枚举与首字节识别
- * @details 定义 psmtest 统一协议类型（对照主项目 connect::protocol_type），
+ * @details 定义 preview 统一协议类型（对照主项目 connect::protocol_type），
  *          提供首包字节检测（probe 基础）：按特征字节映射到协议类型。
  */
 
@@ -11,7 +11,7 @@
 #include <span>
 #include <string_view>
 
-namespace psmtest::recognition
+namespace preview::recognition
 {
 
     /**
@@ -122,4 +122,4 @@ namespace psmtest::recognition
         return protocol_type::unknown;
     }
 
-} // namespace psmtest::recognition
+} // namespace preview::recognition

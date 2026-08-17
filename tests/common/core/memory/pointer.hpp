@@ -2,7 +2,7 @@
  * @file pointer.hpp
  * @brief 会话级内存指针体系
  * @details 对齐主项目 resource::session 的内存模型：
- * - session_arena：会话级帧竞技场（栈缓冲 + 线程局部池上游），
+ * - frame_arena：会话级帧竞技场（栈缓冲 + 线程局部池上游），
  *   热路径零释放（arena 语义，随会话析构一次性回收）
  * - 资源指针（resource_pointer）在函数间传递（非拥有语义），
  *   由会话持有 arena，handler/conn 通过 arena.get() 分配临时对象
@@ -22,11 +22,11 @@
 #include <common/core/memory/container.hpp>
 #include <common/core/memory/pool.hpp>
 
-namespace psmtest::memory
+namespace preview::memory
 {
 
     /**
-     * @concept memory_policy
+     * @concept restrict
      * @brief 会话内存策略约束
      * @details 描述可作为协议 conn 内存策略的类型契约：
      * - 提供容器类型别名 buffer<T> / dynamic_string
@@ -35,14 +35,14 @@ namespace psmtest::memory
      * 使 conn 不耦合具体分配器实现。
      */
     template <typename Memory>
-    concept memory_policy = requires(Memory mem)
+    concept restrict = requires(Memory mem)
     {
         // 容器类型别名
         typename Memory::template buffer<std::uint8_t>;
         typename Memory::dynamic_string;
 
         // 分配接口（返回类型精确匹配）
-        { mem.arena() } -> std::same_as<psmtest::memory::resource_pointer>;
+        { mem.arena() } -> std::same_as<preview::memory::resource_pointer>;
         { mem.template make_buffer<std::uint8_t>(std::size_t{0}) }
             -> std::same_as<typename Memory::template buffer<std::uint8_t>>;
         { mem.template make_vector<std::uint8_t>() }
@@ -52,17 +52,17 @@ namespace psmtest::memory
     };
 
     /**
-     * @class session_arena
+     * @class frame_arena
      * @brief 会话级帧竞技场（模板化栈缓冲大小）
      * @details 提供会话生命周期内的零释放分配：
      * - 栈缓冲（默认 8KB）覆盖典型协议帧/地址解析，零堆分配
      * - 缓冲耗尽自动回退线程局部池（仍无锁）
      * - reset() 在会话边界调用，回收全部内存
      * @tparam ArenaSize 栈缓冲字节数（默认 8192；特殊协议可自定义）
-     * @note 对齐主项目 psmtest::resource::session::arena
+     * @note 对齐主项目 preview::resource::session::arena
      */
     template <std::size_t ArenaSize = 8192>
-    class session_arena
+    class frame_arena
     {
     public:
         /**
@@ -70,18 +70,19 @@ namespace psmtest::memory
          * @details 使用栈缓冲区 + 线程局部池作为上游资源，
          * 实现无锁性能最大化
          */
-        session_arena() : resource_(buffer_, ArenaSize, system::local_pool())
+        frame_arena() : resource_(buffer_, ArenaSize, system::local_pool())
         {
         }
 
-        session_arena(const session_arena &) = delete;
-        auto operator=(const session_arena &) -> session_arena & = delete;
+        frame_arena(const frame_arena &) = delete;
+        auto operator=(const frame_arena &) -> frame_arena & = delete;
 
         /**
          * @brief 获取资源指针（供 PMR 容器/字符串使用）
          * @return 内存资源指针，非拥有
          */
-        [[nodiscard]] auto get() noexcept -> resource_pointer
+        [[nodiscard]] auto get() noexcept
+             -> resource_pointer
         {
             return &resource_;
         }
@@ -90,7 +91,8 @@ namespace psmtest::memory
          * @brief 获取资源指针（const 版本）
          * @return 内存资源指针，非拥有
          */
-        [[nodiscard]] auto get() const noexcept -> resource_pointer
+        [[nodiscard]] auto get() const noexcept 
+            -> resource_pointer
         {
             return &resource_;
         }
@@ -109,7 +111,8 @@ namespace psmtest::memory
          * @brief 获取栈缓冲大小
          * @return 字节数
          */
-        [[nodiscard]] static constexpr auto size() noexcept -> std::size_t
+        [[nodiscard]] static constexpr auto size() noexcept 
+            -> std::size_t
         {
             return ArenaSize;
         }
@@ -123,7 +126,7 @@ namespace psmtest::memory
     };
 
     /**
-     * @class session_memory
+     * @class session_resource
      * @brief 会话级内存上下文（模板化栈缓冲大小）
      * @details 聚合 arena + 便捷分配接口：
      * - string()：arena 分配的字符串
@@ -133,7 +136,7 @@ namespace psmtest::memory
      * @note 会话对象（conn）持有本上下文，内部临时分配走 arena
      */
     template <std::size_t ArenaSize = 8192>
-    class session_memory
+    class session_resource
     {
     public:
         /**
@@ -149,16 +152,17 @@ namespace psmtest::memory
         /**
          * @brief 构造内存上下文（持有 arena）
          */
-        session_memory() = default;
+        session_resource() = default;
 
-        session_memory(const session_memory &) = delete;
-        auto operator=(const session_memory &) -> session_memory & = delete;
+        session_resource(const session_resource &) = delete;
+        auto operator=(const session_resource &) -> session_resource & = delete;
 
         /**
          * @brief 获取竞技场资源指针
          * @return 非拥有资源指针
          */
-        [[nodiscard]] auto arena() noexcept -> resource_pointer
+        [[nodiscard]] auto arena() noexcept 
+            -> resource_pointer
         {
             return arena_.get();
         }
@@ -167,7 +171,8 @@ namespace psmtest::memory
          * @brief 获取竞技场资源指针（const 版本）
          * @return 非拥有资源指针
          */
-        [[nodiscard]] auto arena() const noexcept -> resource_pointer
+        [[nodiscard]] auto arena() const noexcept 
+            -> resource_pointer
         {
             return arena_.get();
         }
@@ -176,7 +181,8 @@ namespace psmtest::memory
          * @brief 获取栈缓冲大小
          * @return 字节数
          */
-        [[nodiscard]] static constexpr auto arena_size() noexcept -> std::size_t
+        [[nodiscard]] static constexpr auto arena_size() noexcept 
+            -> std::size_t
         {
             return ArenaSize;
         }
@@ -194,7 +200,8 @@ namespace psmtest::memory
          * @param str 源字符串
          * @return 竞技场分配的字符串（会话生命周期）
          */
-        [[nodiscard]] auto make_string(const std::string_view str) -> memory::string
+        [[nodiscard]] auto make_string(std::string_view str) 
+            -> memory::string
         {
             return memory::string(str, arena_.get());
         }
@@ -205,7 +212,8 @@ namespace psmtest::memory
          * @return 竞技场分配的 vector（会话生命周期）
          */
         template <typename Type>
-        [[nodiscard]] auto make_vector() -> memory::vector<Type>
+        [[nodiscard]] auto make_vector() 
+            -> memory::vector<Type>
         {
             return memory::vector<Type>(arena_.get());
         }
@@ -219,22 +227,29 @@ namespace psmtest::memory
          *       vmess/ss2022 加密缓冲（16KB+）走池，帧/地址（<8KB）走竞技场
          */
         template <typename Type>
-        [[nodiscard]] auto make_buffer(const std::size_t count) -> memory::vector<Type>
+        [[nodiscard]] auto make_buffer(const std::size_t count) 
+            -> memory::vector<Type>
         {
-            memory::vector<Type> buf = (count * sizeof(Type) <= ArenaSize)
-                                           ? memory::vector<Type>(arena_.get())
-                                           : memory::vector<Type>(system::local_pool());
+            memory::vector<Type> buf;
+            if (count * sizeof(Type) <= ArenaSize)
+            {
+                buf = memory::vector<Type>(arena_.get());
+            }
+            else
+            {
+                buf = memory::vector<Type>(system::local_pool());
+            }
             buf.resize(count);
             return buf;
         }
 
     private:
-        session_arena<ArenaSize> arena_; ///< 帧竞技场（会话持有）
+        frame_arena<ArenaSize> arena_; ///< 帧竞技场（会话持有）
     };
 
     /**
      * @brief 便捷别名：会话内存共享指针（默认 8KB 栈缓冲）
      */
-    using shared_session_memory = std::shared_ptr<session_memory<>>;
+    using shared_session_resource = std::shared_ptr<session_resource<>>;
 
-} // namespace psmtest::memory
+} // namespace preview::memory

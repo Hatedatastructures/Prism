@@ -12,7 +12,7 @@
 
 #include <common/core/exception/deviant.hpp>
 
-namespace psmtest::exception
+namespace preview::exception
 {
 
     /**
@@ -37,9 +37,9 @@ namespace psmtest::exception
          * 自动捕获调用点的源码位置。这是推荐的构造函数，
          * 保留完整的错误分类和源码位置信息。
          */
-        explicit protocol(psmtest::fault::code err,
+        explicit protocol(preview::fault::code err,
                           const std::source_location &loc = std::source_location::current())
-            : deviant(psmtest::fault::make_error_code(err), {}, loc)
+            : deviant(preview::fault::make_error_code(err), {}, loc)
         {
         }
 
@@ -51,9 +51,9 @@ namespace psmtest::exception
          * @details 在保留错误分类的基础上，添加人类可读
          * 的额外描述，便于调试和日志记录。
          */
-        explicit protocol(psmtest::fault::code err, std::string_view desc,
+        explicit protocol(preview::fault::code err, std::string_view desc,
                           const std::source_location &loc = std::source_location::current())
-            : deviant(psmtest::fault::make_error_code(err), desc, loc)
+            : deviant(preview::fault::make_error_code(err), desc, loc)
         {
         }
 
@@ -111,4 +111,4 @@ namespace psmtest::exception
             return "PROTOCOL";
         }
     }; // class protocol
-} // namespace psmtest::exception
+} // namespace preview::exception

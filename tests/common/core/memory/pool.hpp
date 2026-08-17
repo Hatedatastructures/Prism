@@ -11,7 +11,7 @@
 
 #include <cstdint>
 
-namespace psmtest::memory
+namespace preview::memory
 {
 
     /**
@@ -47,7 +47,8 @@ namespace psmtest::memory
          * 不确定的长期对象。使用 new 分配，确保在静态
          * 析构阶段后仍可用。
          */
-        [[nodiscard]] static auto global_pool() -> synchronized_pool *
+        [[nodiscard]] static auto global_pool() 
+            -> synchronized_pool *
         {
             static auto *pool = []()
             {
@@ -68,7 +69,8 @@ namespace psmtest::memory
          * 计算和单线程处理逻辑。使用 thread_local 存储，
          * 每个线程独立实例。
          */
-        [[nodiscard]] static auto local_pool() -> unsynchronized_pool *
+        [[nodiscard]] static auto local_pool() 
+            -> unsynchronized_pool *
         {
             // thread_local 保证每个线程一份
             thread_local auto *pool = []()
@@ -89,7 +91,8 @@ namespace psmtest::memory
          * 的语义化别名。分配的对象生命周期必须与当前线程
          * 绑定，禁止跨线程传递。
          */
-        [[nodiscard]] static auto hot_pool() -> unsynchronized_pool *
+        [[nodiscard]] static auto hot_pool() 
+            -> unsynchronized_pool *
         {
             return local_pool();
         }
@@ -136,7 +139,8 @@ namespace psmtest::memory
          * @brief 获取目标内存池
          * @return 根据池类型返回对应的内存池指针
          */
-        [[nodiscard]] static auto target_pool() -> resource_pointer
+        [[nodiscard]] static auto target_pool()
+             -> resource_pointer
         {
             if (Type == pool_type::global)
             {
@@ -213,52 +217,9 @@ namespace psmtest::memory
 
     /**
      * @class frame_arena
-     * @brief 帧分配器或线性分配器
-     * @details 使用栈上缓冲区和单调增长资源，提供极高
-     * 的分配性能。适用于短生命周期、高频分配的场景。
-     * 不可拷贝和移动，分配的内存必须在 reset() 或
-     * 析构前使用。
+     * @brief 帧分配器（模板化版本见 memory/pointer.hpp）
+     * @details 本文件已不提供 frame_arena——统一使用
+     *          preview::memory::frame_arena<ArenaSize>（pointer.hpp）。
      */
-    class frame_arena
-    {
-    public:
-        /**
-         * @brief 构造帧分配器
-         * @details 使用栈缓冲区和线程局部池作为上游资源，
-         * 实现无锁性能最大化。
-         */
-        explicit frame_arena() : resource_(buffer_, sizeof(buffer_), system::local_pool())
-        {
-        }
 
-        /**
-         * @brief 获取内存资源指针
-         * @return 内存资源指针，可用于创建 PMR 容器
-         */
-        [[nodiscard]] auto get() -> resource_pointer
-        {
-            return &resource_;
-        }
-
-        /**
-         * @brief 重置分配器
-         * @details 释放所有已分配内存，重置游标到初始位置。
-         * 调用后之前分配的所有内存均失效。
-         */
-        void reset()
-        {
-            resource_.release();
-        }
-
-    private:
-        // 内部缓冲覆盖典型 mux 地址头，避免解析时穿透到上游池
-        std::byte buffer_[512];
-        monotonic_buffer resource_;
-
-        // 禁止拷贝，确保 resource_ 指针有效性
-        frame_arena(const frame_arena &) = delete;
-        // 禁止赋值，确保 resource_ 指针有效性
-        auto operator=(const frame_arena &) -> frame_arena & = delete;
-    }; // class frame_arena
-
-} // namespace psmtest::memory
+} // namespace preview::memory

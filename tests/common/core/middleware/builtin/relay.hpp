@@ -29,7 +29,7 @@
 #include <common/core/middleware/pipeline.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest::middleware::builtin
+namespace preview::middleware::builtin
 {
 
     namespace net = boost::asio;
@@ -49,7 +49,7 @@ namespace psmtest::middleware::builtin
          * @param outbound 上游传输（已拨号；可为空，由管线前序注入）
          * @param idle_timeout 空闲超时（0 = 禁用）
          */
-        explicit relay_middleware(psmtest::shared_transmission outbound,
+        explicit relay_middleware(preview::shared_transmission outbound,
                                   std::chrono::milliseconds idle_timeout = std::chrono::seconds(300))
             : outbound_(std::move(outbound)), idle_timeout_(idle_timeout)
         {
@@ -69,14 +69,18 @@ namespace psmtest::middleware::builtin
          * @param ctx 管线上下文
          * @return 隧道结束码（success = 正常关闭）
          */
-        auto handle(psmtest::shared_transmission &inbound, context &ctx)
-            -> net::awaitable<psmtest::fault::code> override
+        auto handle(preview::shared_transmission &inbound, context &ctx)
+            -> net::awaitable<preview::fault::code> override
         {
             // 优先使用管线上下文注入的 outbound（dial 中间件产出）
-            auto outbound = ctx.outbound ? ctx.outbound : outbound_;
+            auto outbound = outbound_;
+            if (ctx.outbound)
+            {
+                outbound = ctx.outbound;
+            }
             if (!inbound || !outbound)
             {
-                co_return psmtest::fault::code::bad_gateway;
+                co_return preview::fault::code::bad_gateway;
             }
 
             const auto buffer_size = (std::max)(ctx.buffer_size, std::size_t{2});
@@ -150,10 +154,11 @@ namespace psmtest::middleware::builtin
             {
                 if (effective_timeout <= std::chrono::milliseconds::zero())
                 {
-                    // 禁用超时：挂起直到隧道结束
-                    std::array<std::byte, 1> dummy{};
-                    std::error_code ec;
-                    co_await inbound->async_read_some(dummy, ec);
+                    // 禁用超时：超长 timer 挂起（不占 socket 读，避免与 up/down 竞争吞数据）
+                    net::steady_timer hold(co_await net::this_coro::executor);
+                    hold.expires_after(std::chrono::hours(24));
+                    boost::system::error_code ec;
+                    co_await hold.async_wait(net::redirect_error(net::use_awaitable, ec));
                     co_return;
                 }
                 while (true)
@@ -177,12 +182,12 @@ namespace psmtest::middleware::builtin
             {
                 ctx.traffic->report(ctx.identity, total[0], total[1]);
             }
-            co_return psmtest::fault::code::success;
+            co_return preview::fault::code::success;
         }
 
     private:
-        psmtest::shared_transmission outbound_; ///< 上游传输
+        preview::shared_transmission outbound_; ///< 上游传输
         std::chrono::milliseconds idle_timeout_;       ///< 空闲超时
     };
 
-} // namespace psmtest::middleware::builtin
+} // namespace preview::middleware::builtin

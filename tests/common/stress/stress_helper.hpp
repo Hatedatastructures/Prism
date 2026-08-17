@@ -23,7 +23,7 @@
 #include <span>
 #include <vector>
 
-namespace psmtest::stress
+namespace preview::stress
 {
     namespace net = boost::asio;
 
@@ -153,4 +153,4 @@ namespace psmtest::stress
         co_return false;
     }
 
-} // namespace psmtest::stress
+} // namespace preview::stress

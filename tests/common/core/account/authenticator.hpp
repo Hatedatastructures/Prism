@@ -16,7 +16,7 @@
 #include <common/core/account/directory.hpp>
 #include <common/core/authenticator.hpp>
 
-namespace psmtest::account
+namespace preview::account
 {
 
     /**
@@ -39,7 +39,7 @@ namespace psmtest::account
         bool ok{false};                       ///< 是否通过
         std::string_view identity{};          ///< 通过后的身份（凭据）
         auth_reason reason{auth_reason::not_found}; ///< 失败原因
-        psmtest::account::lease lease{};      ///< 通过后持有租约（占配额）
+        preview::account::lease lease{};      ///< 通过后持有租约（占配额）
     };
 
     /**
@@ -48,7 +48,7 @@ namespace psmtest::account
      * @details 凭据 → 目录查找 → 状态校验 → 租约获取。
      *          通过后租约随结果转移（调用方持有至会话结束）。
      */
-    class directory_authenticator final : public psmtest::authenticator
+    class directory_authenticator final : public preview::authenticator
     {
     public:
         /// 时钟函数签名（可注入，测试用）
@@ -99,7 +99,12 @@ namespace psmtest::account
                     return result;
                 }
             }
-            auto l = psmtest::account::try_acquire(*dir_, secret, now_ != nullptr ? now_() : 0);
+            std::uint64_t now_arg = 0;
+            if (now_ != nullptr)
+            {
+                now_arg = now_();
+            }
+            auto l = preview::account::try_acquire(*dir_, secret, now_arg);
             if (!l)
             {
                 result.reason = auth_reason::disabled; // 超限视为不可用
@@ -115,7 +120,7 @@ namespace psmtest::account
          * @brief 认证器接口（identity 参数兼容；secret 为目录凭据）
          */
         [[nodiscard]] auto check(std::string_view identity, std::string_view secret) const
-            -> psmtest::auth_result override
+            -> preview::auth_result override
         {
             auto r = check_directory(identity, secret);
             if (!r.ok)
@@ -130,4 +135,4 @@ namespace psmtest::account
         now_fn now_;           ///< 时钟函数
     };
 
-} // namespace psmtest::account
+} // namespace preview::account

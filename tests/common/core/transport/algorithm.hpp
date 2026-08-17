@@ -21,7 +21,7 @@
 #include <common/core/error.hpp>
 #include <common/core/transport/stream.hpp>
 
-namespace psmtest
+namespace preview
 {
 
     /**
@@ -79,4 +79,4 @@ namespace psmtest
         co_return co_await async_read_exact(s, buf);
     }
 
-} // namespace psmtest
+} // namespace preview

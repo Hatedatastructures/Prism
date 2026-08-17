@@ -19,7 +19,7 @@
 #include <span>
 #include <vector>
 
-namespace psmtest::codec
+namespace preview::codec
 {
 
     /**
@@ -129,4 +129,4 @@ namespace psmtest::codec
         return c.parse(input).error == codec_error::none;
     }
 
-} // namespace psmtest::codec
+} // namespace preview::codec

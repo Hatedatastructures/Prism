@@ -18,7 +18,7 @@
 #include <common/core/transport/pad.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest::middleware::builtin
+namespace preview::middleware::builtin
 {
 
     /**
@@ -43,17 +43,17 @@ namespace psmtest::middleware::builtin
          * @param ctx 管线上下文（消费 pad 配置）
          * @return success 恒（pad 是可选装饰）
          */
-        auto handle(psmtest::shared_transmission &inbound, context &ctx)
-            -> net::awaitable<psmtest::fault::code> override
+        auto handle(preview::shared_transmission &inbound, context &ctx)
+            -> net::awaitable<preview::fault::code> override
         {
             if (ctx.pad && ctx.pad->enabled && inbound)
             {
-                psmtest::transport::pad_config cfg;
+                preview::transport::pad_config cfg;
                 cfg.pad_targets = "17,30-50,30-50,80-150";
-                inbound = std::make_shared<psmtest::transport::pad_transport>(inbound, cfg);
+                inbound = std::make_shared<preview::transport::pad_transport>(inbound, cfg);
             }
-            co_return psmtest::fault::code::success;
+            co_return preview::fault::code::success;
         }
     };
 
-} // namespace psmtest::middleware::builtin
+} // namespace preview::middleware::builtin

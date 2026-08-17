@@ -20,7 +20,7 @@
 #include <common/core/net/route/route.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest::outbound
+namespace preview::network::outbound
 {
 
     namespace net = boost::asio;
@@ -48,7 +48,7 @@ namespace psmtest::outbound
          * @param ex 执行器
          * @param routes 路由表（共享所有权）
          */
-        explicit outbound(net::any_io_executor ex, std::shared_ptr<net_route::route_table> routes)
+        explicit outbound(net::any_io_executor ex, std::shared_ptr<preview::network::route::route_table> routes)
             : ex_(std::move(ex)), routes_(std::move(routes))
         {
         }
@@ -77,13 +77,13 @@ namespace psmtest::outbound
                 ec = make_error_code(error::bad_address);
                 co_return nullptr;
             }
-            net_dialer::dialer dialer(ex_);
+            preview::network::dialer::dialer dialer(ex_);
             co_return co_await dialer.connect(dial_host, dial_port, ec);
         }
 
     private:
         net::any_io_executor ex_;
-        std::shared_ptr<net_route::route_table> routes_;
+        std::shared_ptr<preview::network::route::route_table> routes_;
     };
 
-} // namespace psmtest::outbound
+} // namespace preview::network::outbound

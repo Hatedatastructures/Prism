@@ -1,9 +1,9 @@
-# psmtest 协议库规范（tests/common）
+# preview 协议库规范（tests/common）
 
-> 本规范描述 `tests/common/`（psmtest 库）的**真实架构**与统一设计标准。
+> 本规范描述 `tests/common/`（preview 库）的**真实架构**与统一设计标准。
 > 参考 Go 参考实现（mihomo transport / sing 系列）的接口模式。目标：
 > **可替换主项目 src/prism 的新一代架构**（NEXTGEN_TASK.md）。
-> 更新：2026-08-16（T1-6，按真实架构重写）。
+> 更新：2026-08-16（T1-6，按真实架构重写；同日一致性整理：G7 门禁补全 / psm 兼容豁免 / 薄聚合头说明）。
 
 ## 1. 目录结构与模块归属
 
@@ -14,7 +14,7 @@ tests/common/
     error.hpp  transmission.hpp  authenticator.hpp  flat_buffer.hpp  parser.hpp
     session_base.hpp  codec_traits.hpp  byte_span.hpp  role.hpp  programmable_transport.hpp
     transport/        reliable/unreliable/encrypted/pad/preview/snapshot/
-                      memory_stream/socket_stream/udp_transmission/connector/
+                      memory_stream/reliable/unreliable/connector/
                       algorithm/bench/stream
     protocol/         address/form/framing/read/mux/target
     http2/ http3/ quic/   （骨架/接口，T2 自包含化）
@@ -30,7 +30,7 @@ tests/common/
 每个协议一个目录，**聚合头四件套**（扁平结构，无 codec/kdf/chunk 子目录）：
 
 ```
-tests/common/proxy/<proto>/
+tests/common/protocols/<proto>/
   types.hpp   — 常量、枚举、标志位、配置结构
   codec.hpp   — 帧编解码（build/parse 纯函数 + 解析状态机）
   conn.hpp    — 连接装饰器（继承 transmission，模板化 memory_policy）
@@ -40,10 +40,21 @@ tests/common/proxy/<proto>/
 
 伪装方案（stealth/）同构：types/codec/conn + 聚合头（无 dgram 或按需）。
 
+例外（**薄聚合头**，无 codec 层，聚合头仅 re-export 子头、不定义工厂）：
+
+```
+tests/common/protocols/ech/    — keygen/scan/types（无 conn：SSL_ECH_KEYS 构造 + ClientHello 扫描）
+tests/common/protocols/native/ — types/conn（原生 TLS 直通，无帧编解码）
+tests/common/protocols/xhttp/  — types/conn（HTTP/2 stream-one，帧处理在 http2/ 子库）
+```
+
+> 三者均为 TLS 直通/解密类方案，不存在 build/parse 帧编解码层，
+> 故不套用 types/codec/conn/dgram 四件套，聚合头保持薄形态。
+
 ### 1.2 多路复用（mux/）
 
 ```
-tests/common/mux/smux/（yamux/h2mux 同构）
+tests/common/protocols/mux/smux/（yamux/h2mux 同构）
   types.hpp   — 帧类型/常量
   codec.hpp   — 帧编解码（模板化 frame_codec 策略）
   session.hpp — 会话状态机（流表/帧循环/背压，模板注入 codec）
@@ -58,7 +69,7 @@ tests/common/mux/smux/（yamux/h2mux 同构）
 
 ### 2.1 传输抽象（core/transmission.hpp）
 
-单一 `psmtest::transmission` 虚接口（全部模块统一使用）：
+单一 `preview::transmission` 虚接口（全部模块统一使用）：
 
 | 方法 | 语义 |
 |---|---|
@@ -74,7 +85,7 @@ tests/common/mux/smux/（yamux/h2mux 同构）
 | `release()` | 释放底层所有权 |
 
 - **装饰器模式**：协议 conn 继承 transmission 包装底层（preview → conn → reliable）。
-- **叶子节点**：memory_stream / socket_stream / reliable / unreliable / udp_transmission。
+- **叶子节点**：memory_stream / reliable / reliable / unreliable / unreliable。
 - **concept**：`transmission_like` / `stream` 约束模板参数。
 - 生命周期：`shared_transmission`（shared_ptr）管理。
 
@@ -95,7 +106,7 @@ tests/common/mux/smux/（yamux/h2mux 同构）
 ### 2.3 协议 conn 模板化
 
 ```cpp
-template <psmtest::memory::memory_policy Memory = psmtest::memory::session_memory<>>
+template <preview::memory::memory_policy Memory = preview::memory::session_resource<>>
 class conn : public transmission, public std::enable_shared_from_this<conn<Memory>>;
 ```
 
@@ -106,8 +117,8 @@ class conn : public transmission, public std::enable_shared_from_this<conn<Memor
 
 | 体系 | 用途 | 定义 |
 |---|---|---|
-| `core/error.hpp` | **协议编解码**（细粒度：need_more/unexpected_eof/bad_length/bad_auth/...） | `psmtest::error`（boost::system::error_category） |
-| `core/fault/code.hpp` | **中间件/流程**（粗粒度：io_error/timeout/canceled/auth_failed/...） | `psmtest::fault::code` |
+| `core/error.hpp` | **协议编解码**（细粒度：need_more/unexpected_eof/bad_length/bad_auth/...） | `preview::error`（boost::system::error_category） |
+| `core/fault/code.hpp` | **中间件/流程**（粗粒度：io_error/timeout/canceled/auth_failed/...） | `preview::fault::code` |
 
 - 桥接：`fault::to_code(boost::system::error_code)` 已支持 error 转换。
 - **禁止第三种体系**；新错误优先入 error.hpp（编解码）或 fault（流程）。
@@ -183,7 +194,13 @@ diagnose/observability（HDR 指数桶 + EWMA + 1/N 采样 SPSC ring；O5）
 
 ## 6. 命名空间与编码规范
 
-- **全库 `psmtest`**；禁止历史命名体系混用与 psm:: 混用。
+- **全库 `preview`**；禁止历史命名体系混用与 psm:: 混用。
+  - **psm 兼容豁免**（顶层遗留设施，服务旧 psm 测试，保持不动）：
+    `TestRunner.hpp`（继承主库 `psm::diagnose` 日志）、`MockTransport.hpp`
+    （继承主库 `psm::transport::transmission`）、`MockTlsServer.hpp`
+    （内存 TLS 后端）、`gtest_main.cpp`
+    （初始化主库 `psm::memory::system` 池）。preview 侧等价物：
+    `programmable_transport.hpp`（传输桩）、gtest 原生断言（运行器）。
 - snake_case；Doxygen 中文注释（@file/@brief/@details/@return）。
 - 头文件保护 `#pragma once`；聚合头同步（新增子头必须入聚合头 + CMake）。
 
@@ -199,4 +216,5 @@ diagnose/observability（HDR 指数桶 + EWMA + 1/N 采样 SPSC ring；O5）
 
 - 单一 `prism_ngx` INTERFACE 库（tests/common/CMakeLists.txt）。
 - `prism_test_common` / `vmtest_common` 为兼容别名（指向 prism_ngx）。
-- 全部头文件列于 target_sources（G7 完整性门禁）。
+- 全部头文件列于 target_sources（G7 完整性门禁；含 psm 兼容层与
+  stress 工具：MockTransport / MockTlsServer / TestRunner / stress_helper 均已登记）。

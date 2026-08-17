@@ -16,7 +16,7 @@
 #include <cstdint>
 #include <span>
 
-namespace psmtest::crypto
+namespace preview::crypto
 {
 
     /**
@@ -43,7 +43,7 @@ namespace psmtest::crypto
 
 
 
-    auto ecb_encrypt(const std::span<const std::uint8_t, 16> input, const std::span<const std::uint8_t> key)
+    inline auto ecb_encrypt(std::span<const std::uint8_t, 16> input, std::span<const std::uint8_t> key)
         -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 16> out{};
@@ -90,7 +90,7 @@ namespace psmtest::crypto
         return out;
     }
 
-    auto ecb_decrypt(const std::span<const std::uint8_t, 16> input, const std::span<const std::uint8_t> key)
+    inline auto ecb_decrypt(std::span<const std::uint8_t, 16> input, std::span<const std::uint8_t> key)
         -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 16> out{};
@@ -138,4 +138,4 @@ namespace psmtest::crypto
     }
 
 
-} // namespace psmtest::crypto
+} // namespace preview::crypto

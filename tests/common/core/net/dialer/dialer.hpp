@@ -4,7 +4,7 @@
  * @details 封装 boost::asio::tcp::socket 的异步拨号：
  *          - async_connect：连接指定端点（超时 + 取消）
  *          - 返回 reliable 传输（transmission 接口）
- * @note 参照主项目 net/connection/dialer 语义，psmtest 风格
+ * @note 参照主项目 net/connection/dialer 语义，preview 风格
  */
 
 #pragma once
@@ -27,7 +27,7 @@
 #include <common/core/transmission.hpp>
 #include <common/core/transport/reliable.hpp>
 
-namespace psmtest::net_dialer
+namespace preview::network::dialer
 {
 
     namespace net = boost::asio;
@@ -106,7 +106,7 @@ namespace psmtest::net_dialer
                     ec = std::make_error_code(std::errc::connection_refused);
                     co_return nullptr;
                 }
-                co_return std::make_shared<psmtest::transport::reliable>(std::move(*socket));
+                co_return std::make_shared<preview::transport::reliable>(std::move(*socket));
             }
 
             // 域名解析
@@ -135,7 +135,7 @@ namespace psmtest::net_dialer
                 const auto result = co_await (do_connect() || timer.async_wait(net::use_awaitable));
                 if (result.index() == 0 && std::get<0>(result))
                 {
-                    co_return std::make_shared<psmtest::transport::reliable>(std::move(*socket));
+                    co_return std::make_shared<preview::transport::reliable>(std::move(*socket));
                 }
             }
             ec = std::make_error_code(std::errc::connection_refused);
@@ -147,4 +147,4 @@ namespace psmtest::net_dialer
         dial_options opts_;
     };
 
-} // namespace psmtest::net_dialer
+} // namespace preview::network::dialer

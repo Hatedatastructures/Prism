@@ -14,10 +14,10 @@
 #include <string>
 #include <vector>
 
-#include <common/core/runtime/per_worker_traffic.hpp>
+#include <common/core/runtime/statistics.hpp>
 #include <common/core/runtime/session_registry.hpp>
 
-namespace psmtest::api
+namespace preview::api
 {
 
     /**
@@ -51,7 +51,7 @@ namespace psmtest::api
         /**
          * @brief 流量摘要（up/down 聚合）
          */
-        [[nodiscard]] virtual auto traffic_summary() const -> psmtest::runtime::traffic_pod = 0;
+        [[nodiscard]] virtual auto traffic_summary() const -> preview::runtime::traffic_pod = 0;
 
         /**
          * @brief 配置快照（JSON 文本）
@@ -72,9 +72,9 @@ namespace psmtest::api
          * @param registry 会话注册表（非拥有）
          * @param traffic 流量聚合器（非拥有）
          */
-        registry_api_manager(const psmtest::runtime::session_registry *registry,
-                             const psmtest::runtime::per_worker_traffic *traffic,
-                             const psmtest::runtime::identity_traffic *identity = nullptr)
+        registry_api_manager(const preview::runtime::session_registry *registry,
+                             const preview::runtime::per_worker_traffic *traffic,
+                             const preview::runtime::identity_traffic *identity = nullptr)
             : registry_(registry), traffic_(traffic), identity_(identity)
         {
         }
@@ -104,7 +104,7 @@ namespace psmtest::api
         /**
          * @brief 流量摘要
          */
-        [[nodiscard]] auto traffic_summary() const -> psmtest::runtime::traffic_pod override
+        [[nodiscard]] auto traffic_summary() const -> preview::runtime::traffic_pod override
         {
             if (!traffic_)
             {
@@ -120,7 +120,12 @@ namespace psmtest::api
         {
             std::string out = "{";
             out += "\"sessions\":";
-            out += std::to_string(registry_ ? registry_->size() : 0);
+            std::size_t reg_size = 0;
+            if (registry_)
+            {
+                reg_size = registry_->size();
+            }
+            out += std::to_string(reg_size);
             if (identity_)
             {
                 out += ",\"identities\":";
@@ -131,9 +136,9 @@ namespace psmtest::api
         }
 
     private:
-        const psmtest::runtime::session_registry *registry_;         ///< 会话注册表
-        const psmtest::runtime::per_worker_traffic *traffic_;        ///< 流量聚合
-        const psmtest::runtime::identity_traffic *identity_;         ///< 身份聚合（可选）
+        const preview::runtime::session_registry *registry_;         ///< 会话注册表
+        const preview::runtime::per_worker_traffic *traffic_;        ///< 流量聚合
+        const preview::runtime::identity_traffic *identity_;         ///< 身份聚合（可选）
     };
 
-} // namespace psmtest::api
+} // namespace preview::api

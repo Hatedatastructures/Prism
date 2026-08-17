@@ -13,10 +13,10 @@
 #include <cstdint>
 #include <memory>
 
-#include <common/core/protocol/target.hpp>
+#include <common/core/net/target.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest::middleware
+namespace preview::middleware
 {
 
     /**
@@ -30,11 +30,11 @@ namespace psmtest::middleware
     {
     public:
         /// 入站传输（中间件可替换包装）
-        psmtest::shared_transmission inbound;
+        preview::shared_transmission inbound;
         /// 上游传输（dial 中间件产出，relay 中间件消费）
-        psmtest::shared_transmission outbound;
+        preview::shared_transmission outbound;
         /// 目标地址（拨号中间件消费）
-        psmtest::connect::target target;
+        preview::network::target target;
         /// 检测到的协议类型
         std::uint16_t detected{0};
         /// 流量统计回调（relay 中间件消费）
@@ -64,4 +64,4 @@ namespace psmtest::middleware
         std::chrono::milliseconds timeout{0};
     };
 
-} // namespace psmtest::middleware
+} // namespace preview::middleware

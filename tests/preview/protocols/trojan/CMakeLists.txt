@@ -1,0 +1,12 @@
+# trojan 子模块测试
+prism_add_test(TrojanClientServerPerf.cpp)
+target_link_libraries(TrojanClientServerPerf PRIVATE vmtest_common)
+prism_add_test(TrojanCodecDeep.cpp)
+target_link_libraries(TrojanCodecDeep PRIVATE vmtest_common)
+prism_add_test(TrojanConnErrorMatrix.cpp)
+target_link_libraries(TrojanConnErrorMatrix PRIVATE vmtest_common)
+prism_add_test(TrojanConnSession.cpp)
+target_link_libraries(TrojanConnSession PRIVATE vmtest_common)
+prism_add_test(TrojanStressTest.cpp)
+target_link_libraries(TrojanStressTest PRIVATE vmtest_common)
+target_compile_options(TrojanCodecDeep PRIVATE -O0 -fno-inline)

@@ -17,7 +17,7 @@
 #include <common/core/recognition/route.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest::recognition
+namespace preview::recognition
 {
 
     namespace net = boost::asio;
@@ -46,7 +46,7 @@ namespace psmtest::recognition
          * @brief 构造
          * @param routes SNI 路由表（可选，TLS 分流）
          */
-        explicit pipeline(route_table *routes = nullptr) : routes_(routes)
+        explicit pipeline(sni_route_table *routes = nullptr) : routes_(routes)
         {
         }
 
@@ -90,7 +90,7 @@ namespace psmtest::recognition
             return std::span<const std::byte>(res.pre_read.data(), res.pre_read_size);
         }
 
-        route_table *routes_;
+        sni_route_table *routes_;
     };
 
-} // namespace psmtest::recognition
+} // namespace preview::recognition

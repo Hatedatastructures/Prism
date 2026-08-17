@@ -1,0 +1,7 @@
+# account 子模块测试
+prism_add_test(AccountNgxTest.cpp)
+target_link_libraries(AccountNgxTest PRIVATE vmtest_common)
+prism_add_test(AuthDirectoryTest.cpp)
+target_link_libraries(AuthDirectoryTest PRIVATE vmtest_common)
+prism_add_test(AuthenticatorTest.cpp)
+target_link_libraries(AuthenticatorTest PRIVATE vmtest_common)

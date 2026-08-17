@@ -15,7 +15,7 @@
 #include <string_view>
 #include <unordered_map>
 
-namespace psmtest::net_route
+namespace preview::network::route
 {
 
     /**
@@ -102,4 +102,4 @@ namespace psmtest::net_route
         std::optional<endpoint> positive_;                  ///< 正向端点
     };
 
-} // namespace psmtest::net_route
+} // namespace preview::network::route

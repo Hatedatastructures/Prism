@@ -18,7 +18,7 @@
 #include <variant>
 #include <vector>
 
-namespace psmtest::settings
+namespace preview::settings
 {
 
     /**
@@ -78,7 +78,7 @@ namespace psmtest::settings
         }
 
         /// 解析失败
-        [[nodiscard]] inline auto fail(cursor &c, const std::string_view msg) -> json_error
+        [[nodiscard]] inline auto fail(cursor &c, std::string_view msg) -> json_error
         {
             return json_error{c.pos, std::string(msg)};
         }
@@ -369,7 +369,7 @@ namespace psmtest::settings
      * @param out 解析结果
      * @return 空 = 成功；否则 json_error
      */
-    [[nodiscard]] inline auto parse_json(const std::string_view text, json_value &out) -> json_error
+    [[nodiscard]] inline auto parse_json(std::string_view text, json_value &out) -> json_error
     {
         detail::cursor c{text, 0};
         auto err = detail::parse_value(c, out, 0);
@@ -386,7 +386,7 @@ namespace psmtest::settings
     }
 
     /// 便捷访问：按路径取值（如 "a.b.0"）
-    [[nodiscard]] inline auto lookup(const json_value &root, const std::string_view path)
+    [[nodiscard]] inline auto lookup(const json_value &root, std::string_view path)
         -> const json_value *
     {
         const json_value *cur = &root;
@@ -394,8 +394,12 @@ namespace psmtest::settings
         while (start <= path.size())
         {
             const auto dot = path.find('.', start);
-            const auto seg = path.substr(start, dot == std::string_view::npos ? std::string_view::npos
-                                                                               : dot - start);
+            std::size_t seg_len = std::string_view::npos;
+            if (dot != std::string_view::npos)
+            {
+                seg_len = dot - start;
+            }
+            const auto seg = path.substr(start, seg_len);
             if (cur->data.index() == 4) // json_array
             {
                 const auto &arr = std::get<json_array>(cur->data).items;
@@ -429,4 +433,4 @@ namespace psmtest::settings
         return cur;
     }
 
-} // namespace psmtest::settings
+} // namespace preview::settings

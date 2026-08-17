@@ -8,7 +8,7 @@
 
 #pragma once
 
-namespace psmtest
+namespace preview
 {
 
     /// 协议连接角色
@@ -20,4 +20,4 @@ namespace psmtest
         client,
     };
 
-} // namespace psmtest
+} // namespace preview

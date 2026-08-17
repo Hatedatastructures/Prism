@@ -31,7 +31,7 @@
 #include <common/core/transport/reliable.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest::runtime
+namespace preview::runtime
 {
 
     namespace net = boost::asio;
@@ -49,8 +49,12 @@ namespace psmtest::runtime
          * @brief 构造
          * @param worker_count worker 数（≥1）
          */
-        explicit affinity_balancer(std::size_t worker_count) : worker_count_(worker_count < 1 ? 1 : worker_count)
+        explicit affinity_balancer(std::size_t worker_count) : worker_count_(worker_count)
         {
+            if (worker_count_ < 1)
+            {
+                worker_count_ = 1;
+            }
         }
 
         /**
@@ -58,7 +62,7 @@ namespace psmtest::runtime
          * @param key 亲和性键（如远端地址）
          * @return worker 索引 [0, worker_count)
          */
-        [[nodiscard]] auto select(const std::string_view key) const noexcept -> std::size_t
+        [[nodiscard]] auto select(std::string_view key) const noexcept -> std::size_t
         {
             std::uint64_t hash = 14695981039346656037ULL;
             for (const char c : key)
@@ -92,7 +96,7 @@ namespace psmtest::runtime
     public:
         /// 会话工厂签名：入站传输 + worker 索引 → 会话
         using session_factory =
-            std::function<std::shared_ptr<session>(psmtest::shared_transmission, std::size_t)>;
+            std::function<std::shared_ptr<session>(preview::shared_transmission, std::size_t)>;
 
         /**
          * @brief 构造
@@ -111,7 +115,7 @@ namespace psmtest::runtime
          * @param bind_ep 绑定端点（端口 0 = 随机）
          * @return 成功或 io_error
          */
-        [[nodiscard]] auto start(const net::ip::tcp::endpoint &bind_ep) -> net::awaitable<psmtest::fault::code>
+        [[nodiscard]] auto start(const net::ip::tcp::endpoint &bind_ep) -> net::awaitable<preview::fault::code>
         {
             boost::system::error_code ec;
             acceptor_.open(bind_ep.protocol(), ec);
@@ -129,10 +133,10 @@ namespace psmtest::runtime
             }
             if (ec)
             {
-                co_return psmtest::fault::code::io_error;
+                co_return preview::fault::code::io_error;
             }
             net::co_spawn(ex_, accept_loop(), net::detached);
-            co_return psmtest::fault::code::success;
+            co_return preview::fault::code::success;
         }
 
         /**
@@ -169,7 +173,7 @@ namespace psmtest::runtime
                 }
                 const auto peer = sock.remote_endpoint().address().to_string();
                 const auto worker = balancer_.select(peer);
-                auto transport = psmtest::transport::make_reliable(std::move(sock));
+                auto transport = preview::transport::make_reliable(std::move(sock));
                 if (factory_)
                 {
                     auto sess = factory_(transport, worker);
@@ -191,4 +195,4 @@ namespace psmtest::runtime
         net::ip::tcp::acceptor acceptor_;  ///< TCP 接受器
     };
 
-} // namespace psmtest::runtime
+} // namespace preview::runtime

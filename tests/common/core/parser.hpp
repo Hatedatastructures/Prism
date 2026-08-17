@@ -33,7 +33,7 @@
 #include <common/core/error.hpp>
 #include <common/core/flat_buffer.hpp>
 
-namespace psmtest
+namespace preview
 {
 
     namespace detail
@@ -137,10 +137,18 @@ namespace psmtest
             }
             if (state_ == parse_state::header)
             {
-                return Config::header_len > buf_.size() ? Config::header_len - buf_.size() : 0;
+                if (Config::header_len > buf_.size())
+                {
+                    return Config::header_len - buf_.size();
+                }
+                return 0;
             }
             const auto total = Config::header_len + Config::payload_len(frame_);
-            return total > buf_.size() ? total - buf_.size() : 0;
+            if (total > buf_.size())
+            {
+                return total - buf_.size();
+            }
+            return 0;
         }
 
         /**
@@ -255,4 +263,4 @@ namespace psmtest
         parse_state state_{parse_state::header};
     };
 
-} // namespace psmtest
+} // namespace preview

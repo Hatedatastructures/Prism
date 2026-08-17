@@ -1,0 +1,13 @@
+# net 子模块测试
+prism_add_test(DialerNgxTest.cpp)
+target_link_libraries(DialerNgxTest PRIVATE vmtest_common)
+prism_add_test(DnsResolverNgxTest.cpp)
+target_link_libraries(DnsResolverNgxTest PRIVATE vmtest_common)
+prism_add_test(ForwardTest.cpp)
+target_link_libraries(ForwardTest PRIVATE vmtest_common)
+prism_add_test(RouteOutboundTest.cpp)
+target_link_libraries(RouteOutboundTest PRIVATE vmtest_common)
+prism_add_test(TunnelTest.cpp)
+target_link_libraries(TunnelTest PRIVATE vmtest_common)
+prism_add_test(UdpRelayTest.cpp)
+target_link_libraries(UdpRelayTest PRIVATE vmtest_common)

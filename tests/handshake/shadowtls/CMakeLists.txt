@@ -8,6 +8,4 @@ prism_add_test(ShadowtlsSchemePure.cpp)
 prism_add_test(ShadowtlsTransportPure.cpp)
 prism_add_test(ShadowtlsTransportPure2.cpp)
 prism_add_test(ShadowtlsTransportDeep.cpp)
-prism_add_test(ShadowtlsConnSession.cpp)
-target_link_libraries(ShadowtlsConnSession PRIVATE vmtest_common)
 

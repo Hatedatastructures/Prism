@@ -19,9 +19,9 @@
 #include <utility>
 #include <vector>
 
-#include <common/core/account/cow_map.hpp>
+#include <common/core/memory/cow_map.hpp>
 
-namespace psmtest::account
+namespace preview::account
 {
 
     /**
@@ -311,7 +311,7 @@ namespace psmtest::account
         }
 
     private:
-        psmtest::account::cow_map<std::string, shared_entry> entries_; ///< 凭证 → 条目
+        preview::memory::cow_map<std::string, shared_entry> entries_; ///< 凭证 → 条目
     };
 
     /**
@@ -321,7 +321,7 @@ namespace psmtest::account
      * @param now 当前时间戳（0 = 不过期校验）
      * @return 持约 lease；失败（不存在/禁用/过期/超限）返回空
      */
-    [[nodiscard]] inline auto try_acquire(const directory &dir, const std::string_view credential,
+    [[nodiscard]] inline auto try_acquire(const directory &dir, std::string_view credential,
                                           std::uint64_t now = 0) -> lease
     {
         auto e = dir.find(credential);
@@ -336,4 +336,4 @@ namespace psmtest::account
         return lease(std::move(e));
     }
 
-} // namespace psmtest::account
+} // namespace preview::account

@@ -18,14 +18,16 @@
 
 #include <boost/asio.hpp>
 #include <boost/asio/any_completion_handler.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <array>
+#include <chrono>
 #include <cassert>
 #include <memory>
 #include <optional>
 #include <utility>
 
-namespace psmtest::transport
+namespace preview::transport
 {
 
     namespace net = boost::asio;
@@ -72,6 +74,38 @@ namespace psmtest::transport
          */
         explicit reliable(socket_type socket) : socket_(std::move(socket))
         {
+        }
+
+        /**
+         * @brief 连接远端（带超时）
+         * @param ep 端点
+         * @param timeout 连接超时（0 = 禁用）
+         * @return 错误码（timeout = 连接超时）
+         */
+        auto connect(const net::ip::tcp::endpoint &ep,
+                     std::chrono::milliseconds timeout = std::chrono::milliseconds{5000})
+            -> net::awaitable<boost::system::error_code>
+        {
+            using namespace boost::asio::experimental::awaitable_operators;
+
+            if (timeout.count() > 0)
+            {
+                net::steady_timer timer(socket_->get_executor());
+                timer.expires_after(timeout);
+                auto result = co_await (socket_->async_connect(ep, net::use_awaitable) ||
+                                        timer.async_wait(net::use_awaitable));
+                if (result.index() == 1)
+                {
+                    boost::system::error_code ec;
+                    socket_->close(ec);
+                    co_return boost::system::errc::make_error_code(boost::system::errc::timed_out);
+                }
+            }
+            else
+            {
+                co_await socket_->async_connect(ep, net::use_awaitable);
+            }
+            co_return boost::system::error_code{};
         }
 
         /**
@@ -127,7 +161,7 @@ namespace psmtest::transport
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n =
                 co_await native_socket().async_read_some(net::buffer(buffer.data(), buffer.size()), token);
-            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
+            ec = ::preview::fault::make_error_code(::preview::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -175,7 +209,7 @@ namespace psmtest::transport
             auto token = net::redirect_error(net::use_awaitable, sys_ec);
             const auto n =
                 co_await native_socket().async_write_some(net::buffer(buffer.data(), buffer.size()), token);
-            ec = psmtest::fault::make_error_code(psmtest::fault::to_code(sys_ec));
+            ec = ::preview::fault::make_error_code(::preview::fault::to_code(sys_ec));
             co_return n;
         }
 
@@ -193,6 +227,15 @@ namespace psmtest::transport
                 boost::system::error_code ec;
                 socket_->close(ec);
             }
+        }
+
+        /**
+         * @brief 检查底层 TCP socket 是否打开
+         * @return 打开返回 true
+         */
+        [[nodiscard]] auto is_open() const -> bool override
+        {
+            return socket_ && socket_->is_open();
         }
 
         /**
@@ -289,4 +332,4 @@ namespace psmtest::transport
         return std::make_shared<reliable>(std::move(socket));
     }
 
-} // namespace psmtest::transport
+} // namespace preview::transport

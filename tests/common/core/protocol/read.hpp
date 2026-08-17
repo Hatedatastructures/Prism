@@ -19,7 +19,7 @@
 #include <system_error>
 #include <utility>
 
-namespace psmtest::protocol::common
+namespace preview::protocol::common
 {
 
     namespace net = boost::asio;
@@ -33,7 +33,7 @@ namespace psmtest::protocol::common
      * @details 循环调用 async_read_some 直到读取至少 min_size 字节。
      * 遇到错误或 EOF 时提前返回，返回已读取的字节数和对应的错误码。
      */
-    [[nodiscard]] inline auto read_min(transport::transmission &transport, const std::span<std::byte> buffer,
+    [[nodiscard]] inline auto read_min(transport::transmission &transport, std::span<std::byte> buffer,
                                        const std::size_t min_size)
         -> net::awaitable<std::pair<fault::code, std::size_t>>
     {
@@ -95,4 +95,4 @@ namespace psmtest::protocol::common
         }
         co_return std::pair{fault::code::success, opts.current};
     }
-} // namespace psmtest::protocol::common
+} // namespace preview::protocol::common

@@ -4,7 +4,7 @@
  * @details 封装 boost::asio::tcp::resolver：
  *          - async_resolve：异步解析（域名 → 端点列表）
  *          - LRU 缓存：命中免解析；TTL 过期失效；负缓存
- * @note 参照主项目 net/dns/resolver 语义，psmtest 风格
+ * @note 参照主项目 net/dns/resolver 语义，preview 风格
  */
 
 #pragma once
@@ -28,7 +28,7 @@
 
 #include <common/core/error.hpp>
 
-namespace psmtest::net_dns
+namespace preview::network::dns
 {
 
     namespace net = boost::asio;
@@ -213,4 +213,4 @@ namespace psmtest::net_dns
         }
     };
 
-} // namespace psmtest::net_dns
+} // namespace preview::network::dns

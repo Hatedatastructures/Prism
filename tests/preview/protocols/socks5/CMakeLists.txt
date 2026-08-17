@@ -1,0 +1,13 @@
+# socks5 子模块测试
+prism_add_test(Socks5BeastTest.cpp)
+target_link_libraries(Socks5BeastTest PRIVATE vmtest_common)
+prism_add_test(Socks5ClientServerPerf.cpp)
+target_link_libraries(Socks5ClientServerPerf PRIVATE vmtest_common)
+prism_add_test(Socks5ConnErrorMatrix.cpp)
+target_link_libraries(Socks5ConnErrorMatrix PRIVATE vmtest_common)
+prism_add_test(Socks5ConnSession.cpp)
+target_link_libraries(Socks5ConnSession PRIVATE vmtest_common)
+prism_add_test(Socks5DgramSession.cpp)
+target_link_libraries(Socks5DgramSession PRIVATE vmtest_common)
+prism_add_test(Socks5StressTest.cpp)
+target_link_libraries(Socks5StressTest PRIVATE vmtest_common)

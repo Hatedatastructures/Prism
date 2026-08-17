@@ -25,7 +25,7 @@
 // 前向声明，避免暴露 OpenSSL 头文件
 struct evp_aead_ctx_st;
 
-namespace psmtest::crypto
+namespace preview::crypto
 {
 
     /**
@@ -222,7 +222,11 @@ namespace psmtest::crypto
          */
         [[nodiscard]] static constexpr auto open_size(std::size_t ciphertext_len) noexcept -> std::size_t
         {
-            return ciphertext_len >= tag_length() ? ciphertext_len - tag_length() : 0;
+            if (ciphertext_len >= tag_length())
+            {
+                return ciphertext_len - tag_length();
+            }
+            return 0;
         }
 
     private:
@@ -260,7 +264,7 @@ namespace psmtest::crypto
         }
     }
 
-    inline aead_context::aead_context(const aead_cipher cipher, const std::span<const std::uint8_t> key)
+    inline aead_context::aead_context(const aead_cipher cipher, std::span<const std::uint8_t> key)
         : ctx_(nullptr, &release_ctx), key_length_(key.size())
     {
         const EVP_AEAD *aead = nullptr;
@@ -323,7 +327,7 @@ namespace psmtest::crypto
         return *this;
     }
 
-    inline auto aead_context::seal(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> plaintext,
+    inline auto aead_context::seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext,
                             const std::span<const std::uint8_t> ad) -> fault::code
     {
         if (!ctx_)
@@ -350,7 +354,7 @@ namespace psmtest::crypto
         return fault::code::success;
     }
 
-    inline auto aead_context::open(const std::span<std::uint8_t> out, const std::span<const std::uint8_t> ciphertext,
+    inline auto aead_context::open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext,
                             const std::span<const std::uint8_t> ad) -> fault::code
     {
         if (!ctx_)
@@ -442,4 +446,4 @@ namespace psmtest::crypto
     }
 
 
-} // namespace psmtest::crypto
+} // namespace preview::crypto

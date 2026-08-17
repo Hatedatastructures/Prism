@@ -13,9 +13,9 @@
 #include <memory>
 #include <string>
 
-#include <common/core/account/cow_map.hpp>
+#include <common/core/memory/cow_map.hpp>
 
-namespace psmtest::runtime
+namespace preview::runtime
 {
 
     /**
@@ -91,7 +91,7 @@ namespace psmtest::runtime
         }
 
     private:
-        psmtest::account::cow_map<std::uint64_t, session_info> map_; ///< 会话表
+        preview::memory::cow_map<std::uint64_t, session_info> map_; ///< 会话表
     };
 
-} // namespace psmtest::runtime
+} // namespace preview::runtime

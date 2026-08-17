@@ -1,0 +1,524 @@
+/**
+ * @file StealthNestedPerf3.cpp
+ * @brief TLS 伪装 + 内层协议纯传输速度测试（v3，无 hash/生成开销）
+ * @details 上一版 hash 验证已证明数据一致性。本版专注纯传输速率：
+ *          预生成数据块（一次生成，重复发送），server 只读丢弃。
+ *          测量真实 TCP + 伪装层 + 内层协议的裸吞吐。
+ *          对照：纯 TCP 基线 / 内层直连 / 伪装+内层。
+ */
+
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/redirect_error.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+#include <chrono>
+#include <cstdio>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include <common/core/transport/reliable.hpp>
+#include <common/protocols/socks5/socks5.hpp>
+#include <common/protocols/trojan/trojan.hpp>
+#include <common/protocols/vless/vless.hpp>
+#include <common/protocols/anytls/anytls.hpp>
+#include <common/protocols/gun/gun.hpp>
+#include <common/protocols/reality/reality.hpp>
+#include <common/protocols/restls/restls.hpp>
+#include <common/protocols/shadowtls/shadowtls.hpp>
+#include <common/protocols/trusttunnel/trusttunnel.hpp>
+#include <common/protocols/ws/ws.hpp>
+#include <gtest/gtest.h>
+
+namespace
+{
+    using namespace preview;
+    namespace net = boost::asio;
+
+    constexpr std::size_t kTotal = 256ULL * 1024 * 1024;
+    constexpr std::size_t kBlock = 64 * 1024;
+
+    /// 建立 TCP loopback socket 对
+    auto make_tcp_pair(net::any_io_executor ex) -> net::awaitable<std::pair<transport::reliable, transport::reliable>>
+    {
+        net::ip::tcp::acceptor acceptor(ex, net::ip::tcp::endpoint(net::ip::address_v4::loopback(), 0));
+        transport::reliable client(ex);
+        boost::system::error_code cec;
+        co_await client.connect(acceptor.local_endpoint(), std::chrono::milliseconds{5000});
+        transport::reliable server(ex);
+        boost::system::error_code aec;
+        co_await acceptor.async_accept(server.native_socket(), net::redirect_error(net::use_awaitable, aec));
+        co_return std::make_pair(std::move(client), std::move(server));
+    }
+
+    /// 结果
+    struct result
+    {
+        bool linked{false};   ///< 双端联通
+        std::size_t bytes{0}; ///< 实际传输字节
+        double mbps{0};       ///< 吞吐
+        bool timeout{false};  ///< 超时
+    };
+
+    /// 纯传输测试：预生成数据块重复发送，server 只读丢弃
+    template <typename Factory>
+    auto run_case(Factory factory, const char *name) -> result
+    {
+        auto res = std::make_shared<result>();
+        net::io_context ioc;
+
+        // watchdog：60s 强制终止
+        net::steady_timer watchdog(ioc.get_executor());
+        watchdog.expires_after(std::chrono::seconds(60));
+        net::co_spawn(
+            ioc.get_executor(),
+            [&, res]() -> net::awaitable<void>
+            {
+                boost::system::error_code ec;
+                co_await watchdog.async_wait(net::redirect_error(net::use_awaitable, ec));
+                res->timeout = true;
+                ioc.stop();
+            },
+            net::detached);
+
+        std::exception_ptr ep;
+        net::co_spawn(
+            ioc,
+            [&, res, factory]() mutable -> net::awaitable<void>
+            {
+                try
+                {
+                    auto [ca, sa] = co_await make_tcp_pair(ioc.get_executor());
+                    auto client_raw = std::make_shared<preview::transport::reliable>(std::move(ca));
+                    auto server_raw = std::make_shared<preview::transport::reliable>(std::move(sa));
+
+                    // 服务端 detached：伪装 accept → 内层 accept → 读 256MB 丢弃
+                    auto server_f = factory;
+                    auto server_done = std::make_shared<std::atomic<bool>>(false);
+                    net::co_spawn(
+                        ioc.get_executor(),
+                        [server_raw, server_f, res, server_done]() mutable -> net::awaitable<void>
+                        {
+                            auto [serr, sconn] = co_await server_f.server_accept(std::move(server_raw));
+                            if (serr != error::none || !sconn)
+                            {
+                                res->timeout = true;
+                                server_done->store(true);
+                                co_return;
+                            }
+                            auto [verr, inner] = co_await server_f.server_inner(std::move(sconn));
+                            if (verr != error::none || !inner)
+                            {
+                                res->timeout = true;
+                                server_done->store(true);
+                                co_return;
+                            }
+                            res->linked = true;
+                            std::vector<std::uint8_t> buf(kBlock);
+                            std::size_t got = 0;
+                            while (got < kTotal)
+                            {
+                                std::error_code ec;
+                                const auto n = co_await inner->async_read_some(
+                                    std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()),
+                                                         buf.size()),
+                                    ec);
+                                if (ec || n == 0)
+                                {
+                                    break;
+                                }
+                                got += n;
+                            }
+                            res->bytes = got;
+                            inner->close();
+                            server_done->store(true);
+                        },
+                        net::detached);
+
+                    // 客户端：伪装 connect → 内层 connect → 发送预生成数据块
+                    auto [cerr, cconn] = co_await factory.client_connect(std::move(client_raw));
+                    if (cerr != error::none || !cconn)
+                    {
+                        res->timeout = true;
+                        co_return;
+                    }
+                    auto [herr, cli] = co_await factory.client_inner(std::move(cconn));
+                    if (herr != error::none || !cli)
+                    {
+                        res->timeout = true;
+                        co_return;
+                    }
+
+                    // 预生成一个数据块（一次，无逐字节开销）
+                    std::vector<std::uint8_t> payload(kBlock, 0x5A);
+
+                    const auto t0 = std::chrono::steady_clock::now();
+                    std::size_t sent = 0;
+                    std::size_t yield_cnt = 0;
+                    while (sent < kTotal)
+                    {
+                        std::error_code ec;
+                        const auto n = co_await cli->async_write_some(
+                            std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
+                                                       payload.size()),
+                            ec);
+                        if (ec || n == 0)
+                        {
+                            break;
+                        }
+                        sent += n;
+                        if ((++yield_cnt & 0x0F) == 0)
+                        {
+                            co_await net::post(ioc.get_executor(), net::use_awaitable);
+                        }
+                    }
+                    const auto t1 = std::chrono::steady_clock::now();
+                    const double sec = std::chrono::duration<double>(t1 - t0).count();
+                    res->mbps = static_cast<double>(sent) / (1024.0 * 1024.0) / (sec > 0 ? sec : 1e-9);
+                    cli->close();
+                    while (!server_done->load() && !res->timeout)
+                    {
+                        co_await net::post(ioc.get_executor(), net::use_awaitable);
+                    }
+                }
+                catch (const std::exception &e)
+                {
+                    res->timeout = true;
+                }
+            },
+            [&](std::exception_ptr e)
+            {
+                ep = e;
+                ioc.stop();
+            });
+
+        ioc.run();
+        (void)ep;
+        return *res;
+    }
+
+    // ============ 内层协议适配 ============
+
+    struct inner_vless
+    {
+        auto server_inner(shared_transmission s) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, req, c] = co_await vless::accept(std::move(s), vless::server_config{uuid});
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_inner(shared_transmission s) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, c] = co_await vless::connect(std::move(s), vless::client_config{uuid}, dst);
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        std::array<std::uint8_t, 16> uuid{};
+        vless::address dst{};
+    };
+
+    struct inner_trojan
+    {
+        auto server_inner(shared_transmission s) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, req, c] = co_await trojan::accept(std::move(s), trojan::server_config{"pw"});
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_inner(shared_transmission s) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            trojan::address dst{};
+            dst.type = trojan::address_type::ipv4;
+            dst.host = "93.184.216.34";
+            dst.port = 443;
+            auto [err, c] = co_await trojan::connect(std::move(s), trojan::client_config{"pw"}, dst);
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+    };
+
+    struct inner_socks5
+    {
+        auto server_inner(shared_transmission s) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, req, c] = co_await socks5::accept(std::move(s), socks5::server_config{});
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_inner(shared_transmission s) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            socks5::address dst{};
+            dst.type = socks5::address_type::ipv4;
+            dst.host = "93.184.216.34";
+            dst.port = 443;
+            auto [err, c] = co_await socks5::connect(std::move(s), socks5::client_config{}, dst);
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+    };
+
+    // ============ 伪装层工厂 ============
+
+    struct direct_factory
+    {
+        auto server_accept(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            co_return std::pair{error::none, std::move(up)};
+        }
+        auto client_connect(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            co_return std::pair{error::none, std::move(up)};
+        }
+    };
+
+    struct shadowtls_factory
+    {
+        auto server_accept(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, c] = co_await shadowtls::accept(std::move(up), shadowtls::server_config{"st"});
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_connect(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            std::array<std::uint8_t, 32> sr{};
+            std::array<std::uint8_t, 32> cr{};
+            for (std::size_t i = 0; i < 32; ++i)
+            {
+                sr[i] = static_cast<std::uint8_t>(i * 3 + 1);
+                cr[i] = static_cast<std::uint8_t>(i * 5 + 2);
+            }
+            auto [err, c] =
+                co_await shadowtls::connect(std::move(up), shadowtls::client_config{"st"}, sr, cr);
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+    };
+
+    struct anytls_factory
+    {
+        auto server_accept(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, c] = co_await anytls::accept(std::move(up), anytls::server_config{"at"});
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_connect(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, c] = co_await anytls::connect(std::move(up), anytls::client_config{"at"});
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+    };
+
+    struct trusttunnel_factory
+    {
+        auto server_accept(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, t, c] =
+                co_await trusttunnel::accept(std::move(up), trusttunnel::server_config{"u", "p"});
+            (void)t;
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_connect(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, c] = co_await trusttunnel::connect(std::move(up), trusttunnel::client_config{"u", "p"},
+                                                          "example.com", 443);
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+    };
+
+    struct ws_factory
+    {
+        auto server_accept(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, k, c] = co_await ws::accept(std::move(up), ws::server_config{});
+            (void)k;
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_connect(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, c] = co_await ws::connect(std::move(up), ws::client_config{"example.com"});
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+    };
+
+    struct gun_factory
+    {
+        auto server_accept(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, h, c] = co_await gun::accept(std::move(up));
+            (void)h;
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_connect(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            auto [err, c] = co_await gun::connect(std::move(up), "example.com");
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+    };
+
+    struct reality_factory
+    {
+        std::array<std::uint8_t, reality::key_len> srv_priv{};
+        std::array<std::uint8_t, reality::key_len> srv_pub{};
+        std::array<std::uint8_t, reality::key_len> cli_priv{};
+        std::array<std::uint8_t, reality::key_len> cli_pub{};
+        std::array<std::uint8_t, 40> random{};
+        std::array<std::uint8_t, 128> hello{};
+
+        reality_factory()
+        {
+            reality::generate_keypair(srv_priv, srv_pub);
+            reality::generate_keypair(cli_priv, cli_pub);
+            for (std::size_t i = 0; i < random.size(); ++i)
+            {
+                random[i] = static_cast<std::uint8_t>(i * 5 + 2);
+            }
+            for (std::size_t i = 0; i < hello.size(); ++i)
+            {
+                hello[i] = static_cast<std::uint8_t>(i);
+            }
+        }
+        auto server_accept(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            reality::server_config cfg;
+            cfg.private_key = srv_priv;
+            cfg.short_id.fill(0x42);
+            auto [err, sid, c] = co_await reality::accept(std::move(up), cfg, cli_pub,
+                                                          reality::handshake_params{random, hello});
+            (void)sid;
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_connect(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            reality::client_config cfg;
+            cfg.private_key = cli_priv;
+            cfg.short_id.fill(0x42);
+            auto [err, c] = co_await reality::connect(std::move(up), cfg, srv_pub,
+                                                      reality::handshake_params{random, hello, cfg.short_id});
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+    };
+
+    struct restls_factory
+    {
+        auto server_accept(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            std::array<std::uint8_t, 32> sr{};
+            for (std::size_t i = 0; i < 32; ++i)
+            {
+                sr[i] = static_cast<std::uint8_t>(i * 3 + 1);
+            }
+            auto [err, c] = co_await restls::accept(std::move(up), restls::server_config{"rs"}, sr);
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+        auto client_connect(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            std::array<std::uint8_t, 32> sr{};
+            for (std::size_t i = 0; i < 32; ++i)
+            {
+                sr[i] = static_cast<std::uint8_t>(i * 3 + 1);
+            }
+            auto [err, c] = co_await restls::connect(std::move(up), restls::client_config{"rs"}, sr);
+            co_return std::pair{err, err == error::none ? shared_transmission(std::move(c))
+                                                        : shared_transmission{}};
+        }
+    };
+
+    // ============ 组合体与测试 ============
+
+    template <typename F, typename I>
+    struct combo
+    {
+        F stealth;
+        I inner;
+        auto server_accept(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            return stealth.server_accept(std::move(up));
+        }
+        auto client_connect(shared_transmission up) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            return stealth.client_connect(std::move(up));
+        }
+        auto server_inner(shared_transmission s) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            return inner.server_inner(std::move(s));
+        }
+        auto client_inner(shared_transmission s) -> net::awaitable<std::pair<error, shared_transmission>>
+        {
+            return inner.client_inner(std::move(s));
+        }
+    };
+
+    inline auto make_vless_inner() -> inner_vless
+    {
+        inner_vless in;
+        in.uuid.fill(0x55);
+        in.dst.type = vless::address_type::ipv4;
+        in.dst.host = "93.184.216.34";
+        in.dst.port = 443;
+        return in;
+    }
+    inline auto make_trojan_inner() -> inner_trojan
+    {
+        return {};
+    }
+    inline auto make_socks5_inner() -> inner_socks5
+    {
+        return {};
+    }
+
+#define DEFINE_COMBO_TEST(TestName, FactoryVar, InnerExpr, Label)                                            \
+    TEST(StealthNested3, TestName)                                                                           \
+    {                                                                                                        \
+        auto stealth = FactoryVar;                                                                           \
+        auto inner = InnerExpr;                                                                              \
+        using S = decltype(stealth);                                                                         \
+        using I = decltype(inner);                                                                           \
+        auto r = run_case(combo<S, I>{stealth, inner}, Label);                                               \
+        std::printf("%-18s linked=%d mbps=%.1f bytes=%zu timeout=%d\n", Label, r.linked, r.mbps, r.bytes,    \
+                    r.timeout);                                                                              \
+        EXPECT_TRUE(r.linked) << Label << " 联通失败";                                                       \
+    }
+
+    DEFINE_COMBO_TEST(DirectVless, direct_factory{}, make_vless_inner(), "direct+vless")
+    DEFINE_COMBO_TEST(DirectTrojan, direct_factory{}, make_trojan_inner(), "direct+trojan")
+    DEFINE_COMBO_TEST(DirectSocks5, direct_factory{}, make_socks5_inner(), "direct+socks5")
+    DEFINE_COMBO_TEST(ShadowTlsVless, shadowtls_factory{}, make_vless_inner(), "shadowtls+vless")
+    DEFINE_COMBO_TEST(RestlsVless, restls_factory{}, make_vless_inner(), "restls+vless")
+    DEFINE_COMBO_TEST(AnyTlsVless, anytls_factory{}, make_vless_inner(), "anytls+vless")
+    DEFINE_COMBO_TEST(TrustTunnelVless, trusttunnel_factory{}, make_vless_inner(), "trusttunnel+vless")
+    DEFINE_COMBO_TEST(WsVless, ws_factory{}, make_vless_inner(), "ws+vless")
+    DEFINE_COMBO_TEST(GunVless, gun_factory{}, make_vless_inner(), "gun+vless")
+    DEFINE_COMBO_TEST(RealityVless, reality_factory{}, make_vless_inner(), "reality+vless")
+    DEFINE_COMBO_TEST(ShadowTlsTrojan, shadowtls_factory{}, make_trojan_inner(), "shadowtls+trojan")
+    DEFINE_COMBO_TEST(RestlsTrojan, restls_factory{}, make_trojan_inner(), "restls+trojan")
+    DEFINE_COMBO_TEST(AnyTlsTrojan, anytls_factory{}, make_trojan_inner(), "anytls+trojan")
+    DEFINE_COMBO_TEST(TrustTunnelTrojan, trusttunnel_factory{}, make_trojan_inner(), "trusttunnel+trojan")
+    DEFINE_COMBO_TEST(WsTrojan, ws_factory{}, make_trojan_inner(), "ws+trojan")
+    DEFINE_COMBO_TEST(GunTrojan, gun_factory{}, make_trojan_inner(), "gun+trojan")
+    DEFINE_COMBO_TEST(RealityTrojan, reality_factory{}, make_trojan_inner(), "reality+trojan")
+    DEFINE_COMBO_TEST(ShadowTlsSocks5, shadowtls_factory{}, make_socks5_inner(), "shadowtls+socks5")
+    DEFINE_COMBO_TEST(RestlsSocks5, restls_factory{}, make_socks5_inner(), "restls+socks5")
+    DEFINE_COMBO_TEST(AnyTlsSocks5, anytls_factory{}, make_socks5_inner(), "anytls+socks5")
+    DEFINE_COMBO_TEST(TrustTunnelSocks5, trusttunnel_factory{}, make_socks5_inner(), "trusttunnel+socks5")
+    DEFINE_COMBO_TEST(WsSocks5, ws_factory{}, make_socks5_inner(), "ws+socks5")
+    DEFINE_COMBO_TEST(GunSocks5, gun_factory{}, make_socks5_inner(), "gun+socks5")
+    DEFINE_COMBO_TEST(RealitySocks5, reality_factory{}, make_socks5_inner(), "reality+socks5")
+
+} // namespace

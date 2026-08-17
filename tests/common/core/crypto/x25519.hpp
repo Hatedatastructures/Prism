@@ -23,7 +23,7 @@
 #include <span>
 #include <utility>
 
-namespace psmtest::crypto
+namespace preview::crypto
 {
 
     /**
@@ -118,7 +118,7 @@ namespace psmtest::crypto
         return keypair;
     }
 
-    auto derive_pubkey(const std::span<const std::uint8_t> private_key)
+    auto derive_pubkey(std::span<const std::uint8_t> private_key)
         -> std::array<std::uint8_t, x25519_klen>
     {
         std::array<std::uint8_t, x25519_klen> public_key{};
@@ -133,7 +133,7 @@ namespace psmtest::crypto
         return public_key;
     }
 
-    auto x25519(const std::span<const std::uint8_t> private_key,
+    auto x25519(std::span<const std::uint8_t> private_key,
                 const std::span<const std::uint8_t> peer_pubkey)
         -> std::pair<fault::code, std::array<std::uint8_t, x25519_slen>>
     {
@@ -175,4 +175,4 @@ namespace psmtest::crypto
     }
 
 
-} // namespace psmtest::crypto
+} // namespace preview::crypto

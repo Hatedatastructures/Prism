@@ -31,7 +31,7 @@
 #include <common/core/recognition/recognition.hpp>
 #include <common/core/transmission.hpp>
 
-namespace psmtest::runtime
+namespace preview::runtime
 {
 
     namespace net = boost::asio;
@@ -43,19 +43,19 @@ namespace psmtest::runtime
     struct session_options
     {
         /// SNI 路由表（可选，TLS 分流）
-        psmtest::recognition::route_table *routes{nullptr};
+        preview::recognition::sni_route_table *routes{nullptr};
         /// 认证器（可选；缺省跳过认证）
-        psmtest::shared_authenticator auth{};
+        preview::shared_authenticator auth{};
         /// 中继空闲超时（0 = 禁用）
         std::chrono::milliseconds relay_idle_timeout{std::chrono::seconds(60)};
         /// 装配回调：按识别结果填充 ctx（target/凭据）；返回非 success 终止
-        std::function<net::awaitable<psmtest::fault::code>(
-            const psmtest::recognition::recognize_result &, psmtest::middleware::context &)>
+        std::function<net::awaitable<preview::fault::code>(
+            const preview::recognition::recognize_result &, preview::middleware::context &)>
             prepare{};
         /// 拨号函数（缺省 dial 中间件返回 not_supported）
-        psmtest::middleware::builtin::dial_middleware::dial_fn dial{};
+        preview::middleware::builtin::dial_middleware::dial_fn dial{};
         /// 流量统计 sink（relay 结束点上报）
-        psmtest::middleware::context::traffic_sink *traffic{nullptr};
+        preview::middleware::context::traffic_sink *traffic{nullptr};
     };
 
     /**
@@ -80,38 +80,38 @@ namespace psmtest::runtime
          * @param inbound 入站传输
          * @return 最终错误码（success = 隧道正常结束）
          */
-        [[nodiscard]] auto run(psmtest::shared_transmission inbound) -> net::awaitable<psmtest::fault::code>
+        [[nodiscard]] auto run(preview::shared_transmission inbound) -> net::awaitable<preview::fault::code>
         {
             // 1. 协议识别
-            psmtest::recognition::pipeline recog(opts_.routes);
+            preview::recognition::pipeline recog(opts_.routes);
             auto res = co_await recog.recognize(std::move(inbound));
-            if (!res.success || res.detected == psmtest::recognition::protocol_type::unknown)
+            if (!res.success || res.detected == preview::recognition::protocol_type::unknown)
             {
-                co_return psmtest::fault::code::protocol_error;
+                co_return preview::fault::code::protocol_error;
             }
 
             // 2. 上下文装配
-            psmtest::middleware::context ctx;
+            preview::middleware::context ctx;
             ctx.detected = static_cast<std::uint16_t>(res.detected);
             ctx.inbound = std::move(res.transport);
             ctx.traffic = opts_.traffic;
             if (opts_.prepare)
             {
                 const auto ec = co_await opts_.prepare(res, ctx);
-                if (psmtest::fault::failed(ec))
+                if (preview::fault::failed(ec))
                 {
                     co_return ec;
                 }
             }
 
             // 3. 中间件管线：auth → dial → relay
-            psmtest::middleware::pipeline pipe;
+            preview::middleware::pipeline pipe;
             if (opts_.auth)
             {
-                pipe.add(std::make_shared<psmtest::middleware::builtin::auth_middleware>(opts_.auth));
+                pipe.add(std::make_shared<preview::middleware::builtin::auth_middleware>(opts_.auth));
             }
-            pipe.add(std::make_shared<psmtest::middleware::builtin::dial_middleware>(opts_.dial));
-            pipe.add(std::make_shared<psmtest::middleware::builtin::relay_middleware>(
+            pipe.add(std::make_shared<preview::middleware::builtin::dial_middleware>(opts_.dial));
+            pipe.add(std::make_shared<preview::middleware::builtin::relay_middleware>(
                 nullptr, opts_.relay_idle_timeout));
             co_return co_await pipe.run(ctx.inbound, ctx);
         }
@@ -120,4 +120,4 @@ namespace psmtest::runtime
         session_options opts_; ///< 编排选项
     };
 
-} // namespace psmtest::runtime
+} // namespace preview::runtime

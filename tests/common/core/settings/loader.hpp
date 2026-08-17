@@ -15,7 +15,7 @@
 
 #include <common/core/settings/json.hpp>
 
-namespace psmtest::settings
+namespace preview::settings
 {
 
     /**
@@ -48,7 +48,7 @@ namespace psmtest::settings
      * @param out 输出配置
      * @return 空 = 成功；否则 config_error
      */
-    [[nodiscard]] inline auto load_config(const std::string_view json_text, proxy_config &out)
+    [[nodiscard]] inline auto load_config(std::string_view json_text, proxy_config &out)
         -> config_error
     {
         json_value root;
@@ -153,4 +153,4 @@ namespace psmtest::settings
         return {};
     }
 
-} // namespace psmtest::settings
+} // namespace preview::settings

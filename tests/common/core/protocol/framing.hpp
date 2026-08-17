@@ -17,7 +17,7 @@
 #include <span>
 #include <utility>
 
-namespace psmtest::protocol::common::framing
+namespace preview::protocol::common::framing
 {
 
     /**
@@ -25,7 +25,7 @@ namespace psmtest::protocol::common::framing
      * @param buffer 包含 IPv4 地址的缓冲区，至少 4 字节
      * @return 错误码和 IPv4 地址结构
      */
-    [[nodiscard]] inline auto parse_ipv4(const std::span<const std::uint8_t> buffer)
+    [[nodiscard]] inline auto parse_ipv4(std::span<const std::uint8_t> buffer)
         -> std::pair<fault::code, ipv4_address>
     {
         if (buffer.size() < 4)
@@ -42,7 +42,7 @@ namespace psmtest::protocol::common::framing
      * @param buffer 包含 IPv6 地址的缓冲区，至少 16 字节
      * @return 错误码和 IPv6 地址结构
      */
-    [[nodiscard]] inline auto parse_ipv6(const std::span<const std::uint8_t> buffer)
+    [[nodiscard]] inline auto parse_ipv6(std::span<const std::uint8_t> buffer)
         -> std::pair<fault::code, ipv6_address>
     {
         if (buffer.size() < 16)
@@ -59,7 +59,7 @@ namespace psmtest::protocol::common::framing
      * @param buffer 包含域名地址的缓冲区，格式为 LEN(1) + DOMAIN(n)
      * @return 错误码和域名地址结构
      */
-    [[nodiscard]] inline auto parse_domain(const std::span<const std::uint8_t> buffer)
+    [[nodiscard]] inline auto parse_domain(std::span<const std::uint8_t> buffer)
         -> std::pair<fault::code, domain_address>
     {
         if (buffer.empty())
@@ -86,7 +86,7 @@ namespace psmtest::protocol::common::framing
      * @param buffer 包含端口号的缓冲区，至少 2 字节
      * @return 错误码和端口号
      */
-    [[nodiscard]] inline auto parse_port(const std::span<const std::uint8_t> buffer)
+    [[nodiscard]] inline auto parse_port(std::span<const std::uint8_t> buffer)
         -> std::pair<fault::code, std::uint16_t>
     {
         if (buffer.size() < 2)
@@ -97,4 +97,4 @@ namespace psmtest::protocol::common::framing
             static_cast<std::uint16_t>(buffer[0]) << 8 | static_cast<std::uint16_t>(buffer[1]);
         return {fault::code::success, port};
     }
-} // namespace psmtest::protocol::common::framing
+} // namespace preview::protocol::common::framing

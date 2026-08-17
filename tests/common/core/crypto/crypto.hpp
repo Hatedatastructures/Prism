@@ -11,4 +11,4 @@
 #include <common/core/crypto/block.hpp>
 #include <common/core/crypto/hkdf.hpp>
 #include <common/core/crypto/sha224.hpp>
-// #include <common/core/crypto/x25519.hpp>  // 依赖 BoringSSL curve25519，需要时另行引入
+#include <common/core/crypto/x25519.hpp>
