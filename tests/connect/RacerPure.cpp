@@ -212,7 +212,7 @@ namespace
         psm::connect::address_racer racer(
             [](const auto &) -> net::awaitable<std::pair<psm::fault::code, psm::connect::shared_transmission>>
             { co_return std::make_pair(psm::fault::code::success, psm::connect::shared_transmission{}); });
-        EXPECT_TRUE(true) << "racer: 构造成功（拨号回调）";
+        EXPECT_NO_THROW(static_cast<void>(racer));
     }
 
     /**

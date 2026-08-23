@@ -202,6 +202,27 @@ namespace
                     sec * 1000, r.samples[0] / 1e6, r.samples[1] / 1e6, r.samples[2] / 1e6,
                     mb / sec);
     }
+
+    /// 性能门禁：全部样本数据面完成 + 吞吐下限（防断链静默/死循环挂死/完全退化）
+    auto gate(const char *name, const std::size_t bytes, const result &r) -> bool
+    {
+        constexpr double kMinMbps = 50.0; // 宽松下限（本地 TCP 基线数百 MB/s，防 10x+ 劣化）
+        report(name, bytes, r);
+        const auto med = r.median();
+        // 任一运行断链/未完成即 FAIL（部分失败不得被中位数掩盖）
+        if (std::any_of(r.samples.begin(), r.samples.end(), [](std::int64_t v) { return v <= 0; }))
+        {
+            std::printf("FAIL %s: 存在数据面未完成运行（断链/死循环）\n", name);
+            return false;
+        }
+        const double mbps = static_cast<double>(bytes) / (1024.0 * 1024.0) / (static_cast<double>(med) / 1e9);
+        if (mbps < kMinMbps)
+        {
+            std::printf("FAIL %s: 吞吐 %.1f MB/s < 下限 %.1f MB/s\n", name, mbps, kMinMbps);
+            return false;
+        }
+        return true;
+    }
 } // namespace
 
 int main()
@@ -216,7 +237,14 @@ int main()
         r_16k.samples[i] = bench_tcp_raw(kTotal, 16384);
         r_256k.samples[i] = bench_tcp_raw(kTotal, 262144);
     }
-    report("tcp raw 16KB block", kTotal, r_16k);
-    report("tcp raw 256KB block", kTotal, r_256k);
+    if (!gate("tcp raw 16KB block", kTotal, r_16k))
+    {
+        return 1;
+    }
+    if (!gate("tcp raw 256KB block", kTotal, r_256k))
+    {
+        return 1;
+    }
+    std::printf("TransferPerf: ALL PASS\n");
     return 0;
 }

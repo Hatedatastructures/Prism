@@ -73,7 +73,7 @@ namespace
             {
                 auto [err, req, conn] =
                     co_await tuic::accept(std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_NE(err, error::none); // 半包后 EOF → unexpected_eof
+                EXPECT_EQ(err, error::unexpected_eof); // 半包后 EOF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 

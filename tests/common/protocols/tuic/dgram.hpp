@@ -28,6 +28,7 @@
 #include <common/core/error.hpp>
 #include <common/core/memory/container.hpp>
 #include <common/core/memory/pointer.hpp>
+#include <common/core/protocol/address.hpp>
 #include <common/core/transmission.hpp>
 #include <common/protocols/tuic/codec.hpp>
 #include <common/protocols/tuic/types.hpp>
@@ -245,48 +246,12 @@ namespace preview::tuic
          * @brief 读取地址体（ATYP 已由调用方解析）
          * @param addr 输出地址
          * @return 错误码
+         * @note 转发层：统一实现见 protocol/common::read_address_body
          */
         [[nodiscard]] auto read_address_body(address &addr) -> net::awaitable<error>
         {
-            switch (addr.type)
-            {
-            case address_type::ipv4: {
-                std::array<std::uint8_t, 4> ip{};
-                if (co_await read_exact(std::span<std::uint8_t>(ip)))
-                {
-                    co_return error::io_error;
-                }
-                std::array<char, 16> buf{};
-                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-                addr.host = buf.data();
-                break;
-            }
-            case address_type::ipv6: {
-                std::array<std::uint8_t, 16> ip{};
-                if (co_await read_exact(std::span<std::uint8_t>(ip)))
-                {
-                    co_return error::io_error;
-                }
-                addr.host.assign(reinterpret_cast<const char *>(ip.data()), 16);
-                break;
-            }
-            case address_type::domain: {
-                std::array<std::uint8_t, 1> len{};
-                if (co_await read_exact(std::span<std::uint8_t>(len)))
-                {
-                    co_return error::io_error;
-                }
-                std::vector<std::uint8_t> host(len[0]);
-                if (co_await read_exact(host))
-                {
-                    co_return error::io_error;
-                }
-                addr.host.assign(reinterpret_cast<const char *>(host.data()), host.size());
-                break;
-            }
-            default: co_return error::bad_message;
-            }
-            co_return error::none;
+            return preview::protocol::common::read_address_body(
+                addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return read_exact(dst); });
         }
 
         shared_transmission next_layer_; ///< 底层数据报传输（独占所有权）

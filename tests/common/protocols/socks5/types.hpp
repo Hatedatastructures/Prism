@@ -176,6 +176,8 @@ namespace preview::socks5
         std::string password;
         /// 认证器（非拥有；nullptr = 静态比对 username/password）
         const preview::authenticator *authenticator{nullptr};
+        /// 延迟 CONNECT 成功应答：true = 由调用方在拨号完成后发送
+        bool defer_connect_reply = false;
     };
 
 } // namespace preview::socks5

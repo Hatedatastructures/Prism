@@ -28,7 +28,7 @@ namespace
         connect::address_racer racer(
             [](const auto &) -> net::awaitable<std::pair<psm::fault::code, connect::shared_transmission>>
             { co_return std::make_pair(psm::fault::code::success, connect::shared_transmission{}); });
-        EXPECT_TRUE(true) << "racer: constructor with dial callback";
+        EXPECT_NO_THROW(static_cast<void>(racer));
     }
 
     // ─── dialer 构造与路由配置 ────────────────

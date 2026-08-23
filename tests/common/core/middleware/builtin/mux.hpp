@@ -66,7 +66,7 @@ namespace preview::middleware::builtin
         {
             if (!mux_)
             {
-                co_return preview::fault::code::not_supported;
+                co_return preview::fault::code::success;
             }
             const auto ok = co_await mux_(inbound, ctx);
             if (ok)

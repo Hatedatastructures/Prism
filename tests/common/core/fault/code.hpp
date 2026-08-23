@@ -9,6 +9,7 @@
  * Reality(49-57)、UDP(58-59)。
  * @note 异常仅用于启动阶段或致命错误。
  * @warning describe() 返回静态字面量，保证零分配。
+ * @note 镜像自 include/prism/foundation/fault/，同步策略：锁定
  */
 #pragma once
 

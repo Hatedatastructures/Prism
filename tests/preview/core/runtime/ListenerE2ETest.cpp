@@ -28,6 +28,7 @@
 #include <common/core/runtime/listener.hpp>
 #include <common/core/runtime/session.hpp>
 #include <common/core/transmission.hpp>
+#include <common/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -36,38 +37,9 @@ namespace
     using tcp = net::ip::tcp;
     using namespace preview;
 
-    auto run_coro(net::io_context &ioc, auto coro)
-    {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
-        {
-            std::rethrow_exception(ep);
-        }
-    }
-
-    /// TCP echo 服务器：读到的数据原样写回（循环，直至 EOF）
-    auto echo_server(tcp::socket sock) -> net::awaitable<void>
-    {
-        std::array<std::byte, 4096> buf{};
-        boost::system::error_code ec;
-        while (true)
-        {
-            const auto n = co_await sock.async_read_some(
-                net::buffer(buf), net::redirect_error(net::use_awaitable, ec));
-            if (ec || n == 0)
-            {
-                break;
-            }
-            co_await sock.async_write_some(net::buffer(buf, n),
-                                           net::redirect_error(net::use_awaitable, ec));
-            if (ec)
-            {
-                break;
-            }
-        }
-    }
+    // 公共样板（run_coro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
+    using psm::testing::tcp_echo_server;
+    using psm::testing::run_coro;
 
     /// 构造可识别首包（socks5 greeting）
     auto socks5_greeting() -> std::string
@@ -116,7 +88,7 @@ namespace
                     {
                         co_return;
                     }
-                    net::co_spawn(ioc.get_executor(), echo_server(std::move(sock)), net::detached);
+                    net::co_spawn(ioc.get_executor(), tcp_echo_server(std::move(sock)), net::detached);
                 }
             },
             net::detached);
@@ -243,7 +215,7 @@ namespace
                     {
                         co_return;
                     }
-                    net::co_spawn(ioc.get_executor(), echo_server(std::move(sock)), net::detached);
+                    net::co_spawn(ioc.get_executor(), tcp_echo_server(std::move(sock)), net::detached);
                 }
             },
             net::detached);

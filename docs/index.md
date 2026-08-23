@@ -11,4 +11,5 @@
 ## 参考
 
 - [性能基准测试报告](performance-report.md)
+- [Next-Gen 实施计划](NEXTGEN_IMPLEMENTATION_PLAN.md)
 - [配置示例](clash/config.yaml) · [完整参考](clash/reference.yaml)

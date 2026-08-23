@@ -5,6 +5,7 @@
  * 支持 AES-128-GCM、AES-256-GCM、ChaCha20-Poly1305、XChaCha20-Poly1305。
  * 管理 nonce 状态，每次 seal/open 后自动递增 nonce。
  * 同时提供显式 nonce 重载，用于无状态的逐包加解密（如 SS2022 UDP）。
+ * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
  */
 #pragma once
 

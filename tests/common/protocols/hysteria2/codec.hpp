@@ -24,6 +24,7 @@
 #include <vector>
 
 #include <common/core/error.hpp>
+#include <common/core/protocol/address.hpp>
 #include <common/protocols/hysteria2/types.hpp>
 
 namespace preview::hysteria2
@@ -33,45 +34,13 @@ namespace preview::hysteria2
      * @brief 编码地址（ATYP + ADDR + PORT 2B BE，追加到缓冲）
      * @param addr 目标地址
      * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
+     * @note 转发层：统一实现见 protocol/common::encode_address
+     *       （原内联实现 ipv4 无校验存在越界写，统一实现修复为非法输入输出 0.0.0.0）
      */
     template <typename Alloc>
     inline auto encode_address(const address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        out.push_back(static_cast<std::uint8_t>(addr.type));
-        switch (addr.type)
-        {
-        case address_type::ipv4: {
-            std::array<std::uint8_t, 4> ip{};
-            std::size_t a = 0, p = 0;
-            for (const char ch : addr.host)
-            {
-                if (ch == '.')
-                {
-                    ip[a++] = static_cast<std::uint8_t>(p);
-                    p = 0;
-                }
-                else
-                {
-                    p = p * 10 + static_cast<std::size_t>(ch - '0');
-                }
-            }
-            ip[a] = static_cast<std::uint8_t>(p);
-            out.insert(out.end(), ip.begin(), ip.end());
-            break;
-        }
-        case address_type::ipv6: {
-            out.insert(out.end(), addr.host.begin(), addr.host.end());
-            break;
-        }
-        case address_type::domain:
-        default: {
-            out.push_back(static_cast<std::uint8_t>(addr.host.size()));
-            out.insert(out.end(), addr.host.begin(), addr.host.end());
-            break;
-        }
-        }
-        out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+        preview::protocol::common::encode_address(addr, out);
     }
 
     /**

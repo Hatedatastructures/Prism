@@ -45,9 +45,8 @@ namespace preview::transport
      * 流式语义，提供流式读写接口支持部分读写；原生访问，
      * 提供 native_socket 方法直接访问底层 socket；
      * 工厂函数，提供 make_reliable 工厂函数简化创建。
-     * 连接池复用支持，通过 unique_sock 构造函数接收来自连接池的连接，
-     * 在 close() 时自动归还到连接池而非直接关闭。
      * @note 该类是传输层的核心实现，所有基于 TCP 的协议都应使用此类。
+     *       同步可靠封装：无连接池语义，close() 直接关闭底层 socket。
      * @warning 关闭后传输层对象不再可用，不应再调用其任何方法。
      * @throws std::bad_alloc 如果内存分配失败
      */
@@ -216,9 +215,8 @@ namespace preview::transport
         /**
          * @brief 关闭传输层
          * @details 关闭底层 TCP socket。关闭后所有未完成的异步操作
-         * 将被取消，传输层对象不再可用。如果连接来自连接池（pooled_ 非空），
-         * 则将连接归还到连接池而非直接关闭，实现连接复用。
-         * @note 池连接归还时，socket 保持打开状态，由连接池管理生命周期
+         * 将被取消，传输层对象不再可用。本类不涉及连接池：
+         * close() 直接关闭 socket，与连接复用无关。
          */
         void close() override
         {
@@ -239,15 +237,28 @@ namespace preview::transport
         }
 
         /**
-         * @brief 半关闭写方向
+         * @brief 半关写方向（向对端发送 EOF）
          * @details 关闭 TCP socket 的写半端，通知对端不再有数据发送。
          * 读取方向仍可继续接收数据，直到对端也关闭或 EOF。
          * @note 非 virtual，仅 reliable 自身持有此能力
          */
         void shutdown_write()
         {
-            boost::system::error_code ec;
-            native_socket().shutdown(socket_type::shutdown_send, ec);
+            if (socket_)
+            {
+                boost::system::error_code ec;
+                native_socket().shutdown(socket_type::shutdown_send, ec);
+            }
+        }
+
+        /**
+         * @brief 半关写方向（transmission 接口契约）
+         * @details 叶子节点必须实现：沿装饰器链的 shutdown() 最终落到此处，
+         * 向对端发送 FIN（EOF）。本端仍可读，对端读返回 0（EOF）。
+         */
+        void shutdown() override
+        {
+            shutdown_write();
         }
 
         /**

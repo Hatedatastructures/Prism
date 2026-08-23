@@ -15,6 +15,7 @@
 
 #include <common/protocols/http2/session.hpp>
 
+#include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -214,12 +215,16 @@ namespace preview::http2
     [[nodiscard]] inline auto open_stream_handle(shared_h2_session session, const header_list &headers,
                                                  bool end_stream) -> shared_stream_handle
     {
-        const auto result = open_stream(std::move(session), headers, end_stream);
+        // 拷贝传参（refcount+1），成功路径再用 move 构造句柄，避免 use-after-move
+        const auto result = open_stream(session, headers, end_stream);
         if (!result.ok)
         {
             return nullptr;
         }
-        return std::make_shared<stream_handle>(result.stream_id, std::move(session));
+        auto handle = std::make_shared<stream_handle>(result.stream_id, std::move(session));
+        // 成功路径断言：句柄内会话弱引用必须有效
+        assert(handle->session().lock() != nullptr);
+        return handle;
     }
 
 } // namespace preview::http2

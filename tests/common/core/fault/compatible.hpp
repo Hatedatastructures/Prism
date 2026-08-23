@@ -7,6 +7,7 @@
  * @note 该文件实现了 std 和 boost::system 命名空间中
  * 的特化，遵循标准库扩展规则。
  * @warning 修改此文件可能影响 ABI 兼容性。
+ * @note 镜像自 include/prism/foundation/fault/，同步策略：锁定
  */
 #pragma once
 

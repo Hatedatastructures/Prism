@@ -6,6 +6,7 @@
  * 密钥调度的核心组件，用于从 ECDHE 共享密钥派生握手和应用流量密钥。
  * 基于 BoringSSL 的 HMAC API 实现。
  * @note SHA-256 输出固定 32 字节，HKDF-Expand 输出长度可变。
+ * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
  */
 
 #pragma once
@@ -143,7 +144,7 @@ namespace preview::crypto
 
 
 
-    auto hmac_sha256(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data)
+    inline auto hmac_sha256(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> result{};
@@ -160,7 +161,7 @@ namespace preview::crypto
         return result;
     }
 
-    auto hmac_sha512(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data)
+    inline auto hmac_sha512(std::span<const std::uint8_t> key, std::span<const std::uint8_t> data)
         -> std::array<std::uint8_t, sha512_len>
     {
         std::array<std::uint8_t, sha512_len> result{};
@@ -177,7 +178,7 @@ namespace preview::crypto
         return result;
     }
 
-    auto hkdf_extract(std::span<const std::uint8_t> salt, std::span<const std::uint8_t> ikm)
+    inline auto hkdf_extract(std::span<const std::uint8_t> salt, std::span<const std::uint8_t> ikm)
         -> std::array<std::uint8_t, sha256_len>
     {
         if (salt.empty())
@@ -188,8 +189,8 @@ namespace preview::crypto
         return hmac_sha256(salt, ikm);
     }
 
-    auto hkdf_expand(std::span<const std::uint8_t> prk, std::span<const std::uint8_t> info,
-                     const std::size_t length) -> std::pair<fault::code, std::vector<std::uint8_t>>
+    inline auto hkdf_expand(std::span<const std::uint8_t> prk, std::span<const std::uint8_t> info,
+                            const std::size_t length) -> std::pair<fault::code, std::vector<std::uint8_t>>
     {
         if (length > 255 * sha256_len)
         {
@@ -244,7 +245,8 @@ namespace preview::crypto
         return {fault::code::success, std::move(result)};
     }
 
-    auto expand_label(const expand_params params) -> std::pair<fault::code, std::vector<std::uint8_t>>
+    inline auto expand_label(const expand_params params)
+        -> std::pair<fault::code, std::vector<std::uint8_t>>
     {
         const auto &secret = params.secret;
         const auto &label = params.label;
@@ -286,14 +288,14 @@ namespace preview::crypto
         return hkdf_expand(secret, {label_buf.data(), pos}, length);
     }
 
-    auto sha256(std::span<const std::uint8_t> data) -> std::array<std::uint8_t, sha256_len>
+    inline auto sha256(std::span<const std::uint8_t> data) -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> hash{};
         ::SHA256(data.data(), data.size(), hash.data());
         return hash;
     }
 
-    auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2)
+    inline auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2)
         -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> hash{};
@@ -324,8 +326,8 @@ namespace preview::crypto
         return hash;
     }
 
-    auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2,
-                const std::span<const std::uint8_t> data3) -> std::array<std::uint8_t, sha256_len>
+    inline auto sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2,
+                       const std::span<const std::uint8_t> data3) -> std::array<std::uint8_t, sha256_len>
     {
         std::array<std::uint8_t, sha256_len> hash{};
 

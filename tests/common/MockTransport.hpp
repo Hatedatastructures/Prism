@@ -108,23 +108,31 @@ namespace psm::testing
                 co_return copy_size;
             }
 
-            // 如果已经关闭，返回 eof
-            if (closed_)
+            // 如果已经关闭或半关闭，返回 eof
+            if (closed_ || shutdown_)
             {
                 ec = psm::fault::code::eof;
                 co_return 0;
             }
 
-            // 队列为空，通过短定时器轮询等待数据注入
-            while (!closed_ && read_queue_.empty() && !read_error_.has_value())
+            // 队列为空，通过短定时器轮询等待数据注入或被取消
+            while (!closed_ && !shutdown_ && !cancelled_ && read_queue_.empty() && !read_error_.has_value())
             {
                 auto timer = net::steady_timer(co_await net::this_coro::executor);
                 timer.expires_after(std::chrono::microseconds(100));
                 co_await timer.async_wait(net::use_awaitable);
             }
 
-            // 被关闭
-            if (closed_)
+            // 被取消（一次性语义：cancel() 唤醒后返回 canceled，与 stream_handle 一致）
+            if (cancelled_)
+            {
+                cancelled_ = false;
+                ec = psm::fault::code::canceled;
+                co_return 0;
+            }
+
+            // 被关闭或半关闭
+            if (closed_ || shutdown_)
             {
                 ec = psm::fault::code::eof;
                 co_return 0;
@@ -189,6 +197,15 @@ namespace psm::testing
         }
 
         /**
+         * @brief 半关闭（读端 EOF，写端仍可写）
+         * @details 模拟 transmission::shutdown 语义：对端读返回 0，本端仍可写
+         */
+        void shutdown()
+        {
+            shutdown_ = true;
+        }
+
+        /**
          * @brief 关闭传输层
          * @details 标记关闭状态，后续读写操作将返回 eof。
          */
@@ -199,7 +216,7 @@ namespace psm::testing
 
         /**
          * @brief 取消所有未完成的异步操作
-         * @details 标记取消状态。
+         * @details 置取消标志并唤醒挂起读（返回 canceled，一次性）。
          */
         void cancel() override
         {
@@ -275,6 +292,15 @@ namespace psm::testing
         }
 
         /**
+         * @brief 检查是否半关闭
+         * @return true 表示已半关闭
+         */
+        [[nodiscard]] auto is_shutdown() const -> bool
+        {
+            return shutdown_;
+        }
+
+        /**
          * @brief 检查传输层是否已取消
          * @return true 表示已取消
          */
@@ -311,6 +337,9 @@ namespace psm::testing
 
         /** @brief 预设的写入错误码 */
         std::optional<std::error_code> write_error_;
+
+        /** @brief 半关闭标记（读 EOF，写仍可） */
+        bool shutdown_ = false;
 
         /** @brief 关闭状态标记 */
         bool closed_ = false;

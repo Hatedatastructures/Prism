@@ -4,6 +4,7 @@
  * @details 提供全局和线程局部的内存池管理，以及基于
  * 内存池的对象分配基类和帧分配器。遵循热路径无分配、
  * 线程封闭和大小分类的设计原则。
+ * @note 镜像自 include/prism/foundation/memory/，同步策略：锁定
  */
 #pragma once
 

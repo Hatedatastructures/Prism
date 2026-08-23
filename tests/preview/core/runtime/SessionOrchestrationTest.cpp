@@ -31,6 +31,7 @@
 #include <common/core/runtime/session.hpp>
 #include <common/core/transport/memory_stream.hpp>
 #include <common/core/transmission.hpp>
+#include <common/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -38,16 +39,7 @@ namespace
     namespace net = boost::asio;
     using namespace preview;
 
-    auto run_coro(net::io_context &ioc, auto coro)
-    {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
-        {
-            std::rethrow_exception(ep);
-        }
-    }
+    using psm::testing::run_coro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
 
     /// 测试流量统计 sink
     class test_traffic_sink final : public preview::middleware::context::traffic_sink
@@ -310,6 +302,7 @@ namespace
                                                     payload.size()),
                          wec);
                      client_s->close(); // EOF → relay 立即结束
+                     upstream_s->close(); // 未启动上游协程，显式结束下行方向
                      rc = co_await session.run(inbound_s);
                  });
         EXPECT_EQ(rc, preview::fault::code::success);

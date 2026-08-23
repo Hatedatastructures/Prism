@@ -4,9 +4,22 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - main
+  pull_request:
   workflow_dispatch:
 
 jobs:
+  # 快速门禁：每次 push/PR 都跑（头文件注册 + 镜像漂移警告，不构建）
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: G7 Header Registration + Mirror Drift
+        run: pwsh scripts/check_common_headers.ps1 -CheckMirror
+
   build-windows:
     runs-on: windows-latest
     steps:
@@ -22,6 +35,9 @@ jobs:
 
       - name: Setup CMake
         uses: lukka/get-cmake@latest
+
+      - name: G7 Header Registration Check
+        run: pwsh scripts/check_common_headers.ps1
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "MinGW Makefiles"
@@ -61,6 +77,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential cmake g++-13 nasm
 
+      - name: G7 Header Registration Check
+        run: pwsh scripts/check_common_headers.ps1
+
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13
 
@@ -89,7 +108,7 @@ jobs:
           path: build/src/Prism
 
   release:
-    needs: [build-windows, build-linux]
+    needs: [gate, build-windows, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:

@@ -44,6 +44,7 @@ namespace
                                                         0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
 
         const std::int64_t t0 = now_ns();
+        int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
         net::co_spawn(ioc, [&]() -> net::awaitable<void>
         {
             auto server_coro = [&]() -> net::awaitable<void>
@@ -96,8 +97,16 @@ namespace
             while (done < total)
             {
                 const auto n = co_await conn->async_write_some(
-                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), block), ec);
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
+                if (ec || n == 0)
+                {
+                    break; // 断链：completed=0 门禁 FAIL，避免死循环挂死
+                }
                 done += n;
+            }
+            if (done < total)
+            {
+                completed = 0;
             }
             conn->close();
         }, [&](std::exception_ptr) { ioc.stop(); });
@@ -111,6 +120,10 @@ namespace
         for (auto &th : ts)
         {
             th.join();
+        }
+        if (completed == 0)
+        {
+            return 0;
         }
         return now_ns() - t0;
     }
@@ -131,9 +144,16 @@ int main()
                 s[i] = bench(kTotal, block, threads);
             }
             std::sort(s.begin(), s.end());
+            const double mbps = (kTotal / 1024.0 / 1024.0) / (s[1] / 1e9);
             std::printf("vmess chunk=%6zu 线程=%d: med=%7.2f ms  => %8.1f MB/s\n", block, threads,
-                        s[1] / 1e6, (kTotal / 1024.0 / 1024.0) / (s[1] / 1e9));
+                        s[1] / 1e6, mbps);
+            if (std::any_of(s.begin(), s.end(), [](std::int64_t v) { return v <= 0; }) || mbps < 50.0)
+            {
+                std::printf("FAIL vmess chunk=%zu 线程=%d: 存在数据面未完成运行或吞吐过低\n", block, threads);
+                return 1;
+            }
         }
     }
+    std::printf("VmessMultiThread: ALL PASS\n");
     return 0;
 }

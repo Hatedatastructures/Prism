@@ -7,6 +7,7 @@
  * 错误码。
  * @note 运行时认证/授权失败应使用错误码而非异常。
  * @warning 不要在热路径中抛出此异常。
+ * @note 镜像自 include/prism/foundation/exception/，同步策略：锁定
  */
 #pragma once
 

@@ -3,6 +3,7 @@
  * @brief Base64 编解码工具
  * @details 提供轻量级 Base64 编解码函数，用于 HTTP Basic 认证等场景。
  * 实现为 header-only inline 函数，与 sha224.hpp 风格一致。
+ * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
  */
 #pragma once
 

@@ -11,6 +11,7 @@
 #pragma once
 
 #include <boost/asio/buffer.hpp>
+#include <boost/asio/ip/address_v6.hpp>
 #include <openssl/evp.h>
 
 #include <array>
@@ -25,6 +26,7 @@
 
 #include <common/core/byte_span.hpp>
 #include <common/core/error.hpp>
+#include <common/core/protocol/address.hpp>
 #include <common/protocols/trojan/types.hpp>
 
 namespace preview::trojan
@@ -71,45 +73,14 @@ namespace preview::trojan
      * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE，追加到缓冲）
      * @param addr 目标地址
      * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
+     * @note 转发层：统一实现见 protocol/common::encode_address
+     *       （ipv4 越界写修复为非法输入输出 0.0.0.0；ipv6 文本（如 "::1"）
+     *       解析为 16 字节二进制，非法/二进制输入原样拷贝）
      */
     template <typename Alloc>
     inline auto encode_address(const address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        out.push_back(static_cast<std::uint8_t>(addr.type));
-        switch (addr.type)
-        {
-        case address_type::ipv4: {
-            std::array<std::uint8_t, 4> ip{};
-            std::size_t a = 0, p = 0;
-            for (const char ch : addr.host)
-            {
-                if (ch == '.')
-                {
-                    ip[a++] = static_cast<std::uint8_t>(p);
-                    p = 0;
-                }
-                else
-                {
-                    p = p * 10 + static_cast<std::size_t>(ch - '0');
-                }
-            }
-            ip[a] = static_cast<std::uint8_t>(p);
-            out.insert(out.end(), ip.begin(), ip.end());
-            break;
-        }
-        case address_type::ipv6: {
-            out.insert(out.end(), addr.host.begin(), addr.host.end());
-            break;
-        }
-        case address_type::domain:
-        default: {
-            out.push_back(static_cast<std::uint8_t>(addr.host.size()));
-            out.insert(out.end(), addr.host.begin(), addr.host.end());
-            break;
-        }
-        }
-        out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+        preview::protocol::common::encode_address(addr, out);
     }
 
     /**
@@ -341,8 +312,7 @@ namespace preview::trojan
             off += 16;
             break;
         }
-        case address_type::domain:
-        default: {
+        case address_type::domain: {
             if (off >= data.size())
             {
                 return error::need_more;
@@ -355,6 +325,10 @@ namespace preview::trojan
             out.target.host.assign(reinterpret_cast<const char *>(data.data() + off), len);
             off += len;
             break;
+        }
+        default: {
+            // 非法 ATYP：拒绝而非按域名宽松解析（与 parse_address 一致）
+            return error::bad_message;
         }
         }
         out.target.port = static_cast<std::uint16_t>(data[off]) << 8 | data[off + 1];

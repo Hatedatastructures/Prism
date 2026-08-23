@@ -72,8 +72,8 @@ int main(const int argc, char *argv[])
             ss::build_fixed_header(ss::header_type_client, now, static_cast<std::uint16_t>(var.size()));
 
         ss::chunk_codec codec(key);
-        const auto fixed_enc = codec.seal(fixed);
-        const auto var_enc = codec.seal(var);
+        const auto fixed_enc = codec.seal_raw(fixed);
+        const auto var_enc = codec.seal_raw(var);
 
         std::vector<std::uint8_t> wire;
         wire.reserve(salt.size() + fixed_enc.size() + var_enc.size());
@@ -95,16 +95,15 @@ int main(const int argc, char *argv[])
         net::read(sock, net::buffer(resp_head), net::transfer_exactly(resp_head.size()));
         const auto resp_key = ss::session_key(psk, std::span<const std::uint8_t>(resp_head).first(16), 16);
         ss::chunk_codec resp_codec(resp_key);
-        std::size_t consumed = 0;
         const auto fixed_plain =
-            resp_codec.open(std::span<const std::uint8_t>(resp_head).subspan(16, 43), consumed);
-        if (fixed_plain.size() != ss::fixed_hdr_plain || fixed_plain[0] != ss::header_type_server)
+            resp_codec.open_raw(std::span<const std::uint8_t>(resp_head).subspan(16, 43));
+        if (fixed_plain.size() != ss::resp_fixed_hdr_plain || fixed_plain[0] != ss::header_type_server)
         {
             std::fprintf(stderr, "FAIL: server response fixed header\n");
             return 1;
         }
         // 固定头 paddingLen 字段 = 响应携带的 echo 数据长度
-        const auto payload_len = static_cast<std::size_t>((fixed_plain[9] << 8) | fixed_plain[10]);
+        const auto payload_len = static_cast<std::size_t>((fixed_plain[25] << 8) | fixed_plain[26]);
         if (payload_len == 0)
         {
             std::fprintf(stderr, "FAIL: empty server response payload\n");
@@ -112,7 +111,7 @@ int main(const int argc, char *argv[])
         }
         std::vector<std::uint8_t> payload_enc(payload_len + 16);
         net::read(sock, net::buffer(payload_enc), net::transfer_exactly(payload_enc.size()));
-        const auto plain = resp_codec.open_payload(payload_enc);
+        const auto plain = resp_codec.open_raw(payload_enc);
         if (plain.empty())
         {
             std::fprintf(stderr, "FAIL: decrypt server response payload\n");

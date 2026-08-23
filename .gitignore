@@ -56,3 +56,4 @@ todo.md
 tools/restlstest/go.mod
 tools/restlstest/go.sum
 tools/restlstest/main.go
+*.gcov.json.gz

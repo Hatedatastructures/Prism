@@ -43,6 +43,12 @@ namespace preview::shadowsocks2022
     /// 固定头密文长度：11 + 16 = 27
     inline constexpr std::size_t fixed_hdr_size = fixed_hdr_plain + aead_tag_len;
 
+    /// 响应固定头明文长度：type(1) + ts(8) + requestSalt(16) + payloadLen(2) = 27
+    inline constexpr std::size_t resp_fixed_hdr_plain = 1 + 8 + 16 + 2;
+
+    /// 响应固定头密文长度：27 + 16 = 43
+    inline constexpr std::size_t resp_fixed_hdr_size = resp_fixed_hdr_plain + aead_tag_len;
+
     /// 数据块最大载荷（SIP022：0x3FFF）
     inline constexpr std::uint16_t max_chunk_size = 0x3FFF;
 

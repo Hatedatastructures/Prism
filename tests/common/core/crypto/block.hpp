@@ -4,6 +4,7 @@
  * @details 提供 AES-ECB 单块（16 字节）加密和解密功能。
  * 用于 SS2022 (SIP022) UDP 的 SeparateHeader 加密。
  * 不应直接用于大量数据加密（ECB 模式不安全）。
+ * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
  */
 #pragma once
 

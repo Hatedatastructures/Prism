@@ -124,6 +124,18 @@ namespace preview::transport
         }
 
         /**
+         * @brief 获取本地绑定端点（bind 成功后有效）
+         * @return 本地 UDP 端点（未绑定时返回空端点）
+         * @note 支持端口 0 由系统分配后回读实际端口。
+         */
+        [[nodiscard]] auto local_endpoint() const -> endpoint_type
+        {
+            boost::system::error_code ec;
+            const auto ep = socket_.local_endpoint(ec);
+            return ec ? endpoint_type{} : ep;
+        }
+
+        /**
          * @brief 获取传输层类型
          * @return type::udp 不可靠传输始终为 UDP
          */

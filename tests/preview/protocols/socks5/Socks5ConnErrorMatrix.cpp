@@ -140,8 +140,8 @@ namespace
             {
                 auto [err, req, conn] = co_await socks5::accept(
                     std::make_shared<memory_stream>(std::move(b)), socks5::server_config{});
-                // 非法命令 → bad_message（协议拒绝）
-                EXPECT_NE(err, preview::error::none); // 非法命令被拒绝（码依时序）
+                // 非法命令 → not_supported（parse_request 命令白名单）
+                EXPECT_EQ(err, preview::error::not_supported);
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -165,7 +165,7 @@ namespace
             {
                 const auto err = co_await accept_server(ioc, std::make_shared<memory_stream>(std::move(b)),
                                                         socks5::server_config{});
-                EXPECT_NE(err, preview::error::none); // 非法命令被拒绝（码依时序）
+                EXPECT_EQ(err, preview::error::bad_message); // ATYP=9 → parse_address 拒绝
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -186,7 +186,7 @@ namespace
             {
                 const auto err = co_await accept_server(ioc, std::make_shared<memory_stream>(std::move(b)),
                                                         socks5::server_config{});
-                EXPECT_NE(err, preview::error::none);
+                EXPECT_EQ(err, preview::error::io_error); // 请求头半包后 EOF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 

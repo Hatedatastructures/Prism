@@ -27,6 +27,7 @@
 #include <common/core/runtime/statistics.hpp>
 #include <common/core/transport/memory_stream.hpp>
 #include <common/core/transmission.hpp>
+#include <common/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -34,16 +35,7 @@ namespace
     namespace net = boost::asio;
     using namespace preview;
 
-    auto run_coro(net::io_context &ioc, auto coro)
-    {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
-        {
-            std::rethrow_exception(ep);
-        }
-    }
+    using psm::testing::run_coro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
 
     /// 回显上游
     auto echo_upstream(shared_transmission client_side) -> net::awaitable<void>

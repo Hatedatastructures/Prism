@@ -103,11 +103,19 @@ namespace
             const auto data = mutate_bytes(rng);
             if (data.size() >= 9)
             {
-                (void)http2::parse_frame_header(std::span<const std::byte>(
-                    reinterpret_cast<const std::byte *>(data.data()), 9));
+                if (const auto fh = http2::parse_frame_header(std::span<const std::byte>(
+                        reinterpret_cast<const std::byte *>(data.data()), 9)))
+                {
+                    // HTTP/2 帧长 24-bit：解析不得越界
+                    EXPECT_LE(fh->length, 0xFFFFFFu);
+                }
             }
-            (void)http2::decode_settings(std::span<const std::byte>(
-                reinterpret_cast<const std::byte *>(data.data()), data.size()));
+            if (const auto sv = http2::decode_settings(std::span<const std::byte>(
+                    reinterpret_cast<const std::byte *>(data.data()), data.size())))
+            {
+                // SETTINGS 每项至少 6 字节：条目数受输入长度约束
+                EXPECT_LE(sv->size(), data.size() / 6 + 1);
+            }
         }
     }
 
@@ -125,8 +133,10 @@ namespace
             }
             std::size_t offset = 0;
             (void)http2::decode_int(std::span<const std::byte>(buf.data(), n), 7, offset);
+            EXPECT_LE(offset, n); // 解析游标不得越过输入
             std::size_t offset2 = 0;
             (void)http2::decode_string(std::span<const std::byte>(buf.data(), n), offset2);
+            EXPECT_LE(offset2, n);
         }
     }
 
@@ -140,11 +150,13 @@ namespace
             (void)http2::decode_int(std::span<const std::byte>(
                                         reinterpret_cast<const std::byte *>(data.data()), data.size()),
                                     7, offset);
+            EXPECT_LE(offset, data.size()); // 解析游标不得越过输入
             std::size_t offset2 = 0;
             (void)http2::decode_string(std::span<const std::byte>(
                                            reinterpret_cast<const std::byte *>(data.data()),
                                            data.size()),
                                        offset2);
+            EXPECT_LE(offset2, data.size());
         }
     }
 
@@ -169,6 +181,8 @@ namespace
             const auto data = mutate_bytes(rng);
             memory::vector<std::uint8_t> out(memory::current_resource());
             (void)qpack::huffman_decode(std::span<const std::uint8_t>(data), out);
+            // 注：qpack huffman 位填充可致输出略膨胀（实测 ~1.32x，最短码 5bit 界限 1.6x），
+            //     无安全上限可断言；保持健壮性角色（不崩溃 + ASan 捕获越界）。
         }
     }
 
@@ -184,30 +198,37 @@ namespace
             socks5::greeting g;
             std::size_t consumed = 0;
             (void)socks5::parse_greeting(in, g, consumed);
+            EXPECT_LE(consumed, in.size()); // 解析游标不得越过输入
 
             trojan::request_header req_h;
             consumed = 0;
             (void)trojan::parse_request(in, req_h, consumed);
+            EXPECT_LE(consumed, in.size());
 
             vless::request_header vl_h;
             consumed = 0;
             (void)vless::parse_request(in, vl_h, consumed);
+            EXPECT_LE(consumed, in.size());
 
             vmess::chunk_decryptor vm_dec(key, std::array<std::uint8_t, 12>{});
             std::vector<std::uint8_t> plain;
             (void)vm_dec.open_payload(data, plain);
+            EXPECT_LE(plain.size(), data.size()); // AEAD 解密不膨胀
 
             shadowsocks2022::chunk_codec ss_codec(key);
             std::vector<std::uint8_t> out;
             (void)ss_codec.open_payload(data, out);
+            EXPECT_LE(out.size(), data.size());
 
             hysteria2::message hy_msg;
             consumed = 0;
             (void)hysteria2::parse(in, hy_msg, consumed);
+            EXPECT_LE(consumed, in.size());
 
             tuic::message tu_msg;
             consumed = 0;
             (void)tuic::parse(in, tu_msg, consumed);
+            EXPECT_LE(consumed, in.size());
         }
     }
 

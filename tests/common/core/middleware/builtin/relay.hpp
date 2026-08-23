@@ -16,15 +16,19 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <exception>
 #include <memory>
 #include <string_view>
 #include <vector>
 
 #include <common/core/fault/code.hpp>
 #include <common/core/fault/handling.hpp>
+#include <common/core/diagnose/log.hpp>
 #include <common/core/middleware/context.hpp>
 #include <common/core/middleware/pipeline.hpp>
 #include <common/core/transmission.hpp>
@@ -33,6 +37,208 @@ namespace preview::middleware::builtin
 {
 
     namespace net = boost::asio;
+
+    namespace detail
+    {
+
+        /**
+         * @struct relay_state
+         * @brief 双向 relay 的共享运行状态
+         * @details 两个方向的协程都持有该对象，确保缓冲区、计数器、定时器和
+         * 关闭标志在所有异步操作完成前保持有效。上下行必须使用不同缓冲区，
+         * 避免一个方向挂起读操作时被另一个方向覆盖数据。
+         */
+        struct relay_state
+        {
+            relay_state(preview::shared_transmission in, preview::shared_transmission out,
+                        std::size_t buffer_size, std::chrono::milliseconds idle)
+                : inbound(std::move(in)), outbound(std::move(out)), up_buffer(buffer_size),
+                  down_buffer(buffer_size), idle_timer(inbound->executor()), idle_timeout(idle)
+            {
+            }
+
+            preview::shared_transmission inbound;
+            preview::shared_transmission outbound;
+            std::vector<std::byte> up_buffer;
+            std::vector<std::byte> down_buffer;
+            std::array<std::size_t, 2> total{0, 0};
+            net::steady_timer idle_timer;
+            std::chrono::milliseconds idle_timeout;
+            std::atomic_size_t completed_directions{0};
+            std::atomic_bool closed{false};
+            std::exception_ptr direction_error{}; ///< 方向协程异常（诊断用，正常完成时为空）
+        };
+
+        /**
+         * @brief 幂等关闭 relay 两端
+         * @param state relay 共享状态
+         */
+        auto close_relay(const std::shared_ptr<relay_state> &state) -> void
+        {
+            if (state->closed.exchange(true, std::memory_order_acq_rel))
+            {
+                return;
+            }
+            state->inbound->close();
+            state->outbound->close();
+            state->idle_timer.cancel();
+        }
+
+        /**
+         * @brief 记录一个 relay 方向已完成
+         * @param state relay 共享状态
+         */
+        auto complete_direction(const std::shared_ptr<relay_state> &state) -> void
+        {
+            state->completed_directions.fetch_add(1, std::memory_order_release);
+        }
+
+        /**
+         * @brief 重置 relay 空闲计时器
+         * @param state relay 共享状态
+         */
+        auto reset_idle_timer(const std::shared_ptr<relay_state> &state) -> void
+        {
+            if (state->idle_timeout > std::chrono::milliseconds::zero())
+            {
+                state->idle_timer.expires_after(state->idle_timeout);
+            }
+        }
+
+        /**
+         * @brief 执行单向转发（src → dst）
+         * @tparam Idx 方向索引（0 = 上行 inbound→outbound，1 = 下行 outbound→inbound）
+         * @param state relay 共享状态
+         * @param name 方向名（异常日志）
+         * @details 上下行唯一差异为方向索引与日志文案，统一实现消除镜像重复。
+         */
+        template <std::size_t Idx>
+        auto relay_direction(std::shared_ptr<relay_state> state, std::string_view name)
+            -> net::awaitable<void>
+        {
+            auto &src = Idx == 0 ? state->inbound : state->outbound;
+            auto &dst = Idx == 0 ? state->outbound : state->inbound;
+            auto &buf = Idx == 0 ? state->up_buffer : state->down_buffer;
+            try
+            {
+                while (true)
+                {
+                    std::error_code read_ec;
+                    const auto n = co_await src->async_read_some(
+                        std::span<std::byte>(buf), read_ec);
+                    if (n == 0)
+                    {
+                        if (read_ec)
+                        {
+                            close_relay(state);
+                        }
+                        else
+                        {
+                            dst->shutdown();
+                        }
+                        complete_direction(state);
+                        co_return;
+                    }
+                    reset_idle_timer(state);
+
+                    std::error_code write_ec;
+                    co_await dst->async_write(
+                        std::span<const std::byte>(buf.data(), n), write_ec);
+                    // 流量按实际写入计：写失败不计入，避免错误路径虚增统计
+                    if (!write_ec)
+                    {
+                        state->total[Idx] += n;
+                    }
+                    if (write_ec)
+                    {
+                        close_relay(state);
+                        complete_direction(state);
+                        co_return;
+                    }
+                    reset_idle_timer(state);
+
+                    if (read_ec)
+                    {
+                        dst->shutdown();
+                        complete_direction(state);
+                        co_return;
+                    }
+                }
+            }
+            catch (const std::exception &e)
+            {
+                state->direction_error = std::current_exception();
+                diagnose::error("{}: {}", name, e.what());
+                close_relay(state);
+                complete_direction(state);
+            }
+            catch (...)
+            {
+                state->direction_error = std::current_exception();
+                diagnose::error("{}: unknown", name);
+                close_relay(state);
+                complete_direction(state);
+            }
+        }
+
+        /**
+         * @brief 执行上行转发（inbound → outbound）
+         * @param state relay 共享状态
+         * @note 转发层：统一实现见 relay_direction
+         */
+        auto relay_up(const std::shared_ptr<relay_state> &state)
+            -> net::awaitable<void>
+        {
+            co_await relay_direction<0>(state, "relay uplink terminated by exception");
+        }
+
+        /**
+         * @brief 执行下行转发（outbound → inbound）
+         * @param state relay 共享状态
+         * @note 转发层：统一实现见 relay_direction
+         */
+        auto relay_down(const std::shared_ptr<relay_state> &state)
+            -> net::awaitable<void>
+        {
+            co_await relay_direction<1>(state, "relay downlink terminated by exception");
+        }
+
+        /**
+         * @brief 等待 relay 空闲超时
+         * @param state relay 共享状态
+         */
+        auto relay_idle(const std::shared_ptr<relay_state> &state)
+            -> net::awaitable<void>
+        {
+            if (state->idle_timeout <= std::chrono::milliseconds::zero())
+            {
+                net::steady_timer hold(state->inbound->executor());
+                hold.expires_after(std::chrono::hours(24));
+                boost::system::error_code hold_ec;
+                co_await hold.async_wait(net::redirect_error(net::use_awaitable, hold_ec));
+                co_return;
+            }
+
+            while (true)
+            {
+                boost::system::error_code timer_ec;
+                co_await state->idle_timer.async_wait(
+                    net::redirect_error(net::use_awaitable, timer_ec));
+                if (timer_ec == net::error::operation_aborted)
+                {
+                    if (state->closed.load(std::memory_order_acquire) ||
+                        state->completed_directions.load(std::memory_order_acquire) == 2)
+                    {
+                        co_return;
+                    }
+                    continue;
+                }
+                close_relay(state);
+                co_return;
+            }
+        }
+
+    } // namespace detail
 
     /**
      * @class relay_middleware
@@ -64,6 +270,15 @@ namespace preview::middleware::builtin
         }
 
         /**
+         * @brief 获取最近一次 relay 方向协程异常
+         * @return 异常指针（正常完成/正常半关闭时为空）
+         */
+        [[nodiscard]] auto last_direction_error() const -> std::exception_ptr
+        {
+            return last_direction_error_;
+        }
+
+        /**
          * @brief 建立双向隧道并运行至关闭
          * @param inbound 入站传输
          * @param ctx 管线上下文
@@ -84,8 +299,6 @@ namespace preview::middleware::builtin
             }
 
             const auto buffer_size = (std::max)(ctx.buffer_size, std::size_t{2});
-            auto buffer = std::make_shared<std::vector<std::byte>>(buffer_size);
-            std::array<std::size_t, 2> total{0, 0};
 
             // 空闲超时：ctx.timeout 优先（>0），否则构造参数（0 = 禁用）
             auto effective_timeout = idle_timeout_;
@@ -94,93 +307,24 @@ namespace preview::middleware::builtin
                 effective_timeout = ctx.timeout;
             }
 
-            net::steady_timer idle_timer(co_await net::this_coro::executor);
-            if (effective_timeout > std::chrono::milliseconds::zero())
-            {
-                idle_timer.expires_after(effective_timeout);
-            }
+            auto state = std::make_shared<detail::relay_state>(inbound, outbound, buffer_size,
+                                                               effective_timeout);
+            detail::reset_idle_timer(state);
 
-            // 上行：inbound → outbound
-            auto up = [inbound, outbound, buffer, &total, &idle_timer, &effective_timeout]() -> net::awaitable<void>
-            {
-                std::error_code ec;
-                while (true)
-                {
-                    const auto n = co_await inbound->async_read_some(std::span<std::byte>(*buffer), ec);
-                    if (ec || n == 0)
-                    {
-                        break;
-                    }
-                    co_await outbound->async_write_some(
-                        std::span<const std::byte>(buffer->data(), n), ec);
-                    if (ec)
-                    {
-                        break;
-                    }
-                    total[0] += n;
-                    if (effective_timeout > std::chrono::milliseconds::zero())
-                    {
-                        idle_timer.expires_after(effective_timeout);
-                    }
-                }
-            };
-
-            // 下行：outbound → inbound
-            auto down = [inbound, outbound, buffer, &total, &idle_timer, &effective_timeout]() -> net::awaitable<void>
-            {
-                std::error_code ec;
-                while (true)
-                {
-                    const auto n = co_await outbound->async_read_some(std::span<std::byte>(*buffer), ec);
-                    if (ec || n == 0)
-                    {
-                        break;
-                    }
-                    co_await inbound->async_write_some(std::span<const std::byte>(buffer->data(), n), ec);
-                    if (ec)
-                    {
-                        break;
-                    }
-                    total[1] += n;
-                    if (effective_timeout > std::chrono::milliseconds::zero())
-                    {
-                        idle_timer.expires_after(effective_timeout);
-                    }
-                }
-            };
-
-            // 空闲超时循环：被转发活动重置（aborted）继续等待，到期关闭两端
-            auto idle_loop = [&]() -> net::awaitable<void>
-            {
-                if (effective_timeout <= std::chrono::milliseconds::zero())
-                {
-                    // 禁用超时：超长 timer 挂起（不占 socket 读，避免与 up/down 竞争吞数据）
-                    net::steady_timer hold(co_await net::this_coro::executor);
-                    hold.expires_after(std::chrono::hours(24));
-                    boost::system::error_code ec;
-                    co_await hold.async_wait(net::redirect_error(net::use_awaitable, ec));
-                    co_return;
-                }
-                while (true)
-                {
-                    boost::system::error_code ec;
-                    co_await idle_timer.async_wait(net::redirect_error(net::use_awaitable, ec));
-                    if (ec == net::error::operation_aborted)
-                    {
-                        continue; // 被转发活动重置
-                    }
-                    inbound->close();
-                    outbound->close();
-                    co_return;
-                }
-            };
-
+            // 正常路径等待上下行都完成；任一方向发生 I/O 错误时由该方向关闭双方。
+            using boost::asio::experimental::awaitable_operators::operator&&;
             using boost::asio::experimental::awaitable_operators::operator||;
-            co_await (up() || down() || idle_loop());
+            co_await ((detail::relay_up(state) && detail::relay_down(state)) ||
+                      detail::relay_idle(state));
+
+            detail::close_relay(state);
+
+            // 方向协程异常留痕：正常半关闭路径应为空（诊断可观测）
+            last_direction_error_ = state->direction_error;
 
             if (ctx.traffic)
             {
-                ctx.traffic->report(ctx.identity, total[0], total[1]);
+                ctx.traffic->report(ctx.identity, state->total[0], state->total[1]);
             }
             co_return preview::fault::code::success;
         }
@@ -188,6 +332,7 @@ namespace preview::middleware::builtin
     private:
         preview::shared_transmission outbound_; ///< 上游传输
         std::chrono::milliseconds idle_timeout_;       ///< 空闲超时
+        std::exception_ptr last_direction_error_{};    ///< 最近一次方向协程异常（诊断用）
     };
 
 } // namespace preview::middleware::builtin

@@ -6,6 +6,7 @@
  * X25519 使用 Curve25519 椭圆曲线，提供 128 位安全强度，
  * 是 TLS 1.3 中 ECDHE 的首选曲线之一。
  * @note 所有密钥和共享密钥长度固定为 32 字节。
+ * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
  */
 #pragma once
 
@@ -105,7 +106,7 @@ namespace preview::crypto
 
 
 
-    auto generate_keypair() -> x25519_keypair
+    inline auto generate_keypair() -> x25519_keypair
     {
         x25519_keypair keypair;
 
@@ -118,7 +119,7 @@ namespace preview::crypto
         return keypair;
     }
 
-    auto derive_pubkey(std::span<const std::uint8_t> private_key)
+    inline auto derive_pubkey(std::span<const std::uint8_t> private_key)
         -> std::array<std::uint8_t, x25519_klen>
     {
         std::array<std::uint8_t, x25519_klen> public_key{};
@@ -133,8 +134,8 @@ namespace preview::crypto
         return public_key;
     }
 
-    auto x25519(std::span<const std::uint8_t> private_key,
-                const std::span<const std::uint8_t> peer_pubkey)
+    inline auto x25519(std::span<const std::uint8_t> private_key,
+                       const std::span<const std::uint8_t> peer_pubkey)
         -> std::pair<fault::code, std::array<std::uint8_t, x25519_slen>>
     {
         std::array<std::uint8_t, x25519_slen> shared_secret{};

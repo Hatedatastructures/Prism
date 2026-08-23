@@ -48,6 +48,7 @@ namespace
         std::vector<std::uint8_t> rx(262144);
 
         const std::int64_t t0 = now_ns();
+        int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
         net::co_spawn(ioc, [&]() -> net::awaitable<void>
         {
             auto server_coro = [&]() -> net::awaitable<void>
@@ -77,13 +78,31 @@ namespace
                 std::size_t off = 0;
                 while (off < enc_n)
                 {
-                    off += co_await sock.async_write_some(
+                    const auto n = co_await sock.async_write_some(
                         net::buffer(out.data() + off, enc_n - off), net::use_awaitable);
+                    if (n == 0)
+                    {
+                        break; // 断链：completed=0 门禁 FAIL
+                    }
+                    off += n;
+                }
+                if (off < enc_n)
+                {
+                    completed = 0;
+                    break;
                 }
                 done += chunk_size;
             }
+            if (done < total)
+            {
+                completed = 0;
+            }
         }, [&](std::exception_ptr) { ioc.stop(); });
         ioc.run();
+        if (completed == 0)
+        {
+            return 0;
+        }
         return now_ns() - t0;
     }
 } // namespace
@@ -101,8 +120,15 @@ int main()
             s[i] = bench(kTotal, cs);
         }
         std::sort(s.begin(), s.end());
+        const double mbps = (kTotal / 1024.0 / 1024.0) / (s[1] / 1e9);
         std::printf("chunk=%7zu: med=%7.2f ms  => %8.1f MB/s  (%5.1f Gbps)\n", cs, s[1] / 1e6,
-                    (kTotal / 1024.0 / 1024.0) / (s[1] / 1e9), (kTotal / 1024.0 / 1024.0) / (s[1] / 1e9) * 8 / 1000);
+                    mbps, mbps * 8 / 1000);
+        if (std::any_of(s.begin(), s.end(), [](std::int64_t v) { return v <= 0; }) || mbps < 50.0)
+        {
+            std::printf("FAIL chunk=%zu: 存在数据面未完成运行或吞吐 %.1f MB/s 过低\n", cs, mbps);
+            return 1;
+        }
     }
+    std::printf("ChunkLimit: ALL PASS\n");
     return 0;
 }

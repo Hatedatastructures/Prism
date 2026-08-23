@@ -57,6 +57,27 @@ namespace
                     mb / sec, mb / sec * 8 / 1000);
     }
 
+    /// 性能门禁：全部样本数据面完成 + 吞吐下限（防断链静默/死循环挂死/完全退化）
+    auto gate(const char *name, const std::size_t bytes, const result &r) -> bool
+    {
+        constexpr double kMinMbps = 50.0; // 宽松下限（本地 TCP 基线数百 MB/s，防 10x+ 劣化）
+        report(name, bytes, r);
+        const auto med = r.median();
+        // 任一运行断链/未完成即 FAIL（部分失败不得被中位数掩盖）
+        if (std::any_of(r.samples.begin(), r.samples.end(), [](std::int64_t v) { return v <= 0; }))
+        {
+            std::printf("FAIL %s: 存在数据面未完成运行（断链/死循环）\n", name);
+            return false;
+        }
+        const double mbps = static_cast<double>(bytes) / (1024.0 * 1024.0) / (static_cast<double>(med) / 1e9);
+        if (mbps < kMinMbps)
+        {
+            std::printf("FAIL %s: 吞吐 %.1f MB/s < 下限 %.1f MB/s\n", name, mbps, kMinMbps);
+            return false;
+        }
+        return true;
+    }
+
     // ── socks5 conn 对 conn：透传路径 ──
     auto bench_socks5_transfer(const std::size_t total, const std::size_t block) -> std::int64_t
     {
@@ -67,6 +88,7 @@ namespace
         std::vector<std::uint8_t> chunk(block, 0x5A);
 
         const std::int64_t t0 = now_ns();
+        int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
         net::co_spawn(ioc, [&]() -> net::awaitable<void>
         {
             // 服务端：accept TCP → socks5 accept → 读丢弃
@@ -118,12 +140,24 @@ namespace
             while (done < total)
             {
                 const auto n = co_await conn->async_write_some(
-                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), block), ec);
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
+                if (ec || n == 0)
+                {
+                    break; // 断链：completed=0 门禁 FAIL，避免死循环挂死
+                }
                 done += n;
+            }
+            if (done < total)
+            {
+                completed = 0;
             }
             conn->close();
         }, [&](std::exception_ptr) { ioc.stop(); });
         ioc.run();
+        if (completed == 0)
+        {
+            return 0;
+        }
         return now_ns() - t0;
     }
 
@@ -140,6 +174,7 @@ namespace
                                                         0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
 
         const std::int64_t t0 = now_ns();
+        int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
         net::co_spawn(ioc, [&]() -> net::awaitable<void>
         {
             auto server_coro = [&]() -> net::awaitable<void>
@@ -192,12 +227,24 @@ namespace
             while (done < total)
             {
                 const auto n = co_await conn->async_write_some(
-                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), block), ec);
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
+                if (ec || n == 0)
+                {
+                    break; // 断链：completed=0 门禁 FAIL，避免死循环挂死
+                }
                 done += n;
+            }
+            if (done < total)
+            {
+                completed = 0;
             }
             conn->close();
         }, [&](std::exception_ptr) { ioc.stop(); });
         ioc.run();
+        if (completed == 0)
+        {
+            return 0;
+        }
         return now_ns() - t0;
     }
 
@@ -256,10 +303,23 @@ int main()
         r_reuse.samples[i] = bench_vmess_chunk(true);
         r_naive.samples[i] = bench_vmess_chunk(false);
     }
-    report("socks5 conn<->conn (透传)", kTotal, r_s5);
-    report("vmess conn<->conn (加密, 资源指针)", kTotal, r_vm);
+    if (!gate("socks5 conn<->conn (透传)", kTotal, r_s5))
+    {
+        return 1;
+    }
+    if (!gate("vmess conn<->conn (加密, 资源指针)", kTotal, r_vm))
+    {
+        return 1;
+    }
     std::printf("---- vmess 加密 256MB（纯加密，无传输）----\n");
-    report("vmess chunk 复用缓冲 (资源指针)", 256ULL * 1024 * 1024, r_reuse);
-    report("vmess chunk 每帧分配 (无资源指针)", 256ULL * 1024 * 1024, r_naive);
+    if (!gate("vmess chunk 复用缓冲 (资源指针)", 256ULL * 1024 * 1024, r_reuse))
+    {
+        return 1;
+    }
+    if (!gate("vmess chunk 每帧分配 (无资源指针)", 256ULL * 1024 * 1024, r_naive))
+    {
+        return 1;
+    }
+    std::printf("ProtocolTransferBench: ALL PASS\n");
     return 0;
 }

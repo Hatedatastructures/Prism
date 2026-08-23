@@ -1,9 +1,13 @@
 /**
  * @file recognition.hpp
  * @brief 协议识别流水线
- * @details 首包探测 → 协议类型判定 →（TLS 时）SNI 路由到伪装方案。
+ * @details 首包探测 → 协议类型判定 →（预读回注）。
  *          输出 detected（协议类型）+ preread（预读数据回注）。
  *          与 middleware context.detected 衔接。
+ * @note 本测试库识别仅做首包魔数探测；TLS ClientHello 特征识别与
+ *      SNI 路由（routes 参数）属生产 handshake/recognition 层能力，
+ *      此处为接口契约保留（sni_route_table 独立可用，见 route.hpp），
+ *      查表逻辑未接通——探测层不解析 ClientHello 故无法取 SNI。
  */
 
 #pragma once
@@ -31,20 +35,23 @@ namespace preview::recognition
         protocol_type detected{protocol_type::unknown}; ///< 检测到的协议
         shared_transmission transport;                  ///< 回注预读后的传输
         memory::vector<std::byte> preread;              ///< 预读数据（供 handler 消费）
-        memory::string scheme;                          ///< 命中的伪装方案（TLS 时）
+        memory::string scheme;                          ///< 命中的伪装方案（TLS 时；当前恒空）
         bool success{false};                            ///< 识别成功
     };
 
     /**
      * @class pipeline
-     * @brief 识别流水线（probe → 类型 → SNI 路由）
+     * @brief 识别流水线（probe → 类型 → 预读回注）
+     * @details routes 为 TLS 分流预留接口契约（runtime::session 经
+     *          session_options.routes 注入）；当前探测层不解析
+     *          ClientHello，查表未接通，scheme 恒空。
      */
     class pipeline
     {
     public:
         /**
          * @brief 构造
-         * @param routes SNI 路由表（可选，TLS 分流）
+         * @param routes SNI 路由表（可选；预留接口契约，当前未接通）
          */
         explicit pipeline(sni_route_table *routes = nullptr) : routes_(routes)
         {
@@ -90,6 +97,7 @@ namespace preview::recognition
             return std::span<const std::byte>(res.pre_read.data(), res.pre_read_size);
         }
 
+        /// SNI 路由表（预留，见类注释）
         sni_route_table *routes_;
     };
 

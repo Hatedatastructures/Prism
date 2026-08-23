@@ -7,6 +7,7 @@
  * @note 协议异常应主要用于协议栈的初始化和验证阶段，
  * 运行时协议错误应通过错误码机制处理。
  * @warning 避免在热路径中抛出协议异常。
+ * @note 镜像自 include/prism/foundation/exception/，同步策略：锁定
  */
 #pragma once
 

@@ -9,6 +9,7 @@
  * 运行时开销。
  * @warning 热路径中所有错误必须通过错误码传播，
  * 禁止使用异常。
+ * @note 镜像自 include/prism/foundation/fault/，同步策略：锁定
  */
 #pragma once
 

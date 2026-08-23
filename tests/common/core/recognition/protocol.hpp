@@ -71,7 +71,8 @@ namespace preview::recognition
      * @details 特征匹配：
      *          - 0x05 → socks5
      *          - 0x16 0x03 → tls
-     *          - "VLESS" → vless
+     *          - "VLESS" 或结构化特征（version 0x00 + 合法 cmd/atyp，
+     *            预读窗口内）→ vless
      *          - 0x0D 0x0A 0x0D 0x0A → trojan
      *          - 0x01 且后续 4 字节版本特征 → vmess
      *          - "GET/POST/CONNECT " 前缀 → http
@@ -99,6 +100,25 @@ namespace preview::recognition
             data[2] == vless_magic[2] && data[3] == vless_magic[3] && data[4] == vless_magic[4])
         {
             return protocol_type::vless;
+        }
+        // VLESS 结构化识别（Xray 首字节为 version 0x00）：仅在预读窗口内有效——
+        // probe 最多预读 24 字节（见 probe.hpp max_probe_size），头部固定部分
+        // 已占 22 字节，故仅 addnl ≤ 2 可命中；更长 addons 无法在窗口内完成
+        // 校验，只能回落到上方 "VLESS" 魔数路径
+        if (data.size() >= 18 && data[0] == 0x00)
+        {
+            const std::size_t addnl = data[17];
+            const std::size_t need = 18 + addnl + 4;
+            if (data.size() >= need)
+            {
+                const auto cmd = data[18 + addnl];
+                const auto atyp = data[21 + addnl];
+                if ((cmd == 0x01 || cmd == 0x02) &&
+                    (atyp == 0x01 || atyp == 0x02 || atyp == 0x03))
+                {
+                    return protocol_type::vless;
+                }
+            }
         }
         if (data.size() >= 4 && data[0] == trojan_magic[0] && data[1] == trojan_magic[1] &&
             data[2] == trojan_magic[2] && data[3] == trojan_magic[3])

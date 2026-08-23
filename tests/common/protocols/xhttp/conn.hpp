@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <common/core/diagnose/log.hpp>
 #include <common/core/error.hpp>
 #include <common/protocols/http2/impl.hpp>
 #include <common/protocols/http2/session.hpp>
@@ -21,12 +22,15 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 #include <boost/asio/ssl.hpp>
 
 #include <array>
 #include <cstddef>
 #include <deque>
+#include <exception>
 #include <memory>
 #include <span>
 #include <string>
@@ -46,7 +50,8 @@ namespace preview::xhttp
      * @details 读 = 会话 DATA 帧投递队列；写 = 经会话提交 DATA 帧。
      *          匹配的流 ID 在 POST 到达前为 -1（写缓冲至匹配后 flush）。
      */
-    class xhttp_transport final : public transmission
+    class xhttp_transport final : public transmission,
+                                  public std::enable_shared_from_this<xhttp_transport>
     {
     public:
         /**
@@ -85,6 +90,13 @@ namespace preview::xhttp
                 if (eof_)
                 {
                     ec = make_error_code(error::unexpected_eof);
+                    co_return 0;
+                }
+                if (eof_pending_ && !notify_.ready())
+                {
+                    eof_pending_ = false;
+                    eof_ = true;
+                    ec.clear();
                     co_return 0;
                 }
                 boost::system::error_code ch_ec;
@@ -165,7 +177,11 @@ namespace preview::xhttp
                 return;
             }
             memory::vector<std::byte> copy(data.begin(), data.end(), memory::current_resource());
-            notify_.try_send(boost::system::error_code{}, std::move(copy));
+            if (!notify_.try_send(boost::system::error_code{}, std::move(copy)))
+            {
+                diagnose::error("xhttp receive channel full; closing stream");
+                close();
+            }
         }
 
         /**
@@ -173,10 +189,13 @@ namespace preview::xhttp
          */
         void notify_eof()
         {
-            if (!closed_ && !eof_)
+            if (!closed_ && !eof_ && !eof_pending_)
             {
-                notify_.try_send(boost::system::error_code{},
-                                 memory::vector<std::byte>(memory::current_resource()));
+                if (!notify_.try_send(boost::system::error_code{},
+                                      memory::vector<std::byte>(memory::current_resource())))
+                {
+                    eof_pending_ = true;
+                }
             }
         }
 
@@ -189,8 +208,24 @@ namespace preview::xhttp
             stream_id_ = stream_id;
             if (!write_pending_.empty() && write_fn_)
             {
-                net::co_spawn(ex_, write_fn_(stream_id_, write_pending_), net::detached);
-                write_pending_.clear();
+                auto pending = std::make_shared<memory::vector<std::byte>>(std::move(write_pending_));
+                auto self = shared_from_this();
+                auto write_fn = write_fn_;
+                const auto bound_stream_id = stream_id_;
+                auto async_flush = [self, write_fn = std::move(write_fn), pending, bound_stream_id]() mutable
+                    -> net::awaitable<void>
+                {
+                    co_await write_fn(bound_stream_id, std::span<const std::byte>(*pending));
+                };
+                auto on_error = [self](const std::exception_ptr &ep)
+                {
+                    if (ep)
+                    {
+                        diagnose::error("xhttp pending write failed");
+                        self->close();
+                    }
+                };
+                net::co_spawn(ex_, std::move(async_flush), std::move(on_error));
             }
         }
 
@@ -209,6 +244,7 @@ namespace preview::xhttp
         memory::vector<std::byte> write_pending_; ///< 匹配前的写缓冲
         bool closed_{false};
         bool eof_{false};
+        bool eof_pending_{false};
     };
 
     /**

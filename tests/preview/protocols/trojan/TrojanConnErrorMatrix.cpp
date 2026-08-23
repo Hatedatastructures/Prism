@@ -107,7 +107,7 @@ namespace
             {
                 auto [err, req, conn] = co_await trojan::accept(
                     std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_NE(err, error::none); // 非法命令被拒绝
+                EXPECT_EQ(err, error::bad_message); // 命令 0x99 不在白名单
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -132,7 +132,7 @@ namespace
             {
                 auto [err, req, conn] = co_await trojan::accept(
                     std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_NE(err, error::none); // 非法 ATYP
+                EXPECT_EQ(err, error::bad_message); // ATYP=9 非法
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -157,7 +157,7 @@ namespace
             {
                 auto [err, req, conn] = co_await trojan::accept(
                     std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_NE(err, error::none); // 半包后 EOF
+                EXPECT_EQ(err, error::io_error); // 半包后 EOF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 

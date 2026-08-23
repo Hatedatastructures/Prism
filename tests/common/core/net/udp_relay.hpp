@@ -83,20 +83,21 @@ namespace preview::network::udp
                                  std::shared_ptr<assoc_table> table,
                                  bool from_is_a) -> net::awaitable<void>
             {
-                std::array<std::byte, 65535> buf{};
+                // 64KB 缓冲堆分配：协程帧只留 8 字节 shared_ptr（两方向各持独立缓冲，避免读写竞争）
+                auto buf = std::make_shared<std::array<std::byte, 65535>>();
                 while (true)
                 {
                     net::ip::udp::endpoint src;
                     boost::system::error_code r_ec;
                     const auto n = co_await from.native_socket().async_receive_from(
-                        net::buffer(buf.data(), buf.size()), src,
+                        net::buffer(buf->data(), buf->size()), src,
                         net::redirect_error(net::use_awaitable, r_ec));
                     if (r_ec || n == 0)
                     {
                         co_return;
                     }
                     // 先学习/配对，再查转发目标（首包即配对）
-                    table->touch(src, from_is_a, opts_.idle_timeout);
+                    table->touch(src, from_is_a);
                     const auto peer = table->peer_of(src, from_is_a);
                     if (!peer)
                     {
@@ -104,13 +105,13 @@ namespace preview::network::udp
                     }
                     boost::system::error_code w_ec;
                     co_await to.native_socket().async_send_to(
-                        net::buffer(buf.data(), n), *peer,
+                        net::buffer(buf->data(), n), *peer,
                         net::redirect_error(net::use_awaitable, w_ec));
                     if (w_ec)
                     {
                         co_return;
                     }
-                    table->touch(src, from_is_a, opts_.idle_timeout);
+                    table->touch(src, from_is_a);
                 }
             };
 
@@ -163,12 +164,9 @@ namespace preview::network::udp
              * @brief 关联/配对：记录来源，与对侧未配对来源配对，刷新活动时间
              * @param src 来源端点（本侧）
              * @param from_a 来源是否 A 侧
-             * @param timeout 空闲超时（0 = 不回收）
              */
-            void touch(const net::ip::udp::endpoint &src, bool from_a,
-                       std::chrono::milliseconds timeout)
+            void touch(const net::ip::udp::endpoint &src, bool from_a)
             {
-                (void)timeout;
                 auto &self = [&]() -> decltype(a_to_b_) & {
                     if (from_a)
                     {
@@ -219,17 +217,6 @@ namespace preview::network::udp
                         return;
                     }
                 }
-            }
-
-            /**
-             * @brief 配对：将对侧来源与来源配对
-             * @param a_ep A 侧端点
-             * @param b_ep B 侧端点
-             */
-            void pair(const net::ip::udp::endpoint &a_ep, const net::ip::udp::endpoint &b_ep)
-            {
-                a_to_b_[a_ep].peer = b_ep;
-                b_to_a_[b_ep].peer = a_ep;
             }
 
             /**

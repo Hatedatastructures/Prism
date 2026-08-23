@@ -61,7 +61,8 @@ namespace preview::shadowtls
         /**
          * @brief 获取执行器（委托底层传输）
          */
-        [[nodiscard]] auto executor() const -> net::any_io_executor override
+        [[nodiscard]] auto executor() const   
+          -> net::any_io_executor override
         {
             return next_layer_->executor();
         }
@@ -77,7 +78,7 @@ namespace preview::shadowtls
          */
         [[nodiscard]] auto write_handshake(std::span<const std::uint8_t> server_random,
                                            std::span<const std::uint8_t> client_random)
-        -> net::awaitable<error>
+          -> net::awaitable<error>
         {
             std::vector<std::uint8_t> hello = build_client_hello(client_random);
 
@@ -85,6 +86,7 @@ namespace preview::shadowtls
             std::array<std::uint8_t, tls_session_id_sz> session_id{};
             for (std::size_t i = 0; i < tls_session_id_sz - hmac_size; ++i)
                 session_id[i] = static_cast<std::uint8_t>(i * 7 + 3);
+                  
             const auto hmac_hello = std::span<const std::uint8_t>(hello).subspan(tls_hdrsize);
             auto err = generate_session_id(session_id_input{password_, hmac_hello, session_id});
             if (err != error::none)
@@ -106,11 +108,10 @@ namespace preview::shadowtls
          * @return 错误码
          */
         [[nodiscard]] auto read_handshake()
-        -> net::awaitable<error>
+          -> net::awaitable<error>
         {
             // 完整 hello：TLS 头 + 握手头 + version + random + sidLen + session_id + 尾部
-            constexpr std::size_t hello_len =
-                tls_hdrsize + session_id_start + tls_session_id_sz + 16;
+            constexpr std::size_t hello_len = tls_hdrsize + session_id_start + tls_session_id_sz + 16;
             std::vector<std::uint8_t> hello(hello_len);
             if (co_await read_exact(hello))
                 co_return error::unexpected_eof;
@@ -125,7 +126,7 @@ namespace preview::shadowtls
          * @brief 透传读取（握手后数据面为裸流）
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+          -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -138,9 +139,8 @@ namespace preview::shadowtls
         /**
          * @brief 透传写入（握手后数据面为裸流）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer,
-                                            std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+          -> net::awaitable<std::size_t> override
         {
             if (!handshaken_)
             {
@@ -169,7 +169,8 @@ namespace preview::shadowtls
         /**
          * @brief 获取底层传输（装饰器链导航）
          */
-        [[nodiscard]] auto next_layer() noexcept -> preview::transmission * override
+        [[nodiscard]] auto next_layer() noexcept 
+          -> preview::transmission * override
         {
             return next_layer_.get();
         }
@@ -177,7 +178,8 @@ namespace preview::shadowtls
         /**
          * @brief 获取底层传输（const 版本）
          */
-        [[nodiscard]] auto next_layer() const noexcept -> const preview::transmission * override
+        [[nodiscard]] auto next_layer() const noexcept 
+          -> const preview::transmission * override
         {
             return next_layer_.get();
         }
@@ -185,7 +187,8 @@ namespace preview::shadowtls
         /**
          * @brief 释放底层传输所有权
          */
-        [[nodiscard]] auto release() -> shared_transmission override
+        [[nodiscard]] auto release() 
+          -> shared_transmission override
         {
             return std::move(next_layer_);
         }
@@ -197,7 +200,7 @@ namespace preview::shadowtls
          * @return 完整 ClientHello（含 TLS 记录头 5 字节）
          */
         [[nodiscard]] auto build_client_hello(std::span<const std::uint8_t> client_random)
-        -> std::vector<std::uint8_t>
+          -> std::vector<std::uint8_t>
         {
             std::vector<std::uint8_t> hello(tls_hdrsize + session_id_start + tls_session_id_sz + 16,
                                              0);
@@ -218,7 +221,7 @@ namespace preview::shadowtls
          * @return true = 失败（EOF / 底层错误）
          */
         [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst)
-        -> net::awaitable<bool>
+          -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < dst.size())
@@ -238,7 +241,7 @@ namespace preview::shadowtls
          * @return true = 失败
          */
         [[nodiscard]] auto send_bytes(std::span<const std::uint8_t> data) const
-        -> net::awaitable<bool>
+          -> net::awaitable<bool>
         {
             std::size_t done = 0;
             while (done < data.size())
@@ -254,10 +257,10 @@ namespace preview::shadowtls
 
         shared_transmission next_layer_;      ///< 底层传输（独占所有权）
         std::string password_;                ///< 认证密码
+        Memory mem_;                          ///< 会话内存策略（arena，热路径零释放分配）
         /// 服务端随机数（握手后，arena 分配）
         typename Memory::template buffer<std::uint8_t> server_random_{mem_.arena()};
         bool handshaken_{false};              ///< 握手完成标志
-        Memory mem_;                          ///< 会话内存策略（arena，热路径零释放分配）
     };
 
     /// 流连接共享指针（默认内存策略）

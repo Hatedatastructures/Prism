@@ -2,6 +2,7 @@
  * @file sha224.hpp
  * @brief SHA224 哈希工具
  * @details 提供基于 OpenSSL 的 SHA224 哈希计算功能，用于 Trojan 协议凭据处理。
+ * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
  */
 #pragma once
 

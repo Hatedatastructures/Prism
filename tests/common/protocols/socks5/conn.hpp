@@ -30,6 +30,7 @@
 
 #include <common/core/memory/container.hpp>
 #include <common/core/memory/pointer.hpp>
+#include <common/core/protocol/address.hpp>
 
 #include <common/core/authenticator.hpp>
 #include <common/core/error.hpp>
@@ -233,8 +234,8 @@ namespace preview::socks5
             // 3. 认证（如需，RFC 1929）
             if (sel[1] == static_cast<std::uint8_t>(auth_method::user_pass))
             {
-                            build_userpass(username, password, tx_wire_);
-                            if (co_await send_bytes(tx_wire_))
+                build_userpass(username, password, tx_wire_);
+                if (co_await send_bytes(tx_wire_))
                 {
                     co_return error::io_error;
                 }
@@ -365,8 +366,11 @@ namespace preview::socks5
                 co_return std::pair{error::not_supported, request{}};
             }
 
-            // 7. 发送成功响应（bind 固定 0.0.0.0:0）
-            co_await send_reply(reply_code::success);
+            // 7. CONNECT 应答（默认立即发送；defer 时由调用方拨号后发送）
+            if (!cfg.defer_connect_reply)
+            {
+                co_await send_reply(reply_code::success);
+            }
             req_ = req;
             handshaken_ = true;
             co_return std::pair{error::none, std::move(req)};
@@ -395,9 +399,33 @@ namespace preview::socks5
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto read_exact(std::span<std::uint8_t> dst) 
+            -> net::awaitable<bool>
         {
             return read_exact_impl(dst);
+        }
+
+        /**
+         * @brief 发送 CONNECT 应答（延迟握手由调用方拨号后发送）
+         * @param code 响应码
+         * @return 发送错误码
+         */
+        [[nodiscard]] auto send_connect_reply(reply_code code) const 
+            -> net::awaitable<error>
+        {
+            co_return co_await send_reply(code);
+        }
+
+        /**
+         * @brief 发送带 BND 地址的应答（UDP_ASSOCIATE 用）
+         * @param code 响应码
+         * @param bind BND 地址（空 = 0.0.0.0:0）
+         * @return 发送错误码
+         */
+        [[nodiscard]] auto send_assoc_reply(reply_code code, const address &bind) const
+            -> net::awaitable<error>
+        {
+            co_return co_await send_reply(code, bind);
         }
 
     private:
@@ -545,46 +573,16 @@ namespace preview::socks5
 
         /**
          * @brief 读取地址（ATYP + ADDR + PORT）
+         * @details 地址体委托统一实现（见 protocol/common::read_address_body），
+         *          端口（2B BE）本地读取。
          */
         [[nodiscard]] auto read_address(address &addr) -> net::awaitable<error>
         {
-            switch (addr.type)
+            auto err = co_await preview::protocol::common::read_address_body(
+                addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return read_exact_impl(dst); });
+            if (err != error::none)
             {
-            case address_type::ipv4: {
-                std::array<std::uint8_t, 4> ip{};
-                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                {
-                    co_return error::io_error;
-                }
-                std::array<char, 16> buf{};
-                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-                addr.host = buf.data();
-                break;
-            }
-            case address_type::ipv6: {
-                std::array<std::uint8_t, 16> ip{};
-                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                {
-                    co_return error::io_error;
-                }
-                addr.host.assign(reinterpret_cast<const char *>(ip.data()), 16);
-                break;
-            }
-            case address_type::domain: {
-                std::array<std::uint8_t, 1> len{};
-                if (co_await read_exact_impl(std::span<std::uint8_t>(len)))
-                {
-                    co_return error::io_error;
-                }
-                std::vector<std::uint8_t> host(len[0]);
-                if (co_await read_exact_impl(host))
-                {
-                    co_return error::io_error;
-                }
-                addr.host.assign(reinterpret_cast<const char *>(host.data()), host.size());
-                break;
-            }
-            default: co_return error::bad_message;
+                co_return err;
             }
             std::array<std::uint8_t, 2> port{};
             if (co_await read_exact_impl(std::span<std::uint8_t>(port)))
@@ -663,10 +661,10 @@ namespace preview::socks5
         shared_transmission next_layer_; ///< 上游传输（独占所有权）
         request req_;                    ///< 服务端握手解析结果
         address bind_;                   ///< 客户端握手 BND 地址
+        Memory mem_;                     ///< 会话内存策略（arena，热路径零释放分配）
         typename Memory::template buffer<std::uint8_t> buf_{mem_.arena()}; ///< 预读缓冲（隧道数据暂存）
         std::size_t used_{0};            ///< 缓冲中有效字节数
         bool handshaken_{false};         ///< 握手完成标志
-        Memory mem_;                     ///< 会话内存策略（arena，热路径零释放分配）
         /// 发送缓冲（arena 复用，热路径零分配）；mutable：const 握手方法内可写
         mutable typename Memory::template buffer<std::uint8_t> tx_wire_{mem_.arena()};
     };

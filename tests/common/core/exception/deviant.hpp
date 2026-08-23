@@ -9,6 +9,7 @@
  * 实现 type_name()。
  * @warning 异常构造和复制可能分配内存，避免在内存紧张
  * 时使用。
+ * @note 镜像自 include/prism/foundation/exception/，同步策略：锁定
  */
 #pragma once
 

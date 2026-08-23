@@ -62,7 +62,7 @@ namespace
             {
                 auto [err, req, conn] = co_await vmess::accept(
                     std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_NE(err, error::none);
+                EXPECT_EQ(err, preview::error::io_error); // 只发 4 字节后 EOF（len_enc 读不满）
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 

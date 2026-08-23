@@ -24,6 +24,8 @@
 #include <utility>
 
 #include <common/core/error.hpp>
+#include <common/core/fault/code.hpp>
+#include <common/core/middleware/context.hpp>
 #include <common/core/transmission.hpp>
 #include <common/protocols/trojan/codec.hpp>
 #include <common/core/authenticator.hpp>

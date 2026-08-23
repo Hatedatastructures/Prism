@@ -1,16 +1,15 @@
 /**
  * @file conn.hpp
- * @brief Trojan 流连接对象（模板化，编译期静态分派）
- * @details 单条 TCP 协议连接的完整状态：持有上游传输（所有权）、
- * 预读缓冲、凭据。上游传输类型为模板参数（transmission_like 约束），
- * 读写直接静态分派到具体类型——无虚表、无类型擦除。
+ * @brief Trojan 流连接对象（装饰器模式：内存策略模板化）
+ * @details 单条 TCP 协议连接的完整状态：持有上游传输（所有权，
+ * shared_transmission 运行时多态）、预读缓冲、凭据。读写经虚接口
+ * 静态委托给上游具体传输（内存流 / 可靠连接均满足 transmission_like）。
  * - 客户端：write_handshake 发送请求头（凭据 + 命令 + 地址）
  * - 服务端：read_handshake 解析校验请求头
  * UDP 数据面由 dgram.hpp 提供（独立包连接类型，嵌入本连接）。
  * @note 对齐 mihomo transport：TCP = net.Conn（纯流语义）。
- * @note 模板化收益：上游类型编译期确定（memory_stream /
- *          stream_transmission 等），接口经 transmission_like
- *          concept 编译期校验。
+ * @note 模板参数仅 Memory（会话内存策略：arena 复用零分配），
+ *      上游传输类型经 transmission 虚接口擦除，装饰器链统一。
  */
 
 #pragma once
@@ -33,6 +32,7 @@
 #include <common/core/authenticator.hpp>
 #include <common/core/error.hpp>
 #include <common/core/memory/pointer.hpp>
+#include <common/core/protocol/address.hpp>
 #include <common/core/transmission.hpp>
 #include <common/protocols/trojan/codec.hpp>
 #include <common/protocols/trojan/types.hpp>
@@ -42,10 +42,10 @@ namespace preview::trojan
 
     /**
      * @class conn
-     * @brief Trojan 流连接对象（模板化）
-     * @tparam T 上游传输类型（transmission_like 约束）
+     * @brief Trojan 流连接对象（装饰器模式）
+     * @tparam Memory 会话内存策略（默认 8KB arena）
      * @details 单条 TCP 连接的协议状态：握手（客户端写 / 服务端读）、
-     * 数据透传、预读缓冲。读写静态分派到 T（无虚表）。
+     * 数据透传、预读缓冲。读写经传输虚接口委托上游具体类型。
      * 由工厂（connect / accept）创建，调用方以 shared_ptr 持有。
      */
     template <preview::memory::restrict Memory = preview::memory::session_resource<>>
@@ -246,9 +246,9 @@ namespace preview::trojan
             -> net::awaitable<error>
         {
             const auto wire = build_request(cred_, cmd, target);
-            const bool ok = co_await send_bytes(wire);
-            handshaken_ = !ok;
-            if (ok)
+            const bool failed = co_await send_bytes(wire); // true = 发送失败
+            handshaken_ = !failed;
+            if (failed)
             {
                 co_return error::io_error;
             }
@@ -368,49 +368,13 @@ namespace preview::trojan
          * @brief 读取地址体（ATYP 已由调用方解析）
          * @param addr 输出地址
          * @return 错误码
+         * @note 转发层：统一实现见 protocol/common::read_address_body
          */
-        [[nodiscard]] auto read_address_body(address &addr) 
+        [[nodiscard]] auto read_address_body(address &addr)
             -> net::awaitable<error>
         {
-            switch (addr.type)
-            {
-            case address_type::ipv4: {
-                std::array<std::uint8_t, 4> ip{};
-                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                {
-                    co_return error::io_error;
-                }
-                std::array<char, 16> buf{};
-                std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-                addr.host = buf.data();
-                break;
-            }
-            case address_type::ipv6: {
-                std::array<std::uint8_t, 16> ip{};
-                if (co_await read_exact_impl(std::span<std::uint8_t>(ip)))
-                {
-                    co_return error::io_error;
-                }
-                addr.host.assign(reinterpret_cast<const char *>(ip.data()), 16);
-                break;
-            }
-            case address_type::domain: {
-                std::array<std::uint8_t, 1> len{};
-                if (co_await read_exact_impl(std::span<std::uint8_t>(len)))
-                {
-                    co_return error::io_error;
-                }
-                std::vector<std::uint8_t> host(len[0]);
-                if (co_await read_exact_impl(host))
-                {
-                    co_return error::io_error;
-                }
-                addr.host.assign(reinterpret_cast<const char *>(host.data()), host.size());
-                break;
-            }
-            default: co_return error::bad_message;
-            }
-            co_return error::none;
+            return preview::protocol::common::read_address_body(
+                addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return read_exact_impl(dst); });
         }
 
         /**

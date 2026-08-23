@@ -5,6 +5,7 @@
  * 为项目提供统一的内存管理基础设施。所有容器类型
  * 均使用 polymorphic_allocator 分配器，支持运行时
  * 切换内存资源，实现与自定义内存池的无缝集成。
+ * @note 镜像自 include/prism/foundation/memory/，同步策略：锁定
  */
 #pragma once
 

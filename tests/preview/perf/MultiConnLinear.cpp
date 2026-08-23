@@ -36,7 +36,7 @@ namespace
     }
 
     // 每线程一个完整 vmess 连接（独立 ioc，thread_local arena 安全）
-    auto run_one_conn(const std::size_t total, const std::size_t block) -> void
+    auto run_one_conn(const std::size_t total, const std::size_t block) -> bool
     {
         using namespace preview;
         net::io_context ioc;
@@ -45,6 +45,7 @@ namespace
         std::vector<std::uint8_t> chunk(block, 0x5A);
         const auto uuid = std::array<std::uint8_t, 16>{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
                                                         0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
+        bool completed = true; // 数据面完成标志（false = 断链/未写完，门禁 FAIL）
 
         net::co_spawn(ioc, [&]() -> net::awaitable<void>
         {
@@ -98,12 +99,21 @@ namespace
             while (done < total)
             {
                 const auto n = co_await conn->async_write_some(
-                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), block), ec);
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
+                if (ec || n == 0)
+                {
+                    break; // 断链：completed=false 门禁 FAIL
+                }
                 done += n;
+            }
+            if (done < total)
+            {
+                completed = false;
             }
             conn->close();
         }, [&](std::exception_ptr) { ioc.stop(); });
         ioc.run();
+        return completed;
     }
 } // namespace
 
@@ -117,17 +127,25 @@ int main()
         const auto per = kTotal / threads;
         const auto t0 = now_ns();
         std::vector<std::thread> ts;
+        std::vector<bool> ok(threads, false);
         for (int t = 0; t < threads; ++t)
         {
-            ts.emplace_back([&]() { run_one_conn(per, 65535); });
+            ts.emplace_back([&, t]() { ok[t] = run_one_conn(per, 65535); });
         }
         for (auto &th : ts)
         {
             th.join();
         }
         const auto dt = now_ns() - t0;
+        const double mbps = (kTotal / 1024.0 / 1024.0) / (dt / 1e9);
         std::printf("vmess %d 连接并行（每连接 %6.1f MB）: %7.2f ms  => %8.1f MB/s 总\n", threads,
-                    per / 1024.0 / 1024.0, dt / 1e6, (kTotal / 1024.0 / 1024.0) / (dt / 1e9));
+                    per / 1024.0 / 1024.0, dt / 1e6, mbps);
+        if (std::any_of(ok.begin(), ok.end(), [](bool b) { return !b; }) || mbps < 50.0)
+        {
+            std::printf("FAIL threads=%d: 有连接数据面未完成或总吞吐 %.1f MB/s 过低\n", threads, mbps);
+            return 1;
+        }
     }
+    std::printf("MultiConnLinear: ALL PASS\n");
     return 0;
 }

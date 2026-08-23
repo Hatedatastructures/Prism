@@ -99,6 +99,7 @@ namespace
             ioc.get_executor(),
             [&](std::int32_t sid, std::span<const std::byte> data) -> net::awaitable<void>
             {
+                co_await net::post(ioc.get_executor(), net::use_awaitable);
                 flushed_stream = sid;
                 flushed_data.assign(reinterpret_cast<const char *>(data.data()), data.size());
                 co_return;
@@ -123,6 +124,33 @@ namespace
                  });
         EXPECT_EQ(flushed_stream, 7);
         EXPECT_EQ(flushed_data, "buffered");
+    }
+
+    TEST(XhttpErrorMatrix, TransportChannelBackpressureCloses)
+    {
+        net::io_context ioc;
+        auto t = std::make_shared<xhttp::xhttp_transport>(
+            ioc.get_executor(),
+            [](std::int32_t, std::span<const std::byte>) -> net::awaitable<void>
+            { co_return; });
+        const std::array<std::byte, 1> payload{std::byte{0x01}};
+
+        for (std::size_t index = 0; index < 65; ++index)
+        {
+            t->push(payload);
+        }
+
+        std::array<std::byte, 1> buffer{};
+        std::error_code ec;
+        std::size_t n = 0;
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     n = co_await t->async_read_some(buffer, ec);
+                 });
+
+        EXPECT_EQ(n, 0U);
+        EXPECT_NE(ec, std::error_code{});
     }
 
     TEST(XhttpErrorMatrix, TransportDataRoundtrip)

@@ -1,31 +1,65 @@
 # preview 性能基准（独立可执行，非 gtest）
+# 结果门禁：断链/死循环/完全退化 → 退出码非零。ctest 注册为 perf 标签（
+# 有超时门禁，不随默认全量回归跑；单独执行：ctest -L perf）。
+
+set(_PERF_TIMEOUT 600)
+
 add_executable(AllProtoTransfer AllProtoTransfer.cpp)
 target_compile_options(AllProtoTransfer PRIVATE -g1 -Os)
 target_link_libraries(AllProtoTransfer PRIVATE vmtest_common)
+add_test(NAME Perf_AllProtoTransfer COMMAND AllProtoTransfer)
+set_tests_properties(Perf_AllProtoTransfer PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
 add_executable(ChunkLimit ChunkLimit.cpp)
 target_compile_options(ChunkLimit PRIVATE -g1 -Os)
 target_link_libraries(ChunkLimit PRIVATE vmtest_common)
+add_test(NAME Perf_ChunkLimit COMMAND ChunkLimit)
+set_tests_properties(Perf_ChunkLimit PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
 add_executable(CodecPerf CodecPerf.cpp)
 target_compile_options(CodecPerf PRIVATE -g1 -Os)
 target_link_libraries(CodecPerf PRIVATE vmtest_common)
+add_test(NAME Perf_CodecPerf COMMAND CodecPerf)
+set_tests_properties(Perf_CodecPerf PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
 add_executable(ConcurrentBench ConcurrentBench.cpp)
 target_compile_options(ConcurrentBench PRIVATE -g1 -Os)
 target_link_libraries(ConcurrentBench PRIVATE vmtest_common)
+add_test(NAME Perf_ConcurrentBench COMMAND ConcurrentBench)
+set_tests_properties(Perf_ConcurrentBench PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
 add_executable(CorePerf CorePerf.cpp)
 target_compile_options(CorePerf PRIVATE -g1 -Os)
-target_link_libraries(CorePerf PRIVATE vmtest_common)
+target_link_libraries(CorePerf PRIVATE vmtest_common benchmark::benchmark)
+add_test(NAME Perf_CorePerf COMMAND CorePerf --benchmark_min_time=0.1s)
+set_tests_properties(Perf_CorePerf PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
 add_executable(MultiConnLinear MultiConnLinear.cpp)
 target_compile_options(MultiConnLinear PRIVATE -g1 -Os)
 target_link_libraries(MultiConnLinear PRIVATE vmtest_common)
+add_test(NAME Perf_MultiConnLinear COMMAND MultiConnLinear)
+set_tests_properties(Perf_MultiConnLinear PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
 add_executable(ProtocolTransferBench ProtocolTransferBench.cpp)
 target_compile_options(ProtocolTransferBench PRIVATE -g1 -Os)
 target_link_libraries(ProtocolTransferBench PRIVATE vmtest_common)
+add_test(NAME Perf_ProtocolTransferBench COMMAND ProtocolTransferBench)
+set_tests_properties(Perf_ProtocolTransferBench PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
 add_executable(TransferPerf TransferPerf.cpp)
 target_compile_options(TransferPerf PRIVATE -g1 -Os)
 target_link_libraries(TransferPerf PRIVATE vmtest_common)
+add_test(NAME Perf_TransferPerf COMMAND TransferPerf)
+set_tests_properties(Perf_TransferPerf PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
 add_executable(VmessDepth VmessDepth.cpp)
 target_compile_options(VmessDepth PRIVATE -g1 -Os)
 target_link_libraries(VmessDepth PRIVATE vmtest_common)
+add_test(NAME Perf_VmessDepth COMMAND VmessDepth)
+set_tests_properties(Perf_VmessDepth PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
 add_executable(VmessMultiThread VmessMultiThread.cpp)
 target_compile_options(VmessMultiThread PRIVATE -g1 -Os)
 target_link_libraries(VmessMultiThread PRIVATE vmtest_common)
+add_test(NAME Perf_VmessMultiThread COMMAND VmessMultiThread)
+set_tests_properties(Perf_VmessMultiThread PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})

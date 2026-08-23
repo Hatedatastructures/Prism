@@ -1,25 +1,25 @@
 /**
- * @file per_worker_traffic.hpp
- * @brief 每 worker 流量统计（T5-2 O2）
- * @details 协议/用户双维度流量聚合：
- *          - per_worker_traffic：alignas(64) 原子槽（防伪共享）+ 聚合 POD
- *          - identity_traffic：按用户聚合（独立原子槽）
- *          - traffic_pod：聚合结果 POD（可整体快照）
- * @note 原子无锁累加；身份聚合插入时锁（读多写少），累加无锁
+ * @file statistics.hpp
+ * @brief 流量统计（T5-2 O2）
+ * @details 协议/用户双维度流量聚合，三类计数器线程策略不同：
+ *          - worker_slot：alignas(64) 原子槽（防伪共享）
+ *          - per_worker_traffic：原子累加 + 聚合 POD
+ *          - identity_traffic：按用户聚合（每次 add 经 mutex 取槽，槽内原子累加）
+ *          - traffic_counter：无锁 COW 快照 + 条目内原子累加（协程零阻塞）
+ * @note identity 首次出现时插入（锁），槽获取后累加原子化
  */
 
 #pragma once
 
 #include <atomic>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <common/core/middleware/context.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
-#include <string>
-#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -151,8 +151,8 @@ namespace preview::runtime
     /**
      * @class identity_traffic
      * @brief 按用户聚合流量
-     * @details 每 identity 独立原子槽；首次出现时插入（锁），
-     *          之后原子累加（无锁）。快照遍历安全。
+     * @details 每 identity 独立原子槽；每次 add 经 mutex 获取/创建槽（锁粒度小，
+     *          仅 map 查找），槽内 fetch_add 原子累加。快照遍历经锁安全。
      */
     class identity_traffic
     {
@@ -237,6 +237,10 @@ namespace preview::runtime
      * @brief 按 identity 聚合的流量计数器
      * @details 会话结束时 relay 中间件调用 report()，
      *          本聚合器按 identity 累计 up/down。
+     * @note 协程纯度：无锁 COW 快照实现，report 在协程内零阻塞
+     *       （替代旧 std::mutex 方案）。report 热路径仅 fetch_add；
+     *       identity 首次出现时发布含新条目的新快照（写时复制），
+     *       读取侧 load 不可变快照后对原子条目求和，全程无锁。
      */
     class traffic_counter final : public preview::middleware::context::traffic_sink
     {
@@ -259,9 +263,9 @@ namespace preview::runtime
          */
         void report(std::string_view identity, std::size_t up, std::size_t down) override
         {
-            auto &e = by_identity_[std::string(identity)];
-            e.up += up;
-            e.down += down;
+            const auto slot = slot_for(identity);
+            slot->up.fetch_add(up, std::memory_order_relaxed);
+            slot->down.fetch_add(down, std::memory_order_relaxed);
         }
 
         /**
@@ -271,12 +275,14 @@ namespace preview::runtime
          */
         [[nodiscard]] auto total(std::string_view identity) const -> entry
         {
-            const auto it = by_identity_.find(std::string(identity));
-            if (it == by_identity_.end())
+            const auto snap = snapshot_.load(std::memory_order_acquire);
+            const auto it = snap->find(std::string(identity));
+            if (it == snap->end())
             {
                 return {};
             }
-            return it->second;
+            return {it->second->up.load(std::memory_order_relaxed),
+                    it->second->down.load(std::memory_order_relaxed)};
         }
 
         /**
@@ -284,7 +290,7 @@ namespace preview::runtime
          */
         [[nodiscard]] auto identity_count() const -> std::size_t
         {
-            return by_identity_.size();
+            return snapshot_.load(std::memory_order_acquire)->size();
         }
 
         /**
@@ -292,18 +298,56 @@ namespace preview::runtime
          */
         [[nodiscard]] auto grand_total() const -> entry
         {
+            const auto snap = snapshot_.load(std::memory_order_acquire);
             entry g;
-            for (const auto &[id, e] : by_identity_)
+            for (const auto &[id, e] : *snap)
             {
                 (void)id;
-                g.up += e.up;
-                g.down += e.down;
+                g.up += e->up.load(std::memory_order_relaxed);
+                g.down += e->down.load(std::memory_order_relaxed);
             }
             return g;
         }
 
     private:
-        std::map<std::string, entry> by_identity_; ///< identity → 流量
+        /// 原子流量条目（report 热路径 fetch_add，无锁）
+        struct atomic_entry
+        {
+            std::atomic<std::uint64_t> up{0};   ///< 上行字节
+            std::atomic<std::uint64_t> down{0}; ///< 下行字节
+        };
+        using table = std::map<std::string, std::shared_ptr<atomic_entry>>;
+
+        /**
+         * @brief 取指定 identity 的条目；不存在时发布含新条目的新快照（COW）
+         * @param identity 流量身份
+         * @return 条目指针（永不为空）
+         */
+        auto slot_for(std::string_view identity) -> std::shared_ptr<atomic_entry>
+        {
+            auto snap = snapshot_.load(std::memory_order_acquire);
+            while (true)
+            {
+                if (const auto it = snap->find(std::string(identity)); it != snap->end())
+                {
+                    return it->second;
+                }
+                auto next = std::make_shared<table>(*snap);
+                auto slot = std::make_shared<atomic_entry>();
+                const auto slot_ptr = slot.get();
+                next->emplace(std::string(identity), std::move(slot));
+                const auto next_ptr = std::shared_ptr<const table>(std::move(next));
+                if (snapshot_.compare_exchange_weak(snap, next_ptr, std::memory_order_acq_rel,
+                                                    std::memory_order_acquire))
+                {
+                    return std::shared_ptr<atomic_entry>(next_ptr, slot_ptr);
+                }
+                // 竞败：snap 已被 compare_exchange_weak 更新为最新快照，重试查找
+            }
+        }
+
+        std::atomic<std::shared_ptr<const table>> snapshot_{
+            std::make_shared<const table>()}; ///< identity → 流量（COW 快照）
     };
 
 } // namespace preview::runtime

@@ -52,11 +52,13 @@ namespace
             co_return n;
         }
 
-        [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
+            // 黑洞对端：吸收全部写入（返回 0 会被组合 async_write 判定为
+            // broken_pipe 而中断 relay，与"可写对端"的桩意图不符）
             ec.clear();
-            co_return 0;
+            co_return buffer.size();
         }
 
         void close() override

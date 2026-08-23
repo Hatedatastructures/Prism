@@ -138,8 +138,9 @@ namespace preview::coroutine
             // 解除所有残留 token 对 owner_ 的绑定：token 可能仍被
             // co_spawn completion handler 持有，其析构发生在 ioc 析构时
             // （可能晚于本对象），直接访问 owner_ 会悬垂
-            for (const auto &token : tokens_)
+            for (const auto &[ptr, token] : tokens_)
             {
+                (void)ptr;
                 token->detach();
             }
             tokens_.clear();
@@ -165,7 +166,8 @@ namespace preview::coroutine
          * @brief 取消并清理所有活跃协程令牌
          * @param timeout 参数保留兼容，当前实现不实际等待（见 details）
          * @return true 全部清理完成
-         * @details 典型调用场景为 worker 析构链：worker 线程已退出（ioc_.run()
+         * @details 实为 stop + 等待退出（非取消等待）：
+         * 典型调用场景为 worker 析构链：worker 线程已退出（ioc_.run()
          * 已返回），tokens_ 中残留的是 ioc 析构时未触发 completion handler
          * 的 token。本函数标记 cancelling_ 并直接清理 tokens_，避免后续
          * token 析构访问悬垂 owner_。
@@ -188,11 +190,12 @@ namespace preview::coroutine
          * @param token 待注销的令牌引用
          * @details 在 tokens_ 中移除该 token 并累加 total_released_ 或
          * total_cancelled_（视 cancel_and_wait 是否在进行）。
+         * 哈希索引（O(1)）：token 指针即键，避免线性扫描。
          */
         auto release_internal(const task_token &token) noexcept -> void;
 
         net::io_context &ioc_;
-        memory::vector<std::shared_ptr<task_token>> tokens_;
+        memory::unordered_map<const task_token *, std::shared_ptr<task_token>> tokens_; ///< token 指针 → 令牌
         std::size_t total_spawned_{0};
         std::size_t total_released_{0};
         std::size_t total_cancelled_{0};
@@ -205,7 +208,7 @@ namespace preview::coroutine
     auto task_registry::spawn_tracked(std::string_view label, Coro &&coro) -> void
     {
         auto token = std::make_shared<task_token>(*this, label);
-        tokens_.push_back(token);
+        tokens_.emplace(token.get(), token);
         ++total_spawned_;
 
         net::co_spawn(ioc_, std::forward<Coro>(coro),
@@ -237,8 +240,9 @@ namespace preview::coroutine
     {
         cancelling_ = true;
         total_cancelled_ += tokens_.size();
-        for (const auto &token : tokens_)
+        for (const auto &[ptr, token] : tokens_)
         {
+            (void)ptr;
             token->detach();
         }
         tokens_.clear();
@@ -257,10 +261,7 @@ namespace preview::coroutine
             return;
         }
 
-        const auto it =
-            std::find_if(tokens_.begin(), tokens_.end(),
-                         [&token](const std::shared_ptr<task_token> &ptr) { return ptr.get() == &token; });
-
+        const auto it = tokens_.find(&token);
         if (it != tokens_.end())
         {
             tokens_.erase(it);

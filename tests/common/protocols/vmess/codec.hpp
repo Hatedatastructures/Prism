@@ -19,6 +19,7 @@
 #pragma once
 
 #include <boost/asio/buffer.hpp>
+#include <boost/asio/ip/address_v6.hpp>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
 
@@ -559,7 +560,19 @@ namespace preview::vmess
             break;
         }
         case address_type::ipv6: {
-            out.insert(out.end(), hdr.target.host.begin(), hdr.target.host.end());
+            // 文本形式（如 "::1"）解析为 16 字节二进制（线缆约定）；
+            // 非法文本或已为 16 字节二进制的输入解析失败，原样拷贝
+            boost::system::error_code ec;
+            const auto v6 = boost::asio::ip::make_address_v6(hdr.target.host, ec);
+            if (!ec)
+            {
+                const auto bytes = v6.to_bytes();
+                out.insert(out.end(), bytes.begin(), bytes.end());
+            }
+            else
+            {
+                out.insert(out.end(), hdr.target.host.begin(), hdr.target.host.end());
+            }
             break;
         }
         case address_type::domain:

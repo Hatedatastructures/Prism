@@ -7,6 +7,7 @@
  * 错误和协议错误。
  * @note 运行时网络 I/O 错误应使用错误码而非异常。
  * @warning 不要在热路径中抛出此异常。
+ * @note 镜像自 include/prism/foundation/exception/，同步策略：锁定
  */
 #pragma once
 

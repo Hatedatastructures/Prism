@@ -259,7 +259,10 @@ namespace preview::mux::smux
          * @brief 构造 RST 帧
          * @param id 流标识符
          * @return 完整帧
-         * @warning smux 协议无 RST 帧，以 FIN 帧近似（对端按半关处理）
+         * @warning smux 协议无 RST 帧，以 FIN 帧近似。语义差异：
+         *          本端 reset() 后丢弃流，但对端收到的是 FIN（半关），
+         *          仍可继续向本端数据帧——上层必须按"半关"而非"重置"
+         *          处理对端行为，测试断言需留意。
          */
         [[nodiscard]] static auto build_rst(std::uint32_t id) -> std::vector<std::uint8_t>
         {

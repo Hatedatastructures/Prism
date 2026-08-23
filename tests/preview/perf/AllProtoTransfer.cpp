@@ -46,6 +46,28 @@ namespace
                     mb / sec, mb / sec * 8 / 1000);
     }
 
+    /// 性能门禁：全部样本数据面完成 + 吞吐下限（防断链静默/死循环挂死/完全退化）
+    auto gate(const char *name, const std::size_t bytes, const std::array<std::int64_t, 3> &s) -> bool
+    {
+        constexpr double kMinMbps = 50.0; // 宽松下限（本地 TCP 基线数百 MB/s，防 10x+ 劣化）
+        auto sorted = s;
+        std::sort(sorted.begin(), sorted.end());
+        report(name, bytes, sorted[1]);
+        // 任一运行断链/未完成即 FAIL（部分失败不得被中位数掩盖）
+        if (std::any_of(sorted.begin(), sorted.end(), [](std::int64_t v) { return v <= 0; }))
+        {
+            std::printf("FAIL %s: 存在数据面未完成运行（断链/死循环）\n", name);
+            return false;
+        }
+        const double mbps = static_cast<double>(bytes) / (1024.0 * 1024.0) / (static_cast<double>(sorted[1]) / 1e9);
+        if (mbps < kMinMbps)
+        {
+            std::printf("FAIL %s: 吞吐 %.1f MB/s < 下限 %.1f MB/s\n", name, mbps, kMinMbps);
+            return false;
+        }
+        return true;
+    }
+
     template <typename ConnectFn, typename AcceptFn>
     auto bench_conn(const std::size_t total, const std::size_t block, ConnectFn &&cfn, AcceptFn &&afn)
         -> std::int64_t
@@ -57,6 +79,7 @@ namespace
         std::vector<std::uint8_t> chunk(block, 0x5A);
 
         const std::int64_t t0 = now_ns();
+        int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
         net::co_spawn(ioc, [&]() -> net::awaitable<void>
         {
             auto server_coro = [&]() -> net::awaitable<void>
@@ -105,11 +128,23 @@ namespace
             {
                 const auto n = co_await conn->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), block), ec);
+                if (ec || n == 0)
+                {
+                    break; // 断链：返回 0 让门禁 FAIL，避免死循环挂死
+                }
                 done += n;
+            }
+            if (done < total)
+            {
+                completed = 0;
             }
             conn->close();
         }, [&](std::exception_ptr) { ioc.stop(); });
         ioc.run();
+        if (completed == 0)
+        {
+            return 0;
+        }
         return now_ns() - t0;
     }
 } // namespace
@@ -144,7 +179,10 @@ int main()
                               });
         }
         std::sort(s.begin(), s.end());
-        report("socks5 conn<->conn (透传)", kTotal, s[1]);
+        if (!gate("socks5 conn<->conn (透传)", kTotal, s))
+        {
+            return 1;
+        }
     }
 
     // trojan
@@ -171,7 +209,10 @@ int main()
                               });
         }
         std::sort(s.begin(), s.end());
-        report("trojan conn<->conn (透传)", kTotal, s[1]);
+        if (!gate("trojan conn<->conn (透传)", kTotal, s))
+        {
+            return 1;
+        }
     }
 
     // vless
@@ -198,7 +239,10 @@ int main()
                               });
         }
         std::sort(s.begin(), s.end());
-        report("vless conn<->conn (透传)", kTotal, s[1]);
+        if (!gate("vless conn<->conn (透传)", kTotal, s))
+        {
+            return 1;
+        }
     }
 
     // vmess
@@ -225,7 +269,10 @@ int main()
                               });
         }
         std::sort(s.begin(), s.end());
-        report("vmess conn<->conn (加密16KB)", kTotal, s[1]);
+        if (!gate("vmess conn<->conn (加密16KB)", kTotal, s))
+        {
+            return 1;
+        }
     }
 
     // ss2022
@@ -253,7 +300,11 @@ int main()
                               });
         }
         std::sort(s.begin(), s.end());
-        report("ss2022 conn<->conn (加密16KB)", kTotal, s[1]);
+        if (!gate("ss2022 conn<->conn (加密16KB)", kTotal, s))
+        {
+            return 1;
+        }
     }
+    std::printf("AllProtoTransfer: ALL PASS\n");
     return 0;
 }

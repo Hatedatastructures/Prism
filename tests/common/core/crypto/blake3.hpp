@@ -8,6 +8,7 @@
  * 包装 BLAKE3 C API，提供类型安全的 C++ 接口。
  * 函数命名为 derive_key（非 blake3_derive_key）以避免与 C API 冲突。
  * @note 所有密钥和输出长度均为字节数。BLAKE3_KEY_LEN = 32。
+ * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
  */
 #pragma once
 

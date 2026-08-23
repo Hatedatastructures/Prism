@@ -6,6 +6,7 @@
  *   accept / accept_packet（服务端）——握手在工厂内部完成
  * - 配置：client_config / server_config（本文件，字段分开定义）
  * - 连接：conn（流，conn.hpp）、dgram（包，dgram.hpp）
+ * - 数据面：udp_tunnel（UDP 命令数据面，udp_tunnel.hpp）
  * - 编解码（codec.hpp）、纯数据（types.hpp）
  */
 
@@ -27,6 +28,7 @@
 #include <common/protocols/vless/conn.hpp>
 #include <common/protocols/vless/dgram.hpp>
 #include <common/protocols/vless/types.hpp>
+#include <common/protocols/vless/udp_tunnel.hpp>
 
 namespace preview::vless
 {

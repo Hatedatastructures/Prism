@@ -2,6 +2,7 @@
  * @file crypto.hpp
  * @brief Crypto 模块聚合头文件
  * @details 引入加密模块所有子头文件，提供统一的包含入口。
+ * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
  */
 #pragma once
 

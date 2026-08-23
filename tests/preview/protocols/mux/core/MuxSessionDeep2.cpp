@@ -162,6 +162,59 @@ namespace
                  });
     }
 
+    TEST(MuxSessionDeep2, MuxMalformedFrameClosesSession)
+    {
+        net::io_context ioc;
+        auto [raw, peer_raw] = make_memory_pair(ioc.get_executor());
+        auto peer = std::make_shared<memory_stream>(std::move(peer_raw));
+        auto session = mux::session<smux::codec>::create(
+            std::make_shared<memory_stream>(std::move(raw)), session_options{});
+        const std::array<std::uint8_t, smux::frame_hdrsize> malformed{
+            0x7F, static_cast<std::uint8_t>(smux::command::push), 0, 0, 1, 0, 0, 0};
+
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     const auto ec = co_await peer->write_all(malformed);
+                     EXPECT_FALSE(ec);
+                     co_await net::post(ioc.get_executor(), net::use_awaitable);
+                     EXPECT_FALSE(session->is_open());
+                     co_await session->close();
+                 });
+    }
+
+    TEST(MuxSessionDeep2, MuxPayloadLimitClosesSession)
+    {
+        net::io_context ioc;
+        auto [raw, peer_raw] = make_memory_pair(ioc.get_executor());
+        auto peer = std::make_shared<memory_stream>(std::move(peer_raw));
+        auto session = mux::session<yamux::codec>::create(
+            std::make_shared<memory_stream>(std::move(raw)), session_options{});
+        const std::array<std::uint8_t, yamux::frame_hdrsize> oversized{
+            yamux::protocol_version,
+            static_cast<std::uint8_t>(yamux::message_type::data),
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0xFF,
+            0xFF,
+            0xFF,
+            0xFF};
+
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     const auto ec = co_await peer->write_all(oversized);
+                     EXPECT_FALSE(ec);
+                     co_await net::post(ioc.get_executor(), net::use_awaitable);
+                     EXPECT_FALSE(session->is_open());
+                     co_await session->close();
+                 });
+    }
+
     TEST(MuxSessionDeep2, YamuxRstEvent)
     {
         net::io_context ioc;

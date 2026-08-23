@@ -19,6 +19,7 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <openssl/rand.h>
 
 #include <array>
 #include <chrono>
@@ -67,6 +68,16 @@ namespace preview::shadowsocks2022
          * @details 接管底层传输所有权，调用者不应再使用原指针。
          */
         explicit conn(std::string password) : psk_(derive_psk(password))
+        {
+        }
+
+        /**
+         * @brief 构造函数（直接指定 16 字节 PSK）
+         * @param psk 标准配置 PSK（base64 psk 解码后的原始字节）
+         * @details 与生产 Prism / sing-shadowsocks 配置一致：
+         * 标准 SS2022 PSK 是 base64 解码后的原始字节，不走密码派生。
+         */
+        explicit conn(std::array<std::uint8_t, 16> psk) : psk_(psk)
         {
         }
 
@@ -257,16 +268,15 @@ namespace preview::shadowsocks2022
             -> net::awaitable<error>
         {
             next_layer_ = std::move(upstream);
-            // 1. 生成随机 salt 并派生会话密钥
-            std::random_device rd;
+            // 1. 生成随机盐并派生会话密钥
+            // @note 盐必须 CSPRNG：MinGW 的 std::random_device 存在确定性序列风险，
+            //       盐重复 = 跨会话 keystream 重用（与生产 RAND_bytes 口径一致）
             std::array<std::uint8_t, 16> salt{};
-            for (auto &b : salt)
-            {
-                b = static_cast<std::uint8_t>(rd() & 0xFF);
-            }
+            RAND_bytes(salt.data(), static_cast<int>(salt.size()));
             const auto key = ss::session_key(psk_, salt, 16);
 
             // 2. 构造固定头 + 变长头（地址 + padding + 初始载荷）
+            std::random_device rd; // padding 长度非密码学用途，random_device 足够
             const auto time_sec =
                 static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
                                                std::chrono::system_clock::now().time_since_epoch())
@@ -278,8 +288,8 @@ namespace preview::shadowsocks2022
 
             // 3. 加密并发送 [salt][固定头密文][变长头密文]
             ss::chunk_codec codec(key);
-            const auto fixed_enc = codec.seal(fixed_plain);
-            const auto var_enc = codec.seal(var_plain);
+            const auto fixed_enc = codec.seal_raw(fixed_plain);
+            const auto var_enc = codec.seal_raw(var_plain);
             std::vector<std::uint8_t> wire;
             wire.reserve(salt.size() + fixed_enc.size() + var_enc.size());
             wire.insert(wire.end(), salt.begin(), salt.end());
@@ -290,22 +300,63 @@ namespace preview::shadowsocks2022
                 co_return error::io_error;
             }
 
-            // 4. 读取响应固定头（18B 长度块 + 27B 固定头密文）并校验
-            std::array<std::uint8_t, ss::len_block_size + ss::fixed_hdr_size> resp_enc{};
+            // 4. 读取标准响应：server salt(16) + 裸块固定头（27B 明文 + 16B tag）
+            std::array<std::uint8_t, 16> server_salt{};
+            if (co_await recv_exact(std::span<std::uint8_t>(server_salt)))
+            {
+                co_return error::io_error;
+            }
+            const auto resp_key = ss::session_key(psk_, server_salt, 16);
+            ss::chunk_codec resp_codec(resp_key);
+            std::array<std::uint8_t, ss::resp_fixed_hdr_size> resp_enc{};
             if (co_await recv_exact(std::span<std::uint8_t>(resp_enc)))
             {
                 co_return error::io_error;
             }
-            ss::chunk_codec resp_codec(key);
-            std::size_t consumed = 0;
-            const auto resp_plain = resp_codec.open(resp_enc, consumed);
-            if (resp_plain.size() != ss::fixed_hdr_plain)
+            const auto resp_plain = resp_codec.open_raw(resp_enc);
+            if (resp_plain.size() != ss::resp_fixed_hdr_plain ||
+                resp_plain[0] != ss::header_type_server)
             {
                 co_return error::bad_auth;
             }
-            if (resp_plain[0] != ss::header_type_server)
+            // 校验 requestSalt 回显
+            if (std::memcmp(resp_plain.data() + 9, salt.data(), 16) != 0)
             {
                 co_return error::bad_auth;
+            }
+            // 响应初始载荷（若有）：裸块，缓存为数据面首个读块
+            const auto resp_payload_len =
+                static_cast<std::size_t>(resp_plain[25]) << 8 | resp_plain[26];
+            if (resp_payload_len > 0)
+            {
+                typename Memory::template buffer<std::uint8_t> payload_enc =
+                    mem_.template make_buffer<std::uint8_t>(resp_payload_len + ss::aead_tag_len);
+                if (co_await recv_exact(payload_enc))
+                {
+                    co_return error::io_error;
+                }
+                auto payload = resp_codec.open_raw(payload_enc);
+                if (payload.empty())
+                {
+                    co_return error::bad_auth;
+                }
+                plain_rx_.assign(payload.begin(), payload.end());
+                plain_off_ = 0;
+            }
+            else
+            {
+                // 标准响应固定头后总是跟一个 AEAD 块（SIP022 读响应流程）：
+                // payloadLen=0 时为 16B 空块（seal(0B)），必须消费以保持数据面 chunk 对齐
+                std::array<std::uint8_t, ss::aead_tag_len> empty_block{};
+                if (co_await recv_exact(std::span<std::uint8_t>(empty_block)))
+                {
+                    co_return error::io_error;
+                }
+                std::vector<std::uint8_t> empty_plain;
+                if (!resp_codec.open_raw(empty_block, empty_plain))
+                {
+                    co_return error::bad_auth;
+                }
             }
 
             // 5. 初始化编解码器：发送侧 nonce 已推进到数据块起始，
@@ -584,10 +635,31 @@ namespace preview::shadowsocks2022
                 static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
                                                std::chrono::system_clock::now().time_since_epoch())
                                                .count());
-            const auto resp_plain = ss::build_fixed_header(ss::header_type_server, time_sec, 0);
-            ss::chunk_codec resp_codec(session_key_);
-            const auto resp_enc = resp_codec.seal(resp_plain);
-            if (co_await send_bytes(resp_enc))
+            // 标准响应：server salt(16) + 裸块固定头（type + ts + requestSalt + payloadLen=0）
+            // @note 盐必须 CSPRNG：MinGW 的 std::random_device 存在确定性序列风险，
+            //       盐重复 = 跨会话 keystream 重用（与生产 RAND_bytes 口径一致）
+            std::array<std::uint8_t, 16> server_salt{};
+            RAND_bytes(server_salt.data(), static_cast<int>(server_salt.size()));
+            const auto resp_key = ss::session_key(this->psk_, server_salt, 16);
+            std::array<std::uint8_t, ss::resp_fixed_hdr_plain> resp_plain{};
+            resp_plain[0] = ss::header_type_server;
+            for (std::size_t i = 0; i < 8; ++i)
+            {
+                resp_plain[1 + i] =
+                    static_cast<std::uint8_t>((time_sec >> (56 - static_cast<unsigned>(i) * 8)) & 0xFF);
+            }
+            std::memcpy(resp_plain.data() + 9, this->client_salt_.data(), 16);
+            ss::chunk_codec resp_codec(resp_key);
+            const auto resp_enc = resp_codec.seal_raw(resp_plain);
+            // 标准读响应流程要求固定头后总是跟一个 AEAD 块：payloadLen=0 时为空块（16B）
+            // 与 Prism / mihomo / sing readResponse（ReadWithLength(0) 读 0+16B）一致
+            const auto empty_enc = resp_codec.seal_raw({});
+            std::vector<std::uint8_t> wire;
+            wire.reserve(server_salt.size() + resp_enc.size() + empty_enc.size());
+            wire.insert(wire.end(), server_salt.begin(), server_salt.end());
+            wire.insert(wire.end(), resp_enc.begin(), resp_enc.end());
+            wire.insert(wire.end(), empty_enc.begin(), empty_enc.end());
+            if (co_await send_bytes(wire))
             {
                 co_return error::io_error;
             }
@@ -613,17 +685,17 @@ namespace preview::shadowsocks2022
             }
 
             // 2. 派生会话密钥
-            const auto key = ss::session_key(psk_, salt, 16);
+            std::memcpy(this->client_salt_.data(), salt.data(), 16);
+            const auto key = ss::session_key(this->psk_, salt, 16);
 
-            // 3. 读取并解密固定头（18B 长度块 + 27B 固定头密文）
-            std::array<std::uint8_t, ss::len_block_size + ss::fixed_hdr_size> fixed_enc{};
+            // 3. 读取并解密裸块固定头（27B：11B 明文 + 16B tag）
+            std::array<std::uint8_t, ss::fixed_hdr_size> fixed_enc{};
             if (co_await recv_exact(std::span<std::uint8_t>(fixed_enc)))
             {
                 co_return error::io_error;
             }
             ss::chunk_codec codec(key);
-            std::size_t consumed = 0;
-            const auto fixed_plain = codec.open(fixed_enc, consumed);
+            const auto fixed_plain = codec.open_raw(fixed_enc);
             if (fixed_plain.size() != ss::fixed_hdr_plain)
             {
                 co_return error::bad_auth;
@@ -658,13 +730,13 @@ namespace preview::shadowsocks2022
             }
             const auto var_len = static_cast<std::size_t>(fixed_plain[9]) << 8 | fixed_plain[10];
 
-            // 5. 读取并解密变长头（18B 长度块 + var_len + 16B tag）
-            std::vector<std::uint8_t> var_enc(ss::len_block_size + var_len + ss::aead_tag_len);
+            // 5. 读取并解密裸块变长头（var_len + 16B tag）
+            std::vector<std::uint8_t> var_enc(var_len + ss::aead_tag_len);
             if (co_await recv_exact(var_enc))
             {
                 co_return error::io_error;
             }
-            const auto var_plain = codec.open(var_enc, consumed);
+            const auto var_plain = codec.open_raw(var_enc);
             if (var_plain.empty())
             {
                 co_return error::bad_auth;
@@ -770,6 +842,7 @@ namespace preview::shadowsocks2022
 
         std::array<std::uint8_t, 16> psk_{};         ///< 预派生 PSK
         std::array<std::uint8_t, 16> session_key_{}; ///< 会话密钥（握手后）
+        std::array<std::uint8_t, 16> client_salt_{}; ///< 服务端：客户端握手盐（响应 requestSalt 回显）
         ss::message parsed_{};                       ///< 服务端握手解析结果
         std::optional<ss::chunk_codec> enc_;         ///< 发送侧编解码器
         std::optional<ss::chunk_codec> dec_;         ///< 接收侧编解码器

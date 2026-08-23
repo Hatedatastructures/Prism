@@ -54,18 +54,22 @@ namespace
             socks5::greeting g;
             std::size_t consumed = 0;
             (void)socks5::parse_greeting(data, g, consumed);
+            EXPECT_LE(consumed, data.size()); // 解析游标不得越过输入
 
             socks5::request req;
             consumed = 0;
             (void)socks5::parse_request(data, req, consumed);
+            EXPECT_LE(consumed, data.size());
 
             socks5::reply rep;
             consumed = 0;
             (void)socks5::parse_reply(data, rep, consumed);
+            EXPECT_LE(consumed, data.size());
 
             socks5::address addr;
             consumed = 0;
             (void)socks5::parse_address(data, addr, consumed);
+            EXPECT_LE(consumed, data.size());
 
             socks5::address dst;
             std::span<const std::uint8_t> payload;
@@ -83,14 +87,17 @@ namespace
             trojan::request_header hdr;
             std::size_t consumed = 0;
             (void)trojan::parse_request(data, hdr, consumed);
+            EXPECT_LE(consumed, data.size());
 
             trojan::address addr;
             consumed = 0;
             (void)trojan::parse_address(data, addr, consumed);
+            EXPECT_LE(consumed, data.size());
 
             trojan::address dst;
             std::span<const std::uint8_t> payload;
             (void)trojan::parse_udp_pkt(data, dst, payload);
+            EXPECT_LE(payload.size(), data.size()); // 载荷视图不得超出输入
         }
         SUCCEED();
     }
@@ -104,14 +111,17 @@ namespace
             vless::request_header hdr;
             std::size_t consumed = 0;
             (void)vless::parse_request(data, hdr, consumed);
+            EXPECT_LE(consumed, data.size());
 
             vless::address addr;
             consumed = 0;
             (void)vless::parse_address(data, addr, consumed);
+            EXPECT_LE(consumed, data.size());
 
             vless::address dst;
             std::span<const std::uint8_t> payload;
             (void)vless::parse_udp_pkt(data, dst, payload);
+            EXPECT_LE(payload.size(), data.size());
         }
         SUCCEED();
     }
@@ -128,6 +138,7 @@ namespace
             vmess::chunk_decryptor dec(key, nonce);
             std::vector<std::uint8_t> plain;
             (void)dec.open_payload(data, plain);
+            EXPECT_LE(plain.size(), data.size()); // AEAD 解密不膨胀
         }
         SUCCEED();
     }
@@ -142,6 +153,7 @@ namespace
             shadowsocks2022::chunk_codec codec(key);
             std::vector<std::uint8_t> out;
             (void)codec.open_payload(data, out);
+            EXPECT_LE(out.size(), data.size()); // AEAD 解密不膨胀
 
             if (data.size() >= 18)
             {
@@ -160,6 +172,7 @@ namespace
             hysteria2::message msg;
             std::size_t consumed = 0;
             (void)hysteria2::parse(data, msg, consumed);
+            EXPECT_LE(consumed, data.size());
         }
         SUCCEED();
     }
@@ -173,6 +186,7 @@ namespace
             tuic::message msg;
             std::size_t consumed = 0;
             (void)tuic::parse(data, msg, consumed);
+            EXPECT_LE(consumed, data.size());
         }
         SUCCEED();
     }

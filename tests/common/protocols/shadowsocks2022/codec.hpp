@@ -12,6 +12,7 @@
 
 #include <boost/asio/buffer.hpp>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
 
 #include <array>
 #include <chrono>
@@ -28,6 +29,7 @@
 
 #include <blake3.h>
 #include <common/core/error.hpp>
+#include <common/core/protocol/address.hpp>
 #include <common/protocols/shadowsocks2022/types.hpp>
 
 namespace preview::shadowsocks2022
@@ -92,45 +94,13 @@ namespace preview::shadowsocks2022
      * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE，追加到缓冲）
      * @param addr 目标地址
      * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
+     * @note 转发层：统一实现见 protocol/common::encode_address
+     *       （原内联实现 ipv4 无校验存在越界写，统一实现修复为非法输入输出 0.0.0.0）
      */
     template <typename Alloc>
     inline auto encode_address(const address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        out.push_back(static_cast<std::uint8_t>(addr.type));
-        switch (addr.type)
-        {
-        case address_type::ipv4: {
-            std::array<std::uint8_t, 4> ip{};
-            std::size_t a = 0, p = 0;
-            for (const char ch : addr.host)
-            {
-                if (ch == '.')
-                {
-                    ip[a++] = static_cast<std::uint8_t>(p);
-                    p = 0;
-                }
-                else
-                {
-                    p = p * 10 + static_cast<std::size_t>(ch - '0');
-                }
-            }
-            ip[a] = static_cast<std::uint8_t>(p);
-            out.insert(out.end(), ip.begin(), ip.end());
-            break;
-        }
-        case address_type::ipv6: {
-            out.insert(out.end(), addr.host.begin(), addr.host.end());
-            break;
-        }
-        case address_type::domain:
-        default: {
-            out.push_back(static_cast<std::uint8_t>(addr.host.size()));
-            out.insert(out.end(), addr.host.begin(), addr.host.end());
-            break;
-        }
-        }
-        out.push_back(static_cast<std::uint8_t>((addr.port >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(addr.port & 0xFF));
+        preview::protocol::common::encode_address(addr, out);
     }
 
     /**
@@ -525,7 +495,7 @@ namespace preview::shadowsocks2022
             const auto len_n = detail::aead_seal(key_, nonce_, len_plain, out);
             detail::inc_nonce(nonce_);
             out.resize(len_n + plain.size() + aead_tag_len);
-            detail::aead_seal(key_, nonce_, plain, out, len_n);
+            (void)detail::aead_seal(key_, nonce_, plain, out, len_n);
             detail::inc_nonce(nonce_);
             return out.size();
         }
@@ -636,6 +606,60 @@ namespace preview::shadowsocks2022
         }
 
         /**
+         * @brief 加密裸块（无长度块，供 SS2022 握手头使用）
+         * @param plain 明文
+         * @return 密文（plain + 16B tag）；nonce 递增一次
+         * @details 标准 SS2022 握手首部（请求/响应）为单个 AEAD 块，
+         * 无长度块前缀；数据面才使用 chunk 流（seal/open）。
+         */
+        [[nodiscard]] auto seal_raw(std::span<const std::uint8_t> plain)
+            -> std::vector<std::uint8_t>
+        {
+            std::vector<std::uint8_t> out;
+            detail::aead_seal(key_, nonce_, plain, out);
+            detail::inc_nonce(nonce_);
+            return out;
+        }
+
+        /**
+         * @brief 解密裸块（无长度块）
+         * @param data 密文（plain + 16B tag）
+         * @return 明文；空 = 校验失败
+         * @details 与 seal_raw 配对，nonce 递增一次。
+         */
+        [[nodiscard]] auto open_raw(std::span<const std::uint8_t> data)
+            -> std::vector<std::uint8_t>
+        {
+            auto out = detail::aead_open(key_, nonce_, data);
+            if (out.empty())
+            {
+                return {};
+            }
+            detail::inc_nonce(nonce_);
+            return out;
+        }
+
+        /**
+         * @brief 解密裸块并返回认证结果（支持空明文）
+         * @param data 密文（plain + 16B tag）
+         * @param out 输出缓冲（调用方持有，可为空）
+         * @return true = 认证通过且 nonce 推进；false = 校验失败
+         * @details 与单参版本的区别：空明文（如响应 payloadLen=0
+         * 的尾随空块）认证成功后同样推进 nonce，避免数据面失步。
+         */
+        template <typename Alloc>
+        [[nodiscard]] auto open_raw(std::span<const std::uint8_t> data,
+                                    std::vector<std::uint8_t, Alloc> &out) -> bool
+        {
+            if (!detail::aead_open(key_, nonce_, data, out))
+            {
+                return false;
+            }
+            detail::inc_nonce(nonce_);
+            return true;
+        }
+
+        /**
          * @brief 结束块（长度 0）
          * @return 结束块密文
          */
@@ -706,14 +730,13 @@ namespace preview::shadowsocks2022
          */
         auto reset(const message &msg, std::uint64_t time_sec) -> void
         {
-            std::random_device rd;
+            // @note 盐必须 CSPRNG：MinGW 的 std::random_device 存在确定性序列风险，
+            //       盐重复 = 跨会话 keystream 重用（与生产 RAND_bytes 口径一致）
             std::array<std::uint8_t, 16> salt{};
-            for (auto &b : salt)
-            {
-                b = static_cast<std::uint8_t>(rd() & 0xFF);
-            }
+            RAND_bytes(salt.data(), static_cast<int>(salt.size()));
             const auto key = session_key(psk_, salt, 16);
 
+            std::random_device rd; // padding 长度非密码学用途，random_device 足够
             const auto pad_len = static_cast<std::uint16_t>(1 + rd() % 16);
             std::vector<std::uint8_t> var;
             const auto addr = encode_address(msg.dst);
@@ -730,8 +753,8 @@ namespace preview::shadowsocks2022
                 build_fixed_header(header_type_client, time_sec, static_cast<std::uint16_t>(var.size()));
 
             chunk_codec codec(key);
-            const auto fixed_enc = codec.seal(fixed);
-            const auto var_enc = codec.seal(var);
+            const auto fixed_enc = codec.seal_raw(fixed);
+            const auto var_enc = codec.seal_raw(var);
 
             wire_.clear();
             wire_.reserve(salt.size() + fixed_enc.size() + var_enc.size());
@@ -791,7 +814,7 @@ namespace preview::shadowsocks2022
             const auto data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(buffer.data()),
                                                             buffer.size());
             buf_.insert(buf_.end(), data.begin(), data.end());
-            if (buf_.size() < 16 + len_block_size + fixed_hdr_plain + aead_tag_len)
+            if (buf_.size() < 16 + fixed_hdr_plain + aead_tag_len)
             {
                 ec = make_error_code(error::need_more);
                 return 0;
@@ -801,26 +824,22 @@ namespace preview::shadowsocks2022
             const auto key = session_key(psk_, salt, 16);
             chunk_codec codec(key);
 
-            std::size_t consumed = 0;
-            auto fixed_plain = codec.open(std::span<const std::uint8_t>(buf_).subspan(
-                                              16, len_block_size + fixed_hdr_plain + aead_tag_len),
-                                          consumed);
+            auto fixed_plain = codec.open_raw(std::span<const std::uint8_t>(buf_).subspan(
+                                                  16, fixed_hdr_plain + aead_tag_len));
             if (fixed_plain.size() != fixed_hdr_plain || fixed_plain[0] != header_type_client)
             {
                 ec = make_error_code(error::auth_failed);
                 return 0;
             }
             const auto var_len = static_cast<std::size_t>(fixed_plain[9]) << 8 | fixed_plain[10];
-            if (buf_.size() < 16 + len_block_size + fixed_hdr_plain + aead_tag_len + len_block_size +
-                                  var_len + aead_tag_len)
+            if (buf_.size() < 16 + fixed_hdr_plain + aead_tag_len + var_len + aead_tag_len)
             {
                 ec = make_error_code(error::need_more);
                 return 0;
             }
-            auto var_plain = codec.open(std::span<const std::uint8_t>(buf_).subspan(
-                                            16 + len_block_size + fixed_hdr_plain + aead_tag_len,
-                                            len_block_size + var_len + aead_tag_len),
-                                        consumed);
+            auto var_plain = codec.open_raw(std::span<const std::uint8_t>(buf_).subspan(
+                                                16 + fixed_hdr_plain + aead_tag_len,
+                                                var_len + aead_tag_len));
             if (var_plain.empty())
             {
                 ec = make_error_code(error::auth_failed);

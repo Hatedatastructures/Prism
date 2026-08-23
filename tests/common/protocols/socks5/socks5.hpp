@@ -6,6 +6,7 @@
  *   accept / accept_packet（服务端）——握手在工厂内部完成
  * - 配置：client_config / server_config（本文件，字段分开定义）
  * - 连接：conn（流，conn.hpp）、dgram（包，dgram.hpp）
+ * - 数据面：udp_assoc（真实 UDP 关联服务，udp_assoc.hpp）
  * - 编解码（codec.hpp）、纯数据（types.hpp）
  */
 
@@ -26,6 +27,7 @@
 #include <common/protocols/socks5/conn.hpp>
 #include <common/protocols/socks5/dgram.hpp>
 #include <common/protocols/socks5/types.hpp>
+#include <common/protocols/socks5/udp_assoc.hpp>
 
 namespace preview::socks5
 {

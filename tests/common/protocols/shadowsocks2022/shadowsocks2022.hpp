@@ -46,6 +46,9 @@ namespace preview::shadowsocks2022
     {
         /// 客户端密码（连接构造时派生 16 字节 PSK）
         std::string password;
+        /// 直接指定 16 字节 PSK（标准配置：base64 psk 解码后原始字节，优先于 password）
+        bool use_psk{false};
+        std::array<std::uint8_t, 16> psk{};
     };
 
     /**
@@ -96,7 +99,8 @@ namespace preview::shadowsocks2022
                                       const ss::address &target)
         -> net::awaitable<std::pair<error, shared_conn>>
     {
-        auto c = std::make_shared<conn<>>(cfg.password);
+        auto c = cfg.use_psk ? std::make_shared<conn<>>(cfg.psk)
+                                  : std::make_shared<conn<>>(cfg.password);
         const auto err = co_await c->write_handshake(std::move(upstream), target);
         shared_conn conn;
         if (err == error::none)
@@ -127,7 +131,8 @@ namespace preview::shadowsocks2022
         {
             return nullptr;
         }
-        return std::make_shared<dgram<>>(std::move(udp), derive_psk(cfg.password));
+        const auto psk = cfg.use_psk ? cfg.psk : derive_psk(cfg.password);
+        return std::make_shared<dgram<>>(std::move(udp), psk);
     }
 
     /**
@@ -156,18 +161,25 @@ namespace preview::shadowsocks2022
     /**
      * @brief 创建服务端 UDP 包连接（独立 UDP socket，不依赖 TCP）
      * @param ex 执行器
-     * @param port 监听端口
+     * @param port 监听端口（0 = 系统分配）
      * @param cfg 服务端配置
+     * @param bound 输出实际绑定端点（可为 nullptr）
      * @return 包连接（绑定失败时为空）
-     * @details 绑定 UDP 端口监听，逐包 AEAD 解密；无 TCP 握手。
+     * @details 绑定 UDP 端口监听，逐包 AEAD 加解密；无 TCP 握手。
      */
     [[nodiscard]] inline auto accept_packet(net::any_io_executor ex, unsigned short port,
-                                            const server_config &cfg) -> shared_dgram
+                                            const server_config &cfg,
+                                            net::ip::udp::endpoint *bound = nullptr)
+        -> shared_dgram
     {
         auto udp = std::make_shared<preview::transport::unreliable>(ex);
         if (!udp->bind(port))
         {
             return nullptr;
+        }
+        if (bound)
+        {
+            *bound = udp->local_endpoint();
         }
         return std::make_shared<dgram<>>(std::move(udp), derive_psk(cfg.password));
     }

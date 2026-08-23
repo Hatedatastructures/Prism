@@ -11,8 +11,12 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 
+#include <boost/asio/awaitable.hpp>
+
+#include <common/core/fault/code.hpp>
 #include <common/core/net/target.hpp>
 #include <common/core/transmission.hpp>
 
@@ -37,6 +41,8 @@ namespace preview::middleware
         preview::network::target target;
         /// 检测到的协议类型
         std::uint16_t detected{0};
+        /// dgram 会话标记（accept_protocol 设置；session 转走 udp_service）
+        bool is_dgram{false};
         /// 流量统计回调（relay 中间件消费）
         struct traffic_sink
         {
@@ -62,6 +68,8 @@ namespace preview::middleware
         std::size_t buffer_size{16384};
         /// 管线空闲超时（>0 时 relay 优先使用；0 = 用 relay 构造参数）
         std::chrono::milliseconds timeout{0};
+        /// 拨号完成回调（协议注入：拨号成功/失败后发送协议级应答）
+        std::function<boost::asio::awaitable<void>(preview::fault::code)> post_dial{};
     };
 
 } // namespace preview::middleware

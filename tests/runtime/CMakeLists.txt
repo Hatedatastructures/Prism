@@ -1,3 +1,5 @@
+prism_add_test(SessionDiversion.cpp)
+prism_add_test(BalancerDispatchE2E.cpp)
 # Session.cpp 暂时禁用：待 session_resources 测试适配
 # prism_add_test(Session.cpp)
 prism_add_test(Transmission.cpp)

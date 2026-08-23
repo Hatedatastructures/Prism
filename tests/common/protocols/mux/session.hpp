@@ -35,6 +35,7 @@
 #include <vector>
 
 #include <common/core/byte_span.hpp>
+#include <common/core/diagnose/log.hpp>
 #include <common/core/error.hpp>
 #include <common/core/memory/container.hpp>
 #include <common/core/memory/pointer.hpp>
@@ -492,7 +493,12 @@ namespace preview::mux
             while (done < data.size())
             {
                 const auto n = std::min(chunk, data.size() - done);
-                co_await raw_write(C::build_data(stream_id, data.subspan(done, n)));
+                const auto ec = co_await raw_write(C::build_data(stream_id, data.subspan(done, n)));
+                if (ec)
+                {
+                    // 数据面写失败必须上抛：静默丢弃会让流进入假活状态（对端永远等不到数据）
+                    co_return ec;
+                }
                 done += n;
             }
             co_return boost::system::error_code{};
@@ -504,9 +510,10 @@ namespace preview::mux
          */
         auto send_fin(std::uint32_t stream_id) -> net::awaitable<void> override
         {
+            // 关闭路径 best-effort：写失败不阻塞半关（会话拆除由帧循环/底层关闭兜底）
             if (raw_ && raw_->is_open())
             {
-                co_await raw_write(C::build_fin(stream_id));
+                (void)co_await raw_write(C::build_fin(stream_id));
             }
             co_return;
         }
@@ -517,9 +524,10 @@ namespace preview::mux
          */
         auto send_rst(std::uint32_t stream_id) -> net::awaitable<void> override
         {
+            // 重置路径 best-effort：写失败不阻塞流销毁（本端已丢弃该流）
             if (raw_ && raw_->is_open())
             {
-                co_await raw_write(C::build_rst(stream_id));
+                (void)co_await raw_write(C::build_rst(stream_id));
             }
             co_return;
         }
@@ -614,7 +622,9 @@ namespace preview::mux
             co_await raw_->async_write_some(as_bytes(buf), ec);
             if (ec)
             {
-                co_return boost::system::error_code(ec.value(), boost::system::generic_category());
+                // 底层错误码属 fault 类别，直接搬 value 到 generic_category 会错乱；
+                // 会话层只关心写失败事实，统一映射为协议库 io_error
+                co_return make_error_code(error::io_error);
             }
             co_return boost::system::error_code{};
         }
@@ -671,19 +681,29 @@ namespace preview::mux
                 frame_type frame{};
                 if (C::parse_header(header, frame) != error::none)
                 {
-                    continue;
+                    diagnose::warn("mux frame header parse failed; closing session");
+                    protocol_error_teardown();
+                    co_return;
                 }
 
                 // 读负载
                 const auto len = C::payload_len(frame);
                 if (len == 0)
                 {
+                    if (C::parse_payload(frame, {}) != error::none)
+                    {
+                        diagnose::warn("mux empty payload parse failed; closing session");
+                        protocol_error_teardown();
+                        co_return;
+                    }
                     dispatch(frame, {});
                     continue;
                 }
                 if (len > C::max_payload_len)
                 {
-                    continue;
+                    diagnose::warn("mux frame payload exceeds limit; closing session");
+                    protocol_error_teardown();
+                    co_return;
                 }
                 payload.resize(len);
                 done = 0;
@@ -697,6 +717,12 @@ namespace preview::mux
                         co_return;
                     }
                     done += n;
+                }
+                if (C::parse_payload(frame, payload) != error::none)
+                {
+                    diagnose::warn("mux frame payload parse failed; closing session");
+                    protocol_error_teardown();
+                    co_return;
                 }
                 dispatch(frame, payload);
             }
@@ -852,6 +878,20 @@ namespace preview::mux
             }
             streams_.clear();
             incoming_.clear();
+        }
+
+        /**
+         * @brief 处理会话级协议错误并关闭底层传输
+         * @details 帧头、长度或 payload 校验失败后无法安全定位下一帧，
+         *          必须同时清理会话状态并关闭 raw，不能继续读取造成永久失步。
+         */
+        auto protocol_error_teardown() -> void
+        {
+            teardown();
+            if (raw_)
+            {
+                raw_->close();
+            }
         }
 
         shared_transmission raw_;                                                     ///< 底层传输

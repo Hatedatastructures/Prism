@@ -7,7 +7,10 @@
  *          - close() 全关：对端写返回 broken_pipe
  *          - cancel()：挂起的读立即返回
  *          - set_timeout()：读超时（0 = 禁用）
- *          内部使用 Boost.Asio channel + strand 实现，天然线程安全。
+ *          内部使用 Boost.Asio channel + 当前 executor 串行化操作。
+ * @note memory_stream 只支持在创建它的 executor 上使用；它不是跨线程安全的
+ *       传输实现。测试中所有 read/write/close/cancel/set_timeout 调用必须回到
+ *       同一个 executor，make_memory_pair() 会为两个端点绑定同一 executor。
  * @note 通过 make_memory_pair() 创建成对端点。
  */
 

@@ -61,7 +61,7 @@ namespace
             auto server_coro = [&]() -> net::awaitable<void>
             {
                 auto [err, req, conn] = co_await shadowsocks2022::accept(b_stream, srv_cfg);
-                EXPECT_NE(err, error::none); // 错误密码 → 固定头解密失败（bad_auth）
+                EXPECT_EQ(err, error::bad_auth); // 错误密码 → 固定头解密失败
                 b_stream->close();           // 解除客户端响应读取阻塞（EOF）
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -72,7 +72,8 @@ namespace
             auto [err, conn] = co_await shadowsocks2022::connect(
                 std::make_shared<memory_stream>(std::move(a)), ccfg,
                 ss::address{ss::address_type::domain, "t.internal", 443});
-            EXPECT_NE(err, error::none);
+            // 客户端侧：错误密码 → 服务端静默断开（bad_auth 后不写响应）→ 读响应 EOF
+            EXPECT_EQ(err, error::io_error);
         });
     }
 
@@ -89,7 +90,7 @@ namespace
             {
                 auto [err, req, conn] =
                     co_await shadowsocks2022::accept(std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_NE(err, error::none); // 半包后 EOF → io_error
+                EXPECT_EQ(err, error::io_error); // 半包后 EOF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
