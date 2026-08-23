@@ -230,9 +230,10 @@ scheme_executor::execute → {transport, detected, preread}
 - **目录/文件名**: 代码模块目录与源码文件 PascalCase（如 `Net/Transport/Reliable.hpp`）；
   工程根级目录（`src/`、`include/`、`tests/`、`docs/`、`scripts/`、`build/`）保持生态惯例不动
 - **生产代码**: 类/结构体/枚举/枚举值/类型别名/模板参数 PascalCase
-  （如 `PendingEntry`、`StreamType::Tcp`、`SharedTransmission`）
-- **函数/方法与变量/成员**: 暂保持 snake_case（`activate_stream()`、`stream_id_`）；
-  是否随阶段 4 升级为 PascalCase 待项目所有者拍板（见迁移计划）
+  （如 `PendingEntry`、`StreamType::Tcp`、`SharedTransmission`；模板参数已有先例 `typename Memory`）
+- **函数/方法**: PascalCase（`ActivateStream()`、`SendData()`）
+- **变量/成员**: PascalCase，成员尾下划线保留（`StreamId_`、`MaxStreams`）
+- **常量**: PascalCase（`MaxFramePayload`）；宏保持 UPPER_CASE（生态铁律，防与第三方冲突）
 - **测试代码**: 函数 PascalCase (`TestBasicGetRequest`, `LogPass`)——与新规范天然一致
 - **头文件保护**: `#pragma once`
 - **返回类型**: 尾随返回类型 (`auto func() -> return_type`)
@@ -251,7 +252,8 @@ scheme_executor::execute → {transport, detected, preread}
 1. 阶段 1：`tests/common/`（preview 库，下一代架构验证场，约 206 文件）——命名空间 `preview` → `Preview`，目录/文件/类型 PascalCase
 2. 阶段 2：`include/prism/`（生产头文件，约 235 文件）——`psm::` → `Psm::`，目录/文件/类型 PascalCase
 3. 阶段 3：`src/prism/`（生产源文件，约 124 文件）+ 全部 CMakeLists/scripts 同步
-4. 阶段 4（可选，需单独决策）：函数/方法/变量是否升级 PascalCase——涉及数万调用点，成本约为阶段 1-3 总和的两倍，收益纯审美
+4. 阶段 4：函数/方法/变量/常量升级 PascalCase（项目所有者已确认，2026-08-22）——
+   可与阶段 1-3 同批执行（同文件一次到位，避免二次触碰）；涉及数万调用点，编译器可查绝大多数
 
 ### Windows 大小写陷阱（强制规程）
 
