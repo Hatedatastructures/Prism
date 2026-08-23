@@ -498,7 +498,7 @@ T1 正确性三件套（P0） → T2 技术债与安全清理（P0.5，穿插）
 | G3 | 全量回归 | `ctest --test-dir build --output-on-failure -j 1 --timeout 30`（约 2600 用例） | 每个子任务收尾 | 全绿（HandshakeTimeout 已知 flaky 除外，需二次确认） |
 | G4 | 依赖 DAG 审计 | `docs/ARCHITECTURE.md` 第 261-262 行的 4 条 grep | 改动任何头文件 | 除已知环外 0 命中 |
 | G5 | detached 审计 | `bash scripts/audit_detached.sh src/`（MSYS2 环境） | 新增/修改 co_spawn | 0 DANGEROUS |
-| G6 | 编码规范 | AGENTS.md 规则 1/3/13（参数≤3、函数≤120 行、lambda≤10 行）、Doxygen 中文注释、snake_case | 每个单元 | 逐项自查通过 |
+| G6 | 编码规范 | AGENTS.md 规则 1/3/13（参数≤3、函数≤120 行、lambda≤10 行）、Doxygen 中文注释、规范 v2 大驼峰（存量未迁移文件暂循旧风格） | 每个单元 | 逐项自查通过 |
 | G7 | 协程纯度 | 无阻塞调用/无锁/无 busy-wait（cpp-coroutine-purity skill 清单） | 每个单元 | 逐项自查通过 |
 | G8 | 生命周期 | co-lifecycle-audit 清单（shared_ptr 捕获、co_await 后成员访问、PMR 资源） | 每个单元 | 逐项自查通过 |
 | G9 | 错误链 | error-chain-audit（新增错误路径必须传播/记录，不吞异常） | 新增错误处理 | 逐项自查通过 |

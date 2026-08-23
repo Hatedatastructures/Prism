@@ -76,7 +76,6 @@ ctest --test-dir build --output-on-failure -j 1
 - **所有依赖通过 FetchContent 自动拉取**，无需手动安装本地库
 - **Boost.Asio 1.89.0** (header-only，协程支持) / **BoringSSL** (OpenSSL API 兼容) / **spdlog 1.17.0** / **glaze 6.5.1** (JSON) / **BLAKE3 v1.8.1** / **nghttp2 1.69.0** / **Google Benchmark 1.9.5**
 - Windows 系统库依赖: `ws2_32`, `mswsock`, `crypt32`
-
 构建选项:
 - `PRISM_ENABLE_BENCHMARK=ON/OFF` (默认 ON)
 - `PRISM_ENABLE_STRESS=ON/OFF` (默认 ON)
@@ -224,26 +223,53 @@ scheme_executor::execute → {transport, detected, preread}
 
 ## 命名与编码规范
 
-- **命名空间**: `psm::` 前缀
-- **文件**: snake_case
-- **生产代码**: 类/函数/类型/结构体/枚举全部 snake_case
-- **测试代码**: 函数 PascalCase (`TestBasicGetRequest`, `LogPass`)
+> **2026-08-22 规范 v2：标识符风格切换为大驼峰（PascalCase）**。
+> 存量代码按批次迁移（见下方「大驼峰迁移计划」），未迁移文件暂循旧风格，同一文件内禁止新旧混用。
+
+- **命名空间**: PascalCase，`Psm::` 前缀（迁移后）；存量 `psm::` 未迁移前继续使用
+- **目录/文件名**: 代码模块目录与源码文件 PascalCase（如 `Net/Transport/Reliable.hpp`）；
+  工程根级目录（`src/`、`include/`、`tests/`、`docs/`、`scripts/`、`build/`）保持生态惯例不动
+- **生产代码**: 类/结构体/枚举/枚举值/类型别名/模板参数 PascalCase
+  （如 `PendingEntry`、`StreamType::Tcp`、`SharedTransmission`）
+- **函数/方法与变量/成员**: 暂保持 snake_case（`activate_stream()`、`stream_id_`）；
+  是否随阶段 4 升级为 PascalCase 待项目所有者拍板（见迁移计划）
+- **测试代码**: 函数 PascalCase (`TestBasicGetRequest`, `LogPass`)——与新规范天然一致
 - **头文件保护**: `#pragma once`
 - **返回类型**: 尾随返回类型 (`auto func() -> return_type`)
 - **[[nodiscard]]**: 有意义的返回值
-- **Boost.Asio 别名**: `namespace net = boost::asio;`
+- **Boost.Asio 别名**: `namespace net = boost::asio;`（Asio 自身 API 保持官方小写风格，不改造）
 - **注释**: Doxygen 风格中文 (`@file`, `@brief`, `@details`, `@return`, `@note`)，禁止英文注释
 - **注释参考**: `net/transport/reliable.hpp`
 - **编码规范详细**: `.agents/skills/enforce-coding/SKILL.md`（完整规范清单）
 - **标识符命名**: 简洁清晰，避免过长的多词组合
 - **函数参数** (Rule 1): 不超过 3 个，超过用 struct 收敛
+
+## 大驼峰迁移计划（规范 v2 配套）
+
+### 迁移范围与顺序（每批独立 commit + 全量回归 + Linux CI 验证）
+
+1. 阶段 1：`tests/common/`（preview 库，下一代架构验证场，约 206 文件）——命名空间 `preview` → `Preview`，目录/文件/类型 PascalCase
+2. 阶段 2：`include/prism/`（生产头文件，约 235 文件）——`psm::` → `Psm::`，目录/文件/类型 PascalCase
+3. 阶段 3：`src/prism/`（生产源文件，约 124 文件）+ 全部 CMakeLists/scripts 同步
+4. 阶段 4（可选，需单独决策）：函数/方法/变量是否升级 PascalCase——涉及数万调用点，成本约为阶段 1-3 总和的两倍，收益纯审美
+
+### Windows 大小写陷阱（强制规程）
+
+本仓库在 Windows 上开发（`core.ignorecase=true`），MinGW 的 `#include` 解析大小写不敏感——**纯大小写改名本地可见但 git 与 Linux CI 均不可靠**：
+
+- 文件改名必须两步法：`git mv a.hpp tmp_a.hpp && git mv tmp_a.hpp A.hpp`
+- 每批迁移后必须在 Linux 环境（CI ubuntu-latest 或 WSL）完成一次编译验证，禁止仅凭本地通过就合并
+
+### 门禁同步义务
+
+每批迁移必须同步更新：引用文件路径的 CMakeLists（共 108 个）、`scripts/check_common_headers.ps1`（磁盘↔target_sources 双向校验）、`scripts/audit_detached.sh`（按路径审计）、docs 中引用的示例路径。
 - **函数体** (Rule 3): 不超过 120 行
 - **Lambda** (Rule 13): 不超过 10 行，超长提取为命名函数
 - **`using namespace`** (Rule 4.3): 仅允许 `using namespace psm::diagnose;`，其余用显式限定或 namespace 别名
 
 ## 测试
 
-约 250 个 Google Test 独立可执行文件（每个 `.cpp` 一个 target，`prism_add_test` 模式），ctest 注册约 2600 个用例。共用基础设施：
+约 325 个 Google Test 独立可执行 target（每个 `.cpp` 一个 target，`prism_add_test` 模式），ctest 注册约 3250 个用例（2026-08-21 实测：CMakeLists `add_executable`/`prism_add_test` 计数 + `TEST(`/`TEST_F(` 宏计数）。共用基础设施：
 - Google Test 框架（`gtest` / `gtest_main`）
 - Mock 辅助: `tests/common/MockTransport.hpp`、`tests/common/MockTlsServer.hpp`
 - 测试公共库分层: `tests/common/` 下 `core/`（协议公共实现）、`proxy/`（各代理协议连接）、`mux/`、`stealth/`、`stress/`
@@ -311,7 +337,8 @@ Prism 采用四层所有权模型（L1 全局 / L2 worker / L3 session / L4 deta
 
 ## 活跃 TODO
 
-1. `src/prism/protocol/multiplex/h2mux/control.cpp` — sing-mux DATA 帧 StreamRequest 解析
+1. ~~`src/prism/protocol/multiplex/h2mux/control.cpp` — sing-mux DATA 帧 StreamRequest 解析~~（已完成：`tests/multiplex/h2mux/SingmuxRequest.cpp` 7/7 + `SingmuxE2E.cpp` 通过，2026-08-18 确认）
+2. ~~`docs/ngx-test-data/` 迁移前补缺（生产对拍 L4、外部互操作/golden vector、preview vs psm 性能对标、生命周期审查结论文档）~~（大部分完成 2026-08-20：L4 对拍 socks5/ss2022 双向 PASS（vless/trojan/vmess echo 受阻于生产识别器）、L5 SS2022 外部互操作双向 PASS、golden vector 18/18、LIFECYCLE_AUDIT.md 已建；剩余项见 `docs/TASK_PROGRESS.md` Gate D 缺口表——性能对标与 SOCKS5 纵向场景回归）
 
 ## 已知问题
 

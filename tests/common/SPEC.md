@@ -9,20 +9,24 @@
 
 ```
 tests/common/
-  core/                无外部依赖的基础层
-    memory/ fault/ exception/ crypto/ coroutine/ rate/
+  core/                基础层（adapter/ 为唯一上向依赖例外，见 5.6）
+    memory/ fault/ exception/ crypto/ coroutine/ rate/ diagnose/ account/ api/
     error.hpp  transmission.hpp  authenticator.hpp  flat_buffer.hpp  parser.hpp
-    session_base.hpp  codec_traits.hpp  byte_span.hpp  role.hpp  programmable_transport.hpp
-    transport/        reliable/unreliable/encrypted/pad/preview/snapshot/
-                      memory_stream/reliable/unreliable/connector/
-                      algorithm/bench/stream
-    protocol/         address/form/framing/read/mux/target
-    http2/ http3/ quic/   （骨架/接口，T2 自包含化）
-    middleware/       pipeline/context + builtin(dial/mux/pad/relay)
-    diagnose/         context/log
-  proxy/              7 协议（vmess/vless/trojan/shadowsocks2022/socks5/hysteria2/tuic）
-  stealth/            7 伪装方案（reality/shadowtls/restls/anytls/trusttunnel/ws/gun）
-  mux/                smux/yamux/h2mux（模板化 frame_codec + client/server/session）
+    session_base.hpp  codec_traits.hpp  byte_span.hpp  role.hpp
+    transport/        reliable/unreliable/encrypted/pad/preview/snapshot/connector/
+                      memory_stream/algorithm/stream
+    protocol/         address/form/framing/read/mux
+    net/              target/dialer/route/outbound/dns/udp_relay
+    middleware/       pipeline/context + builtin(auth/dial/mux/pad/relay/throttle)
+    recognition/      protocol/probe/route/recognition/scheme_executor/probe_defense
+    runtime/          session/listener/session_registry/statistics + adapter/
+    settings/         json/loader
+  protocols/          全协议平铺（含 http1/http2/http3/quic/mux 子库）
+    <proto>/          types/codec/conn/dgram + 聚合头（四件套，见 1.1）
+    mux/              smux/yamux/h2mux（模板化 frame_codec + client/server/session）
+  TestRunner.hpp  MockTransport.hpp  MockTlsServer.hpp  programmable_transport.hpp  RuntimeTestHelpers.hpp  gtest_main.cpp
+  stress/             stress_helper.hpp
+  bench/              bench.hpp
 ```
 
 ### 1.1 协议目录（proxy/stealth）
@@ -50,6 +54,13 @@ tests/common/protocols/xhttp/  — types/conn（HTTP/2 stream-one，帧处理在
 
 > 三者均为 TLS 直通/解密类方案，不存在 build/parse 帧编解码层，
 > 故不套用 types/codec/conn/dgram 四件套，聚合头保持薄形态。
+
+数据面扩展（在四件套基础上按需增补）：
+- `protocols/socks5/udp_assoc.hpp` — SOCKS5 UDP ASSOCIATE 真实数据面（关联会话表 + 空闲回收）
+- `protocols/vless/udp_tunnel.hpp` — VLESS UDP over 流（数据报封装隧道）
+- `protocols/ech/` 含 keygen/scan（无 conn）
+- `protocols/native/` 为 types/conn（原生 TLS 直通）
+- `protocols/xhttp/` 为 types/conn（帧处理在 http2/ 子库）
 
 ### 1.2 多路复用（mux/）
 
@@ -164,7 +175,13 @@ listener           （TCP accept + 亲和性分发 FNV-1a + 会话工厂；T4-3�
 statistics         （traffic_counter：identity 维度聚合；T4-4）
 per_worker_traffic （alignas(64) 原子槽 + identity 聚合；T5-2）
 session_registry   （COW 值拷贝快照，严禁 L3 引用；T5-7）
+adapter/           （协议接入缝：make_protocol_accept + 错误映射复用 fault::to_code（唯一表，见 §3）；协议适配器薄封装）
 ```
+
+> `core/runtime/adapter/` 是 core 层**唯一的例外**：适配器直接 include 上层
+> `protocols/`（socks5/ss2022/trojan/vless/vmess 共 5 文件 7 处），使 core/
+> 失去独立可编译性。此为 preview 期临时设计（减少接入样板），迁移方向：
+> 目录上移至组合层或协议类型模板注入，纳入 NEXTGEN 迁移决策。
 
 ## 5.3 账户与限速（core/account/ + core/rate/，T5）
 
@@ -194,6 +211,9 @@ diagnose/observability（HDR 指数桶 + EWMA + 1/N 采样 SPSC ring；O5）
 
 ## 6. 命名空间与编码规范
 
+> **2026-08-22 规范 v2**：标识符切换大驼峰（`Preview::` / PascalCase 文件名），preview 库为迁移阶段 1 首批对象；
+> 迁移完成前本节描述的现状（小写 `preview`）继续有效，同一文件内禁止新旧混用。
+
 - **全库 `preview`**；禁止历史命名体系混用与 psm:: 混用。
   - **psm 兼容豁免**（顶层遗留设施，服务旧 psm 测试，保持不动）：
     `TestRunner.hpp`（继承主库 `psm::diagnose` 日志）、`MockTransport.hpp`
@@ -201,6 +221,11 @@ diagnose/observability（HDR 指数桶 + EWMA + 1/N 采样 SPSC ring；O5）
     （内存 TLS 后端）、`gtest_main.cpp`
     （初始化主库 `psm::memory::system` 池）。preview 侧等价物：
     `programmable_transport.hpp`（传输桩）、gtest 原生断言（运行器）。
+  - **RuntimeTestHelpers.hpp 豁免**（runtime E2E 公共样板，`psm::testing`
+    命名空间与 TestRunner 同层）：run_coro/echo 上游/chain_state/
+    dial_upstream/tail_read_guarded 等；仅 tests/preview/core/runtime 使用。
+- 库名策略：**`prism_ngx` 唯一主名**（INTERFACE 库）；
+  `prism_test_common` / `vmtest_common` 仅为旧链接结构兼容别名，新代码一律链接 `prism_ngx`。
 - snake_case；Doxygen 中文注释（@file/@brief/@details/@return）。
 - 头文件保护 `#pragma once`；聚合头同步（新增子头必须入聚合头 + CMake）。
 
@@ -216,5 +241,23 @@ diagnose/observability（HDR 指数桶 + EWMA + 1/N 采样 SPSC ring；O5）
 
 - 单一 `prism_ngx` INTERFACE 库（tests/common/CMakeLists.txt）。
 - `prism_test_common` / `vmtest_common` 为兼容别名（指向 prism_ngx）。
-- 全部头文件列于 target_sources（G7 完整性门禁；含 psm 兼容层与
-  stress 工具：MockTransport / MockTlsServer / TestRunner / stress_helper 均已登记）。
+- 全部头文件列于 target_sources（G7 完整性门禁）。
+- **G7 门禁自动化**：`scripts/check_common_headers.ps1` 校验磁盘头文件与
+  target_sources 双向一致（漏登记/重复/漂移），已接入 CI（build.yml 两平台）；
+  支持 `-CheckMirror` 开关输出镜像分叉警告（白名单见 §9）。
+
+## 9. 镜像复制策略
+
+`core/` 的部分模块与生产 `include/prism/` 存在复制关系，按文件登记：
+
+| 目录 | 与生产关系 | 同步策略 |
+|---|---|---|
+| `core/fault/` | 镜像 `include/prism/foundation/fault/`（逐字，仅命名空间差异） | 锁定：人工比对，改动需两侧同步 |
+| `core/exception/` | 镜像 `include/prism/foundation/exception/` | 锁定 |
+| `core/memory/` | 镜像 `include/prism/foundation/memory/` | 锁定 |
+| `core/crypto/` | **已分叉**（aead.hpp 15.1KB vs 9.6KB，各自演进） | 分叉：preview 自包含实现，白名单豁免镜像 diff |
+| `core/diagnose/`、`core/net/dns/` | 部分分叉 | 待评估 |
+
+> 镜像文件头注 `@note 镜像自 include/prism/...，同步策略：锁定/分叉`。
+> `scripts/check_common_headers.ps1 -CheckMirror` 按上表输出分叉警告；
+> 白名单（`$mirrorWhitelist`）中的文件允许差异，新增白名单条目必须同步更新本表。

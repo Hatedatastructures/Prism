@@ -101,7 +101,7 @@
 | G5 | 接口一致性 | `rg "transport_base" tests/common` 零命中（T1 完成后） | 0 命中 |
 | G6 | 错误体系一致性 | 按 T1 决策方案核查引用边界 | 通过 |
 | G7 | CMake 完整性 | 全部 .hpp 在 target_sources 或聚合头可达 | 无遗漏 |
-| G8 | 编码规范 | AGENTS.md 规则 1/3/13、Doxygen 中文注释、snake_case | 自查通过 |
+| G8 | 编码规范 | AGENTS.md 规则 1/3/13、Doxygen 中文注释、规范 v2 大驼峰（存量未迁移文件暂循旧风格） | 自查通过 |
 | G9 | 协程纯度 | 无阻塞/锁/busy-wait（cpp-coroutine-purity 清单） | 自查通过 |
 | G10 | 生命周期 | co-lifecycle-audit 清单（shared_ptr 捕获、PMR 资源） | 自查通过 |
 | G11 | 资源清理 | `taskkill //F //PID <pid>`（只杀本轮启动的进程） | 无残留 |
