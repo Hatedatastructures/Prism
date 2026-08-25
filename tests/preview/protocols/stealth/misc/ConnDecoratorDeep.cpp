@@ -1,10 +1,10 @@
 /**
  * @file ConnDecoratorDeep.cpp
- * @brief 测试库 conn 装饰器剩余方法深度测试
- * @details 覆盖 gun / reality / anytls / tuic 四个 conn 装饰器的
- *          executor / cancel / next_layer（const + 非 const）/ release
- *          / close 等透传方法，以及 mux::stream_transmission 的
- *          空句柄 executor 与 cancel 分支。
+ * @brief 测试库 Conn 装饰器剩余方法深度测试
+ * @details 覆盖 gun / reality / anytls / tuic 四个 Conn 装饰器的
+ *          Executor / Cancel / NextLayer（const + 非 const）/ Release
+ *          / Close 等透传方法，以及 Mux::StreamTransmission 的
+ *          空句柄 Executor 与 Cancel 分支。
  */
 
 #include <boost/asio/co_spawn.hpp>
@@ -15,18 +15,18 @@
 #include <memory>
 #include <string>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/mux/smux/smux.hpp>
-#include <common/protocols/mux/stream.hpp>
-#include <common/protocols/tuic/conn.hpp>
-#include <common/protocols/anytls/conn.hpp>
-#include <common/protocols/gun/conn.hpp>
-#include <common/protocols/reality/conn.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Mux/Smux/Smux.hpp>
+#include <common/Protocols/Mux/Stream.hpp>
+#include <common/Protocols/Tuic/Conn.hpp>
+#include <common/Protocols/Anytls/Conn.hpp>
+#include <common/Protocols/Gun/Conn.hpp>
+#include <common/Protocols/Reality/Conn.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     /**
@@ -50,29 +50,29 @@ namespace
     }
 
     /**
-     * @brief 断言装饰器透传方法（executor/cancel/next_layer/release/close）
+     * @brief 断言装饰器透传方法（Executor/Cancel/NextLayer/Release/Close）
      */
-    template <typename Conn>
-    auto check_decorator(const std::shared_ptr<Conn> &conn, net::io_context &ioc) -> void
+    template <typename DecoT>
+    auto check_decorator(const std::shared_ptr<DecoT> &ConnT, net::io_context &ioc) -> void
     {
-        (void)conn->executor();
-        EXPECT_NE(conn->next_layer(), nullptr);
-        const auto *cconn = conn.get();
-        EXPECT_NE(cconn->next_layer(), nullptr);
-        EXPECT_EQ(conn->template lowest_layer<memory_stream>(), conn->next_layer());
-        conn->cancel();
-        conn->close();
-        auto released = conn->release();
+        (void)ConnT->Executor();
+        EXPECT_NE(ConnT->NextLayer(), nullptr);
+        const auto *cconn = ConnT.get();
+        EXPECT_NE(cconn->NextLayer(), nullptr);
+        EXPECT_EQ(ConnT->template LowestLayer<MemoryStream>(), ConnT->NextLayer());
+        ConnT->Cancel();
+        ConnT->Close();
+        auto released = ConnT->Release();
         EXPECT_NE(released, nullptr);
-        EXPECT_EQ(conn->next_layer(), nullptr);
+        EXPECT_EQ(ConnT->NextLayer(), nullptr);
     }
 
     TEST(ConnDecorator, GunConn)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto peer = std::make_shared<memory_stream>(std::move(b));
-        auto conn = std::make_shared<gun::conn<>>(std::make_shared<memory_stream>(std::move(a)));
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto peer = std::make_shared<MemoryStream>(std::move(b));
+        auto Conn = std::make_shared<Gun::Conn<>>(std::make_shared<MemoryStream>(std::move(a)));
 
         // 未握手读写 → not_open
         run_coro(ioc,
@@ -80,112 +80,112 @@ namespace
                  {
                      std::error_code ec;
                      std::array<std::byte, 4> buf{};
-                     const auto r = co_await conn->async_read_some(std::span<std::byte>(buf), ec);
+                     const auto r = co_await Conn->AsyncReadSome(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 0u);
                      EXPECT_TRUE(ec);
-                     EXPECT_EQ(ec, make_error_code(error::not_open));
+                     EXPECT_EQ(ec, make_error_code(Error::not_open));
                      ec.clear();
-                     const auto w = co_await conn->async_write_some(std::span<const std::byte>(buf), ec);
+                     const auto w = co_await Conn->AsyncWriteSome(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(w, 0u);
-                     EXPECT_EQ(ec, make_error_code(error::not_open));
+                     EXPECT_EQ(ec, make_error_code(Error::not_open));
                  });
 
         // 客户端握手 → 数据面透传
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     EXPECT_EQ(co_await conn->write_handshake("example.com"), error::none);
+                     EXPECT_EQ(co_await Conn->WriteHandshake("example.com"), Error::none);
                      std::array<std::byte, 8> wbuf{std::byte{0x42}};
                      std::error_code ec;
-                     EXPECT_EQ(co_await conn->async_write_some(std::span<const std::byte>(wbuf), ec), 8u);
+                     EXPECT_EQ(co_await Conn->AsyncWriteSome(std::span<const std::byte>(wbuf), ec), 8u);
                      std::array<std::byte, 8> rbuf{};
-                     EXPECT_EQ(co_await peer->async_read_some(std::span<std::byte>(rbuf), ec), 8u);
+                     EXPECT_EQ(co_await peer->AsyncReadSome(std::span<std::byte>(rbuf), ec), 8u);
                      EXPECT_EQ(static_cast<std::uint8_t>(rbuf[0]), 0x42);
                  });
 
-        check_decorator(conn, ioc);
+        check_decorator(Conn, ioc);
     }
 
     TEST(ConnDecorator, RealityConn)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto conn = std::make_shared<reality::conn<>>(
-            std::make_shared<memory_stream>(std::move(a)), std::array<std::uint8_t, 32>{});
-        check_decorator(conn, ioc);
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto Conn = std::make_shared<Reality::Conn<>>(
+            std::make_shared<MemoryStream>(std::move(a)), std::array<std::uint8_t, 32>{});
+        check_decorator(Conn, ioc);
     }
 
     TEST(ConnDecorator, AnyTlsConn)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto conn =
-            std::make_shared<anytls::conn<>>(std::make_shared<memory_stream>(std::move(a)), "secret");
-        check_decorator(conn, ioc);
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto Conn =
+            std::make_shared<Anytls::Conn<>>(std::make_shared<MemoryStream>(std::move(a)), "Secret");
+        check_decorator(Conn, ioc);
     }
 
     TEST(ConnDecorator, TuicConn)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto conn = std::make_shared<tuic::conn<>>(std::make_shared<memory_stream>(std::move(a)),
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto Conn = std::make_shared<Tuic::Conn<>>(std::make_shared<MemoryStream>(std::move(a)),
                                                  std::array<std::uint8_t, 16>{});
-        check_decorator(conn, ioc);
+        check_decorator(Conn, ioc);
     }
 
     TEST(ConnDecorator, StreamTransmission)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        // 空句柄：executor 返回默认执行器，cancel 空操作
-        auto empty = std::make_shared<mux::stream_transmission>(nullptr);
-        (void)empty->executor();
-        empty->cancel();
-        EXPECT_FALSE(empty->is_open());
-        EXPECT_EQ(empty->handle(), nullptr);
-        empty->close();
-        empty->reset();
+        // 空句柄：Executor 返回默认执行器，Cancel 空操作
+        auto Empty = std::make_shared<Mux::StreamTransmission>(nullptr);
+        (void)Empty->Executor();
+        Empty->Cancel();
+        EXPECT_FALSE(Empty->IsOpen());
+        EXPECT_EQ(Empty->Handle(), nullptr);
+        Empty->Close();
+        Empty->Reset();
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      std::error_code ec;
                      std::array<std::byte, 4> buf{};
-                     const auto r = co_await empty->async_read_some(std::span<std::byte>(buf), ec);
+                     const auto r = co_await Empty->AsyncReadSome(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 0u);
-                     EXPECT_EQ(ec, make_error_code(error::not_open));
+                     EXPECT_EQ(ec, make_error_code(Error::not_open));
                      ec.clear();
-                     const auto w = co_await empty->async_write_some(std::span<const std::byte>(buf), ec);
+                     const auto w = co_await Empty->AsyncWriteSome(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(w, 0u);
-                     EXPECT_EQ(ec, make_error_code(error::not_open));
+                     EXPECT_EQ(ec, make_error_code(Error::not_open));
                  });
 
-        // 非空句柄：cancel 生效
-        auto client = mux::smux::connect(std::make_shared<memory_stream>(std::move(a)));
-        auto session = client.session();
-        EXPECT_TRUE(client.is_open());
+        // 非空句柄：Cancel 生效
+        auto Client = Mux::Smux::Connect(std::make_shared<MemoryStream>(std::move(a)));
+        auto Session = Client.Session();
+        EXPECT_TRUE(Client.IsOpen());
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto handle = co_await session->open_stream();
-                     if (!handle)
+                     auto Handle = co_await Session->OpenStream();
+                     if (!Handle)
                      {
-                         EXPECT_TRUE(false) << "open_stream failed";
+                         EXPECT_TRUE(false) << "OpenStream Failed";
                          co_return;
                      }
-                     auto stream = std::make_shared<mux::stream_transmission>(handle);
-                     EXPECT_TRUE(stream->is_open());
-                     EXPECT_EQ(stream->handle(), handle);
-                     stream->cancel();
+                     auto Stream = std::make_shared<Mux::StreamTransmission>(Handle);
+                     EXPECT_TRUE(Stream->IsOpen());
+                     EXPECT_EQ(Stream->Handle(), Handle);
+                     Stream->Cancel();
                      std::array<std::byte, 4> buf{};
                      std::error_code ec;
-                     const auto r = co_await stream->async_read_some(std::span<std::byte>(buf), ec);
+                     const auto r = co_await Stream->AsyncReadSome(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 0u);
-                     // 非空句柄 close / reset（co_spawn 投递）
-                     stream->close();
-                     stream->reset();
+                     // 非空句柄 Close / Reset（co_spawn 投递）
+                     Stream->Close();
+                     Stream->Reset();
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_FALSE(stream->is_open());
+                     EXPECT_FALSE(Stream->IsOpen());
                  });
     }
 

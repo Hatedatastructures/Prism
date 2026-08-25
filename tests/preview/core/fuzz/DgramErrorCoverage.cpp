@@ -1,14 +1,14 @@
 /**
  * @file DgramErrorCoverage.cpp
- * @brief 各协议 dgram（UDP 数据面）错误路径覆盖测试
- * @details 使用共享的可编程传输桩（programmable_transport）直接构造
- * dgram（绕过握手），对 7 个协议（socks5/trojan/vless/tuic/vmess/
+ * @brief 各协议 Dgram（UDP 数据面）错误路径覆盖测试
+ * @details 使用共享的可编程传输桩（ProgrammableTransport）直接构造
+ * Dgram（绕过握手），对 7 个协议（socks5/trojan/vless/tuic/vmess/
  * hysteria2/shadowsocks2022）覆盖错误分支：
- * 1. async_send_to：底层写失败 → io_error（ss2022 另覆盖半包写）
- * 2. async_receive_from：半包截断（域名长度声明比实际大）→ io_error
- * 3. async_receive_from：非法 ATYP → bad_message
- * 4. async_receive_from：EOF → io_error / unexpected_eof
- * 5. 未连接/已关闭状态下操作（close 后读写 → io_error；vmess 未握手
+ * 1. AsyncSendTo：底层写失败 → io_error（ss2022 另覆盖半包写）
+ * 2. AsyncReceiveFrom：半包截断（域名长度声明比实际大）→ io_error
+ * 3. AsyncReceiveFrom：非法 ATYP → bad_message
+ * 4. AsyncReceiveFrom：EOF → io_error / unexpected_eof
+ * 5. 未连接/已关闭状态下操作（Close 后读写 → io_error；vmess 未握手
  *    → not_open）
  * @note 所有用例采用 co_spawn + ioc.run() 模式驱动。
  */
@@ -25,22 +25,22 @@
 #include <string>
 #include <vector>
 
-#include <common/core/byte_span.hpp>
-#include <common/core/error.hpp>
-#include <common/core/transport/memory_stream.hpp>
-#include <common/programmable_transport.hpp>
-#include <common/protocols/hysteria2/hysteria2.hpp>
-#include <common/protocols/shadowsocks2022/shadowsocks2022.hpp>
-#include <common/protocols/socks5/socks5.hpp>
-#include <common/protocols/trojan/trojan.hpp>
-#include <common/protocols/tuic/tuic.hpp>
-#include <common/protocols/vless/vless.hpp>
-#include <common/protocols/vmess/vmess.hpp>
+#include <common/Core/ByteSpan.hpp>
+#include <common/Core/Error.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/ProgrammableTransport.hpp>
+#include <common/Protocols/Hysteria2/Hysteria2.hpp>
+#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <common/Protocols/Socks5/Socks5.hpp>
+#include <common/Protocols/Trojan/Trojan.hpp>
+#include <common/Protocols/Tuic/Tuic.hpp>
+#include <common/Protocols/Vless/Vless.hpp>
+#include <common/Protocols/Vmess/Vmess.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     /// 运行协程直至完成（异常重抛）
@@ -62,72 +62,72 @@ namespace
     }
 
     /// 构造 socks5 目标地址
-    auto make_s5_addr() -> socks5::address
+    auto make_s5_addr() -> Socks5::Address
     {
-        socks5::address addr{};
-        addr.type = socks5::address_type::ipv4;
-        addr.host = "1.2.3.4";
-        addr.port = 80;
+        Socks5::Address addr{};
+        addr.Type = Socks5::AddressType::Ipv4;
+        addr.Host = "1.2.3.4";
+        addr.Port = 80;
         return addr;
     }
 
     /// 构造 trojan 目标地址
-    auto make_trojan_addr() -> trojan::address
+    auto make_trojan_addr() -> Trojan::Address
     {
-        trojan::address addr{};
-        addr.type = trojan::address_type::ipv4;
-        addr.host = "1.2.3.4";
-        addr.port = 80;
+        Trojan::Address addr{};
+        addr.Type = Trojan::AddressType::Ipv4;
+        addr.Host = "1.2.3.4";
+        addr.Port = 80;
         return addr;
     }
 
     /// 构造 vless 目标地址
-    auto make_vless_addr() -> vless::address
+    auto make_vless_addr() -> Vless::Address
     {
-        vless::address addr{};
-        addr.type = vless::address_type::ipv4;
-        addr.host = "1.2.3.4";
-        addr.port = 80;
+        Vless::Address addr{};
+        addr.Type = Vless::AddressType::Ipv4;
+        addr.Host = "1.2.3.4";
+        addr.Port = 80;
         return addr;
     }
 
     /// 构造 tuic 目标地址
-    auto make_tuic_addr() -> tuic::address
+    auto make_tuic_addr() -> Tuic::Address
     {
-        tuic::address addr{};
-        addr.type = tuic::address_type::ipv4;
-        addr.host = "1.2.3.4";
-        addr.port = 80;
+        Tuic::Address addr{};
+        addr.Type = Tuic::AddressType::Ipv4;
+        addr.Host = "1.2.3.4";
+        addr.Port = 80;
         return addr;
     }
 
     /// 构造 hysteria2 目标地址
-    auto make_hy2_addr() -> hysteria2::address
+    auto make_hy2_addr() -> Hysteria2::Address
     {
-        hysteria2::address addr{};
-        addr.type = hysteria2::address_type::ipv4;
-        addr.host = "1.2.3.4";
-        addr.port = 80;
+        Hysteria2::Address addr{};
+        addr.Type = Hysteria2::AddressType::Ipv4;
+        addr.Host = "1.2.3.4";
+        addr.Port = 80;
         return addr;
     }
 
     /// 构造 ss2022 目标地址
-    auto make_ss_addr() -> shadowsocks2022::address
+    auto make_ss_addr() -> Shadowsocks2022::Address
     {
-        shadowsocks2022::address addr{};
-        addr.type = shadowsocks2022::address_type::ipv4;
-        addr.host = "1.2.3.4";
-        addr.port = 80;
+        Shadowsocks2022::Address addr{};
+        addr.Type = Shadowsocks2022::AddressType::Ipv4;
+        addr.Host = "1.2.3.4";
+        addr.Port = 80;
         return addr;
     }
 
     /// 构造 vmess 目标地址
-    auto make_vmess_addr() -> vmess::address
+    auto make_vmess_addr() -> Vmess::Address
     {
-        vmess::address addr{};
-        addr.type = vmess::address_type::domain;
-        addr.host = "example.com";
-        addr.port = 53;
+        Vmess::Address addr{};
+        addr.Type = Vmess::AddressType::Domain;
+        addr.Host = "example.com";
+        addr.Port = 53;
         return addr;
     }
 
@@ -151,12 +151,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->fail_next_write = true;
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->FailNextWrite = true;
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->async_send_to(make_s5_addr(), as_u8_span(p));
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncSendTo(make_s5_addr(), AsU8Span(p));
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -167,12 +167,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
-                     socks5::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
+                     Socks5::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -183,13 +183,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 0x00, 0x00};
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
-                     socks5::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 0x00, 0x00};
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
+                     Socks5::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -200,13 +200,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x00, 0x00, 0x00, 0x99};
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
-                     socks5::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x00, 0x00, 0x00, 0x99};
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
+                     Socks5::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -218,13 +218,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 域名长度声明 5，实际仅 2 字节 → 半包截断 io_error
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x00, 0x00, 0x00, 0x03, 0x05, 'a', 'b'};
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
-                     socks5::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x00, 0x00, 0x00, 0x03, 0x05, 'a', 'b'};
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
+                     Socks5::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -236,13 +236,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 地址体完整，端口缺失 → io_error
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4};
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
-                     socks5::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4};
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
+                     Socks5::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -254,14 +254,14 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 帧头完整，载荷读取注入错误 → io_error
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->read_fail_at = 5; // 第 5 次读取 = 载荷读取
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
-                     socks5::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
+                     Socks5::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -273,13 +273,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 帧头完整，载荷缺失（EOF）→ unexpected_eof
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
-                     socks5::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
+                     Socks5::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -291,15 +291,15 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // IPv6 地址体截断（16 字节仅注入 8）→ io_error
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
                      std::vector<std::uint8_t> wire{0x00, 0x00, 0x00, 0x04};
                      wire.insert(wire.end(), 8, 0x21);
-                     raw->to_read = wire;
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
-                     socks5::address src;
+                     raw->ToRead = wire;
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
+                     Socks5::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -310,16 +310,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<socks5::dgram<>>(raw);
-                     dg->close();
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Socks5::Dgram<>>(raw);
+                     dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->async_send_to(make_s5_addr(), as_u8_span(p));
-                     EXPECT_EQ(serr, error::io_error);
-                     socks5::address src;
+                     const auto serr = co_await dg->AsyncSendTo(make_s5_addr(), AsU8Span(p));
+                     EXPECT_EQ(serr, Error::io_error);
+                     Socks5::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto rerr = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(rerr, error::io_error);
+                     const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(rerr, Error::io_error);
                  });
     }
 
@@ -332,12 +332,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->fail_next_write = true;
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->FailNextWrite = true;
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->async_send_to(make_trojan_addr(), as_u8_span(p));
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncSendTo(make_trojan_addr(), AsU8Span(p));
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -348,12 +348,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
-                     trojan::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
+                     Trojan::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -364,13 +364,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x99};
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
-                     trojan::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x99};
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
+                     Trojan::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -381,13 +381,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x03, 0x05, 'a', 'b'};
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
-                     trojan::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x03, 0x05, 'a', 'b'};
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
+                     Trojan::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -398,13 +398,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 1, 2, 3, 4};
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
-                     trojan::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 1, 2, 3, 4};
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
+                     Trojan::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -416,13 +416,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // LEN(2) + CRLF(2) 头部缺失 → io_error
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
-                     trojan::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
+                     Trojan::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -434,13 +434,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // CRLF 魔数非法 → bad_magic
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, 'X', 'Y'};
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
-                     trojan::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, 'X', 'Y'};
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
+                     Trojan::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_magic);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_magic);
                  });
     }
 
@@ -452,13 +452,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // LEN 声明 5，实际仅 2 字节载荷 → io_error
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, '\r', '\n', 'h', 'e'};
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
-                     trojan::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, '\r', '\n', 'h', 'e'};
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
+                     Trojan::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -469,14 +469,14 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, '\r', '\n'};
-                     raw->read_fail_at = 5; // 第 5 次读取 = 载荷读取
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
-                     trojan::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, '\r', '\n'};
+                     raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
+                     Trojan::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -487,16 +487,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<trojan::dgram<>>(raw);
-                     dg->close();
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Trojan::Dgram<>>(raw);
+                     dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->async_send_to(make_trojan_addr(), as_u8_span(p));
-                     EXPECT_EQ(serr, error::io_error);
-                     trojan::address src;
+                     const auto serr = co_await dg->AsyncSendTo(make_trojan_addr(), AsU8Span(p));
+                     EXPECT_EQ(serr, Error::io_error);
+                     Trojan::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto rerr = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(rerr, error::io_error);
+                     const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(rerr, Error::io_error);
                  });
     }
 
@@ -509,12 +509,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->fail_next_write = true;
-                     auto dg = std::make_shared<vless::dgram<>>(raw);
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->FailNextWrite = true;
+                     auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->async_send_to(make_vless_addr(), as_u8_span(p));
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncSendTo(make_vless_addr(), AsU8Span(p));
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -525,12 +525,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<vless::dgram<>>(raw);
-                     vless::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Vless::Dgram<>>(raw);
+                     Vless::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -541,13 +541,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x99};
-                     auto dg = std::make_shared<vless::dgram<>>(raw);
-                     vless::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x99};
+                     auto dg = std::make_shared<Vless::Dgram<>>(raw);
+                     Vless::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -558,13 +558,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x02, 0x05, 'a', 'b'}; // VLESS domain = 0x02
-                     auto dg = std::make_shared<vless::dgram<>>(raw);
-                     vless::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x02, 0x05, 'a', 'b'}; // VLESS domain = 0x02
+                     auto dg = std::make_shared<Vless::Dgram<>>(raw);
+                     Vless::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -575,13 +575,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 1, 2, 3, 4};
-                     auto dg = std::make_shared<vless::dgram<>>(raw);
-                     vless::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 1, 2, 3, 4};
+                     auto dg = std::make_shared<Vless::Dgram<>>(raw);
+                     Vless::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -592,14 +592,14 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->read_fail_at = 4; // 第 4 次读取 = 载荷读取
-                     auto dg = std::make_shared<vless::dgram<>>(raw);
-                     vless::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->ReadFailAt = 4; // 第 4 次读取 = 载荷读取
+                     auto dg = std::make_shared<Vless::Dgram<>>(raw);
+                     Vless::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -610,13 +610,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     auto dg = std::make_shared<vless::dgram<>>(raw);
-                     vless::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     auto dg = std::make_shared<Vless::Dgram<>>(raw);
+                     Vless::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -627,15 +627,15 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
                      std::vector<std::uint8_t> wire{0x03}; // VLESS ipv6 = 0x03
                      wire.insert(wire.end(), 8, 0x21);
-                     raw->to_read = wire;
-                     auto dg = std::make_shared<vless::dgram<>>(raw);
-                     vless::address src;
+                     raw->ToRead = wire;
+                     auto dg = std::make_shared<Vless::Dgram<>>(raw);
+                     Vless::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -646,16 +646,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<vless::dgram<>>(raw);
-                     dg->close();
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Vless::Dgram<>>(raw);
+                     dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->async_send_to(make_vless_addr(), as_u8_span(p));
-                     EXPECT_EQ(serr, error::io_error);
-                     vless::address src;
+                     const auto serr = co_await dg->AsyncSendTo(make_vless_addr(), AsU8Span(p));
+                     EXPECT_EQ(serr, Error::io_error);
+                     Vless::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto rerr = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(rerr, error::io_error);
+                     const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(rerr, Error::io_error);
                  });
     }
 
@@ -675,12 +675,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->fail_next_write = true;
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->FailNextWrite = true;
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->async_send_to(make_tuic_addr(), as_u8_span(p));
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncSendTo(make_tuic_addr(), AsU8Span(p));
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -691,12 +691,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -707,13 +707,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x04, 0x07, 0, 0, 0};
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x04, 0x07, 0, 0, 0};
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -724,13 +724,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x05, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01};
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x05, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01};
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -741,13 +741,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x04, 0x06, 0, 0, 0, 0, 0, 0, 0, 0x01};
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x04, 0x06, 0, 0, 0, 0, 0, 0, 0, 0x01};
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -758,14 +758,14 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
                      const auto head = make_tuic_head(0x99);
-                     raw->to_read.assign(head.begin(), head.end());
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     raw->ToRead.assign(head.begin(), head.end());
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -776,13 +776,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x03, 0x05, 'a', 'b'};
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x03, 0x05, 'a', 'b'};
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -793,13 +793,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -810,14 +810,14 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->read_fail_at = 4; // 第 4 次读取 = 载荷读取
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->ReadFailAt = 4; // 第 4 次读取 = 载荷读取
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -828,13 +828,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -845,16 +845,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
                      const auto head = make_tuic_head(0x04);
                      std::vector<std::uint8_t> wire(head.begin(), head.end());
                      wire.insert(wire.end(), 8, 0x21);
-                     raw->to_read = wire;
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     tuic::address src;
+                     raw->ToRead = wire;
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -865,16 +865,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<tuic::dgram<>>(raw);
-                     dg->close();
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Tuic::Dgram<>>(raw);
+                     dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->async_send_to(make_tuic_addr(), as_u8_span(p));
-                     EXPECT_EQ(serr, error::io_error);
-                     tuic::address src;
+                     const auto serr = co_await dg->AsyncSendTo(make_tuic_addr(), AsU8Span(p));
+                     EXPECT_EQ(serr, Error::io_error);
+                     Tuic::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto rerr = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(rerr, error::unexpected_eof);
+                     const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(rerr, Error::unexpected_eof);
                  });
     }
 
@@ -894,12 +894,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->fail_next_write = true;
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->FailNextWrite = true;
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->async_send_to(make_hy2_addr(), as_u8_span(p));
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncSendTo(make_hy2_addr(), AsU8Span(p));
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -910,12 +910,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     hysteria2::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -926,13 +926,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x02, 0, 0, 0, 0};
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     hysteria2::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x02, 0, 0, 0, 0};
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -943,13 +943,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x01, 0, 0, 0, 0, 0, 0, 0, 0x01};
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     hysteria2::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x01, 0, 0, 0, 0, 0, 0, 0, 0x01};
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -960,14 +960,14 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
                      const auto head = make_hy2_head(0x99);
-                     raw->to_read.assign(head.begin(), head.end());
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     hysteria2::address src;
+                     raw->ToRead.assign(head.begin(), head.end());
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -978,13 +978,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x05, 'a', 'b'};
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     hysteria2::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x05, 'a', 'b'};
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -995,13 +995,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     hysteria2::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -1012,14 +1012,14 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->read_fail_at = 4; // 第 4 次读取 = 载荷读取
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     hysteria2::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->ReadFailAt = 4; // 第 4 次读取 = 载荷读取
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -1030,13 +1030,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     hysteria2::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -1047,16 +1047,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
                      const auto head = make_hy2_head(0x03); // hysteria2 ipv6 = 0x03
                      std::vector<std::uint8_t> wire(head.begin(), head.end());
                      wire.insert(wire.end(), 8, 0x21);
-                     raw->to_read = wire;
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     hysteria2::address src;
+                     raw->ToRead = wire;
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -1067,16 +1067,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<hysteria2::dgram<>>(raw);
-                     dg->close();
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
+                     dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->async_send_to(make_hy2_addr(), as_u8_span(p));
-                     EXPECT_EQ(serr, error::io_error);
-                     hysteria2::address src;
+                     const auto serr = co_await dg->AsyncSendTo(make_hy2_addr(), AsU8Span(p));
+                     EXPECT_EQ(serr, Error::io_error);
+                     Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto rerr = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(rerr, error::unexpected_eof);
+                     const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(rerr, Error::unexpected_eof);
                  });
     }
 
@@ -1095,10 +1095,10 @@ namespace
 
     /// 构造合法长度的 ss2022 UDP 数据报（SeparateHeader 16 + Type 1 + TS 8 +
     /// ATYP + ADDR + PORT 2 + tag 16），SessionID 取自密钥
-    auto make_ss_packet(const std::array<std::uint8_t, 16> &key, std::uint8_t type) -> std::vector<std::uint8_t>
+    auto make_ss_packet(const std::array<std::uint8_t, 16> &key, std::uint8_t Type) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> packet(key.begin(), key.end());
-        packet.push_back(type);
+        packet.push_back(Type);
         packet.insert(packet.end(), 8, 0);
         packet.push_back(0x01); // ipv4
         packet.insert(packet.end(), {1, 2, 3, 4, 0x00, 0x50});
@@ -1113,12 +1113,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->fail_next_write = true;
-                     auto dg = std::make_shared<shadowsocks2022::dgram<>>(raw, make_ss_key());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->FailNextWrite = true;
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      const std::string p = "x";
-                     const auto err = co_await dg->async_send_to(make_ss_addr(), as_u8_span(p));
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -1130,12 +1130,12 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 单次写入仅返回 8 字节（半包写）→ n != 帧长 → io_error
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->max_write = 8;
-                     auto dg = std::make_shared<shadowsocks2022::dgram<>>(raw, make_ss_key());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->MaxWrite = 8;
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      const std::string p = "x";
-                     const auto err = co_await dg->async_send_to(make_ss_addr(), as_u8_span(p));
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -1146,13 +1146,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->fail_next_read = true;
-                     auto dg = std::make_shared<shadowsocks2022::dgram<>>(raw, make_ss_key());
-                     shadowsocks2022::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->FailNextRead = true;
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::io_error);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::io_error);
                  });
     }
 
@@ -1163,12 +1163,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<shadowsocks2022::dgram<>>(raw, make_ss_key());
-                     shadowsocks2022::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::unexpected_eof);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::unexpected_eof);
                  });
     }
 
@@ -1180,13 +1180,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 不足最小长度（SeparateHeader + 头部 + tag）→ bad_length
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-                     auto dg = std::make_shared<shadowsocks2022::dgram<>>(raw, make_ss_key());
-                     shadowsocks2022::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_length);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_length);
                  });
     }
 
@@ -1198,15 +1198,15 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // SessionID 前 8 字节与密钥不一致 → bad_auth
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
                      auto packet = make_ss_packet(make_ss_key(), 0x01);
                      packet[0] ^= 0xFF;
-                     raw->to_read = packet;
-                     auto dg = std::make_shared<shadowsocks2022::dgram<>>(raw, make_ss_key());
-                     shadowsocks2022::address src;
+                     raw->ToRead = packet;
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_auth);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_auth);
                  });
     }
 
@@ -1218,13 +1218,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 类型字节非 udp_type(0x01) → bad_message
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     raw->to_read = make_ss_packet(make_ss_key(), 0x02);
-                     auto dg = std::make_shared<shadowsocks2022::dgram<>>(raw, make_ss_key());
-                     shadowsocks2022::address src;
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     raw->ToRead = make_ss_packet(make_ss_key(), 0x02);
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::bad_message);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::bad_message);
                  });
     }
 
@@ -1236,16 +1236,16 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 域名长度声明 0xFF 但包内无足够字节 → need_more
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
                      std::vector<std::uint8_t> packet = make_ss_packet(make_ss_key(), 0x01);
                      packet[25] = 0x03; // ATYP = domain
                      packet[26] = 0xFF; // 域名长度声明
-                     raw->to_read = packet;
-                     auto dg = std::make_shared<shadowsocks2022::dgram<>>(raw, make_ss_key());
-                     shadowsocks2022::address src;
+                     raw->ToRead = packet;
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto err = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(err, error::need_more);
+                     const auto err = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(err, Error::need_more);
                  });
     }
 
@@ -1256,16 +1256,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<programmable_transport>(ioc.get_executor());
-                     auto dg = std::make_shared<shadowsocks2022::dgram<>>(raw, make_ss_key());
-                     dg->close();
+                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->async_send_to(make_ss_addr(), as_u8_span(p));
-                     EXPECT_EQ(serr, error::io_error);
-                     shadowsocks2022::address src;
+                     const auto serr = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
+                     EXPECT_EQ(serr, Error::io_error);
+                     Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
-                     const auto rerr = co_await dg->async_receive_from(src, out);
-                     EXPECT_EQ(rerr, error::unexpected_eof);
+                     const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
+                     EXPECT_EQ(rerr, Error::unexpected_eof);
                  });
     }
 
@@ -1278,57 +1278,57 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 底层 conn 未握手 → 收发均 not_open
-                     auto c = std::make_shared<vmess::conn<>>(make_uuid());
-                     auto dg = std::make_shared<vmess::dgram<>>(c);
+                     // 底层 Conn 未握手 → 收发均 not_open
+                     auto c = std::make_shared<Vmess::Conn<>>(make_uuid());
+                     auto dg = std::make_shared<Vmess::Dgram<>>(c);
                      const std::string p = "x";
-                     const auto serr = co_await dg->async_send_to(as_u8_span(p));
-                     EXPECT_EQ(serr, error::not_open);
+                     const auto serr = co_await dg->AsyncSendTo(AsU8Span(p));
+                     EXPECT_EQ(serr, Error::not_open);
                      std::vector<std::uint8_t> out;
-                     const auto rerr = co_await dg->async_receive_from(out);
-                     EXPECT_EQ(rerr, error::not_open);
+                     const auto rerr = co_await dg->AsyncReceiveFrom(out);
+                     EXPECT_EQ(rerr, Error::not_open);
                  });
     }
 
     TEST(VmessDgramErr, PeerClosedOperations)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         const auto uuid = make_uuid();
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 服务端 accept_packet 完成握手后关闭 → 客户端收发失败
+                     // 服务端 AcceptPacket 完成握手后关闭 → 客户端收发失败
                      net::experimental::channel<void(boost::system::error_code)> server_closed(
                          ioc.get_executor(), 1);
                      net::co_spawn(ioc.get_executor(),
                                    [&]() -> net::awaitable<void>
                                    {
-                                       vmess::server_config cfg;
+                                       Vmess::ServerConfig cfg;
                                        cfg.uuid = uuid;
-                                       auto [err, req, dg] = co_await vmess::accept_packet(
-                                           std::make_shared<memory_stream>(std::move(b)), cfg);
-                                       EXPECT_EQ(err, error::none);
+                                       auto [err, req, dg] = co_await Vmess::AcceptPacket(
+                                           std::make_shared<MemoryStream>(std::move(b)), cfg);
+                                       EXPECT_EQ(err, Error::none);
                                        (void)req;
-                                       dg->close();
+                                       dg->Close();
                                        server_closed.try_send(boost::system::error_code{});
                                    },
                                    net::detached);
 
-                     vmess::client_config cfg;
+                     Vmess::ClientConfig cfg;
                      cfg.uuid = uuid;
-                     auto [herr, dg] = co_await vmess::connect_packet(
-                         std::make_shared<memory_stream>(std::move(a)), cfg, make_vmess_addr());
-                     EXPECT_EQ(herr, error::none);
+                     auto [herr, dg] = co_await Vmess::ConnectPacket(
+                         std::make_shared<MemoryStream>(std::move(a)), cfg, make_vmess_addr());
+                     EXPECT_EQ(herr, Error::none);
                      co_await server_closed.async_receive(net::use_awaitable);
 
                      const std::string p = "x";
-                     const auto serr = co_await dg->async_send_to(as_u8_span(p));
-                     EXPECT_EQ(serr, error::io_error);
+                     const auto serr = co_await dg->AsyncSendTo(AsU8Span(p));
+                     EXPECT_EQ(serr, Error::io_error);
                      std::vector<std::uint8_t> out;
-                     const auto rerr = co_await dg->async_receive_from(out);
-                     EXPECT_EQ(rerr, error::unexpected_eof);
+                     const auto rerr = co_await dg->AsyncReceiveFrom(out);
+                     EXPECT_EQ(rerr, Error::unexpected_eof);
                  });
     }
 

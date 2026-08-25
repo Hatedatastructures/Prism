@@ -15,14 +15,14 @@
 #include <string>
 #include <vector>
 
-#include <common/bench/bench.hpp>
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/shadowsocks2022/shadowsocks2022.hpp>
+#include <common/Bench/Bench.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     template <typename A>
@@ -42,19 +42,19 @@ namespace
         }
     }
 
-    auto make_dst() -> shadowsocks2022::address
+    auto make_dst() -> Shadowsocks2022::Address
     {
-        shadowsocks2022::address dst{};
-        dst.type = shadowsocks2022::address_type::ipv4;
-        dst.host = "93.184.216.34";
-        dst.port = 443;
+        Shadowsocks2022::Address dst{};
+        dst.Type = Shadowsocks2022::AddressType::Ipv4;
+        dst.Host = "93.184.216.34";
+        dst.Port = 443;
         return dst;
     }
 
     TEST(Ss2022ClientServer, HandshakeAndTransfer100MB)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
         constexpr std::size_t kTotal = 100 * 1024 * 1024;
         constexpr std::size_t kBlock = 64 * 1024;
@@ -64,21 +64,21 @@ namespace
             {
                 auto server_coro = [&]() -> net::awaitable<void>
                 {
-                    auto [err, req, srv] = co_await preview::shadowsocks2022::accept(
-                        std::make_shared<memory_stream>(std::move(b)),
-                        preview::shadowsocks2022::server_config{"perf-secret"});
-                    if (err != error::none)
+                    auto [err, req, srv] = co_await Preview::Shadowsocks2022::Accept(
+                        std::make_shared<MemoryStream>(std::move(b)),
+                        Preview::Shadowsocks2022::ServerConfig{"perf-Secret"});
+                    if (err != Error::none)
                     {
-                        EXPECT_TRUE(false) << "handshake failed";
+                        EXPECT_TRUE(false) << "handshake Failed";
                         co_return;
                     }
-                    EXPECT_EQ(req.dst.port, 443u);
+                    EXPECT_EQ(req.dst.Port, 443u);
                     std::array<std::byte, kBlock> buf{};
                     std::size_t got = 0;
                     while (got < kTotal)
                     {
                         std::error_code ec;
-                        const auto n = co_await srv->async_read_some(std::span<std::byte>(buf), ec);
+                        const auto n = co_await srv->AsyncReadSome(std::span<std::byte>(buf), ec);
                         if (ec || n == 0)
                         {
                             break;
@@ -86,16 +86,16 @@ namespace
                         got += n;
                     }
                     EXPECT_EQ(got, kTotal);
-                    srv->close();
+                    srv->Close();
                 };
                 net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-                auto [cerr, cli] = co_await preview::shadowsocks2022::connect(
-                    std::make_shared<memory_stream>(std::move(a)),
-                    preview::shadowsocks2022::client_config{"perf-secret"}, make_dst());
-                if (cerr != error::none)
+                auto [cerr, cli] = co_await Preview::Shadowsocks2022::Connect(
+                    std::make_shared<MemoryStream>(std::move(a)),
+                    Preview::Shadowsocks2022::ClientConfig{"perf-Secret"}, make_dst());
+                if (cerr != Error::none)
                 {
-                    EXPECT_TRUE(false) << "connect failed";
+                    EXPECT_TRUE(false) << "Connect Failed";
                     co_return;
                 }
                 std::vector<std::uint8_t> payload(kBlock, 0x6E);
@@ -105,7 +105,7 @@ namespace
                 {
                     const auto n = std::min(kBlock, kTotal - sent);
                     std::error_code ec;
-                    const auto w = co_await cli->async_write_some(
+                    const auto w = co_await cli->AsyncWriteSome(
                         std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), n),
                         ec);
                     if (ec || w == 0)
@@ -113,34 +113,34 @@ namespace
                         break;
                     }
                     sent += w;
-                    // 让出调度：memory_stream 写同步完成，不 yield 会饿死对端协程
+                    // 让出调度：MemoryStream 写同步完成，不 yield 会饿死对端协程
                     if ((++block_idx & 0x0F) == 0)
                     {
                         co_await net::post(ioc.get_executor(), net::use_awaitable);
                     }
                 }
                 EXPECT_EQ(sent, kTotal);
-                cli->close();
+                cli->Close();
             });
     }
 
     TEST(Ss2022ClientServer, ThroughputLatency)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        bench_report tp{};
-        bench_report lat{};
+        BenchReport tp{};
+        BenchReport lat{};
         run_coro(
             ioc,
             [&]() -> net::awaitable<void>
             {
                 auto server_coro = [&]() -> net::awaitable<void>
                 {
-                    auto [err, req, srv] = co_await preview::shadowsocks2022::accept(
-                        std::make_shared<memory_stream>(std::move(b)),
-                        preview::shadowsocks2022::server_config{"perf-secret"});
-                    if (err != error::none)
+                    auto [err, req, srv] = co_await Preview::Shadowsocks2022::Accept(
+                        std::make_shared<MemoryStream>(std::move(b)),
+                        Preview::Shadowsocks2022::ServerConfig{"perf-Secret"});
+                    if (err != Error::none)
                     {
                         co_return;
                     }
@@ -148,37 +148,37 @@ namespace
                     while (true)
                     {
                         std::error_code ec;
-                        const auto n = co_await srv->async_read_some(std::span<std::byte>(buf), ec);
+                        const auto n = co_await srv->AsyncReadSome(std::span<std::byte>(buf), ec);
                         if (ec || n == 0)
                         {
                             break;
                         }
                         ec.clear();
-                        (void)co_await srv->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
+                        (void)co_await srv->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
                     }
-                    srv->close();
+                    srv->Close();
                 };
                 net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-                auto [err, cli] = co_await preview::shadowsocks2022::connect(
-                    std::make_shared<memory_stream>(std::move(a)),
-                    preview::shadowsocks2022::client_config{"perf-secret"}, make_dst());
-                if (err != error::none || !cli)
+                auto [err, cli] = co_await Preview::Shadowsocks2022::Connect(
+                    std::make_shared<MemoryStream>(std::move(a)),
+                    Preview::Shadowsocks2022::ClientConfig{"perf-Secret"}, make_dst());
+                if (err != Error::none || !cli)
                 {
                     co_return;
                 }
-                bench_options opt;
-                opt.total = 64 * 1024 * 1024;
+                BenchOptions opt;
+                opt.Total = 64 * 1024 * 1024;
                 opt.block = 64 * 1024;
-                tp = co_await bench_throughput_tx(*cli, *cli, opt);
+                tp = co_await BenchThroughputTx(*cli, *cli, opt);
                 // 延迟用新连接（回环小包 RTT）
-                auto [a2, b2] = make_memory_pair(ioc.get_executor());
+                auto [a2, b2] = MakeMemoryPair(ioc.get_executor());
                 auto server_coro2 = [&]() -> net::awaitable<void>
                 {
-                    auto [err, req, srv2] = co_await preview::shadowsocks2022::accept(
-                        std::make_shared<memory_stream>(std::move(b2)),
-                        preview::shadowsocks2022::server_config{"perf-secret"});
-                    if (err != error::none)
+                    auto [err, req, srv2] = co_await Preview::Shadowsocks2022::Accept(
+                        std::make_shared<MemoryStream>(std::move(b2)),
+                        Preview::Shadowsocks2022::ServerConfig{"perf-Secret"});
+                    if (err != Error::none)
                     {
                         co_return;
                     }
@@ -186,35 +186,35 @@ namespace
                     while (true)
                     {
                         std::error_code ec;
-                        const auto n = co_await srv2->async_read_some(std::span<std::byte>(buf), ec);
+                        const auto n = co_await srv2->AsyncReadSome(std::span<std::byte>(buf), ec);
                         if (ec || n == 0)
                         {
                             break;
                         }
                         ec.clear();
-                        (void)co_await srv2->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
+                        (void)co_await srv2->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
                     }
-                    srv2->close();
+                    srv2->Close();
                 };
                 net::co_spawn(ioc.get_executor(), server_coro2(), net::detached);
-                auto [err2, cli2] = co_await preview::shadowsocks2022::connect(
-                    std::make_shared<memory_stream>(std::move(a2)),
-                    preview::shadowsocks2022::client_config{"perf-secret"}, make_dst());
-                if (err2 != error::none || !cli2)
+                auto [err2, cli2] = co_await Preview::Shadowsocks2022::Connect(
+                    std::make_shared<MemoryStream>(std::move(a2)),
+                    Preview::Shadowsocks2022::ClientConfig{"perf-Secret"}, make_dst());
+                if (err2 != Error::none || !cli2)
                 {
                     co_return;
                 }
-                bench_options lopt;
-                lopt.total = 1000 * 4 * 1024;
+                BenchOptions lopt;
+                lopt.Total = 1000 * 4 * 1024;
                 lopt.block = 4 * 1024;
-                lat = co_await bench_throughput_tx(*cli2, *cli2, lopt);
-                cli2->close();
+                lat = co_await BenchThroughputTx(*cli2, *cli2, lopt);
+                cli2->Close();
             });
 
         std::printf("ss2022 throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min "
                     "%.3f max %.3f) samples=%zu\n",
-                    tp.mbps, lat.latency_avg, lat.latency_p50, lat.latency_p95, lat.latency_p99,
-                    lat.latency_min, lat.latency_max, lat.samples);
+                    tp.mbps, lat.LatencyAvg, lat.LatencyP50, lat.LatencyP95, lat.LatencyP99,
+                    lat.LatencyMin, lat.LatencyMax, lat.samples);
     }
 
 } // namespace

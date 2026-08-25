@@ -20,10 +20,10 @@
 #include <thread>
 #include <vector>
 
-#include <common/core/fault/code.hpp>
-#include <common/core/middleware/builtin/throttle.hpp>
-#include <common/core/middleware/context.hpp>
-#include <common/core/rate/token_bucket.hpp>
+#include <common/Core/Fault/Code.hpp>
+#include <common/Core/Middleware/Builtin/Throttle.hpp>
+#include <common/Core/Middleware/Context.hpp>
+#include <common/Core/Rate/TokenBucket.hpp>
 
 namespace
 {
@@ -38,44 +38,44 @@ namespace
 
     TEST(TokenBucket, CapacityLimit)
     {
-        preview::rate::token_bucket bucket(3, std::chrono::milliseconds(100), 1);
-        EXPECT_TRUE(bucket.try_take(1, 0));
-        EXPECT_TRUE(bucket.try_take(1, 0));
-        EXPECT_TRUE(bucket.try_take(1, 0));
-        EXPECT_FALSE(bucket.try_take(1, 0)); // 容量耗尽
-        EXPECT_FALSE(bucket.try_take(2, 0));
+        Preview::Rate::TokenBucket bucket(3, std::chrono::milliseconds(100), 1);
+        EXPECT_TRUE(bucket.TryTake(1, 0));
+        EXPECT_TRUE(bucket.TryTake(1, 0));
+        EXPECT_TRUE(bucket.TryTake(1, 0));
+        EXPECT_FALSE(bucket.TryTake(1, 0)); // 容量耗尽
+        EXPECT_FALSE(bucket.TryTake(2, 0));
     }
 
     TEST(TokenBucket, RefillOverTime)
     {
-        preview::rate::token_bucket bucket(5, std::chrono::milliseconds(100), 2);
-        EXPECT_TRUE(bucket.try_take(5, 0));  // 取满
-        EXPECT_FALSE(bucket.try_take(1, 50)); // 未到间隔
+        Preview::Rate::TokenBucket bucket(5, std::chrono::milliseconds(100), 2);
+        EXPECT_TRUE(bucket.TryTake(5, 0));  // 取满
+        EXPECT_FALSE(bucket.TryTake(1, 50)); // 未到间隔
 
-        EXPECT_TRUE(bucket.try_take(2, 100)); // 100ms 补 2
-        EXPECT_FALSE(bucket.try_take(1, 150)); // 还差 50ms
-        EXPECT_TRUE(bucket.try_take(2, 200)); // 再补 2
-        EXPECT_EQ(bucket.available(), 0);
+        EXPECT_TRUE(bucket.TryTake(2, 100)); // 100ms 补 2
+        EXPECT_FALSE(bucket.TryTake(1, 150)); // 还差 50ms
+        EXPECT_TRUE(bucket.TryTake(2, 200)); // 再补 2
+        EXPECT_EQ(bucket.Available(), 0);
     }
 
     TEST(TokenBucket, BurstConsumption)
     {
-        preview::rate::token_bucket bucket(10, std::chrono::milliseconds(50), 1);
+        Preview::Rate::TokenBucket bucket(10, std::chrono::milliseconds(50), 1);
         // 突发取 10（桶满）
-        EXPECT_TRUE(bucket.try_take(10, 0));
-        EXPECT_FALSE(bucket.try_take(1, 0));
+        EXPECT_TRUE(bucket.TryTake(10, 0));
+        EXPECT_FALSE(bucket.TryTake(1, 0));
         // 长时间后补发封顶于容量
-        EXPECT_TRUE(bucket.try_take(10, 100000)); // 补发大量但封顶
-        EXPECT_EQ(bucket.available(), 0);
+        EXPECT_TRUE(bucket.TryTake(10, 100000)); // 补发大量但封顶
+        EXPECT_EQ(bucket.Available(), 0);
     }
 
     TEST(TokenBucket, ConcurrentNoOverdraw)
     {
-        preview::rate::token_bucket bucket(1000, std::chrono::milliseconds(1000), 100);
+        Preview::Rate::TokenBucket bucket(1000, std::chrono::milliseconds(1000), 100);
         // 400 线程并发各取 1：应只允许 1000 个
         constexpr int threads = 8;
         constexpr int per_thread = 200; // 共 1600 次尝试 > 容量 1000
-        std::atomic<int> ok{0};
+        std::atomic<int> Ok{0};
         std::vector<std::thread> pool;
         for (int t = 0; t < threads; ++t)
         {
@@ -83,9 +83,9 @@ namespace
                               {
                 for (int i = 0; i < per_thread; ++i)
                 {
-                    if (bucket.try_take(1, 0))
+                    if (bucket.TryTake(1, 0))
                     {
-                        ++ok;
+                        ++Ok;
                     }
                 } });
         }
@@ -93,83 +93,83 @@ namespace
         {
             th.join();
         }
-        EXPECT_EQ(ok, 1000); // 恰好容量，无超发
+        EXPECT_EQ(Ok, 1000); // 恰好容量，无超发
     }
 
     TEST(ThrottleMiddleware, BlockedWhenExhausted)
     {
         net::io_context ioc;
-        preview::rate::token_bucket bucket(2, std::chrono::milliseconds(100), 1);
-        preview::middleware::builtin::throttle_middleware mw(&bucket, fake_clock);
+        Preview::Rate::TokenBucket bucket(2, std::chrono::milliseconds(100), 1);
+        Preview::Middleware::Builtin::ThrottleMiddleware mw(&bucket, fake_clock);
 
-        preview::middleware::context ctx;
-        preview::shared_transmission inbound;
+        Preview::Middleware::Context ctx;
+        Preview::SharedTransmission inbound;
 
-        preview::fault::code r1 = preview::fault::code::success;
-        preview::fault::code r2 = preview::fault::code::success;
-        preview::fault::code r3 = preview::fault::code::success;
+        Preview::Fault::Code r1 = Preview::Fault::Code::success;
+        Preview::Fault::Code r2 = Preview::Fault::Code::success;
+        Preview::Fault::Code r3 = Preview::Fault::Code::success;
         std::exception_ptr ep;
         net::co_spawn(ioc,
                       [&]() -> net::awaitable<void>
                       {
-                          r1 = co_await mw.handle(inbound, ctx);
-                          r2 = co_await mw.handle(inbound, ctx);
-                          r3 = co_await mw.handle(inbound, ctx);
+                          r1 = co_await mw.Handle(inbound, ctx);
+                          r2 = co_await mw.Handle(inbound, ctx);
+                          r3 = co_await mw.Handle(inbound, ctx);
                       },
                       [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         ASSERT_FALSE(ep);
-        EXPECT_EQ(r1, preview::fault::code::success);
-        EXPECT_EQ(r2, preview::fault::code::success);
-        EXPECT_EQ(r3, preview::fault::code::blocked);
+        EXPECT_EQ(r1, Preview::Fault::Code::success);
+        EXPECT_EQ(r2, Preview::Fault::Code::success);
+        EXPECT_EQ(r3, Preview::Fault::Code::blocked);
     }
 
     TEST(BanMiddleware, ThresholdBans)
     {
         fake_ms = 0;
-        preview::middleware::builtin::ban_middleware ban(3, 1000, fake_clock);
+        Preview::Middleware::Builtin::BanMiddleware ban(3, 1000, fake_clock);
 
-        ban.record_failure("1.2.3.4");
-        ban.record_failure("1.2.3.4");
-        EXPECT_FALSE(ban.is_banned("1.2.3.4"));
-        ban.record_failure("1.2.3.4"); // 达阈值
-        EXPECT_TRUE(ban.is_banned("1.2.3.4"));
+        ban.RecordFailure("1.2.3.4");
+        ban.RecordFailure("1.2.3.4");
+        EXPECT_FALSE(ban.IsBanned("1.2.3.4"));
+        ban.RecordFailure("1.2.3.4"); // 达阈值
+        EXPECT_TRUE(ban.IsBanned("1.2.3.4"));
 
         // 其他键不受影响
-        EXPECT_FALSE(ban.is_banned("5.6.7.8"));
+        EXPECT_FALSE(ban.IsBanned("5.6.7.8"));
     }
 
     TEST(BanMiddleware, WindowExpiryUnbans)
     {
         fake_ms = 0;
-        preview::middleware::builtin::ban_middleware ban(2, 1000, fake_clock);
+        Preview::Middleware::Builtin::BanMiddleware ban(2, 1000, fake_clock);
 
-        ban.record_failure("host");
-        ban.record_failure("host");
-        EXPECT_TRUE(ban.is_banned("host"));
+        ban.RecordFailure("host");
+        ban.RecordFailure("host");
+        EXPECT_TRUE(ban.IsBanned("host"));
 
         fake_ms = 1500; // 窗口过期
-        EXPECT_FALSE(ban.is_banned("host"));
+        EXPECT_FALSE(ban.IsBanned("host"));
     }
 
     TEST(BanMiddleware, HandleBlocksWhenBanned)
     {
         net::io_context ioc;
         fake_ms = 0;
-        preview::middleware::builtin::ban_middleware ban(1, 1000, fake_clock);
-        ban.record_failure("offender");
+        Preview::Middleware::Builtin::BanMiddleware ban(1, 1000, fake_clock);
+        ban.RecordFailure("offender");
 
-        preview::middleware::context ctx;
-        ctx.raw_identity = "offender";
-        preview::shared_transmission inbound;
+        Preview::Middleware::Context ctx;
+        ctx.RawIdentity = "offender";
+        Preview::SharedTransmission inbound;
 
-        preview::fault::code rc = preview::fault::code::success;
+        Preview::Fault::Code rc = Preview::Fault::Code::success;
         std::exception_ptr ep;
-        net::co_spawn(ioc, [&]() -> net::awaitable<void> { rc = co_await ban.handle(inbound, ctx); },
+        net::co_spawn(ioc, [&]() -> net::awaitable<void> { rc = co_await ban.Handle(inbound, ctx); },
                       [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         ASSERT_FALSE(ep);
-        EXPECT_EQ(rc, preview::fault::code::blocked);
+        EXPECT_EQ(rc, Preview::Fault::Code::blocked);
     }
 
 } // namespace

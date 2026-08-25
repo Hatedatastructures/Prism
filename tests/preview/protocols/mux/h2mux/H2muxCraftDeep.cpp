@@ -153,7 +153,7 @@ namespace
             fx.craft_obj->start();
 
             // 等待 init_nghttp2 + send_pending + send_loop 启动
-            net::steady_timer timer(fx.transport->get_io_context().get_executor());
+            net::steady_timer timer(fx.transport->GetIoContext().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
@@ -167,7 +167,7 @@ namespace
             close_ok = !fx.craft_obj->is_active();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {

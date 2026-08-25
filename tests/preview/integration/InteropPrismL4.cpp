@@ -1,8 +1,8 @@
 /**
  * @file InteropPrismL4.cpp
- * @brief L4 生产对拍：preview 客户端 → 生产 Prism 服务端
- * @details 用 tests/common 的 preview 协议客户端连接真实 psm 服务端
- *          （build/src/Prism.exe），验证协议互通：
+ * @brief L4 生产对拍：Preview 客户端 → 生产 Prism 服务端
+ * @details 用 tests/common 的 Preview 协议客户端连接真实 psm 服务端
+ *          （Build/src/Prism.exe），验证协议互通：
  *          - 协议：socks5 / vless / trojan / vmess
  *          - 模式：echo（正确凭据 + 回环 echo 校验）
  *                 authfail（错误凭据，期望握手失败或无回显；超时不算通过）
@@ -33,21 +33,21 @@
 #include <string_view>
 #include <vector>
 
-#include <common/core/error.hpp>
-#include <common/core/net/dialer/dialer.hpp>
-#include <common/core/transmission.hpp>
-#include <common/protocols/socks5/socks5.hpp>
-#include <common/protocols/shadowsocks2022/shadowsocks2022.hpp>
-#include <common/protocols/trojan/trojan.hpp>
-#include <common/protocols/vless/vless.hpp>
-#include <common/protocols/vmess/codec.hpp>
-#include <common/protocols/vmess/vmess.hpp>
+#include <common/Core/Error.hpp>
+#include <common/Core/Net/Dialer/Dialer.hpp>
+#include <common/Core/Transmission.hpp>
+#include <common/Protocols/Socks5/Socks5.hpp>
+#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <common/Protocols/Trojan/Trojan.hpp>
+#include <common/Protocols/Vless/Vless.hpp>
+#include <common/Protocols/Vmess/Codec.hpp>
+#include <common/Protocols/Vmess/Vmess.hpp>
 
 namespace
 {
     namespace net = boost::asio;
-    using tcp = net::ip::tcp;
-    using namespace preview;
+    using Tcp = net::ip::tcp;
+    using namespace Preview;
 
     /// 与 configuration.json 一致的 UUID（VMess/VLESS）
     constexpr std::string_view k_uuid_str = "123e4567-e89b-12d3-a456-426614174000";
@@ -71,7 +71,7 @@ namespace
         timed_out,
     };
 
-    struct options
+    struct Options
     {
         std::string addr{"127.0.0.1:18081"};
         std::string proto;
@@ -81,9 +81,9 @@ namespace
     };
 
     /// 解析参数（-key value）
-    auto parse_args(int argc, char *argv[]) -> options
+    auto parse_args(int argc, char *argv[]) -> Options
     {
-        options opts;
+        Options opts;
         for (int i = 1; i + 1 < argc; i += 2)
         {
             const std::string key = argv[i];
@@ -121,7 +121,7 @@ namespace
     }
 
     /// TCP 回显服务（detached，EOF 或错误即退出）
-    auto echo_server(tcp::socket sock) -> net::awaitable<void>
+    auto echo_server(Tcp::socket sock) -> net::awaitable<void>
     {
         std::array<std::byte, 4096> buf{};
         boost::system::error_code ec;
@@ -145,7 +145,7 @@ namespace
     }
 
     /// 接受循环：每个连接派生 echo 协程
-    auto echo_acceptor_loop(std::shared_ptr<tcp::acceptor> acceptor) -> net::awaitable<void>
+    auto echo_acceptor_loop(std::shared_ptr<Tcp::acceptor> acceptor) -> net::awaitable<void>
     {
         while (true)
         {
@@ -165,41 +165,41 @@ namespace
                           {
                               if (ep)
                               {
-                                  std::fprintf(stderr, "echo server error\n");
+                                  std::fprintf(stderr, "echo Server Error\n");
                               }
                           });
         }
     }
 
     /// 解析 UUID 字符串为 16 字节
-    auto parse_uuid() -> std::array<std::uint8_t, 16>
+    auto ParseUuid() -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 16> out{};
-        if (!vmess::parse_uuid(k_uuid_str, out))
+        if (!Vmess::ParseUuid(k_uuid_str, out))
         {
             std::fprintf(stderr, "bad uuid string\n");
         }
         return out;
     }
 
-    /// 执行一次协议 connect + 写载荷 + 读回显
+    /// 执行一次协议 Connect + 写载荷 + 读回显
     /// @return 用例结果（不打印；判定交给调用方）
-    auto run_echo_case(shared_transmission raw, const std::uint16_t echo_port,
-                       const options &opts) -> net::awaitable<case_result>
+    auto run_echo_case(SharedTransmission raw, const std::uint16_t echo_port,
+                       const Options &opts) -> net::awaitable<case_result>
     {
-        const auto uuid = parse_uuid();
-        error err{error::none};
-        shared_transmission proxy;
+        const auto uuid = ParseUuid();
+        Error err{Error::none};
+        SharedTransmission proxy;
 
         if (opts.proto == "socks5")
         {
-            socks5::client_config cfg;
-            cfg.enable_auth = true;
+            Socks5::ClientConfig cfg;
+            cfg.EnableAuth = true;
             cfg.username = "prism";
             cfg.password = opts.auth_fail ? std::string(k_wrong_password) : std::string(k_socks_password);
-            auto [e, c] = co_await socks5::connect(
+            auto [e, c] = co_await Socks5::Connect(
                 std::move(raw), cfg,
-                socks5::address{socks5::address_type::ipv4, "127.0.0.1", echo_port});
+                Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", echo_port});
             err = e;
             proxy = std::move(c);
         }
@@ -209,8 +209,8 @@ namespace
             constexpr std::array<std::uint8_t, 16> psk{
                 0xE6, 0x7E, 0x44, 0x4A, 0xEF, 0x79, 0xDE, 0x2F,
                 0xE9, 0x8C, 0x8A, 0x74, 0xDA, 0x86, 0x6F, 0x1C};
-            shadowsocks2022::client_config cfg;
-            cfg.use_psk = true;
+            Shadowsocks2022::ClientConfig cfg;
+            cfg.UsePsk = true;
             if (opts.auth_fail)
             {
                 cfg.psk.fill(0x77);
@@ -219,46 +219,46 @@ namespace
             {
                 cfg.psk = psk;
             }
-            auto [e, c] = co_await shadowsocks2022::connect(
+            auto [e, c] = co_await Shadowsocks2022::Connect(
                 std::move(raw), cfg,
-                shadowsocks2022::address{shadowsocks2022::address_type::ipv4, "127.0.0.1", echo_port});
+                Shadowsocks2022::Address{Shadowsocks2022::AddressType::Ipv4, "127.0.0.1", echo_port});
             err = e;
             proxy = std::move(c);
         }
         else if (opts.proto == "vless")
         {
-            vless::client_config cfg;
+            Vless::ClientConfig cfg;
             std::array<std::uint8_t, 16> bad_uuid{};
             bad_uuid.fill(0xAB);
             cfg.uuid = opts.auth_fail ? bad_uuid : uuid;
-            auto [e, c] = co_await vless::connect(
+            auto [e, c] = co_await Vless::Connect(
                 std::move(raw), cfg,
-                vless::address{vless::address_type::ipv4, "127.0.0.1", echo_port},
-                vless::command::tcp);
+                Vless::Address{Vless::AddressType::Ipv4, "127.0.0.1", echo_port},
+                Vless::Command::Tcp);
             err = e;
             proxy = std::move(c);
         }
         else if (opts.proto == "trojan")
         {
-            trojan::client_config cfg;
+            Trojan::ClientConfig cfg;
             cfg.password = opts.auth_fail ? std::string(k_wrong_password) : std::string(k_trojan_password);
-            auto [e, c] = co_await trojan::connect(
+            auto [e, c] = co_await Trojan::Connect(
                 std::move(raw), cfg,
-                trojan::address{trojan::address_type::ipv4, "127.0.0.1", echo_port},
-                trojan::command::connect);
+                Trojan::Address{Trojan::AddressType::Ipv4, "127.0.0.1", echo_port},
+                Trojan::Command::Connect);
             err = e;
             proxy = std::move(c);
         }
         else if (opts.proto == "vmess")
         {
-            vmess::client_config cfg;
+            Vmess::ClientConfig cfg;
             std::array<std::uint8_t, 16> bad_uuid{};
             bad_uuid.fill(0xCD);
             cfg.uuid = opts.auth_fail ? bad_uuid : uuid;
-            auto [e, c] = co_await vmess::connect(
+            auto [e, c] = co_await Vmess::Connect(
                 std::move(raw), cfg,
-                vmess::address{vmess::address_type::ipv4, "127.0.0.1", echo_port},
-                vmess::command::tcp);
+                Vmess::Address{Vmess::AddressType::Ipv4, "127.0.0.1", echo_port},
+                static_cast<std::uint8_t>(Vmess::Command::Tcp));
             err = e;
             proxy = std::move(c);
         }
@@ -267,19 +267,19 @@ namespace
             co_return case_result::handshake_failed;
         }
 
-        if (err != error::none || !proxy)
+        if (err != Error::none || !proxy)
         {
             co_return case_result::handshake_failed;
         }
 
         std::error_code ec;
-        co_await proxy->async_write(
+        co_await proxy->AsyncWrite(
             std::span<const std::byte>(
                 reinterpret_cast<const std::byte *>(k_payload.data()), k_payload.size()),
             ec);
         if (ec)
         {
-            proxy->close();
+            proxy->Close();
             co_return case_result::echo_failed;
         }
 
@@ -287,7 +287,7 @@ namespace
         std::size_t got = 0;
         while (got < k_payload.size())
         {
-            const auto n = co_await proxy->async_read_some(
+            const auto n = co_await proxy->AsyncReadSome(
                 std::span<std::byte>(buf).subspan(got), ec);
             if (ec || n == 0)
             {
@@ -296,14 +296,14 @@ namespace
             got += n;
         }
 
-        const auto ok = (got == k_payload.size()) &&
+        const auto Ok = (got == k_payload.size()) &&
                         (std::memcmp(buf.data(), k_payload.data(), got) == 0);
-        proxy->close();
-        co_return ok ? case_result::echo_ok : case_result::echo_failed;
+        proxy->Close();
+        co_return Ok ? case_result::echo_ok : case_result::echo_failed;
     }
 
     /// 整个测试用例（带超时；超时取消挂起的连接）
-    auto run_case(net::any_io_executor ex, const options &opts,
+    auto run_case(net::any_io_executor ex, const Options &opts,
                   const std::uint16_t echo_port) -> net::awaitable<case_result>
     {
         using boost::asio::experimental::awaitable_operators::operator||;
@@ -317,8 +317,8 @@ namespace
         auto do_test = [&]() -> net::awaitable<case_result>
         {
             std::error_code ec;
-            network::dialer::dialer dialer(ex);
-            auto raw = co_await dialer.connect(host, port, ec);
+            Network::Dialer::Dialer Dialer(ex);
+            auto raw = co_await Dialer.Connect(host, port, ec);
             if (ec || !raw)
             {
                 co_return case_result::handshake_failed;
@@ -328,12 +328,12 @@ namespace
 
         net::steady_timer watchdog(ex);
         watchdog.expires_after(k_case_timeout);
-        const auto result = co_await (do_test() || watchdog.async_wait(net::use_awaitable));
-        if (result.index() == 1)
+        const auto Result = co_await (do_test() || watchdog.async_wait(net::use_awaitable));
+        if (Result.index() == 1)
         {
             co_return case_result::timed_out;
         }
-        co_return std::get<0>(result);
+        co_return std::get<0>(Result);
     }
 } // namespace
 
@@ -348,19 +348,19 @@ int main(const int argc, char *argv[])
         // echoserver 模式：只启动固定端口 echo 并常驻，供 SS2022 等对拍复用
         if (opts.mode == "echoserver")
         {
-            auto acceptor = std::make_shared<tcp::acceptor>(
-                ioc.get_executor(), tcp::endpoint(tcp::v4(), opts.echo_port));
+            auto acceptor = std::make_shared<Tcp::acceptor>(
+                ioc.get_executor(), net::ip::tcp::endpoint(net::ip::tcp::v4(), opts.echo_port));
             net::co_spawn(ioc.get_executor(), echo_acceptor_loop(acceptor),
                           [](const std::exception_ptr &ep)
                           {
                               if (ep)
                               {
-                                  std::fprintf(stderr, "acceptor loop error\n");
+                                  std::fprintf(stderr, "acceptor loop Error\n");
                               }
                           });
             std::thread runner([&] { ioc.run(); });
             runner.detach();
-            std::fprintf(stderr, "echo server on 127.0.0.1:%u (run until killed)\n",
+            std::fprintf(stderr, "echo Server on 127.0.0.1:%u (Run until killed)\n",
                          static_cast<unsigned>(opts.echo_port));
             for (;;)
             {
@@ -380,15 +380,15 @@ int main(const int argc, char *argv[])
         }
 
         // 内嵌 echo 服务器（Prism 反向拨号目标）
-        auto acceptor = std::make_shared<tcp::acceptor>(
-            ioc.get_executor(), tcp::endpoint(tcp::v4(), 0));
+        auto acceptor = std::make_shared<Tcp::acceptor>(
+            ioc.get_executor(), net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto echo_port = acceptor->local_endpoint().port();
         net::co_spawn(ioc.get_executor(), echo_acceptor_loop(acceptor),
                       [](const std::exception_ptr &ep)
                       {
                           if (ep)
                           {
-                              std::fprintf(stderr, "acceptor loop error\n");
+                              std::fprintf(stderr, "acceptor loop Error\n");
                           }
                       });
 
@@ -417,7 +417,7 @@ int main(const int argc, char *argv[])
                 // 超时不能作为拒绝证据：服务端认证后挂死同样表现为超时
                 std::fprintf(stderr,
                              "WARN: L4 interop %s (authfail): outcome=timed_out, "
-                             "cannot distinguish rejection from server hang\n",
+                             "cannot distinguish rejection from Server hang\n",
                              opts.proto.c_str());
             }
             else

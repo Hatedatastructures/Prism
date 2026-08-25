@@ -19,16 +19,16 @@
 #include <string>
 #include <vector>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/mux/h2mux/h2mux.hpp>
-#include <common/protocols/mux/smux/smux.hpp>
-#include <common/protocols/mux/yamux/yamux.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Mux/H2Mux/H2Mux.hpp>
+#include <common/Protocols/Mux/Smux/Smux.hpp>
+#include <common/Protocols/Mux/Yamux/Yamux.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
-    using namespace preview::mux;
+    using namespace Preview;
+    using namespace Preview::Mux;
 
     template <typename A>
     auto run_coro(net::io_context &ioc, A coro) -> void
@@ -52,11 +52,11 @@ namespace
     TEST(MuxSessionDeep, ConcurrentStreamsDataIntegrity)
     {
         net::io_context ioc;
-        smux::client cl;
-        smux::server sv;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        ASSERT_TRUE(cl.connect(std::make_shared<memory_stream>(std::move(a))));
-        ASSERT_TRUE(sv.accept(std::make_shared<memory_stream>(std::move(b))));
+        Smux::Client cl;
+        Smux::Server sv;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        ASSERT_TRUE(cl.Connect(std::make_shared<MemoryStream>(std::move(a))));
+        ASSERT_TRUE(sv.Accept(std::make_shared<MemoryStream>(std::move(b))));
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -65,39 +65,39 @@ namespace
                      {
                          for (std::uint32_t i = 0; i < 3; ++i)
                          {
-                             auto s = co_await sv.accept_stream();
+                             auto s = co_await sv.AcceptStream();
                              if (!s)
                              {
                                  co_return;
                              }
                              std::array<std::byte, 128> buf{};
                              std::error_code ec;
-                             const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
+                             const auto n = co_await s->AsyncReadSome(std::span<std::byte>(buf), ec);
                              EXPECT_GT(n, 0U);
-                             s->close();
+                             s->Close();
                          }
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
                      for (std::uint32_t i = 1; i <= 3; ++i)
                      {
-                         auto s = co_await cl.open_stream();
+                         auto s = co_await cl.OpenStream();
                          if (!s)
                          {
-                             EXPECT_TRUE(false) << "open_stream failed";
+                             EXPECT_TRUE(false) << "OpenStream Failed";
                              co_return;
                          }
-                         const std::string payload = "stream-" + std::to_string(i) + "-payload";
+                         const std::string payload = "Stream-" + std::to_string(i) + "-payload";
                          std::error_code ec;
-                         const auto n = co_await s->async_write_some(
+                         const auto n = co_await s->AsyncWriteSome(
                              std::span<const std::byte>(
                                  reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
                              ec);
                          EXPECT_EQ(n, payload.size());
-                         s->close();
+                         s->Close();
                      }
-                     sv.close();
-                     cl.close();
+                     sv.Close();
+                     cl.Close();
                  });
     }
 
@@ -106,15 +106,15 @@ namespace
     TEST(MuxSessionDeep, ClosedSessionOpsFail)
     {
         net::io_context ioc;
-        smux::client cl;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        ASSERT_TRUE(cl.connect(std::make_shared<memory_stream>(std::move(a))));
+        Smux::Client cl;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        ASSERT_TRUE(cl.Connect(std::make_shared<MemoryStream>(std::move(a))));
 
          run_coro(ioc,
                   [&]() -> net::awaitable<void>
                   {
-                      co_await cl.session()->close();
-                      auto s = co_await cl.open_stream();
+                      co_await cl.Session()->Close();
+                      auto s = co_await cl.OpenStream();
                       EXPECT_FALSE(s);
                       co_return;
                   });
@@ -125,22 +125,22 @@ namespace
     TEST(MuxSessionDeep, FactoryHandshakeFail)
     {
         net::io_context ioc;
-        smux::client cl;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        Smux::Client cl;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
          run_coro(ioc,
                   [&]() -> net::awaitable<void>
                   {
-                      b.close();
-                      if (!cl.connect(std::make_shared<memory_stream>(std::move(a))))
+                      b.Close();
+                      if (!cl.Connect(std::make_shared<MemoryStream>(std::move(a))))
                       {
-                          EXPECT_TRUE(false) << "connect failed";
+                          EXPECT_TRUE(false) << "Connect Failed";
                           co_return;
                       }
-                      while (cl.is_open())
+                      while (cl.IsOpen())
                       {
                           co_await net::post(ioc.get_executor(), net::use_awaitable);
                       }
-                      EXPECT_FALSE(cl.is_open());
+                      EXPECT_FALSE(cl.IsOpen());
                       co_return;
                   });
      }
@@ -149,32 +149,32 @@ namespace
 
     TEST(MuxSessionDeep, SmuxHeaderBuildParse)
     {
-        smux::frame_header hdr;
-        hdr.cmd = smux::command::push;
-        hdr.stream_id = 7;
+        Smux::FrameHeader hdr;
+        hdr.cmd = Smux::Command::Push;
+        hdr.StreamId = 7;
         const std::array<std::uint8_t, 2> payload{0xAA, 0xBB};
-        auto frame = smux::build(hdr, payload);
-        smux::frame_header out;
-        EXPECT_EQ(smux::parse_header(frame, out), error::none);
-        EXPECT_EQ(out.cmd, smux::command::push);
-        EXPECT_EQ(out.stream_id, 7U);
+        auto Frame = Smux::Build(hdr, payload);
+        Smux::FrameHeader out;
+        EXPECT_EQ(Smux::ParseHeader(Frame, out), Error::none);
+        EXPECT_EQ(out.cmd, Smux::Command::Push);
+        EXPECT_EQ(out.StreamId, 7U);
     }
 
     // ── 5. yamux 帧头构建/解析 ──
 
     TEST(MuxSessionDeep, YamuxHeaderBuildParse)
     {
-        yamux::frame_header hdr;
+        Yamux::FrameHeader hdr;
         hdr.version = 0;
-        hdr.type = yamux::message_type::data;
-        hdr.flag = yamux::flags::none;
-        hdr.stream_id = 9;
+        hdr.Type = Yamux::MessageType::Data;
+        hdr.flag = Yamux::Flags::none;
+        hdr.StreamId = 9;
         const std::array<std::uint8_t, 3> payload{1, 2, 3};
-        auto frame = yamux::build(hdr, payload);
-        yamux::frame_header out;
-        EXPECT_EQ(yamux::parse_header(frame, out), error::none);
-        EXPECT_EQ(out.type, yamux::message_type::data);
-        EXPECT_EQ(out.stream_id, 9U);
+        auto Frame = Yamux::Build(hdr, payload);
+        Yamux::FrameHeader out;
+        EXPECT_EQ(Yamux::ParseHeader(Frame, out), Error::none);
+        EXPECT_EQ(out.Type, Yamux::MessageType::Data);
+        EXPECT_EQ(out.StreamId, 9U);
     }
 
     // ── 6. h2mux 帧头构建/解析 ──
@@ -182,12 +182,12 @@ namespace
     TEST(MuxSessionDeep, H2muxHeaderBuildParse)
     {
         const std::array<std::uint8_t, 2> payload{0x10, 0x20};
-        auto frame = h2mux::build(h2mux::frame_type::data, 3, payload);
-        EXPECT_EQ(frame.size(), 9U + 2U);
-        h2mux::frame_header out;
-        EXPECT_EQ(h2mux::parse_header(frame, out), error::none);
-        EXPECT_EQ(out.type, h2mux::frame_type::data);
-        EXPECT_EQ(out.stream_id, 3U);
+        auto Frame = H2Mux::Build(H2Mux::FrameType::Data, 3, payload);
+        EXPECT_EQ(Frame.size(), 9U + 2U);
+        H2Mux::FrameHeader out;
+        EXPECT_EQ(H2Mux::ParseHeader(Frame, out), Error::none);
+        EXPECT_EQ(out.Type, H2Mux::FrameType::Data);
+        EXPECT_EQ(out.StreamId, 3U);
     }
 
 } // namespace

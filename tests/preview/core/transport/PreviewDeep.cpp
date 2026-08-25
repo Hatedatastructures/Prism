@@ -1,15 +1,15 @@
 /**
  * @file PreviewDeep.cpp
- * @brief transport/preview 深度纯函数测试
- * @details 通过 #include 源文件访问 preview.cpp 中所有同步函数，
- *          覆盖构造函数、executor、close、cancel、transport_type、
- *          next_layer、wrap_with_preview 以及 completion-handler 重载。
+ * @brief transport/Preview 深度纯函数测试
+ * @details 通过 #include 源文件访问 Preview.cpp 中所有同步函数，
+ *          覆盖构造函数、Executor、Close、Cancel、TransportType、
+ *          NextLayer、WrapWithPreview 以及 completion-handler 重载。
  */
 
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
-#include "../../src/prism/net/transport/preview.cpp"
+#include "../../src/prism/net/transport/Preview.cpp"
 #include "common/MockTransport.hpp"
 #include <gtest/gtest.h>
 
@@ -17,11 +17,7 @@ using psm::testing::MockTransport;
 
 namespace
 {
-    namespace transport = psm::transport;
-    using transport::preview;
-    using transport::shared_transmission;
-    using transport::transmission;
-
+    namespace psm_transport = psm::transport;
     auto make_mock() -> std::shared_ptr<MockTransport>
     {
         return std::make_shared<MockTransport>();
@@ -32,176 +28,176 @@ namespace
     TEST(PreviewDeep, ConstructWithData)
     {
         auto mock = make_mock();
-        const std::byte data[] = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
-        preview p(shared_transmission(mock), data);
+        const std::byte Data[] = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
+        psm::transport::preview p(psm::transport::shared_transmission(mock), Data);
 
-        // 验证 next_layer 返回内部指针
-        EXPECT_EQ(p.next_layer(), mock.get()) << "construct: next_layer == mock";
-        EXPECT_NE(p.inner(), nullptr) << "construct: inner not null";
+        // 验证 NextLayer 返回内部指针
+        EXPECT_EQ(p.next_layer(), mock.get()) << "construct: NextLayer == mock";
+        EXPECT_NE(p.inner(), nullptr) << "construct: Inner not null";
     }
 
     TEST(PreviewDeep, ConstructEmptyData)
     {
         auto mock = make_mock();
-        preview p(shared_transmission(mock), std::span<const std::byte>{});
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
 
-        EXPECT_EQ(p.next_layer(), mock.get()) << "construct: empty preread -> next_layer ok";
+        EXPECT_EQ(p.next_layer(), mock.get()) << "construct: Empty preread -> NextLayer Ok";
     }
 
     TEST(PreviewDeep, ConstructNullInner)
     {
-        preview p(nullptr, std::span<const std::byte>{});
+        psm::transport::preview p(nullptr, std::span<const std::byte>{});
 
-        EXPECT_EQ(p.next_layer(), nullptr) << "construct: null inner -> next_layer null";
-        EXPECT_EQ(p.inner(), nullptr) << "construct: null inner -> inner null";
+        EXPECT_EQ(p.next_layer(), nullptr) << "construct: null Inner -> NextLayer null";
+        EXPECT_EQ(p.inner(), nullptr) << "construct: null Inner -> Inner null";
     }
 
     TEST(PreviewDeep, ConstructLargeData)
     {
         auto mock = make_mock();
         std::vector<std::byte> big(4096, std::byte{0xAA});
-        preview p(shared_transmission(mock), std::span<const std::byte>{big.data(), big.size()});
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{big.data(), big.size()});
 
-        EXPECT_EQ(p.next_layer(), mock.get()) << "construct: large preread -> ok";
+        EXPECT_EQ(p.next_layer(), mock.get()) << "construct: large preread -> Ok";
     }
 
-    // ─── executor() 测试 ──────────────────────
+    // ─── Executor() 测试 ──────────────────────
 
     TEST(PreviewDeep, ExecutorNullInner)
     {
-        preview p(nullptr, std::span<const std::byte>{});
+        psm::transport::preview p(nullptr, std::span<const std::byte>{});
         auto ex = p.executor();
-        // 空 executor（默认构造）
-        EXPECT_TRUE(!ex) << "executor: null inner -> empty executor";
+        // 空 Executor（默认构造）
+        EXPECT_TRUE(!ex) << "Executor: null Inner -> Empty Executor";
     }
 
     TEST(PreviewDeep, ExecutorValidInner)
     {
         auto mock = make_mock();
         auto mock_ex = mock->executor();
-        preview p(shared_transmission(mock), std::span<const std::byte>{});
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
         auto ex = p.executor();
-        EXPECT_TRUE(!!ex) << "executor: valid inner -> non-empty executor";
+        EXPECT_TRUE(!!ex) << "Executor: valid Inner -> non-Empty Executor";
     }
 
-    // ─── close() 测试 ─────────────────────────
+    // ─── Close() 测试 ─────────────────────────
 
     TEST(PreviewDeep, CloseNullInner)
     {
-        preview p(nullptr, std::span<const std::byte>{});
-        // close() 对 null inner 不应崩溃，且后续操作应安全
+        psm::transport::preview p(nullptr, std::span<const std::byte>{});
+        // Close() 对 null Inner 不应崩溃，且后续操作应安全
         p.close();
         p.close();
-        EXPECT_TRUE(true) << "close: null inner -> idempotent, no crash";
+        EXPECT_TRUE(true) << "Close: null Inner -> idempotent, no crash";
     }
 
     TEST(PreviewDeep, CloseValidInner)
     {
         auto mock = make_mock();
-        preview p(shared_transmission(mock), std::span<const std::byte>{});
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
         p.close();
-        EXPECT_TRUE(mock->is_closed()) << "close: valid inner -> mock closed";
+        EXPECT_TRUE(mock->IsClosed()) << "Close: valid Inner -> mock closed";
     }
 
-    // ─── cancel() 测试 ────────────────────────
+    // ─── Cancel() 测试 ────────────────────────
 
     TEST(PreviewDeep, CancelNullInner)
     {
-        preview p(nullptr, std::span<const std::byte>{});
+        psm::transport::preview p(nullptr, std::span<const std::byte>{});
         p.cancel();
         p.cancel();
-        EXPECT_TRUE(true) << "cancel: null inner -> idempotent, no crash";
+        EXPECT_TRUE(true) << "Cancel: null Inner -> idempotent, no crash";
     }
 
     TEST(PreviewDeep, CancelValidInner)
     {
         auto mock = make_mock();
-        preview p(shared_transmission(mock), std::span<const std::byte>{});
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
         p.cancel();
-        EXPECT_TRUE(mock->is_cancelled()) << "cancel: valid inner -> mock cancelled";
+        EXPECT_TRUE(mock->IsCancelled()) << "Cancel: valid Inner -> mock cancelled";
     }
 
-    // ─── transport_type() 测试 ─────────────────
+    // ─── TransportType() 测试 ─────────────────
 
     TEST(PreviewDeep, TransportTypeNullInner)
     {
-        preview p(nullptr, std::span<const std::byte>{});
-        EXPECT_EQ(p.transport_type(), transmission::type::tcp) << "transport_type: null inner -> tcp";
+        psm::transport::preview p(nullptr, std::span<const std::byte>{});
+        EXPECT_EQ(p.transport_type(), psm::transport::transmission::type::tcp) << "TransportType: null Inner -> Tcp";
     }
 
     TEST(PreviewDeep, TransportTypeValidInner)
     {
         auto mock = make_mock();
-        preview p(shared_transmission(mock), std::span<const std::byte>{});
-        // MockTransport 使用默认 transport_type() → 沿 next_layer 链，最终返回 tcp
-        EXPECT_EQ(p.transport_type(), transmission::type::tcp) << "transport_type: mock inner -> tcp";
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
+        // MockTransport 使用默认 TransportType() → 沿 NextLayer 链，最终返回 Tcp
+        EXPECT_EQ(p.transport_type(), psm::transport::transmission::type::tcp) << "TransportType: mock Inner -> Tcp";
     }
 
-    // ─── next_layer() 测试 ────────────────────
+    // ─── NextLayer() 测试 ────────────────────
 
     TEST(PreviewDeep, NextLayerMutable)
     {
         auto mock = make_mock();
-        preview p(shared_transmission(mock), std::span<const std::byte>{});
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
         auto *nl = p.next_layer();
-        EXPECT_EQ(nl, mock.get()) << "next_layer: mutable == mock";
+        EXPECT_EQ(nl, mock.get()) << "NextLayer: mutable == mock";
     }
 
     TEST(PreviewDeep, NextLayerConst)
     {
         auto mock = make_mock();
-        const preview p(shared_transmission(mock), std::span<const std::byte>{});
+        const psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
         const auto *nl = p.next_layer();
-        EXPECT_EQ(nl, mock.get()) << "next_layer: const == mock";
+        EXPECT_EQ(nl, mock.get()) << "NextLayer: const == mock";
     }
 
     TEST(PreviewDeep, NextLayerNull)
     {
-        preview p(nullptr, std::span<const std::byte>{});
-        EXPECT_EQ(p.next_layer(), nullptr) << "next_layer: null inner -> null";
+        psm::transport::preview p(nullptr, std::span<const std::byte>{});
+        EXPECT_EQ(p.next_layer(), nullptr) << "NextLayer: null Inner -> null";
     }
 
-    // ─── inner() 测试 ─────────────────────────
+    // ─── Inner() 测试 ─────────────────────────
 
     TEST(PreviewDeep, InnerReturnsSharedPtr)
     {
         auto mock = make_mock();
-        preview p(shared_transmission(mock), std::span<const std::byte>{});
-        auto inner = p.inner();
-        EXPECT_EQ(inner, mock) << "inner: returns same shared_ptr";
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
+        auto Inner = p.inner();
+        EXPECT_EQ(Inner, mock) << "Inner: returns same shared_ptr";
     }
 
-    // ─── wrap_with_preview() 测试 ──────────────
+    // ─── WrapWithPreview() 测试 ──────────────
 
     TEST(PreviewDeep, WrapWithPreviewEmptyData)
     {
         auto mock = make_mock();
-        auto original = shared_transmission(mock);
-        auto result = transport::wrap_with_preview(original, std::span<const std::byte>{});
-        // data 为空 → 不包装，返回原始
-        EXPECT_EQ(result.get(), mock.get()) << "wrap: empty data -> original ptr";
+        auto original = psm::transport::shared_transmission(mock);
+        auto Result = psm::transport::wrap_with_preview(original, std::span<const std::byte>{});
+        // Data 为空 → 不包装，返回原始
+        EXPECT_EQ(Result.get(), mock.get()) << "wrap: Empty Data -> original ptr";
     }
 
     TEST(PreviewDeep, WrapWithPreviewWithData)
     {
         auto mock = make_mock();
-        auto original = shared_transmission(mock);
-        const std::byte data[] = {std::byte{0x01}, std::byte{0x02}};
-        auto result = transport::wrap_with_preview(original, data);
-        // data 非空 → 包装为 preview
-        EXPECT_NE(result.get(), mock.get()) << "wrap: with data -> different ptr";
-        auto *pv = dynamic_cast<preview *>(result.get());
-        EXPECT_NE(pv, nullptr) << "wrap: result is preview";
-        EXPECT_TRUE(pv->next_layer() == mock.get()) << "wrap: preview wraps mock";
+        auto original = psm::transport::shared_transmission(mock);
+        const std::byte Data[] = {std::byte{0x01}, std::byte{0x02}};
+        auto Result = psm::transport::wrap_with_preview(original, Data);
+        // Data 非空 → 包装为 Preview
+        EXPECT_NE(Result.get(), mock.get()) << "wrap: with Data -> different ptr";
+        auto *pv = dynamic_cast<psm::transport::preview *>(Result.get());
+        EXPECT_NE(pv, nullptr) << "wrap: Result is Preview";
+        EXPECT_TRUE(pv->next_layer() == mock.get()) << "wrap: Preview wraps mock";
     }
 
-    // ─── completion-handler async_read_some 测试 ──
+    // ─── completion-handler AsyncReadSome 测试 ──
 
     TEST(PreviewDeep, CompletionReadWithPreread)
     {
         auto mock = make_mock();
         const std::byte preread_data[] = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
-        preview p(shared_transmission(mock), preread_data);
+        psm::transport::preview p(psm::transport::shared_transmission(mock), preread_data);
 
         std::byte buf[8]{};
         boost::system::error_code result_ec;
@@ -217,8 +213,8 @@ namespace
                           });
 
         EXPECT_TRUE(called) << "completion_read: handler called immediately with preread";
-        EXPECT_TRUE(!result_ec) << "completion_read: no error";
-        EXPECT_EQ(result_n, 3) << "completion_read: 3 bytes from preread";
+        EXPECT_TRUE(!result_ec) << "completion_read: no Error";
+        EXPECT_EQ(result_n, 3) << "completion_read: 3 Bytes from preread";
         EXPECT_EQ(buf[0], std::byte{0xAA}) << "completion_read: byte 0 correct";
         EXPECT_EQ(buf[1], std::byte{0xBB}) << "completion_read: byte 1 correct";
         EXPECT_EQ(buf[2], std::byte{0xCC}) << "completion_read: byte 2 correct";
@@ -228,17 +224,17 @@ namespace
     {
         auto mock = make_mock();
         const std::byte preread_data[] = {std::byte{0x01}};
-        preview p(shared_transmission(mock), preread_data);
+        psm::transport::preview p(psm::transport::shared_transmission(mock), preread_data);
 
         // 消耗 preread
         std::byte buf1[4]{};
         bool called1 = false;
         p.async_read_some(std::span<std::byte>{buf1, 4},
                           [&](boost::system::error_code, std::size_t) { called1 = true; });
-        EXPECT_TRUE(called1) << "completion_read_exhaust: first read done";
+        EXPECT_TRUE(called1) << "completion_read_exhaust: first Read Done";
 
-        // 第二次读 → preread 已耗尽，委托给 mock inner
-        // mock 有 io_context，需要 run 才能完成
+        // 第二次读 → preread 已耗尽，委托给 mock Inner
+        // mock 有 io_context，需要 Run 才能完成
         std::byte buf2[4]{};
         bool called2 = false;
         boost::system::error_code result_ec2;
@@ -251,15 +247,15 @@ namespace
 
         // 注入数据让 mock 完成
         mock->inject_read(std::vector<std::byte>(2, std::byte{0x55}));
-        mock->get_io_context().run();
+        mock->GetIoContext().run();
 
-        EXPECT_TRUE(called2) << "completion_read_exhaust: second read completed";
-        EXPECT_TRUE(!result_ec2) << "completion_read_exhaust: second read no error";
+        EXPECT_TRUE(called2) << "completion_read_exhaust: second Read completed";
+        EXPECT_TRUE(!result_ec2) << "completion_read_exhaust: second Read no Error";
     }
 
     TEST(PreviewDeep, CompletionReadNullInnerNoPreread)
     {
-        preview p(nullptr, std::span<const std::byte>{});
+        psm::transport::preview p(nullptr, std::span<const std::byte>{});
 
         std::byte buf[4]{};
         boost::system::error_code result_ec;
@@ -275,22 +271,22 @@ namespace
                           });
 
         EXPECT_TRUE(called) << "completion_read_null: handler called";
-        EXPECT_NE(result_ec.value(), 0) << "completion_read_null: error set";
-        EXPECT_EQ(result_n, 0) << "completion_read_null: 0 bytes";
+        EXPECT_NE(result_ec.value(), 0) << "completion_read_null: Error set";
+        EXPECT_EQ(result_n, 0) << "completion_read_null: 0 Bytes";
     }
 
-    // ─── completion-handler async_write_some 测试 ──
+    // ─── completion-handler AsyncWriteSome 测试 ──
 
     TEST(PreviewDeep, CompletionWriteNullInner)
     {
-        preview p(nullptr, std::span<const std::byte>{});
+        psm::transport::preview p(nullptr, std::span<const std::byte>{});
 
-        const std::byte data[] = {std::byte{0x01}};
+        const std::byte Data[] = {std::byte{0x01}};
         boost::system::error_code result_ec;
         std::size_t result_n = 99;
         bool called = false;
 
-        p.async_write_some(std::span<const std::byte>{data, 1},
+        p.async_write_some(std::span<const std::byte>{Data, 1},
                            [&](boost::system::error_code ec, std::size_t n)
                            {
                                result_ec = ec;
@@ -299,21 +295,21 @@ namespace
                            });
 
         EXPECT_TRUE(called) << "completion_write_null: handler called";
-        EXPECT_NE(result_ec.value(), 0) << "completion_write_null: error set";
-        EXPECT_EQ(result_n, 0) << "completion_write_null: 0 bytes";
+        EXPECT_NE(result_ec.value(), 0) << "completion_write_null: Error set";
+        EXPECT_EQ(result_n, 0) << "completion_write_null: 0 Bytes";
     }
 
     TEST(PreviewDeep, CompletionWriteValidInner)
     {
         auto mock = make_mock();
-        preview p(shared_transmission(mock), std::span<const std::byte>{});
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
 
-        const std::byte data[] = {std::byte{0xAA}, std::byte{0xBB}};
+        const std::byte Data[] = {std::byte{0xAA}, std::byte{0xBB}};
         boost::system::error_code result_ec;
         std::size_t result_n = 0;
         bool called = false;
 
-        p.async_write_some(std::span<const std::byte>{data, 2},
+        p.async_write_some(std::span<const std::byte>{Data, 2},
                            [&](boost::system::error_code ec, std::size_t n)
                            {
                                result_ec = ec;
@@ -321,28 +317,28 @@ namespace
                                called = true;
                            });
 
-        // mock 的 async_write_some 需要 io_context run
-        mock->get_io_context().run();
+        // mock 的 AsyncWriteSome 需要 io_context Run
+        mock->GetIoContext().run();
         EXPECT_TRUE(called) << "completion_write: handler called";
-        EXPECT_TRUE(!result_ec) << "completion_write: no error";
-        EXPECT_EQ(result_n, 2) << "completion_write: 2 bytes";
+        EXPECT_TRUE(!result_ec) << "completion_write: no Error";
+        EXPECT_EQ(result_n, 2) << "completion_write: 2 Bytes";
     }
 
-    // ─── lowest_layer 测试 ────────────────────
+    // ─── LowestLayer 测试 ────────────────────
 
     TEST(PreviewDeep, LowestLayer)
     {
         auto mock = make_mock();
-        preview p(shared_transmission(mock), std::span<const std::byte>{});
+        psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
         auto *ll = p.lowest_layer<MockTransport>();
-        EXPECT_EQ(ll, mock.get()) << "lowest_layer: navigates to mock";
+        EXPECT_EQ(ll, mock.get()) << "LowestLayer: navigates to mock";
     }
 
     TEST(PreviewDeep, LowestLayerNull)
     {
-        preview p(nullptr, std::span<const std::byte>{});
-        auto *ll = p.lowest_layer<transmission>();
-        EXPECT_EQ(ll, &p) << "lowest_layer: null inner -> self";
+        psm::transport::preview p(nullptr, std::span<const std::byte>{});
+        auto *ll = p.lowest_layer<psm::transport::transmission>();
+        EXPECT_EQ(ll, &p) << "LowestLayer: null Inner -> self";
     }
 
 } // namespace

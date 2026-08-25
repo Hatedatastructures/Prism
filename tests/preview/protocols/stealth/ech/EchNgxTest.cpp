@@ -2,13 +2,13 @@
  * @file EchKeygenTest.cpp
  * @brief ECH 密钥生成与检测测试（T2-3）
  * @details 覆盖：
- *          - generate_keypair：随机密钥 + ECHConfig 序列化
- *          - keypair_from_private：私钥恢复 ECHConfig（确定性）
- *          - make_ech_keys：SSL_ECH_KEYS 构造
- *          - contains_ech_extension：ClientHello 扫描（含/不含）
+ *          - GenerateKeypair：随机密钥 + ECHConfig 序列化
+ *          - KeypairFromPrivate：私钥恢复 ECHConfig（确定性）
+ *          - MakeEchKeys：SSL_ECH_KEYS 构造
+ *          - ContainsEchExtension：ClientHello 扫描（含/不含）
  */
 
-#include <common/protocols/ech/ech.hpp>
+#include <common/Protocols/Ech/Ech.hpp>
 
 #include <openssl/ssl.h>
 
@@ -17,9 +17,11 @@
 
 #include <gtest/gtest.h>
 
+
 namespace
 {
-    namespace ech = preview::ech;
+    namespace Ech = Preview::Ech;
+    namespace ech = Preview::Ech;
 
     /// 构造最小 ClientHello（无扩展）
     auto make_client_hello() -> std::vector<std::byte>
@@ -45,7 +47,7 @@ namespace
         {
             ch.push_back(std::byte{0xAA});
         }
-        // session_id
+        // SessionId
         ch.push_back(std::byte{0x00});
         // cipher_suites
         ch.push_back(std::byte{0x00});
@@ -59,7 +61,7 @@ namespace
     }
 
     /// 追加扩展项
-    void add_extension(std::vector<std::byte> &ch, std::uint16_t type, std::span<const std::byte> data)
+    void add_extension(std::vector<std::byte> &ch, std::uint16_t Type, std::span<const std::byte> Data)
     {
         // 定位 extensions 长度位置：固定在末尾（无扩展时）
         // 先加 extensions 头（2 字节长度），再追加项
@@ -67,15 +69,15 @@ namespace
         ch.push_back(std::byte{0x00});
         ch.push_back(std::byte{0x00});
         // 追加项
-        ch.push_back(static_cast<std::byte>((type >> 8) & 0xFF));
-        ch.push_back(static_cast<std::byte>(type & 0xFF));
-        ch.push_back(static_cast<std::byte>((data.size() >> 8) & 0xFF));
-        ch.push_back(static_cast<std::byte>(data.size() & 0xFF));
-        ch.insert(ch.end(), data.begin(), data.end());
+        ch.push_back(static_cast<std::byte>((Type >> 8) & 0xFF));
+        ch.push_back(static_cast<std::byte>(Type & 0xFF));
+        ch.push_back(static_cast<std::byte>((Data.size() >> 8) & 0xFF));
+        ch.push_back(static_cast<std::byte>(Data.size() & 0xFF));
+        ch.insert(ch.end(), Data.begin(), Data.end());
         // 更新长度
-        const auto total = ch.size() - (ext_start + 2);
-        ch[ext_start] = static_cast<std::byte>((total >> 8) & 0xFF);
-        ch[ext_start + 1] = static_cast<std::byte>(total & 0xFF);
+        const auto Total = ch.size() - (ext_start + 2);
+        ch[ext_start] = static_cast<std::byte>((Total >> 8) & 0xFF);
+        ch[ext_start + 1] = static_cast<std::byte>(Total & 0xFF);
         // 更新记录长度
         const auto rec_len = ch.size() - 5;
         ch[3] = static_cast<std::byte>((rec_len >> 8) & 0xFF);
@@ -85,41 +87,41 @@ namespace
 
 TEST(EchKeygen, GenerateKeypair)
 {
-    ech::ech_keypair kp;
-    const auto code = ech::generate_keypair("example.com", 32, kp);
-    EXPECT_EQ(code, preview::fault::code::success);
-    EXPECT_FALSE(kp.ech_config.empty());
-    EXPECT_FALSE(kp.ech_config_list.empty());
-    // ECHConfigList = 2 字节长度前缀 + config
-    EXPECT_EQ(kp.ech_config_list.size(), kp.ech_config.size() + 2);
-    EXPECT_EQ(kp.ech_config_list[0], static_cast<std::uint8_t>(kp.ech_config.size() >> 8));
-    EXPECT_EQ(kp.ech_config_list[1], static_cast<std::uint8_t>(kp.ech_config.size() & 0xFF));
+    Ech::EchKeypair kp;
+    const auto Code = Ech::GenerateKeypair("example.com", 32, kp);
+    EXPECT_EQ(Code, Preview::Fault::Code::success);
+    EXPECT_FALSE(kp.EchConfig.empty());
+    EXPECT_FALSE(kp.EchConfigList.empty());
+    // ECHConfigList = 2 字节长度前缀 + Config
+    EXPECT_EQ(kp.EchConfigList.size(), kp.EchConfig.size() + 2);
+    EXPECT_EQ(kp.EchConfigList[0], static_cast<std::uint8_t>(kp.EchConfig.size() >> 8));
+    EXPECT_EQ(kp.EchConfigList[1], static_cast<std::uint8_t>(kp.EchConfig.size() & 0xFF));
 }
 
 TEST(EchKeygen, KeypairFromPrivateDeterministic)
 {
-    std::array<std::uint8_t, ech::private_key_len> key{};
+    std::array<std::uint8_t, Ech::PrivateKeyLen> key{};
     for (std::size_t i = 0; i < key.size(); ++i)
     {
         key[i] = static_cast<std::uint8_t>(i + 1);
     }
 
-    ech::ech_keypair kp1;
-    ech::ech_keypair kp2;
-    EXPECT_EQ(ech::keypair_from_private(key, "example.com", 32, kp1), preview::fault::code::success);
-    EXPECT_EQ(ech::keypair_from_private(key, "example.com", 32, kp2), preview::fault::code::success);
+    Ech::EchKeypair kp1;
+    Ech::EchKeypair kp2;
+    EXPECT_EQ(Ech::KeypairFromPrivate(key, "example.com", 32, kp1), Preview::Fault::Code::success);
+    EXPECT_EQ(Ech::KeypairFromPrivate(key, "example.com", 32, kp2), Preview::Fault::Code::success);
 
     // 确定性：相同私钥 → 相同 ECHConfig
-    ASSERT_EQ(kp1.ech_config.size(), kp2.ech_config.size());
-    EXPECT_EQ(std::memcmp(kp1.ech_config.data(), kp2.ech_config.data(), kp1.ech_config.size()), 0);
+    ASSERT_EQ(kp1.EchConfig.size(), kp2.EchConfig.size());
+    EXPECT_EQ(std::memcmp(kp1.EchConfig.data(), kp2.EchConfig.data(), kp1.EchConfig.size()), 0);
 }
 
 TEST(EchKeygen, MakeEchKeys)
 {
-    ech::ech_keypair kp;
-    ASSERT_EQ(ech::generate_keypair("example.com", 32, kp), preview::fault::code::success);
+    Ech::EchKeypair kp;
+    ASSERT_EQ(Ech::GenerateKeypair("example.com", 32, kp), Preview::Fault::Code::success);
 
-    auto *keys = ech::make_ech_keys(kp.private_key, kp.ech_config);
+    auto *keys = Ech::MakeEchKeys(kp.private_key, kp.EchConfig);
     ASSERT_NE(keys, nullptr);
     SSL_ECH_KEYS_free(keys);
 }
@@ -127,15 +129,15 @@ TEST(EchKeygen, MakeEchKeys)
 TEST(EchKeygen, ClientHelloNoEch)
 {
     auto ch = make_client_hello();
-    EXPECT_FALSE(ech::contains_ech_extension(ch));
+    EXPECT_FALSE(Ech::ContainsEchExtension(ch));
 }
 
 TEST(EchKeygen, ClientHelloWithEch)
 {
     auto ch = make_client_hello();
     std::array<std::byte, 4> ech_ext{std::byte{0x00}, std::byte{0x20}, std::byte{0x01}, std::byte{0x02}};
-    add_extension(ch, ech::ech_extension_type, ech_ext);
-    EXPECT_TRUE(ech::contains_ech_extension(ch));
+    add_extension(ch, Ech::EchExtensionType, ech_ext);
+    EXPECT_TRUE(Ech::ContainsEchExtension(ch));
 }
 
 TEST(EchKeygen, ClientHelloOtherExtension)
@@ -143,5 +145,5 @@ TEST(EchKeygen, ClientHelloOtherExtension)
     auto ch = make_client_hello();
     std::array<std::byte, 2> sni_ext{std::byte{0x00}, std::byte{0x00}};
     add_extension(ch, 0x0000, sni_ext); // server_name
-    EXPECT_FALSE(ech::contains_ech_extension(ch));
+    EXPECT_FALSE(Ech::ContainsEchExtension(ch));
 }

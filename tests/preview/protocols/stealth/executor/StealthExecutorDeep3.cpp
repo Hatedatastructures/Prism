@@ -110,7 +110,7 @@ namespace
         auto proc =
             std::make_shared<psm::resource::process>(psm::resource::process::options{cfg, nullptr, nullptr});
         auto wrk = std::make_shared<psm::resource::worker>(
-            psm::resource::worker::options{proc, psm::memory::system::global_pool()});
+            psm::resource::worker::options{proc, psm::memory::std::global_pool()});
         auto ses = std::make_shared<psm::resource::session>(
             psm::resource::session::options{wrk, 1, 4096, nullptr, {}, nullptr, nullptr});
 

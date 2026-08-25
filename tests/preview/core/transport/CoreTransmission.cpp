@@ -1,17 +1,17 @@
 /**
  * @file CoreTransmission.cpp
- * @brief tests/common/core/transmission.hpp 单元测试
- * @details 覆盖 preview::transmission 传输抽象接口：
- * 1. 内存 mock（可配置读/写行为）验证全部纯虚方法：async_read_some、
- *    async_write_some、close、cancel、executor
- * 2. 组合操作 async_read/async_write 的正常、分块、EOF、错误分支
- * 3. completion-handler 桥接路径（co_spawn + to_ec 错误映射三分支）
- * 4. 装饰器链：transport_type 委托、next_layer 默认、lowest_layer 转型
- * 5. release() 默认与覆写、transmission_like 概念
+ * @brief tests/common/Core/Transmission.hpp 单元测试
+ * @details 覆盖 Preview::Transmission 传输抽象接口：
+ * 1. 内存 mock（可配置读/写行为）验证全部纯虚方法：AsyncReadSome、
+ *    AsyncWriteSome、Close、Cancel、Executor
+ * 2. 组合操作 AsyncRead/AsyncWrite 的正常、分块、EOF、错误分支
+ * 3. completion-handler 桥接路径（co_spawn + ToEc 错误映射三分支）
+ * 4. 装饰器链：TransportType 委托、NextLayer 默认、LowestLayer 转型
+ * 5. Release() 默认与覆写、TransmissionLike 概念
  */
 
-#include <common/core/error.hpp>
-#include <common/core/transmission.hpp>
+#include <common/Core/Error.hpp>
+#include <common/Core/Transmission.hpp>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -31,47 +31,47 @@
 
 namespace
 {
-    namespace preview = ::preview;
+    namespace Preview = ::Preview;
     namespace net = boost::asio;
 
     /// 叶子传输：仅实现纯虚方法，不覆写任何默认实现（测基类默认分支）
-    class leaf_transmission final : public preview::transmission
+    class leaf_transmission final : public Preview::Transmission
     {
     public:
-        using preview::transmission::async_read_some;
-        using preview::transmission::async_write_some;
+        using Preview::Transmission::AsyncReadSome;
+        using Preview::Transmission::AsyncWriteSome;
 
         explicit leaf_transmission(net::any_io_executor ex) : ex_(std::move(ex))
         {
         }
 
-        auto executor() const -> executor_type override
+        auto Executor() const -> ExecutorType override
         {
             return ex_;
         }
 
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            std::memset(buffer.data(), 0, buffer.size());
+            std::memset(Buffer.data(), 0, Buffer.size());
             ec.clear();
-            co_return buffer.size();
+            co_return Buffer.size();
         }
 
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            (void)buffer;
+            (void)Buffer;
             ec.clear();
-            co_return buffer.size();
+            co_return Buffer.size();
         }
 
-        auto close() -> void override
+        auto Close() -> void override
         {
             closed_ = true;
         }
 
-        auto cancel() -> void override
+        auto Cancel() -> void override
         {
             canceled_ = true;
         }
@@ -83,24 +83,24 @@ namespace
         net::any_io_executor ex_;
     };
 
-    /// 装饰器 mock：可配置读/写行为，支持 inner 链与 release 所有权转移
-    class mock_transmission : public preview::transmission
+    /// 装饰器 mock：可配置读/写行为，支持 Inner 链与 Release 所有权转移
+    class mock_transmission : public Preview::Transmission
     {
     public:
-        using preview::transmission::async_read_some;
-        using preview::transmission::async_write_some;
+        using Preview::Transmission::AsyncReadSome;
+        using Preview::Transmission::AsyncWriteSome;
 
-        explicit mock_transmission(net::any_io_executor ex, preview::transmission *inner = nullptr)
-            : ex_(std::move(ex)), inner_(inner)
+        explicit mock_transmission(net::any_io_executor ex, Preview::Transmission *Inner = nullptr)
+            : ex_(std::move(ex)), inner_(Inner)
         {
         }
 
-        auto executor() const -> executor_type override
+        auto Executor() const -> ExecutorType override
         {
             return ex_;
         }
 
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (read_err_)
@@ -113,14 +113,14 @@ namespace
                 ec.clear();
                 co_return 0; // EOF
             }
-            const auto n = std::min(buffer.size(), std::min(read_buf_.size(), read_max_));
-            std::memcpy(buffer.data(), read_buf_.data(), n);
+            const auto n = std::min(Buffer.size(), std::min(read_buf_.size(), read_max_));
+            std::memcpy(Buffer.data(), read_buf_.data(), n);
             read_buf_.erase(read_buf_.begin(), read_buf_.begin() + static_cast<std::ptrdiff_t>(n));
             ec.clear();
             co_return n;
         }
 
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (write_err_)
@@ -133,33 +133,33 @@ namespace
                 ec.clear();
                 co_return 0;
             }
-            const auto n = std::min(buffer.size(), write_max_);
+            const auto n = std::min(Buffer.size(), write_max_);
             written_ += n;
             ec.clear();
             co_return n;
         }
 
-        auto close() -> void override
+        auto Close() -> void override
         {
             closed_ = true;
         }
 
-        auto cancel() -> void override
+        auto Cancel() -> void override
         {
             canceled_ = true;
         }
 
-        auto next_layer() noexcept -> preview::transmission * override
+        auto NextLayer() noexcept -> Preview::Transmission * override
         {
             return inner_;
         }
 
-        auto next_layer() const noexcept -> const preview::transmission * override
+        auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
             return inner_;
         }
 
-        auto release() -> std::shared_ptr<preview::transmission> override
+        auto Release() -> std::shared_ptr<Preview::Transmission> override
         {
             auto r = std::move(released_);
             released_.reset();
@@ -167,9 +167,9 @@ namespace
         }
 
         /// 配置：设置预读数据
-        auto set_read_data(std::vector<std::byte> data) -> void
+        auto set_read_data(std::vector<std::byte> Data) -> void
         {
-            read_buf_ = std::move(data);
+            read_buf_ = std::move(Data);
         }
 
         /// 配置：设置单次最大读取字节数（0 = 无限）
@@ -179,7 +179,7 @@ namespace
         }
 
         /// 配置：设置读错误（覆盖 EOF 行为）
-        auto set_read_error(std::error_code ec) -> void
+        auto SetReadError(std::error_code ec) -> void
         {
             read_err_ = ec;
         }
@@ -197,13 +197,13 @@ namespace
         }
 
         /// 配置：设置写错误
-        auto set_write_error(std::error_code ec) -> void
+        auto SetWriteError(std::error_code ec) -> void
         {
             write_err_ = ec;
         }
 
-        /// 配置：设置 release() 转移的底层传输
-        auto set_release(std::shared_ptr<preview::transmission> t) -> void
+        /// 配置：设置 Release() 转移的底层传输
+        auto set_release(std::shared_ptr<Preview::Transmission> t) -> void
         {
             released_ = std::move(t);
         }
@@ -214,62 +214,62 @@ namespace
 
     private:
         net::any_io_executor ex_;
-        preview::transmission *inner_{nullptr};
+        Preview::Transmission *inner_{nullptr};
         std::vector<std::byte> read_buf_;
         std::optional<std::error_code> read_err_;
         std::size_t read_max_{SIZE_MAX};
         std::size_t write_max_{SIZE_MAX};
         bool write_zero_{false};
         std::optional<std::error_code> write_err_;
-        std::shared_ptr<preview::transmission> released_;
+        std::shared_ptr<Preview::Transmission> released_;
     };
 
-    /// UDP 装饰器：覆写 transport_type 返回 udp
+    /// UDP 装饰器：覆写 TransportType 返回 udp
     class udp_decorator final : public mock_transmission
     {
     public:
         using mock_transmission::mock_transmission;
 
-        auto transport_type() const noexcept -> type override
+        auto TransportType() const noexcept -> Type override
         {
-            return type::udp;
+            return Type::udp;
         }
     };
 
     /// 非 final 中间类：仅实现纯虚方法，不覆写默认实现（阻止 devirtualize 内联）
-    class intermediate_transmission : public preview::transmission
+    class intermediate_transmission : public Preview::Transmission
     {
     public:
         explicit intermediate_transmission(net::any_io_executor ex) : ex_(std::move(ex))
         {
         }
 
-        auto executor() const -> executor_type override
+        auto Executor() const -> ExecutorType override
         {
             return ex_;
         }
 
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            std::memset(buffer.data(), 0, buffer.size());
+            std::memset(Buffer.data(), 0, Buffer.size());
             ec.clear();
-            co_return buffer.size();
+            co_return Buffer.size();
         }
 
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            (void)buffer;
+            (void)Buffer;
             ec.clear();
-            co_return buffer.size();
+            co_return Buffer.size();
         }
 
-        auto close() -> void override
+        auto Close() -> void override
         {
         }
 
-        auto cancel() -> void override
+        auto Cancel() -> void override
         {
         }
 
@@ -279,18 +279,18 @@ namespace
 
     TEST(CoreTransmission, ConceptSatisfied)
     {
-        // 基类与 mock 均满足 transmission_like 概念
-        static_assert(preview::transmission_like<preview::transmission>);
-        static_assert(preview::transmission_like<leaf_transmission>);
-        static_assert(preview::transmission_like<mock_transmission>);
+        // 基类与 mock 均满足 TransmissionLike 概念
+        static_assert(Preview::TransmissionLike<Preview::Transmission>);
+        static_assert(Preview::TransmissionLike<leaf_transmission>);
+        static_assert(Preview::TransmissionLike<mock_transmission>);
     }
 
     TEST(CoreTransmission, TransportTypeLeaf)
     {
-        // 叶子：next_layer() 为空 → 默认返回 tcp
+        // 叶子：NextLayer() 为空 → 默认返回 Tcp
         net::io_context ioc;
         leaf_transmission t(ioc.get_executor());
-        EXPECT_EQ(t.transport_type(), preview::transmission::type::tcp);
+        EXPECT_EQ(t.TransportType(), Preview::Transmission::Type::Tcp);
     }
 
     TEST(CoreTransmission, TransportTypeDelegate)
@@ -301,17 +301,17 @@ namespace
         mock_transmission mid(ioc.get_executor(), &leaf);
         mock_transmission top(ioc.get_executor(), &mid);
 
-        EXPECT_EQ(leaf.transport_type(), preview::transmission::type::udp);
-        EXPECT_EQ(mid.transport_type(), preview::transmission::type::udp);
-        EXPECT_EQ(top.transport_type(), preview::transmission::type::udp);
+        EXPECT_EQ(leaf.TransportType(), Preview::Transmission::Type::udp);
+        EXPECT_EQ(mid.TransportType(), Preview::Transmission::Type::udp);
+        EXPECT_EQ(top.TransportType(), Preview::Transmission::Type::udp);
     }
 
     TEST(CoreTransmission, GetExecutor)
     {
         net::io_context ioc;
         leaf_transmission t(ioc.get_executor());
-        // get_executor() 兼容 Asio executor 概念，委托 executor()
-        EXPECT_EQ(t.get_executor(), ioc.get_executor());
+        // GetExecutor() 兼容 Asio Executor 概念，委托 Executor()
+        EXPECT_EQ(t.GetExecutor(), ioc.get_executor());
     }
 
     TEST(CoreTransmission, NextLayerDefault)
@@ -319,9 +319,9 @@ namespace
         // 基类默认实现：叶子节点返回 nullptr（const 与非 const 版本）
         net::io_context ioc;
         leaf_transmission t(ioc.get_executor());
-        EXPECT_EQ(t.next_layer(), nullptr);
+        EXPECT_EQ(t.NextLayer(), nullptr);
         const auto &ct = t;
-        EXPECT_EQ(ct.next_layer(), nullptr);
+        EXPECT_EQ(ct.NextLayer(), nullptr);
     }
 
     TEST(CoreTransmission, LowestLayerSuccess)
@@ -332,13 +332,13 @@ namespace
         auto b = std::make_unique<mock_transmission>(ioc.get_executor(), c.get());
         auto a = std::make_unique<mock_transmission>(ioc.get_executor(), b.get());
 
-        EXPECT_EQ(a->lowest_layer<mock_transmission>(), c.get());
-        EXPECT_EQ(a->lowest_layer<preview::transmission>(), c.get());
+        EXPECT_EQ(a->LowestLayer<mock_transmission>(), c.get());
+        EXPECT_EQ(a->LowestLayer<Preview::Transmission>(), c.get());
 
         // const 版本
         const auto *ca = a.get();
-        EXPECT_EQ(ca->lowest_layer<mock_transmission>(), c.get());
-        EXPECT_EQ(ca->lowest_layer<preview::transmission>(), c.get());
+        EXPECT_EQ(ca->LowestLayer<mock_transmission>(), c.get());
+        EXPECT_EQ(ca->LowestLayer<Preview::Transmission>(), c.get());
     }
 
     TEST(CoreTransmission, LowestLayerTypeMiss)
@@ -348,9 +348,9 @@ namespace
         auto c = std::make_unique<mock_transmission>(ioc.get_executor());
         auto a = std::make_unique<mock_transmission>(ioc.get_executor(), c.get());
 
-        EXPECT_EQ(a->lowest_layer<udp_decorator>(), nullptr);
+        EXPECT_EQ(a->LowestLayer<udp_decorator>(), nullptr);
         const auto *ca = a.get();
-        EXPECT_EQ(ca->lowest_layer<udp_decorator>(), nullptr);
+        EXPECT_EQ(ca->LowestLayer<udp_decorator>(), nullptr);
     }
 
     TEST(CoreTransmission, ReleaseDefault)
@@ -358,8 +358,8 @@ namespace
         // 基类默认实现：返回空共享指针（经基类引用虚调用，确保入口计数）
         net::io_context ioc;
         intermediate_transmission t(ioc.get_executor());
-        preview::transmission &ref = t;
-        auto got = ref.release();
+        Preview::Transmission &ref = t;
+        auto got = ref.Release();
         EXPECT_EQ(got, nullptr);
     }
 
@@ -367,14 +367,14 @@ namespace
     {
         // 覆写路径：转移底层传输所有权
         net::io_context ioc;
-        auto inner = std::make_shared<mock_transmission>(ioc.get_executor());
+        auto Inner = std::make_shared<mock_transmission>(ioc.get_executor());
         mock_transmission t(ioc.get_executor());
-        t.set_release(inner);
+        t.set_release(Inner);
 
-        auto got = t.release();
-        EXPECT_EQ(got.get(), inner.get());
+        auto got = t.Release();
+        EXPECT_EQ(got.get(), Inner.get());
         // 第二次调用：已转移，返回空
-        auto again = t.release();
+        auto again = t.Release();
         EXPECT_EQ(again, nullptr);
     }
 
@@ -382,9 +382,9 @@ namespace
     {
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
-        t.close();
+        t.Close();
         EXPECT_TRUE(t.closed_);
-        t.cancel();
+        t.Cancel();
         EXPECT_TRUE(t.canceled_);
     }
 
@@ -397,18 +397,18 @@ namespace
                          std::byte{5}, std::byte{6}, std::byte{7}, std::byte{8}});
         std::byte buf[8]{};
         std::error_code ec;
-        std::size_t done = 0;
+        std::size_t Done = 0;
 
         net::co_spawn(
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                done = co_await t.async_read(buf, ec);
+                Done = co_await t.AsyncRead(buf, ec);
             },
             net::detached);
         ioc.run();
 
-        EXPECT_EQ(done, 8);
+        EXPECT_EQ(Done, 8);
         EXPECT_FALSE(ec);
         for (std::size_t i = 0; i < 8; ++i)
         {
@@ -418,7 +418,7 @@ namespace
 
     TEST(CoreTransmission, AsyncReadChunked)
     {
-        // 分块读取：多次 async_read_some 直至读满
+        // 分块读取：多次 AsyncReadSome 直至读满
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
         t.set_read_data({std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
@@ -426,18 +426,18 @@ namespace
         t.set_read_max(3);
         std::byte buf[8]{};
         std::error_code ec;
-        std::size_t done = 0;
+        std::size_t Done = 0;
 
         net::co_spawn(
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                done = co_await t.async_read(buf, ec);
+                Done = co_await t.AsyncRead(buf, ec);
             },
             net::detached);
         ioc.run();
 
-        EXPECT_EQ(done, 8);
+        EXPECT_EQ(Done, 8);
         EXPECT_FALSE(ec);
     }
 
@@ -449,18 +449,18 @@ namespace
         t.set_read_data({std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}});
         std::byte buf[8]{};
         std::error_code ec;
-        std::size_t done = 0;
+        std::size_t Done = 0;
 
         net::co_spawn(
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                done = co_await t.async_read(buf, ec);
+                Done = co_await t.AsyncRead(buf, ec);
             },
             net::detached);
         ioc.run();
 
-        EXPECT_EQ(done, 4);
+        EXPECT_EQ(Done, 4);
         EXPECT_FALSE(ec);
     }
 
@@ -469,21 +469,21 @@ namespace
         // 读取错误：立即返回，不循环
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
-        t.set_read_error(std::make_error_code(std::errc::io_error));
+        t.SetReadError(std::make_error_code(std::errc::io_error));
         std::byte buf[8]{};
         std::error_code ec;
-        std::size_t done = 0;
+        std::size_t Done = 0;
 
         net::co_spawn(
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                done = co_await t.async_read(buf, ec);
+                Done = co_await t.AsyncRead(buf, ec);
             },
             net::detached);
         ioc.run();
 
-        EXPECT_EQ(done, 0);
+        EXPECT_EQ(Done, 0);
         EXPECT_TRUE(ec);
         EXPECT_EQ(ec, std::make_error_code(std::errc::io_error));
     }
@@ -495,42 +495,42 @@ namespace
         mock_transmission t(ioc.get_executor());
         const std::byte buf[8]{};
         std::error_code ec;
-        std::size_t done = 0;
+        std::size_t Done = 0;
 
         net::co_spawn(
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                done = co_await t.async_write(buf, ec);
+                Done = co_await t.AsyncWrite(buf, ec);
             },
             net::detached);
         ioc.run();
 
-        EXPECT_EQ(done, 8);
+        EXPECT_EQ(Done, 8);
         EXPECT_EQ(t.written_, 8);
         EXPECT_FALSE(ec);
     }
 
     TEST(CoreTransmission, AsyncWriteChunked)
     {
-        // 分块写入：多次 async_write_some 直至写满
+        // 分块写入：多次 AsyncWriteSome 直至写满
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
         t.set_write_max(3);
         const std::byte buf[8]{};
         std::error_code ec;
-        std::size_t done = 0;
+        std::size_t Done = 0;
 
         net::co_spawn(
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                done = co_await t.async_write(buf, ec);
+                Done = co_await t.AsyncWrite(buf, ec);
             },
             net::detached);
         ioc.run();
 
-        EXPECT_EQ(done, 8);
+        EXPECT_EQ(Done, 8);
         EXPECT_EQ(t.written_, 8);
         EXPECT_FALSE(ec);
     }
@@ -540,21 +540,21 @@ namespace
         // 写入错误：立即返回
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
-        t.set_write_error(std::make_error_code(std::errc::io_error));
+        t.SetWriteError(std::make_error_code(std::errc::io_error));
         const std::byte buf[8]{};
         std::error_code ec;
-        std::size_t done = 0;
+        std::size_t Done = 0;
 
         net::co_spawn(
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                done = co_await t.async_write(buf, ec);
+                Done = co_await t.AsyncWrite(buf, ec);
             },
             net::detached);
         ioc.run();
 
-        EXPECT_EQ(done, 0);
+        EXPECT_EQ(Done, 0);
         EXPECT_TRUE(ec);
         EXPECT_EQ(ec, std::make_error_code(std::errc::io_error));
     }
@@ -567,25 +567,25 @@ namespace
         t.set_write_zero(true);
         const std::byte buf[8]{};
         std::error_code ec;
-        std::size_t done = 0;
+        std::size_t Done = 0;
 
         net::co_spawn(
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                done = co_await t.async_write(buf, ec);
+                Done = co_await t.AsyncWrite(buf, ec);
             },
             net::detached);
         ioc.run();
 
-        EXPECT_EQ(done, 0);
+        EXPECT_EQ(Done, 0);
         EXPECT_TRUE(ec);
-        EXPECT_EQ(ec, preview::make_error_code(preview::error::broken_pipe));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::broken_pipe));
     }
 
     TEST(CoreTransmission, HandlerReadSuccess)
     {
-        // completion-handler 桥接：成功路径（to_ec 空错误分支）
+        // completion-handler 桥接：成功路径（ToEc 空错误分支）
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
         t.set_read_data({std::byte{'h'}, std::byte{'e'}, std::byte{'l'}, std::byte{'l'}, std::byte{'o'}});
@@ -593,7 +593,7 @@ namespace
         boost::system::error_code got_ec{static_cast<int>(boost::system::errc::invalid_argument), boost::system::generic_category()};
         std::size_t got_n = 0;
 
-        t.async_read_some(buf, [&](boost::system::error_code ec, std::size_t n)
+        t.AsyncReadSome(buf, [&](boost::system::error_code ec, std::size_t n)
                            {
                                got_ec = ec;
                                got_n = n;
@@ -613,7 +613,7 @@ namespace
         boost::system::error_code got_ec{static_cast<int>(boost::system::errc::invalid_argument), boost::system::generic_category()};
         std::size_t got_n = 0;
 
-        t.async_write_some(buf, [&](boost::system::error_code ec, std::size_t n)
+        t.AsyncWriteSome(buf, [&](boost::system::error_code ec, std::size_t n)
                             {
                                 got_ec = ec;
                                 got_n = n;
@@ -627,16 +627,16 @@ namespace
 
     TEST(CoreTransmission, HandlerReadErrorProtocol)
     {
-        // completion-handler 桥接：preview 协议错误 → boost 侧保留协议分类
+        // completion-handler 桥接：Preview 协议错误 → boost 侧保留协议分类
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
-        t.set_read_error(
-            static_cast<std::error_code>(preview::make_error_code(preview::error::need_more)));
+        t.SetReadError(
+            static_cast<std::error_code>(Preview::make_error_code(Preview::Error::need_more)));
         std::byte buf[8]{};
         boost::system::error_code got_ec;
         std::size_t got_n = 999;
 
-        t.async_read_some(buf, [&](boost::system::error_code ec, std::size_t n)
+        t.AsyncReadSome(buf, [&](boost::system::error_code ec, std::size_t n)
                            {
                                got_ec = ec;
                                got_n = n;
@@ -646,7 +646,7 @@ namespace
         EXPECT_EQ(got_n, 0);
         EXPECT_TRUE(got_ec);
         EXPECT_EQ(std::string_view(got_ec.category().name()), "preview.protocol");
-        EXPECT_EQ(got_ec.value(), static_cast<int>(preview::error::need_more));
+        EXPECT_EQ(got_ec.value(), static_cast<int>(Preview::Error::need_more));
     }
 
     TEST(CoreTransmission, HandlerWriteErrorGeneric)
@@ -654,12 +654,12 @@ namespace
         // completion-handler 桥接：非协议错误 → boost 侧归入 generic 分类
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
-        t.set_write_error(std::make_error_code(std::errc::io_error));
+        t.SetWriteError(std::make_error_code(std::errc::io_error));
         const std::byte buf[8]{};
         boost::system::error_code got_ec;
         std::size_t got_n = 999;
 
-        t.async_write_some(buf, [&](boost::system::error_code ec, std::size_t n)
+        t.AsyncWriteSome(buf, [&](boost::system::error_code ec, std::size_t n)
                             {
                                 got_ec = ec;
                                 got_n = n;

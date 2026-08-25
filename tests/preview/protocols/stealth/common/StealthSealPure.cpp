@@ -60,9 +60,9 @@ namespace
         auto km = make_test_key_material();
         auto s = std::make_shared<reality::seal>(mock, km);
 
-        EXPECT_TRUE(!mock->is_closed()) << "seal: mock not closed before close";
+        EXPECT_TRUE(!mock->IsClosed()) << "seal: mock not closed before close";
         s->close();
-        EXPECT_TRUE(mock->is_closed()) << "seal: mock closed after close";
+        EXPECT_TRUE(mock->IsClosed()) << "seal: mock closed after close";
     }
 
     TEST(StealthSealPure, SealCancel)
@@ -71,9 +71,9 @@ namespace
         auto km = make_test_key_material();
         auto s = std::make_shared<reality::seal>(mock, km);
 
-        EXPECT_TRUE(!mock->is_cancelled()) << "seal: mock not cancelled before cancel";
+        EXPECT_TRUE(!mock->IsCancelled()) << "seal: mock not cancelled before cancel";
         s->cancel();
-        EXPECT_TRUE(mock->is_cancelled()) << "seal: mock cancelled after cancel";
+        EXPECT_TRUE(mock->IsCancelled()) << "seal: mock cancelled after cancel";
     }
 
     TEST(StealthSealPure, SealNextLayerNotNull)

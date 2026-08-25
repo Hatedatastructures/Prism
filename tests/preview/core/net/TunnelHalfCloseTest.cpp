@@ -11,7 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/net/connection/tunnel/tunnel.hpp>
-#include <prism/resource/session.hpp>
+#include <prism/Resource/Session.hpp>
 #include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
@@ -49,10 +49,10 @@ namespace {
         -> net::awaitable<void>
     {
         net::steady_timer t(ioc);
-        const auto start = std::chrono::steady_clock::now();
+        const auto Start = std::chrono::steady_clock::now();
         while (!cond())
         {
-            if (std::chrono::steady_clock::now() - start > deadline)
+            if (std::chrono::steady_clock::now() - Start > deadline)
             {
                 throw std::runtime_error("wait_until timeout");
             }
@@ -68,7 +68,7 @@ namespace {
         auto proc = std::make_shared<psm::resource::process>(
             psm::resource::process::options{cfg, nullptr, nullptr});
         auto wrk = std::make_shared<psm::resource::worker>(
-            psm::resource::worker::options{proc, psm::memory::system::global_pool()});
+            psm::resource::worker::options{proc, psm::memory::std::global_pool()});
         return std::make_shared<psm::resource::session>(
             psm::resource::session::options{wrk, 1, buf, nullptr, {}, nullptr, nullptr});
     }
@@ -81,28 +81,28 @@ namespace {
         std::shared_ptr<MockTransport> out;
         std::shared_ptr<psm::resource::session> sess;
         std::shared_ptr<std::exception_ptr> tep;
-        std::shared_ptr<bool> done;
+        std::shared_ptr<bool> Done;
 
         explicit harness(net::io_context &ctx)
             : ioc(ctx), in(std::make_shared<MockTransport>()),
               out(std::make_shared<MockTransport>()), sess(make_sess(ctx)),
-              tep(std::make_shared<std::exception_ptr>()), done(std::make_shared<bool>(false))
+              tep(std::make_shared<std::exception_ptr>()), Done(std::make_shared<bool>(false))
         {
         }
 
         /// 启动隧道协程（完成回调记录异常与结束标志）
-        void start()
+        void Start()
         {
             net::co_spawn(ioc,
                           psm::connect::tunnel(psm::connect::tunnel_options{
                               in, out, sess->buffer, psm::connect::write_policy::complete}),
-                          [this](std::exception_ptr e) { *tep = e; *done = true; });
+                          [this](std::exception_ptr e) { *tep = e; *Done = true; });
         }
 
         /// 等待隧道收口并透传其异常
         auto join() -> net::awaitable<void>
         {
-            co_await wait_until(ioc, [this] { return *done; });
+            co_await wait_until(ioc, [this] { return *Done; });
             if (*tep)
             {
                 std::rethrow_exception(*tep);
@@ -119,24 +119,24 @@ TEST(TunnelHalfClose, SmallRequestLargeResponse)
     const std::vector<std::byte> rsp(64 * 1024, std::byte{0x22});
     h.in->inject_read(req.data(), req.size());
     h.out->inject_read(rsp.data(), rsp.size());
-    h.start();
+    h.Start();
 
     auto body = [&]() -> net::awaitable<void>
     {
         // 等待双向数据全部排空（MockTransport 的 EOF 携带错误码，
-        // 任一方向读 EOF 都会触发 close_relay 立即关闭两端，
+        // 任一方向读 EOF 都会触发 CloseRelay 立即关闭两端，
         // 因此必须先完成全量转发再触发半关闭，否则会截断在途数据）
         co_await wait_until(ioc, [&]
-                            { return h.out->written_data().size() >= req.size() &&
-                                     h.in->written_data().size() >= rsp.size(); });
+                            { return h.out->WrittenData().size() >= req.size() &&
+                                     h.in->WrittenData().size() >= rsp.size(); });
         h.in->shutdown();
         co_await h.join();
         h.out->close();
     };
     run_coro(ioc, body());
 
-    EXPECT_GE(h.out->written_data().size(), req.size());
-    EXPECT_GE(h.in->written_data().size(), rsp.size());
+    EXPECT_GE(h.out->WrittenData().size(), req.size());
+    EXPECT_GE(h.in->WrittenData().size(), rsp.size());
 }
 
 TEST(TunnelHalfClose, LargeRequestSmallResponse)
@@ -147,14 +147,14 @@ TEST(TunnelHalfClose, LargeRequestSmallResponse)
     const std::vector<std::byte> rsp(128, std::byte{0x44});
     h.in->inject_read(req.data(), req.size());
     h.out->inject_read(rsp.data(), rsp.size());
-    h.start();
+    h.Start();
 
     auto body = [&]() -> net::awaitable<void>
     {
         // 等待双向数据全部排空后再触发关闭（理由同上，避免截断在途数据）
         co_await wait_until(ioc, [&]
-                            { return h.in->written_data().size() >= rsp.size() &&
-                                     h.out->written_data().size() >= req.size(); });
+                            { return h.in->WrittenData().size() >= rsp.size() &&
+                                     h.out->WrittenData().size() >= req.size(); });
         h.out->shutdown();
         h.in->close();
         co_await h.join();
@@ -162,7 +162,7 @@ TEST(TunnelHalfClose, LargeRequestSmallResponse)
     };
     run_coro(ioc, body());
 
-    EXPECT_GE(h.out->written_data().size(), req.size());
+    EXPECT_GE(h.out->WrittenData().size(), req.size());
 }
 
 TEST(TunnelHalfClose, BidirectionalEOF)
@@ -171,14 +171,14 @@ TEST(TunnelHalfClose, BidirectionalEOF)
     harness h(ioc);
     h.in->inject_read(std::vector<std::byte>{std::byte{0x01}}.data(), 1);
     h.out->inject_read(std::vector<std::byte>{std::byte{0x02}}.data(), 1);
-    h.start();
+    h.Start();
 
     auto body = [&]() -> net::awaitable<void>
     {
         // 双向数据送达后同时半关闭，隧道应在两方向完成后自然收口
         co_await wait_until(ioc, [&]
-                            { return h.in->written_data().size() >= 1 &&
-                                     h.out->written_data().size() >= 1; });
+                            { return h.in->WrittenData().size() >= 1 &&
+                                     h.out->WrittenData().size() >= 1; });
         h.in->shutdown();
         h.out->shutdown();
         co_await h.join();
@@ -187,9 +187,9 @@ TEST(TunnelHalfClose, BidirectionalEOF)
     };
     run_coro(ioc, body());
 
-    EXPECT_TRUE(*h.done);
-    EXPECT_GE(h.out->written_data().size(), 1U);
-    EXPECT_GE(h.in->written_data().size(), 1U);
+    EXPECT_TRUE(*h.Done);
+    EXPECT_GE(h.out->WrittenData().size(), 1U);
+    EXPECT_GE(h.in->WrittenData().size(), 1U);
 }
 
 TEST(TunnelHalfClose, IdleTimeoutMidHalfClose)
@@ -198,17 +198,17 @@ TEST(TunnelHalfClose, IdleTimeoutMidHalfClose)
     harness h(ioc);
     const std::vector<std::byte> req(10, std::byte{0x55});
     h.in->inject_read(req.data(), req.size());
-    h.start();
+    h.Start();
 
     auto body = [&]() -> net::awaitable<void>
     {
         // 单向数据送达后半关闭入站；级联 EOF 应使隧道收口而非挂死
-        co_await wait_until(ioc, [&] { return h.out->written_data().size() >= req.size(); });
+        co_await wait_until(ioc, [&] { return h.out->WrittenData().size() >= req.size(); });
         h.in->shutdown();
         co_await h.join();
         h.out->close();
     };
     run_coro(ioc, body());
 
-    EXPECT_GE(h.out->written_data().size(), req.size());
+    EXPECT_GE(h.out->WrittenData().size(), req.size());
 }

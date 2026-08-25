@@ -13,16 +13,16 @@
 #include <memory>
 #include <string>
 
-#include <common/core/middleware/context.hpp>
-#include <common/core/recognition/probe_defense.hpp>
-#include <common/core/transport/memory_stream.hpp>
-#include <common/core/transport/pad.hpp>
-#include <common/core/transport/preview.hpp>
-#include <common/core/transport/snapshot.hpp>
+#include <common/Core/Middleware/Context.hpp>
+#include <common/Core/Recognition/ProbeDefense.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Core/Transport/Pad.hpp>
+#include <common/Core/Transport/Preview.hpp>
+#include <common/Core/Transport/Snapshot.hpp>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     template <typename A>
@@ -40,43 +40,43 @@ namespace
 
     TEST(CoreModules, AddressHashBasic)
     {
-        const auto v4a = preview::recognition::address_hash::from_v4(0x7F000001);
-        const auto v4b = preview::recognition::address_hash::from_v4(0x7F000001);
-        const auto v4c = preview::recognition::address_hash::from_v4(0x7F000002);
+        const auto v4a = Preview::Recognition::AddressHash::FromV4(0x7F000001);
+        const auto v4b = Preview::Recognition::AddressHash::FromV4(0x7F000001);
+        const auto v4c = Preview::Recognition::AddressHash::FromV4(0x7F000002);
         EXPECT_EQ(v4a, v4b);
         EXPECT_NE(v4a, v4c);
 
         const std::array<std::byte, 16> ip6{};
-        EXPECT_EQ(preview::recognition::address_hash::from_v6(ip6),
-                  preview::recognition::address_hash::from_v6(ip6));
+        EXPECT_EQ(Preview::Recognition::AddressHash::FromV6(ip6),
+                  Preview::Recognition::AddressHash::FromV6(ip6));
     }
 
     TEST(CoreModules, PadRoundtrip)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        preview::transport::pad_config cfg;
-        cfg.pad_targets = "64";
-        cfg.stop_after = 2;
-        auto pad = std::make_shared<preview::transport::pad_transport>(
-            std::make_shared<memory_stream>(std::move(b)), cfg);
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Preview::Transport::PadConfig cfg;
+        cfg.PadTargets = "64";
+        cfg.StopAfter = 2;
+        auto pad = std::make_shared<Preview::Transport::PadTransport>(
+            std::make_shared<MemoryStream>(std::move(b)), cfg);
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            EXPECT_TRUE(cfg.enabled());
+            EXPECT_TRUE(cfg.Enabled());
 
             auto sink = [&]() -> net::awaitable<void>
             {
                 std::array<std::byte, 512> buf{};
                 std::error_code ec;
-                const auto n = co_await pad->async_read_some(buf, ec);
+                const auto n = co_await pad->AsyncReadSome(buf, ec);
                 EXPECT_GT(n, 0u);
             };
             net::co_spawn(ioc.get_executor(), sink(), net::detached);
 
-            const std::string data = "pad-roundtrip-data";
+            const std::string Data = "pad-roundtrip-Data";
             std::error_code ec;
-            co_await a.async_write_some(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(data.data()), data.size()), ec);
+            co_await a.AsyncWriteSome(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data()), Data.size()), ec);
             EXPECT_FALSE(ec);
         });
     }
@@ -84,45 +84,45 @@ namespace
     TEST(CoreModules, PadDisabledPassthrough)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        preview::transport::pad_config cfg;
-        cfg.pad_targets = "";
-        auto pad = std::make_shared<preview::transport::pad_transport>(
-            std::make_shared<memory_stream>(std::move(b)), cfg);
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Preview::Transport::PadConfig cfg;
+        cfg.PadTargets = "";
+        auto pad = std::make_shared<Preview::Transport::PadTransport>(
+            std::make_shared<MemoryStream>(std::move(b)), cfg);
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            EXPECT_FALSE(cfg.enabled());
+            EXPECT_FALSE(cfg.Enabled());
 
             auto sink = [&]() -> net::awaitable<void>
             {
                 std::array<std::byte, 128> buf{};
                 std::error_code ec;
-                const auto n = co_await pad->async_read_some(buf, ec);
+                const auto n = co_await pad->AsyncReadSome(buf, ec);
                 EXPECT_EQ(n, 5u);
             };
             net::co_spawn(ioc.get_executor(), sink(), net::detached);
 
-            const std::string data = "hello";
+            const std::string Data = "hello";
             std::error_code ec;
-            co_await a.async_write_some(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(data.data()), data.size()), ec);
+            co_await a.AsyncWriteSome(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data()), Data.size()), ec);
         });
     }
 
     TEST(CoreModules, PreviewPreread)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
             const std::string head = "preread";
-            auto preview = std::make_shared<preview::transport::preview>(
-                std::make_shared<memory_stream>(std::move(b)),
+            auto Preview = std::make_shared<Preview::Transport::Preview>(
+                std::make_shared<MemoryStream>(std::move(b)),
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(head.data()), head.size()));
 
             std::array<std::byte, 16> buf{};
             std::error_code ec;
-            const auto n = co_await preview->async_read_some(buf, ec);
+            const auto n = co_await Preview->AsyncReadSome(buf, ec);
             EXPECT_EQ(n, 7u);
         });
     }
@@ -130,27 +130,27 @@ namespace
     TEST(CoreModules, SnapshotRead)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            auto snap = std::make_shared<preview::transport::snapshot>(
-                std::make_shared<memory_stream>(std::move(b)));
-            const std::string data = "snap";
+            auto snap = std::make_shared<Preview::Transport::Snapshot>(
+                std::make_shared<MemoryStream>(std::move(b)));
+            const std::string Data = "snap";
             std::error_code ec;
-            co_await a.async_write_some(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(data.data()), data.size()), ec);
+            co_await a.AsyncWriteSome(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data()), Data.size()), ec);
 
             std::array<std::byte, 16> buf{};
-            const auto n = co_await snap->async_read_some(buf, ec);
+            const auto n = co_await snap->AsyncReadSome(buf, ec);
             EXPECT_EQ(n, 4u);
         });
     }
 
     TEST(CoreModules, MiddlewareContextBasics)
     {
-        preview::middleware::context ctx;
+        Preview::Middleware::Context ctx;
         EXPECT_EQ(ctx.detected, 0u);
-        EXPECT_EQ(ctx.buffer_size, 16384u);
+        EXPECT_EQ(ctx.BufferSize, 16384u);
         ctx.identity = "alice";
         EXPECT_EQ(ctx.identity, "alice");
     }

@@ -1,6 +1,6 @@
 /**
  * @file VmessConnErrorMatrix.cpp
- * @brief VMess conn 错误矩阵测试
+ * @brief VMess Conn 错误矩阵测试
  * @details 服务端握手错误路径：
  * - UUID 不匹配（bad_auth）
  * - 非法版本（bad_magic）
@@ -21,12 +21,12 @@
 #include <string>
 #include <vector>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/vmess/vmess.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Vmess/Vmess.hpp>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     template <typename A>
@@ -52,25 +52,25 @@ namespace
     TEST(VmessConnErrorMatrix, TruncatedHeader)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            vmess::server_config cfg;
+            Vmess::ServerConfig cfg;
             cfg.uuid = make_uuid();
 
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto [err, req, conn] = co_await vmess::accept(
-                    std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_EQ(err, preview::error::io_error); // 只发 4 字节后 EOF（len_enc 读不满）
+                auto [err, req, Conn] = co_await Vmess::Accept(
+                    std::make_shared<MemoryStream>(std::move(b)), cfg);
+                EXPECT_EQ(err, Preview::Error::io_error); // 只发 4 字节后 EOF（len_enc 读不满）
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             // 只发 4 字节（半包）
             const std::vector<std::uint8_t> wire{0x01, 0x02, 0x03, 0x04};
             std::error_code ec;
-            co_await a.async_write_some(as_bytes(std::span<const std::uint8_t>(wire)), ec);
-            a.close();
+            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            a.Close();
         });
     }
 

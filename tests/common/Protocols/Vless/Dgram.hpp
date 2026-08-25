@@ -1,0 +1,255 @@
+/**
+ * @file Dgram.hpp
+ * @brief VLESS UDP 包连接对象（Transmission 装饰器）
+ * @details UDP 数据面连接：将底层流连接（Vless::Conn，同一条 TCP，
+ * 不另开底层连接）包装为包级 API（AsyncSendTo / AsyncReceiveFrom）。
+ * 帧格式：[ATYP][ADDR][PORT 2B BE][payload]（无长度无 CRLF，
+ * VLESS ATYP 1/2/3）。
+ * @note 包边界约定：读地址头后剩余为完整 payload（一次读）。
+ * @note 继承 Preview::Transmission，构造函数传入底层流连接（相当于
+ * socket 收发的持有者），对齐 Conn 的装饰器链模式。
+ */
+
+#pragma once
+
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/awaitable.hpp>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <memory>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include <common/Core/ByteSpan.hpp>
+#include <common/Core/Error.hpp>
+#include <common/Core/Memory/Container.hpp>
+#include <common/Core/Memory/Pointer.hpp>
+#include <common/Core/Protocol/Address.hpp>
+#include <common/Core/Transmission.hpp>
+#include <common/Protocols/Vless/Codec.hpp>
+#include <common/Protocols/Vless/Types.hpp>
+
+namespace Preview::Vless
+{
+
+    /**
+     * @class Dgram
+     * @brief VLESS UDP 包连接对象（Transmission 装饰器）
+     * @details 持有底层流连接（Vless::Conn，已握手）的独占所有权，
+     * 对外暴露包级 API（AsyncSendTo / AsyncReceiveFrom）。
+     * 由工厂（ConnectPacket / AcceptPacket）创建。
+     */
+    template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
+    class Dgram : public Preview::Transmission, public std::enable_shared_from_this<Dgram<Memory>>
+    {
+    public:
+        /**
+         * @brief 构造函数（工厂调用）
+         * @param Stream 底层流连接（已握手，所有权移交）
+         */
+        explicit Dgram(SharedTransmission Stream) : next_layer_(std::move(Stream))
+        {
+        }
+
+        /**
+         * @brief 获取执行器（委托底层流连接）
+         */
+        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        {
+            return next_layer_->Executor();
+        }
+
+        /**
+         * @brief 传输类型（经底层委托，TCP 承载数据报）
+         */
+        [[nodiscard]] auto TransportType() const noexcept -> Type override
+        {
+            return Type::udp;
+        }
+
+        /**
+         * @brief 发送一个 UDP 帧（WriteTo 语义）
+         * @param dest 目标地址
+         * @param payload 载荷
+         * @return 错误码
+         */
+        [[nodiscard]] auto AsyncSendTo(const Address &dest, std::span<const std::uint8_t> payload)
+            -> net::awaitable<Error>
+        {
+            BuildUdpPkt(dest, payload, TxWire_);
+            std::size_t Done = 0;
+            while (Done < TxWire_.size())
+            {
+                std::error_code ec;
+                const auto n = co_await next_layer_->AsyncWriteSome(
+                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done), ec);
+                if (ec)
+                {
+                    co_return Error::io_error;
+                }
+                Done += n;
+            }
+            co_return Error::none;
+        }
+
+        /**
+         * @brief 接收一个 UDP 帧（ReadFrom 语义）
+         * @param src 输出源地址
+         * @param payload 输出载荷
+         * @return 错误码
+         * @details 精确分段读取地址头（ATYP + ADDR + PORT），剩余
+         * 字节为完整 payload（无长度帧）。
+         */
+        [[nodiscard]] auto AsyncReceiveFrom(Address &src, std::vector<std::uint8_t> &payload)
+            -> net::awaitable<Error>
+        {
+            // 1. ATYP + ADDR + PORT
+            std::array<std::uint8_t, 1> atyp{};
+            if (co_await ReadExact(std::span<std::uint8_t>(atyp)))
+            {
+                co_return Error::io_error;
+            }
+            src.Type = static_cast<AddressType>(atyp[0]);
+            auto err = co_await ReadAddressBody(src);
+            if (err != Error::none)
+            {
+                co_return err;
+            }
+            std::array<std::uint8_t, 2> port{};
+            if (co_await ReadExact(std::span<std::uint8_t>(port)))
+            {
+                co_return Error::io_error;
+            }
+            src.Port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
+
+            // 2. 剩余为 payload（单次读取）
+            std::array<std::uint8_t, 512> chunk{};
+            std::error_code ec;
+            const auto n =
+                co_await next_layer_->AsyncReadSome(AsBytes(std::span<std::uint8_t>(chunk)), ec);
+            if (ec)
+            {
+                co_return Error::io_error;
+            }
+            if (n == 0)
+            {
+                co_return Error::unexpected_eof;
+            }
+            payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
+            co_return Error::none;
+        }
+
+        /**
+         * @brief 透传读取（底层流原样）
+         */
+        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+        }
+
+        /**
+         * @brief 透传写入（底层流原样）
+         */
+        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+            -> net::awaitable<std::size_t> override
+        {
+            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+        }
+
+        /**
+         * @brief 关闭底层流连接
+         */
+        void Close() override
+        {
+            next_layer_->Close();
+        }
+
+        /**
+         * @brief 取消挂起操作
+         */
+        void Cancel() override
+        {
+            next_layer_->Cancel();
+        }
+
+        /**
+         * @brief 获取底层传输（装饰器链导航）
+         */
+        [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
+        {
+            return next_layer_.get();
+        }
+
+        /**
+         * @brief 获取底层传输（const 版本）
+         */
+        [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
+        {
+            return next_layer_.get();
+        }
+
+        /**
+         * @brief 释放底层传输所有权
+         */
+        [[nodiscard]] auto Release() -> SharedTransmission override
+        {
+            return std::move(next_layer_);
+        }
+
+        /**
+         * @brief 获取底层流连接
+         */
+        [[nodiscard]] auto Stream() const noexcept -> SharedTransmission
+        {
+            return next_layer_;
+        }
+
+    private:
+        /**
+         * @brief 精确读取指定字节数
+         * @param dst 目标缓冲区
+         * @return true = 失败（EOF / 底层错误）
+         */
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        {
+            std::size_t Done = 0;
+            while (Done < dst.size())
+            {
+                std::error_code ec;
+                const auto n = co_await next_layer_->AsyncReadSome(AsBytes(dst.subspan(Done)), ec);
+                if (ec || n == 0)
+                {
+                    co_return true;
+                }
+                Done += n;
+            }
+            co_return false;
+        }
+
+        /**
+         * @brief 读取地址体（ATYP 已由调用方解析）
+         * @param addr 输出地址
+         * @return 错误码
+         * @note 转发层：统一实现见 Protocol/common::ReadAddressBody
+         */
+        [[nodiscard]] auto ReadAddressBody(Address &addr) -> net::awaitable<Error>
+        {
+            return Preview::Protocol::Common::ReadAddressBody(
+                addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return ReadExact(dst); });
+        }
+
+        SharedTransmission next_layer_; ///< 底层流连接（嵌入，同一条 TCP）
+        Memory mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
+        typename std::template Buffer<std::uint8_t> TxWire_{mem_.Arena()}; ///< 发送缓冲（Arena 复用，热路径零分配）
+    };
+
+    /// 包连接共享指针
+    using SharedDgram = std::shared_ptr<Dgram<>>;
+
+} // namespace Preview::Vless

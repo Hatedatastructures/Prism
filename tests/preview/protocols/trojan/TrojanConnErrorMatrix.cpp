@@ -1,6 +1,6 @@
 /**
  * @file TrojanConnErrorMatrix.cpp
- * @brief Trojan conn 错误矩阵测试
+ * @brief Trojan Conn 错误矩阵测试
  * @details 服务端握手错误路径：
  * - 凭据不匹配（bad_auth）
  * - 凭据后缺 CRLF（bad_magic）
@@ -21,12 +21,12 @@
 #include <string>
 #include <vector>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/trojan/trojan.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Trojan/Trojan.hpp>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     template <typename A>
@@ -45,17 +45,17 @@ namespace
     TEST(TrojanConnErrorMatrix, BadCredential)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            trojan::server_config cfg;
+            Trojan::ServerConfig cfg;
             cfg.password = "correct";
 
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto [err, req, conn] = co_await trojan::accept(
-                    std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_EQ(err, error::bad_auth);
+                auto [err, req, Conn] = co_await Trojan::Accept(
+                    std::make_shared<MemoryStream>(std::move(b)), cfg);
+                EXPECT_EQ(err, Error::bad_auth);
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -64,109 +64,109 @@ namespace
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.insert(wire.end(), {'\r', '\n', 0x01, 0x01, 0x00, 0x50});
             std::error_code ec;
-            co_await a.async_write_some(as_bytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
     TEST(TrojanConnErrorMatrix, MissingCrlf)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            trojan::server_config cfg;
+            Trojan::ServerConfig cfg;
             cfg.password = "prism";
 
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto [err, req, conn] = co_await trojan::accept(
-                    std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_EQ(err, error::bad_magic); // 凭据后缺 CRLF
+                auto [err, req, Conn] = co_await Trojan::Accept(
+                    std::make_shared<MemoryStream>(std::move(b)), cfg);
+                EXPECT_EQ(err, Error::bad_magic); // 凭据后缺 CRLF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             // 正确凭据 + 缺 CRLF
-            const auto cred = trojan::credential("prism");
+            const auto cred = Trojan::Credential("prism");
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.push_back(0x01);
             std::error_code ec;
-            co_await a.async_write_some(as_bytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
     TEST(TrojanConnErrorMatrix, BadCommand)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            trojan::server_config cfg;
+            Trojan::ServerConfig cfg;
             cfg.password = "prism";
 
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto [err, req, conn] = co_await trojan::accept(
-                    std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_EQ(err, error::bad_message); // 命令 0x99 不在白名单
+                auto [err, req, Conn] = co_await Trojan::Accept(
+                    std::make_shared<MemoryStream>(std::move(b)), cfg);
+                EXPECT_EQ(err, Error::bad_message); // 命令 0x99 不在白名单
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            const auto cred = trojan::credential("prism");
+            const auto cred = Trojan::Credential("prism");
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.insert(wire.end(), {'\r', '\n', 0x99, 0x01, 0x00, 0x50}); // 命令 0x99
             std::error_code ec;
-            co_await a.async_write_some(as_bytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
     TEST(TrojanConnErrorMatrix, BadAddressType)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            trojan::server_config cfg;
+            Trojan::ServerConfig cfg;
             cfg.password = "prism";
 
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto [err, req, conn] = co_await trojan::accept(
-                    std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_EQ(err, error::bad_message); // ATYP=9 非法
+                auto [err, req, Conn] = co_await Trojan::Accept(
+                    std::make_shared<MemoryStream>(std::move(b)), cfg);
+                EXPECT_EQ(err, Error::bad_message); // ATYP=9 非法
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            const auto cred = trojan::credential("prism");
+            const auto cred = Trojan::Credential("prism");
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.insert(wire.end(), {'\r', '\n', 0x01, 0x09, 0x00, 0x50}); // ATYP=9
             std::error_code ec;
-            co_await a.async_write_some(as_bytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
     TEST(TrojanConnErrorMatrix, TruncatedHeader)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            trojan::server_config cfg;
+            Trojan::ServerConfig cfg;
             cfg.password = "prism";
 
             auto server_coro = [&]() -> net::awaitable<void>
             {
-                auto [err, req, conn] = co_await trojan::accept(
-                    std::make_shared<memory_stream>(std::move(b)), cfg);
-                EXPECT_EQ(err, error::io_error); // 半包后 EOF
+                auto [err, req, Conn] = co_await Trojan::Accept(
+                    std::make_shared<MemoryStream>(std::move(b)), cfg);
+                EXPECT_EQ(err, Error::io_error); // 半包后 EOF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            const auto cred = trojan::credential("prism");
+            const auto cred = Trojan::Credential("prism");
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.insert(wire.end(), {'\r', '\n', 0x01}); // 截断
             std::error_code ec;
-            co_await a.async_write_some(as_bytes(std::span<const std::uint8_t>(wire)), ec);
-            a.close();
+            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            a.Close();
         });
     }
 

@@ -1,7 +1,7 @@
 /**
  * @file ChunkLimit.cpp
  * @brief chunk 大小上限验证（Release）
- * @details 手动 seal+send 不同块大小（协议外扩展），
+ * @details 手动 Seal+send 不同块大小（协议外扩展），
  * 证明"chunk 数量 × 固定成本"是加密传输的唯一瓶颈
  */
 
@@ -20,8 +20,8 @@
 #include <memory>
 #include <vector>
 
-#include <common/core/transport/reliable.hpp>
-#include <common/protocols/vmess/codec.hpp>
+#include <common/Core/Transport/Reliable.hpp>
+#include <common/Protocols/Vmess/Codec.hpp>
 
 using clk = std::chrono::steady_clock;
 namespace net = boost::asio;
@@ -33,19 +33,19 @@ namespace
         return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
     }
 
-    // 手动：seal chunk_size 明文 → send 密文（raw TCP）
-    auto bench(const std::size_t total, const std::size_t chunk_size) -> std::int64_t
+    // 手动：Seal chunk_size 明文 → send 密文（raw TCP）
+    auto bench(const std::size_t Total, const std::size_t chunk_size) -> std::int64_t
     {
-        using namespace preview;
+        using namespace Preview;
         net::io_context ioc;
         net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto port = acceptor.local_endpoint().port();
         const auto key = std::array<std::uint8_t, 16>{};
-        const auto nonce = std::array<std::uint8_t, 12>{};
-        vmess::chunk_encryptor enc(key, nonce);
+        const auto Nonce = std::array<std::uint8_t, 12>{};
+        Vmess::ChunkEncryptor enc(key, Nonce);
         std::vector<std::uint8_t> plain(chunk_size, 0x5A);
-        std::vector<std::uint8_t> out(chunk_size + vmess::chunk_encryptor::overhead);
-        std::vector<std::uint8_t> rx(262144);
+        std::vector<std::uint8_t> out(chunk_size + Vmess::ChunkEncryptor::overhead);
+        std::vector<std::uint8_t> Rx(262144);
 
         const std::int64_t t0 = now_ns();
         int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
@@ -55,15 +55,15 @@ namespace
             {
                 net::ip::tcp::socket sock(ioc);
                 co_await acceptor.async_accept(sock, net::use_awaitable);
-                std::size_t done = 0;
-                while (done < total)
+                std::size_t Done = 0;
+                while (Done < Total)
                 {
-                    const auto n = co_await sock.async_read_some(net::buffer(rx), net::use_awaitable);
+                    const auto n = co_await sock.async_read_some(net::buffer(Rx), net::use_awaitable);
                     if (n == 0)
                     {
                         break;
                     }
-                    done += n;
+                    Done += n;
                 }
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -71,10 +71,10 @@ namespace
             net::ip::tcp::socket sock(ioc);
             co_await sock.async_connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port),
                                         net::use_awaitable);
-            std::size_t done = 0;
-            while (done < total)
+            std::size_t Done = 0;
+            while (Done < Total)
             {
-                const auto enc_n = enc.seal(plain, out);
+                const auto enc_n = enc.Seal(plain, out);
                 std::size_t off = 0;
                 while (off < enc_n)
                 {
@@ -91,9 +91,9 @@ namespace
                     completed = 0;
                     break;
                 }
-                done += chunk_size;
+                Done += chunk_size;
             }
-            if (done < total)
+            if (Done < Total)
             {
                 completed = 0;
             }

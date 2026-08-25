@@ -1,11 +1,11 @@
 /**
  * @file MemoryPointerTest.cpp
  * @brief 内存指针体系测试
- * @details 验证 frame_arena/session_resource：
+ * @details 验证 FrameArena/SessionResource：
  * 1. 正确性：arena 分配/释放/重置语义
  * 2. 生命周期：arena 分配对象随会话存活
  * 3. 性能：arena 分配 vs 系统 new（应显著快）
- * 4. 与协议层集成：conn 持有 session_resource 的模式
+ * 4. 与协议层集成：conn 持有 SessionResource 的模式
  */
 
 #include <gtest/gtest.h>
@@ -15,11 +15,11 @@
 #include <cstdint>
 #include <string>
 
-#include <common/core/memory/container.hpp>
-#include <common/core/memory/pointer.hpp>
-#include <common/core/memory/pool.hpp>
-#include <common/protocols/socks5/codec.hpp>
-#include <common/protocols/socks5/types.hpp>
+#include <common/Core/Memory/Container.hpp>
+#include <common/Core/Memory/Pointer.hpp>
+#include <common/Core/Memory/Pool.hpp>
+#include <common/Protocols/Socks5/Codec.hpp>
+#include <common/Protocols/Socks5/types.hpp>
 
 namespace
 {
@@ -28,51 +28,51 @@ namespace
 
     TEST(MemoryPointer, ArenaAllocateAndReset)
     {
-        preview::memory::frame_arena arena;
-        auto mr = arena.get();
+        Preview::Memory::FrameArena arena;
+        auto mr = arena.Get();
         ASSERT_NE(mr, nullptr);
 
         // 分配字符串
-        preview::memory::string s(mr);
+        Preview::Memory::string s(mr);
         s.assign("hello");
         EXPECT_EQ(s, "hello");
 
         // 分配 vector
-        preview::memory::vector<std::uint8_t> v(mr);
+        Preview::Memory::vector<std::uint8_t> v(mr);
         v.push_back(1);
         v.push_back(2);
         EXPECT_EQ(v.size(), 2U);
 
         // reset 后旧对象失效但可重新分配
-        arena.reset();
-        preview::memory::string s2(mr);
+        arena.Reset();
+        Preview::Memory::string s2(mr);
         s2.assign("world");
         EXPECT_EQ(s2, "world");
     }
 
     TEST(MemoryPointer, SessionMemoryContext)
     {
-        preview::memory::session_resource mem;
-        auto s = mem.make_string("context-string");
+        Preview::Memory::SessionResource mem;
+        auto s = mem.MakeString("context-string");
         EXPECT_EQ(s, "context-string");
 
-        auto v = mem.make_vector<std::byte>();
+        auto v = mem.MakeVector<std::byte>();
         v.push_back(std::byte{0xAB});
         EXPECT_EQ(v.size(), 1U);
 
-        mem.reset();
-        EXPECT_EQ(mem.make_string("after-reset"), "after-reset");
+        mem.Reset();
+        EXPECT_EQ(mem.MakeString("after-reset"), "after-reset");
     }
 
     TEST(MemoryPointer, ArenaBufferExhaustionFallback)
     {
         // 8KB 缓冲耗尽后回退上游（local_pool），不崩溃
-        preview::memory::frame_arena arena;
-        auto mr = arena.get();
-        std::vector<preview::memory::string> objs;
+        Preview::Memory::FrameArena arena;
+        auto mr = arena.Get();
+        std::vector<Preview::Memory::string> objs;
         for (int i = 0; i < 200; ++i)
         {
-            preview::memory::string s(mr);
+            Preview::Memory::string s(mr);
             s.assign(64, static_cast<char>('a' + (i % 26)));
             objs.push_back(std::move(s));
         }
@@ -86,11 +86,11 @@ namespace
 
     TEST(MemoryPointer, ArenaLifetimeWithinScope)
     {
-        preview::memory::string *ptr = nullptr;
+        Preview::Memory::string *ptr = nullptr;
         {
-            preview::memory::frame_arena arena;
-            auto mr = arena.get();
-            auto s = std::make_unique<preview::memory::string>(mr);
+            Preview::Memory::FrameArena arena;
+            auto mr = arena.Get();
+            auto s = std::make_unique<Preview::Memory::string>(mr);
             s->assign("scoped");
             ptr = s.get();
             EXPECT_EQ(*ptr, "scoped");
@@ -117,8 +117,8 @@ namespace
                           .count();
 
         // arena（无释放）
-        preview::memory::frame_arena arena;
-        auto mr = arena.get();
+        Preview::Memory::FrameArena arena;
+        auto mr = arena.Get();
         start = std::chrono::steady_clock::now();
         for (int i = 0; i < kIters; ++i)
         {
@@ -135,17 +135,17 @@ namespace
         EXPECT_LE(arena_ms, sys_ms * 2) << "arena 应至少不慢于系统 new";
     }
 
-    // ── 4. 与协议层集成模式（conn 持有 session_resource） ──
+    // ── 4. 与协议层集成模式（conn 持有 SessionResource） ──
 
     TEST(MemoryPointer, ConnHoldsSessionMemory)
     {
-        // 模拟 conn 持有 session_resource：arena 分配随 conn 存活
+        // 模拟 conn 持有 SessionResource：arena 分配随 conn 存活
         struct fake_conn
         {
-            preview::memory::session_resource<> mem;
-            auto target_string() -> preview::memory::string
+            Preview::Memory::SessionResource<> mem;
+            auto target_string() -> Preview::Memory::string
             {
-                return mem.make_string("conn-target");
+                return mem.MakeString("conn-target");
             }
         };
         auto conn = std::make_shared<fake_conn>();
@@ -157,16 +157,16 @@ namespace
 
     TEST(MemoryPointer, ProtocolCodecArenaVsHeap)
     {
-        using namespace preview::socks5;
+        using namespace Preview::Socks5;
 
         // 典型 CONNECT 请求：域名 example.com:443
-        request req;
-        req.ver = version;
-        req.cmd = command::connect;
-        req.rsv = 0;
-        req.target.type = address_type::domain;
-        req.target.host = "example.com";
-        req.target.port = 443;
+        Request req;
+        req.Ver = 5;
+        req.Cmd = Command::Connect;
+        req.Rsv = 0;
+        req.Target.Type = AddressType::Domain;
+        req.Target.Host = "example.com";
+        req.Target.Port = 443;
 
         constexpr int kIters = 200000;
 
@@ -175,7 +175,7 @@ namespace
         volatile std::size_t sink = 0;
         for (int i = 0; i < kIters; ++i)
         {
-            const auto wire = build_request(req);
+            const auto wire = BuildRequest(req);
             sink += wire.size();
         }
         auto heap_ms = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -183,12 +183,12 @@ namespace
                            .count();
 
         // 复用缓冲（arena 分配，首次扩容后零分配）
-        preview::memory::session_resource mem;
-        preview::memory::vector<std::uint8_t> tx_wire(mem.arena());
+        Preview::Memory::SessionResource mem;
+        Preview::Memory::vector<std::uint8_t> tx_wire(mem.Arena());
         start = std::chrono::steady_clock::now();
         for (int i = 0; i < kIters; ++i)
         {
-            build_request(req, tx_wire);
+            BuildRequest(req, tx_wire);
             sink += tx_wire.size();
         }
         auto arena_ms = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -203,12 +203,12 @@ namespace
 
     TEST(MemoryPointer, ProtocolDgramArenaVsHeap)
     {
-        using namespace preview::socks5;
+        using namespace Preview::Socks5;
 
-        address dest;
-        dest.type = address_type::ipv4;
-        dest.host = "10.0.0.1";
-        dest.port = 53;
+        Address dest;
+        dest.Type = AddressType::Ipv4;
+        dest.Host = "10.0.0.1";
+        dest.Port = 53;
         constexpr std::size_t kPayload = 128;
         std::array<std::uint8_t, kPayload> payload{};
         payload.fill(0xAB);
@@ -219,19 +219,19 @@ namespace
         volatile std::size_t sink = 0;
         for (int i = 0; i < kIters; ++i)
         {
-            const auto wire = build_udp_datagram(dest, payload);
+            const auto wire = BuildUdpDatagram(dest, payload);
             sink += wire.size();
         }
         auto heap_ms = std::chrono::duration_cast<std::chrono::microseconds>(
                            std::chrono::steady_clock::now() - start)
                            .count();
 
-        preview::memory::session_resource mem;
-        preview::memory::vector<std::uint8_t> tx_wire(mem.arena());
+        Preview::Memory::SessionResource mem;
+        Preview::Memory::vector<std::uint8_t> tx_wire(mem.Arena());
         start = std::chrono::steady_clock::now();
         for (int i = 0; i < kIters; ++i)
         {
-            build_udp_datagram(dest, payload, tx_wire);
+            BuildUdpDatagram(dest, payload, tx_wire);
             sink += tx_wire.size();
         }
         auto arena_ms = std::chrono::duration_cast<std::chrono::microseconds>(
@@ -246,24 +246,24 @@ namespace
 
     // ── 6. 策略约束（memory_policy concept） ──
 
-    // 合法策略：session_resource<> 应满足约束
-    static_assert(preview::memory::restrict<preview::memory::session_resource<>>);
+    // 合法策略：SessionResource<> 应满足约束
+    static_assert(Preview::Memory::Restrict<Preview::Memory::SessionResource<>>);
     // 自定义大小同样满足
-    static_assert(preview::memory::restrict<preview::memory::session_resource<32768>>);
+    static_assert(Preview::Memory::Restrict<Preview::Memory::SessionResource<32768>>);
     // 非策略类型不满足约束（编译期拒绝）
-    static_assert(!preview::memory::restrict<int>);
-    static_assert(!preview::memory::restrict<std::string>);
+    static_assert(!Preview::Memory::Restrict<int>);
+    static_assert(!Preview::Memory::Restrict<std::string>);
 
     TEST(MemoryPointer, MemoryPolicyConstraint)
     {
         // 策略容器类型可用性
-        using Mem = preview::memory::session_resource<>;
+        using Mem = Preview::Memory::SessionResource<>;
         Mem mem;
-        typename Mem::buffer<std::uint8_t> buf = mem.make_buffer<std::uint8_t>(64);
-        EXPECT_EQ(buf.size(), 64U);
-        typename Mem::dynamic_string str = mem.make_string("policy-str");
+        typename Mem::template Buffer<std::uint8_t> Buf = mem.MakeBuffer<std::uint8_t>(64);
+        EXPECT_EQ(Buf.size(), 64U);
+        typename Mem::DynamicString str = mem.MakeString("policy-str");
         EXPECT_EQ(str, "policy-str");
-        EXPECT_EQ(Mem::arena_size(), 8192U);
+        EXPECT_EQ(Mem::GetArenaSize(), 8192U);
     }
 
 } // namespace

@@ -2,12 +2,12 @@
  * @file RouteOutboundTest.cpp
  * @brief 路由表与出站拨号测试（T3-2）
  * @details 覆盖：
- *          - route_table：反向映射/正向端点/未命中/大小/清空
- *          - outbound：路由解析 + 拨号（反向命中 → 映射端点）
+ *          - RouteTable：反向映射/正向端点/未命中/大小/清空
+ *          - Outbound：路由解析 + 拨号（反向命中 → 映射端点）
  */
 
-#include <common/core/net/outbound/outbound.hpp>
-#include <common/core/net/route/route.hpp>
+#include <common/Core/Net/Outbound/Outbound.hpp>
+#include <common/Core/Net/Route/Route.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -19,8 +19,8 @@
 namespace
 {
     namespace net = boost::asio;
-    using tcp = net::ip::tcp;
-    using namespace preview;
+    using Tcp = net::ip::tcp;
+    using namespace Preview;
 
     template <typename A>
     void run_coro(net::io_context &ioc, A coro)
@@ -35,62 +35,62 @@ namespace
     }
 } // namespace
 
-// ── route_table ──
+// ── RouteTable ──
 
 TEST(RouteTable, ReverseMatch)
 {
-    preview::network::route::route_table routes;
-    routes.add_reverse("internal.example", preview::network::route::endpoint{"10.0.0.1", 8080});
-    EXPECT_TRUE(routes.is_reverse("internal.example"));
-    EXPECT_FALSE(routes.is_reverse("other.example"));
-    const auto r = routes.lookup("internal.example");
+    Preview::Network::Route::RouteTable routes;
+    routes.AddReverse("internal.example", Preview::Network::Route::Endpoint{"10.0.0.1", 8080});
+    EXPECT_TRUE(routes.IsReverse("internal.example"));
+    EXPECT_FALSE(routes.IsReverse("other.example"));
+    const auto r = routes.Lookup("internal.example");
     ASSERT_TRUE(r.has_value());
-    EXPECT_EQ(r->host, "10.0.0.1");
-    EXPECT_EQ(r->port, 8080u);
+    EXPECT_EQ(r->Host, "10.0.0.1");
+    EXPECT_EQ(r->Port, 8080u);
 }
 
 TEST(RouteTable, PositiveFallback)
 {
-    preview::network::route::route_table routes;
-    routes.set_positive(preview::network::route::endpoint{"127.0.0.1", 443});
+    Preview::Network::Route::RouteTable routes;
+    routes.SetPositive(Preview::Network::Route::Endpoint{"127.0.0.1", 443});
     // 未命中反向 → 正向
-    const auto r = routes.lookup("any.example");
+    const auto r = routes.Lookup("any.example");
     ASSERT_TRUE(r.has_value());
-    EXPECT_EQ(r->host, "127.0.0.1");
-    EXPECT_EQ(r->port, 443u);
+    EXPECT_EQ(r->Host, "127.0.0.1");
+    EXPECT_EQ(r->Port, 443u);
 }
 
 TEST(RouteTable, NoMatchNoPositive)
 {
-    preview::network::route::route_table routes;
-    EXPECT_FALSE(routes.lookup("unknown").has_value());
+    Preview::Network::Route::RouteTable routes;
+    EXPECT_FALSE(routes.Lookup("unknown").has_value());
 }
 
 TEST(RouteTable, SizeAndClear)
 {
-    preview::network::route::route_table routes;
-    routes.add_reverse("a", preview::network::route::endpoint{"1.1.1.1", 1});
-    routes.add_reverse("b", preview::network::route::endpoint{"2.2.2.2", 2});
-    EXPECT_EQ(routes.size(), 2u);
-    routes.clear();
-    EXPECT_EQ(routes.size(), 0u);
-    EXPECT_FALSE(routes.lookup("a").has_value());
+    Preview::Network::Route::RouteTable routes;
+    routes.AddReverse("a", Preview::Network::Route::Endpoint{"1.1.1.1", 1});
+    routes.AddReverse("b", Preview::Network::Route::Endpoint{"2.2.2.2", 2});
+    EXPECT_EQ(routes.Size(), 2u);
+    routes.Clear();
+    EXPECT_EQ(routes.Size(), 0u);
+    EXPECT_FALSE(routes.Lookup("a").has_value());
 }
 
-// ── outbound ──
+// ── Outbound ──
 
 TEST(Outbound, DialViaReverseRoute)
 {
     net::io_context ioc;
-    tcp::acceptor acceptor(ioc, tcp::endpoint(tcp::v4(), 0));
+    net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
     const auto real_port = acceptor.local_endpoint().port();
 
-    auto routes = std::make_shared<preview::network::route::route_table>();
+    auto routes = std::make_shared<Preview::Network::Route::RouteTable>();
     // 反向映射：internal.example → 本机 echo 端口
-    routes->add_reverse("internal.example", preview::network::route::endpoint{"127.0.0.1", real_port});
+    routes->AddReverse("internal.example", Preview::Network::Route::Endpoint{"127.0.0.1", real_port});
 
     std::error_code ec;
-    shared_transmission conn;
+    SharedTransmission Conn;
     run_coro(ioc,
              [&]() -> net::awaitable<void>
              {
@@ -102,23 +102,23 @@ TEST(Outbound, DialViaReverseRoute)
                          sock.close();
                      },
                      net::detached);
-                 preview::network::outbound::outbound ob(ioc.get_executor(), routes);
-                 conn = co_await ob.dial(preview::network::outbound::target{"internal.example", 9999}, ec);
+                 Preview::Network::Outbound::Outbound ob(ioc.get_executor(), routes);
+                 Conn = co_await ob.Dial(Preview::Network::Outbound::Target{"internal.example", 9999}, ec);
              });
     // 反向路由命中 → 连接到映射端点（real_port）
     EXPECT_FALSE(ec);
-    EXPECT_NE(conn, nullptr);
+    EXPECT_NE(Conn, nullptr);
 }
 
 TEST(Outbound, DialDirectTarget)
 {
     net::io_context ioc;
-    tcp::acceptor acceptor(ioc, tcp::endpoint(tcp::v4(), 0));
+    net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
     const auto port = acceptor.local_endpoint().port();
 
-    auto routes = std::make_shared<preview::network::route::route_table>();
+    auto routes = std::make_shared<Preview::Network::Route::RouteTable>();
     std::error_code ec;
-    shared_transmission conn;
+    SharedTransmission Conn;
     run_coro(ioc,
              [&]() -> net::awaitable<void>
              {
@@ -130,25 +130,25 @@ TEST(Outbound, DialDirectTarget)
                          sock.close();
                      },
                      net::detached);
-                 preview::network::outbound::outbound ob(ioc.get_executor(), routes);
-                 conn = co_await ob.dial(preview::network::outbound::target{"127.0.0.1", port}, ec);
+                 Preview::Network::Outbound::Outbound ob(ioc.get_executor(), routes);
+                 Conn = co_await ob.Dial(Preview::Network::Outbound::Target{"127.0.0.1", port}, ec);
              });
     EXPECT_FALSE(ec);
-    EXPECT_NE(conn, nullptr);
+    EXPECT_NE(Conn, nullptr);
 }
 
 TEST(Outbound, InvalidPortRejected)
 {
     net::io_context ioc;
-    auto routes = std::make_shared<preview::network::route::route_table>();
+    auto routes = std::make_shared<Preview::Network::Route::RouteTable>();
     std::error_code ec;
-    shared_transmission conn;
+    SharedTransmission Conn;
     run_coro(ioc,
              [&]() -> net::awaitable<void>
              {
-                 preview::network::outbound::outbound ob(ioc.get_executor(), routes);
-                 conn = co_await ob.dial(preview::network::outbound::target{"127.0.0.1", 0}, ec);
+                 Preview::Network::Outbound::Outbound ob(ioc.get_executor(), routes);
+                 Conn = co_await ob.Dial(Preview::Network::Outbound::Target{"127.0.0.1", 0}, ec);
              });
     EXPECT_TRUE(ec);
-    EXPECT_EQ(conn, nullptr);
+    EXPECT_EQ(Conn, nullptr);
 }

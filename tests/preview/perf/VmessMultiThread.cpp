@@ -20,8 +20,8 @@
 #include <thread>
 #include <vector>
 
-#include <common/core/transport/reliable.hpp>
-#include <common/protocols/vmess/vmess.hpp>
+#include <common/Core/Transport/Reliable.hpp>
+#include <common/Protocols/Vmess/Vmess.hpp>
 
 using clk = std::chrono::steady_clock;
 namespace net = boost::asio;
@@ -33,9 +33,9 @@ namespace
         return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
     }
 
-    auto bench(const std::size_t total, const std::size_t block, const int threads) -> std::int64_t
+    auto bench(const std::size_t Total, const std::size_t block, const int threads) -> std::int64_t
     {
-        using namespace preview;
+        using namespace Preview;
         net::io_context ioc;
         net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto port = acceptor.local_endpoint().port();
@@ -51,64 +51,64 @@ namespace
             {
                 net::ip::tcp::socket sock(ioc);
                 co_await acceptor.async_accept(sock, net::use_awaitable);
-                auto ss = std::make_shared<transport::reliable>(std::move(sock));
-                vmess::server_config scfg;
+                auto ss = std::make_shared<Transport::Reliable>(std::move(sock));
+                Vmess::ServerConfig scfg;
                 scfg.uuid = uuid;
-                auto [err, req, conn] = co_await vmess::accept(ss, scfg);
-                if (err != error::none || !conn)
+                auto [err, req, Conn] = co_await Vmess::Accept(ss, scfg);
+                if (err != Error::none || !Conn)
                 {
                     co_return;
                 }
                 std::vector<std::uint8_t> buf(block);
                 std::error_code ec;
-                std::size_t done = 0;
-                while (done < total)
+                std::size_t Done = 0;
+                while (Done < Total)
                 {
-                    const auto n = co_await conn->async_read_some(
+                    const auto n = co_await Conn->AsyncReadSome(
                         std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                     if (ec || n == 0)
                     {
                         break;
                     }
-                    done += n;
+                    Done += n;
                 }
-                conn->close();
+                Conn->Close();
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            auto ss = std::make_shared<transport::reliable>(ioc.get_executor());
-            const auto ec2 = co_await ss->connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port));
+            auto ss = std::make_shared<Transport::Reliable>(ioc.get_executor());
+            const auto ec2 = co_await ss->Connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port));
             if (ec2)
             {
                 ioc.stop();
                 co_return;
             }
-            vmess::client_config ccfg;
+            Vmess::ClientConfig ccfg;
             ccfg.uuid = uuid;
-            auto [err, conn] = co_await vmess::connect(
-                ss, ccfg, vmess::address{vmess::address_type::domain, "t.internal", 443});
-            if (err != error::none || !conn)
+            auto [err, Conn] = co_await Vmess::Connect(
+                ss, ccfg, Vmess::Address{Vmess::AddressType::Domain, "t.internal", 443});
+            if (err != Error::none || !Conn)
             {
                 ioc.stop();
                 co_return;
             }
-            std::size_t done = 0;
+            std::size_t Done = 0;
             std::error_code ec;
-            while (done < total)
+            while (Done < Total)
             {
-                const auto n = co_await conn->async_write_some(
+                const auto n = co_await Conn->AsyncWriteSome(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
                 if (ec || n == 0)
                 {
                     break; // 断链：completed=0 门禁 FAIL，避免死循环挂死
                 }
-                done += n;
+                Done += n;
             }
-            if (done < total)
+            if (Done < Total)
             {
                 completed = 0;
             }
-            conn->close();
+            Conn->Close();
         }, [&](std::exception_ptr) { ioc.stop(); });
 
         // 多线程跑 ioc

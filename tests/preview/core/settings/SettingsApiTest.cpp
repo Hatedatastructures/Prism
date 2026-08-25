@@ -12,166 +12,166 @@
 #include <cstdint>
 #include <string>
 
-#include <common/core/api/api_manager.hpp>
-#include <common/core/settings/json.hpp>
-#include <common/core/settings/loader.hpp>
+#include <common/Core/Api/ApiManager.hpp>
+#include <common/Core/Settings/Json.hpp>
+#include <common/Core/Settings/Loader.hpp>
 
 namespace
 {
 
     TEST(JsonParser, BasicValues)
     {
-        preview::settings::json_value v;
-        EXPECT_TRUE(preview::settings::parse_json("null", v).message.empty());
-        EXPECT_EQ(v.data.index(), 0);
+        Preview::Settings::JsonValue v;
+        EXPECT_TRUE(Preview::Settings::ParseJson("null", v).Message.empty());
+        EXPECT_EQ(v.Data.index(), 0);
 
-        EXPECT_TRUE(preview::settings::parse_json("true", v).message.empty());
-        EXPECT_EQ(std::get<bool>(v.data), true);
+        EXPECT_TRUE(Preview::Settings::ParseJson("true", v).Message.empty());
+        EXPECT_EQ(std::get<bool>(v.Data), true);
 
-        EXPECT_TRUE(preview::settings::parse_json("42", v).message.empty());
-        EXPECT_EQ(std::get<double>(v.data), 42);
+        EXPECT_TRUE(Preview::Settings::ParseJson("42", v).Message.empty());
+        EXPECT_EQ(std::get<double>(v.Data), 42);
 
-        EXPECT_TRUE(preview::settings::parse_json("-3.5", v).message.empty());
-        EXPECT_EQ(std::get<double>(v.data), -3.5);
+        EXPECT_TRUE(Preview::Settings::ParseJson("-3.5", v).Message.empty());
+        EXPECT_EQ(std::get<double>(v.Data), -3.5);
 
-        EXPECT_TRUE(preview::settings::parse_json("\"hi\\n\"", v).message.empty());
-        EXPECT_EQ(std::get<std::string>(v.data), "hi\n");
+        EXPECT_TRUE(Preview::Settings::ParseJson("\"hi\\n\"", v).Message.empty());
+        EXPECT_EQ(std::get<std::string>(v.Data), "hi\n");
     }
 
     TEST(JsonParser, NestedStructures)
     {
-        preview::settings::json_value v;
+        Preview::Settings::JsonValue v;
         const std::string text = R"({"a": {"b": [1, 2, {"c": "x"}]}, "d": []})";
-        EXPECT_TRUE(preview::settings::parse_json(text, v).message.empty());
+        EXPECT_TRUE(Preview::Settings::ParseJson(text, v).Message.empty());
 
-        const auto *b = preview::settings::lookup(v, "a.b");
+        const auto *b = Preview::Settings::Lookup(v, "a.b");
         ASSERT_NE(b, nullptr);
-        ASSERT_EQ(b->data.index(), 4);
-        EXPECT_EQ(std::get<preview::settings::json_array>(b->data).items.size(), 3);
+        ASSERT_EQ(b->Data.index(), 4);
+        EXPECT_EQ(std::get<Preview::Settings::JsonArray>(b->Data).items.size(), 3);
 
-        const auto *c = preview::settings::lookup(v, "a.b.2.c");
+        const auto *c = Preview::Settings::Lookup(v, "a.b.2.c");
         ASSERT_NE(c, nullptr);
-        EXPECT_EQ(std::get<std::string>(c->data), "x");
+        EXPECT_EQ(std::get<std::string>(c->Data), "x");
 
-        EXPECT_EQ(preview::settings::lookup(v, "a.b.2.z"), nullptr);
-        EXPECT_EQ(preview::settings::lookup(v, "missing"), nullptr);
+        EXPECT_EQ(Preview::Settings::Lookup(v, "a.b.2.z"), nullptr);
+        EXPECT_EQ(Preview::Settings::Lookup(v, "missing"), nullptr);
     }
 
     TEST(JsonParser, ErrorInputs)
     {
-        preview::settings::json_value v;
-        EXPECT_FALSE(preview::settings::parse_json("", v).message.empty());
-        EXPECT_FALSE(preview::settings::parse_json("{", v).message.empty());
-        EXPECT_FALSE(preview::settings::parse_json("[1,2", v).message.empty());
-        EXPECT_FALSE(preview::settings::parse_json("{\"a\":}", v).message.empty());
-        EXPECT_FALSE(preview::settings::parse_json("{\"a\":1} extra", v).message.empty());
-        EXPECT_FALSE(preview::settings::parse_json("tru", v).message.empty());
-        EXPECT_FALSE(preview::settings::parse_json("\"unterminated", v).message.empty());
+        Preview::Settings::JsonValue v;
+        EXPECT_FALSE(Preview::Settings::ParseJson("", v).Message.empty());
+        EXPECT_FALSE(Preview::Settings::ParseJson("{", v).Message.empty());
+        EXPECT_FALSE(Preview::Settings::ParseJson("[1,2", v).Message.empty());
+        EXPECT_FALSE(Preview::Settings::ParseJson("{\"a\":}", v).Message.empty());
+        EXPECT_FALSE(Preview::Settings::ParseJson("{\"a\":1} extra", v).Message.empty());
+        EXPECT_FALSE(Preview::Settings::ParseJson("tru", v).Message.empty());
+        EXPECT_FALSE(Preview::Settings::ParseJson("\"unterminated", v).Message.empty());
     }
 
     TEST(ConfigLoader, ValidConfig)
     {
-        preview::settings::proxy_config cfg;
+        Preview::Settings::ProxyConfig cfg;
         const std::string text = R"({
-            "listen_addr": "0.0.0.0",
-            "listen_port": 1080,
-            "protocol": "socks5",
-            "max_connections": 2048,
-            "auth_required": true,
-            "idle_timeout_ms": 120000
+            "ListenAddr": "0.0.0.0",
+            "ListenPort": 1080,
+            "Protocol": "socks5",
+            "MaxConnections": 2048,
+            "AuthRequired": true,
+            "IdleTimeoutMs": 120000
         })";
-        const auto err = preview::settings::load_config(text, cfg);
-        EXPECT_TRUE(err.message.empty());
-        EXPECT_EQ(cfg.listen_addr, "0.0.0.0");
-        EXPECT_EQ(cfg.listen_port, 1080);
-        EXPECT_EQ(cfg.protocol, "socks5");
-        EXPECT_EQ(cfg.max_connections, 2048);
-        EXPECT_TRUE(cfg.auth_required);
-        EXPECT_EQ(cfg.idle_timeout_ms, 120000);
+        const auto err = Preview::Settings::LoadConfig(text, cfg);
+        EXPECT_TRUE(err.Message.empty());
+        EXPECT_EQ(cfg.ListenAddr, "0.0.0.0");
+        EXPECT_EQ(cfg.ListenPort, 1080);
+        EXPECT_EQ(cfg.Protocol, "socks5");
+        EXPECT_EQ(cfg.MaxConnections, 2048);
+        EXPECT_TRUE(cfg.AuthRequired);
+        EXPECT_EQ(cfg.IdleTimeoutMs, 120000);
     }
 
     TEST(ConfigLoader, DefaultsAndUnknownFields)
     {
-        preview::settings::proxy_config cfg;
+        Preview::Settings::ProxyConfig cfg;
         // 未知字段忽略 + 缺省值生效
-        const std::string text = R"({"listen_port": 8080, "future_field": 123})";
-        const auto err = preview::settings::load_config(text, cfg);
-        EXPECT_TRUE(err.message.empty());
-        EXPECT_EQ(cfg.listen_addr, "127.0.0.1");
-        EXPECT_EQ(cfg.listen_port, 8080);
-        EXPECT_EQ(cfg.protocol, "socks5");
-        EXPECT_FALSE(cfg.auth_required);
+        const std::string text = R"({"ListenPort": 8080, "future_field": 123})";
+        const auto err = Preview::Settings::LoadConfig(text, cfg);
+        EXPECT_TRUE(err.Message.empty());
+        EXPECT_EQ(cfg.ListenAddr, "127.0.0.1");
+        EXPECT_EQ(cfg.ListenPort, 8080);
+        EXPECT_EQ(cfg.Protocol, "socks5");
+        EXPECT_FALSE(cfg.AuthRequired);
     }
 
     TEST(ConfigLoader, MissingRequired)
     {
-        preview::settings::proxy_config cfg;
-        const auto err = preview::settings::load_config("{}", cfg);
-        EXPECT_FALSE(err.message.empty());
-        EXPECT_EQ(err.field, "listen_port");
+        Preview::Settings::ProxyConfig cfg;
+        const auto err = Preview::Settings::LoadConfig("{}", cfg);
+        EXPECT_FALSE(err.Message.empty());
+        EXPECT_EQ(err.field, "ListenPort");
     }
 
     TEST(ConfigLoader, RangeAndTypeErrors)
     {
-        preview::settings::proxy_config cfg;
+        Preview::Settings::ProxyConfig cfg;
         // 端口越界
-        auto err = preview::settings::load_config(R"({"listen_port": 70000})", cfg);
-        EXPECT_FALSE(err.message.empty());
-        EXPECT_EQ(err.field, "listen_port");
+        auto err = Preview::Settings::LoadConfig(R"({"ListenPort": 70000})", cfg);
+        EXPECT_FALSE(err.Message.empty());
+        EXPECT_EQ(err.field, "ListenPort");
 
         // 端口非数字
-        err = preview::settings::load_config(R"({"listen_port": "1080"})", cfg);
-        EXPECT_FALSE(err.message.empty());
-        EXPECT_EQ(err.field, "listen_port");
+        err = Preview::Settings::LoadConfig(R"({"ListenPort": "1080"})", cfg);
+        EXPECT_FALSE(err.Message.empty());
+        EXPECT_EQ(err.field, "ListenPort");
 
         // 协议不支持
-        err = preview::settings::load_config(R"({"listen_port": 1, "protocol": "quic"})", cfg);
-        EXPECT_FALSE(err.message.empty());
-        EXPECT_EQ(err.field, "protocol");
+        err = Preview::Settings::LoadConfig(R"({"ListenPort": 1, "Protocol": "quic"})", cfg);
+        EXPECT_FALSE(err.Message.empty());
+        EXPECT_EQ(err.field, "Protocol");
 
         // 布尔类型错误
-        err = preview::settings::load_config(R"({"listen_port": 1, "auth_required": "yes"})", cfg);
-        EXPECT_FALSE(err.message.empty());
-        EXPECT_EQ(err.field, "auth_required");
+        err = Preview::Settings::LoadConfig(R"({"ListenPort": 1, "AuthRequired": "yes"})", cfg);
+        EXPECT_FALSE(err.Message.empty());
+        EXPECT_EQ(err.field, "AuthRequired");
     }
 
     TEST(ApiManager, SessionListSnapshot)
     {
-        preview::runtime::session_registry registry;
-        preview::runtime::session_info info;
-        info.id = 7;
-        info.identity = "alice";
-        info.peer = "10.0.0.1";
-        info.target = "example.com:443";
-        registry.put(info);
+        Preview::Runtime::SessionRegistry registry;
+        Preview::Runtime::SessionInfo Info;
+        Info.Id = 7;
+        Info.identity = "alice";
+        Info.peer = "10.0.0.1";
+        Info.Target = "example.com:443";
+        registry.Put(Info);
 
-        preview::runtime::per_worker_traffic traffic(2);
-        traffic.add(0, 100, 200);
+        Preview::Runtime::PerWorkerTraffic traffic(2);
+        traffic.Add(0, 100, 200);
 
-        preview::api::registry_api_manager api(&registry, &traffic);
+        Preview::Api::RegistryApiManager api(&registry, &traffic);
 
-        const auto sessions = api.list_sessions();
+        const auto sessions = api.ListSessions();
         ASSERT_EQ(sessions.size(), 1);
-        EXPECT_EQ(sessions[0].id, 7);
+        EXPECT_EQ(sessions[0].Id, 7);
         EXPECT_TRUE(sessions[0].detail.find("alice") != std::string::npos);
 
-        const auto sum = api.traffic_summary();
+        const auto sum = api.TrafficSummary();
         EXPECT_EQ(sum.up, 100);
         EXPECT_EQ(sum.down, 200);
 
-        const auto snap = api.config_snapshot();
+        const auto snap = api.ConfigSnapshot();
         EXPECT_TRUE(snap.find("\"sessions\":1") != std::string::npos);
     }
 
     TEST(ApiManager, EmptySnapshot)
     {
-        preview::runtime::session_registry registry;
-        preview::runtime::per_worker_traffic traffic(1);
+        Preview::Runtime::SessionRegistry registry;
+        Preview::Runtime::PerWorkerTraffic traffic(1);
 
-        preview::api::registry_api_manager api(&registry, &traffic);
-        EXPECT_TRUE(api.list_sessions().empty());
-        EXPECT_EQ(api.traffic_summary().up, 0);
-        EXPECT_TRUE(api.config_snapshot().find("\"sessions\":0") != std::string::npos);
+        Preview::Api::RegistryApiManager api(&registry, &traffic);
+        EXPECT_TRUE(api.ListSessions().empty());
+        EXPECT_EQ(api.TrafficSummary().up, 0);
+        EXPECT_TRUE(api.ConfigSnapshot().find("\"sessions\":0") != std::string::npos);
     }
 
 } // namespace

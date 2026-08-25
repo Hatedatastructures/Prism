@@ -103,13 +103,13 @@ namespace
             timer.expires_after(std::chrono::milliseconds(200));
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
 
-            wrote_data = !fx.transport->written_data().empty();
+            wrote_data = !fx.transport->WrittenData().empty();
 
             fx.transport->close();
             fx.craft_obj->close();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
@@ -162,7 +162,7 @@ namespace
             fx.craft_obj->close();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
@@ -213,7 +213,7 @@ namespace
             fx.craft_obj->close();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
@@ -242,7 +242,7 @@ namespace
     TEST(H2muxCraftAsync, FrameLoopReadError)
     {
         AsyncFixture fx;
-        fx.transport->set_read_error(std::make_error_code(std::errc::connection_reset));
+        fx.transport->set_ReadError(std::make_error_code(std::errc::connection_reset));
 
         std::exception_ptr ep;
         bool closed_ok = false;
@@ -259,7 +259,7 @@ namespace
             closed_ok = !fx.craft_obj->is_active();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
@@ -305,7 +305,7 @@ namespace
             result = co_await fx.craft_obj->wait_first_connect();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
@@ -359,7 +359,7 @@ namespace
             fx.craft_obj->close();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
@@ -411,7 +411,7 @@ namespace
             fx.craft_obj->close();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
@@ -481,7 +481,7 @@ namespace
             fx.craft_obj->close();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
@@ -542,7 +542,7 @@ namespace
             fx.craft_obj->close();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
@@ -592,7 +592,7 @@ namespace
             fx.craft_obj->close();
         };
 
-        auto &mock_ioc = fx.transport->get_io_context();
+        auto &mock_ioc = fx.transport->GetIoContext();
         net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {

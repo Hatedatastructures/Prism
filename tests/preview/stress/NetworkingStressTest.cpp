@@ -4,7 +4,7 @@
  * @details 覆盖：
  *          - TCP 连接风暴：并发 50 连接 × 10 轮，全部 echo 成功
  *          - UDP relay 长跑：1000 包双向往返
- *          - stress helper：gate 汇合 / leak_tracker 泄漏探测
+ *          - stress helper：Gate 汇合 / LeakTracker 泄漏探测
  * @note smoke 参数（短时）；完整长跑在 CI/手动扩展轮次
  */
 
@@ -26,18 +26,18 @@
 #include <memory>
 #include <string>
 
-#include <common/core/net/dialer/dialer.hpp>
-#include <common/core/net/udp_relay.hpp>
-#include <common/core/transport/reliable.hpp>
-#include <common/core/transport/unreliable.hpp>
-#include <common/stress/stress_helper.hpp>
+#include <common/Core/Net/Dialer/Dialer.hpp>
+#include <common/Core/Net/UdpRelay.hpp>
+#include <common/Core/Transport/Reliable.hpp>
+#include <common/Core/Transport/Unreliable.hpp>
+#include <common/Stress/StressHelper.hpp>
 
 namespace
 {
 
     namespace net = boost::asio;
-    using tcp = net::ip::tcp;
-    using namespace preview;
+    using Tcp = net::ip::tcp;
+    using namespace Preview;
 
     /// 长跑缩放因子：NGX_STRESS_DURATION=秒 → 轮次放大（默认 1 = smoke）
     auto stress_scale() -> int
@@ -56,7 +56,7 @@ namespace
     }
 
     /// TCP echo 服务器
-    auto tcp_echo_server(tcp::socket sock) -> net::awaitable<void>
+    auto TcpEchoServer(Tcp::socket sock) -> net::awaitable<void>
     {
         std::array<std::byte, 4096> buf{};
         boost::system::error_code ec;
@@ -81,7 +81,7 @@ namespace
     {
         constexpr int conns_per_round = 50;
         const auto rounds = 10 * stress_scale();
-        const auto total = conns_per_round * rounds;
+        const auto Total = conns_per_round * rounds;
 
         net::io_context ioc;
         std::exception_ptr ep;
@@ -89,7 +89,7 @@ namespace
             ioc,
             [&]() -> net::awaitable<void>
             {
-                tcp::acceptor acceptor(ioc, tcp::endpoint(tcp::v4(), 0));
+                Tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
                 const auto port = acceptor.local_endpoint().port();
 
                 net::co_spawn(
@@ -105,15 +105,15 @@ namespace
                             {
                                 co_return;
                             }
-                            net::co_spawn(ioc.get_executor(), tcp_echo_server(std::move(sock)),
+                            net::co_spawn(ioc.get_executor(), TcpEchoServer(std::move(sock)),
                                           net::detached);
                         }
                     },
                     net::detached);
 
                 // 风暴：并发连接 × 多轮
-                std::atomic<int> ok{0};
-                preview::stress::gate g(ioc.get_executor(), total);
+                std::atomic<int> Ok{0};
+                Preview::Stress::Gate g(ioc.get_executor(), Total);
                 for (int round = 0; round < rounds; ++round)
                 {
                     for (int i = 0; i < conns_per_round; ++i)
@@ -123,33 +123,33 @@ namespace
                             [&, i]() -> net::awaitable<void>
                             {
                                 std::error_code ec;
-                                preview::network::dialer::dialer d(ioc.get_executor());
-                                auto conn = co_await d.connect("127.0.0.1", port, ec);
-                                if (ec || !conn)
+                                Preview::Network::Dialer::Dialer d(ioc.get_executor());
+                                auto Conn = co_await d.Connect("127.0.0.1", port, ec);
+                                if (ec || !Conn)
                                 {
-                                    g.arrive();
+                                    g.Arrive();
                                     co_return;
                                 }
                                 const std::string msg = "storm-" + std::to_string(i);
-                                co_await conn->async_write_some(
+                                co_await Conn->async_write_some(
                                     std::span<const std::byte>(
                                         reinterpret_cast<const std::byte *>(msg.data()), msg.size()),
                                     ec);
                                 std::array<std::byte, 64> buf{};
-                                const auto n = co_await conn->async_read_some(buf, ec);
+                                const auto n = co_await Conn->AsyncReadSome(buf, ec);
                                 if (!ec && std::string_view(reinterpret_cast<const char *>(buf.data()),
                                                             n) == msg)
                                 {
-                                    ++ok;
+                                    ++Ok;
                                 }
-                                conn->close();
-                                g.arrive();
+                                Conn->Close();
+                                g.Arrive();
                             },
                             net::detached);
                     }
                 }
-                co_await g.wait();
-                EXPECT_EQ(ok, total);
+                co_await g.Wait();
+                EXPECT_EQ(Ok, Total);
                 acceptor.close();
             },
             [&](std::exception_ptr e) { ep = e; ioc.stop(); });
@@ -165,22 +165,22 @@ namespace
         const auto packets = 1000 * stress_scale();
         net::io_context ioc;
 
-        auto a = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
-        auto b = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
+        auto a = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
+        auto b = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
         boost::system::error_code oec;
-        a->native_socket().open(net::ip::udp::v4(), oec);
-        a->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
-        b->native_socket().open(net::ip::udp::v4(), oec);
-        b->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        a->NativeSocket().open(net::ip::udp::v4(), oec);
+        a->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        b->NativeSocket().open(net::ip::udp::v4(), oec);
+        b->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
 
         net::co_spawn(
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                preview::network::udp::relay_options opts;
-                opts.idle_timeout = std::chrono::milliseconds(5000);
-                preview::network::udp::udp_relay relay(a, b, opts);
-                co_await relay.run();
+                Preview::Network::Udp::RelayOptions opts;
+                opts.IdleTimeout = std::chrono::milliseconds(5000);
+                Preview::Network::Udp::UdpRelay relay(a, b, opts);
+                co_await relay.Run();
             },
             net::detached);
 
@@ -193,8 +193,8 @@ namespace
         cb.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
         const auto ca_ep = ca.local_endpoint();
         const auto cb_ep = cb.local_endpoint();
-        const auto a_ep = a->native_socket().local_endpoint();
-        const auto b_ep = b->native_socket().local_endpoint();
+        const auto a_ep = a->NativeSocket().local_endpoint();
+        const auto b_ep = b->NativeSocket().local_endpoint();
 
         std::exception_ptr ep;
         net::co_spawn(
@@ -266,18 +266,18 @@ namespace
     TEST(NetworkStress, LeakTrackerDetectsRelease)
     {
         auto obj = std::make_shared<int>(42);
-        preview::stress::leak_tracker tracker;
-        tracker.track(obj);
-        EXPECT_EQ(tracker.total(), 1);
-        EXPECT_FALSE(tracker.all_released());
+        Preview::Stress::LeakTracker tracker;
+        tracker.Track(obj);
+        EXPECT_EQ(tracker.Total(), 1);
+        EXPECT_FALSE(tracker.AllReleased());
         obj.reset();
-        EXPECT_TRUE(tracker.all_released());
+        EXPECT_TRUE(tracker.AllReleased());
     }
 
     TEST(NetworkStress, GateSynchronizes)
     {
         net::io_context ioc;
-        preview::stress::gate g(ioc.get_executor(), 3);
+        Preview::Stress::Gate g(ioc.get_executor(), 3);
         std::atomic<int> arrived{0};
 
         net::co_spawn(ioc,
@@ -286,9 +286,9 @@ namespace
                           for (int i = 0; i < 3; ++i)
                           {
                               ++arrived;
-                              g.arrive();
+                              g.Arrive();
                           }
-                          co_await g.wait();
+                          co_await g.Wait();
                           EXPECT_EQ(arrived, 3);
                       },
                       [&](std::exception_ptr e)

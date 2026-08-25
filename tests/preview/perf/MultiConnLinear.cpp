@@ -22,8 +22,8 @@
 #include <thread>
 #include <vector>
 
-#include <common/core/transport/reliable.hpp>
-#include <common/protocols/vmess/vmess.hpp>
+#include <common/Core/Transport/Reliable.hpp>
+#include <common/Protocols/Vmess/Vmess.hpp>
 
 using clk = std::chrono::steady_clock;
 namespace net = boost::asio;
@@ -35,10 +35,10 @@ namespace
         return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
     }
 
-    // 每线程一个完整 vmess 连接（独立 ioc，thread_local arena 安全）
-    auto run_one_conn(const std::size_t total, const std::size_t block) -> bool
+    // 每线程一个完整 vmess 连接（独立 ioc，thread_local Arena 安全）
+    auto run_one_conn(const std::size_t Total, const std::size_t block) -> bool
     {
-        using namespace preview;
+        using namespace Preview;
         net::io_context ioc;
         net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto port = acceptor.local_endpoint().port();
@@ -53,64 +53,64 @@ namespace
             {
                 net::ip::tcp::socket sock(ioc);
                 co_await acceptor.async_accept(sock, net::use_awaitable);
-                auto ss = std::make_shared<transport::reliable>(std::move(sock));
-                vmess::server_config scfg;
+                auto ss = std::make_shared<Transport::Reliable>(std::move(sock));
+                Vmess::ServerConfig scfg;
                 scfg.uuid = uuid;
-                auto [err, req, conn] = co_await vmess::accept(ss, scfg);
-                if (err != error::none || !conn)
+                auto [err, req, Conn] = co_await Vmess::Accept(ss, scfg);
+                if (err != Error::none || !Conn)
                 {
                     co_return;
                 }
                 std::vector<std::uint8_t> buf(block);
                 std::error_code ec;
-                std::size_t done = 0;
-                while (done < total)
+                std::size_t Done = 0;
+                while (Done < Total)
                 {
-                    const auto n = co_await conn->async_read_some(
+                    const auto n = co_await Conn->AsyncReadSome(
                         std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                     if (ec || n == 0)
                     {
                         break;
                     }
-                    done += n;
+                    Done += n;
                 }
-                conn->close();
+                Conn->Close();
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-            auto ss = std::make_shared<transport::reliable>(ioc.get_executor());
-            const auto ec2 = co_await ss->connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port));
+            auto ss = std::make_shared<Transport::Reliable>(ioc.get_executor());
+            const auto ec2 = co_await ss->Connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port));
             if (ec2)
             {
                 ioc.stop();
                 co_return;
             }
-            vmess::client_config ccfg;
+            Vmess::ClientConfig ccfg;
             ccfg.uuid = uuid;
-            auto [err, conn] = co_await vmess::connect(
-                ss, ccfg, vmess::address{vmess::address_type::domain, "t.internal", 443});
-            if (err != error::none || !conn)
+            auto [err, Conn] = co_await Vmess::Connect(
+                ss, ccfg, Vmess::Address{Vmess::AddressType::Domain, "t.internal", 443});
+            if (err != Error::none || !Conn)
             {
                 ioc.stop();
                 co_return;
             }
-            std::size_t done = 0;
+            std::size_t Done = 0;
             std::error_code ec;
-            while (done < total)
+            while (Done < Total)
             {
-                const auto n = co_await conn->async_write_some(
+                const auto n = co_await Conn->AsyncWriteSome(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
                 if (ec || n == 0)
                 {
                     break; // 断链：completed=false 门禁 FAIL
                 }
-                done += n;
+                Done += n;
             }
-            if (done < total)
+            if (Done < Total)
             {
                 completed = false;
             }
-            conn->close();
+            Conn->Close();
         }, [&](std::exception_ptr) { ioc.stop(); });
         ioc.run();
         return completed;
@@ -127,10 +127,10 @@ int main()
         const auto per = kTotal / threads;
         const auto t0 = now_ns();
         std::vector<std::thread> ts;
-        std::vector<bool> ok(threads, false);
+        std::vector<bool> Ok(threads, false);
         for (int t = 0; t < threads; ++t)
         {
-            ts.emplace_back([&, t]() { ok[t] = run_one_conn(per, 65535); });
+            ts.emplace_back([&, t]() { Ok[t] = run_one_conn(per, 65535); });
         }
         for (auto &th : ts)
         {
@@ -140,7 +140,7 @@ int main()
         const double mbps = (kTotal / 1024.0 / 1024.0) / (dt / 1e9);
         std::printf("vmess %d 连接并行（每连接 %6.1f MB）: %7.2f ms  => %8.1f MB/s 总\n", threads,
                     per / 1024.0 / 1024.0, dt / 1e6, mbps);
-        if (std::any_of(ok.begin(), ok.end(), [](bool b) { return !b; }) || mbps < 50.0)
+        if (std::any_of(Ok.begin(), Ok.end(), [](bool b) { return !b; }) || mbps < 50.0)
         {
             std::printf("FAIL threads=%d: 有连接数据面未完成或总吞吐 %.1f MB/s 过低\n", threads, mbps);
             return 1;

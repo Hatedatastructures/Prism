@@ -6,7 +6,7 @@
  * 2. LogPass / LogFail：通过/失败计数递增
  * 3. Check：条件为真/为假两条分支
  * 4. Summary：全部通过返回 0 / 存在失败返回 1 两条分支
- * @note psm::diagnose::shutdown() 幂等，多次调用安全。
+ * @note psm::diagnose::Shutdown() 幂等，多次调用安全。
  */
 
 #include <common/TestRunner.hpp>
@@ -80,9 +80,9 @@ namespace
     TEST(TestRunnerDeep, CheckMixedCounts)
     {
         psm::testing::TestRunner runner("CheckMixed");
-        runner.Check(true, "ok one");
+        runner.Check(true, "Ok one");
         runner.Check(false, "bad one");
-        runner.Check(true, "ok two");
+        runner.Check(true, "Ok two");
         EXPECT_EQ(runner.PassedCount(), 2);
         EXPECT_EQ(runner.FailedCount(), 1);
     }
@@ -108,7 +108,7 @@ namespace
     {
         psm::testing::TestRunner runner("SummaryMixed");
         runner.LogPass("pass");
-        runner.LogFail("fail");
+        runner.LogFail("Fail");
         EXPECT_EQ(runner.Summary(), 1);
     }
 

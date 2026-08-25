@@ -1,9 +1,9 @@
 /**
  * @file TrojanE2ETest.cpp
  * @brief Trojan 纵向链路测试（链 P：代理协议 L3 经 adapter 接入缝）
- * @details 与 SOCKS5/VLESS 共用同一套 runtime session 编排：
- *          listener → recognition → adapter::make_accept_trojan →
- *          dial middleware → relay middleware → echo 上游。
+ * @details 与 SOCKS5/VLESS 共用同一套 runtime Session 编排：
+ *          listener → recognition → adapter::MakeAcceptTrojan →
+ *          Dial Middleware → relay Middleware → echo 上游。
  *          验证点：runtime 零协议特判；Trojan 仅经 adapter 提供握手与数据面。
  */
 
@@ -25,61 +25,61 @@
 #include <string>
 #include <system_error>
 
-#include <common/core/fault/code.hpp>
-#include <common/core/middleware/context.hpp>
-#include <common/core/net/dialer/dialer.hpp>
-#include <common/core/runtime/adapter/protocol_adapter.hpp>
-#include <common/core/runtime/listener.hpp>
-#include <common/core/runtime/session.hpp>
-#include <common/core/transmission.hpp>
-#include <common/protocols/trojan/trojan.hpp>
+#include <common/Core/Fault/Code.hpp>
+#include <common/Core/Middleware/Context.hpp>
+#include <common/Core/Net/Dialer/Dialer.hpp>
+#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
+#include <common/Core/Runtime/Listener.hpp>
+#include <common/Core/Runtime/Session.hpp>
+#include <common/Core/Transmission.hpp>
+#include <common/Protocols/Trojan/Trojan.hpp>
 #include <common/RuntimeTestHelpers.hpp>
 
 namespace
 {
 
     namespace net = boost::asio;
-    using tcp = net::ip::tcp;
-    using namespace preview;
-    using preview::runtime::make_accept_trojan;
+    using Tcp = net::ip::tcp;
+    using namespace Preview;
+    using Preview::Runtime::MakeAcceptTrojan;
 
-    // 公共样板（run_coro/echo 上游/tail_read_guarded 等见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::chain_state;
-    using psm::testing::connect_result;
-    using psm::testing::run_coro;
-    using psm::testing::accept_echo_loop;
-    using psm::testing::tail_read_guarded;
+    // 公共样板（RunCoro/echo 上游/TailReadGuarded 等见 <common/RuntimeTestHelpers.hpp>）
+    using psm::testing::ChainState;
+    using ConnectResult = psm::testing::ConnectResult;
+    using psm::testing::RunCoro;
+    using psm::testing::AcceptEchoLoop;
+    using psm::testing::TailReadGuarded;
     using psm::testing::tcp_echo_server;
 
     using namespace boost::asio::experimental::awaitable_operators;
 
-    /// Trojan 纵向测试共享状态（复用公共 chain_state）
-    using trojan_chain_state = chain_state;
+    /// Trojan 纵向测试共享状态（复用公共 psm::testing::ChainState）
+    using trojan_chain_state = psm::testing::ChainState;
 
-    /// 连接 Trojan 纵向测试的回环上游（复用公共 dial_upstream）
+    /// 连接 Trojan 纵向测试的回环上游（复用公共 DialUpstream）
     inline auto dial_trojan_upstream(
-        const std::shared_ptr<trojan_chain_state> &state,
-        const network::target &target)
-        -> net::awaitable<std::pair<fault::code, shared_transmission>>
+        const std::shared_ptr<trojan_chain_state> &State,
+        const Network::Target &Target)
+        -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
     {
-        co_return co_await psm::testing::dial_upstream(state, target);
+        co_return co_await psm::testing::DialUpstream(State, Target);
     }
 
     /// 通用 Trojan TCP 真实链路运行器（自建 ioc）
-    auto run_trojan_connect(const trojan::address &target,
-                            trojan::client_config ccfg = {},
-                            trojan::server_config scfg = {})
-        -> connect_result
+    auto run_trojan_connect(const Trojan::Address &Target,
+                            Trojan::ClientConfig ccfg = {},
+                            Trojan::ServerConfig scfg = {})
+        -> ConnectResult
     {
-        connect_result out;
+        ConnectResult out;
         net::io_context ioc;
-        tcp::acceptor echo_acceptor(ioc, tcp::endpoint(tcp::v4(), 0));
+        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
-        auto chain_state = std::make_shared<trojan_chain_state>(
+        auto StateObj = std::make_shared<trojan_chain_state>(
             trojan_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), accept_echo_loop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -88,54 +88,54 @@ namespace
                           }
                       });
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_trojan(scfg);
-                opts.dial = [chain_state](const network::target &t)
-                    -> net::awaitable<std::pair<fault::code, shared_transmission>>
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = MakeAcceptTrojan(scfg);
+                opts.Dial = [StateObj](const Network::Target &t)
+                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
-                    co_return co_await dial_trojan_upstream(chain_state, t);
+                    co_return co_await dial_trojan_upstream(StateObj, t);
                 };
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto start_rc = co_await listener.start(
-                    tcp::endpoint(tcp::v4(), 0));
-                if (start_rc != fault::code::success)
+                const auto start_rc = co_await listener.Start(
+                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                if (start_rc != Fault::Code::success)
                 {
-                    out.err = error::io_error;
+                     out.Err = Preview::Error::io_error;
                     co_return;
                 }
-                const auto listen_port = listener.local_endpoint().port();
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect(
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect(
                     "127.0.0.1", listen_port, ec);
                 if (ec || !raw)
                 {
-                    out.err = error::io_error;
-                    listener.stop();
+                     out.Err = Preview::Error::io_error;
+                    listener.Stop();
                     co_return;
                 }
-                auto [err, proxy] = co_await trojan::connect(
-                    std::move(raw), ccfg, target, trojan::command::connect);
-                out.err = err;
+                auto [err, proxy] = co_await Trojan::Connect(
+                    std::move(raw), ccfg, Target, Trojan::Command::Connect);
+                 out.Err = err;
                 if (!proxy)
                 {
-                    listener.stop();
+                    listener.Stop();
                     co_return;
                 }
                 const std::string payload = "trojan runtime payload";
-                co_await proxy->async_write(
+                co_await proxy->AsyncWrite(
                     std::span<const std::byte>(
                         reinterpret_cast<const std::byte *>(payload.data()),
                         payload.size()),
@@ -144,7 +144,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->async_read_some(
+                    const auto n = co_await proxy->AsyncReadSome(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0)
                     {
@@ -152,11 +152,11 @@ namespace
                     }
                     got += n;
                 }
-                out.echo.assign(reinterpret_cast<const char *>(buf.data()), got);
-                out.host = chain_state->requested_host;
-                out.port = chain_state->requested_port;
-                proxy->close();
-                listener.stop();
+                out.Echo.assign(reinterpret_cast<const char *>(buf.data()), got);
+                 out.Host = StateObj->RequestedHost;
+                 out.Port = StateObj->RequestedPort;
+                proxy->Close();
+                listener.Stop();
                 boost::system::error_code close_ec;
                 echo_acceptor.close(close_ec);
             });
@@ -166,120 +166,120 @@ namespace
     TEST(TcpListener, TrojanTcpConnectFullChain)
     {
         const auto r = run_trojan_connect(
-            trojan::address{trojan::address_type::domain, "example.com", 443},
-            trojan::client_config{"secret"},
-            trojan::server_config{"secret"});
-        EXPECT_EQ(r.err, error::none);
-        EXPECT_EQ(r.echo, "trojan runtime payload");
-        EXPECT_EQ(r.host, "example.com");
-        EXPECT_EQ(r.port, "443");
+            Trojan::Address{Trojan::AddressType::Domain, "example.com", 443},
+            Trojan::ClientConfig{"Secret"},
+            Trojan::ServerConfig{"Secret"});
+        EXPECT_EQ(r.Err, Preview::Error::none);
+        EXPECT_EQ(r.Echo, "trojan runtime payload");
+        EXPECT_EQ(r.Host, "example.com");
+        EXPECT_EQ(r.Port, "443");
     }
 
     TEST(TcpListener, TrojanTcpConnectIpv4)
     {
         const auto r = run_trojan_connect(
-            trojan::address{trojan::address_type::ipv4, "1.2.3.4", 80},
-            trojan::client_config{"secret"},
-            trojan::server_config{"secret"});
-        EXPECT_EQ(r.err, error::none);
-        EXPECT_EQ(r.echo, "trojan runtime payload");
-        EXPECT_EQ(r.host, "1.2.3.4");
-        EXPECT_EQ(r.port, "80");
+            Trojan::Address{Trojan::AddressType::Ipv4, "1.2.3.4", 80},
+            Trojan::ClientConfig{"Secret"},
+            Trojan::ServerConfig{"Secret"});
+        EXPECT_EQ(r.Err, Preview::Error::none);
+        EXPECT_EQ(r.Echo, "trojan runtime payload");
+        EXPECT_EQ(r.Host, "1.2.3.4");
+        EXPECT_EQ(r.Port, "80");
     }
 
     TEST(TcpListener, TrojanTcpConnectIpv6)
     {
         const auto r = run_trojan_connect(
-            trojan::address{trojan::address_type::ipv6, "::1", 80},
-            trojan::client_config{"secret"},
-            trojan::server_config{"secret"});
-        EXPECT_EQ(r.err, error::none);
-        EXPECT_EQ(r.echo, "trojan runtime payload");
+            Trojan::Address{Trojan::AddressType::Ipv6, "::1", 80},
+            Trojan::ClientConfig{"Secret"},
+            Trojan::ServerConfig{"Secret"});
+        EXPECT_EQ(r.Err, Preview::Error::none);
+        EXPECT_EQ(r.Echo, "trojan runtime payload");
         // Trojan 线缆 ipv6 为 16 字节二进制（::1 → 15×0x00 + 0x01）
-        EXPECT_EQ(r.host.size(), 16u);
-        EXPECT_EQ(r.port, "80");
+        EXPECT_EQ(r.Host.size(), 16u);
+        EXPECT_EQ(r.Port, "80");
     }
 
     TEST(TcpListener, TrojanTcpConnectBadPassword)
     {
         // 服务端密码 "right"，客户端 "wrong" → 认证失败静默断（Xray 语义）
         const auto r = run_trojan_connect(
-            trojan::address{trojan::address_type::domain, "example.net", 22},
-            trojan::client_config{"wrong"},
-            trojan::server_config{"right"});
-        // Trojan 客户端不读服务端应答，connect 恒 success；bad auth 表现为
+            Trojan::Address{Trojan::AddressType::Domain, "example.net", 22},
+            Trojan::ClientConfig{"wrong"},
+            Trojan::ServerConfig{"right"});
+        // Trojan 客户端不读服务端应答，Connect 恒 success；bad Auth 表现为
         // 服务端静默断（Xray 语义）→ 数据面空（无 relay）。
-        EXPECT_EQ(r.err, error::none);
-        EXPECT_TRUE(r.echo.empty());
+        EXPECT_EQ(r.Err, Preview::Error::none);
+        EXPECT_TRUE(r.Echo.empty());
     }
 
     TEST(TcpListener, TrojanTcpConnectDialRefused)
     {
         net::io_context ioc;
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_trojan(
-                    trojan::server_config{"secret"});
-                opts.dial = [](const network::target &)
-                    -> net::awaitable<std::pair<fault::code, shared_transmission>>
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = MakeAcceptTrojan(
+                    Trojan::ServerConfig{"Secret"});
+                opts.Dial = [](const Network::Target &)
+                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return std::pair{
-                        fault::code::connection_refused,
-                        shared_transmission{}};
+                        Fault::Code::connection_refused,
+                        SharedTransmission{}};
                 };
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         bool saw_close = false;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto start_rc = co_await listener.start(
-                    tcp::endpoint(tcp::v4(), 0));
-                EXPECT_EQ(start_rc, fault::code::success);
-                const auto listen_port = listener.local_endpoint().port();
+                const auto start_rc = co_await listener.Start(
+                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                EXPECT_EQ(start_rc, Fault::Code::success);
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (ec || !raw)
                 {
                     co_return;
                 }
-                auto [err, proxy] = co_await trojan::connect(
-                    std::move(raw), trojan::client_config{"secret"},
-                    trojan::address{trojan::address_type::domain, "example.com", 80},
-                    trojan::command::connect);
+                auto [err, proxy] = co_await Trojan::Connect(
+                    std::move(raw), Trojan::ClientConfig{"Secret"},
+                    Trojan::Address{Trojan::AddressType::Domain, "example.com", 80},
+                    Trojan::Command::Connect);
                 if (!proxy)
                 {
-                    listener.stop();
+                    listener.Stop();
                     co_return;
                 }
                 std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->async_read_some(buf, ec);
+                const auto n = co_await proxy->AsyncReadSome(buf, ec);
                 // 拨号失败 → 会话终止 → 读侧 EOF/错误
                 saw_close = (n == 0 || ec);
-                proxy->close();
-                listener.stop();
+                proxy->Close();
+                listener.Stop();
             });
         EXPECT_TRUE(saw_close);
     }
 
     TEST(TcpListener, TrojanTcpConnectHalfCloseClient)
     {
-        // 发送数据收到 echo 后，客户端半关闭（shutdown 写），读侧应干净 EOF
+        // 发送数据收到 echo 后，客户端半关闭（Shutdown 写），读侧应干净 EOF
         net::io_context ioc;
-        tcp::acceptor echo_acceptor(ioc, tcp::endpoint(tcp::v4(), 0));
+        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
-        auto chain_state = std::make_shared<trojan_chain_state>(
+        auto StateObj = std::make_shared<trojan_chain_state>(
             trojan_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), accept_echo_loop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
                       [upstream_ep](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -288,50 +288,50 @@ namespace
                           }
                       });
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_trojan(
-                    trojan::server_config{"secret"});
-                opts.dial = [chain_state](const network::target &t)
-                    -> net::awaitable<std::pair<fault::code, shared_transmission>>
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = MakeAcceptTrojan(
+                    Trojan::ServerConfig{"Secret"});
+                opts.Dial = [StateObj](const Network::Target &t)
+                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
-                    co_return co_await dial_trojan_upstream(chain_state, t);
+                    co_return co_await dial_trojan_upstream(StateObj, t);
                 };
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         bool clean_eof = false;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto start_rc = co_await listener.start(
-                    tcp::endpoint(tcp::v4(), 0));
-                EXPECT_EQ(start_rc, fault::code::success);
-                const auto listen_port = listener.local_endpoint().port();
+                const auto start_rc = co_await listener.Start(
+                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                EXPECT_EQ(start_rc, Fault::Code::success);
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (ec || !raw)
                 {
                     co_return;
                 }
-                auto [err, proxy] = co_await trojan::connect(
-                    std::move(raw), trojan::client_config{"secret"},
-                    trojan::address{trojan::address_type::domain, "example.com", 80},
-                    trojan::command::connect);
+                auto [err, proxy] = co_await Trojan::Connect(
+                    std::move(raw), Trojan::ClientConfig{"Secret"},
+                    Trojan::Address{Trojan::AddressType::Domain, "example.com", 80},
+                    Trojan::Command::Connect);
                 if (!proxy)
                 {
-                    listener.stop();
+                    listener.Stop();
                     co_return;
                 }
-                const std::string payload = "half-close probe";
-                co_await proxy->async_write(
+                const std::string payload = "half-Close Probe";
+                co_await proxy->AsyncWrite(
                     std::span<const std::byte>(
                         reinterpret_cast<const std::byte *>(payload.data()),
                         payload.size()),
@@ -340,7 +340,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->async_read_some(
+                    const auto n = co_await proxy->AsyncReadSome(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0)
                     {
@@ -349,15 +349,15 @@ namespace
                     got += n;
                 }
                 EXPECT_EQ(got, payload.size());
-                proxy->shutdown();
+                proxy->Shutdown();
                 // 半关闭后对端应发送 EOF；与看门狗竞速，超时即收口
                 std::array<std::byte, 8> tail{};
                 std::error_code tail_ec;
-                const auto n = co_await tail_read_guarded(proxy, tail, tail_ec);
-                // 干净 EOF：0 字节 + eof 错误码（preview::fault 把 asio::eof 映射为 code::eof）
-                clean_eof = (n == 0 && tail_ec == preview::fault::code::eof);
-                proxy->close();
-                listener.stop();
+                const auto n = co_await psm::testing::TailReadGuarded(proxy, tail, tail_ec);
+                // 干净 EOF：0 字节 + eof 错误码（Preview::Fault 把 asio::eof 映射为 Code::eof）
+                clean_eof = (n == 0 && tail_ec == Preview::Fault::Code::eof);
+                proxy->Close();
+                listener.Stop();
                 boost::system::error_code close_ec;
                 echo_acceptor.close(close_ec);
             });
@@ -369,12 +369,12 @@ namespace
     {
         // 不发送任何数据，relay 空闲超时后会话应关闭
         net::io_context ioc;
-        tcp::acceptor echo_acceptor(ioc, tcp::endpoint(tcp::v4(), 0));
+        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
-        auto chain_state = std::make_shared<trojan_chain_state>(
+        auto StateObj = std::make_shared<trojan_chain_state>(
             trojan_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), accept_echo_loop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
                       [upstream_ep](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -383,47 +383,47 @@ namespace
                           }
                       });
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_trojan(
-                    trojan::server_config{"secret"});
-                opts.relay_idle_timeout = std::chrono::milliseconds(150);
-                opts.dial = [chain_state](const network::target &t)
-                    -> net::awaitable<std::pair<fault::code, shared_transmission>>
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = MakeAcceptTrojan(
+                    Trojan::ServerConfig{"Secret"});
+                opts.RelayIdleTimeout = std::chrono::milliseconds(150);
+                opts.Dial = [StateObj](const Network::Target &t)
+                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
-                    co_return co_await dial_trojan_upstream(chain_state, t);
+                    co_return co_await dial_trojan_upstream(StateObj, t);
                 };
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         bool closed = false;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto start_rc = co_await listener.start(
-                    tcp::endpoint(tcp::v4(), 0));
-                EXPECT_EQ(start_rc, fault::code::success);
-                const auto listen_port = listener.local_endpoint().port();
+                const auto start_rc = co_await listener.Start(
+                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                EXPECT_EQ(start_rc, Fault::Code::success);
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (ec || !raw)
                 {
                     co_return;
                 }
-                auto [err, proxy] = co_await trojan::connect(
-                    std::move(raw), trojan::client_config{"secret"},
-                    trojan::address{trojan::address_type::domain, "example.com", 80},
-                    trojan::command::connect);
+                auto [err, proxy] = co_await Trojan::Connect(
+                    std::move(raw), Trojan::ClientConfig{"Secret"},
+                    Trojan::Address{Trojan::AddressType::Domain, "example.com", 80},
+                    Trojan::Command::Connect);
                 if (!proxy)
                 {
-                    listener.stop();
+                    listener.Stop();
                     co_return;
                 }
                 // 不发数据，等待空闲超时
@@ -431,10 +431,10 @@ namespace
                                         std::chrono::milliseconds(400));
                 co_await timer.async_wait(net::use_awaitable);
                 std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->async_read_some(buf, ec);
+                const auto n = co_await proxy->AsyncReadSome(buf, ec);
                 closed = (n == 0 || ec);
-                proxy->close();
-                listener.stop();
+                proxy->Close();
+                listener.Stop();
                 boost::system::error_code close_ec;
                 echo_acceptor.close(close_ec);
             });
@@ -445,15 +445,15 @@ namespace
     {
         // 认证身份不应携带明文密码（防统计/日志泄露）
         net::io_context ioc;
-        tcp::acceptor echo_acceptor(ioc, tcp::endpoint(tcp::v4(), 0));
+        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
-        auto chain_state = std::make_shared<trojan_chain_state>(
+        auto StateObj = std::make_shared<trojan_chain_state>(
             trojan_chain_state{ioc.get_executor(), echo_port});
 
-        auto recorder = std::make_shared<psm::testing::traffic_recorder>();
+        auto recorder = std::make_shared<psm::testing::TrafficRecorder>();
 
         auto upstream_ep = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), accept_echo_loop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
                       [upstream_ep](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -462,50 +462,50 @@ namespace
                           }
                       });
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_trojan(
-                    trojan::server_config{"secret"});
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = MakeAcceptTrojan(
+                    Trojan::ServerConfig{"Secret"});
                 opts.traffic = recorder.get();
-                opts.dial = [chain_state](const network::target &t)
-                    -> net::awaitable<std::pair<fault::code, shared_transmission>>
+                opts.Dial = [StateObj](const Network::Target &t)
+                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
-                    co_return co_await dial_trojan_upstream(chain_state, t);
+                    co_return co_await dial_trojan_upstream(StateObj, t);
                 };
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto start_rc = co_await listener.start(
-                    tcp::endpoint(tcp::v4(), 0));
-                EXPECT_EQ(start_rc, fault::code::success);
-                const auto listen_port = listener.local_endpoint().port();
+                const auto start_rc = co_await listener.Start(
+                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                EXPECT_EQ(start_rc, Fault::Code::success);
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (ec || !raw)
                 {
                     co_return;
                 }
-                auto [err, proxy] = co_await trojan::connect(
-                    std::move(raw), trojan::client_config{"secret"},
-                    trojan::address{trojan::address_type::domain, "example.com", 80},
-                    trojan::command::connect);
+                auto [err, proxy] = co_await Trojan::Connect(
+                    std::move(raw), Trojan::ClientConfig{"Secret"},
+                    Trojan::Address{Trojan::AddressType::Domain, "example.com", 80},
+                    Trojan::Command::Connect);
                 if (!proxy)
                 {
-                    listener.stop();
+                    listener.Stop();
                     co_return;
                 }
-                const std::string payload = "traffic identity probe";
-                co_await proxy->async_write(
+                const std::string payload = "traffic identity Probe";
+                co_await proxy->AsyncWrite(
                     std::span<const std::byte>(
                         reinterpret_cast<const std::byte *>(payload.data()),
                         payload.size()),
@@ -514,7 +514,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->async_read_some(
+                    const auto n = co_await proxy->AsyncReadSome(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0)
                     {
@@ -522,7 +522,7 @@ namespace
                     }
                     got += n;
                 }
-                proxy->close();
+                proxy->Close();
                 // 有界轮询等待流量上报落账（替代固定 sleep，避免慢机 flaky）
                 net::steady_timer timer(ioc.get_executor());
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -532,7 +532,7 @@ namespace
                     timer.expires_after(std::chrono::milliseconds(5));
                     co_await timer.async_wait(net::use_awaitable);
                 }
-                listener.stop();
+                listener.Stop();
                 boost::system::error_code close_ec;
                 echo_acceptor.close(close_ec);
             });

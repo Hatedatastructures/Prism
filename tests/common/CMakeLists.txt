@@ -7,256 +7,256 @@ target_include_directories(prism_ngx INTERFACE
 
 target_sources(prism_ngx INTERFACE
         # ── core ──
-        core/codec_traits.hpp
-        core/error.hpp
-        core/authenticator.hpp
-        core/byte_span.hpp
-        core/role.hpp
-        core/transmission.hpp
-        core/flat_buffer.hpp
-        core/foundation.hpp
-        core/parser.hpp
-        core/session_base.hpp
+        Core/CodecTraits.hpp
+        Core/Error.hpp
+        Core/Authenticator.hpp
+        Core/ByteSpan.hpp
+        Core/Role.hpp
+        Core/Transmission.hpp
+        Core/FlatBuffer.hpp
+        Core/Foundation.hpp
+        Core/Parser.hpp
+        Core/SessionBase.hpp
         # ── core/coroutine ──
-        core/coroutine/registry.hpp
+        Core/Coroutine/Registry.hpp
         # ── core/crypto ──
-        core/crypto/aead.hpp
+        Core/Crypto/Aead.hpp
         # ── core/account ──
-        core/memory/cow_map.hpp
-        core/account/directory.hpp
-        core/account/authenticator.hpp
-        core/crypto/base64.hpp
-        core/crypto/blake3.hpp
-        core/crypto/block.hpp
-        core/crypto/crypto.hpp
-        core/crypto/hkdf.hpp
-        core/crypto/sha224.hpp
-        core/crypto/x25519.hpp
+        Core/Memory/CowMap.hpp
+        Core/Account/Directory.hpp
+        Core/Account/Authenticator.hpp
+        Core/Crypto/Base64.hpp
+        Core/Crypto/Blake3.hpp
+        Core/Crypto/Block.hpp
+        Core/Crypto/Crypto.hpp
+        Core/Crypto/Hkdf.hpp
+        Core/Crypto/Sha224.hpp
+        Core/Crypto/X25519.hpp
         # ── core/diagnose ──
-        core/diagnose/context.hpp
-        core/diagnose/observability.hpp
-        core/diagnose/log.hpp
+        Core/Diagnose/Context.hpp
+        Core/Diagnose/Observability.hpp
+        Core/Diagnose/Log.hpp
         # ── core/exception ──
-        core/exception/deviant.hpp
-        core/exception/network.hpp
-        core/exception/protocol.hpp
-        core/exception/security.hpp
+        Core/Exception/Deviant.hpp
+        Core/Exception/Network.hpp
+        Core/Exception/Protocol.hpp
+        Core/Exception/Security.hpp
         # ── core/fault ──
-        core/fault/code.hpp
-        core/fault/compatible.hpp
-        core/fault/handling.hpp
+        Core/Fault/Code.hpp
+        Core/Fault/Compatible.hpp
+        Core/Fault/Handling.hpp
         # ── protocols/http2 ──
-        protocols/http2/session.hpp
-        protocols/http2/stream.hpp
-        protocols/http2/frame.hpp
-        protocols/http2/codec.hpp
-        protocols/http2/impl.hpp
+        Protocols/Http2/Session.hpp
+        Protocols/Http2/Stream.hpp
+        Protocols/Http2/Frame.hpp
+        Protocols/Http2/Codec.hpp
+        Protocols/Http2/Impl.hpp
         # ── protocols/http1 ──
-        protocols/http1/parser.hpp
-        protocols/http1/conn.hpp
+        Protocols/Http1/Parser.hpp
+        Protocols/Http1/Conn.hpp
         # ── protocols/http3 ──
-        protocols/http3/auth.hpp
-        protocols/http3/qpack.hpp
-        protocols/http3/server.hpp
-        protocols/http3/session.hpp
+        Protocols/Http3/Auth.hpp
+        Protocols/Http3/Qpack.hpp
+        Protocols/Http3/Server.hpp
+        Protocols/Http3/Session.hpp
         # ── core/memory ──
-        core/memory/container.hpp
-        core/memory/pointer.hpp
-        core/memory/pool.hpp
+        Core/Memory/Container.hpp
+        Core/Memory/Pointer.hpp
+        Core/Memory/Pool.hpp
         # ── core/middleware ──
-        core/middleware/builtin/dial.hpp
-        core/middleware/builtin/mux.hpp
-        core/middleware/builtin/pad.hpp
-        core/middleware/builtin/relay.hpp
-        core/middleware/builtin/throttle.hpp
-        core/middleware/builtin/auth.hpp
+        Core/Middleware/Builtin/Dial.hpp
+        Core/Middleware/Builtin/Mux.hpp
+        Core/Middleware/Builtin/Pad.hpp
+        Core/Middleware/Builtin/Relay.hpp
+        Core/Middleware/Builtin/Throttle.hpp
+        Core/Middleware/Builtin/Auth.hpp
         # ── core/recognition ──
         # ── core/runtime ──
-        core/runtime/session.hpp
-        core/runtime/listener.hpp
-        core/runtime/statistics.hpp
+        Core/Runtime/Session.hpp
+        Core/Runtime/Listener.hpp
+        Core/Runtime/Statistics.hpp
         # ── core/runtime/adapter ──
-        core/runtime/adapter/common.hpp
-        core/runtime/adapter/handler.hpp
-        core/runtime/adapter/protocol_adapter.hpp
-        core/runtime/adapter/socks5.hpp
-        core/runtime/adapter/ss2022.hpp
-        core/runtime/adapter/trojan.hpp
-        core/runtime/adapter/vless.hpp
-        core/runtime/adapter/vmess.hpp
-        core/api/api_manager.hpp
+        Core/Runtime/Adapter/Common.hpp
+        Core/Runtime/Adapter/Handler.hpp
+        Core/Runtime/Adapter/ProtocolAdapter.hpp
+        Core/Runtime/Adapter/Socks5.hpp
+        Core/Runtime/Adapter/Ss2022.hpp
+        Core/Runtime/Adapter/Trojan.hpp
+        Core/Runtime/Adapter/Vless.hpp
+        Core/Runtime/Adapter/Vmess.hpp
+        Core/Api/ApiManager.hpp
         # ── core/settings ──
-        core/settings/json.hpp
-        core/settings/loader.hpp
-        core/runtime/session_registry.hpp
-        core/recognition/protocol.hpp
-        core/recognition/probe.hpp
-        core/recognition/route.hpp
-        core/recognition/recognition.hpp
-        core/recognition/scheme_executor.hpp
-        core/recognition/probe_defense.hpp
-        core/middleware/context.hpp
-        core/middleware/pipeline.hpp
+        Core/Settings/Json.hpp
+        Core/Settings/Loader.hpp
+        Core/Runtime/SessionRegistry.hpp
+        Core/Recognition/Protocol.hpp
+        Core/Recognition/Probe.hpp
+        Core/Recognition/Route.hpp
+        Core/Recognition/Recognition.hpp
+        Core/Recognition/SchemeExecutor.hpp
+        Core/Recognition/ProbeDefense.hpp
+        Core/Middleware/Context.hpp
+        Core/Middleware/Pipeline.hpp
         # ── core/protocol ──
-        core/protocol/address.hpp
-        core/protocol/form.hpp
-        core/protocol/framing.hpp
-        core/protocol/mux.hpp
-        core/protocol/read.hpp
-        core/net/target.hpp
+        Core/Protocol/Address.hpp
+        Core/Protocol/Form.hpp
+        Core/Protocol/Framing.hpp
+        Core/Protocol/Mux.hpp
+        Core/Protocol/Read.hpp
+        Core/Net/Target.hpp
         # ── protocols/quic ──
-        protocols/quic/gateway_common.hpp
+        Protocols/Quic/GatewayCommon.hpp
         # ── core/net ──
-        core/net/dialer/dialer.hpp
-        core/net/route/route.hpp
-        core/net/outbound/outbound.hpp
+        Core/Net/Dialer/Dialer.hpp
+        Core/Net/Route/Route.hpp
+        Core/Net/Outbound/Outbound.hpp
         # ── core/net/dns ──
-        core/net/dns/resolver.hpp
-        core/net/udp_relay.hpp
-        protocols/quic/stream_adapter.hpp
+        Core/Net/Dns/Resolver.hpp
+        Core/Net/UdpRelay.hpp
+        Protocols/Quic/StreamAdapter.hpp
         # ── core/rate ──
-        core/rate/token_bucket.hpp
+        Core/Rate/TokenBucket.hpp
         # ── core/transport ──
-        core/transport/algorithm.hpp
-        bench/bench.hpp
-        core/transport/connector.hpp
-        core/transport/encrypted.hpp
-        core/transport/memory_stream.hpp
-        core/transport/pad.hpp
-        core/transport/preview.hpp
-        core/transport/reliable.hpp
-        core/transport/snapshot.hpp
-        core/transport/stream.hpp
-        core/transport/unreliable.hpp
+        Core/Transport/Algorithm.hpp
+        Bench/Bench.hpp
+        Core/Transport/Connector.hpp
+        Core/Transport/Encrypted.hpp
+        Core/Transport/MemoryStream.hpp
+        Core/Transport/Pad.hpp
+        Core/Transport/Preview.hpp
+        Core/Transport/Reliable.hpp
+        Core/Transport/Snapshot.hpp
+        Core/Transport/Stream.hpp
+        Core/Transport/Unreliable.hpp
         # ── protocols/mux ──
-        protocols/mux/client.hpp
-        protocols/mux/codec.hpp
-        protocols/mux/server.hpp
-        protocols/mux/session.hpp
-        protocols/mux/stream.hpp
-        protocols/mux/types.hpp
+        Protocols/Mux/Client.hpp
+        Protocols/Mux/Codec.hpp
+        Protocols/Mux/Server.hpp
+        Protocols/Mux/Session.hpp
+        Protocols/Mux/Stream.hpp
+        Protocols/Mux/Types.hpp
         # ── protocols/mux/h2mux ──
-        protocols/mux/h2mux/client.hpp
-        protocols/mux/h2mux/codec.hpp
-        protocols/mux/h2mux/h2mux.hpp
-        protocols/mux/h2mux/server.hpp
-        protocols/mux/h2mux/session.hpp
-        protocols/mux/h2mux/types.hpp
+        Protocols/Mux/H2Mux/Client.hpp
+        Protocols/Mux/H2Mux/Codec.hpp
+        Protocols/Mux/H2Mux/H2Mux.hpp
+        Protocols/Mux/H2Mux/Server.hpp
+        Protocols/Mux/H2Mux/Session.hpp
+        Protocols/Mux/H2Mux/Types.hpp
         # ── protocols/mux/smux ──
-        protocols/mux/smux/client.hpp
-        protocols/mux/smux/codec.hpp
-        protocols/mux/smux/server.hpp
-        protocols/mux/smux/session.hpp
-        protocols/mux/smux/smux.hpp
-        protocols/mux/smux/types.hpp
+        Protocols/Mux/Smux/Client.hpp
+        Protocols/Mux/Smux/Codec.hpp
+        Protocols/Mux/Smux/Server.hpp
+        Protocols/Mux/Smux/Session.hpp
+        Protocols/Mux/Smux/Smux.hpp
+        Protocols/Mux/Smux/Types.hpp
         # ── protocols/mux/yamux ──
-        protocols/mux/yamux/client.hpp
-        protocols/mux/yamux/codec.hpp
-        protocols/mux/yamux/server.hpp
-        protocols/mux/yamux/session.hpp
-        protocols/mux/yamux/types.hpp
-        protocols/mux/yamux/yamux.hpp
+        Protocols/Mux/Yamux/Client.hpp
+        Protocols/Mux/Yamux/Codec.hpp
+        Protocols/Mux/Yamux/Server.hpp
+        Protocols/Mux/Yamux/Session.hpp
+        Protocols/Mux/Yamux/Types.hpp
+        Protocols/Mux/Yamux/Yamux.hpp
         # ── protocols/hysteria2 ──
-        protocols/hysteria2/codec.hpp
-        protocols/hysteria2/conn.hpp
-        protocols/hysteria2/dgram.hpp
-        protocols/hysteria2/hysteria2.hpp
-        protocols/hysteria2/types.hpp
+        Protocols/Hysteria2/Codec.hpp
+        Protocols/Hysteria2/Conn.hpp
+        Protocols/Hysteria2/Dgram.hpp
+        Protocols/Hysteria2/Hysteria2.hpp
+        Protocols/Hysteria2/Types.hpp
         # ── protocols/shadowsocks2022 ──
-        protocols/shadowsocks2022/codec.hpp
-        protocols/shadowsocks2022/conn.hpp
-        protocols/shadowsocks2022/dgram.hpp
-        protocols/shadowsocks2022/shadowsocks2022.hpp
-        protocols/shadowsocks2022/types.hpp
+        Protocols/Shadowsocks2022/Codec.hpp
+        Protocols/Shadowsocks2022/Conn.hpp
+        Protocols/Shadowsocks2022/Dgram.hpp
+        Protocols/Shadowsocks2022/Shadowsocks2022.hpp
+        Protocols/Shadowsocks2022/Types.hpp
         # ── protocols/socks5 ──
-        protocols/socks5/codec.hpp
-        protocols/socks5/conn.hpp
-        protocols/socks5/dgram.hpp
-        protocols/socks5/socks5.hpp
-        protocols/socks5/types.hpp
-        protocols/socks5/udp_assoc.hpp
+        Protocols/Socks5/Codec.hpp
+        Protocols/Socks5/Conn.hpp
+        Protocols/Socks5/Dgram.hpp
+        Protocols/Socks5/Socks5.hpp
+        Protocols/Socks5/Types.hpp
+        Protocols/Socks5/UdpAssoc.hpp
         # ── protocols/trojan ──
-        protocols/trojan/codec.hpp
-        protocols/trojan/conn.hpp
-        protocols/trojan/dgram.hpp
-        protocols/trojan/trojan.hpp
-        protocols/trojan/types.hpp
+        Protocols/Trojan/Codec.hpp
+        Protocols/Trojan/Conn.hpp
+        Protocols/Trojan/Dgram.hpp
+        Protocols/Trojan/Trojan.hpp
+        Protocols/Trojan/Types.hpp
         # ── protocols/tuic ──
-        protocols/tuic/codec.hpp
-        protocols/tuic/conn.hpp
-        protocols/tuic/dgram.hpp
-        protocols/tuic/tuic.hpp
-        protocols/tuic/types.hpp
+        Protocols/Tuic/Codec.hpp
+        Protocols/Tuic/Conn.hpp
+        Protocols/Tuic/Dgram.hpp
+        Protocols/Tuic/Tuic.hpp
+        Protocols/Tuic/Types.hpp
         # ── protocols/vless ──
-        protocols/vless/codec.hpp
-        protocols/vless/conn.hpp
-        protocols/vless/dgram.hpp
-        protocols/vless/types.hpp
-        protocols/vless/vless.hpp
-        protocols/vless/udp_tunnel.hpp
+        Protocols/Vless/Codec.hpp
+        Protocols/Vless/Conn.hpp
+        Protocols/Vless/Dgram.hpp
+        Protocols/Vless/Types.hpp
+        Protocols/Vless/Vless.hpp
+        Protocols/Vless/UdpTunnel.hpp
         # ── protocols/vmess ──
-        protocols/vmess/codec.hpp
-        protocols/vmess/conn.hpp
-        protocols/vmess/dgram.hpp
-        protocols/vmess/types.hpp
-        protocols/vmess/vmess.hpp
+        Protocols/Vmess/Codec.hpp
+        Protocols/Vmess/Conn.hpp
+        Protocols/Vmess/Dgram.hpp
+        Protocols/Vmess/Types.hpp
+        Protocols/Vmess/Vmess.hpp
         # ── protocols/anytls ──
-        protocols/anytls/anytls.hpp
-        protocols/anytls/codec.hpp
-        protocols/anytls/conn.hpp
-        protocols/anytls/types.hpp
+        Protocols/Anytls/Anytls.hpp
+        Protocols/Anytls/Codec.hpp
+        Protocols/Anytls/Conn.hpp
+        Protocols/Anytls/Types.hpp
         # ── protocols/gun ──
-        protocols/gun/codec.hpp
-        protocols/gun/conn.hpp
-        protocols/gun/gun.hpp
-        protocols/gun/types.hpp
+        Protocols/Gun/Codec.hpp
+        Protocols/Gun/Conn.hpp
+        Protocols/Gun/Gun.hpp
+        Protocols/Gun/Types.hpp
         # ── protocols/native ──
-        protocols/native/types.hpp
-        protocols/native/conn.hpp
-        protocols/native/native.hpp
+        Protocols/Native/Types.hpp
+        Protocols/Native/Conn.hpp
+        Protocols/Native/Native.hpp
         # ── protocols/reality ──
-        protocols/reality/codec.hpp
-        protocols/reality/conn.hpp
-        protocols/reality/reality.hpp
-        protocols/reality/types.hpp
+        Protocols/Reality/Codec.hpp
+        Protocols/Reality/Conn.hpp
+        Protocols/Reality/Reality.hpp
+        Protocols/Reality/Types.hpp
         # ── protocols/restls ──
-        protocols/restls/codec.hpp
-        protocols/restls/conn.hpp
-        protocols/restls/restls.hpp
-        protocols/restls/types.hpp
+        Protocols/Restls/Codec.hpp
+        Protocols/Restls/Conn.hpp
+        Protocols/Restls/Restls.hpp
+        Protocols/Restls/Types.hpp
         # ── protocols/shadowtls ──
-        protocols/shadowtls/codec.hpp
-        protocols/shadowtls/conn.hpp
-        protocols/shadowtls/shadowtls.hpp
-        protocols/shadowtls/types.hpp
+        Protocols/Shadowtls/Codec.hpp
+        Protocols/Shadowtls/Conn.hpp
+        Protocols/Shadowtls/Shadowtls.hpp
+        Protocols/Shadowtls/Types.hpp
         # ── protocols/trusttunnel ──
-        protocols/trusttunnel/codec.hpp
-        protocols/trusttunnel/conn.hpp
-        protocols/trusttunnel/dgram.hpp
-        protocols/trusttunnel/trusttunnel.hpp
-        protocols/trusttunnel/types.hpp
+        Protocols/Trusttunnel/Codec.hpp
+        Protocols/Trusttunnel/Conn.hpp
+        Protocols/Trusttunnel/Dgram.hpp
+        Protocols/Trusttunnel/Trusttunnel.hpp
+        Protocols/Trusttunnel/Types.hpp
         # ── protocols/ws ──
-        protocols/ws/codec.hpp
-        protocols/ws/conn.hpp
-        protocols/ws/types.hpp
-        protocols/ws/ws.hpp
+        Protocols/Ws/Codec.hpp
+        Protocols/Ws/Conn.hpp
+        Protocols/Ws/Types.hpp
+        Protocols/Ws/Ws.hpp
         # ── protocols/xhttp ──
-        protocols/xhttp/types.hpp
-        protocols/xhttp/conn.hpp
-        protocols/xhttp/xhttp.hpp
+        Protocols/Xhttp/Types.hpp
+        Protocols/Xhttp/Conn.hpp
+        Protocols/Xhttp/Xhttp.hpp
         # ── protocols/ech ──
-        protocols/ech/types.hpp
-        protocols/ech/keygen.hpp
-        protocols/ech/scan.hpp
-        protocols/ech/ech.hpp
+        Protocols/Ech/Types.hpp
+        Protocols/Ech/Keygen.hpp
+        Protocols/Ech/Scan.hpp
+        Protocols/Ech/Ech.hpp
         # ── top ──
         TestRunner.hpp
         MockTransport.hpp
         MockTlsServer.hpp
-        programmable_transport.hpp
+        ProgrammableTransport.hpp
         RuntimeTestHelpers.hpp
         # ── stress ──
-        stress/stress_helper.hpp
+        Stress/StressHelper.hpp
 )
 
 target_link_libraries(prism_ngx INTERFACE

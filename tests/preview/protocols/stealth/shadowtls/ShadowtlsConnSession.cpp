@@ -1,11 +1,11 @@
 /**
  * @file ShadowtlsConnSession.cpp
- * @brief ShadowTLS v3 conn 会话层双向测试（client + server 视角）
+ * @brief ShadowTLS v3 Conn 会话层双向测试（Client + Server 视角）
  * @details 覆盖：
- * 1. 客户端 connect / 服务端 accept 握手（ClientHello session_id HMAC）→ 双向回显
+ * 1. 客户端 Connect / 服务端 Accept 握手（ClientHello SessionId HMAC）→ 双向回显
  * 2. 错误分支：bad_auth（密码不匹配）/ not_open（未握手读写）
- * 3. 装饰器链方法：executor / close / cancel / next_layer / release
- * @note 使用 make_memory_pair 建立内存传输对，同一进程内双向互操作。
+ * 3. 装饰器链方法：Executor / Close / Cancel / NextLayer / Release
+ * @note 使用 MakeMemoryPair 建立内存传输对，同一进程内双向互操作。
  */
 
 #include <boost/asio/co_spawn.hpp>
@@ -17,13 +17,13 @@
 #include <memory>
 #include <string>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/shadowtls/shadowtls.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Shadowtls/Shadowtls.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     /// 运行协程直至完成（异常重抛）
@@ -58,7 +58,7 @@ namespace
     TEST(ShadowtlsConnSession, HandshakeClientServerEcho)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         const auto server_rnd = make_random(0x11);
         const auto client_rnd = make_random(0x22);
         const std::string payload = "shadowtls echo payload";
@@ -66,78 +66,78 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 服务端：accept 校验 ClientHello session_id HMAC → 回显
+                     // 服务端：Accept 校验 ClientHello SessionId HMAC → 回显
                      auto server_coro = [&]() -> net::awaitable<void>
                      {
-                         auto [err, conn] =
-                             co_await shadowtls::accept(std::make_shared<memory_stream>(std::move(b)),
-                                                         shadowtls::server_config{"pw123456"});
-                         if (err != error::none || !conn)
+                         auto [err, Conn] =
+                             co_await Shadowtls::Accept(std::make_shared<MemoryStream>(std::move(b)),
+                                                         Shadowtls::ServerConfig{"pw123456"});
+                         if (err != Error::none || !Conn)
                          {
-                             EXPECT_TRUE(false) << "accept failed";
+                             EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
                          }
                          std::array<std::byte, 1024> buf{};
                          std::error_code ec;
-                         const auto n = co_await conn->async_read_some(buf, ec);
+                         const auto n = co_await Conn->AsyncReadSome(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
-                         co_await conn->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
+                         co_await Conn->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
                          EXPECT_FALSE(ec);
-                         conn->close();
+                         Conn->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-                     auto [herr, cli] = co_await shadowtls::connect(
-                         std::make_shared<memory_stream>(std::move(a)), shadowtls::client_config{"pw123456"},
+                     auto [herr, cli] = co_await Shadowtls::Connect(
+                         std::make_shared<MemoryStream>(std::move(a)), Shadowtls::ClientConfig{"pw123456"},
                          std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd));
-                     EXPECT_EQ(herr, error::none);
+                     EXPECT_EQ(herr, Error::none);
                      if (!cli)
                      {
                          co_return;
                      }
                      std::error_code ec;
-                     co_await cli->async_write_some(
+                     co_await cli->AsyncWriteSome(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 1024> buf{};
-                     const auto n = co_await cli->async_read_some(buf, ec);
+                     const auto n = co_await cli->AsyncReadSome(buf, ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
-                     cli->close();
+                     cli->Close();
                  });
     }
 
     TEST(ShadowtlsConnSession, BadAuthRejected)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 服务端：密码不匹配 → session_id HMAC 校验失败 → bad_auth
+                     // 服务端：密码不匹配 → SessionId HMAC 校验失败 → bad_auth
                      auto server_coro = [&]() -> net::awaitable<void>
                      {
-                         auto [err, conn] =
-                             co_await shadowtls::accept(std::make_shared<memory_stream>(std::move(b)),
-                                                         shadowtls::server_config{"expect-pw"});
-                         EXPECT_EQ(err, error::bad_auth);
-                         EXPECT_FALSE(conn);
+                         auto [err, Conn] =
+                             co_await Shadowtls::Accept(std::make_shared<MemoryStream>(std::move(b)),
+                                                         Shadowtls::ServerConfig{"Expect-pw"});
+                         EXPECT_EQ(err, Error::bad_auth);
+                         EXPECT_FALSE(Conn);
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
                      const auto server_rnd = make_random(0x33);
                      const auto client_rnd = make_random(0x44);
-                     auto [herr, cli] = co_await shadowtls::connect(
-                         std::make_shared<memory_stream>(std::move(a)), shadowtls::client_config{"wrong-pw"},
+                     auto [herr, cli] = co_await Shadowtls::Connect(
+                         std::make_shared<MemoryStream>(std::move(a)), Shadowtls::ClientConfig{"wrong-pw"},
                          std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd));
-                     EXPECT_EQ(herr, error::none); // 客户端只发送，不感知认证结果
+                     EXPECT_EQ(herr, Error::none); // 客户端只发送，不感知认证结果
                      if (cli)
                      {
-                         cli->close();
+                         cli->Close();
                      }
                  });
     }
@@ -145,32 +145,32 @@ namespace
     TEST(ShadowtlsConnSession, NotOpenRejected)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 未握手 conn：读写返回 not_open
-                     auto c = std::make_shared<shadowtls::conn<>>(
-                         std::make_shared<memory_stream>(std::move(a)), "pw");
+                     // 未握手 Conn：读写返回 not_open
+                     auto c = std::make_shared<Shadowtls::Conn<>>(
+                         std::make_shared<MemoryStream>(std::move(a)), "pw");
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n = co_await c->async_read_some(buf, ec);
+                     const auto n = co_await c->AsyncReadSome(buf, ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_EQ(ec.value(), static_cast<int>(error::not_open));
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
                      ec.clear();
-                     co_await c->async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
-                     EXPECT_EQ(ec.value(), static_cast<int>(error::not_open));
-                     c->close();
-                     c->cancel();
-                     EXPECT_TRUE(c->executor());
-                     EXPECT_NE(c->next_layer(), nullptr);
-                     EXPECT_NE(c->lowest_layer<memory_stream>(), nullptr);
-                     const shadowtls::conn<> *const_c = c.get();
-                     EXPECT_NE(const_c->next_layer(), nullptr);
-                     auto released = c->release();
+                     co_await c->AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
+                     c->Close();
+                     c->Cancel();
+                     EXPECT_TRUE(c->Executor());
+                     EXPECT_NE(c->NextLayer(), nullptr);
+                     EXPECT_NE(c->LowestLayer<MemoryStream>(), nullptr);
+                     const Shadowtls::Conn<> *const_c = c.get();
+                     EXPECT_NE(const_c->NextLayer(), nullptr);
+                     auto released = c->Release();
                      EXPECT_TRUE(released);
-                     EXPECT_EQ(c->next_layer(), nullptr);
+                     EXPECT_EQ(c->NextLayer(), nullptr);
                  });
     }
 

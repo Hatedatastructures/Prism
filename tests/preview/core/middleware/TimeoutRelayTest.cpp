@@ -21,17 +21,17 @@
 #include <memory>
 #include <string>
 
-#include <common/core/middleware/builtin/relay.hpp>
-#include <common/core/middleware/context.hpp>
-#include <common/core/middleware/pipeline.hpp>
-#include <common/core/transport/memory_stream.hpp>
-#include <common/core/transmission.hpp>
+#include <common/Core/Middleware/Builtin/Relay.hpp>
+#include <common/Core/Middleware/Context.hpp>
+#include <common/Core/Middleware/Pipeline.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Core/Transmission.hpp>
 
 namespace
 {
 
     namespace net = boost::asio;
-    using namespace preview;
+    using namespace Preview;
 
     auto run_coro(net::io_context &ioc, auto coro)
     {
@@ -45,11 +45,11 @@ namespace
     }
 
     auto make_pair_shared(net::io_context &ioc)
-        -> std::pair<std::shared_ptr<memory_stream>, std::shared_ptr<memory_stream>>
+        -> std::pair<std::shared_ptr<MemoryStream>, std::shared_ptr<MemoryStream>>
     {
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        return {std::make_shared<memory_stream>(std::move(a)),
-                std::make_shared<memory_stream>(std::move(b))};
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        return {std::make_shared<MemoryStream>(std::move(a)),
+                std::make_shared<MemoryStream>(std::move(b))};
     }
 
     TEST(TimeoutRelay, IdleTimeoutClosesTunnel)
@@ -67,13 +67,13 @@ namespace
                          ioc.get_executor(),
                          [&]() -> net::awaitable<void>
                          {
-                             preview::middleware::context ctx;
+                             Preview::Middleware::Context ctx;
                              ctx.inbound = a2;
-                             ctx.outbound = b1;
-                             preview::middleware::builtin::relay_middleware relay(nullptr,
+                             ctx.Outbound = b1;
+                             Preview::Middleware::Builtin::RelayMiddleware relay(nullptr,
                                                                                   std::chrono::milliseconds(50));
                              auto tmp = ctx.inbound;
-                             co_await relay.handle(tmp, ctx);
+                             co_await relay.Handle(tmp, ctx);
                              relay_done = true;
                          },
                          net::detached);
@@ -85,7 +85,7 @@ namespace
                          co_await poll_t.async_wait(net::use_awaitable);
                      }
                      EXPECT_TRUE(relay_done); // 超时机制失效时此处失败，而非被兜底掩蔽
-                     a1->close();
+                     a1->Close();
                  });
         EXPECT_TRUE(relay_done);
     }
@@ -104,13 +104,13 @@ namespace
                          ioc.get_executor(),
                          [&]() -> net::awaitable<void>
                          {
-                             preview::middleware::context ctx;
+                             Preview::Middleware::Context ctx;
                              ctx.inbound = a2;
-                             ctx.outbound = b1;
-                             preview::middleware::builtin::relay_middleware relay(nullptr,
+                             ctx.Outbound = b1;
+                             Preview::Middleware::Builtin::RelayMiddleware relay(nullptr,
                                                                                   std::chrono::milliseconds(100));
                              auto tmp = ctx.inbound;
-                             co_await relay.handle(tmp, ctx);
+                             co_await relay.Handle(tmp, ctx);
                              relay_done = true;
                          },
                          net::detached);
@@ -118,32 +118,32 @@ namespace
                      // 立即首包（relay 启动后马上有活动，避免初始超时窗口）
                      const std::string first = "first";
                      std::error_code wec;
-                     co_await a1->async_write_some(
+                     co_await a1->AsyncWriteSome(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(first.data()),
                                                     first.size()),
                          wec);
                      std::array<std::byte, 64> buf{};
                      std::error_code rec;
-                     const auto n0 = co_await b2->async_read_some(std::span<std::byte>(buf), rec);
+                     const auto n0 = co_await b2->AsyncReadSome(std::span<std::byte>(buf), rec);
                      EXPECT_GT(n0, 0);
 
                      // 持续活动（每 20ms 发一次，共 160ms > 超时 100ms）
                      for (int i = 0; i < 8; ++i)
                      {
                          const std::string msg = "keepalive-" + std::to_string(i);
-                         co_await a1->async_write_some(
+                         co_await a1->AsyncWriteSome(
                              std::span<const std::byte>(reinterpret_cast<const std::byte *>(msg.data()),
                                                         msg.size()),
                              wec);
-                         const auto n = co_await b2->async_read_some(std::span<std::byte>(buf), rec);
+                         const auto n = co_await b2->AsyncReadSome(std::span<std::byte>(buf), rec);
                          EXPECT_GT(n, 0);
                          net::steady_timer t(ioc);
                          t.expires_after(std::chrono::milliseconds(20));
                          co_await t.async_wait(net::use_awaitable);
                      }
                      EXPECT_FALSE(relay_done); // 活动期间不关闭
-                     a1->close();
-                     b2->close();
+                     a1->Close();
+                     b2->Close();
                      // 给 relay 收尾时间
                      net::steady_timer t2(ioc);
                      t2.expires_after(std::chrono::milliseconds(100));
@@ -167,13 +167,13 @@ namespace
                          ioc.get_executor(),
                          [&]() -> net::awaitable<void>
                          {
-                             preview::middleware::context ctx;
+                             Preview::Middleware::Context ctx;
                              ctx.inbound = a2;
-                             ctx.outbound = b1;
-                             preview::middleware::builtin::relay_middleware relay(nullptr,
+                             ctx.Outbound = b1;
+                             Preview::Middleware::Builtin::RelayMiddleware relay(nullptr,
                                                                                   std::chrono::milliseconds(0));
                              auto tmp = ctx.inbound;
-                             co_await relay.handle(tmp, ctx);
+                             co_await relay.Handle(tmp, ctx);
                              relay_done = true;
                          },
                          net::detached);
@@ -182,8 +182,8 @@ namespace
                      t.expires_after(std::chrono::milliseconds(200));
                      co_await t.async_wait(net::use_awaitable);
                      EXPECT_FALSE(relay_done); // 0 = 禁用 → 未关闭
-                     a1->close(); // 显式关闭入站发送方向
-                     b2->close(); // 显式关闭出站发送方向
+                     a1->Close(); // 显式关闭入站发送方向
+                     b2->Close(); // 显式关闭出站发送方向
                      net::steady_timer t2(ioc);
                      t2.expires_after(std::chrono::milliseconds(50));
                      co_await t2.async_wait(net::use_awaitable);
@@ -205,14 +205,14 @@ namespace
                          ioc.get_executor(),
                          [&]() -> net::awaitable<void>
                          {
-                             preview::middleware::context ctx;
+                             Preview::Middleware::Context ctx;
                              ctx.inbound = a2;
-                             ctx.outbound = b1;
+                             ctx.Outbound = b1;
                              ctx.timeout = std::chrono::milliseconds(40); // ctx 优先（构造为 300s）
-                             preview::middleware::builtin::relay_middleware relay(
+                             Preview::Middleware::Builtin::RelayMiddleware relay(
                                  nullptr, std::chrono::seconds(300));
                              auto tmp = ctx.inbound;
-                             co_await relay.handle(tmp, ctx);
+                             co_await relay.Handle(tmp, ctx);
                              relay_done = true;
                          },
                          net::detached);
@@ -224,7 +224,7 @@ namespace
                          co_await poll_t.async_wait(net::use_awaitable);
                      }
                      EXPECT_TRUE(relay_done); // ctx.timeout 未优先生效时此处失败，而非被兜底掩蔽
-                     a1->close();
+                     a1->Close();
                  });
         EXPECT_TRUE(relay_done);
     }
@@ -243,22 +243,22 @@ namespace
                          ioc.get_executor(),
                          [&]() -> net::awaitable<void>
                          {
-                             preview::middleware::context ctx;
+                             Preview::Middleware::Context ctx;
                              ctx.inbound = a2;
-                             ctx.outbound = b1;
-                             preview::middleware::builtin::relay_middleware relay(
+                             ctx.Outbound = b1;
+                             Preview::Middleware::Builtin::RelayMiddleware relay(
                                  nullptr, std::chrono::milliseconds(0));
                              auto tmp = ctx.inbound;
-                             co_await relay.handle(tmp, ctx);
+                             co_await relay.Handle(tmp, ctx);
                              relay_done = true;
                          },
                          net::detached);
 
-                     // 关闭 outbound 对端（b2）→ relay 写 b1 失败 → 隧道终止
-                     b2->close();
+                     // 关闭 Outbound 对端（b2）→ relay 写 b1 失败 → 隧道终止
+                     b2->Close();
                      const std::string msg = "to-dead-peer";
                      std::error_code wec;
-                     co_await a1->async_write_some(
+                     co_await a1->AsyncWriteSome(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(msg.data()),
                                                     msg.size()),
                          wec);
@@ -270,7 +270,7 @@ namespace
                          co_await poll_t.async_wait(net::use_awaitable);
                      }
                      EXPECT_TRUE(relay_done); // 写失败未终止时此处失败，而非被兜底掩蔽
-                     a1->close();
+                     a1->Close();
                  });
         EXPECT_TRUE(relay_done);
     }
@@ -278,24 +278,24 @@ namespace
     TEST(TimeoutRelay, ConcurrentBidirectionalTransfer)
     {
         net::io_context ioc;
-        auto [client, inbound] = make_pair_shared(ioc);
-        auto [outbound, server] = make_pair_shared(ioc);
+        auto [Client, inbound] = make_pair_shared(ioc);
+        auto [Outbound, Server] = make_pair_shared(ioc);
         bool relay_done = false;
         std::exception_ptr relay_ep;
 
         auto test = [&]()
             -> net::awaitable<void>
         {
-            auto async_relay = [inbound, outbound]()
+            auto async_relay = [inbound, Outbound]()
                 -> net::awaitable<void>
             {
-                preview::middleware::context ctx;
+                Preview::Middleware::Context ctx;
                 ctx.inbound = inbound;
-                ctx.outbound = outbound;
-                preview::middleware::builtin::relay_middleware relay(
+                ctx.Outbound = Outbound;
+                Preview::Middleware::Builtin::RelayMiddleware relay(
                     nullptr, std::chrono::milliseconds(0));
                 auto tmp = ctx.inbound;
-                co_await relay.handle(tmp, ctx);
+                co_await relay.Handle(tmp, ctx);
             };
             auto on_error = [&relay_done, &relay_ep](const std::exception_ptr &ep)
             {
@@ -307,11 +307,11 @@ namespace
             const std::string uplink = "uplink payload with a different length";
             const std::string downlink = "downlink";
             std::error_code write_ec;
-            co_await client->async_write_some(
+            co_await Client->AsyncWriteSome(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(uplink.data()),
                                            uplink.size()),
                 write_ec);
-            co_await server->async_write_some(
+            co_await Server->AsyncWriteSome(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(downlink.data()),
                                            downlink.size()),
                 write_ec);
@@ -320,7 +320,7 @@ namespace
             std::string received_uplink(uplink.size(), '\0');
             std::string received_downlink(downlink.size(), '\0');
             std::error_code read_ec;
-            const auto uplink_n = co_await server->async_read(
+            const auto uplink_n = co_await Server->AsyncRead(
                 std::span<std::byte>(reinterpret_cast<std::byte *>(received_uplink.data()),
                                      received_uplink.size()),
                 read_ec);
@@ -328,7 +328,7 @@ namespace
             EXPECT_EQ(uplink_n, uplink.size());
             EXPECT_EQ(received_uplink, uplink);
 
-            const auto downlink_n = co_await client->async_read(
+            const auto downlink_n = co_await Client->AsyncRead(
                 std::span<std::byte>(reinterpret_cast<std::byte *>(received_downlink.data()),
                                      received_downlink.size()),
                 read_ec);
@@ -336,8 +336,8 @@ namespace
             EXPECT_EQ(downlink_n, downlink.size());
             EXPECT_EQ(received_downlink, downlink);
 
-            client->close();
-            server->close();
+            Client->Close();
+            Server->Close();
             net::steady_timer done_wait(ioc);
             done_wait.expires_after(std::chrono::milliseconds(20));
             co_await done_wait.async_wait(net::use_awaitable);
@@ -359,8 +359,8 @@ namespace
     TEST(TimeoutRelay, HalfCloseKeepsReverseDirection)
     {
         net::io_context ioc;
-        auto [client, inbound] = make_pair_shared(ioc);
-        auto [outbound, server] = make_pair_shared(ioc);
+        auto [Client, inbound] = make_pair_shared(ioc);
+        auto [Outbound, Server] = make_pair_shared(ioc);
         bool relay_done = false;
         std::exception_ptr relay_ep;
         std::exception_ptr direction_ep;
@@ -368,17 +368,17 @@ namespace
         auto test = [&]()
             -> net::awaitable<void>
         {
-            auto async_relay = [inbound, outbound, &direction_ep]()
+            auto async_relay = [inbound, Outbound, &direction_ep]()
                 -> net::awaitable<void>
             {
-                preview::middleware::context ctx;
+                Preview::Middleware::Context ctx;
                 ctx.inbound = inbound;
-                ctx.outbound = outbound;
-                preview::middleware::builtin::relay_middleware relay(
+                ctx.Outbound = Outbound;
+                Preview::Middleware::Builtin::RelayMiddleware relay(
                     nullptr, std::chrono::milliseconds(0));
                 auto tmp = ctx.inbound;
-                co_await relay.handle(tmp, ctx);
-                direction_ep = relay.last_direction_error();
+                co_await relay.Handle(tmp, ctx);
+                direction_ep = relay.LastDirectionError();
             };
             auto on_error = [&relay_done, &relay_ep](const std::exception_ptr &ep)
             {
@@ -387,32 +387,32 @@ namespace
             };
             net::co_spawn(ioc.get_executor(), std::move(async_relay), std::move(on_error));
 
-            const std::string request = "request before half close";
-            const std::string response = "response after half close";
+            const std::string Request = "Request before half Close";
+            const std::string response = "response after half Close";
             std::error_code ec;
-            co_await client->async_write_some(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(request.data()),
-                                           request.size()),
+            co_await Client->AsyncWriteSome(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Request.data()),
+                                           Request.size()),
                 ec);
-            client->shutdown();
+            Client->Shutdown();
 
-            std::string received_request(request.size(), '\0');
-            const auto request_n = co_await server->async_read(
+            std::string received_request(Request.size(), '\0');
+            const auto request_n = co_await Server->AsyncRead(
                 std::span<std::byte>(reinterpret_cast<std::byte *>(received_request.data()),
                                      received_request.size()),
                 ec);
             EXPECT_FALSE(ec);
-            EXPECT_EQ(request_n, request.size());
-            EXPECT_EQ(received_request, request);
+            EXPECT_EQ(request_n, Request.size());
+            EXPECT_EQ(received_request, Request);
 
-            co_await server->async_write_some(
+            co_await Server->AsyncWriteSome(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(response.data()),
                                            response.size()),
                 ec);
-            server->shutdown();
+            Server->Shutdown();
 
             std::string received_response(response.size(), '\0');
-            const auto response_n = co_await client->async_read(
+            const auto response_n = co_await Client->AsyncRead(
                 std::span<std::byte>(reinterpret_cast<std::byte *>(received_response.data()),
                                      received_response.size()),
                 ec);
@@ -421,7 +421,7 @@ namespace
             EXPECT_EQ(received_response, response);
 
             std::array<std::byte, 1> eof_buffer{};
-            const auto eof_n = co_await client->async_read_some(eof_buffer, ec);
+            const auto eof_n = co_await Client->AsyncReadSome(eof_buffer, ec);
             EXPECT_FALSE(ec);
             EXPECT_EQ(eof_n, 0U);
 
@@ -430,7 +430,7 @@ namespace
             co_await done_wait.async_wait(net::use_awaitable);
 
             // 正常半关闭路径：两个方向协程均无异常残留
-            // （置于收尾等待之后，确保 relay.handle 已返回并落盘诊断状态）
+            // （置于收尾等待之后，确保 relay.Handle 已返回并落盘诊断状态）
             EXPECT_FALSE(direction_ep);
         };
 

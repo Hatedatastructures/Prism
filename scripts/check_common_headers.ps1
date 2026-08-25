@@ -61,14 +61,14 @@ if ($CheckMirror) {
         # core/crypto/* forked as a whole: preview needs self-contained
         # implementation (aead wraps BoringSSL EVP_AEAD, hkdf adds TLS 1.3
         # Expand-Label, blake3 adds derive_key mode, etc.); no sync constraint.
-        "core/crypto/aead.hpp",
-        "core/crypto/base64.hpp",
-        "core/crypto/blake3.hpp",
-        "core/crypto/block.hpp",
-        "core/crypto/crypto.hpp",
-        "core/crypto/hkdf.hpp",
-        "core/crypto/sha224.hpp",
-        "core/crypto/x25519.hpp"
+        "Core/Crypto/Aead.hpp",
+        "Core/Crypto/Base64.hpp",
+        "Core/Crypto/Blake3.hpp",
+        "Core/Crypto/Block.hpp",
+        "Core/Crypto/Crypto.hpp",
+        "Core/Crypto/Hkdf.hpp",
+        "Core/Crypto/Sha224.hpp",
+        "Core/Crypto/X25519.hpp"
     )
     $mirrorPairs = @(
         @{ src = "core/fault";       dst = "include/prism/foundation/fault" },

@@ -8,10 +8,10 @@
  *          4. 半包握手（分片发送 ClientHello）
  */
 
-#include <common/core/memory/container.hpp>
-#include <common/core/transmission.hpp>
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/native/native.hpp>
+#include <common/Core/Memory/Container.hpp>
+#include <common/Core/Transmission.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Native/Native.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
@@ -30,7 +30,7 @@ namespace
 {
     namespace net = boost::asio;
     namespace ssl = net::ssl;
-    using namespace preview;
+    using namespace Preview;
 
     /// 生成自签证书并加载到服务端上下文
     void load_self_signed(ssl::context &ctx)
@@ -51,12 +51,12 @@ namespace
         X509_gmtime_adj(X509_get_notBefore(x509), 0);
         X509_gmtime_adj(X509_get_notAfter(x509), 3600 * 24);
 
-        auto *name = X509_NAME_new();
-        X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-                                   reinterpret_cast<const unsigned char *>("native-test"), -1, -1, 0);
-        X509_set_subject_name(x509, name);
-        X509_set_issuer_name(x509, name);
-        X509_NAME_free(name);
+        auto *Name = X509_NAME_new();
+        X509_NAME_add_entry_by_txt(Name, "CN", MBSTRING_ASC,
+                                   reinterpret_cast<const unsigned char *>("Native-test"), -1, -1, 0);
+        X509_set_subject_name(x509, Name);
+        X509_set_issuer_name(x509, Name);
+        X509_NAME_free(Name);
 
         X509_set_pubkey(x509, pkey);
         X509_sign(x509, pkey, EVP_sha256());
@@ -69,44 +69,44 @@ namespace
     }
 
     /// 客户端：TLS 握手 + 数据 echo 验证
-    net::awaitable<void> DoTlsClient(shared_transmission raw, ssl::context &client_ctx,
-                                     const std::string &payload, std::shared_ptr<bool> ok)
+    net::awaitable<void> DoTlsClient(SharedTransmission raw, ssl::context &client_ctx,
+                                     const std::string &payload, std::shared_ptr<bool> Ok)
     {
-        preview::transport::connector conn(raw);
-        auto stream = std::make_shared<ssl::stream<preview::transport::connector>>(
-            std::move(conn), client_ctx);
+        Preview::Transport::Connector Conn(raw);
+        auto Stream = std::make_shared<ssl::stream<Preview::Transport::Connector>>(
+            std::move(Conn), client_ctx);
         boost::system::error_code ec;
-        co_await stream->async_handshake(ssl::stream_base::client,
+        co_await Stream->async_handshake(ssl::stream_base::client,
                                          net::redirect_error(net::use_awaitable, ec));
         if (ec)
         {
-            *ok = false;
+            *Ok = false;
             co_return;
         }
         // 发送 payload（经 TLS）
-        co_await stream->async_write_some(
+        co_await Stream->async_write_some(
             net::buffer(payload.data(), payload.size()), net::redirect_error(net::use_awaitable, ec));
         if (ec)
         {
-            *ok = false;
+            *Ok = false;
             co_return;
         }
         // 读 echo
         std::array<char, 256> buf{};
-        const auto n = co_await stream->async_read_some(
+        const auto n = co_await Stream->async_read_some(
             net::buffer(buf.data(), buf.size()), net::redirect_error(net::use_awaitable, ec));
-        *ok = !ec && n == payload.size() && std::string_view(buf.data(), n) == payload;
+        *Ok = !ec && n == payload.size() && std::string_view(buf.data(), n) == payload;
         co_return;
     }
 
-    /// 服务端：native accept + echo
-    net::awaitable<void> DoNativeServer(shared_transmission raw, ssl::context &server_ctx,
-                                        const std::string &payload, std::shared_ptr<bool> ok)
+    /// 服务端：Native Accept + echo
+    net::awaitable<void> DoNativeServer(SharedTransmission raw, ssl::context &server_ctx,
+                                        const std::string &payload, std::shared_ptr<bool> Ok)
     {
-        auto trans = co_await preview::native::accept(std::move(raw), server_ctx);
+        auto trans = co_await Preview::Native::Accept(std::move(raw), server_ctx);
         if (!trans)
         {
-            *ok = false;
+            *Ok = false;
             co_return;
         }
         std::array<std::byte, 256> buf{};
@@ -114,12 +114,12 @@ namespace
         const auto n = co_await trans->async_read_some(buf, ec);
         if (ec || n == 0)
         {
-            *ok = false;
+            *Ok = false;
             co_return;
         }
         std::error_code w_ec;
         co_await trans->async_write_some(std::span<const std::byte>(buf.data(), n), w_ec);
-        *ok = !w_ec;
+        *Ok = !w_ec;
         co_return;
     }
 } // namespace
@@ -134,11 +134,11 @@ TEST(NativeConn, TlsHandshakeAndPassthrough)
     ssl::context client_ctx(ssl::context::tlsv13);
     client_ctx.set_verify_mode(ssl::verify_none);
 
-    auto [a, b] = make_memory_pair(ioc.get_executor());
-    auto sa = std::make_shared<preview::memory_stream>(std::move(a));
-    auto sb = std::make_shared<preview::memory_stream>(std::move(b));
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
-    const std::string payload = "native-tls-passthrough";
+    const std::string payload = "Native-tls-passthrough";
     auto client_ok = std::make_shared<bool>(false);
     auto server_ok = std::make_shared<bool>(false);
 
@@ -169,9 +169,9 @@ TEST(NativeConn, ClientVerifyFailure)
     ssl::context client_ctx(ssl::context::tlsv13);
     client_ctx.set_verify_mode(ssl::verify_peer); // 无 CA → 自签被拒
 
-    auto [a, b] = make_memory_pair(ioc.get_executor());
-    auto sa = std::make_shared<preview::memory_stream>(std::move(a));
-    auto sb = std::make_shared<preview::memory_stream>(std::move(b));
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
     auto client_ok = std::make_shared<bool>(true);
     auto server_ok = std::make_shared<bool>(false);
@@ -183,13 +183,13 @@ TEST(NativeConn, ClientVerifyFailure)
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                preview::transport::connector conn(sa);
-                auto stream = std::make_shared<ssl::stream<preview::transport::connector>>(
-                    std::move(conn), client_ctx);
+                Preview::Transport::Connector Conn(sa);
+                auto Stream = std::make_shared<ssl::stream<Preview::Transport::Connector>>(
+                    std::move(Conn), client_ctx);
                 boost::system::error_code ec;
-                co_await stream->async_handshake(ssl::stream_base::client,
+                co_await Stream->async_handshake(ssl::stream_base::client,
                                                  net::redirect_error(net::use_awaitable, ec));
-                // 客户端验证失败（certificate verify failed）
+                // 客户端验证失败（certificate verify Failed）
                 if (ec)
                 {
                     *client_ok = false;
@@ -197,7 +197,7 @@ TEST(NativeConn, ClientVerifyFailure)
             },
             net::detached);
         // 服务端握手应因客户端中止而失败
-        auto trans = co_await preview::native::accept(sb, server_ctx);
+        auto trans = co_await Preview::Native::Accept(sb, server_ctx);
         if (!trans)
         {
             *server_ok = true;
@@ -224,9 +224,9 @@ TEST(NativeConn, FragmentedClientHello)
     ssl::context client_ctx(ssl::context::tlsv13);
     client_ctx.set_verify_mode(ssl::verify_none);
 
-    auto [a, b] = make_memory_pair(ioc.get_executor());
-    auto sa = std::make_shared<preview::memory_stream>(std::move(a));
-    auto sb = std::make_shared<preview::memory_stream>(std::move(b));
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
     const std::string payload = "fragmented-hello";
     auto client_ok = std::make_shared<bool>(false);

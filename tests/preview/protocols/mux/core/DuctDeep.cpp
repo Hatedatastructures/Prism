@@ -112,12 +112,12 @@ namespace
             // 使用 poll() 而非 run()，因为 run() 会阻塞在 timer 轮询
             // 但 close() 已设置 closed_=true，所以 timer wait 回调中
             // async_read_some 会立即返回 eof
-            target_transport->get_io_context().restart();
+            target_transport->GetIoContext().restart();
             // 用 run_one 驱动有限步：每步处理一个就绪 handler
             // 最多驱动 10 步以避免无限循环
             for (int i = 0; i < 10; ++i)
             {
-                target_transport->get_io_context().poll_one();
+                target_transport->GetIoContext().poll_one();
             }
             duct_obj.reset();
             core_obj.reset();
@@ -199,9 +199,9 @@ namespace
     TEST(DuctDeep, CloseTargetClosed)
     {
         DuctFixture fx;
-        EXPECT_TRUE(!fx.target_transport->is_closed()) << "close: target not closed before close";
+        EXPECT_TRUE(!fx.target_transport->IsClosed()) << "close: target not closed before close";
         fx.duct_obj->close();
-        EXPECT_TRUE(fx.target_transport->is_closed()) << "close: target transport closed after close";
+        EXPECT_TRUE(fx.target_transport->IsClosed()) << "close: target transport closed after close";
     }
 
     // ─── on_fin ─────────────────────────────
@@ -232,7 +232,7 @@ namespace
     {
         DuctFixture fx;
         fx.duct_obj->close();
-        auto &mock_ioc = fx.target_transport->get_io_context();
+        auto &mock_ioc = fx.target_transport->GetIoContext();
         net::co_spawn(mock_ioc, fx.duct_obj->on_data(psm::memory::vector<std::byte>{}),
                       [&](std::exception_ptr) {});
         mock_ioc.restart();

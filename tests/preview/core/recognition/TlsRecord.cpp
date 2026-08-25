@@ -1,15 +1,15 @@
 /**
  * @file TlsRecord.cpp
  * @brief TLS 记录帧单元测试
- * @details 测试 record::builder、record::serialize、record::header/payload/size 等纯逻辑，
- *          以及使用 MockTransport 测试 record::read(transmission&) 和 record::write(transmission&) 异步 I/O。
+ * @details 测试 Record::builder、Record::serialize、Record::Header/payload/Size 等纯逻辑，
+ *          以及使用 MockTransport 测试 Record::Read(Transmission&) 和 Record::Write(Transmission&) 异步 I/O。
  */
 
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/transport/transmission.hpp>
-#include <prism/protocol/tls/record.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/net/transport/Transmission.hpp>
+#include <prism/Protocol/tls/Record.hpp>
+#include <prism/Protocol/tls/types.hpp>
 
 #include <array>
 #include <cstdint>
@@ -34,27 +34,27 @@ namespace
                        .payload(payload)
                        .build();
 
-        EXPECT_EQ(rec.header().content_type, psm::protocol::tls::CT_HANDSHAKE) << "builder type";
+        EXPECT_EQ(rec.header().content_type, psm::protocol::tls::CT_HANDSHAKE) << "builder Type";
         EXPECT_EQ(rec.header().version, psm::protocol::tls::VERSION_TLS12) << "builder version";
         EXPECT_EQ(rec.header().length, 4) << "builder length";
-        EXPECT_EQ(rec.payload().size(), 4) << "builder payload size";
+        EXPECT_EQ(rec.payload().size(), 4) << "builder payload Size";
     }
 
     TEST(TlsRecord, BuilderPayloadU8)
     {
-        std::array<std::uint8_t, 3> data = {0xAA, 0xBB, 0xCC};
+        std::array<std::uint8_t, 3> Data = {0xAA, 0xBB, 0xCC};
 
         auto rec = psm::tls::record::builder()
                        .type(psm::protocol::tls::CT_APPLICATION_DATA)
                        .version(psm::protocol::tls::VERSION_TLS12)
-                       .payload_u8(data)
+                       .payload_u8(Data)
                        .build();
 
-        EXPECT_EQ(rec.header().content_type, psm::protocol::tls::CT_APPLICATION_DATA) << "builder_u8 type";
-        EXPECT_EQ(rec.payload().size(), 3) << "builder_u8 payload size";
+        EXPECT_EQ(rec.header().content_type, psm::protocol::tls::CT_APPLICATION_DATA) << "builder_u8 Type";
+        EXPECT_EQ(rec.payload().size(), 3) << "builder_u8 payload Size";
 
         auto pl = rec.payload();
-        EXPECT_TRUE(std::memcmp(pl.data(), data.data(), 3) == 0) << "builder_u8 payload content";
+        EXPECT_TRUE(std::memcmp(pl.data(), Data.data(), 3) == 0) << "builder_u8 payload content";
     }
 
     TEST(TlsRecord, SerializeRoundtrip)
@@ -66,10 +66,10 @@ namespace
 
         auto serialized = rec.serialize();
 
-        // 5 header bytes + 5 payload bytes = 10
-        EXPECT_EQ(serialized.size(), 10) << "serialize total size";
+        // 5 Header Bytes + 5 payload Bytes = 10
+        EXPECT_EQ(serialized.size(), 10) << "serialize Total Size";
 
-        // Content type
+        // Content Type
         EXPECT_EQ(serialized[0], std::byte{0x17}) << "serialize content_type";
         // Version
         EXPECT_EQ(serialized[1], std::byte{0x03}) << "serialize version hi";
@@ -87,20 +87,20 @@ namespace
         std::array<std::byte, 100> payload{};
         auto rec = psm::tls::record::builder().type(0x16).version(0x0303).payload(payload).build();
 
-        EXPECT_EQ(rec.size(), psm::protocol::tls::RECORD_HDR_LEN + 100) << "record size = header + payload";
+        EXPECT_EQ(rec.size(), psm::protocol::tls::RECORD_HDR_LEN + 100) << "Record Size = Header + payload";
     }
 
     TEST(TlsRecord, EmptyPayload)
     {
         auto rec = psm::tls::record::builder().type(psm::protocol::tls::CT_ALERT).version(0x0303).build();
 
-        EXPECT_TRUE(rec.payload().empty()) << "empty payload";
-        EXPECT_EQ(rec.header().length, 0) << "empty payload length = 0";
-        EXPECT_EQ(rec.size(), psm::protocol::tls::RECORD_HDR_LEN) << "empty payload size = header only";
+        EXPECT_TRUE(rec.payload().empty()) << "Empty payload";
+        EXPECT_EQ(rec.header().length, 0) << "Empty payload length = 0";
+        EXPECT_EQ(rec.size(), psm::protocol::tls::RECORD_HDR_LEN) << "Empty payload Size = Header only";
 
         auto serialized = rec.serialize();
         EXPECT_EQ(serialized.size(), psm::protocol::tls::RECORD_HDR_LEN)
-            << "empty payload serialize = header only";
+            << "Empty payload serialize = Header only";
     }
 
     TEST(TlsRecord, BuilderChaining)
@@ -132,11 +132,11 @@ namespace
 
         auto rec = psm::tls::record::builder().type(0x17).version(0x0303).payload(large).build();
 
-        EXPECT_EQ(rec.payload().size(), 16384) << "large payload size";
-        EXPECT_EQ(rec.size(), psm::protocol::tls::RECORD_HDR_LEN + 16384) << "large record size";
+        EXPECT_EQ(rec.payload().size(), 16384) << "large payload Size";
+        EXPECT_EQ(rec.size(), psm::protocol::tls::RECORD_HDR_LEN + 16384) << "large Record Size";
 
         auto serialized = rec.serialize();
-        EXPECT_EQ(serialized.size(), psm::protocol::tls::RECORD_HDR_LEN + 16384) << "large serialize size";
+        EXPECT_EQ(serialized.size(), psm::protocol::tls::RECORD_HDR_LEN + 16384) << "large serialize Size";
         // Verify length field: 16384 = 0x4000
         EXPECT_EQ(serialized[3], std::byte{0x40}) << "large length hi";
         EXPECT_EQ(serialized[4], std::byte{0x00}) << "large length lo";
@@ -145,16 +145,16 @@ namespace
     TEST(TlsRecord, FromRecordHeader)
     {
         psm::tls::record_header hdr;
-        EXPECT_EQ(hdr.content_type, 0) << "default header content_type";
-        EXPECT_EQ(hdr.version, 0x0303) << "default header version";
-        EXPECT_EQ(hdr.length, 0) << "default header length";
+        EXPECT_EQ(hdr.content_type, 0) << "default Header content_type";
+        EXPECT_EQ(hdr.version, 0x0303) << "default Header version";
+        EXPECT_EQ(hdr.length, 0) << "default Header length";
     }
 
     // === 异步 I/O 测试 ===
 
     TEST(TlsRecord, AsyncReadSuccess)
     {
-        // 构造合法 TLS record: CT=0x16, ver=0x0303, len=4, payload={1,2,3,4}
+        // 构造合法 TLS Record: CT=0x16, ver=0x0303, len=4, payload={1,2,3,4}
         std::vector<std::byte> wire = {std::byte{0x16}, std::byte{0x03}, std::byte{0x03}, // CT + version
                                        std::byte{0x00}, std::byte{0x04},                  // length=4
                                        std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
@@ -166,7 +166,7 @@ namespace
         auto result_ec = std::make_shared<std::error_code>();
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [m = mock.get(), result_rec, result_ec]() -> net::awaitable<void>
             {
                 auto [ec, rec] = co_await psm::tls::record::read(*m);
@@ -176,21 +176,21 @@ namespace
             },
             net::detached);
 
-        mock->get_io_context().run();
+        mock->GetIoContext().run();
 
-        EXPECT_TRUE(!*result_ec) << "async read: success without error";
-        EXPECT_TRUE(result_rec->header().content_type == 0x16) << "async read: content type matches";
+        EXPECT_TRUE(!*result_ec) << "async Read: success without Error";
+        EXPECT_TRUE(result_rec->header().content_type == 0x16) << "async Read: content Type matches";
     }
 
     TEST(TlsRecord, AsyncReadError)
     {
         auto mock = std::make_shared<psm::testing::MockTransport>();
-        mock->set_read_error(std::make_error_code(std::errc::connection_reset));
+        mock->set_ReadError(std::make_error_code(std::errc::connection_reset));
 
         auto result_ec = std::make_shared<psm::fault::code>();
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [m = mock.get(), result_ec]() -> net::awaitable<void>
             {
                 auto [ec, rec] = co_await psm::tls::record::read(*m);
@@ -199,14 +199,14 @@ namespace
             },
             net::detached);
 
-        mock->get_io_context().run();
+        mock->GetIoContext().run();
         EXPECT_EQ(*result_ec, psm::fault::code::io_error)
-            << "async read error: returns io_error on read failure";
+            << "async Read Error: returns io_error on Read failure";
     }
 
     TEST(TlsRecord, AsyncReadOversized)
     {
-        // 构造 length > MAX_RECORD_PAYLOAD 的 record
+        // 构造 length > MAX_RECORD_PAYLOAD 的 Record
         std::vector<std::byte> wire = {std::byte{0x17}, std::byte{0x03}, std::byte{0x03}, std::byte{0x40},
                                        std::byte{0x01}}; // length=16385 > 16384
 
@@ -216,7 +216,7 @@ namespace
         auto result_ec = std::make_shared<std::error_code>();
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [m = mock.get(), result_ec]() -> net::awaitable<void>
             {
                 auto [ec, rec] = co_await psm::tls::record::read(*m);
@@ -225,8 +225,8 @@ namespace
             },
             net::detached);
 
-        mock->get_io_context().run();
-        EXPECT_TRUE(!!*result_ec) << "async read oversized: error code set for oversized record";
+        mock->GetIoContext().run();
+        EXPECT_TRUE(!!*result_ec) << "async Read oversized: Error Code set for oversized Record";
     }
 
     TEST(TlsRecord, AsyncWriteSuccess)
@@ -237,7 +237,7 @@ namespace
         auto mock = std::make_shared<psm::testing::MockTransport>();
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [m = mock.get(), r = rec]() -> net::awaitable<void>
             {
                 co_await r.write(*m);
@@ -245,13 +245,13 @@ namespace
             },
             net::detached);
 
-        mock->get_io_context().run();
+        mock->GetIoContext().run();
 
-        auto &written = mock->written_data();
-        EXPECT_EQ(written.size(), 8) << "async write: 5 header + 3 payload = 8 bytes";
-        EXPECT_EQ(written[0], std::byte{0x17}) << "async write: CT=0x17";
-        EXPECT_EQ(written[3], std::byte{0x00}) << "async write: length hi";
-        EXPECT_EQ(written[4], std::byte{0x03}) << "async write: length lo=3";
+        auto &written = mock->WrittenData();
+        EXPECT_EQ(written.size(), 8) << "async Write: 5 Header + 3 payload = 8 Bytes";
+        EXPECT_EQ(written[0], std::byte{0x17}) << "async Write: CT=0x17";
+        EXPECT_EQ(written[3], std::byte{0x00}) << "async Write: length hi";
+        EXPECT_EQ(written[4], std::byte{0x03}) << "async Write: length lo=3";
     }
 
     TEST(TlsRecord, AsyncWriteError)
@@ -260,10 +260,10 @@ namespace
         auto rec = psm::tls::record::builder().type(0x16).version(0x0303).payload(payload).build();
 
         auto mock = std::make_shared<psm::testing::MockTransport>();
-        mock->set_write_error(std::make_error_code(std::errc::broken_pipe));
+        mock->set_WriteError(std::make_error_code(std::errc::broken_pipe));
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [m = mock.get(), r = rec]() -> net::awaitable<void>
             {
                 co_await r.write(*m);
@@ -271,8 +271,8 @@ namespace
             },
             net::detached);
 
-        mock->get_io_context().run();
-        EXPECT_TRUE(mock->written_data().empty()) << "async write error: no data written on write failure";
+        mock->GetIoContext().run();
+        EXPECT_TRUE(mock->WrittenData().empty()) << "async Write Error: no Data written on Write failure";
     }
 
 } // namespace

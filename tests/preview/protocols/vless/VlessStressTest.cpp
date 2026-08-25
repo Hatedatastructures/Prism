@@ -5,7 +5,7 @@
  * 1. 200 次连接循环（每次新 ioc + 内存对，握手 + 回显，计数验证）
  * 2. 16 并发连接握手（全 co_spawn 到同一 ioc，客户端逻辑内联）
  * 3. 2MB 数据传输（64KB 分块，服务端累积计数校验）
- * @note 使用 vless::accept 服务端 + 原始 wire 客户端握手
+ * @note 使用 Vless::Accept 服务端 + 原始 wire 客户端握手
  *       （版本 + UUID + 命令 + 目标地址，服务端响应 2 字节 [版本][附加长度]）
  */
 
@@ -22,13 +22,13 @@
 #include <string>
 #include <vector>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/vless/vless.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Vless/Vless.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     /// 运行协程直至完成（异常重抛）
@@ -50,9 +50,9 @@ namespace
     }
 
     /// 测试 UUID（固定值，两字节交替模式便于识别）
-    auto test_uuid() -> std::array<std::uint8_t, vless::uuid_len>
+    auto test_uuid() -> std::array<std::uint8_t, Vless::UuidLen>
     {
-        std::array<std::uint8_t, vless::uuid_len> uuid{};
+        std::array<std::uint8_t, Vless::UuidLen> uuid{};
         for (std::size_t i = 0; i < uuid.size(); ++i)
         {
             uuid[i] = static_cast<std::uint8_t>(0x10 + i);
@@ -61,49 +61,49 @@ namespace
     }
 
     /// 构造 vless 目标地址
-    auto make_addr(vless::address_type type, std::string host, std::uint16_t port) -> vless::address
+    auto make_addr(Vless::AddressType Type, std::string host, std::uint16_t port) -> Vless::Address
     {
-        vless::address addr{};
-        addr.type = type;
-        addr.host = std::move(host);
-        addr.port = port;
+        Vless::Address addr{};
+        addr.Type = Type;
+        addr.Host = std::move(host);
+        addr.Port = port;
         return addr;
     }
 
     /// 原始客户端：构造请求头字节
-    auto build_raw_request(const std::array<std::uint8_t, vless::uuid_len> &uuid, vless::command cmd,
-                           const vless::address &target) -> std::vector<std::uint8_t>
+    auto build_raw_request(const std::array<std::uint8_t, Vless::UuidLen> &uuid, Vless::Command cmd,
+                           const Vless::Address &Target) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> wire;
-        wire.push_back(vless::protocol_version);
+        wire.push_back(Vless::ProtocolVersion);
         wire.insert(wire.end(), uuid.begin(), uuid.end());
         wire.push_back(0x00); // addnl len
         wire.push_back(static_cast<std::uint8_t>(cmd));
-        wire.push_back(static_cast<std::uint8_t>(target.port >> 8));
-        wire.push_back(static_cast<std::uint8_t>(target.port & 0xFF));
-        wire.push_back(static_cast<std::uint8_t>(target.type));
-        switch (target.type)
+        wire.push_back(static_cast<std::uint8_t>(Target.Port >> 8));
+        wire.push_back(static_cast<std::uint8_t>(Target.Port & 0xFF));
+        wire.push_back(static_cast<std::uint8_t>(Target.Type));
+        switch (Target.Type)
         {
-        case vless::address_type::domain:
+        case Vless::AddressType::Domain:
         default:
-            wire.push_back(static_cast<std::uint8_t>(target.host.size()));
-            wire.insert(wire.end(), target.host.begin(), target.host.end());
+            wire.push_back(static_cast<std::uint8_t>(Target.Host.size()));
+            wire.insert(wire.end(), Target.Host.begin(), Target.Host.end());
             break;
         }
         return wire;
     }
 
-    /// 服务端：accept + 回显
-    auto server_echo(net::io_context &ioc, memory_stream b) -> void
+    /// 服务端：Accept + 回显
+    auto server_echo(net::io_context &ioc, MemoryStream b) -> void
     {
         net::co_spawn(ioc.get_executor(),
                       [b = std::move(b)]() mutable -> net::awaitable<void>
                       {
-                          vless::server_config cfg;
+                          Vless::ServerConfig cfg;
                           cfg.uuid = test_uuid();
-                          auto [err, req, conn] =
-                              co_await vless::accept(std::make_shared<memory_stream>(std::move(b)), cfg);
-                          if (err != error::none || !conn)
+                          auto [err, req, Conn] =
+                              co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
+                          if (err != Error::none || !Conn)
                           {
                               co_return;
                           }
@@ -111,45 +111,45 @@ namespace
                           std::error_code ec;
                           while (true)
                           {
-                              const auto n = co_await conn->async_read_some(buf, ec);
+                              const auto n = co_await Conn->AsyncReadSome(buf, ec);
                               if (ec || n == 0)
                               {
                                   break;
                               }
-                              co_await conn->async_write_some(
+                              co_await Conn->AsyncWriteSome(
                                   std::span<const std::byte>(buf.data(), n), ec);
                           }
-                          conn->close();
+                          Conn->Close();
                       },
                       net::detached);
     }
 
     /// 客户端：原始 wire 握手 + 2 字节响应 + 回显往返
-    auto client_roundtrip(net::io_context &ioc, memory_stream a, const std::string &payload) -> bool
+    auto client_roundtrip(net::io_context &ioc, MemoryStream a, const std::string &payload) -> bool
     {
-        bool ok = false;
+        bool Ok = false;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto wire = build_raw_request(test_uuid(), vless::command::tcp,
-                                                   make_addr(vless::address_type::domain, "example.com",
+                     auto wire = build_raw_request(test_uuid(), Vless::Command::Tcp,
+                                                   make_addr(Vless::AddressType::Domain, "example.com",
                                                              443));
                      wire.insert(wire.end(), payload.begin(), payload.end());
                      std::error_code ec;
-                     co_await a.async_write_some(as_bytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      std::array<std::uint8_t, 2> resp{};
                      std::size_t got = 0;
                      while (got < resp.size())
                      {
-                         const auto n = co_await a.async_read_some(
-                             as_bytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
+                         const auto n = co_await a.AsyncReadSome(
+                             AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
                          if (ec || n == 0)
                          {
                              break;
                          }
                          got += n;
                      }
-                     if (got != 2u || resp[0] != vless::protocol_version)
+                     if (got != 2u || resp[0] != Vless::ProtocolVersion)
                      {
                          co_return;
                      }
@@ -157,7 +157,7 @@ namespace
                      got = 0;
                      while (got < payload.size())
                      {
-                         const auto n = co_await a.async_read_some(
+                         const auto n = co_await a.AsyncReadSome(
                              std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
                          if (ec || n == 0)
                          {
@@ -165,9 +165,9 @@ namespace
                          }
                          got += n;
                      }
-                     ok = (got == payload.size());
+                     Ok = (got == payload.size());
                  });
-        return ok;
+        return Ok;
     }
 
     // ── 1. 200 次连接循环泄漏检测 ──
@@ -180,7 +180,7 @@ namespace
         for (int i = 0; i < kRounds; ++i)
         {
             net::io_context ioc;
-            auto [a, b] = make_memory_pair(ioc.get_executor());
+            auto [a, b] = MakeMemoryPair(ioc.get_executor());
             server_echo(ioc, std::move(b));
             if (client_roundtrip(ioc, std::move(a), payload))
             {
@@ -199,26 +199,26 @@ namespace
         const std::string payload = "concurrent-payload";
         for (int i = 0; i < 16; ++i)
         {
-            auto [a, b] = make_memory_pair(ioc.get_executor());
+            auto [a, b] = MakeMemoryPair(ioc.get_executor());
             net::co_spawn(
                 ioc.get_executor(),
                 [b = std::move(b)]() mutable -> net::awaitable<void>
                 {
-                    vless::server_config cfg;
+                    Vless::ServerConfig cfg;
                     cfg.uuid = test_uuid();
-                    auto [err, req, conn] =
-                        co_await vless::accept(std::make_shared<memory_stream>(std::move(b)), cfg);
-                    if (err == error::none && conn)
+                    auto [err, req, Conn] =
+                        co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
+                    if (err == Error::none && Conn)
                     {
                         std::array<std::byte, 128> buf{};
                         std::error_code ec;
-                        const auto n = co_await conn->async_read_some(buf, ec);
+                        const auto n = co_await Conn->AsyncReadSome(buf, ec);
                         if (!ec && n > 0)
                         {
-                            co_await conn->async_write_some(
+                            co_await Conn->AsyncWriteSome(
                                 std::span<const std::byte>(buf.data(), n), ec);
                         }
-                        conn->close();
+                        Conn->Close();
                     }
                 },
                 net::detached);
@@ -226,31 +226,31 @@ namespace
                 ioc.get_executor(),
                 [&, a = std::move(a), payload]() mutable -> net::awaitable<void>
                 {
-                    auto wire = build_raw_request(test_uuid(), vless::command::tcp,
-                                                  make_addr(vless::address_type::domain, "example.com",
+                    auto wire = build_raw_request(test_uuid(), Vless::Command::Tcp,
+                                                  make_addr(Vless::AddressType::Domain, "example.com",
                                                             443));
                     wire.insert(wire.end(), payload.begin(), payload.end());
                     std::error_code ec;
-                    co_await a.async_write_some(as_bytes(std::span<const std::uint8_t>(wire)), ec);
+                    co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                     std::array<std::uint8_t, 2> resp{};
                     std::size_t got = 0;
                     while (got < resp.size())
                     {
-                        const auto n = co_await a.async_read_some(
-                            as_bytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
+                        const auto n = co_await a.AsyncReadSome(
+                            AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
                         if (ec || n == 0)
                         {
                             break;
                         }
                         got += n;
                     }
-                    if (got == 2u && resp[0] == vless::protocol_version)
+                    if (got == 2u && resp[0] == Vless::ProtocolVersion)
                     {
                         std::array<std::byte, 128> echo{};
                         std::size_t rg = 0;
                         while (rg < payload.size())
                         {
-                            const auto n = co_await a.async_read_some(
+                            const auto n = co_await a.AsyncReadSome(
                                 std::span<std::byte>(echo.data() + rg, echo.size() - rg), ec);
                             if (ec || n == 0)
                             {
@@ -285,35 +285,35 @@ namespace
         constexpr std::size_t kTotal = 2 * 1024 * 1024;
         constexpr std::size_t kChunk = 64 * 1024;
 
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         // 服务端：接受 + 统计接收字节
         std::atomic<std::size_t> received{0};
         net::co_spawn(
             ioc.get_executor(),
             [b = std::move(b), &received]() mutable -> net::awaitable<void>
             {
-                vless::server_config cfg;
+                Vless::ServerConfig cfg;
                 cfg.uuid = test_uuid();
-                auto [err, req, conn] =
-                    co_await vless::accept(std::make_shared<memory_stream>(std::move(b)), cfg);
-                if (err != error::none || !conn)
+                auto [err, req, Conn] =
+                    co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
+                if (err != Error::none || !Conn)
                 {
                     co_return;
                 }
                 std::array<std::byte, kChunk> buf{};
                 std::error_code ec;
-                std::size_t total = 0;
-                while (total < kTotal)
+                std::size_t Total = 0;
+                while (Total < kTotal)
                 {
-                    const auto n = co_await conn->async_read_some(buf, ec);
+                    const auto n = co_await Conn->AsyncReadSome(buf, ec);
                     if (ec || n == 0)
                     {
                         break;
                     }
-                    total += n;
+                    Total += n;
                 }
-                received.store(total);
-                conn->close();
+                received.store(Total);
+                Conn->Close();
             },
             net::detached);
 
@@ -321,17 +321,17 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto wire = build_raw_request(test_uuid(), vless::command::tcp,
-                                                   make_addr(vless::address_type::domain, "example.com",
+                     auto wire = build_raw_request(test_uuid(), Vless::Command::Tcp,
+                                                   make_addr(Vless::AddressType::Domain, "example.com",
                                                              443));
                      std::error_code ec;
-                     co_await a.async_write_some(as_bytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      std::array<std::uint8_t, 2> resp{};
                      std::size_t got = 0;
                      while (got < resp.size())
                      {
-                         const auto n = co_await a.async_read_some(
-                             as_bytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
+                         const auto n = co_await a.AsyncReadSome(
+                             AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
                          if (ec || n == 0)
                          {
                              break;
@@ -341,7 +341,7 @@ namespace
                      std::vector<std::byte> chunk(kChunk, std::byte{0xAB});
                      for (std::size_t sent = 0; sent < kTotal; sent += kChunk)
                      {
-                         co_await a.async_write_some(std::span<const std::byte>(chunk), ec);
+                         co_await a.AsyncWriteSome(std::span<const std::byte>(chunk), ec);
                          if (ec)
                          {
                              break;

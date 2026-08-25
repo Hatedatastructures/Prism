@@ -1,6 +1,6 @@
 /**
  * @file Ss2022DgramSession.cpp
- * @brief SS2022 UDP 数据报会话测试（dgram 成功路径）
+ * @brief SS2022 UDP 数据报会话测试（Dgram 成功路径）
  * @details 覆盖：
  *          - 客户端 → 服务端单向数据报（逐包 AEAD）
  *          - 双向回环（服务端回发）
@@ -20,12 +20,12 @@
 #include <string>
 #include <vector>
 
-#include <common/protocols/shadowsocks2022/shadowsocks2022.hpp>
+#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 
 namespace
 {
     namespace net = boost::asio;
-    using namespace preview;
+    using namespace Preview;
 
     auto run_coro(net::io_context &ioc, auto coro)
     {
@@ -42,28 +42,28 @@ namespace
     {
         net::io_context ioc;
 
-        shadowsocks2022::server_config cfg;
+        Shadowsocks2022::ServerConfig cfg;
         cfg.password = "pass123";
-        const auto server = shadowsocks2022::accept_packet(ioc.get_executor(), 0, cfg);
-        ASSERT_NE(server, nullptr);
+        const auto Server = Shadowsocks2022::AcceptPacket(ioc.get_executor(), 0, cfg);
+        ASSERT_NE(Server, nullptr);
 
         // 客户端：连接服务端端口（从底层 socket 取）
-        const auto server_udp = dynamic_cast<preview::transport::unreliable *>(server->next_layer());
+        const auto server_udp = dynamic_cast<Preview::Transport::Unreliable *>(Server->NextLayer());
         ASSERT_NE(server_udp, nullptr);
-        const auto server_port = server_udp->native_socket().local_endpoint().port();
+        const auto server_port = server_udp->NativeSocket().local_endpoint().port();
 
-        shadowsocks2022::client_config client_cfg;
+        Shadowsocks2022::ClientConfig client_cfg;
         client_cfg.password = "pass123";
-        auto client = shadowsocks2022::connect_packet(ioc.get_executor(),
+        auto Client = Shadowsocks2022::ConnectPacket(ioc.get_executor(),
                                                       "127.0.0.1:" + std::to_string(server_port),
                                                       client_cfg);
-        ASSERT_NE(client, nullptr);
+        ASSERT_NE(Client, nullptr);
 
         // 目标地址（服务端收到的包内目标）
-        shadowsocks2022::address dest;
-        dest.type = shadowsocks2022::address_type::ipv4;
-        dest.host = "127.0.0.1";
-        dest.port = 12345;
+        Shadowsocks2022::Address dest;
+        dest.Type = Shadowsocks2022::AddressType::Ipv4;
+        dest.Host = "127.0.0.1";
+        dest.Port = 12345;
 
         std::string received;
         run_coro(ioc,
@@ -74,10 +74,10 @@ namespace
                          ioc.get_executor(),
                          [&]() -> net::awaitable<void>
                          {
-                             shadowsocks2022::address src;
+                             Shadowsocks2022::Address src;
                              std::vector<std::uint8_t> payload;
-                             const auto err = co_await server->async_receive_from(src, payload);
-                             if (err == error::none)
+                             const auto err = co_await Server->AsyncReceiveFrom(src, payload);
+                             if (err == Error::none)
                              {
                                  received.assign(reinterpret_cast<const char *>(payload.data()),
                                                  payload.size());
@@ -86,11 +86,11 @@ namespace
                          net::detached);
 
                      // 客户端发
-                     const std::string msg = "ss2022-dgram";
-                     const auto err = co_await client->async_send_to(
+                     const std::string msg = "ss2022-Dgram";
+                     const auto err = co_await Client->AsyncSendTo(
                          dest, std::span<const std::uint8_t>(
                                    reinterpret_cast<const std::uint8_t *>(msg.data()), msg.size()));
-                     EXPECT_EQ(err, error::none);
+                     EXPECT_EQ(err, Error::none);
 
                      // 等服务端收到
                      for (int i = 0; i < 50 && received.empty(); ++i)
@@ -100,32 +100,32 @@ namespace
                          co_await t.async_wait(net::use_awaitable);
                      }
                  });
-        EXPECT_EQ(received, "ss2022-dgram");
+        EXPECT_EQ(received, "ss2022-Dgram");
     }
 
     TEST(Ss2022DgramSession, BidirectionalEcho)
     {
         net::io_context ioc;
 
-        shadowsocks2022::server_config cfg;
+        Shadowsocks2022::ServerConfig cfg;
         cfg.password = "echo-pass";
-        const auto server = shadowsocks2022::accept_packet(ioc.get_executor(), 0, cfg);
-        ASSERT_NE(server, nullptr);
-        const auto server_udp = dynamic_cast<preview::transport::unreliable *>(server->next_layer());
+        const auto Server = Shadowsocks2022::AcceptPacket(ioc.get_executor(), 0, cfg);
+        ASSERT_NE(Server, nullptr);
+        const auto server_udp = dynamic_cast<Preview::Transport::Unreliable *>(Server->NextLayer());
         ASSERT_NE(server_udp, nullptr);
-        const auto server_port = server_udp->native_socket().local_endpoint().port();
+        const auto server_port = server_udp->NativeSocket().local_endpoint().port();
 
-        shadowsocks2022::client_config client_cfg;
+        Shadowsocks2022::ClientConfig client_cfg;
         client_cfg.password = "echo-pass";
-        auto client = shadowsocks2022::connect_packet(ioc.get_executor(),
+        auto Client = Shadowsocks2022::ConnectPacket(ioc.get_executor(),
                                                       "127.0.0.1:" + std::to_string(server_port),
                                                       client_cfg);
-        ASSERT_NE(client, nullptr);
+        ASSERT_NE(Client, nullptr);
 
-        shadowsocks2022::address dest;
-        dest.type = shadowsocks2022::address_type::ipv4;
-        dest.host = "127.0.0.1";
-        dest.port = 9999;
+        Shadowsocks2022::Address dest;
+        dest.Type = Shadowsocks2022::AddressType::Ipv4;
+        dest.Host = "127.0.0.1";
+        dest.Port = 9999;
 
         std::string echoed;
         run_coro(ioc,
@@ -136,28 +136,28 @@ namespace
                          ioc.get_executor(),
                          [&]() -> net::awaitable<void>
                          {
-                             shadowsocks2022::address src;
+                             Shadowsocks2022::Address src;
                              std::vector<std::uint8_t> payload;
-                             const auto err = co_await server->async_receive_from(src, payload);
-                             if (err == error::none)
+                             const auto err = co_await Server->AsyncReceiveFrom(src, payload);
+                             if (err == Error::none)
                              {
-                                 co_await server->async_send_to(src, payload);
+                                 co_await Server->AsyncSendTo(src, payload);
                              }
                          },
                          net::detached);
 
                      // 客户端发
                      const std::string msg = "echo-me";
-                     auto err = co_await client->async_send_to(
+                     auto err = co_await Client->AsyncSendTo(
                          dest, std::span<const std::uint8_t>(
                                    reinterpret_cast<const std::uint8_t *>(msg.data()), msg.size()));
-                     EXPECT_EQ(err, error::none);
+                     EXPECT_EQ(err, Error::none);
 
                      // 客户端收回显
-                     shadowsocks2022::address src2;
+                     Shadowsocks2022::Address src2;
                      std::vector<std::uint8_t> back;
-                     err = co_await client->async_receive_from(src2, back);
-                     EXPECT_EQ(err, error::none);
+                     err = co_await Client->AsyncReceiveFrom(src2, back);
+                     EXPECT_EQ(err, Error::none);
                      echoed.assign(reinterpret_cast<const char *>(back.data()), back.size());
                  });
         EXPECT_EQ(echoed, "echo-me");
@@ -167,25 +167,25 @@ namespace
     {
         net::io_context ioc;
 
-        shadowsocks2022::server_config server_cfg;
-        server_cfg.password = "server-pass";
-        const auto server = shadowsocks2022::accept_packet(ioc.get_executor(), 0, server_cfg);
-        ASSERT_NE(server, nullptr);
-        const auto server_udp = dynamic_cast<preview::transport::unreliable *>(server->next_layer());
+        Shadowsocks2022::ServerConfig server_cfg;
+        server_cfg.password = "Server-pass";
+        const auto Server = Shadowsocks2022::AcceptPacket(ioc.get_executor(), 0, server_cfg);
+        ASSERT_NE(Server, nullptr);
+        const auto server_udp = dynamic_cast<Preview::Transport::Unreliable *>(Server->NextLayer());
         ASSERT_NE(server_udp, nullptr);
-        const auto server_port = server_udp->native_socket().local_endpoint().port();
+        const auto server_port = server_udp->NativeSocket().local_endpoint().port();
 
         // 错误密码客户端
-        shadowsocks2022::client_config bad_cfg;
+        Shadowsocks2022::ClientConfig bad_cfg;
         bad_cfg.password = "wrong-pass";
-        auto client = shadowsocks2022::connect_packet(ioc.get_executor(),
+        auto Client = Shadowsocks2022::ConnectPacket(ioc.get_executor(),
                                                       "127.0.0.1:" + std::to_string(server_port), bad_cfg);
-        ASSERT_NE(client, nullptr);
+        ASSERT_NE(Client, nullptr);
 
-        shadowsocks2022::address dest;
-        dest.type = shadowsocks2022::address_type::ipv4;
-        dest.host = "127.0.0.1";
-        dest.port = 7777;
+        Shadowsocks2022::Address dest;
+        dest.Type = Shadowsocks2022::AddressType::Ipv4;
+        dest.Host = "127.0.0.1";
+        dest.Port = 7777;
 
         bool server_received = false;
         run_coro(ioc,
@@ -195,15 +195,15 @@ namespace
                          ioc.get_executor(),
                          [&]() -> net::awaitable<void>
                          {
-                             shadowsocks2022::address src;
+                             Shadowsocks2022::Address src;
                              std::vector<std::uint8_t> payload;
-                             const auto err = co_await server->async_receive_from(src, payload);
-                             server_received = (err == error::none);
+                             const auto err = co_await Server->AsyncReceiveFrom(src, payload);
+                             server_received = (err == Error::none);
                          },
                          net::detached);
 
                      const std::string msg = "bad-key";
-                     co_await client->async_send_to(
+                     co_await Client->AsyncSendTo(
                          dest, std::span<const std::uint8_t>(
                                    reinterpret_cast<const std::uint8_t *>(msg.data()), msg.size()));
 

@@ -1,13 +1,13 @@
 /**
  * @file TestPsmTransport.cpp
- * @brief preview::transport 系测试库组件深度测试
- * @details 覆盖 preview::transport::transmission 抽象基类全部方法
- *          （prefix / transport_type / completion-handler 桥接 /
- *          next_layer / lowest_layer）与 async_write / async_read
+ * @brief Preview::Transport 系测试库组件深度测试
+ * @details 覆盖 Preview::Transport::Transmission 抽象基类全部方法
+ *          （Prefix / TransportType / completion-handler 桥接 /
+ *          NextLayer / LowestLayer）与 AsyncWrite / AsyncRead
  *          自由函数的错误路径，传输层的空操作方法与
- *          cancel / set_timeout，reliable / unreliable
- *          的真实 socket 收发，以及 middleware dial / relay 的
- *          name() 访问器。
+ *          Cancel / SetTimeout，Reliable / Unreliable
+ *          的真实 socket 收发，以及 Middleware Dial / relay 的
+ *          Name() 访问器。
  */
 
 #include <boost/asio/co_spawn.hpp>
@@ -24,16 +24,16 @@
 #include <string>
 #include <vector>
 
-#include <common/core/byte_span.hpp>
-#include <common/core/fault/code.hpp>
-#include <common/core/fault/compatible.hpp>
-#include <common/core/middleware/builtin/dial.hpp>
-#include <common/core/middleware/builtin/relay.hpp>
+#include <common/Core/ByteSpan.hpp>
+#include <common/Core/Fault/Code.hpp>
+#include <common/Core/Fault/Compatible.hpp>
+#include <common/Core/Middleware/Builtin/Dial.hpp>
+#include <common/Core/Middleware/Builtin/Relay.hpp>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/core/transport/reliable.hpp>
-#include <common/core/transmission.hpp>
-#include <common/core/transport/unreliable.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Core/Transport/Reliable.hpp>
+#include <common/Core/Transmission.hpp>
+#include <common/Core/Transport/Unreliable.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -62,9 +62,9 @@ namespace
     }
 
     /**
-     * @brief preview::transport::transmission 测试替身（叶子节点）
+     * @brief Preview::Transport::Transmission 测试替身（叶子节点）
      */
-    class mock_transport final : public preview::transmission
+    class mock_transport final : public Preview::Transmission
     {
     public:
         explicit mock_transport(net::any_io_executor ex,
@@ -73,19 +73,19 @@ namespace
         {
         }
 
-        [[nodiscard]] auto executor() const -> executor_type override
+        [[nodiscard]] auto Executor() const -> ExecutorType override
         {
             return ex_;
         }
 
-        [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec)
+        [[nodiscard]] auto AsyncReadSome(std::span<std::byte>, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ec = read_ec_;
             co_return read_n_;
         }
 
-        [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec)
+        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte>, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (write_calls_++ == 0 && write_first_ok_)
@@ -97,16 +97,16 @@ namespace
             co_return 0;
         }
 
-        void close() override
+        void Close() override
         {
         }
 
-        void cancel() override
+        void Cancel() override
         {
         }
 
-        using preview::transmission::async_read_some;
-        using preview::transmission::async_write_some;
+        using Preview::Transmission::AsyncReadSome;
+        using Preview::Transmission::AsyncWriteSome;
 
         std::error_code write_ec_{};
         std::size_t write_n_{0};
@@ -124,96 +124,96 @@ namespace
         net::io_context ioc;
         mock_transport t(ioc.get_executor());
 
-        // 叶子节点 transport_type → tcp
-        EXPECT_EQ(t.transport_type(), preview::transmission::type::tcp);
-        EXPECT_EQ(t.next_layer(), nullptr);
+        // 叶子节点 TransportType → Tcp
+        EXPECT_EQ(t.TransportType(), Preview::Transmission::Type::Tcp);
+        EXPECT_EQ(t.NextLayer(), nullptr);
         const auto *ct = &t;
-        EXPECT_EQ(ct->next_layer(), nullptr);
-        EXPECT_EQ(t.get_executor(), t.executor());
-        EXPECT_EQ(t.lowest_layer<mock_transport>(), &t);
-        EXPECT_EQ(ct->lowest_layer<const mock_transport>(), ct);
-        EXPECT_EQ(t.lowest_layer<net::io_context>(), nullptr);
+        EXPECT_EQ(ct->NextLayer(), nullptr);
+        EXPECT_EQ(t.GetExecutor(), t.Executor());
+        EXPECT_EQ(t.LowestLayer<mock_transport>(), &t);
+        EXPECT_EQ(ct->LowestLayer<const mock_transport>(), ct);
+        EXPECT_EQ(t.LowestLayer<net::io_context>(), nullptr);
 
     }
 
     TEST(PsmTransmission, DelegatedTransportType)
     {
         net::io_context ioc;
-        // 子节点覆写 transport_type 返回 udp，验证委托路径
-        struct udp_like final : public preview::transmission
+        // 子节点覆写 TransportType 返回 udp，验证委托路径
+        struct udp_like final : public Preview::Transmission
         {
             explicit udp_like(net::any_io_executor ex) : ex_(std::move(ex))
             {
             }
-            [[nodiscard]] auto transport_type() const noexcept -> type override
+            [[nodiscard]] auto TransportType() const noexcept -> Type override
             {
-                return type::udp;
+                return Type::udp;
             }
-            [[nodiscard]] auto executor() const -> executor_type override
+            [[nodiscard]] auto Executor() const -> ExecutorType override
             {
                 return ex_;
             }
-            [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec)
+            [[nodiscard]] auto AsyncReadSome(std::span<std::byte>, std::error_code &ec)
                 -> net::awaitable<std::size_t> override
             {
                 co_return 0;
             }
-            [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec)
+            [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte>, std::error_code &ec)
                 -> net::awaitable<std::size_t> override
             {
                 co_return 0;
             }
-            void close() override
+            void Close() override
             {
             }
-            void cancel() override
+            void Cancel() override
             {
             }
             net::any_io_executor ex_;
         };
         udp_like leaf(ioc.get_executor());
-        EXPECT_EQ(leaf.transport_type(), preview::transmission::type::udp);
+        EXPECT_EQ(leaf.TransportType(), Preview::Transmission::Type::udp);
 
-        // 装饰器：next_layer 非空 → 委托
-        struct wrapper final : public preview::transmission
+        // 装饰器：NextLayer 非空 → 委托
+        struct wrapper final : public Preview::Transmission
         {
-            explicit wrapper(preview::transmission *n) : n_(n)
+            explicit wrapper(Preview::Transmission *n) : n_(n)
             {
             }
-            [[nodiscard]] auto next_layer() noexcept -> transmission * override
-            {
-                return n_;
-            }
-            [[nodiscard]] auto next_layer() const noexcept -> const transmission * override
+            [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
             {
                 return n_;
             }
-            [[nodiscard]] auto executor() const -> executor_type override
+            [[nodiscard]] auto NextLayer() const noexcept -> const Transmission * override
             {
-                return n_->executor();
+                return n_;
             }
-            [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec)
+            [[nodiscard]] auto Executor() const -> ExecutorType override
+            {
+                return n_->Executor();
+            }
+            [[nodiscard]] auto AsyncReadSome(std::span<std::byte>, std::error_code &ec)
                 -> net::awaitable<std::size_t> override
             {
                 co_return 0;
             }
-            [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec)
+            [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte>, std::error_code &ec)
                 -> net::awaitable<std::size_t> override
             {
                 co_return 0;
             }
-            void close() override
+            void Close() override
             {
             }
-            void cancel() override
+            void Cancel() override
             {
             }
-            preview::transmission *n_;
+            Preview::Transmission *n_;
         };
         wrapper w(&leaf);
-        EXPECT_EQ(w.transport_type(), preview::transmission::type::udp);
-        EXPECT_EQ(w.lowest_layer<udp_like>(), &leaf);
-        EXPECT_EQ(w.next_layer(), &leaf);
+        EXPECT_EQ(w.TransportType(), Preview::Transmission::Type::udp);
+        EXPECT_EQ(w.LowestLayer<udp_like>(), &leaf);
+        EXPECT_EQ(w.NextLayer(), &leaf);
     }
 
     TEST(PsmTransmission, CompletionHandlerBridges)
@@ -224,7 +224,7 @@ namespace
         // completion-handler 风格读（默认 co_spawn 桥接）
         std::promise<std::pair<boost::system::error_code, std::size_t>> done_r;
         auto fr = done_r.get_future();
-        t.async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t n)
+        t.AsyncReadSome(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t n)
                           { done_r.set_value({ec, n}); });
         ioc.run();
         const auto [rec, rn] = fr.get();
@@ -236,7 +236,7 @@ namespace
         std::promise<std::pair<boost::system::error_code, std::size_t>> done_w;
         auto fw = done_w.get_future();
         std::array<std::byte, 4> buf{};
-        t2.async_write_some(std::span<const std::byte>(buf), [&](boost::system::error_code ec, std::size_t n)
+        t2.AsyncWriteSome(std::span<const std::byte>(buf), [&](boost::system::error_code ec, std::size_t n)
                             { done_w.set_value({ec, n}); });
         ioc2.run();
         (void)fw.get();
@@ -248,19 +248,19 @@ namespace
         std::array<std::byte, 8> buf{};
         std::error_code ec;
 
-        // async_write：单次写满
-        mock_transport ok(ioc.get_executor());
-        ok.write_first_ok_ = true;
-        ok.write_n_ = 8;
+        // AsyncWrite：单次写满
+        mock_transport Ok(ioc.get_executor());
+        Ok.write_first_ok_ = true;
+        Ok.write_n_ = 8;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto n = co_await ok.async_write(std::span<const std::byte>(buf), ec);
+                     const auto n = co_await Ok.AsyncWrite(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(n, 8u);
                      EXPECT_FALSE(ec);
                  });
 
-        // async_write：部分写入后错误中断
+        // AsyncWrite：部分写入后错误中断
         mock_transport err(ioc.get_executor());
         err.write_first_ok_ = true;
         err.write_n_ = 4;
@@ -268,29 +268,29 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto n = co_await err.async_write(std::span<const std::byte>(buf), ec);
+                     const auto n = co_await err.AsyncWrite(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(n, 4u);
                      EXPECT_TRUE(ec);
                  });
 
-        // async_write：n==0 表示对端关闭 → broken_pipe
+        // AsyncWrite：n==0 表示对端关闭 → broken_pipe
         ec.clear();
         mock_transport zero(ioc.get_executor());
         zero.write_n_ = 0;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto n = co_await zero.async_write(std::span<const std::byte>(buf), ec);
+                     const auto n = co_await zero.AsyncWrite(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_TRUE(ec);
                  });
 
-        // async_read：错误中断
+        // AsyncRead：错误中断
         mock_transport rerr(ioc.get_executor(), std::make_error_code(std::errc::io_error), 0);
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto n = co_await rerr.async_read(std::span<std::byte>(buf), ec);
+                     const auto n = co_await rerr.AsyncRead(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_TRUE(ec);
                  });
@@ -298,26 +298,26 @@ namespace
 
     TEST(PsmTransmission, ToEcBranches)
     {
-        // 空错误码 → 空 boost ec（经 completion-handler 桥接触发 to_ec）
+        // 空错误码 → 空 boost ec（经 completion-handler 桥接触发 ToEc）
         {
             net::io_context ioc;
-            mock_transport ok(ioc.get_executor());
+            mock_transport Ok(ioc.get_executor());
             std::promise<boost::system::error_code> done1;
             auto f1 = done1.get_future();
-            ok.async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
+            Ok.AsyncReadSome(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
                                { done1.set_value(ec); });
             ioc.run();
             EXPECT_FALSE(f1.get());
         }
 
-        // fault 分类错误 → boost 协议分类（fault::category() 匹配）
+        // fault 分类错误 → boost 协议分类（Fault::category() 匹配）
         {
             net::io_context ioc;
-            const auto fault_ec = preview::fault::make_error_code(preview::fault::code::eof);
+            const auto fault_ec = Preview::Fault::make_error_code(Preview::Fault::Code::eof);
             mock_transport ft(ioc.get_executor(), fault_ec, 0);
             std::promise<boost::system::error_code> done2;
             auto f2 = done2.get_future();
-            ft.async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
+            ft.AsyncReadSome(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
                                { done2.set_value(ec); });
             ioc.run();
             EXPECT_TRUE(f2.get());
@@ -330,7 +330,7 @@ namespace
             mock_transport gt(ioc.get_executor(), gen_ec, 0);
             std::promise<boost::system::error_code> done3;
             auto f3 = done3.get_future();
-            gt.async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
+            gt.AsyncReadSome(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
                                { done3.set_value(ec); });
             ioc.run();
             EXPECT_EQ(f3.get(), boost::system::error_code(gen_ec.value(),
@@ -341,8 +341,8 @@ namespace
     TEST(SocketStream, LoopbackTransfer)
     {
         net::io_context ioc;
-        preview::transport::reliable server_sock(ioc.get_executor());
-        preview::transport::reliable client_sock(ioc.get_executor());
+        Preview::Transport::Reliable server_sock(ioc.get_executor());
+        Preview::Transport::Reliable client_sock(ioc.get_executor());
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -354,95 +354,95 @@ namespace
 
                      auto accept_coro = [&]() -> net::awaitable<void>
                      {
-                         co_await acceptor.async_accept(server_sock.native_socket(), net::use_awaitable);
+                         co_await acceptor.async_accept(server_sock.NativeSocket(), net::use_awaitable);
                          co_return;
                      };
                      net::co_spawn(ioc.get_executor(), accept_coro(), net::detached);
 
-                     const auto cerr = co_await client_sock.connect(ep);
+                     const auto cerr = co_await client_sock.Connect(ep);
                      EXPECT_FALSE(cerr);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_TRUE(client_sock.is_open());
+                     EXPECT_TRUE(client_sock.IsOpen());
 
                     // 写 → 读
                     const std::string_view msg = "ping";
                     std::error_code wec;
-                    co_await client_sock.async_write_some(preview::as_bytes_span(msg), wec);
+                    co_await client_sock.AsyncWriteSome(Preview::AsBytesSpan(msg), wec);
                     EXPECT_FALSE(wec);
                     std::array<std::byte, 8> rbuf{};
                     std::error_code rec;
-                    const auto n = co_await server_sock.async_read_some(std::span<std::byte>(rbuf), rec);
+                    const auto n = co_await server_sock.AsyncReadSome(std::span<std::byte>(rbuf), rec);
                     EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(rbuf.data()), n), "ping");
 
                      // 半关
-                     client_sock.shutdown();
-                     client_sock.cancel();
-                     server_sock.close();
-                     client_sock.close();
+                     client_sock.Shutdown();
+                     client_sock.Cancel();
+                     server_sock.Close();
+                     client_sock.Close();
                  });
     }
 
     TEST(UdpTransmission, LoopbackDatagram)
     {
         net::io_context ioc;
-        preview::transport::unreliable client(ioc.get_executor());
-        preview::transport::unreliable server(ioc.get_executor());
+        Preview::Transport::Unreliable Client(ioc.get_executor());
+        Preview::Transport::Unreliable Server(ioc.get_executor());
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // unreliable 构造后 socket 未打开，需先 open
+                     // Unreliable 构造后 socket 未打开，需先 Open
                      boost::system::error_code oec;
-                     server.native_socket().open(net::ip::udp::v4(), oec);
+                     Server.NativeSocket().open(net::ip::udp::v4(), oec);
                      if (oec)
                      {
-                         EXPECT_TRUE(false) << "open failed: " << oec.message();
+                         EXPECT_TRUE(false) << "Open Failed: " << oec.message();
                          co_return;
                      }
-                     if (!server.bind(0))
+                     if (!Server.Bind(0))
                      {
-                         EXPECT_TRUE(false) << "bind failed";
+                         EXPECT_TRUE(false) << "Bind Failed";
                          co_return;
                      }
-                     client.native_socket().open(net::ip::udp::v4(), oec);
+                     Client.NativeSocket().open(net::ip::udp::v4(), oec);
                      if (oec)
                      {
-                         EXPECT_TRUE(false) << "client open failed";
+                         EXPECT_TRUE(false) << "Client Open Failed";
                          co_return;
                      }
-                     const auto local = server.native_socket().local_endpoint();
+                     const auto local = Server.NativeSocket().local_endpoint();
                      const auto local_addr = local.address().is_unspecified()
                                                  ? std::string("127.0.0.1")
                                                  : local.address().to_string();
-                     if (!client.connect(local_addr + ":" + std::to_string(local.port())))
+                     if (!Client.Connect(local_addr + ":" + std::to_string(local.port())))
                      {
-                         EXPECT_TRUE(false) << "connect failed";
+                         EXPECT_TRUE(false) << "Connect Failed";
                          co_return;
                      }
 
                      const std::string_view msg = "udp!";
                      std::error_code ec;
                      const auto w =
-                         co_await client.async_write_some(preview::as_bytes(preview::as_u8_span(msg)), ec);
+                         co_await Client.AsyncWriteSome(Preview::AsBytes(Preview::AsU8Span(msg)), ec);
                      EXPECT_EQ(w, 4u);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 16> rbuf{};
-                     const auto r = co_await server.async_read_some(std::span<std::byte>(rbuf), ec);
+                     const auto r = co_await Server.AsyncReadSome(std::span<std::byte>(rbuf), ec);
                      EXPECT_EQ(r, 4u);
                      EXPECT_EQ(static_cast<char>(rbuf[0]), 'u');
 
-                     server.cancel();
-                     server.close();
-                     client.close();
+                     Server.Cancel();
+                     Server.Close();
+                     Client.Close();
                  });
     }
 
     TEST(MiddlewareNames, Accessors)
     {
-        preview::middleware::builtin::dial_middleware dial;
-        EXPECT_EQ(dial.name(), "dial");
-        preview::middleware::builtin::relay_middleware relay(nullptr);
-        EXPECT_EQ(relay.name(), "relay");
+        Preview::Middleware::Builtin::DialMiddleware Dial;
+        EXPECT_EQ(Dial.Name(), "Dial");
+        Preview::Middleware::Builtin::RelayMiddleware relay(nullptr);
+        EXPECT_EQ(relay.Name(), "relay");
     }
 
 } // namespace

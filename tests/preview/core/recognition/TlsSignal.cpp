@@ -9,8 +9,8 @@
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/recognition/tls/signal.hpp>
-#include <prism/net/transport/transmission.hpp>
-#include <prism/protocol/tls/types.hpp>
+#include <prism/net/transport/Transmission.hpp>
+#include <prism/Protocol/tls/types.hpp>
 
 #include <array>
 #include <cstdint>
@@ -54,7 +54,7 @@ namespace
             x25519_key.fill(0x42);
         }
 
-        [[nodiscard]] auto build() const -> std::vector<std::uint8_t>
+        [[nodiscard]] auto Build() const -> std::vector<std::uint8_t>
         {
             std::vector<std::uint8_t> body;
             body.push_back(psm::protocol::tls::HS_CLIENT_HELLO);
@@ -139,12 +139,12 @@ namespace
             write_u24(body, hs_body.size());
             body.insert(body.end(), hs_body.begin(), hs_body.end());
 
-            std::vector<std::uint8_t> record;
-            record.push_back(psm::protocol::tls::CT_HANDSHAKE);
-            write_u16(record, 0x0303);
-            write_u16(record, static_cast<std::uint16_t>(body.size()));
-            record.insert(record.end(), body.begin(), body.end());
-            return record;
+            std::vector<std::uint8_t> Record;
+            Record.push_back(psm::protocol::tls::CT_HANDSHAKE);
+            write_u16(Record, 0x0303);
+            write_u16(Record, static_cast<std::uint16_t>(body.size()));
+            Record.insert(Record.end(), body.begin(), body.end());
+            return Record;
         }
     };
 
@@ -152,14 +152,14 @@ namespace
     {
         hello_builder builder;
         builder.sni_value = "example.com";
-        auto raw = builder.build();
+        auto raw = builder.Build();
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "valid hello parses";
         EXPECT_EQ(feat.server_name, "example.com") << "SNI extracted";
         EXPECT_EQ(feat.has_x25519, true) << "X25519 detected";
-        EXPECT_TRUE(!feat.versions.empty()) << "versions not empty";
-        EXPECT_TRUE(feat.session_id.empty()) << "session_id empty";
+        EXPECT_TRUE(!feat.versions.empty()) << "versions not Empty";
+        EXPECT_TRUE(feat.session_id.empty()) << "SessionId Empty";
     }
 
     TEST(TlsSignal, ParseWithSessionId)
@@ -167,12 +167,12 @@ namespace
         hello_builder builder;
         builder.sni_value = "sid.test";
         builder.session_id_len = 16;
-        auto raw = builder.build();
+        auto raw = builder.Build();
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
-        EXPECT_TRUE(psm::fault::succeeded(ec)) << "hello with session_id parses";
+        EXPECT_TRUE(psm::fault::succeeded(ec)) << "hello with SessionId parses";
         EXPECT_EQ(feat.session_id_len, 16) << "session_id_len is 16";
-        EXPECT_EQ(feat.session_id.size(), 16) << "session_id size is 16";
+        EXPECT_EQ(feat.session_id.size(), 16) << "SessionId Size is 16";
     }
 
     TEST(TlsSignal, ParseEchExtension)
@@ -180,7 +180,7 @@ namespace
         hello_builder builder;
         builder.sni_value = "ech.test";
         builder.include_ech = true;
-        auto raw = builder.build();
+        auto raw = builder.Build();
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "hello with ECH parses";
@@ -191,7 +191,7 @@ namespace
     {
         hello_builder builder;
         builder.include_extensions = false;
-        auto raw = builder.build();
+        auto raw = builder.Build();
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "hello without extensions parses";
@@ -204,66 +204,66 @@ namespace
     {
         std::vector<std::uint8_t> short_buf(10, 0x16);
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(short_buf);
-        EXPECT_TRUE(psm::fault::failed(ec)) << "record < 44 bytes rejected";
+        EXPECT_TRUE(psm::fault::failed(ec)) << "Record < 44 Bytes rejected";
     }
 
     TEST(TlsSignal, ParseWrongContentType)
     {
         hello_builder builder;
-        auto raw = builder.build();
+        auto raw = builder.Build();
         raw[0] = 0x17;
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
-        EXPECT_TRUE(psm::fault::failed(ec)) << "wrong content type rejected";
+        EXPECT_TRUE(psm::fault::failed(ec)) << "wrong content Type rejected";
     }
 
     TEST(TlsSignal, ParseWrongHandshakeType)
     {
         hello_builder builder;
-        auto raw = builder.build();
+        auto raw = builder.Build();
         raw[5] = 0x02;
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
-        EXPECT_TRUE(psm::fault::failed(ec)) << "wrong handshake type rejected";
+        EXPECT_TRUE(psm::fault::failed(ec)) << "wrong handshake Type rejected";
     }
 
     TEST(TlsSignal, ParseSessionIdTooLong)
     {
         hello_builder builder;
         builder.session_id_len = 33;
-        auto raw = builder.build();
+        auto raw = builder.Build();
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
-        EXPECT_TRUE(psm::fault::failed(ec)) << "session_id > 32 rejected";
+        EXPECT_TRUE(psm::fault::failed(ec)) << "SessionId > 32 rejected";
     }
 
     TEST(TlsSignal, ParseMaxSessionId)
     {
         hello_builder builder;
         builder.session_id_len = 32;
-        auto raw = builder.build();
+        auto raw = builder.Build();
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
-        EXPECT_TRUE(psm::fault::succeeded(ec)) << "session_id = 32 accepted";
+        EXPECT_TRUE(psm::fault::succeeded(ec)) << "SessionId = 32 accepted";
         EXPECT_EQ(feat.session_id_len, 32) << "session_id_len is 32";
     }
 
     TEST(TlsSignal, ParseRecordBodyTruncated)
     {
         hello_builder builder;
-        auto raw = builder.build();
+        auto raw = builder.Build();
         raw[3] = 0xFF;
         raw[4] = 0xFF;
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
-        EXPECT_TRUE(psm::fault::failed(ec)) << "truncated record body rejected";
+        EXPECT_TRUE(psm::fault::failed(ec)) << "truncated Record body rejected";
     }
 
     TEST(TlsSignal, ParseHandshakeTruncated)
     {
         hello_builder builder;
-        auto raw = builder.build();
-        // Keep only first 10 bytes
+        auto raw = builder.Build();
+        // Keep only first 10 Bytes
         raw.resize(10);
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
@@ -303,10 +303,10 @@ namespace
     {
         hello_builder builder;
         builder.extra_versions.push_back(psm::protocol::tls::VERSION_TLS12);
-        auto raw = builder.build();
+        auto raw = builder.Build();
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
-        EXPECT_TRUE(psm::fault::succeeded(ec)) << "multiple versions parse";
+        EXPECT_TRUE(psm::fault::succeeded(ec)) << "multiple versions Parse";
         EXPECT_EQ(feat.versions.size(), 2) << "two versions extracted";
     }
 
@@ -355,13 +355,13 @@ namespace
         write_u24(body, hs_body.size());
         body.insert(body.end(), hs_body.begin(), hs_body.end());
 
-        std::vector<std::uint8_t> record;
-        record.push_back(psm::protocol::tls::CT_HANDSHAKE);
-        write_u16(record, 0x0303);
-        write_u16(record, static_cast<std::uint16_t>(body.size()));
-        record.insert(record.end(), body.begin(), body.end());
+        std::vector<std::uint8_t> Record;
+        Record.push_back(psm::protocol::tls::CT_HANDSHAKE);
+        write_u16(Record, 0x0303);
+        write_u16(Record, static_cast<std::uint16_t>(body.size()));
+        Record.insert(Record.end(), body.begin(), body.end());
 
-        auto [ec, feat] = psm::recognition::tls::parse_client_hello(record);
+        auto [ec, feat] = psm::recognition::tls::parse_client_hello(Record);
         EXPECT_TRUE(psm::fault::succeeded(ec)) << "X25519MLKEM768 hybrid parses";
         EXPECT_EQ(feat.has_x25519, true) << "hybrid sets has_x25519";
     }
@@ -370,10 +370,10 @@ namespace
     {
         hello_builder builder;
         builder.sni_value = "raw.test";
-        auto raw = builder.build();
+        auto raw = builder.Build();
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
-        EXPECT_TRUE(psm::fault::succeeded(ec)) << "parse for raw_msg test";
+        EXPECT_TRUE(psm::fault::succeeded(ec)) << "Parse for raw_msg test";
         EXPECT_TRUE(!feat.raw_msg.empty()) << "raw_msg preserved";
         EXPECT_TRUE(!feat.raw_record.empty()) << "raw_record preserved";
         EXPECT_LT(feat.raw_msg.size(), feat.raw_record.size()) << "raw_msg < raw_record";
@@ -383,17 +383,17 @@ namespace
     {
         hello_builder builder;
         builder.sni_value = "";
-        auto raw = builder.build();
+        auto raw = builder.Build();
 
         auto [ec, feat] = psm::recognition::tls::parse_client_hello(raw);
-        EXPECT_TRUE(psm::fault::succeeded(ec)) << "empty SNI hello parses";
-        EXPECT_TRUE(feat.server_name.empty()) << "SNI is empty";
+        EXPECT_TRUE(psm::fault::succeeded(ec)) << "Empty SNI hello parses";
+        EXPECT_TRUE(feat.server_name.empty()) << "SNI is Empty";
     }
 
     // === read_tls_record 异步 I/O 测试 ===
 
     /**
-     * @brief 辅助函数：构造最小合法 Handshake TLS record
+     * @brief 辅助函数：构造最小合法 Handshake TLS Record
      */
     auto make_handshake_record(std::uint8_t hs_type = psm::protocol::tls::HS_CLIENT_HELLO)
         -> std::vector<std::byte>
@@ -413,17 +413,17 @@ namespace
         write_u24(body, hs_body.size());
         body.insert(body.end(), hs_body.begin(), hs_body.end());
 
-        std::vector<std::byte> record;
-        record.push_back(std::byte{psm::protocol::tls::CT_HANDSHAKE});
-        record.push_back(std::byte{0x03});
-        record.push_back(std::byte{0x03});
-        record.push_back(std::byte{static_cast<std::uint8_t>((body.size() >> 8) & 0xFF)});
-        record.push_back(std::byte{static_cast<std::uint8_t>(body.size() & 0xFF)});
+        std::vector<std::byte> Record;
+        Record.push_back(std::byte{psm::protocol::tls::CT_HANDSHAKE});
+        Record.push_back(std::byte{0x03});
+        Record.push_back(std::byte{0x03});
+        Record.push_back(std::byte{static_cast<std::uint8_t>((body.size() >> 8) & 0xFF)});
+        Record.push_back(std::byte{static_cast<std::uint8_t>(body.size() & 0xFF)});
         for (auto b : body)
         {
-            record.push_back(std::byte{b});
+            Record.push_back(std::byte{b});
         }
-        return record;
+        return Record;
     }
 
     /**
@@ -444,26 +444,26 @@ namespace
         auto mock = std::make_shared<psm::testing::MockTransport>();
         mock->inject_read(wire);
 
-        fault::code result_ec = fault::code::success;
+        fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [&]() -> net::awaitable<void>
             {
-                auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock);
-                result_ec = ec;
-                result_data = std::move(data);
+                auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock);
+                ResultEc = ec;
+                result_data = std::move(Data);
             },
             net::detached);
 
-        run_with_timeout(mock->get_io_context());
+        run_with_timeout(mock->GetIoContext());
 
-        EXPECT_TRUE(psm::fault::succeeded(result_ec)) << "read_tls_record: success";
-        EXPECT_EQ(result_data.size(), wire.size()) << "read_tls_record: full record size";
+        EXPECT_TRUE(psm::fault::succeeded(ResultEc)) << "read_tls_record: success";
+        EXPECT_EQ(result_data.size(), wire.size()) << "read_tls_record: full Record Size";
         EXPECT_TRUE(
             std::memcmp(result_data.data(), wire.data(), (std::min)(result_data.size(), wire.size())) == 0)
-            << "read_tls_record: data matches wire";
+            << "read_tls_record: Data matches wire";
     }
 
     TEST(TlsSignal, ReadTlsRecordNonHandshake)
@@ -475,74 +475,74 @@ namespace
         auto mock = std::make_shared<psm::testing::MockTransport>();
         mock->inject_read(wire);
 
-        fault::code result_ec = fault::code::success;
+        fault::code ResultEc = fault::code::success;
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [&]() -> net::awaitable<void>
             {
-                auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock);
-                result_ec = ec;
+                auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock);
+                ResultEc = ec;
             },
             net::detached);
 
-        run_with_timeout(mock->get_io_context());
+        run_with_timeout(mock->GetIoContext());
 
-        EXPECT_EQ(result_ec, psm::fault::code::recorderr) << "read_tls_record: non-handshake → recorderr";
+        EXPECT_EQ(ResultEc, psm::fault::code::recorderr) << "read_tls_record: non-handshake → recorderr";
     }
 
     TEST(TlsSignal, ReadTlsRecordError)
     {
         auto mock = std::make_shared<psm::testing::MockTransport>();
-        mock->set_read_error(std::make_error_code(std::errc::connection_reset));
+        mock->set_ReadError(std::make_error_code(std::errc::connection_reset));
 
-        fault::code result_ec = fault::code::success;
+        fault::code ResultEc = fault::code::success;
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [&]() -> net::awaitable<void>
             {
-                auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock);
-                result_ec = ec;
+                auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock);
+                ResultEc = ec;
             },
             net::detached);
 
-        run_with_timeout(mock->get_io_context());
+        run_with_timeout(mock->GetIoContext());
 
-        EXPECT_TRUE(psm::fault::failed(result_ec)) << "read_tls_record: read error → failed";
+        EXPECT_TRUE(psm::fault::failed(ResultEc)) << "read_tls_record: Read Error → Failed";
     }
 
     TEST(TlsSignal, ReadTlsRecordWithPrereadFull)
     {
-        // preread 包含完整的 TLS record → 零 I/O
+        // preread 包含完整的 TLS Record → 零 I/O
         auto wire = make_handshake_record();
         std::span<const std::byte> preread(wire.data(), wire.size());
 
         auto mock = std::make_shared<psm::testing::MockTransport>();
         // 不注入任何数据 — preread 已包含全部
 
-        fault::code result_ec = fault::code::success;
+        fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [&]() -> net::awaitable<void>
             {
-                auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock, preread);
-                result_ec = ec;
-                result_data = std::move(data);
+                auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock, preread);
+                ResultEc = ec;
+                result_data = std::move(Data);
             },
             net::detached);
 
-        run_with_timeout(mock->get_io_context());
+        run_with_timeout(mock->GetIoContext());
 
-        EXPECT_TRUE(psm::fault::succeeded(result_ec)) << "preread full: success";
-        EXPECT_EQ(result_data.size(), wire.size()) << "preread full: correct size";
+        EXPECT_TRUE(psm::fault::succeeded(ResultEc)) << "preread full: success";
+        EXPECT_EQ(result_data.size(), wire.size()) << "preread full: correct Size";
     }
 
     TEST(TlsSignal, ReadTlsRecordWithPrereadPartial)
     {
-        // preread 仅包含 header (5 字节)，剩余部分从 transport 读
+        // preread 仅包含 Header (5 字节)，剩余部分从 transport 读
         auto wire = make_handshake_record();
         std::span<const std::byte> preread(wire.data(), 5);
 
@@ -551,23 +551,23 @@ namespace
         std::vector<std::byte> rest(wire.begin() + 5, wire.end());
         mock->inject_read(std::move(rest));
 
-        fault::code result_ec = fault::code::success;
+        fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [&]() -> net::awaitable<void>
             {
-                auto [ec, data] = co_await psm::recognition::tls::read_tls_record(*mock, preread);
-                result_ec = ec;
-                result_data = std::move(data);
+                auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock, preread);
+                ResultEc = ec;
+                result_data = std::move(Data);
             },
             net::detached);
 
-        run_with_timeout(mock->get_io_context());
+        run_with_timeout(mock->GetIoContext());
 
-        EXPECT_TRUE(psm::fault::succeeded(result_ec)) << "preread partial: success";
-        EXPECT_EQ(result_data.size(), wire.size()) << "preread partial: correct size";
+        EXPECT_TRUE(psm::fault::succeeded(ResultEc)) << "preread partial: success";
+        EXPECT_EQ(result_data.size(), wire.size()) << "preread partial: correct Size";
     }
 
     TEST(TlsSignal, ReadTlsRecordPrereadTooShort)
@@ -579,23 +579,23 @@ namespace
         auto mock = std::make_shared<psm::testing::MockTransport>();
         mock->inject_read(wire);
 
-        fault::code result_ec = fault::code::success;
+        fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [&]() -> net::awaitable<void>
             {
-                auto [ec, data] = co_await psm::recognition::tls::read_tls_record(
+                auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(
                     *mock, std::span<const std::byte>{short_preread.data(), short_preread.size()});
-                result_ec = ec;
-                result_data = std::move(data);
+                ResultEc = ec;
+                result_data = std::move(Data);
             },
             net::detached);
 
-        run_with_timeout(mock->get_io_context());
+        run_with_timeout(mock->GetIoContext());
 
-        EXPECT_TRUE(psm::fault::succeeded(result_ec)) << "preread too short: falls back to read";
+        EXPECT_TRUE(psm::fault::succeeded(ResultEc)) << "preread too short: falls back to Read";
     }
 
     TEST(TlsSignal, ReadTlsRecordPrereadNonHandshake)
@@ -606,45 +606,45 @@ namespace
 
         auto mock = std::make_shared<psm::testing::MockTransport>();
 
-        fault::code result_ec = fault::code::success;
+        fault::code ResultEc = fault::code::success;
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [&]() -> net::awaitable<void>
             {
-                auto [ec, data] = co_await psm::recognition::tls::read_tls_record(
+                auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(
                     *mock, std::span<const std::byte>{non_hs_preread.data(), non_hs_preread.size()});
-                result_ec = ec;
+                ResultEc = ec;
             },
             net::detached);
 
-        run_with_timeout(mock->get_io_context());
+        run_with_timeout(mock->GetIoContext());
 
-        EXPECT_EQ(result_ec, psm::fault::code::recorderr) << "preread non-handshake: recorderr";
+        EXPECT_EQ(ResultEc, psm::fault::code::recorderr) << "preread non-handshake: recorderr";
     }
 
     TEST(TlsSignal, ReadTlsRecordPrereadOversized)
     {
-        // preread header 声称 length > MAX_RECORD_PAYLOAD → recorderr
+        // preread Header 声称 length > MAX_RECORD_PAYLOAD → recorderr
         std::array<std::byte, 5> oversized_preread = {std::byte{0x16}, std::byte{0x03}, std::byte{0x03},
                                                       std::byte{0x40}, std::byte{0x01}}; // length=16385
 
         auto mock = std::make_shared<psm::testing::MockTransport>();
 
-        fault::code result_ec = fault::code::success;
+        fault::code ResultEc = fault::code::success;
 
         net::co_spawn(
-            mock->get_io_context(),
+            mock->GetIoContext(),
             [&]() -> net::awaitable<void>
             {
-                auto [ec, data] = co_await psm::recognition::tls::read_tls_record(
+                auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(
                     *mock, std::span<const std::byte>{oversized_preread.data(), oversized_preread.size()});
-                result_ec = ec;
+                ResultEc = ec;
             },
             net::detached);
 
-        run_with_timeout(mock->get_io_context());
+        run_with_timeout(mock->GetIoContext());
 
-        EXPECT_EQ(result_ec, psm::fault::code::recorderr) << "preread oversized: recorderr";
+        EXPECT_EQ(ResultEc, psm::fault::code::recorderr) << "preread oversized: recorderr";
     }
 } // namespace

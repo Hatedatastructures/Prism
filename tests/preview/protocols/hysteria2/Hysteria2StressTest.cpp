@@ -5,7 +5,7 @@
  * 1. 200 次连接循环（握手 + 回显，计数验证）
  * 2. 16 并发连接（并发正确性）
  * 3. 2MB 数据传输（64KB 分块，累积校验）
- * @note 使用 hysteria2::connect/accept 自由函数 + make_memory_pair
+ * @note 使用 Hysteria2::Connect/Accept 自由函数 + MakeMemoryPair
  */
 
 #include <boost/asio/co_spawn.hpp>
@@ -19,13 +19,13 @@
 #include <string>
 #include <vector>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/hysteria2/hysteria2.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Hysteria2/Hysteria2.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     constexpr const char *kPassword = "stress-pw";
@@ -47,30 +47,30 @@ namespace
         }
     }
 
-    auto make_domain_addr(const std::string &host, std::uint16_t port) -> hysteria2::address
+    auto make_domain_addr(const std::string &host, std::uint16_t port) -> Hysteria2::Address
     {
-        hysteria2::address addr{};
-        addr.type = hysteria2::address_type::domain;
-        addr.host = host;
-        addr.port = port;
+        Hysteria2::Address addr{};
+        addr.Type = Hysteria2::AddressType::Domain;
+        addr.Host = host;
+        addr.Port = port;
         return addr;
     }
 
     /// 单次会话：握手 + 回显往返
     auto one_session(net::io_context &ioc, const std::string &payload) -> bool
     {
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        bool ok = false;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        bool Ok = false;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 服务端：accept + 回显
+                     // 服务端：Accept + 回显
                      auto server_coro = [&]() -> net::awaitable<void>
                      {
-                         auto [err, msg, conn] =
-                             co_await hysteria2::accept(std::make_shared<memory_stream>(std::move(b)),
-                                                        hysteria2::server_config{kPassword});
-                         if (err != error::none || !conn)
+                         auto [err, msg, Conn] =
+                             co_await Hysteria2::Accept(std::make_shared<MemoryStream>(std::move(b)),
+                                                        Hysteria2::ServerConfig{kPassword});
+                         if (err != Error::none || !Conn)
                          {
                              co_return;
                          }
@@ -78,49 +78,49 @@ namespace
                          std::error_code ec;
                          while (true)
                          {
-                             const auto n = co_await conn->async_read_some(buf, ec);
+                             const auto n = co_await Conn->AsyncReadSome(buf, ec);
                              if (ec || n == 0)
                              {
                                  break;
                              }
-                             co_await conn->async_write_some(
+                             co_await Conn->AsyncWriteSome(
                                  std::span<const std::byte>(buf.data(), n), ec);
                          }
-                         conn->close();
+                         Conn->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-                     // 客户端：connect + 写入 + 读回显
-                     auto stream = std::make_shared<memory_stream>(std::move(a));
-                     auto [herr, cli] = co_await hysteria2::connect(
-                         stream, hysteria2::client_config{kPassword},
+                     // 客户端：Connect + 写入 + 读回显
+                     auto Stream = std::make_shared<MemoryStream>(std::move(a));
+                     auto [herr, cli] = co_await Hysteria2::Connect(
+                         Stream, Hysteria2::ClientConfig{kPassword},
                          make_domain_addr("example.com", 443));
-                     if (herr != error::none || !cli)
+                     if (herr != Error::none || !cli)
                      {
                          co_return;
                      }
                      std::error_code wec;
-                     co_await cli->async_write_some(
+                     co_await cli->AsyncWriteSome(
                          std::span<const std::byte>(
                              reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
                          wec);
                      std::array<std::byte, 4096> echo{};
                      std::error_code rec;
-                     std::size_t total = 0;
-                     while (total < payload.size())
+                     std::size_t Total = 0;
+                     while (Total < payload.size())
                      {
-                         const auto n = co_await cli->async_read_some(
-                             std::span<std::byte>(echo.data() + total, echo.size() - total), rec);
+                         const auto n = co_await cli->AsyncReadSome(
+                             std::span<std::byte>(echo.data() + Total, echo.size() - Total), rec);
                          if (rec || n == 0)
                          {
                              break;
                          }
-                         total += n;
+                         Total += n;
                      }
-                     ok = (total == payload.size());
-                     cli->close();
+                     Ok = (Total == payload.size());
+                     cli->Close();
                  });
-        return ok;
+        return Ok;
     }
 
     // ── 1. 200 次连接循环 ──
@@ -150,25 +150,25 @@ namespace
         const std::string payload = "concurrent-h2";
         for (int i = 0; i < 16; ++i)
         {
-            auto [a, b] = make_memory_pair(ioc.get_executor());
+            auto [a, b] = MakeMemoryPair(ioc.get_executor());
             net::co_spawn(
                 ioc.get_executor(),
                 [b = std::move(b)]() mutable -> net::awaitable<void>
                 {
-                    auto [err, msg, conn] =
-                        co_await hysteria2::accept(std::make_shared<memory_stream>(std::move(b)),
-                                                   hysteria2::server_config{kPassword});
-                    if (err == error::none && conn)
+                    auto [err, msg, Conn] =
+                        co_await Hysteria2::Accept(std::make_shared<MemoryStream>(std::move(b)),
+                                                   Hysteria2::ServerConfig{kPassword});
+                    if (err == Error::none && Conn)
                     {
                         std::array<std::byte, 128> buf{};
                         std::error_code ec;
-                        const auto n = co_await conn->async_read_some(buf, ec);
+                        const auto n = co_await Conn->AsyncReadSome(buf, ec);
                         if (!ec && n > 0)
                         {
-                            co_await conn->async_write_some(
+                            co_await Conn->AsyncWriteSome(
                                 std::span<const std::byte>(buf.data(), n), ec);
                         }
-                        conn->close();
+                        Conn->Close();
                     }
                 },
                 net::detached);
@@ -176,16 +176,16 @@ namespace
                 ioc.get_executor(),
                 [&, a = std::move(a), payload]() mutable -> net::awaitable<void>
                 {
-                    auto stream = std::make_shared<memory_stream>(std::move(a));
-                    auto [herr, cli] = co_await hysteria2::connect(
-                        stream, hysteria2::client_config{kPassword},
+                    auto Stream = std::make_shared<MemoryStream>(std::move(a));
+                    auto [herr, cli] = co_await Hysteria2::Connect(
+                        Stream, Hysteria2::ClientConfig{kPassword},
                         make_domain_addr("example.com", 443));
-                    if (herr != error::none || !cli)
+                    if (herr != Error::none || !cli)
                     {
                         co_return;
                     }
                     std::error_code ec;
-                    co_await cli->async_write_some(
+                    co_await cli->AsyncWriteSome(
                         std::span<const std::byte>(
                             reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
                         ec);
@@ -193,7 +193,7 @@ namespace
                     std::size_t rg = 0;
                     while (rg < payload.size())
                     {
-                        const auto n = co_await cli->async_read_some(
+                        const auto n = co_await cli->AsyncReadSome(
                             std::span<std::byte>(echo.data() + rg, echo.size() - rg), ec);
                         if (ec || n == 0)
                         {
@@ -205,7 +205,7 @@ namespace
                     {
                         success.fetch_add(1);
                     }
-                    cli->close();
+                    cli->Close();
                 },
                 net::detached);
         }
@@ -228,44 +228,44 @@ namespace
         constexpr std::size_t kTotal = 2 * 1024 * 1024;
         constexpr std::size_t kChunk = 64 * 1024;
 
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         std::atomic<std::size_t> received{0};
         net::co_spawn(
             ioc.get_executor(),
             [b = std::move(b), &received]() mutable -> net::awaitable<void>
             {
-                auto [err, msg, conn] =
-                    co_await hysteria2::accept(std::make_shared<memory_stream>(std::move(b)),
-                                               hysteria2::server_config{kPassword});
-                if (err != error::none || !conn)
+                auto [err, msg, Conn] =
+                    co_await Hysteria2::Accept(std::make_shared<MemoryStream>(std::move(b)),
+                                               Hysteria2::ServerConfig{kPassword});
+                if (err != Error::none || !Conn)
                 {
                     co_return;
                 }
                 std::array<std::byte, kChunk> buf{};
                 std::error_code ec;
-                std::size_t total = 0;
-                while (total < kTotal)
+                std::size_t Total = 0;
+                while (Total < kTotal)
                 {
-                    const auto n = co_await conn->async_read_some(buf, ec);
+                    const auto n = co_await Conn->AsyncReadSome(buf, ec);
                     if (ec || n == 0)
                     {
                         break;
                     }
-                    total += n;
+                    Total += n;
                 }
-                received.store(total);
-                conn->close();
+                received.store(Total);
+                Conn->Close();
             },
             net::detached);
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto stream = std::make_shared<memory_stream>(std::move(a));
-                     auto [herr, cli] = co_await hysteria2::connect(
-                         stream, hysteria2::client_config{kPassword},
+                     auto Stream = std::make_shared<MemoryStream>(std::move(a));
+                     auto [herr, cli] = co_await Hysteria2::Connect(
+                         Stream, Hysteria2::ClientConfig{kPassword},
                          make_domain_addr("example.com", 443));
-                     if (herr != error::none || !cli)
+                     if (herr != Error::none || !cli)
                      {
                          co_return;
                      }
@@ -273,13 +273,13 @@ namespace
                      std::error_code ec;
                      for (std::size_t sent = 0; sent < kTotal; sent += kChunk)
                      {
-                         co_await cli->async_write_some(std::span<const std::byte>(chunk), ec);
+                         co_await cli->AsyncWriteSome(std::span<const std::byte>(chunk), ec);
                          if (ec)
                          {
                              break;
                          }
                      }
-                     cli->close();
+                     cli->Close();
                  });
         EXPECT_EQ(received.load(), kTotal);
     }

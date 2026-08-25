@@ -84,7 +84,7 @@ namespace
         }
     }
 
-    TEST(FaultTest, MakeErrorCodeStd)
+    TEST(FaultTest, make_error_codeStd)
     {
         // 显式构造：eof 的数值应为 3，类别名为 psm::fault
         const std::error_code ec = psm::fault::make_error_code(psm::fault::code::eof);
@@ -97,7 +97,7 @@ namespace
         EXPECT_EQ(ec2.value(), 11) << "implicit conversion: timeout value=" << ec2.value() << ", expected 11";
     }
 
-    TEST(FaultTest, MakeErrorCodeBoost)
+    TEST(FaultTest, make_error_codeBoost)
     {
         // 验证 Boost 错误码的数值和类别与 std 版本一致
         const boost::system::error_code ec = boost::system::make_error_code(psm::fault::code::eof);

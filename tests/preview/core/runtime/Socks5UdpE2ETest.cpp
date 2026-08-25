@@ -1,9 +1,9 @@
 /**
  * @file Socks5UdpE2ETest.cpp
  * @brief SOCKS5 UDP ASSOCIATE 纵向链路测试（阶段 3 遗留：真实 UDP 数据面）
- * @details 与 TCP 链路共用 runtime session 编排，验证 dgram 分支：
- *          client TCP 握手 UDP_ASSOCIATE → BND 端口 →
- *          client UDP 帧 → udp_assoc 解帧 → 上游 echo → 封帧回包。
+ * @details 与 TCP 链路共用 runtime Session 编排，验证 Dgram 分支：
+ *          Client TCP 握手 UDP_ASSOCIATE → BND 端口 →
+ *          Client UDP 帧 → UdpAssoc 解帧 → 上游 echo → 封帧回包。
  *          覆盖：多包往返、非法帧丢弃、空闲超时、TCP 控制断开终止。
  */
 
@@ -24,150 +24,150 @@
 #include <string>
 #include <vector>
 
-#include <common/core/fault/code.hpp>
-#include <common/core/fault/handling.hpp>
-#include <common/core/middleware/context.hpp>
-#include <common/core/net/dialer/dialer.hpp>
-#include <common/core/runtime/adapter/protocol_adapter.hpp>
-#include <common/core/runtime/listener.hpp>
-#include <common/core/runtime/session.hpp>
-#include <common/core/transmission.hpp>
-#include <common/protocols/socks5/socks5.hpp>
+#include <common/Core/Fault/Code.hpp>
+#include <common/Core/Fault/Handling.hpp>
+#include <common/Core/Middleware/Context.hpp>
+#include <common/Core/Net/Dialer/Dialer.hpp>
+#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
+#include <common/Core/Runtime/Listener.hpp>
+#include <common/Core/Runtime/Session.hpp>
+#include <common/Core/Transmission.hpp>
+#include <common/Protocols/Socks5/Socks5.hpp>
 #include <common/RuntimeTestHelpers.hpp>
 
 namespace
 {
 
     namespace net = boost::asio;
-    using tcp = net::ip::tcp;
+    using Tcp = net::ip::tcp;
     using udp = net::ip::udp;
-    using namespace preview;
+    using namespace Preview;
 
-    // 公共样板（run_coro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::run_coro;
-    using psm::testing::traffic_recorder;
-    using psm::testing::udp_echo_server;
+    // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
+    using psm::testing::RunCoro;
+    using TrafficRecorder = psm::testing::TrafficRecorder;
+    using psm::testing::UdpEchoServer;
 
 
-    /// 构造 SOCKS5 服务端接入回调（UDP_ASSOCIATE → dgram 会话标记）
-    auto make_accept_socks5_udp() -> runtime::session_options::protocol_accept_fn
+    /// 构造 SOCKS5 服务端接入回调（UDP_ASSOCIATE → Dgram 会话标记）
+    auto make_accept_socks5_udp() -> Runtime::SessionOptions::ProtocolAcceptFn
     {
-        socks5::server_config cfg;
-        cfg.enable_udp = true;
-        // UDP_ASSOCIATE 应答必须由数据面 bind 后发送（携带 BND），
+        Socks5::ServerConfig cfg;
+        cfg.EnableUdp = true;
+        // UDP_ASSOCIATE 应答必须由数据面 Bind 后发送（携带 BND），
         // 不能使用握手默认的 0.0.0.0:0
-        cfg.defer_connect_reply = true;
-        return runtime::make_accept_socks5(std::move(cfg));
+        cfg.DeferConnectReply = true;
+        return Runtime::MakeAcceptSocks5(std::move(cfg));
     }
 
-    /// 构造 UDP 数据面服务（bind → BND → 帧循环；目标由 resolve 决定）
+    /// 构造 UDP 数据面服务（Bind → BND → 帧循环；目标由 resolve 决定）
     auto make_udp_service(
-        std::function<net::awaitable<std::pair<error, udp::endpoint>>(
-            const socks5::address &)> resolve,
-        std::chrono::milliseconds idle_timeout)
-        -> std::function<net::awaitable<fault::code>(middleware::context &)>
+        std::function<net::awaitable<std::pair<Error, udp::endpoint>>(
+            const Socks5::Address &)> resolve,
+        std::chrono::milliseconds IdleTimeout)
+        -> std::function<net::awaitable<Fault::Code>(Middleware::Context &)>
     {
-        return [resolve = std::move(resolve), idle_timeout](middleware::context &ctx)
-            -> net::awaitable<fault::code>
+        return [resolve = std::move(resolve), IdleTimeout](Middleware::Context &ctx)
+            -> net::awaitable<Fault::Code>
         {
-            auto tcp = std::dynamic_pointer_cast<socks5::conn<>>(ctx.inbound);
-            if (!tcp)
+            auto Tcp = std::dynamic_pointer_cast<Socks5::Conn<>>(ctx.inbound);
+            if (!Tcp)
             {
-                co_return fault::code::protocol_error;
+                co_return Fault::Code::protocol_error;
             }
-            socks5::udp_assoc_options opts;
-            opts.idle_timeout = idle_timeout;
+            Socks5::UdpAssocOptions opts;
+            opts.IdleTimeout = IdleTimeout;
             opts.resolve = std::move(resolve);
-            // 流量统计：session 已把 sink/identity 装配进 ctx，透传给数据面
+            // 流量统计：Session 已把 sink/identity 装配进 ctx，透传给数据面
             opts.traffic = ctx.traffic;
             opts.identity = ctx.identity;
-            auto svc = std::make_shared<socks5::udp_assoc>(
-                ctx.inbound->executor(), std::move(tcp), std::move(opts));
-            if (co_await svc->bind_and_reply() != error::none)
+            auto svc = std::make_shared<Socks5::UdpAssoc>(
+                ctx.inbound->Executor(), std::move(Tcp), std::move(opts));
+            if (co_await svc->BindAndReply() != Error::none)
             {
-                co_return fault::code::io_error;
+                co_return Fault::Code::io_error;
             }
-            co_await svc->run();
-            co_return fault::code::success;
+            co_await svc->Run();
+            co_return Fault::Code::success;
         };
     }
 
     /// 构造 UDP 数据面服务（目标固定重定向到 echo 端点）
-    auto make_udp_service(std::uint16_t echo_port, std::chrono::milliseconds idle_timeout)
-        -> std::function<net::awaitable<fault::code>(middleware::context &)>
+    auto make_udp_service(std::uint16_t echo_port, std::chrono::milliseconds IdleTimeout)
+        -> std::function<net::awaitable<Fault::Code>(Middleware::Context &)>
     {
         return make_udp_service(
-            [echo_port](const socks5::address &)
-                -> net::awaitable<std::pair<error, udp::endpoint>>
+            [echo_port](const Socks5::Address &)
+                -> net::awaitable<std::pair<Error, udp::endpoint>>
             {
-                co_return std::pair{error::none,
-                                    udp::endpoint(net::ip::make_address("127.0.0.1"),
+                co_return std::pair{Error::none,
+                                    net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"),
                                                   echo_port)};
             },
-            idle_timeout);
+            IdleTimeout);
     }
 
     /// 构造一个 SOCKS5 UDP 帧
-    auto make_frame(const socks5::address &target, std::string_view payload)
+    auto make_frame(const Socks5::Address &Target, std::string_view payload)
         -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> frame;
-        socks5::build_udp_datagram(
-            target,
+        std::vector<std::uint8_t> Frame;
+        Socks5::BuildUdpDatagram(
+            Target,
             std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()),
-            frame);
-        return frame;
+            Frame);
+        return Frame;
     }
 
     /// 客户端 UDP 收发一次（发帧 + 收帧 + 解析）
     struct udp_roundtrip_result
     {
         std::string echo;
-        socks5::address src;
-        bool ok{false};
+        Socks5::Address src;
+        bool Ok{false};
     };
 
     /// 客户端通过真实 UDP socket 与代理数据面往返一次
     auto udp_roundtrip(udp::socket &cudp, const udp::endpoint &bnd_ep,
-                       const std::vector<std::uint8_t> &frame)
+                       const std::vector<std::uint8_t> &Frame)
         -> net::awaitable<udp_roundtrip_result>
     {
         udp_roundtrip_result out;
         boost::system::error_code ec;
-        co_await cudp.async_send_to(net::buffer(frame), bnd_ep,
+        co_await cudp.async_send_to(net::buffer(Frame), bnd_ep,
                                     net::redirect_error(net::use_awaitable, ec));
         if (ec)
         {
             co_return out;
         }
-        std::array<std::byte, 65535> rx{};
+        std::array<std::byte, 65535> Rx{};
         udp::endpoint src_ep;
         // 看门狗竞速：数据面断裂时失败而非挂死
         net::steady_timer wd(cudp.get_executor());
         wd.expires_after(std::chrono::seconds(2));
         using boost::asio::experimental::awaitable_operators::operator||;
-        auto result = co_await (cudp.async_receive_from(
-                                    net::buffer(rx), src_ep,
+        auto Result = co_await (cudp.async_receive_from(
+                                    net::buffer(Rx), src_ep,
                                     net::redirect_error(net::use_awaitable, ec)) ||
                                 wd.async_wait(net::use_awaitable));
-        if (result.index() == 1 || ec)
+        if (Result.index() == 1 || ec)
         {
             co_return out;
         }
-        const auto n = std::get<0>(std::move(result));
-        socks5::address src;
+        const auto n = std::get<0>(std::move(Result));
+        Socks5::Address src;
         std::span<const std::uint8_t> payload;
-        if (socks5::parse_udp_datagram(
+        if (Socks5::ParseUdpDatagram(
                 std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(rx.data()), n),
-                src, payload) != error::none)
+                    reinterpret_cast<const std::uint8_t *>(Rx.data()), n),
+                src, payload) != Error::none)
         {
             co_return out;
         }
         out.echo.assign(reinterpret_cast<const char *>(payload.data()), payload.size());
         out.src = std::move(src);
-        out.ok = true;
+        out.Ok = true;
         co_return out;
     }
 
@@ -176,13 +176,13 @@ namespace
         net::io_context ioc;
         udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(udp::v4(), oec);
-        echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        echo_sock.open(net::ip::udp::v4(), oec);
+        echo_sock.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), udp_echo_server(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -190,73 +190,73 @@ namespace
                               *eph = ep;
                           }
                       });
-        auto recorder = std::make_shared<traffic_recorder>();
+        auto recorder = std::make_shared<psm::testing::TrafficRecorder>();
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_socks5_udp();
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = make_accept_socks5_udp();
                 opts.udp_service = make_udp_service(echo_port, std::chrono::seconds(5));
                 opts.traffic = recorder.get();
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         std::string echo1;
         std::string echo2;
         bool handshake_ok = false;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto start_rc = co_await listener.start(
-                    tcp::endpoint(tcp::v4(), 0));
-                EXPECT_EQ(start_rc, fault::code::success);
-                const auto listen_port = listener.local_endpoint().port();
+                const auto start_rc = co_await listener.Start(
+                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                EXPECT_EQ(start_rc, Fault::Code::success);
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 // TCP 握手 UDP_ASSOCIATE → BND
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect(
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect(
                     "127.0.0.1", listen_port, ec);
                 if (!raw)
                 {
                     co_return;
                 }
-                auto [err, conn] = co_await socks5::connect(
-                    std::move(raw), socks5::client_config{},
-                    socks5::address{socks5::address_type::ipv4, "127.0.0.1", 0},
-                    socks5::command::udp_associate);
-                handshake_ok = err == error::none && conn != nullptr;
-                if (!conn)
+                auto [err, Conn] = co_await Socks5::Connect(
+                    std::move(raw), Socks5::ClientConfig{},
+                    Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
+                    Socks5::Command::UdpAssociate);
+                handshake_ok = err == Error::none && Conn != nullptr;
+                if (!Conn)
                 {
                     co_return;
                 }
-                const auto bnd = conn->bind_endpoint();
-                const udp::endpoint bnd_ep(net::ip::make_address(bnd.host), bnd.port);
-                EXPECT_EQ(bnd.type, socks5::address_type::ipv4);
+                const auto bnd = Conn->BindEndpoint();
+                const udp::endpoint bnd_ep(net::ip::make_address(bnd.Host), bnd.Port);
+                EXPECT_EQ(bnd.Type, Socks5::AddressType::Ipv4);
 
                 // 客户端真实 UDP socket → 帧往返
                 udp::socket cudp(ioc.get_executor());
-                cudp.open(udp::v4(), oec);
-                cudp.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+                cudp.open(net::ip::udp::v4(), oec);
+                cudp.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
 
                 const auto frame1 = make_frame(
-                    socks5::address{socks5::address_type::domain, "example.com", 53},
+                    Socks5::Address{Socks5::AddressType::Domain, "example.com", 53},
                     "udp payload one");
                 const auto r1 = co_await udp_roundtrip(cudp, bnd_ep, frame1);
                 echo1 = r1.echo;
 
                 const auto frame2 = make_frame(
-                    socks5::address{socks5::address_type::ipv4, "8.8.8.8", 443},
+                    Socks5::Address{Socks5::AddressType::Ipv4, "8.8.8.8", 443},
                     "udp payload two");
                 const auto r2 = co_await udp_roundtrip(cudp, bnd_ep, frame2);
                 echo2 = r2.echo;
 
                 cudp.close();
-                conn->close();
+                Conn->Close();
                 // 有界轮询等数据面退出并上报流量（对齐 TrojanTrafficIdentity 样板）
                 net::steady_timer timer(ioc);
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -266,7 +266,7 @@ namespace
                     timer.expires_after(std::chrono::milliseconds(5));
                     co_await timer.async_wait(net::use_awaitable);
                 }
-                listener.stop();
+                listener.Stop();
             });
 
         EXPECT_TRUE(handshake_ok);
@@ -284,13 +284,13 @@ namespace
         net::io_context ioc;
         udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(udp::v4(), oec);
-        echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        echo_sock.open(net::ip::udp::v4(), oec);
+        echo_sock.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), udp_echo_server(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -299,46 +299,46 @@ namespace
                           }
                       });
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_socks5_udp();
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = make_accept_socks5_udp();
                 opts.udp_service = make_udp_service(echo_port, std::chrono::seconds(5));
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         std::string echo_after_bad;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                co_await listener.start(tcp::endpoint(tcp::v4(), 0));
-                const auto listen_port = listener.local_endpoint().port();
+                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (!raw)
                 {
                     co_return;
                 }
-                auto [err, conn] = co_await socks5::connect(
-                    std::move(raw), socks5::client_config{},
-                    socks5::address{socks5::address_type::ipv4, "127.0.0.1", 0},
-                    socks5::command::udp_associate);
-                if (!conn)
+                auto [err, Conn] = co_await Socks5::Connect(
+                    std::move(raw), Socks5::ClientConfig{},
+                    Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
+                    Socks5::Command::UdpAssociate);
+                if (!Conn)
                 {
                     co_return;
                 }
-                const auto bnd = conn->bind_endpoint();
-                const udp::endpoint bnd_ep(net::ip::make_address(bnd.host), bnd.port);
+                const auto bnd = Conn->BindEndpoint();
+                const net::ip::udp::endpoint bnd_ep(net::ip::make_address(bnd.Host), bnd.Port);
 
                 udp::socket cudp(ioc.get_executor());
-                cudp.open(udp::v4(), oec);
-                cudp.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+                cudp.open(net::ip::udp::v4(), oec);
+                cudp.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
 
                 // 非法帧：FRAG=1（不支持分片），应被丢弃且不中断关联
                 std::vector<std::uint8_t> bad = {0x00, 0x00, 0x01, 0x01, 0x7f, 0x00, 0x00, 0x01, 0x00, 0x35, 'x'};
@@ -347,18 +347,18 @@ namespace
                     net::buffer(bad), bnd_ep, net::redirect_error(net::use_awaitable, sock_ec));
 
                 // 合法帧仍可往返
-                const auto frame = make_frame(
-                    socks5::address{socks5::address_type::domain, "example.com", 53},
-                    "after bad frame");
-                const auto r = co_await udp_roundtrip(cudp, bnd_ep, frame);
+                const auto Frame = make_frame(
+                    Socks5::Address{Socks5::AddressType::Domain, "example.com", 53},
+                    "after bad Frame");
+                const auto r = co_await udp_roundtrip(cudp, bnd_ep, Frame);
                 echo_after_bad = r.echo;
 
                 cudp.close();
-                conn->close();
-                listener.stop();
+                Conn->Close();
+                listener.Stop();
             });
 
-        EXPECT_EQ(echo_after_bad, "after bad frame");
+        EXPECT_EQ(echo_after_bad, "after bad Frame");
         EXPECT_FALSE(*upstream_ep);
     }
 
@@ -367,13 +367,13 @@ namespace
         net::io_context ioc;
         udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(udp::v4(), oec);
-        echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        echo_sock.open(net::ip::udp::v4(), oec);
+        echo_sock.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), udp_echo_server(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -382,67 +382,67 @@ namespace
                           }
                       });
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_socks5_udp();
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = make_accept_socks5_udp();
                 opts.udp_service = make_udp_service(echo_port, std::chrono::milliseconds(120));
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         bool timeout_closed = false;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                co_await listener.start(tcp::endpoint(tcp::v4(), 0));
-                const auto listen_port = listener.local_endpoint().port();
+                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (!raw)
                 {
                     co_return;
                 }
-                auto [err, conn] = co_await socks5::connect(
-                    std::move(raw), socks5::client_config{},
-                    socks5::address{socks5::address_type::ipv4, "127.0.0.1", 0},
-                    socks5::command::udp_associate);
-                if (!conn)
+                auto [err, Conn] = co_await Socks5::Connect(
+                    std::move(raw), Socks5::ClientConfig{},
+                    Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
+                    Socks5::Command::UdpAssociate);
+                if (!Conn)
                 {
                     co_return;
                 }
-                const auto bnd = conn->bind_endpoint();
-                const udp::endpoint bnd_ep(net::ip::make_address(bnd.host), bnd.port);
+                const auto bnd = Conn->BindEndpoint();
+                const net::ip::udp::endpoint bnd_ep(net::ip::make_address(bnd.Host), bnd.Port);
 
                 udp::socket cudp(ioc.get_executor());
-                cudp.open(udp::v4(), oec);
-                cudp.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+                cudp.open(net::ip::udp::v4(), oec);
+                cudp.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
 
-                // 空闲等待（超过服务端 idle_timeout）
+                // 空闲等待（超过服务端 IdleTimeout）
                 net::steady_timer t(ioc);
                 t.expires_after(std::chrono::milliseconds(400));
                 co_await t.async_wait(net::use_awaitable);
 
                 // 超时后数据面已关闭：发包无回包（等待 300ms 判定）
-                const auto frame = make_frame(
-                    socks5::address{socks5::address_type::domain, "example.com", 53},
+                const auto Frame = make_frame(
+                    Socks5::Address{Socks5::AddressType::Domain, "example.com", 53},
                     "too late");
                 boost::system::error_code sock_ec;
                 co_await cudp.async_send_to(
-                    net::buffer(frame), bnd_ep, net::redirect_error(net::use_awaitable, sock_ec));
+                    net::buffer(Frame), bnd_ep, net::redirect_error(net::use_awaitable, sock_ec));
 
-                std::array<std::byte, 512> rx{};
+                std::array<std::byte, 512> Rx{};
                 udp::endpoint src_ep;
-                net::steady_timer wait(ioc);
-                wait.expires_after(std::chrono::milliseconds(300));
+                net::steady_timer Wait(ioc);
+                Wait.expires_after(std::chrono::milliseconds(300));
                 auto recv = cudp.async_receive_from(
-                    net::buffer(rx), src_ep, net::redirect_error(net::use_awaitable, sock_ec));
-                auto wait_aw = wait.async_wait(net::use_awaitable);
+                    net::buffer(Rx), src_ep, net::redirect_error(net::use_awaitable, sock_ec));
+                auto wait_aw = Wait.async_wait(net::use_awaitable);
                 using boost::asio::experimental::awaitable_operators::operator||;
                 const auto res = co_await (std::move(recv) || std::move(wait_aw));
                 // 数据面已关闭：无回包（超时）或端口关闭触发 ICMP 错误
@@ -450,8 +450,8 @@ namespace
                                  sock_ec != boost::system::error_code{};
 
                 cudp.close();
-                conn->close();
-                listener.stop();
+                Conn->Close();
+                listener.Stop();
             });
 
         EXPECT_TRUE(timeout_closed);
@@ -463,13 +463,13 @@ namespace
         net::io_context ioc;
         udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(udp::v4(), oec);
-        echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        echo_sock.open(net::ip::udp::v4(), oec);
+        echo_sock.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), udp_echo_server(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -478,73 +478,73 @@ namespace
                           }
                       });
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_socks5_udp();
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = make_accept_socks5_udp();
                 opts.udp_service = make_udp_service(echo_port, std::chrono::seconds(5));
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         bool terminated = false;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                co_await listener.start(tcp::endpoint(tcp::v4(), 0));
-                const auto listen_port = listener.local_endpoint().port();
+                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (!raw)
                 {
                     co_return;
                 }
-                auto [err, conn] = co_await socks5::connect(
-                    std::move(raw), socks5::client_config{},
-                    socks5::address{socks5::address_type::ipv4, "127.0.0.1", 0},
-                    socks5::command::udp_associate);
-                if (!conn)
+                auto [err, Conn] = co_await Socks5::Connect(
+                    std::move(raw), Socks5::ClientConfig{},
+                    Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
+                    Socks5::Command::UdpAssociate);
+                if (!Conn)
                 {
                     co_return;
                 }
-                const auto bnd = conn->bind_endpoint();
-                const udp::endpoint bnd_ep(net::ip::make_address(bnd.host), bnd.port);
+                const auto bnd = Conn->BindEndpoint();
+                const net::ip::udp::endpoint bnd_ep(net::ip::make_address(bnd.Host), bnd.Port);
 
                 // 先验证一次往返（数据面已建立）
                 udp::socket cudp(ioc.get_executor());
-                cudp.open(udp::v4(), oec);
-                cudp.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
-                const auto frame = make_frame(
-                    socks5::address{socks5::address_type::domain, "example.com", 53},
+                cudp.open(net::ip::udp::v4(), oec);
+                cudp.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+                const auto Frame = make_frame(
+                    Socks5::Address{Socks5::AddressType::Domain, "example.com", 53},
                     "first round");
-                const auto r = co_await udp_roundtrip(cudp, bnd_ep, frame);
-                EXPECT_TRUE(r.ok);
+                const auto r = co_await udp_roundtrip(cudp, bnd_ep, Frame);
+                EXPECT_TRUE(r.Ok);
 
                 // 关闭 TCP 控制连接 → 数据面应终止
-                conn->close();
+                Conn->Close();
                 net::steady_timer t(ioc);
                 t.expires_after(std::chrono::milliseconds(200));
                 co_await t.async_wait(net::use_awaitable);
 
                 // 再发包：无回包（等待 300ms 判定）
                 const auto frame2 = make_frame(
-                    socks5::address{socks5::address_type::domain, "example.com", 53},
-                    "after tcp close");
+                    Socks5::Address{Socks5::AddressType::Domain, "example.com", 53},
+                    "after Tcp Close");
                 boost::system::error_code sock_ec;
                 co_await cudp.async_send_to(
                     net::buffer(frame2), bnd_ep, net::redirect_error(net::use_awaitable, sock_ec));
-                std::array<std::byte, 512> rx{};
+                std::array<std::byte, 512> Rx{};
                 udp::endpoint src_ep;
-                net::steady_timer wait(ioc);
-                wait.expires_after(std::chrono::milliseconds(300));
+                net::steady_timer Wait(ioc);
+                Wait.expires_after(std::chrono::milliseconds(300));
                 auto recv = cudp.async_receive_from(
-                    net::buffer(rx), src_ep, net::redirect_error(net::use_awaitable, sock_ec));
-                auto wait_aw = wait.async_wait(net::use_awaitable);
+                    net::buffer(Rx), src_ep, net::redirect_error(net::use_awaitable, sock_ec));
+                auto wait_aw = Wait.async_wait(net::use_awaitable);
                 using boost::asio::experimental::awaitable_operators::operator||;
                 const auto res = co_await (std::move(recv) || std::move(wait_aw));
                 // 数据面已随 TCP 关闭终止：无回包（超时）或 ICMP 错误
@@ -552,7 +552,7 @@ namespace
                              sock_ec != boost::system::error_code{};
 
                 cudp.close();
-                listener.stop();
+                listener.Stop();
             });
 
         EXPECT_TRUE(terminated);
@@ -568,23 +568,23 @@ namespace
         boost::system::error_code oec;
         const auto idle_to = std::chrono::milliseconds(120);
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_socks5_udp();
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = make_accept_socks5_udp();
                 opts.udp_service = make_udp_service(
-                    [](const socks5::address &)
-                        -> net::awaitable<std::pair<error, udp::endpoint>>
+                    [](const Socks5::Address &)
+                        -> net::awaitable<std::pair<Error, udp::endpoint>>
                     {
                         // 黑洞端点：无监听者、无回包
-                        co_return std::pair{error::none,
-                                            udp::endpoint(net::ip::make_address("127.0.0.1"), 1)};
+                        co_return std::pair{Error::none,
+                                            net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 1)};
                     },
                     idle_to);
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         bool closed_by_idle = false;
@@ -602,60 +602,60 @@ namespace
             },
             net::detached);
 
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                co_await listener.start(tcp::endpoint(tcp::v4(), 0));
-                const auto listen_port = listener.local_endpoint().port();
+                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (!raw)
                 {
-                    listener.stop();
+                    listener.Stop();
                     co_return;
                 }
-                auto [err, conn] = co_await socks5::connect(
-                    std::move(raw), socks5::client_config{},
-                    socks5::address{socks5::address_type::ipv4, "127.0.0.1", 0},
-                    socks5::command::udp_associate);
-                if (!conn)
+                auto [err, Conn] = co_await Socks5::Connect(
+                    std::move(raw), Socks5::ClientConfig{},
+                    Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
+                    Socks5::Command::UdpAssociate);
+                if (!Conn)
                 {
-                    listener.stop();
+                    listener.Stop();
                     co_return;
                 }
-                const auto bnd = conn->bind_endpoint();
-                const udp::endpoint bnd_ep(net::ip::make_address(bnd.host), bnd.port);
+                const auto bnd = Conn->BindEndpoint();
+                const net::ip::udp::endpoint bnd_ep(net::ip::make_address(bnd.Host), bnd.Port);
 
                 udp::socket cudp(ioc.get_executor());
-                cudp.open(udp::v4(), oec);
-                cudp.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+                cudp.open(net::ip::udp::v4(), oec);
+                cudp.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0));
 
                 // 发一个数据报到黑洞目标（无回包）
-                const auto frame = make_frame(
-                    socks5::address{socks5::address_type::domain, "example.com", 53},
-                    "to silent target");
+                const auto Frame = make_frame(
+                    Socks5::Address{Socks5::AddressType::Domain, "example.com", 53},
+                    "to silent Target");
                 boost::system::error_code sock_ec;
                 co_await cudp.async_send_to(
-                    net::buffer(frame), bnd_ep, net::redirect_error(net::use_awaitable, sock_ec));
+                    net::buffer(Frame), bnd_ep, net::redirect_error(net::use_awaitable, sock_ec));
 
-                // 等待超过 idle_timeout：TCP 控制连接应被服务端关闭（EOF/错误）。
+                // 等待超过 IdleTimeout：TCP 控制连接应被服务端关闭（EOF/错误）。
                 // 注意：不能把 ec != {} 当作关闭信号——等待超时赢时取消读也会置
                 // operation_aborted，会让「未关闭」误判为「已关闭」（vacuously pass）。
-                std::array<std::byte, 1> probe{};
-                net::steady_timer wait(ioc);
-                wait.expires_after(idle_to + std::chrono::milliseconds(400));
-                auto rd = conn->async_read_some(std::span(probe), ec);
-                auto wt = wait.async_wait(net::use_awaitable);
+                std::array<std::byte, 1> Probe{};
+                net::steady_timer Wait(ioc);
+                Wait.expires_after(idle_to + std::chrono::milliseconds(400));
+                auto rd = Conn->AsyncReadSome(std::span(Probe), ec);
+                auto wt = Wait.async_wait(net::use_awaitable);
                 using boost::asio::experimental::awaitable_operators::operator||;
                 const auto res = co_await (std::move(rd) || std::move(wt));
                 closed_by_idle = res.index() == 0;
 
                 cudp.close();
-                conn->close();
-                listener.stop();
+                Conn->Close();
+                listener.Stop();
             });
 
         EXPECT_FALSE(watchdog_fired);

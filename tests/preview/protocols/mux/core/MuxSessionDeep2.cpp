@@ -1,12 +1,12 @@
 /**
  * @file MuxSessionDeep2.cpp
- * @brief 共享会话框架（session<C>）剩余分支深度测试
- * @details 直接驱动 session<smux::codec> 引擎，手工注入帧序列覆盖
- *          dispatch 全部事件分支：open（含 id==0 / 重复流 / 带负载）、
- *          data（已知流 / 隐式开流 / id==0）、fin / rst（含未知流）、
- *          控制帧忽略；以及 stream_handle 的 shutdown / cancel /
- *          set_timeout / set_peer_eof / on_rst / is_open 等剩余方法，
- *          会话关闭后 send_fin / send_rst 的空通道分支，流 ID 环绕。
+ * @brief 共享会话框架（Session<C>）剩余分支深度测试
+ * @details 直接驱动 Session<Smux::Codec> 引擎，手工注入帧序列覆盖
+ *          Dispatch 全部事件分支：Open（含 Id==0 / 重复流 / 带负载）、
+ *          Data（已知流 / 隐式开流 / Id==0）、fin / rst（含未知流）、
+ *          控制帧忽略；以及 StreamHandle 的 Shutdown / Cancel /
+ *          SetTimeout / SetPeerEof / OnRst / IsOpen 等剩余方法，
+ *          会话关闭后 SendFin / SendRst 的空通道分支，流 ID 环绕。
  */
 
 #include <boost/asio/co_spawn.hpp>
@@ -21,16 +21,16 @@
 #include <string>
 #include <vector>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/mux/h2mux/h2mux.hpp>
-#include <common/protocols/mux/smux/smux.hpp>
-#include <common/protocols/mux/yamux/yamux.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Mux/H2Mux/H2Mux.hpp>
+#include <common/Protocols/Mux/Smux/Smux.hpp>
+#include <common/Protocols/Mux/Yamux/Yamux.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
-    using namespace preview::mux;
+    using namespace Preview;
+    using namespace Preview::Mux;
     namespace net = boost::asio;
 
     /**
@@ -54,145 +54,145 @@ namespace
     }
 
     /**
-     * @brief 构造 SYN + 负载帧（覆盖 open 分支带负载路径）
+     * @brief 构造 SYN + 负载帧（覆盖 Open 分支带负载路径）
      */
-    auto make_syn_with_payload(std::uint32_t id, std::string_view payload) -> std::vector<std::uint8_t>
+    auto make_syn_with_payload(std::uint32_t Id, std::string_view payload) -> std::vector<std::uint8_t>
     {
-        smux::frame_header hdr{};
-        hdr.cmd = smux::command::syn;
+        Smux::FrameHeader hdr{};
+        hdr.cmd = Smux::Command::syn;
         hdr.length = static_cast<std::uint16_t>(payload.size());
-        hdr.stream_id = id;
-        return smux::build(hdr, as_u8_span(payload));
+        hdr.StreamId = Id;
+        return Smux::Build(hdr, AsU8Span(payload));
     }
 
     TEST(MuxSessionDeep2, DispatchAllEvents)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto peer = std::make_shared<memory_stream>(std::move(b));
-        session_options opt{};
-        opt.role = preview::role::server;
-        auto session = mux::session<smux::codec>::create(std::make_shared<memory_stream>(std::move(a)), opt);
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto peer = std::make_shared<MemoryStream>(std::move(b));
+        SessionOptions opt{};
+        opt.Role = Preview::Role::Server;
+        auto Session = Mux::Session<Smux::Codec>::Create(std::make_shared<MemoryStream>(std::move(a)), opt);
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // open（带负载）→ accept 得到流并读到负载
-                     const auto w1 = co_await peer->write_all(make_syn_with_payload(1, "open-payload"));
+                     // Open（带负载）→ Accept 得到流并读到负载
+                     const auto w1 = co_await peer->WriteAll(make_syn_with_payload(1, "Open-payload"));
                      EXPECT_FALSE(w1);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     auto handle = co_await session->accept_stream();
+                     auto Handle = co_await Session->AcceptStream();
                      std::array<std::uint8_t, 64> buf{};
-                     const auto n = co_await handle->read_some(std::span<std::uint8_t>(buf));
-                     EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n), "open-payload");
-                     EXPECT_EQ(session->stream_count(), 1u);
+                     const auto n = co_await Handle->ReadSome(std::span<std::uint8_t>(buf));
+                     EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n), "Open-payload");
+                     EXPECT_EQ(Session->StreamCount(), 1u);
 
-                     // 重复 SYN（同 id）→ 忽略
-                     const auto w2 = co_await peer->write_all(smux::build_syn(1));
+                     // 重复 SYN（同 Id）→ 忽略
+                     const auto w2 = co_await peer->WriteAll(Smux::Build(1));
                      EXPECT_FALSE(w2);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_EQ(session->stream_count(), 1u);
+                     EXPECT_EQ(Session->StreamCount(), 1u);
 
-                     // SYN id==0 → 忽略
-                     const auto w3 = co_await peer->write_all(smux::build_syn(0));
+                     // SYN Id==0 → 忽略
+                     const auto w3 = co_await peer->WriteAll(Smux::Build(0));
                      EXPECT_FALSE(w3);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_EQ(session->stream_count(), 1u);
+                     EXPECT_EQ(Session->StreamCount(), 1u);
 
-                     // data 已知流
-                     const auto w4 = co_await peer->write_all(smux::build_push(1, as_u8_span(std::string_view{"data1"})));
+                     // Data 已知流
+                     const auto w4 = co_await peer->WriteAll(Smux::BuildPush(1, AsU8Span(std::string_view{"data1"})));
                      EXPECT_FALSE(w4);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     const auto n1 = co_await handle->read_some(std::span<std::uint8_t>(buf));
+                     const auto n1 = co_await Handle->ReadSome(std::span<std::uint8_t>(buf));
                      EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n1), "data1");
 
-                     // data 隐式开流（无 SYN）
-                     const auto w5 = co_await peer->write_all(smux::build_push(3, as_u8_span(std::string_view{"implicit"})));
+                     // Data 隐式开流（无 SYN）
+                     const auto w5 = co_await peer->WriteAll(Smux::BuildPush(3, AsU8Span(std::string_view{"implicit"})));
                      EXPECT_FALSE(w5);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     auto implicit = co_await session->accept_stream();
+                     auto implicit = co_await Session->AcceptStream();
                      if (!implicit)
                      {
-                         EXPECT_TRUE(false) << "implicit stream accept failed";
+                         EXPECT_TRUE(false) << "implicit Stream Accept Failed";
                          co_return;
                      }
-                     const auto n2 = co_await implicit->read_some(std::span<std::uint8_t>(buf));
+                     const auto n2 = co_await implicit->ReadSome(std::span<std::uint8_t>(buf));
                      EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n2), "implicit");
-                     EXPECT_EQ(session->stream_count(), 2u);
+                     EXPECT_EQ(Session->StreamCount(), 2u);
 
-                     // data id==0 → 忽略
-                     const auto w6 = co_await peer->write_all(smux::build_push(0, as_u8_span(std::string_view{"x"})));
+                     // Data Id==0 → 忽略
+                     const auto w6 = co_await peer->WriteAll(Smux::BuildPush(0, AsU8Span(std::string_view{"x"})));
                      EXPECT_FALSE(w6);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_EQ(session->stream_count(), 2u);
+                     EXPECT_EQ(Session->StreamCount(), 2u);
 
                      // fin 已知流 → 对端半关
-                     const auto w7 = co_await peer->write_all(smux::build_fin(1));
+                     const auto w7 = co_await peer->WriteAll(Smux::Build(1));
                      EXPECT_FALSE(w7);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_TRUE(handle->is_peer_eof());
+                     EXPECT_TRUE(Handle->IsPeerEof());
 
                      // fin 未知流 → 忽略
-                     const auto w8 = co_await peer->write_all(smux::build_fin(99));
+                     const auto w8 = co_await peer->WriteAll(Smux::Build(99));
                      EXPECT_FALSE(w8);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
 
                      // 控制帧（NOP）→ 忽略
-                     smux::frame_header nop_hdr{};
-                     nop_hdr.cmd = smux::command::nop;
-                     const auto w9 = co_await peer->write_all(smux::build(nop_hdr));
+                     Smux::FrameHeader nop_hdr{};
+                     nop_hdr.cmd = Smux::Command::nop;
+                     const auto w9 = co_await peer->WriteAll(Smux::Build(nop_hdr));
                      EXPECT_FALSE(w9);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_EQ(session->stream_count(), 2u);
+                     EXPECT_EQ(Session->StreamCount(), 2u);
 
-                     // smux 无独立 RST 帧：FIN 帧即半关（stream_event::fin）
-                     const auto w10 = co_await peer->write_all(smux::build_fin(3));
+                     // smux 无独立 RST 帧：FIN 帧即半关（StreamEvent::fin）
+                     const auto w10 = co_await peer->WriteAll(Smux::Build(3));
                      EXPECT_FALSE(w10);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_TRUE(implicit->is_peer_eof());
-                     EXPECT_EQ(session->stream_count(), 2u);
+                     EXPECT_TRUE(implicit->IsPeerEof());
+                     EXPECT_EQ(Session->StreamCount(), 2u);
 
                      // fin 未知流 → 无副作用
-                     const auto w11 = co_await peer->write_all(smux::build_fin(98));
+                     const auto w11 = co_await peer->WriteAll(Smux::Build(98));
                      EXPECT_FALSE(w11);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_EQ(session->stream_count(), 2u);
+                     EXPECT_EQ(Session->StreamCount(), 2u);
 
-                     co_await session->close();
+                     co_await Session->Close();
                  });
     }
 
     TEST(MuxSessionDeep2, MuxMalformedFrameClosesSession)
     {
         net::io_context ioc;
-        auto [raw, peer_raw] = make_memory_pair(ioc.get_executor());
-        auto peer = std::make_shared<memory_stream>(std::move(peer_raw));
-        auto session = mux::session<smux::codec>::create(
-            std::make_shared<memory_stream>(std::move(raw)), session_options{});
-        const std::array<std::uint8_t, smux::frame_hdrsize> malformed{
-            0x7F, static_cast<std::uint8_t>(smux::command::push), 0, 0, 1, 0, 0, 0};
+        auto [raw, peer_raw] = MakeMemoryPair(ioc.get_executor());
+        auto peer = std::make_shared<MemoryStream>(std::move(peer_raw));
+        auto Session = Mux::Session<Smux::Codec>::Create(
+            std::make_shared<MemoryStream>(std::move(raw)), SessionOptions{});
+        const std::array<std::uint8_t, Smux::FrameHdrsize> malformed{
+            0x7F, static_cast<std::uint8_t>(Smux::Command::Push), 0, 0, 1, 0, 0, 0};
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto ec = co_await peer->write_all(malformed);
+                     const auto ec = co_await peer->WriteAll(malformed);
                      EXPECT_FALSE(ec);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_FALSE(session->is_open());
-                     co_await session->close();
+                     EXPECT_FALSE(Session->IsOpen());
+                     co_await Session->Close();
                  });
     }
 
     TEST(MuxSessionDeep2, MuxPayloadLimitClosesSession)
     {
         net::io_context ioc;
-        auto [raw, peer_raw] = make_memory_pair(ioc.get_executor());
-        auto peer = std::make_shared<memory_stream>(std::move(peer_raw));
-        auto session = mux::session<yamux::codec>::create(
-            std::make_shared<memory_stream>(std::move(raw)), session_options{});
-        const std::array<std::uint8_t, yamux::frame_hdrsize> oversized{
-            yamux::protocol_version,
-            static_cast<std::uint8_t>(yamux::message_type::data),
+        auto [raw, peer_raw] = MakeMemoryPair(ioc.get_executor());
+        auto peer = std::make_shared<MemoryStream>(std::move(peer_raw));
+        auto Session = Mux::Session<Yamux::Codec>::Create(
+            std::make_shared<MemoryStream>(std::move(raw)), SessionOptions{});
+        const std::array<std::uint8_t, Yamux::FrameHdrsize> oversized{
+            Yamux::ProtocolVersion,
+            static_cast<std::uint8_t>(Yamux::MessageType::Data),
             0,
             0,
             0,
@@ -207,228 +207,228 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto ec = co_await peer->write_all(oversized);
+                     const auto ec = co_await peer->WriteAll(oversized);
                      EXPECT_FALSE(ec);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_FALSE(session->is_open());
-                     co_await session->close();
+                     EXPECT_FALSE(Session->IsOpen());
+                     co_await Session->Close();
                  });
     }
 
     TEST(MuxSessionDeep2, YamuxRstEvent)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto peer = std::make_shared<memory_stream>(std::move(b));
-        auto session = mux::session<yamux::codec>::create(std::make_shared<memory_stream>(std::move(a)), session_options{});
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto peer = std::make_shared<MemoryStream>(std::move(b));
+        auto Session = Mux::Session<Yamux::Codec>::Create(std::make_shared<MemoryStream>(std::move(a)), SessionOptions{});
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     (void)session->executor();
-                     // 开流（Data + SYN + 负载）→ open 分支带负载路径
-                     const auto w1 = co_await peer->write_all(
-                         yamux::build_data(yamux::flags::syn, 1, as_u8_span(std::string_view{"open-payload"})));
+                     (void)Session->Executor();
+                     // 开流（Data + SYN + 负载）→ Open 分支带负载路径
+                     const auto w1 = co_await peer->WriteAll(
+                         Yamux::BuildData(Yamux::Flags::syn, 1, AsU8Span(std::string_view{"Open-payload"})));
                      EXPECT_FALSE(w1);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     auto handle = co_await session->accept_stream();
-                     if (!handle)
+                     auto Handle = co_await Session->AcceptStream();
+                     if (!Handle)
                      {
-                         EXPECT_TRUE(false) << "accept_stream failed";
+                         EXPECT_TRUE(false) << "AcceptStream Failed";
                          co_return;
                      }
                      std::array<std::uint8_t, 64> buf{};
-                     const auto n = co_await handle->read_some(std::span<std::uint8_t>(buf));
-                     EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n), "open-payload");
-                     EXPECT_EQ(session->stream_count(), 1u);
+                     const auto n = co_await Handle->ReadSome(std::span<std::uint8_t>(buf));
+                     EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n), "Open-payload");
+                     EXPECT_EQ(Session->StreamCount(), 1u);
 
                      // FIN（Data + FIN 标志）→ fin 分支
-                     const auto w2 = co_await peer->write_all(yamux::build_data(yamux::flags::fin, 1, {}));
+                     const auto w2 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::fin, 1, {}));
                      EXPECT_FALSE(w2);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_TRUE(handle->is_peer_eof());
-                     EXPECT_EQ(session->stream_count(), 1u);
+                     EXPECT_TRUE(Handle->IsPeerEof());
+                     EXPECT_EQ(Session->StreamCount(), 1u);
 
                      // FIN 未知流 → 无副作用
-                     const auto w3 = co_await peer->write_all(yamux::build_data(yamux::flags::fin, 99, {}));
+                     const auto w3 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::fin, 99, {}));
                      EXPECT_FALSE(w3);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_EQ(session->stream_count(), 1u);
+                     EXPECT_EQ(Session->StreamCount(), 1u);
 
                      // RST 已知流 → 流关闭并移除
-                     const auto w4 = co_await peer->write_all(yamux::build_data(yamux::flags::rst, 1, {}));
+                     const auto w4 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::rst, 1, {}));
                      EXPECT_FALSE(w4);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_TRUE(handle->is_closed());
-                     EXPECT_EQ(session->stream_count(), 0u);
+                     EXPECT_TRUE(Handle->IsClosed());
+                     EXPECT_EQ(Session->StreamCount(), 0u);
 
                      // RST 未知流 → 无副作用
-                     const auto w5 = co_await peer->write_all(yamux::build_data(yamux::flags::rst, 98, {}));
+                     const auto w5 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::rst, 98, {}));
                      EXPECT_FALSE(w5);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_EQ(session->stream_count(), 0u);
+                     EXPECT_EQ(Session->StreamCount(), 0u);
 
-                     // 本端 shutdown / reset（send_fin / send_rst 实例路径）
-                     co_await handle->shutdown();
-                     co_await handle->reset();
-                     co_await session->close();
+                     // 本端 Shutdown / Reset（SendFin / SendRst 实例路径）
+                     co_await Handle->Shutdown();
+                     co_await Handle->Reset();
+                     co_await Session->Close();
                  });
     }
 
     TEST(MuxSessionDeep2, H2muxFinAndImplicitOpen)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto peer = std::make_shared<memory_stream>(std::move(b));
-        auto session = mux::session<h2mux::codec>::create(std::make_shared<memory_stream>(std::move(a)), session_options{});
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto peer = std::make_shared<MemoryStream>(std::move(b));
+        auto Session = Mux::Session<H2Mux::Codec>::Create(std::make_shared<MemoryStream>(std::move(a)), SessionOptions{});
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     (void)session->executor();
-                     // data 隐式开流（无 SYN 帧）+ 负载 → 717 路径
-                     const auto w1 = co_await peer->write_all(
-                         h2mux::build_data(1, as_u8_span(std::string_view{"implicit"})));
+                     (void)Session->Executor();
+                     // Data 隐式开流（无 SYN 帧）+ 负载 → 717 路径
+                     const auto w1 = co_await peer->WriteAll(
+                         H2Mux::BuildData(1, AsU8Span(std::string_view{"implicit"})));
                      EXPECT_FALSE(w1);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     auto handle = co_await session->accept_stream();
-                     if (!handle)
+                     auto Handle = co_await Session->AcceptStream();
+                     if (!Handle)
                      {
-                         EXPECT_TRUE(false) << "accept_stream failed";
+                         EXPECT_TRUE(false) << "AcceptStream Failed";
                          co_return;
                      }
                      std::array<std::uint8_t, 64> buf{};
-                     const auto n = co_await handle->read_some(std::span<std::uint8_t>(buf));
+                     const auto n = co_await Handle->ReadSome(std::span<std::uint8_t>(buf));
                      EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n), "implicit");
-                     EXPECT_EQ(session->stream_count(), 1u);
+                     EXPECT_EQ(Session->StreamCount(), 1u);
 
                      // CLOSE 帧 → fin 分支
-                     const auto w2 = co_await peer->write_all(h2mux::build_close(1));
+                     const auto w2 = co_await peer->WriteAll(H2Mux::BuildClose(1));
                      EXPECT_FALSE(w2);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_TRUE(handle->is_peer_eof());
+                     EXPECT_TRUE(Handle->IsPeerEof());
 
                      // CLOSE 未知流 → 无副作用
-                     const auto w3 = co_await peer->write_all(h2mux::build_close(77));
+                     const auto w3 = co_await peer->WriteAll(H2Mux::BuildClose(77));
                      EXPECT_FALSE(w3);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
 
-                     // 本端 shutdown / reset（send_fin / send_rst 实例路径）
-                     co_await handle->shutdown();
-                     co_await handle->reset();
-                     co_await session->close();
+                     // 本端 Shutdown / Reset（SendFin / SendRst 实例路径）
+                     co_await Handle->Shutdown();
+                     co_await Handle->Reset();
+                     co_await Session->Close();
                  });
     }
 
     TEST(MuxSessionDeep2, StreamHandleMethods)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto peer = std::make_shared<memory_stream>(std::move(b));
-        auto session = mux::session<smux::codec>::create(std::make_shared<memory_stream>(std::move(a)), session_options{});
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto peer = std::make_shared<MemoryStream>(std::move(b));
+        auto Session = Mux::Session<Smux::Codec>::Create(std::make_shared<MemoryStream>(std::move(a)), SessionOptions{});
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     (void)session->executor();
-                     auto handle = co_await session->open_stream();
-                     if (!handle)
+                     (void)Session->Executor();
+                     auto Handle = co_await Session->OpenStream();
+                     if (!Handle)
                      {
-                         EXPECT_TRUE(false) << "open_stream failed";
+                         EXPECT_TRUE(false) << "OpenStream Failed";
                          co_return;
                      }
-                     EXPECT_TRUE(handle->is_open());
-                     EXPECT_EQ(handle->id(), 1u);
+                     EXPECT_TRUE(Handle->IsOpen());
+                     EXPECT_EQ(Handle->Id(), 1u);
 
-                     // shutdown：置 fin_sent + 发 FIN
-                     co_await handle->shutdown();
-                     EXPECT_TRUE(handle->is_fin_sent());
-                     EXPECT_TRUE(handle->is_open());
+                     // Shutdown：置 fin_sent + 发 FIN
+                     co_await Handle->Shutdown();
+                     EXPECT_TRUE(Handle->IsFinSent());
+                     EXPECT_TRUE(Handle->IsOpen());
 
-                     // set_peer_eof：对端 FIN 到达
-                     handle->set_peer_eof();
-                     EXPECT_TRUE(handle->is_peer_eof());
+                     // SetPeerEof：对端 FIN 到达
+                     Handle->SetPeerEof();
+                     EXPECT_TRUE(Handle->IsPeerEof());
 
-                     // on_rst：流被对端重置
-                     handle->on_rst();
-                     EXPECT_TRUE(handle->is_closed());
-                     EXPECT_FALSE(handle->is_open());
+                     // OnRst：流被对端重置
+                     Handle->OnRst();
+                     EXPECT_TRUE(Handle->IsClosed());
+                     EXPECT_FALSE(Handle->IsOpen());
 
-                     // cancel：唤醒挂起读返回 0
-                     auto handle2 = co_await session->open_stream();
+                     // Cancel：唤醒挂起读返回 0
+                     auto handle2 = co_await Session->OpenStream();
                      if (!handle2)
                      {
-                         EXPECT_TRUE(false) << "open_stream failed";
+                         EXPECT_TRUE(false) << "OpenStream Failed";
                          co_return;
                      }
-                     handle2->cancel();
+                     handle2->Cancel();
                      std::array<std::uint8_t, 8> buf{};
-                     const auto n = co_await handle2->read_some(std::span<std::uint8_t>(buf));
+                     const auto n = co_await handle2->ReadSome(std::span<std::uint8_t>(buf));
                      EXPECT_EQ(n, 0u);
 
-                     // set_timeout：读超时返回 0
-                     handle2->set_timeout(std::chrono::milliseconds(20));
-                     const auto n2 = co_await handle2->read_some(std::span<std::uint8_t>(buf));
+                     // SetTimeout：读超时返回 0
+                     handle2->SetTimeout(std::chrono::milliseconds(20));
+                     const auto n2 = co_await handle2->ReadSome(std::span<std::uint8_t>(buf));
                      EXPECT_EQ(n2, 0u);
 
                      // 挂起读超时路径（队列空 + 超时启用）
-                     auto handle3 = co_await session->open_stream();
+                     auto handle3 = co_await Session->OpenStream();
                      if (!handle3)
                      {
-                         EXPECT_TRUE(false) << "open_stream failed";
+                         EXPECT_TRUE(false) << "OpenStream Failed";
                          co_return;
                      }
-                     handle3->set_timeout(std::chrono::milliseconds(20));
-                     const auto n3 = co_await handle3->read_some(std::span<std::uint8_t>(buf));
+                     handle3->SetTimeout(std::chrono::milliseconds(20));
+                     const auto n3 = co_await handle3->ReadSome(std::span<std::uint8_t>(buf));
                      EXPECT_EQ(n3, 0u);
 
-                     // 会话关闭前 shutdown / reset：send_fin / send_rst 实例路径
-                     co_await handle2->shutdown();
-                     co_await handle2->reset();
-                     // 会话关闭后：send_fin / send_rst 空通道分支
-                     co_await session->close();
-                     co_await handle2->close();
+                     // 会话关闭前 Shutdown / Reset：SendFin / SendRst 实例路径
+                     co_await handle2->Shutdown();
+                     co_await handle2->Reset();
+                     // 会话关闭后：SendFin / SendRst 空通道分支
+                     co_await Session->Close();
+                     co_await handle2->Close();
                  });
     }
 
     TEST(MuxSessionDeep2, SessionClosedPaths)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        auto session = mux::session<smux::codec>::create(std::make_shared<memory_stream>(std::move(a)), session_options{});
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto Session = Mux::Session<Smux::Codec>::Create(std::make_shared<MemoryStream>(std::move(a)), SessionOptions{});
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto handle = co_await session->open_stream();
-                     if (!handle)
+                     auto Handle = co_await Session->OpenStream();
+                     if (!Handle)
                      {
-                         EXPECT_TRUE(false) << "open_stream failed";
+                         EXPECT_TRUE(false) << "OpenStream Failed";
                          co_return;
                      }
-                     EXPECT_TRUE(session->is_open());
-                     co_await session->close();
-                     EXPECT_FALSE(session->is_open());
+                     EXPECT_TRUE(Session->IsOpen());
+                     co_await Session->Close();
+                     EXPECT_FALSE(Session->IsOpen());
 
-                     // 会话关闭后：open / accept / push_data 失败路径
-                     const auto null_stream = co_await session->open_stream();
+                     // 会话关闭后：Open / Accept / PushData 失败路径
+                     const auto null_stream = co_await Session->OpenStream();
                      EXPECT_EQ(null_stream, nullptr);
-                     auto accepted = co_await session->accept_stream();
+                     auto accepted = co_await Session->AcceptStream();
                      EXPECT_EQ(accepted, nullptr);
-                     const auto perr = co_await handle->write_all(as_u8_span(std::string_view{"x"}));
+                     const auto perr = co_await Handle->WriteAll(AsU8Span(std::string_view{"x"}));
                      EXPECT_TRUE(perr);
-                     EXPECT_EQ(perr, make_error_code(error::broken_pipe));
+                     EXPECT_EQ(perr, make_error_code(Error::broken_pipe));
                  });
     }
 
     TEST(MuxSessionDeep2, StreamIdWrapAround)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        session_options opt{};
-        opt.role = preview::role::client;
-        opt.max_streams = 40000;
-        auto session = mux::session<smux::codec>::create(std::make_shared<memory_stream>(std::move(a)), opt);
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        SessionOptions opt{};
+        opt.Role = Preview::Role::Client;
+        opt.MaxStreams = 40000;
+        auto Session = Mux::Session<Smux::Codec>::Create(std::make_shared<MemoryStream>(std::move(a)), opt);
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -436,18 +436,18 @@ namespace
                      // 32768 个奇数流 ID（1..65535）分配成功
                      for (std::size_t i = 0; i < 32768; ++i)
                      {
-                         auto handle = co_await session->open_stream();
-                         if (!handle)
+                         auto Handle = co_await Session->OpenStream();
+                         if (!Handle)
                          {
-                             EXPECT_TRUE(false) << "open_stream failed at " << i;
+                             EXPECT_TRUE(false) << "OpenStream Failed at " << i;
                              co_return;
                          }
                      }
-                     EXPECT_EQ(session->stream_count(), 32768u);
+                     EXPECT_EQ(Session->StreamCount(), 32768u);
                      // 下一次分配：next_id 环绕（65537 > 65535），全表已占 → nullptr
-                     const auto null_stream = co_await session->open_stream();
+                     const auto null_stream = co_await Session->OpenStream();
                      EXPECT_EQ(null_stream, nullptr);
-                     co_await session->close();
+                     co_await Session->Close();
                  });
     }
 

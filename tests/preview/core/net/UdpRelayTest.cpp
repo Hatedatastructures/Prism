@@ -9,8 +9,8 @@
  * @note 使用 loopback UDP socket；客户端来源动态学习（无需预置）
  */
 
-#include <common/core/net/udp_relay.hpp>
-#include <common/core/transport/unreliable.hpp>
+#include <common/Core/Net/UdpRelay.hpp>
+#include <common/Core/Transport/Unreliable.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
@@ -25,7 +25,7 @@
 namespace
 {
     namespace net = boost::asio;
-    using namespace preview;
+    using namespace Preview;
 
     template <typename A>
     void run_coro(net::io_context &ioc, A coro)
@@ -44,17 +44,17 @@ TEST(UdpRelay, AssociationAndEcho)
 {
     net::io_context ioc;
 
-    auto a = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
-    auto b = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
+    auto a = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
+    auto b = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
     boost::system::error_code oec;
-    a->native_socket().open(net::ip::udp::v4(), oec);
-    a->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
-    b->native_socket().open(net::ip::udp::v4(), oec);
-    b->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+    a->NativeSocket().open(net::ip::udp::v4(), oec);
+    a->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+    b->NativeSocket().open(net::ip::udp::v4(), oec);
+    b->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
     ASSERT_FALSE(oec);
 
-    const auto a_ep = a->native_socket().local_endpoint();
-    const auto b_ep = b->native_socket().local_endpoint();
+    const auto a_ep = a->NativeSocket().local_endpoint();
+    const auto b_ep = b->NativeSocket().local_endpoint();
 
     // 中继 A↔B（动态关联）
     bool relay_done = false;
@@ -62,10 +62,10 @@ TEST(UdpRelay, AssociationAndEcho)
         ioc.get_executor(),
         [&]() -> net::awaitable<void>
         {
-            preview::network::udp::relay_options opts;
-            opts.idle_timeout = std::chrono::milliseconds(0); // 禁用回收
-            preview::network::udp::udp_relay relay(a, b, opts);
-            co_await relay.run();
+            Preview::Network::Udp::RelayOptions opts;
+            opts.IdleTimeout = std::chrono::milliseconds(0); // 禁用回收
+            Preview::Network::Udp::UdpRelay relay(a, b, opts);
+            co_await relay.Run();
             relay_done = true;
         },
         net::detached);
@@ -146,26 +146,26 @@ TEST(UdpRelay, AssociationTimeoutReap)
 {
     net::io_context ioc;
 
-    auto a = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
-    auto b = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
+    auto a = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
+    auto b = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
     boost::system::error_code oec;
-    a->native_socket().open(net::ip::udp::v4(), oec);
-    a->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
-    b->native_socket().open(net::ip::udp::v4(), oec);
-    b->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+    a->NativeSocket().open(net::ip::udp::v4(), oec);
+    a->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+    b->NativeSocket().open(net::ip::udp::v4(), oec);
+    b->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
     ASSERT_FALSE(oec);
 
-    const auto a_ep = a->native_socket().local_endpoint();
-    const auto b_ep = b->native_socket().local_endpoint();
+    const auto a_ep = a->NativeSocket().local_endpoint();
+    const auto b_ep = b->NativeSocket().local_endpoint();
 
     net::co_spawn(
         ioc.get_executor(),
         [&]() -> net::awaitable<void>
         {
-            preview::network::udp::relay_options opts;
-            opts.idle_timeout = std::chrono::milliseconds(80); // 80ms 回收
-            preview::network::udp::udp_relay relay(a, b, opts);
-            co_await relay.run();
+            Preview::Network::Udp::RelayOptions opts;
+            opts.IdleTimeout = std::chrono::milliseconds(80); // 80ms 回收
+            Preview::Network::Udp::UdpRelay relay(a, b, opts);
+            co_await relay.Run();
         },
         net::detached);
 
@@ -198,7 +198,7 @@ TEST(UdpRelay, AssociationTimeoutReap)
                  co_await t.async_wait(net::use_awaitable);
 
                  // client_b 再发 → 会话已回收 → 不转发（client_a 等 100ms 无包）
-                 const std::string after = "after-reap";
+                 const std::string after = "after-Reap";
                  co_await client_b.async_send_to(net::buffer(after.data(), after.size()), b_ep,
                                                  net::redirect_error(net::use_awaitable, oec));
                  net::steady_timer t2(ioc);
@@ -213,26 +213,26 @@ TEST(UdpRelay, PortMismatchDropped)
 {
     net::io_context ioc;
 
-    auto a = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
-    auto b = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
+    auto a = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
+    auto b = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
     boost::system::error_code oec;
-    a->native_socket().open(net::ip::udp::v4(), oec);
-    a->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
-    b->native_socket().open(net::ip::udp::v4(), oec);
-    b->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+    a->NativeSocket().open(net::ip::udp::v4(), oec);
+    a->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+    b->NativeSocket().open(net::ip::udp::v4(), oec);
+    b->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
     ASSERT_FALSE(oec);
 
-    const auto a_ep = a->native_socket().local_endpoint();
-    const auto b_ep = b->native_socket().local_endpoint();
+    const auto a_ep = a->NativeSocket().local_endpoint();
+    const auto b_ep = b->NativeSocket().local_endpoint();
 
     net::co_spawn(
         ioc.get_executor(),
         [&]() -> net::awaitable<void>
         {
-            preview::network::udp::relay_options opts;
-            opts.idle_timeout = std::chrono::milliseconds(0);
-            preview::network::udp::udp_relay relay(a, b, opts);
-            co_await relay.run();
+            Preview::Network::Udp::RelayOptions opts;
+            opts.IdleTimeout = std::chrono::milliseconds(0);
+            Preview::Network::Udp::UdpRelay relay(a, b, opts);
+            co_await relay.Run();
         },
         net::detached);
 
@@ -309,13 +309,13 @@ TEST(UdpRelay, EndCloseTerminates)
 {
     net::io_context ioc;
 
-    auto a = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
-    auto b = std::make_shared<preview::transport::unreliable>(ioc.get_executor());
+    auto a = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
+    auto b = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
     boost::system::error_code oec;
-    a->native_socket().open(net::ip::udp::v4(), oec);
-    a->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
-    b->native_socket().open(net::ip::udp::v4(), oec);
-    b->native_socket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+    a->NativeSocket().open(net::ip::udp::v4(), oec);
+    a->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+    b->NativeSocket().open(net::ip::udp::v4(), oec);
+    b->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
     ASSERT_FALSE(oec);
 
     bool relay_done = false;
@@ -323,10 +323,10 @@ TEST(UdpRelay, EndCloseTerminates)
         ioc.get_executor(),
         [&]() -> net::awaitable<void>
         {
-            preview::network::udp::relay_options opts;
-            opts.idle_timeout = std::chrono::milliseconds(0); // 禁用回收，只验证关闭语义
-            preview::network::udp::udp_relay relay(a, b, opts);
-            co_await relay.run();
+            Preview::Network::Udp::RelayOptions opts;
+            opts.IdleTimeout = std::chrono::milliseconds(0); // 禁用回收，只验证关闭语义
+            Preview::Network::Udp::UdpRelay relay(a, b, opts);
+            co_await relay.Run();
             relay_done = true;
         },
         net::detached);
@@ -338,7 +338,7 @@ TEST(UdpRelay, EndCloseTerminates)
                  net::steady_timer t(ioc);
                  t.expires_after(std::chrono::milliseconds(50));
                  co_await t.async_wait(net::use_awaitable);
-                 a->close();
+                 a->Close();
                  // 轮询等待 relay 完成（保持 ioc 运行以调度取消回调）
                  for (int i = 0; i < 100 && !relay_done; ++i)
                  {

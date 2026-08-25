@@ -1,8 +1,8 @@
 /**
  * @file VlessUdpE2ETest.cpp
- * @brief VLESS UDP 命令纵向链路测试（阶段 4 遗留：复用 dgram 编排）
+ * @brief VLESS UDP 命令纵向链路测试（阶段 4 遗留：复用 Dgram 编排）
  * @details 与 SOCKS5 UDP 共用 runtime `udp_service` 抽象：
- *          client TCP 握手（cmd=udp）→ 流上 UDP 帧 → udp_tunnel
+ *          Client TCP 握手（cmd=udp）→ 流上 UDP 帧 → UdpTunnel
  *          解帧 → 真实 UDP socket 转发 → 上游 echo → 封帧写回流。
  *          覆盖：多包往返、空闲超时、流 EOF 终止。
  */
@@ -25,15 +25,15 @@
 #include <string>
 #include <vector>
 
-#include <common/core/fault/code.hpp>
-#include <common/core/fault/handling.hpp>
-#include <common/core/middleware/context.hpp>
-#include <common/core/net/dialer/dialer.hpp>
-#include <common/core/runtime/adapter/protocol_adapter.hpp>
-#include <common/core/runtime/listener.hpp>
-#include <common/core/runtime/session.hpp>
-#include <common/core/transmission.hpp>
-#include <common/protocols/vless/vless.hpp>
+#include <common/Core/Fault/Code.hpp>
+#include <common/Core/Fault/Handling.hpp>
+#include <common/Core/Middleware/Context.hpp>
+#include <common/Core/Net/Dialer/Dialer.hpp>
+#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
+#include <common/Core/Runtime/Listener.hpp>
+#include <common/Core/Runtime/Session.hpp>
+#include <common/Core/Transmission.hpp>
+#include <common/Protocols/Vless/Vless.hpp>
 #include <common/RuntimeTestHelpers.hpp>
 
 namespace
@@ -41,132 +41,132 @@ namespace
 
     namespace net = boost::asio;
     using namespace boost::asio::experimental::awaitable_operators;
-    using tcp = net::ip::tcp;
+    using Tcp = net::ip::tcp;
     using udp = net::ip::udp;
-    using namespace preview;
+    using namespace Preview;
 
-    // 公共样板（run_coro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::make_uuid;
-    using psm::testing::run_coro;
-    using psm::testing::traffic_recorder;
-    using psm::testing::udp_echo_server;
+    // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
+    using psm::testing::MakeUuid;
+    using psm::testing::RunCoro;
+    using TrafficRecorder = psm::testing::TrafficRecorder;
+    using psm::testing::UdpEchoServer;
 
-    /// 固定测试 UUID 兼容别名（vless::uuid_len == 16）
-    inline auto test_uuid() -> std::array<std::uint8_t, vless::uuid_len>
+    /// 固定测试 UUID 兼容别名（Vless::UuidLen == 16）
+    inline auto test_uuid() -> std::array<std::uint8_t, Vless::UuidLen>
     {
-        return make_uuid();
+        return MakeUuid();
     }
 
 
-    /// 构造 VLESS 服务端接入回调（udp 命令 → dgram 会话标记；经 adapter 缝）
-    auto make_accept_vless_udp() -> runtime::session_options::protocol_accept_fn
+    /// 构造 VLESS 服务端接入回调（udp 命令 → Dgram 会话标记；经 adapter 缝）
+    auto make_accept_vless_udp() -> Runtime::SessionOptions::ProtocolAcceptFn
     {
-        vless::server_config cfg;
+        Vless::ServerConfig cfg;
         cfg.uuid = test_uuid();
-        cfg.enable_udp = true;
-        return runtime::make_accept_vless(std::move(cfg));
+        cfg.EnableUdp = true;
+        return Runtime::MakeAcceptVless(std::move(cfg));
     }
 
     /// 构造 UDP 数据面服务（流上帧循环；目标固定重定向到 echo）
-    auto make_udp_service(std::uint16_t echo_port, std::chrono::milliseconds idle_timeout)
-        -> std::function<net::awaitable<fault::code>(middleware::context &)>
+    auto make_udp_service(std::uint16_t echo_port, std::chrono::milliseconds IdleTimeout)
+        -> std::function<net::awaitable<Fault::Code>(Middleware::Context &)>
     {
-        return [echo_port, idle_timeout](middleware::context &ctx)
-            -> net::awaitable<fault::code>
+        return [echo_port, IdleTimeout](Middleware::Context &ctx)
+            -> net::awaitable<Fault::Code>
         {
-            auto stream = std::dynamic_pointer_cast<vless::conn<>>(ctx.inbound);
-            if (!stream)
+            auto Stream = std::dynamic_pointer_cast<Vless::Conn<>>(ctx.inbound);
+            if (!Stream)
             {
-                co_return fault::code::protocol_error;
+                co_return Fault::Code::protocol_error;
             }
-            vless::udp_tunnel_options opts;
-            opts.idle_timeout = idle_timeout;
-            // 流量统计：session 已把 sink/identity 装配进 ctx，透传给数据面
+            Vless::UdpTunnelOptions opts;
+            opts.IdleTimeout = IdleTimeout;
+            // 流量统计：Session 已把 sink/identity 装配进 ctx，透传给数据面
             opts.traffic = ctx.traffic;
             opts.identity = ctx.identity;
-            opts.resolve = [echo_port](const vless::address &)
-                -> net::awaitable<std::pair<error, udp::endpoint>>
+            opts.resolve = [echo_port](const Vless::Address &)
+                -> net::awaitable<std::pair<Error, udp::endpoint>>
             {
-                co_return std::pair{error::none,
+                co_return std::pair{Error::none,
                                     udp::endpoint(net::ip::make_address("127.0.0.1"),
                                                   echo_port)};
             };
-            auto tunnel = std::make_shared<vless::udp_tunnel>(
-                std::move(stream), std::move(opts));
-            co_await tunnel->run();
-            co_return fault::code::success;
+            auto tunnel = std::make_shared<Vless::UdpTunnel>(
+                std::move(Stream), std::move(opts));
+            co_await tunnel->Run();
+            co_return Fault::Code::success;
         };
     }
 
     /// 构造一个 VLESS UDP 帧
-    auto make_frame(const vless::address &target, std::string_view payload)
+    auto make_frame(const Vless::Address &Target, std::string_view payload)
         -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> frame;
-        vless::build_udp_pkt(
-            target,
+        std::vector<std::uint8_t> Frame;
+        Vless::BuildUdpPkt(
+            Target,
             std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()),
-            frame);
-        return frame;
+            Frame);
+        return Frame;
     }
 
     /// 客户端流上往返一次：写帧 → 读回帧 → 解析
     struct roundtrip_result
     {
         std::string echo;
-        vless::address src;
-        bool ok{false};
+        Vless::Address src;
+        bool Ok{false};
     };
 
     /// 客户端通过协议连接（流）发送一帧并接收回帧
-    auto stream_roundtrip(const std::shared_ptr<vless::conn<>> &proxy,
-                          const std::vector<std::uint8_t> &frame)
+    auto stream_roundtrip(const std::shared_ptr<Vless::Conn<>> &proxy,
+                          const std::vector<std::uint8_t> &Frame)
         -> net::awaitable<roundtrip_result>
     {
         roundtrip_result out;
         std::error_code ec;
-        std::size_t done = 0;
+        std::size_t Done = 0;
         auto frame_span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(frame.data()), frame.size());
-        while (done < frame.size())
+            reinterpret_cast<const std::byte *>(Frame.data()), Frame.size());
+        while (Done < Frame.size())
         {
-            const auto written = co_await proxy->async_write_some(
-                frame_span.subspan(done), ec);
+            const auto written = co_await proxy->AsyncWriteSome(
+                frame_span.subspan(Done), ec);
             if (ec)
             {
                 co_return out;
             }
-            done += written;
+            Done += written;
         }
-        std::array<std::byte, 65535> rx{};
+        std::array<std::byte, 65535> Rx{};
         std::error_code rec;
         // 看门狗竞速：数据面断裂时失败而非挂死（对齐 helpers 头范式）
-        net::steady_timer wd(proxy->executor());
+        net::steady_timer wd(proxy->Executor());
         wd.expires_after(std::chrono::seconds(2));
-        auto result = co_await (proxy->async_read_some(std::span(rx), rec) ||
+        auto Result = co_await (proxy->AsyncReadSome(std::span(Rx), rec) ||
                                 wd.async_wait(net::use_awaitable));
-        if (result.index() == 1 || rec)
+        if (Result.index() == 1 || rec)
         {
             co_return out;
         }
-        const auto n = std::get<0>(std::move(result));
+        const auto n = std::get<0>(std::move(Result));
         if (n == 0)
         {
             co_return out;
         }
-        vless::address src;
+        Vless::Address src;
         std::span<const std::uint8_t> payload;
-        if (vless::parse_udp_pkt(
+        if (Vless::ParseUdpPkt(
                 std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(rx.data()), n),
-                src, payload) != error::none)
+                    reinterpret_cast<const std::uint8_t *>(Rx.data()), n),
+                src, payload) != Error::none)
         {
             co_return out;
         }
         out.echo.assign(reinterpret_cast<const char *>(payload.data()), payload.size());
         out.src = std::move(src);
-        out.ok = true;
+        out.Ok = true;
         co_return out;
     }
 
@@ -175,13 +175,13 @@ namespace
         net::io_context ioc;
         udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(udp::v4(), oec);
+        echo_sock.open(net::ip::udp::v4(), oec);
         echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), udp_echo_server(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -190,64 +190,64 @@ namespace
                           }
                       });
 
-        auto recorder = std::make_shared<traffic_recorder>();
-        runtime::tcp_listener listener(
+        auto recorder = std::make_shared<psm::testing::TrafficRecorder>();
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_vless_udp();
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = make_accept_vless_udp();
                 opts.udp_service = make_udp_service(echo_port, std::chrono::seconds(5));
                 opts.traffic = recorder.get();
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         std::string echo1;
         std::string echo2;
         bool handshake_ok = false;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto start_rc = co_await listener.start(
-                    tcp::endpoint(tcp::v4(), 0));
-                EXPECT_EQ(start_rc, fault::code::success);
-                const auto listen_port = listener.local_endpoint().port();
+                const auto start_rc = co_await listener.Start(
+                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                EXPECT_EQ(start_rc, Fault::Code::success);
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect(
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect(
                     "127.0.0.1", listen_port, ec);
                 if (!raw)
                 {
                     co_return;
                 }
-                vless::client_config ccfg;
+                Vless::ClientConfig ccfg;
                 ccfg.uuid = test_uuid();
-                auto [err, proxy] = co_await vless::connect(
+                auto [err, proxy] = co_await Vless::Connect(
                     std::move(raw), ccfg,
-                    vless::address{vless::address_type::ipv4, "127.0.0.1", 0},
-                    vless::command::udp);
-                handshake_ok = err == error::none && proxy != nullptr;
+                    Vless::Address{Vless::AddressType::Ipv4, "127.0.0.1", 0},
+                    Vless::Command::Udp);
+                handshake_ok = err == Error::none && proxy != nullptr;
                 if (!proxy)
                 {
                     co_return;
                 }
 
                 const auto frame1 = make_frame(
-                    vless::address{vless::address_type::domain, "example.com", 53},
+                    Vless::Address{Vless::AddressType::Domain, "example.com", 53},
                     "vless udp one");
                 const auto r1 = co_await stream_roundtrip(proxy, frame1);
                 echo1 = r1.echo;
 
                 const auto frame2 = make_frame(
-                    vless::address{vless::address_type::ipv4, "8.8.8.8", 443},
+                    Vless::Address{Vless::AddressType::Ipv4, "8.8.8.8", 443},
                     "vless udp two");
                 const auto r2 = co_await stream_roundtrip(proxy, frame2);
                 echo2 = r2.echo;
 
-                proxy->close();
+                proxy->Close();
                 // 有界轮询等数据面退出并上报流量（对齐 TrojanTrafficIdentity 样板）
                 net::steady_timer timer(ioc);
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
@@ -257,7 +257,7 @@ namespace
                     timer.expires_after(std::chrono::milliseconds(5));
                     co_await timer.async_wait(net::use_awaitable);
                 }
-                listener.stop();
+                listener.Stop();
             });
 
         EXPECT_TRUE(handshake_ok);
@@ -275,13 +275,13 @@ namespace
         net::io_context ioc;
         udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(udp::v4(), oec);
+        echo_sock.open(net::ip::udp::v4(), oec);
         echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), udp_echo_server(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -290,53 +290,53 @@ namespace
                           }
                       });
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_vless_udp();
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = make_accept_vless_udp();
                 opts.udp_service = make_udp_service(echo_port, std::chrono::milliseconds(120));
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         bool closed = false;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                co_await listener.start(tcp::endpoint(tcp::v4(), 0));
-                const auto listen_port = listener.local_endpoint().port();
+                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (!raw)
                 {
                     co_return;
                 }
-                vless::client_config ccfg;
+                Vless::ClientConfig ccfg;
                 ccfg.uuid = test_uuid();
-                auto [err, proxy] = co_await vless::connect(
+                auto [err, proxy] = co_await Vless::Connect(
                     std::move(raw), ccfg,
-                    vless::address{vless::address_type::ipv4, "127.0.0.1", 0},
-                    vless::command::udp);
+                    Vless::Address{Vless::AddressType::Ipv4, "127.0.0.1", 0},
+                    Vless::Command::Udp);
                 if (!proxy)
                 {
                     co_return;
                 }
-                // 空闲等待（超过服务端 idle_timeout）→ 流被关闭
+                // 空闲等待（超过服务端 IdleTimeout）→ 流被关闭
                 net::steady_timer t(ioc);
                 t.expires_after(std::chrono::milliseconds(400));
                 co_await t.async_wait(net::use_awaitable);
 
                 std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->async_read_some(std::span(buf), ec);
+                const auto n = co_await proxy->AsyncReadSome(std::span(buf), ec);
                 closed = (n == 0 || ec != std::error_code{});
 
-                proxy->close();
-                listener.stop();
+                proxy->Close();
+                listener.Stop();
             });
 
         EXPECT_TRUE(closed);
@@ -348,13 +348,13 @@ namespace
         net::io_context ioc;
         udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(udp::v4(), oec);
+        echo_sock.open(net::ip::udp::v4(), oec);
         echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), udp_echo_server(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -363,52 +363,52 @@ namespace
                           }
                       });
 
-        runtime::tcp_listener listener(
+        Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](shared_transmission, std::size_t)
-                -> std::shared_ptr<runtime::session>
+            [&](SharedTransmission, std::size_t)
+                -> std::shared_ptr<Runtime::Session>
             {
-                runtime::session_options opts;
-                opts.accept_protocol = make_accept_vless_udp();
+                Runtime::SessionOptions opts;
+                opts.AcceptProtocol = make_accept_vless_udp();
                 opts.udp_service = make_udp_service(echo_port, std::chrono::seconds(5));
-                return std::make_shared<runtime::session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         bool first_ok = false;
-        run_coro(
+        RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                co_await listener.start(tcp::endpoint(tcp::v4(), 0));
-                const auto listen_port = listener.local_endpoint().port();
+                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
-                network::dialer::dialer dialer(ioc.get_executor());
-                auto raw = co_await dialer.connect("127.0.0.1", listen_port, ec);
+                Network::Dialer::Dialer Dialer(ioc.get_executor());
+                auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (!raw)
                 {
                     co_return;
                 }
-                vless::client_config ccfg;
+                Vless::ClientConfig ccfg;
                 ccfg.uuid = test_uuid();
-                auto [err, proxy] = co_await vless::connect(
+                auto [err, proxy] = co_await Vless::Connect(
                     std::move(raw), ccfg,
-                    vless::address{vless::address_type::ipv4, "127.0.0.1", 0},
-                    vless::command::udp);
+                    Vless::Address{Vless::AddressType::Ipv4, "127.0.0.1", 0},
+                    Vless::Command::Udp);
                 if (!proxy)
                 {
                     co_return;
                 }
                 // 先验证一次往返（数据面已建立）
-                const auto frame = make_frame(
-                    vless::address{vless::address_type::domain, "example.com", 53},
+                const auto Frame = make_frame(
+                    Vless::Address{Vless::AddressType::Domain, "example.com", 53},
                     "first round");
-                const auto r = co_await stream_roundtrip(proxy, frame);
-                first_ok = r.ok;
+                const auto r = co_await stream_roundtrip(proxy, Frame);
+                first_ok = r.Ok;
 
                 // 关闭流（客户端断开）→ 数据面随 EOF 终止，无需再验证回包
-                proxy->close();
-                listener.stop();
+                proxy->Close();
+                listener.Stop();
             });
 
         EXPECT_TRUE(first_ok);

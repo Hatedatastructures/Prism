@@ -1,11 +1,11 @@
 /**
  * @file PreviewMiddlewareTest.cpp
- * @brief preview 中间件管线测试（core/middleware）
- * @details 覆盖 pipeline/context：
+ * @brief Preview 中间件管线测试（core/Middleware）
+ * @details 覆盖 Pipeline/Context：
  * 1. 中间件链按序执行
  * 2. 非 success 终止管线
- * 3. context 共享状态（identity 传递）
- * 4. context 默认值
+ * 3. Context 共享状态（identity 传递）
+ * 4. Context 默认值
  */
 
 #include <gtest/gtest.h>
@@ -25,10 +25,10 @@
 #include <system_error>
 #include <vector>
 
-#include <common/core/fault/code.hpp>
-#include <common/core/middleware/context.hpp>
-#include <common/core/middleware/pipeline.hpp>
-#include <common/core/transmission.hpp>
+#include <common/Core/Fault/Code.hpp>
+#include <common/Core/Middleware/Context.hpp>
+#include <common/Core/Middleware/Pipeline.hpp>
+#include <common/Core/Transmission.hpp>
 
 namespace
 {
@@ -36,42 +36,42 @@ namespace
     namespace net = boost::asio;
 
     /// 最小叶子传输（供管线入站）
-    class stub_transmission final : public preview::transmission
+    class stub_transmission final : public Preview::Transmission
     {
     public:
-        using preview::transmission::async_read_some;
-        using preview::transmission::async_write_some;
+        using Preview::Transmission::AsyncReadSome;
+        using Preview::Transmission::AsyncWriteSome;
 
         explicit stub_transmission(net::any_io_executor ex) : ex_(std::move(ex))
         {
         }
 
-        auto executor() const -> executor_type override
+        auto Executor() const -> ExecutorType override
         {
             return ex_;
         }
 
-        auto async_read_some(std::span<std::byte> buffer, std::error_code &ec)
+        auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            std::memset(buffer.data(), 0, buffer.size());
+            std::memset(Buffer.data(), 0, Buffer.size());
             ec.clear();
-            co_return buffer.size();
+            co_return Buffer.size();
         }
 
-        auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
+        auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            (void)buffer;
+            (void)Buffer;
             ec.clear();
-            co_return buffer.size();
+            co_return Buffer.size();
         }
 
-        auto close() -> void override
+        auto Close() -> void override
         {
         }
 
-        auto cancel() -> void override
+        auto Cancel() -> void override
         {
         }
 
@@ -80,21 +80,21 @@ namespace
     };
 
     /// 记录型中间件：记录调用顺序，返回指定错误码
-    class recording_middleware final : public preview::middleware::middleware
+    class recording_middleware final : public Preview::Middleware::Middleware
     {
     public:
-        recording_middleware(std::string_view name, preview::fault::code result, std::vector<std::string> &log)
-            : name_(name), result_(result), log_(log)
+        recording_middleware(std::string_view Name, Preview::Fault::Code Result, std::vector<std::string> &log)
+            : name_(Name), result_(Result), log_(log)
         {
         }
 
-        [[nodiscard]] auto name() const -> std::string_view override
+        [[nodiscard]] auto Name() const -> std::string_view override
         {
             return name_;
         }
 
-        auto handle(preview::shared_transmission &inbound, preview::middleware::context &ctx)
-            -> net::awaitable<preview::fault::code> override
+        auto Handle(Preview::SharedTransmission &inbound, Preview::Middleware::Context &ctx)
+            -> net::awaitable<Preview::Fault::Code> override
         {
             (void)inbound;
             (void)ctx;
@@ -104,11 +104,11 @@ namespace
 
     private:
         std::string_view name_;
-        preview::fault::code result_;
+        Preview::Fault::Code result_;
         std::vector<std::string> &log_;
     };
 
-    /// 运行协程（co_spawn + ioc.run 模式）
+    /// 运行协程（co_spawn + ioc.Run 模式）
     template <typename Coro>
     static auto run_coro(net::io_context &ioc, Coro &&coro) -> void
     {
@@ -126,17 +126,17 @@ namespace
     {
         net::io_context ioc;
         std::vector<std::string> log;
-        preview::middleware::pipeline pipe;
-        pipe.add(std::make_shared<recording_middleware>("a", preview::fault::code::success, log));
-        pipe.add(std::make_shared<recording_middleware>("b", preview::fault::code::success, log));
+        Preview::Middleware::Pipeline pipe;
+        pipe.Add(std::make_shared<recording_middleware>("a", Preview::Fault::Code::success, log));
+        pipe.Add(std::make_shared<recording_middleware>("b", Preview::Fault::Code::success, log));
 
         auto inbound = std::make_shared<stub_transmission>(ioc.get_executor());
-        preview::middleware::context ctx;
+        Preview::Middleware::Context ctx;
 
         run_coro(ioc, [&]() -> net::awaitable<void>
                  {
-            const auto ec = co_await pipe.run(inbound, ctx);
-            EXPECT_EQ(ec, preview::fault::code::success); });
+            const auto ec = co_await pipe.Run(inbound, ctx);
+            EXPECT_EQ(ec, Preview::Fault::Code::success); });
 
         ASSERT_EQ(log.size(), 2U);
         EXPECT_EQ(log[0], "a");
@@ -147,18 +147,18 @@ namespace
     {
         net::io_context ioc;
         std::vector<std::string> log;
-        preview::middleware::pipeline pipe;
-        pipe.add(std::make_shared<recording_middleware>("a", preview::fault::code::success, log));
-        pipe.add(std::make_shared<recording_middleware>("b", preview::fault::code::auth_failed, log));
-        pipe.add(std::make_shared<recording_middleware>("c", preview::fault::code::success, log));
+        Preview::Middleware::Pipeline pipe;
+        pipe.Add(std::make_shared<recording_middleware>("a", Preview::Fault::Code::success, log));
+        pipe.Add(std::make_shared<recording_middleware>("b", Preview::Fault::Code::auth_failed, log));
+        pipe.Add(std::make_shared<recording_middleware>("c", Preview::Fault::Code::success, log));
 
         auto inbound = std::make_shared<stub_transmission>(ioc.get_executor());
-        preview::middleware::context ctx;
+        Preview::Middleware::Context ctx;
 
         run_coro(ioc, [&]() -> net::awaitable<void>
                  {
-            const auto ec = co_await pipe.run(inbound, ctx);
-            EXPECT_EQ(ec, preview::fault::code::auth_failed); });
+            const auto ec = co_await pipe.Run(inbound, ctx);
+            EXPECT_EQ(ec, Preview::Fault::Code::auth_failed); });
 
         // b 失败后 c 不执行
         ASSERT_EQ(log.size(), 2U);
@@ -169,26 +169,26 @@ namespace
     TEST(PreviewMiddleware, ContextState)
     {
         net::io_context ioc;
-        preview::middleware::pipeline pipe;
+        Preview::Middleware::Pipeline pipe;
 
         // 写 identity 的中间件
-        struct identity_writer final : public preview::middleware::middleware
+        struct identity_writer final : public Preview::Middleware::Middleware
         {
-            [[nodiscard]] auto name() const -> std::string_view override
+            [[nodiscard]] auto Name() const -> std::string_view override
             {
                 return "identity-writer";
             }
 
-            auto handle(preview::shared_transmission &, preview::middleware::context &ctx)
-                -> net::awaitable<preview::fault::code> override
+            auto Handle(Preview::SharedTransmission &, Preview::Middleware::Context &ctx)
+                -> net::awaitable<Preview::Fault::Code> override
             {
                 ctx.identity = "alice";
-                co_return preview::fault::code::success;
+                co_return Preview::Fault::Code::success;
             }
         };
 
         // 读 identity 的中间件
-        struct identity_reader final : public preview::middleware::middleware
+        struct identity_reader final : public Preview::Middleware::Middleware
         {
             std::string *out;
 
@@ -196,30 +196,30 @@ namespace
             {
             }
 
-            [[nodiscard]] auto name() const -> std::string_view override
+            [[nodiscard]] auto Name() const -> std::string_view override
             {
                 return "identity-reader";
             }
 
-            auto handle(preview::shared_transmission &, preview::middleware::context &ctx)
-                -> net::awaitable<preview::fault::code> override
+            auto Handle(Preview::SharedTransmission &, Preview::Middleware::Context &ctx)
+                -> net::awaitable<Preview::Fault::Code> override
             {
                 *out = ctx.identity;
-                co_return preview::fault::code::success;
+                co_return Preview::Fault::Code::success;
             }
         };
 
         std::string seen;
-        pipe.add(std::make_shared<identity_writer>());
-        pipe.add(std::make_shared<identity_reader>(&seen));
+        pipe.Add(std::make_shared<identity_writer>());
+        pipe.Add(std::make_shared<identity_reader>(&seen));
 
         auto inbound = std::make_shared<stub_transmission>(ioc.get_executor());
-        preview::middleware::context ctx;
+        Preview::Middleware::Context ctx;
 
         run_coro(ioc, [&]() -> net::awaitable<void>
                  {
-            const auto ec = co_await pipe.run(inbound, ctx);
-            EXPECT_EQ(ec, preview::fault::code::success); });
+            const auto ec = co_await pipe.Run(inbound, ctx);
+            EXPECT_EQ(ec, Preview::Fault::Code::success); });
 
         EXPECT_EQ(seen, "alice");
         EXPECT_EQ(ctx.identity, "alice");
@@ -227,12 +227,12 @@ namespace
 
     TEST(PreviewMiddleware, ContextDefaults)
     {
-        preview::middleware::context ctx;
+        Preview::Middleware::Context ctx;
         EXPECT_EQ(ctx.inbound, nullptr);
-        EXPECT_EQ(ctx.outbound, nullptr);
+        EXPECT_EQ(ctx.Outbound, nullptr);
         EXPECT_EQ(ctx.detected, 0U);
         EXPECT_TRUE(ctx.identity.empty());
-        EXPECT_EQ(ctx.buffer_size, 16384U);
+        EXPECT_EQ(ctx.BufferSize, 16384U);
         EXPECT_EQ(ctx.timeout, std::chrono::milliseconds{0});
         EXPECT_EQ(ctx.pad, nullptr);
         EXPECT_EQ(ctx.traffic, nullptr);

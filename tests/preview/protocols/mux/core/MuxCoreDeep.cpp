@@ -131,8 +131,8 @@ namespace
         fx.core_obj->start();
         EXPECT_TRUE(fx.core_obj->is_active()) << "close: start -> active";
         fx.core_obj->close();
-        EXPECT_TRUE(fx.transport->is_cancelled()) << "close: transport cancelled";
-        EXPECT_TRUE(fx.transport->is_closed()) << "close: transport closed";
+        EXPECT_TRUE(fx.transport->IsCancelled()) << "close: transport cancelled";
+        EXPECT_TRUE(fx.transport->IsClosed()) << "close: transport closed";
     }
 
     TEST(MuxCoreDeep, CloseWithoutTraffic)

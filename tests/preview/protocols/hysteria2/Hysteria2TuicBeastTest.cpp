@@ -3,141 +3,141 @@
  * @brief Hysteria2/TUIC Beast 风格组件测试
  */
 
-#include <common/protocols/hysteria2/hysteria2.hpp>
-#include <common/protocols/tuic/tuic.hpp>
+#include <common/Protocols/Hysteria2/Hysteria2.hpp>
+#include <common/Protocols/Tuic/Tuic.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
     namespace net = boost::asio;
-    using namespace preview;
+    using namespace Preview;
 
     TEST(Hysteria2Beast, TcpFrameRoundtrip)
     {
-        hysteria2::message msg;
-        msg.type = hysteria2::message::kind::tcp;
-        msg.dst.type = hysteria2::address_type::ipv4;
-        msg.dst.host = "127.0.0.1";
-        msg.dst.port = 8080;
+        Hysteria2::Message msg;
+        msg.Type = Hysteria2::Message::Kind::Tcp;
+        msg.dst.Type = Hysteria2::AddressType::Ipv4;
+        msg.dst.Host = "127.0.0.1";
+        msg.dst.Port = 8080;
         msg.payload = "hello hysteria2";
 
-        hysteria2::serializer s;
-        s.reset(msg);
+        Hysteria2::Serializer s;
+        s.Reset(msg);
         std::error_code ec;
         std::array<std::uint8_t, 256> wire{};
-        const auto total = s.get(net::mutable_buffer(wire.data(), wire.size()), ec);
+        const auto Total = s.Get(net::mutable_buffer(wire.data(), wire.size()), ec);
         EXPECT_FALSE(ec);
 
-        hysteria2::parser p;
-        const auto n = p.put(net::const_buffer(wire.data(), total), ec);
+        Hysteria2::Parser p;
+        const auto n = p.Put(net::const_buffer(wire.data(), Total), ec);
         EXPECT_FALSE(ec);
-        EXPECT_TRUE(p.is_done());
-        EXPECT_EQ(p.get().type, hysteria2::message::kind::tcp);
-        EXPECT_EQ(p.get().dst.host, "127.0.0.1");
-        EXPECT_EQ(p.get().dst.port, 8080);
-        EXPECT_EQ(p.get().payload, "hello hysteria2");
+        EXPECT_TRUE(p.IsDone());
+        EXPECT_EQ(p.Get().Type, Hysteria2::Message::Kind::Tcp);
+        EXPECT_EQ(p.Get().dst.Host, "127.0.0.1");
+        EXPECT_EQ(p.Get().dst.Port, 8080);
+        EXPECT_EQ(p.Get().payload, "hello hysteria2");
     }
 
     TEST(Hysteria2Beast, UdpFrameRoundtrip)
     {
-        hysteria2::message msg;
-        msg.type = hysteria2::message::kind::udp;
-        msg.session_id = 0x11223344;
-        msg.packet_id = 7;
-        msg.dst.type = hysteria2::address_type::domain;
-        msg.dst.host = "example.com";
-        msg.dst.port = 53;
+        Hysteria2::Message msg;
+        msg.Type = Hysteria2::Message::Kind::udp;
+        msg.SessionId = 0x11223344;
+        msg.PacketId = 7;
+        msg.dst.Type = Hysteria2::AddressType::Domain;
+        msg.dst.Host = "example.com";
+        msg.dst.Port = 53;
         msg.payload = "dns";
 
-        hysteria2::serializer s;
-        s.reset(msg);
+        Hysteria2::Serializer s;
+        s.Reset(msg);
         std::error_code ec;
         std::array<std::uint8_t, 256> wire{};
-        const auto total = s.get(net::mutable_buffer(wire.data(), wire.size()), ec);
+        const auto Total = s.Get(net::mutable_buffer(wire.data(), wire.size()), ec);
 
-        hysteria2::parser p;
-        p.put(net::const_buffer(wire.data(), total), ec);
+        Hysteria2::Parser p;
+        p.Put(net::const_buffer(wire.data(), Total), ec);
         EXPECT_FALSE(ec);
-        EXPECT_TRUE(p.is_done());
-        EXPECT_EQ(p.get().type, hysteria2::message::kind::udp);
-        EXPECT_EQ(p.get().session_id, 0x11223344U);
-        EXPECT_EQ(p.get().dst.host, "example.com");
-        EXPECT_EQ(p.get().payload, "dns");
+        EXPECT_TRUE(p.IsDone());
+        EXPECT_EQ(p.Get().Type, Hysteria2::Message::Kind::udp);
+        EXPECT_EQ(p.Get().SessionId, 0x11223344U);
+        EXPECT_EQ(p.Get().dst.Host, "example.com");
+        EXPECT_EQ(p.Get().payload, "dns");
     }
 
     TEST(Hysteria2Beast, AuthRequest)
     {
-        const auto auth = hysteria2::make_auth_request("hysteria2_password");
-        EXPECT_FALSE(auth.empty());
-        EXPECT_EQ(static_cast<std::uint8_t>(auth[0]), 0x01); // HEADERS
+        const auto Auth = Hysteria2::MakeAuthRequest("hysteria2_password");
+        EXPECT_FALSE(Auth.empty());
+        EXPECT_EQ(static_cast<std::uint8_t>(Auth[0]), 0x01); // HEADERS
     }
 
     TEST(TuicBeast, ConnectRoundtrip)
     {
-        tuic::message msg;
-        msg.cmd = tuic::cmd_connect;
-        msg.dst.type = tuic::address_type::ipv4;
-        msg.dst.host = "127.0.0.1";
-        msg.dst.port = 8080;
+        Tuic::Message msg;
+        msg.Cmd = Tuic::CmdConnect;
+        msg.dst.Type = Tuic::AddressType::Ipv4;
+        msg.dst.Host = "127.0.0.1";
+        msg.dst.Port = 8080;
 
-        tuic::serializer s;
-        s.reset(msg);
+        Tuic::Serializer s;
+        s.Reset(msg);
         std::error_code ec;
         std::array<std::uint8_t, 128> wire{};
-        const auto total = s.get(net::mutable_buffer(wire.data(), wire.size()), ec);
+        const auto Total = s.Get(net::mutable_buffer(wire.data(), wire.size()), ec);
 
-        tuic::parser p;
-        p.put(net::const_buffer(wire.data(), total), ec);
+        Tuic::Parser p;
+        p.Put(net::const_buffer(wire.data(), Total), ec);
         EXPECT_FALSE(ec);
-        EXPECT_TRUE(p.is_done());
-        EXPECT_EQ(p.get().cmd, tuic::cmd_connect);
-        EXPECT_EQ(p.get().dst.host, "127.0.0.1");
-        EXPECT_EQ(p.get().dst.port, 8080);
+        EXPECT_TRUE(p.IsDone());
+        EXPECT_EQ(p.Get().Cmd, Tuic::CmdConnect);
+        EXPECT_EQ(p.Get().dst.Host, "127.0.0.1");
+        EXPECT_EQ(p.Get().dst.Port, 8080);
     }
 
     TEST(TuicBeast, PacketRoundtrip)
     {
-        tuic::message msg;
-        msg.cmd = tuic::cmd_packet;
-        msg.assoc_id = 3;
-        msg.pkt_id = 9;
-        msg.dst.type = tuic::address_type::ipv4;
-        msg.dst.host = "8.8.8.8";
-        msg.dst.port = 53;
+        Tuic::Message msg;
+        msg.Cmd = Tuic::CmdPacket;
+        msg.AssocId = 3;
+        msg.PktId = 9;
+        msg.dst.Type = Tuic::AddressType::Ipv4;
+        msg.dst.Host = "8.8.8.8";
+        msg.dst.Port = 53;
         msg.payload = "dns payload";
 
-        tuic::serializer s;
-        s.reset(msg);
+        Tuic::Serializer s;
+        s.Reset(msg);
         std::error_code ec;
         std::array<std::uint8_t, 256> wire{};
-        const auto total = s.get(net::mutable_buffer(wire.data(), wire.size()), ec);
+        const auto Total = s.Get(net::mutable_buffer(wire.data(), wire.size()), ec);
 
-        tuic::parser p;
-        p.put(net::const_buffer(wire.data(), total), ec);
+        Tuic::Parser p;
+        p.Put(net::const_buffer(wire.data(), Total), ec);
         EXPECT_FALSE(ec);
-        EXPECT_TRUE(p.is_done());
-        EXPECT_EQ(p.get().cmd, tuic::cmd_packet);
-        EXPECT_EQ(p.get().assoc_id, 3);
-        EXPECT_EQ(p.get().pkt_id, 9);
-        EXPECT_EQ(p.get().dst.host, "8.8.8.8");
-        EXPECT_EQ(p.get().payload, "dns payload");
+        EXPECT_TRUE(p.IsDone());
+        EXPECT_EQ(p.Get().Cmd, Tuic::CmdPacket);
+        EXPECT_EQ(p.Get().AssocId, 3);
+        EXPECT_EQ(p.Get().PktId, 9);
+        EXPECT_EQ(p.Get().dst.Host, "8.8.8.8");
+        EXPECT_EQ(p.Get().payload, "dns payload");
     }
 
     TEST(TuicBeast, Heartbeat)
     {
-        tuic::message msg;
-        msg.cmd = tuic::cmd_heartbeat;
-        tuic::serializer s;
-        s.reset(msg);
+        Tuic::Message msg;
+        msg.Cmd = Tuic::CmdHeartbeat;
+        Tuic::Serializer s;
+        s.Reset(msg);
         std::error_code ec;
         std::array<std::uint8_t, 8> wire{};
-        const auto total = s.get(net::mutable_buffer(wire.data(), wire.size()), ec);
+        const auto Total = s.Get(net::mutable_buffer(wire.data(), wire.size()), ec);
 
-        tuic::parser p;
-        p.put(net::const_buffer(wire.data(), total), ec);
+        Tuic::Parser p;
+        p.Put(net::const_buffer(wire.data(), Total), ec);
         EXPECT_FALSE(ec);
-        EXPECT_TRUE(p.is_done());
-        EXPECT_EQ(p.get().cmd, tuic::cmd_heartbeat);
+        EXPECT_TRUE(p.IsDone());
+        EXPECT_EQ(p.Get().Cmd, Tuic::CmdHeartbeat);
     }
 
 } // namespace

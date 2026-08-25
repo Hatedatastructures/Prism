@@ -5,7 +5,7 @@
  *          - 认证通过：identity 写入 ctx
  *          - 认证失败 / 缺失凭据 / 总是拒绝 → auth_failed
  *          - 凭据提取函数注入（协议无关）
- *          - pipeline 集成：认证失败终止管线，通过后进入 dial/relay
+ *          - Pipeline 集成：认证失败终止管线，通过后进入 Dial/relay
  */
 
 #include <gtest/gtest.h>
@@ -17,13 +17,13 @@
 #include <memory>
 #include <string>
 
-#include <common/core/authenticator.hpp>
-#include <common/core/fault/code.hpp>
-#include <common/core/fault/handling.hpp>
-#include <common/core/middleware/builtin/auth.hpp>
-#include <common/core/middleware/builtin/dial.hpp>
-#include <common/core/middleware/context.hpp>
-#include <common/core/middleware/pipeline.hpp>
+#include <common/Core/Authenticator.hpp>
+#include <common/Core/Fault/Code.hpp>
+#include <common/Core/Fault/Handling.hpp>
+#include <common/Core/Middleware/Builtin/Auth.hpp>
+#include <common/Core/Middleware/Builtin/Dial.hpp>
+#include <common/Core/Middleware/Context.hpp>
+#include <common/Core/Middleware/Pipeline.hpp>
 
 namespace
 {
@@ -44,153 +44,153 @@ namespace
     TEST(AuthMiddleware, PassWritesIdentity)
     {
         net::io_context ioc;
-        auto auth = std::make_shared<preview::static_authenticator>("alice", "s3cret");
-        preview::middleware::builtin::auth_middleware mw(auth);
+        auto Auth = std::make_shared<Preview::StaticAuthenticator>("alice", "s3cret");
+        Preview::Middleware::Builtin::AuthMiddleware mw(Auth);
 
-        preview::middleware::context ctx;
-        ctx.raw_identity = "alice";
-        ctx.raw_secret = "s3cret";
-        preview::shared_transmission inbound;
+        Preview::Middleware::Context ctx;
+        ctx.RawIdentity = "alice";
+        ctx.RawSecret = "s3cret";
+        Preview::SharedTransmission inbound;
 
-        preview::fault::code rc = preview::fault::code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.handle(inbound, ctx); });
-        EXPECT_EQ(rc, preview::fault::code::success);
+        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::success);
         EXPECT_EQ(ctx.identity, "alice");
     }
 
     TEST(AuthMiddleware, WrongSecretFails)
     {
         net::io_context ioc;
-        auto auth = std::make_shared<preview::static_authenticator>("alice", "s3cret");
-        preview::middleware::builtin::auth_middleware mw(auth);
+        auto Auth = std::make_shared<Preview::StaticAuthenticator>("alice", "s3cret");
+        Preview::Middleware::Builtin::AuthMiddleware mw(Auth);
 
-        preview::middleware::context ctx;
-        ctx.raw_identity = "alice";
-        ctx.raw_secret = "wrong";
-        preview::shared_transmission inbound;
+        Preview::Middleware::Context ctx;
+        ctx.RawIdentity = "alice";
+        ctx.RawSecret = "wrong";
+        Preview::SharedTransmission inbound;
 
-        preview::fault::code rc = preview::fault::code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.handle(inbound, ctx); });
-        EXPECT_EQ(rc, preview::fault::code::auth_failed);
+        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::auth_failed);
         EXPECT_TRUE(ctx.identity.empty());
     }
 
     TEST(AuthMiddleware, MissingCredentialFails)
     {
         net::io_context ioc;
-        auto auth = std::make_shared<preview::static_authenticator>("alice", "s3cret");
-        preview::middleware::builtin::auth_middleware mw(auth);
+        auto Auth = std::make_shared<Preview::StaticAuthenticator>("alice", "s3cret");
+        Preview::Middleware::Builtin::AuthMiddleware mw(Auth);
 
-        preview::middleware::context ctx; // 无凭据
-        preview::shared_transmission inbound;
+        Preview::Middleware::Context ctx; // 无凭据
+        Preview::SharedTransmission inbound;
 
-        preview::fault::code rc = preview::fault::code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.handle(inbound, ctx); });
-        EXPECT_EQ(rc, preview::fault::code::auth_failed);
+        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::auth_failed);
     }
 
     TEST(AuthMiddleware, RejectAuthenticatorFails)
     {
         net::io_context ioc;
-        auto auth = std::make_shared<preview::reject_authenticator>();
-        preview::middleware::builtin::auth_middleware mw(auth);
+        auto Auth = std::make_shared<Preview::RejectAuthenticator>();
+        Preview::Middleware::Builtin::AuthMiddleware mw(Auth);
 
-        preview::middleware::context ctx;
-        ctx.raw_identity = "any";
-        ctx.raw_secret = "any";
-        preview::shared_transmission inbound;
+        Preview::Middleware::Context ctx;
+        ctx.RawIdentity = "any";
+        ctx.RawSecret = "any";
+        Preview::SharedTransmission inbound;
 
-        preview::fault::code rc = preview::fault::code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.handle(inbound, ctx); });
-        EXPECT_EQ(rc, preview::fault::code::auth_failed);
+        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::auth_failed);
     }
 
     TEST(AuthMiddleware, MissingAuthInstanceNotSupported)
     {
         net::io_context ioc;
-        preview::middleware::builtin::auth_middleware mw(nullptr);
-        preview::middleware::context ctx;
-        preview::shared_transmission inbound;
+        Preview::Middleware::Builtin::AuthMiddleware mw(nullptr);
+        Preview::Middleware::Context ctx;
+        Preview::SharedTransmission inbound;
 
-        preview::fault::code rc = preview::fault::code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.handle(inbound, ctx); });
-        EXPECT_EQ(rc, preview::fault::code::not_supported);
+        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::not_supported);
     }
 
     TEST(AuthMiddleware, CustomCredentialExtraction)
     {
         net::io_context ioc;
-        auto auth = std::make_shared<preview::static_authenticator>("bob", "pw");
+        auto Auth = std::make_shared<Preview::StaticAuthenticator>("bob", "pw");
         // 协议无关提取：模拟 HTTP Basic（凭据来自 Authorization 头）
-        preview::middleware::builtin::auth_middleware mw(
-            auth,
-            [](const preview::middleware::context &ctx)
+        Preview::Middleware::Builtin::AuthMiddleware mw(
+            Auth,
+            [](const Preview::Middleware::Context &ctx)
                 -> std::optional<std::pair<std::string, std::string>>
             {
-                if (ctx.raw_identity == "Basic Ym9iOnB3")
+                if (ctx.RawIdentity == "Basic Ym9iOnB3")
                 {
                     return std::make_pair("bob", "pw");
                 }
                 return std::nullopt;
             });
 
-        preview::middleware::context ctx;
-        ctx.raw_identity = "Basic Ym9iOnB3";
-        preview::shared_transmission inbound;
+        Preview::Middleware::Context ctx;
+        ctx.RawIdentity = "Basic Ym9iOnB3";
+        Preview::SharedTransmission inbound;
 
-        preview::fault::code rc = preview::fault::code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.handle(inbound, ctx); });
-        EXPECT_EQ(rc, preview::fault::code::success);
+        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::success);
         EXPECT_EQ(ctx.identity, "bob");
     }
 
     TEST(AuthMiddleware, PipelineStopsOnAuthFailure)
     {
         net::io_context ioc;
-        auto auth = std::make_shared<preview::static_authenticator>("alice", "s3cret");
+        auto Auth = std::make_shared<Preview::StaticAuthenticator>("alice", "s3cret");
 
         int dial_calls = 0;
-        auto dial = std::make_shared<preview::middleware::builtin::dial_middleware>(
-            [&](const preview::network::target &) -> net::awaitable<
-                std::pair<preview::fault::code, preview::shared_transmission>>
+        auto Dial = std::make_shared<Preview::Middleware::Builtin::DialMiddleware>(
+            [&](const Preview::Network::Target &) -> net::awaitable<
+                std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
             {
                 ++dial_calls;
-                co_return std::pair{preview::fault::code::success, nullptr};
+                co_return std::pair{Preview::Fault::Code::success, nullptr};
             });
 
-        preview::middleware::pipeline pipe;
-        pipe.add(std::make_shared<preview::middleware::builtin::auth_middleware>(auth))
-            .add(dial);
+        Preview::Middleware::Pipeline pipe;
+        pipe.Add(std::make_shared<Preview::Middleware::Builtin::AuthMiddleware>(Auth))
+            .Add(Dial);
 
-        preview::middleware::context ctx;
-        ctx.raw_identity = "alice";
-        ctx.raw_secret = "wrong"; // 认证失败
-        preview::shared_transmission inbound;
+        Preview::Middleware::Context ctx;
+        ctx.RawIdentity = "alice";
+        ctx.RawSecret = "wrong"; // 认证失败
+        Preview::SharedTransmission inbound;
 
-        preview::fault::code rc = preview::fault::code::success;
+        Preview::Fault::Code rc = Preview::Fault::Code::success;
         run_coro(ioc,
-                 [&]() -> net::awaitable<void> { rc = co_await pipe.run(inbound, ctx); });
-        EXPECT_EQ(rc, preview::fault::code::auth_failed);
+                 [&]() -> net::awaitable<void> { rc = co_await pipe.Run(inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::auth_failed);
         EXPECT_EQ(dial_calls, 0); // 后续中间件未执行
     }
 
     TEST(AuthMiddleware, PipelineProceedsOnAuthPass)
     {
         net::io_context ioc;
-        auto auth = std::make_shared<preview::static_authenticator>("alice", "s3cret");
+        auto Auth = std::make_shared<Preview::StaticAuthenticator>("alice", "s3cret");
 
-        preview::middleware::context ctx;
-        ctx.raw_identity = "alice";
-        ctx.raw_secret = "s3cret";
-        preview::shared_transmission inbound;
+        Preview::Middleware::Context ctx;
+        ctx.RawIdentity = "alice";
+        ctx.RawSecret = "s3cret";
+        Preview::SharedTransmission inbound;
 
-        preview::middleware::pipeline pipe;
-        pipe.add(std::make_shared<preview::middleware::builtin::auth_middleware>(auth));
+        Preview::Middleware::Pipeline pipe;
+        pipe.Add(std::make_shared<Preview::Middleware::Builtin::AuthMiddleware>(Auth));
 
-        preview::fault::code rc = preview::fault::code::success;
+        Preview::Fault::Code rc = Preview::Fault::Code::success;
         run_coro(ioc,
-                 [&]() -> net::awaitable<void> { rc = co_await pipe.run(inbound, ctx); });
-        EXPECT_EQ(rc, preview::fault::code::success);
+                 [&]() -> net::awaitable<void> { rc = co_await pipe.Run(inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::success);
         EXPECT_EQ(ctx.identity, "alice");
     }
 

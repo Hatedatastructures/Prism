@@ -1,25 +1,25 @@
 /**
  * @file TransportTest.cpp
- * @brief 传输抽象测试（memory_stream / reliable / bench）
+ * @brief 传输抽象测试（MemoryStream / Reliable / bench）
  * @details 验证：
- *          - memory_stream 双向数据一致与关闭语义
- *          - bench_throughput / bench_latency 统计正确
- *          - stream concept 约束生效
+ *          - MemoryStream 双向数据一致与关闭语义
+ *          - BenchThroughput / bench_latency 统计正确
+ *          - Stream concept 约束生效
  */
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
 
-#include <common/bench/bench.hpp>
-#include <common/core/transport/memory_stream.hpp>
-#include <common/core/transport/reliable.hpp>
-#include <common/core/transport/stream.hpp>
+#include <common/Bench/Bench.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Core/Transport/Reliable.hpp>
+#include <common/Core/Transport/Stream.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
 
     /// 回环跑一个协程并返回异常（MuxLifecycle 模式）
     template <typename A>
@@ -42,15 +42,15 @@ namespace
     TEST(Transport, MemoryPairEcho)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      const std::string msg = "hello memory pipe";
-                     EXPECT_FALSE(co_await a.write_all(std::span<const std::uint8_t>(
+                     EXPECT_FALSE(co_await a.WriteAll(std::span<const std::uint8_t>(
                          reinterpret_cast<const std::uint8_t *>(msg.data()), msg.size())));
                      std::array<std::uint8_t, 64> buf{};
-                     const auto n = co_await b.read_some(buf);
+                     const auto n = co_await b.ReadSome(buf);
                      EXPECT_EQ(n, msg.size());
                      EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), msg);
                  });
@@ -59,17 +59,17 @@ namespace
     TEST(Transport, MemoryPairCloseSemantics)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     a.close();
+                     a.Close();
                      // 对端读返回 0
                      std::array<std::uint8_t, 8> buf{};
-                     const auto n = co_await b.read_some(buf);
+                     const auto n = co_await b.ReadSome(buf);
                      EXPECT_EQ(n, 0u);
                      // 对端写返回 broken_pipe
-                     const auto ec = co_await b.write_all(buf);
+                     const auto ec = co_await b.WriteAll(buf);
                      EXPECT_EQ(ec, net::error::broken_pipe);
                  });
     }
@@ -77,32 +77,32 @@ namespace
     TEST(Transport, BenchThroughputMemory)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        bench_report r{};
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        BenchReport r{};
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     bench_options opt;
-                     opt.total = 16 * 1024 * 1024; // 16MB
+                     BenchOptions opt;
+                     opt.Total = 16 * 1024 * 1024; // 16MB
                      opt.block = 64 * 1024;
-                     r = co_await bench_throughput(a, b, opt);
+                     r = co_await BenchThroughput(a, b, opt);
                  });
-        EXPECT_EQ(r.bytes, 16u * 1024u * 1024u);
+        EXPECT_EQ(r.Bytes, 16u * 1024u * 1024u);
         EXPECT_GT(r.mbps, 0.0);
     }
 
     TEST(Transport, ReadTimeout)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         bool timed_out = false;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      std::array<std::uint8_t, 16> buf{};
-                     a.set_timeout(std::chrono::milliseconds(50));
+                     a.SetTimeout(std::chrono::milliseconds(50));
                      const auto t0 = std::chrono::steady_clock::now();
-                     const auto n = co_await a.read_some(buf);
+                     const auto n = co_await a.ReadSome(buf);
                      const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                                          std::chrono::steady_clock::now() - t0)
                                          .count();
@@ -116,20 +116,20 @@ namespace
     TEST(Transport, ShutdownSemantics)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     a.shutdown();
+                     a.Shutdown();
                      // 对端读返回 0（半关）
                      std::array<std::uint8_t, 8> buf{};
-                     const auto n = co_await b.read_some(buf);
+                     const auto n = co_await b.ReadSome(buf);
                      EXPECT_EQ(n, 0u);
                      // 半关后本端仍可读对端数据
-                     const auto wec = co_await b.write_all(buf);
+                     const auto wec = co_await b.WriteAll(buf);
                      EXPECT_FALSE(wec);
                      std::array<std::uint8_t, 8> buf2{};
-                     const auto n2 = co_await a.read_some(buf2);
+                     const auto n2 = co_await a.ReadSome(buf2);
                      EXPECT_EQ(n2, 8u);
                  });
     }
@@ -137,40 +137,40 @@ namespace
     TEST(Transport, CancelSemantics)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      auto reader = [&]() -> net::awaitable<void>
                      {
                          std::array<std::uint8_t, 8> buf{};
-                         const auto n = co_await a.read_some(buf);
+                         const auto n = co_await a.ReadSome(buf);
                          EXPECT_EQ(n, 0u);
                      };
-                     net::co_spawn(a.executor(), reader(), net::detached);
+                     net::co_spawn(a.Executor(), reader(), net::detached);
                      // 让 reader 先挂起
-                     co_await net::post(a.executor(), net::use_awaitable);
-                     co_await net::post(a.executor(), net::use_awaitable);
-                     a.cancel();
+                     co_await net::post(a.Executor(), net::use_awaitable);
+                     co_await net::post(a.Executor(), net::use_awaitable);
+                     a.Cancel();
                  });
     }
 
     TEST(Transport, MemoryStreamCloseWhileReadPending)
     {
         net::io_context ioc;
-        auto [a_value, b] = make_memory_pair(ioc.get_executor());
-        auto a = std::make_shared<memory_stream>(std::move(a_value));
+        auto [a_value, b] = MakeMemoryPair(ioc.get_executor());
+        auto a = std::make_shared<MemoryStream>(std::move(a_value));
         auto read_done = std::make_shared<bool>(false);
         auto child_ep = std::make_shared<std::exception_ptr>();
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto async_read = [a, read_done]()
+                     auto AsyncRead = [a, read_done]()
                          -> net::awaitable<void>
                      {
-                         std::array<std::uint8_t, 8> buffer{};
-                         const auto n = co_await a->read_some(buffer);
+                         std::array<std::uint8_t, 8> Buffer{};
+                         const auto n = co_await a->ReadSome(Buffer);
                          EXPECT_EQ(n, 0U);
                          *read_done = true;
                      };
@@ -179,13 +179,13 @@ namespace
                          *child_ep = ep;
                          *read_done = true;
                      };
-                     net::co_spawn(a->executor(), std::move(async_read), std::move(on_error));
-                     co_await net::post(a->executor(), net::use_awaitable);
-                     a->close();
+                     net::co_spawn(a->Executor(), std::move(AsyncRead), std::move(on_error));
+                     co_await net::post(a->Executor(), net::use_awaitable);
+                     a->Close();
 
-                     net::steady_timer wait(a->executor());
-                     wait.expires_after(std::chrono::milliseconds(20));
-                     co_await wait.async_wait(net::use_awaitable);
+                     net::steady_timer Wait(a->Executor());
+                     Wait.expires_after(std::chrono::milliseconds(20));
+                     co_await Wait.async_wait(net::use_awaitable);
                  });
 
         ASSERT_FALSE(*child_ep);
@@ -195,19 +195,19 @@ namespace
     TEST(Transport, MemoryStreamCancelWhileReadPending)
     {
         net::io_context ioc;
-        auto [a_value, b] = make_memory_pair(ioc.get_executor());
-        auto a = std::make_shared<memory_stream>(std::move(a_value));
+        auto [a_value, b] = MakeMemoryPair(ioc.get_executor());
+        auto a = std::make_shared<MemoryStream>(std::move(a_value));
         auto read_done = std::make_shared<bool>(false);
         auto child_ep = std::make_shared<std::exception_ptr>();
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto async_read = [a, read_done]()
+                     auto AsyncRead = [a, read_done]()
                          -> net::awaitable<void>
                      {
-                         std::array<std::uint8_t, 8> buffer{};
-                         const auto n = co_await a->read_some(buffer);
+                         std::array<std::uint8_t, 8> Buffer{};
+                         const auto n = co_await a->ReadSome(Buffer);
                          EXPECT_EQ(n, 0U);
                          *read_done = true;
                      };
@@ -216,13 +216,13 @@ namespace
                          *child_ep = ep;
                          *read_done = true;
                      };
-                     net::co_spawn(a->executor(), std::move(async_read), std::move(on_error));
-                     co_await net::post(a->executor(), net::use_awaitable);
-                     a->cancel();
+                     net::co_spawn(a->Executor(), std::move(AsyncRead), std::move(on_error));
+                     co_await net::post(a->Executor(), net::use_awaitable);
+                     a->Cancel();
 
-                     net::steady_timer wait(a->executor());
-                     wait.expires_after(std::chrono::milliseconds(20));
-                     co_await wait.async_wait(net::use_awaitable);
+                     net::steady_timer Wait(a->Executor());
+                     Wait.expires_after(std::chrono::milliseconds(20));
+                     co_await Wait.async_wait(net::use_awaitable);
                  });
 
         ASSERT_FALSE(*child_ep);
@@ -232,21 +232,21 @@ namespace
     TEST(Transport, MemoryStreamTimeoutWhileReadPending)
     {
         net::io_context ioc;
-        auto [a_value, b] = make_memory_pair(ioc.get_executor());
-        auto a = std::make_shared<memory_stream>(std::move(a_value));
+        auto [a_value, b] = MakeMemoryPair(ioc.get_executor());
+        auto a = std::make_shared<MemoryStream>(std::move(a_value));
         auto read_done = std::make_shared<bool>(false);
         auto child_ep = std::make_shared<std::exception_ptr>();
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     a->set_timeout(std::chrono::milliseconds(20));
-                     auto async_read = [a, read_done]()
+                     a->SetTimeout(std::chrono::milliseconds(20));
+                     auto AsyncRead = [a, read_done]()
                          -> net::awaitable<void>
                      {
-                         std::array<std::byte, 8> buffer{};
+                         std::array<std::byte, 8> Buffer{};
                          std::error_code ec;
-                         const auto n = co_await a->async_read_some(buffer, ec);
+                         const auto n = co_await a->AsyncReadSome(Buffer, ec);
                          EXPECT_EQ(n, 0U);
                          EXPECT_EQ(ec, std::make_error_code(std::errc::timed_out));
                          *read_done = true;
@@ -256,30 +256,30 @@ namespace
                          *child_ep = ep;
                          *read_done = true;
                      };
-                     net::co_spawn(a->executor(), std::move(async_read), std::move(on_error));
-                     net::steady_timer wait(a->executor());
-                     wait.expires_after(std::chrono::milliseconds(50));
-                     co_await wait.async_wait(net::use_awaitable);
+                     net::co_spawn(a->Executor(), std::move(AsyncRead), std::move(on_error));
+                     net::steady_timer Wait(a->Executor());
+                     Wait.expires_after(std::chrono::milliseconds(50));
+                     co_await Wait.async_wait(net::use_awaitable);
                  });
 
         ASSERT_FALSE(*child_ep);
         EXPECT_TRUE(*read_done);
     }
 
-    // ══════════════ T0-3 超时语义（transmission 虚接口） ══════════════
+    // ══════════════ T0-3 超时语义（Transmission 虚接口） ══════════════
 
     TEST(Transport, AsyncReadTimeoutError)
     {
-        // async_read_some 超时 → operation_timed_out 错误
+        // AsyncReadSome 超时 → operation_timed_out 错误
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     a.set_timeout(std::chrono::milliseconds(30));
+                     a.SetTimeout(std::chrono::milliseconds(30));
                      std::array<std::byte, 16> buf{};
                      std::error_code ec;
-                     const auto n = co_await a.async_read_some(buf, ec);
+                     const auto n = co_await a.AsyncReadSome(buf, ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_EQ(ec, std::make_error_code(std::errc::timed_out));
                  });
@@ -287,25 +287,25 @@ namespace
 
     TEST(Transport, AsyncReadTimeoutDisabled)
     {
-        // set_timeout(0) 禁用 → 挂起直到数据到达
+        // SetTimeout(0) 禁用 → 挂起直到数据到达
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     a.set_timeout(std::chrono::milliseconds(0));
+                     a.SetTimeout(std::chrono::milliseconds(0));
                      auto writer = [&]() -> net::awaitable<void>
                      {
-                         std::array<std::byte, 4> data{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
-                         co_await net::post(a.executor(), net::use_awaitable);
-                         co_await net::post(a.executor(), net::use_awaitable);
+                         std::array<std::byte, 4> Data{std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4}};
+                         co_await net::post(a.Executor(), net::use_awaitable);
+                         co_await net::post(a.Executor(), net::use_awaitable);
                          std::error_code wec;
-                         co_await b.async_write_some(data, wec);
+                         co_await b.AsyncWriteSome(Data, wec);
                      };
-                     net::co_spawn(a.executor(), writer(), net::detached);
+                     net::co_spawn(a.Executor(), writer(), net::detached);
                      std::array<std::byte, 16> buf{};
                      std::error_code ec;
-                     const auto n = co_await a.async_read_some(buf, ec);
+                     const auto n = co_await a.AsyncReadSome(buf, ec);
                      EXPECT_EQ(n, 4u);
                      EXPECT_FALSE(ec);
                  });
@@ -313,32 +313,32 @@ namespace
 
     TEST(Transport, InterfaceTransmissionLike)
     {
-        // transmission 派生类满足扩展 concept（shutdown/set_timeout/is_open）
-        static_assert(preview::transmission_like<preview::memory_stream>);
-        static_assert(preview::transmission_like<preview::transport::reliable>);
+        // Transmission 派生类满足扩展 concept（Shutdown/SetTimeout/IsOpen）
+        static_assert(Preview::TransmissionLike<Preview::MemoryStream>);
+        static_assert(Preview::TransmissionLike<Preview::Transport::Reliable>);
     }
 
     TEST(Transport, InterfaceIsOpen)
     {
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        EXPECT_TRUE(a.is_open());
-        a.close();
-        EXPECT_FALSE(a.is_open());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        EXPECT_TRUE(a.IsOpen());
+        a.Close();
+        EXPECT_FALSE(a.IsOpen());
     }
 
     TEST(Transport, InterfaceShutdownEof)
     {
-        // 通过虚接口多态调用 shutdown：对端读 EOF
+        // 通过虚接口多态调用 Shutdown：对端读 EOF
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        preview::transmission &ref = a;
-        ref.shutdown();
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Preview::Transmission &ref = a;
+        ref.Shutdown();
         std::array<std::uint8_t, 8> buf{};
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     const auto n = co_await b.read_some(buf);
+                     const auto n = co_await b.ReadSome(buf);
                      EXPECT_EQ(n, 0u);
                  });
     }
@@ -347,15 +347,15 @@ namespace
     {
         // 通过基类指针设置超时 → 读超时错误
         net::io_context ioc;
-        auto [a, b] = make_memory_pair(ioc.get_executor());
-        preview::transmission *base = &a;
-        base->set_timeout(std::chrono::milliseconds(20));
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Preview::Transmission *base = &a;
+        base->SetTimeout(std::chrono::milliseconds(20));
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      std::array<std::byte, 8> buf{};
                      std::error_code ec;
-                     const auto n = co_await a.async_read_some(buf, ec);
+                     const auto n = co_await a.AsyncReadSome(buf, ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_EQ(ec, std::make_error_code(std::errc::timed_out));
                  });

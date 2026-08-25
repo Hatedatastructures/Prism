@@ -1,17 +1,17 @@
 /**
  * @file XhttpNgxE2E.cpp
- * @brief XHTTP stream-one 端到端测试（T2-2，preview 自包含实现）
- * @details 模拟 h2 客户端（preview http2）：
+ * @brief XHTTP Stream-one 端到端测试（T2-2，Preview 自包含实现）
+ * @details 模拟 h2 客户端（Preview http2）：
  *          1. TLS 握手（自签证书）
- *          2. h2 SETTINGS + POST / 请求（stream-one）
+ *          2. h2 SETTINGS + POST / 请求（Stream-one）
  *          3. 请求体发送数据 → 服务端响应 200 + echo
  *          4. 客户端验证回显
  * @note 使用自包含 http2 实现（非 nghttp2）
  */
 
-#include <common/protocols/http2/impl.hpp>
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/xhttp/xhttp.hpp>
+#include <common/Protocols/Http2/Impl.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Xhttp/Xhttp.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ssl.hpp>
@@ -29,8 +29,8 @@ namespace
 {
     namespace net = boost::asio;
     namespace ssl = net::ssl;
-    namespace h2 = preview::http2;
-    using namespace preview;
+    namespace h2 = Preview::Http2;
+    using namespace Preview;
 
     void load_self_signed(ssl::context &ctx)
     {
@@ -50,12 +50,12 @@ namespace
         X509_gmtime_adj(X509_get_notBefore(x509), 0);
         X509_gmtime_adj(X509_get_notAfter(x509), 3600 * 24);
 
-        auto *name = X509_NAME_new();
-        X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+        auto *Name = X509_NAME_new();
+        X509_NAME_add_entry_by_txt(Name, "CN", MBSTRING_ASC,
                                    reinterpret_cast<const unsigned char *>("xhttp-test"), -1, -1, 0);
-        X509_set_subject_name(x509, name);
-        X509_set_issuer_name(x509, name);
-        X509_NAME_free(name);
+        X509_set_subject_name(x509, Name);
+        X509_set_issuer_name(x509, Name);
+        X509_NAME_free(Name);
 
         X509_set_pubkey(x509, pkey);
         X509_sign(x509, pkey, EVP_sha256());
@@ -68,44 +68,44 @@ namespace
     }
 
     /// h2 客户端：TLS + SETTINGS + POST + 数据 + echo 验证
-    net::awaitable<void> DoH2Client(shared_transmission raw, ssl::context &client_ctx,
-                                    const std::string &payload, std::shared_ptr<bool> ok)
+    net::awaitable<void> DoH2Client(SharedTransmission raw, ssl::context &client_ctx,
+                                    const std::string &payload, std::shared_ptr<bool> Ok)
     {
-        preview::transport::connector conn(raw);
-        auto stream = std::make_shared<ssl::stream<preview::transport::connector>>(
-            std::move(conn), client_ctx);
+        Preview::Transport::Connector Conn(raw);
+        auto Stream = std::make_shared<ssl::stream<Preview::Transport::Connector>>(
+            std::move(Conn), client_ctx);
         boost::system::error_code ec;
-        co_await stream->async_handshake(ssl::stream_base::client,
+        co_await Stream->async_handshake(ssl::stream_base::client,
                                          net::redirect_error(net::use_awaitable, ec));
         if (ec)
         {
-            *ok = false;
+            *Ok = false;
             co_return;
         }
 
-        auto session = std::make_shared<h2::session_impl>(stream->get_executor(), false);
-        session->send_settings();
+        auto Session = std::make_shared<h2::SessionImpl>(Stream->get_executor(), false);
+        Session->SendSettings();
 
         // POST /
-        h2::header_list headers = {
-            {":method", "POST"},
-            {":path", "/"},
+        h2::HeaderList headers = {
+            {":Method", "POST"},
+            {":Path", "/"},
             {":scheme", "https"},
             {":authority", "example.com"},
         };
-        const auto sid = session->open_stream(headers, false);
+        const auto sid = Session->OpenStream(headers, false);
         if (sid < 0)
         {
-            *ok = false;
+            *Ok = false;
             co_return;
         }
-        session->submit_data(sid, std::span<const std::byte>(
+        Session->SubmitData(sid, std::span<const std::byte>(
                                      reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
                              true);
 
         // 收集并发送
         std::vector<std::byte> wire;
-        session->collect(wire);
+        Session->Collect(wire);
         std::vector<std::byte> received;
 
         auto write_wire = [&]() -> net::awaitable<void>
@@ -116,66 +116,66 @@ namespace
             }
             auto out = std::move(wire);
             wire.clear();
-            co_await stream->async_write_some(net::buffer(out.data(), out.size()),
+            co_await Stream->async_write_some(net::buffer(out.data(), out.size()),
                                               net::redirect_error(net::use_awaitable, ec));
         };
         co_await write_wire();
 
         // 读响应循环
-        session->on_headers = [](std::int32_t, const h2::header_list &hdrs, bool)
+        Session->on_headers = [](std::int32_t, const h2::HeaderList &hdrs, bool)
         {
             for (const auto &h : hdrs)
             {
-                if (h.name == ":status")
+                if (h.Name == ":status")
                 {
                     EXPECT_EQ(h.value, "200");
                 }
             }
         };
-        session->on_data = [&](std::int32_t, std::span<const std::byte> data)
+        Session->on_data = [&](std::int32_t, std::span<const std::byte> Data)
         {
-            received.insert(received.end(), data.begin(), data.end());
+            received.insert(received.end(), Data.begin(), Data.end());
         };
 
         std::array<std::byte, 8192> buf{};
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
         while (received.size() < payload.size() && std::chrono::steady_clock::now() < deadline)
         {
-            const auto n = co_await stream->async_read_some(
+            const auto n = co_await Stream->async_read_some(
                 net::buffer(buf.data(), buf.size()), net::redirect_error(net::use_awaitable, ec));
             if (ec || n == 0)
             {
                 break;
             }
-            if (!session->feed(std::span<const std::byte>(buf.data(), n), ec))
+            if (!Session->Feed(std::span<const std::byte>(buf.data(), n), ec))
             {
                 break;
             }
-            if (session->collect(wire))
+            if (Session->Collect(wire))
             {
                 co_await write_wire();
             }
         }
 
-        *ok = received.size() >= payload.size() &&
+        *Ok = received.size() >= payload.size() &&
               std::string_view(reinterpret_cast<const char *>(received.data()), payload.size()) == payload;
         co_return;
     }
 
-    /// xhttp 服务端：accept + echo
-    net::awaitable<void> DoXhttpServer(shared_transmission raw, ssl::context &server_ctx,
-                                       const std::string &payload, std::shared_ptr<bool> ok)
+    /// xhttp 服务端：Accept + echo
+    net::awaitable<void> DoXhttpServer(SharedTransmission raw, ssl::context &server_ctx,
+                                       const std::string &payload, std::shared_ptr<bool> Ok)
     {
-        preview::xhttp::config cfg;
-        auto trans = co_await preview::xhttp::accept(std::move(raw), server_ctx, cfg);
+        Preview::Xhttp::Config cfg;
+        auto trans = co_await Preview::Xhttp::Accept(std::move(raw), server_ctx, cfg);
         if (!trans)
         {
-            *ok = false;
+            *Ok = false;
             co_return;
         }
         std::array<std::byte, 4096> buf{};
         std::error_code ec;
-        std::size_t total = 0;
+        std::size_t Total = 0;
         while (true)
         {
             const auto n = co_await trans->async_read_some(buf, ec);
@@ -183,20 +183,20 @@ namespace
             {
                 break;
             }
-            total += n;
+            Total += n;
             std::error_code w_ec;
             co_await trans->async_write_some(std::span<const std::byte>(buf.data(), n), w_ec);
             if (w_ec)
             {
-                *ok = false;
+                *Ok = false;
                 co_return;
             }
-            if (total >= payload.size())
+            if (Total >= payload.size())
             {
                 break;
             }
         }
-        *ok = total >= payload.size();
+        *Ok = Total >= payload.size();
         co_return;
     }
 } // namespace
@@ -211,11 +211,11 @@ TEST(XhttpNgxE2E, StreamOneEcho)
     ssl::context client_ctx(ssl::context::tlsv13);
     client_ctx.set_verify_mode(ssl::verify_none);
 
-    auto [a, b] = make_memory_pair(ioc.get_executor());
-    auto sa = std::make_shared<preview::memory_stream>(std::move(a));
-    auto sb = std::make_shared<preview::memory_stream>(std::move(b));
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
-    const std::string payload = "xhttp-stream-one-echo";
+    const std::string payload = "xhttp-Stream-one-echo";
     auto client_ok = std::make_shared<bool>(false);
     auto server_ok = std::make_shared<bool>(false);
 

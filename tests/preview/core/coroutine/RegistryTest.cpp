@@ -2,9 +2,9 @@
  * @file RegistryTest.cpp
  * @brief 协程注册表测试（coroutine/registry）
  * @details 覆盖：
- *          - spawn_tracked 正常完成 → token 释放 + 计数
- *          - 多协程统计计数（spawned/released/active）
- *          - cancel_and_wait 清算路径（cancelled 计数 + 清空）
+ *          - SpawnTracked 正常完成 → token 释放 + 计数
+ *          - 多协程统计计数（spawned/released/Active）
+ *          - CancelAndWait 清算路径（cancelled 计数 + 清空）
  *          - registry 析构解除 token 绑定（不悬垂）
  */
 
@@ -19,7 +19,7 @@
 #include <chrono>
 #include <string>
 
-#include <common/core/coroutine/registry.hpp>
+#include <common/Core/Coroutine/Registry.hpp>
 
 namespace
 {
@@ -29,68 +29,68 @@ namespace
     TEST(TaskRegistry, SpawnTrackedCompletes)
     {
         net::io_context ioc;
-        preview::coroutine::task_registry registry(ioc);
+        Preview::Coroutine::TaskRegistry registry(ioc);
 
         std::atomic<int> ran{0};
-        registry.spawn_tracked("complete", [&]() -> net::awaitable<void>
+        registry.SpawnTracked("complete", [&]() -> net::awaitable<void>
                                { ++ran; co_return; });
         ioc.run();
 
         EXPECT_EQ(ran, 1);
-        const auto s = registry.stats();
-        EXPECT_EQ(s.total_spawned, 1);
-        EXPECT_EQ(s.total_released, 1);
-        EXPECT_EQ(s.active, 0);
+        const auto s = registry.Stats();
+        EXPECT_EQ(s.TotalSpawned, 1);
+        EXPECT_EQ(s.TotalReleased, 1);
+        EXPECT_EQ(s.Active, 0);
     }
 
     TEST(TaskRegistry, StatsCounters)
     {
         net::io_context ioc;
-        preview::coroutine::task_registry registry(ioc);
+        Preview::Coroutine::TaskRegistry registry(ioc);
 
         for (int i = 0; i < 5; ++i)
         {
-            registry.spawn_tracked("task-" + std::to_string(i),
+            registry.SpawnTracked("task-" + std::to_string(i),
                                    [i]() -> net::awaitable<void>
                                    {
                                        (void)i;
                                        co_return;
                                    });
         }
-        EXPECT_EQ(registry.stats().total_spawned, 5);
-        EXPECT_EQ(registry.stats().active, 5); // run 前活跃
+        EXPECT_EQ(registry.Stats().TotalSpawned, 5);
+        EXPECT_EQ(registry.Stats().Active, 5); // Run 前活跃
 
         ioc.run();
-        const auto s = registry.stats();
-        EXPECT_EQ(s.total_spawned, 5);
-        EXPECT_EQ(s.total_released, 5);
-        EXPECT_EQ(s.active, 0);
+        const auto s = registry.Stats();
+        EXPECT_EQ(s.TotalSpawned, 5);
+        EXPECT_EQ(s.TotalReleased, 5);
+        EXPECT_EQ(s.Active, 0);
     }
 
     TEST(TaskRegistry, CancelAndWaitCleans)
     {
         net::io_context ioc;
-        preview::coroutine::task_registry registry(ioc);
+        Preview::Coroutine::TaskRegistry registry(ioc);
 
-        // 未 run 的协程：token 残留 → cancel_and_wait 清算
-        registry.spawn_tracked("pending", []() -> net::awaitable<void>
+        // 未 Run 的协程：token 残留 → CancelAndWait 清算
+        registry.SpawnTracked("pending", []() -> net::awaitable<void>
                                { co_return; });
-        registry.spawn_tracked("pending2", []() -> net::awaitable<void>
+        registry.SpawnTracked("pending2", []() -> net::awaitable<void>
                                { co_return; });
 
-        EXPECT_TRUE(registry.cancel_and_wait());
-        const auto s = registry.stats();
-        EXPECT_EQ(s.total_spawned, 2);
-        EXPECT_EQ(s.total_cancelled, 2);
-        EXPECT_EQ(s.active, 0);
+        EXPECT_TRUE(registry.CancelAndWait());
+        const auto s = registry.Stats();
+        EXPECT_EQ(s.TotalSpawned, 2);
+        EXPECT_EQ(s.TotalCancelled, 2);
+        EXPECT_EQ(s.Active, 0);
     }
 
     TEST(TaskRegistry, DestroyDetachesTokens)
     {
         net::io_context ioc;
         {
-            preview::coroutine::task_registry registry(ioc);
-            registry.spawn_tracked("orphan", []() -> net::awaitable<void>
+            Preview::Coroutine::TaskRegistry registry(ioc);
+            registry.SpawnTracked("orphan", []() -> net::awaitable<void>
                                    { co_return; });
         } // 析构：解除 token 绑定，无悬垂（不崩溃即通过）
         ioc.run();
@@ -100,29 +100,29 @@ namespace
     TEST(TaskRegistry, MixedCompleteAndPending)
     {
         net::io_context ioc;
-        preview::coroutine::task_registry registry(ioc);
+        Preview::Coroutine::TaskRegistry registry(ioc);
 
         std::atomic<int> ran{0};
-        registry.spawn_tracked("done", [&]() -> net::awaitable<void>
+        registry.SpawnTracked("Done", [&]() -> net::awaitable<void>
                                { ++ran; co_return; });
-        // pending：挂起在超长 timer 上（run 后 token 仍活跃；析构安全）
-        registry.spawn_tracked("pending", [&]() -> net::awaitable<void>
+        // pending：挂起在超长 timer 上（Run 后 token 仍活跃；析构安全）
+        registry.SpawnTracked("pending", [&]() -> net::awaitable<void>
                                {
             net::steady_timer t(ioc);
             t.expires_after(std::chrono::hours(24));
             co_await t.async_wait(net::use_awaitable);
         });
 
-        // 驱动 100ms：done 完成，pending 仍挂起（run_for 保证返回）
+        // 驱动 100ms：Done 完成，pending 仍挂起（run_for 保证返回）
         ioc.run_for(std::chrono::milliseconds(100));
         EXPECT_EQ(ran, 1);
-        EXPECT_EQ(registry.stats().total_released, 1);
-        EXPECT_EQ(registry.stats().active, 1);
+        EXPECT_EQ(registry.Stats().TotalReleased, 1);
+        EXPECT_EQ(registry.Stats().Active, 1);
 
         // 清算残留
-        EXPECT_TRUE(registry.cancel_and_wait());
-        EXPECT_EQ(registry.stats().total_cancelled, 1);
-        EXPECT_EQ(registry.stats().active, 0);
+        EXPECT_TRUE(registry.CancelAndWait());
+        EXPECT_EQ(registry.Stats().TotalCancelled, 1);
+        EXPECT_EQ(registry.Stats().Active, 0);
     }
 
 } // namespace

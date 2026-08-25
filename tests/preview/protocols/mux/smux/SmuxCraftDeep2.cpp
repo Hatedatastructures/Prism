@@ -53,7 +53,7 @@ namespace
         CraftFixture()
         {
             transport = std::make_shared<MockTransport>();
-            auto &ioc = transport->get_io_context();
+            auto &ioc = transport->GetIoContext();
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
@@ -64,7 +64,7 @@ namespace
 
         auto &ioc()
         {
-            return transport->get_io_context();
+            return transport->GetIoContext();
         }
 
         // 用 poll_one 循环代替 run()，避免 io_context 永久调度（连接池定时器等）

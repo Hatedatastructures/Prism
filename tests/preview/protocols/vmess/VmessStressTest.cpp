@@ -4,9 +4,9 @@
  * @details 生产级压力验证：
  * 1. 200 次连接循环（每次新 ioc + 内存对，AEAD 握手 + 回显，计数验证）
  * 2. 16 并发连接握手（全 co_spawn 到同一 ioc，客户端逻辑内联）
- * 3. 2MB 数据传输（64KB 分块，conn 内部 16KB AEAD chunk 分片，服务端累积计数校验）
- * @note 使用 vmess::accept/connect 工厂（AEAD 认证头握手在工厂内部完成），
- *       VMess 数据面为 chunk 加解密，分块读写由 conn 内部完成。
+ * 3. 2MB 数据传输（64KB 分块，Conn 内部 16KB AEAD chunk 分片，服务端累积计数校验）
+ * @note 使用 Vmess::Accept/Connect 工厂（AEAD 认证头握手在工厂内部完成），
+ *       VMess 数据面为 chunk 加解密，分块读写由 Conn 内部完成。
  */
 
 #include <boost/asio/co_spawn.hpp>
@@ -21,13 +21,13 @@
 #include <string>
 #include <vector>
 
-#include <common/core/transport/memory_stream.hpp>
-#include <common/protocols/vmess/vmess.hpp>
+#include <common/Core/Transport/MemoryStream.hpp>
+#include <common/Protocols/Vmess/Vmess.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace preview;
+    using namespace Preview;
     namespace net = boost::asio;
 
     /// 运行协程直至完成（异常重抛）
@@ -60,27 +60,27 @@ namespace
     }
 
     /// 构造 vmess 目标地址
-    auto make_addr(vmess::address_type type, std::string host, std::uint16_t port)
-        -> vmess::address
+    auto make_addr(Vmess::AddressType Type, std::string host, std::uint16_t port)
+        -> Vmess::Address
     {
-        vmess::address addr{};
-        addr.type = type;
-        addr.host = std::move(host);
-        addr.port = port;
+        Vmess::Address addr{};
+        addr.Type = Type;
+        addr.Host = std::move(host);
+        addr.Port = port;
         return addr;
     }
 
-    /// 服务端：accept（AEAD 握手）+ 回显
-    auto server_echo(net::io_context &ioc, memory_stream b) -> void
+    /// 服务端：Accept（AEAD 握手）+ 回显
+    auto server_echo(net::io_context &ioc, MemoryStream b) -> void
     {
         net::co_spawn(ioc.get_executor(),
                       [b = std::move(b)]() mutable -> net::awaitable<void>
                       {
-                          vmess::server_config cfg;
+                          Vmess::ServerConfig cfg;
                           cfg.uuid = test_uuid();
-                          auto [err, req, conn] =
-                              co_await vmess::accept(std::make_shared<memory_stream>(std::move(b)), cfg);
-                          if (err != error::none || !conn)
+                          auto [err, req, Conn] =
+                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
+                          if (err != Error::none || !Conn)
                           {
                               co_return;
                           }
@@ -88,37 +88,37 @@ namespace
                           std::error_code ec;
                           while (true)
                           {
-                              const auto n = co_await conn->async_read_some(buf, ec);
+                              const auto n = co_await Conn->AsyncReadSome(buf, ec);
                               if (ec || n == 0)
                               {
                                   break;
                               }
-                              co_await conn->async_write_some(
+                              co_await Conn->AsyncWriteSome(
                                   std::span<const std::byte>(buf.data(), n), ec);
                           }
-                          conn->close();
+                          Conn->Close();
                       },
                       net::detached);
     }
 
-    /// 客户端：工厂 connect（AEAD 握手）+ 回显往返
-    auto client_roundtrip(net::io_context &ioc, memory_stream a, const std::string &payload) -> bool
+    /// 客户端：工厂 Connect（AEAD 握手）+ 回显往返
+    auto client_roundtrip(net::io_context &ioc, MemoryStream a, const std::string &payload) -> bool
     {
-        bool ok = false;
+        bool Ok = false;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     vmess::client_config cfg;
+                     Vmess::ClientConfig cfg;
                      cfg.uuid = test_uuid();
-                     auto [herr, cli] = co_await vmess::connect(
-                         std::make_shared<memory_stream>(std::move(a)), cfg,
-                         make_addr(vmess::address_type::domain, "example.com", 443));
-                     if (herr != error::none || !cli)
+                     auto [herr, cli] = co_await Vmess::Connect(
+                         std::make_shared<MemoryStream>(std::move(a)), cfg,
+                         make_addr(Vmess::AddressType::Domain, "example.com", 443));
+                     if (herr != Error::none || !cli)
                      {
                          co_return;
                      }
                      std::error_code ec;
-                     co_await cli->async_write_some(
+                     co_await cli->AsyncWriteSome(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
@@ -126,7 +126,7 @@ namespace
                      std::size_t got = 0;
                      while (got < payload.size())
                      {
-                         const auto n = co_await cli->async_read_some(
+                         const auto n = co_await cli->AsyncReadSome(
                              std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
                          if (ec || n == 0)
                          {
@@ -134,10 +134,10 @@ namespace
                          }
                          got += n;
                      }
-                     ok = (got == payload.size());
-                     cli->close();
+                     Ok = (got == payload.size());
+                     cli->Close();
                  });
-        return ok;
+        return Ok;
     }
 
     // ── 1. 200 次连接循环泄漏检测 ──
@@ -150,7 +150,7 @@ namespace
         for (int i = 0; i < kRounds; ++i)
         {
             net::io_context ioc;
-            auto [a, b] = make_memory_pair(ioc.get_executor());
+            auto [a, b] = MakeMemoryPair(ioc.get_executor());
             server_echo(ioc, std::move(b));
             if (client_roundtrip(ioc, std::move(a), payload))
             {
@@ -169,26 +169,26 @@ namespace
         const std::string payload = "concurrent-payload";
         for (int i = 0; i < 16; ++i)
         {
-            auto [a, b] = make_memory_pair(ioc.get_executor());
+            auto [a, b] = MakeMemoryPair(ioc.get_executor());
             net::co_spawn(
                 ioc.get_executor(),
                 [b = std::move(b)]() mutable -> net::awaitable<void>
                 {
-                    vmess::server_config cfg;
+                    Vmess::ServerConfig cfg;
                     cfg.uuid = test_uuid();
-                    auto [err, req, conn] =
-                        co_await vmess::accept(std::make_shared<memory_stream>(std::move(b)), cfg);
-                    if (err == error::none && conn)
+                    auto [err, req, Conn] =
+                        co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
+                    if (err == Error::none && Conn)
                     {
                         std::array<std::byte, 128> buf{};
                         std::error_code ec;
-                        const auto n = co_await conn->async_read_some(buf, ec);
+                        const auto n = co_await Conn->AsyncReadSome(buf, ec);
                         if (!ec && n > 0)
                         {
-                            co_await conn->async_write_some(
+                            co_await Conn->AsyncWriteSome(
                                 std::span<const std::byte>(buf.data(), n), ec);
                         }
-                        conn->close();
+                        Conn->Close();
                     }
                 },
                 net::detached);
@@ -196,15 +196,15 @@ namespace
                 ioc.get_executor(),
                 [&, a = std::move(a), payload]() mutable -> net::awaitable<void>
                 {
-                    vmess::client_config cfg;
+                    Vmess::ClientConfig cfg;
                     cfg.uuid = test_uuid();
-                    auto [herr, cli] = co_await vmess::connect(
-                        std::make_shared<memory_stream>(std::move(a)), cfg,
-                        make_addr(vmess::address_type::domain, "example.com", 443));
-                    if (herr == error::none && cli)
+                    auto [herr, cli] = co_await Vmess::Connect(
+                        std::make_shared<MemoryStream>(std::move(a)), cfg,
+                        make_addr(Vmess::AddressType::Domain, "example.com", 443));
+                    if (herr == Error::none && cli)
                     {
                         std::error_code ec;
-                        co_await cli->async_write_some(
+                        co_await cli->AsyncWriteSome(
                             std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                        payload.size()),
                             ec);
@@ -212,7 +212,7 @@ namespace
                         std::size_t got = 0;
                         while (got < payload.size())
                         {
-                            const auto n = co_await cli->async_read_some(
+                            const auto n = co_await cli->AsyncReadSome(
                                 std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
                             if (ec || n == 0)
                             {
@@ -224,7 +224,7 @@ namespace
                         {
                             success.fetch_add(1);
                         }
-                        cli->close();
+                        cli->Close();
                     }
                 },
                 net::detached);
@@ -248,48 +248,48 @@ namespace
         constexpr std::size_t kTotal = 2 * 1024 * 1024;
         constexpr std::size_t kChunk = 64 * 1024;
 
-        auto [a, b] = make_memory_pair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
         // 服务端：接受 + 统计接收字节
         std::atomic<std::size_t> received{0};
         net::co_spawn(
             ioc.get_executor(),
             [b = std::move(b), &received]() mutable -> net::awaitable<void>
             {
-                vmess::server_config cfg;
+                Vmess::ServerConfig cfg;
                 cfg.uuid = test_uuid();
-                auto [err, req, conn] =
-                    co_await vmess::accept(std::make_shared<memory_stream>(std::move(b)), cfg);
-                if (err != error::none || !conn)
+                auto [err, req, Conn] =
+                    co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
+                if (err != Error::none || !Conn)
                 {
                     co_return;
                 }
                 std::array<std::byte, kChunk> buf{};
                 std::error_code ec;
-                std::size_t total = 0;
-                while (total < kTotal)
+                std::size_t Total = 0;
+                while (Total < kTotal)
                 {
-                    const auto n = co_await conn->async_read_some(buf, ec);
+                    const auto n = co_await Conn->AsyncReadSome(buf, ec);
                     if (ec || n == 0)
                     {
                         break;
                     }
-                    total += n;
+                    Total += n;
                 }
-                received.store(total);
-                conn->close();
+                received.store(Total);
+                Conn->Close();
             },
             net::detached);
 
-        // 客户端：工厂 connect（AEAD 握手）+ 发送 2MB
+        // 客户端：工厂 Connect（AEAD 握手）+ 发送 2MB
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     vmess::client_config cfg;
+                     Vmess::ClientConfig cfg;
                      cfg.uuid = test_uuid();
-                     auto [herr, cli] = co_await vmess::connect(
-                         std::make_shared<memory_stream>(std::move(a)), cfg,
-                         make_addr(vmess::address_type::domain, "example.com", 443));
-                     if (herr != error::none || !cli)
+                     auto [herr, cli] = co_await Vmess::Connect(
+                         std::make_shared<MemoryStream>(std::move(a)), cfg,
+                         make_addr(Vmess::AddressType::Domain, "example.com", 443));
+                     if (herr != Error::none || !cli)
                      {
                          co_return;
                      }
@@ -297,13 +297,13 @@ namespace
                      std::error_code ec;
                      for (std::size_t sent = 0; sent < kTotal; sent += kChunk)
                      {
-                         co_await cli->async_write_some(std::span<const std::byte>(chunk), ec);
+                         co_await cli->AsyncWriteSome(std::span<const std::byte>(chunk), ec);
                          if (ec)
                          {
                              break;
                          }
                      }
-                     cli->close();
+                     cli->Close();
                  });
         EXPECT_EQ(received.load(), kTotal);
     }

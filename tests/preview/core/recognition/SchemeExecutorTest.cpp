@@ -11,40 +11,40 @@
 
 #include <memory>
 
-#include <common/core/recognition/scheme_executor.hpp>
-#include <common/core/transmission.hpp>
+#include <common/Core/Recognition/SchemeExecutor.hpp>
+#include <common/Core/Transmission.hpp>
 
 namespace
 {
 
     namespace net = boost::asio;
-    using namespace preview;
-    using namespace preview::recognition;
+    using namespace Preview;
+    using namespace Preview::Recognition;
 
-    struct fake_tx final : transmission
+    struct fake_tx final : Transmission
     {
         explicit fake_tx(net::any_io_executor ex) : ex_(ex) {}
-        [[nodiscard]] auto executor() const -> executor_type override { return ex_; }
-        [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
-        [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
-        void close() override {}
-        void cancel() override {}
+        [[nodiscard]] auto Executor() const -> ExecutorType override { return ex_; }
+        [[nodiscard]] auto AsyncReadSome(std::span<std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
+        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
+        void Close() override {}
+        void Cancel() override {}
         net::any_io_executor ex_;
     };
 
-    class decorator final : public transmission
+    class decorator final : public Transmission
     {
     public:
-        explicit decorator(shared_transmission inner) : inner_(std::move(inner)) {}
-        [[nodiscard]] auto executor() const -> executor_type override { return inner_->executor(); }
-        [[nodiscard]] auto async_read_some(std::span<std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override { co_return co_await inner_->async_read_some(b, ec); }
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override { co_return co_await inner_->async_write_some(b, ec); }
-        void close() override { inner_->close(); }
-        void cancel() override { inner_->cancel(); }
-        [[nodiscard]] auto next_layer() noexcept -> transmission* override { return inner_.get(); }
+        explicit decorator(SharedTransmission Inner) : inner_(std::move(Inner)) {}
+        [[nodiscard]] auto Executor() const -> ExecutorType override { return inner_->Executor(); }
+        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override { co_return co_await inner_->AsyncReadSome(b, ec); }
+        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override { co_return co_await inner_->AsyncWriteSome(b, ec); }
+        void Close() override { inner_->Close(); }
+        void Cancel() override { inner_->Cancel(); }
+        [[nodiscard]] auto NextLayer() noexcept -> Transmission* override { return inner_.get(); }
         bool wrapped{true};
     private:
-        shared_transmission inner_;
+        SharedTransmission inner_;
     };
 
     auto run_coro(net::io_context &ioc, auto coro)
@@ -58,22 +58,22 @@ namespace
     TEST(SchemeExecutor, RegisterAndExecute)
     {
         net::io_context ioc;
-        scheme_executor exec;
+        SchemeExecutor exec;
         bool called = false;
-        exec.register_scheme("anytls", [&](shared_transmission inbound) -> net::awaitable<shared_transmission>
+        exec.RegisterScheme("anytls", [&](SharedTransmission inbound) -> net::awaitable<SharedTransmission>
         {
             called = true;
             co_return std::make_shared<decorator>(std::move(inbound));
         });
-        EXPECT_TRUE(exec.has("anytls"));
-        EXPECT_EQ(exec.size(), 1u);
-        EXPECT_FALSE(exec.register_scheme("anytls", [](shared_transmission in) -> net::awaitable<shared_transmission> { co_return in; }));
+        EXPECT_TRUE(exec.Has("anytls"));
+        EXPECT_EQ(exec.Size(), 1u);
+        EXPECT_FALSE(exec.RegisterScheme("anytls", [](SharedTransmission in) -> net::awaitable<SharedTransmission> { co_return in; }));
 
         bool wrapped = false;
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            auto inner = std::make_shared<fake_tx>(ioc.get_executor());
-            auto out = co_await exec.execute("anytls", inner);
+            auto Inner = std::make_shared<fake_tx>(ioc.get_executor());
+            auto out = co_await exec.Execute("anytls", Inner);
             auto dec = std::dynamic_pointer_cast<decorator>(out);
             wrapped = dec && dec->wrapped;
         });
@@ -84,29 +84,29 @@ namespace
     TEST(SchemeExecutor, EmptySchemePassthrough)
     {
         net::io_context ioc;
-        scheme_executor exec;
-        exec.register_scheme("reality", [](shared_transmission in) -> net::awaitable<shared_transmission> { co_return in; });
+        SchemeExecutor exec;
+        exec.RegisterScheme("reality", [](SharedTransmission in) -> net::awaitable<SharedTransmission> { co_return in; });
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
-            auto inner = std::make_shared<fake_tx>(ioc.get_executor());
-            auto out = co_await exec.execute("", inner);
-            EXPECT_EQ(out.get(), inner.get());
-            auto out2 = co_await exec.execute("unknown", inner);
-            EXPECT_EQ(out2.get(), inner.get());
+            auto Inner = std::make_shared<fake_tx>(ioc.get_executor());
+            auto out = co_await exec.Execute("", Inner);
+            EXPECT_EQ(out.get(), Inner.get());
+            auto out2 = co_await exec.Execute("unknown", Inner);
+            EXPECT_EQ(out2.get(), Inner.get());
         });
     }
 
     TEST(SchemeExecutor, MultipleSchemes)
     {
-        scheme_executor exec;
-        exec.register_scheme("shadowtls", [](shared_transmission in) -> net::awaitable<shared_transmission> { co_return in; });
-        exec.register_scheme("restls", [](shared_transmission in) -> net::awaitable<shared_transmission> { co_return in; });
-        exec.register_scheme("ws", [](shared_transmission in) -> net::awaitable<shared_transmission> { co_return in; });
-        EXPECT_EQ(exec.size(), 3u);
-        EXPECT_TRUE(exec.has("shadowtls"));
-        EXPECT_TRUE(exec.has("restls"));
-        EXPECT_TRUE(exec.has("ws"));
-        EXPECT_FALSE(exec.has("anytls"));
+        SchemeExecutor exec;
+        exec.RegisterScheme("shadowtls", [](SharedTransmission in) -> net::awaitable<SharedTransmission> { co_return in; });
+        exec.RegisterScheme("restls", [](SharedTransmission in) -> net::awaitable<SharedTransmission> { co_return in; });
+        exec.RegisterScheme("ws", [](SharedTransmission in) -> net::awaitable<SharedTransmission> { co_return in; });
+        EXPECT_EQ(exec.Size(), 3u);
+        EXPECT_TRUE(exec.Has("shadowtls"));
+        EXPECT_TRUE(exec.Has("restls"));
+        EXPECT_TRUE(exec.Has("ws"));
+        EXPECT_FALSE(exec.Has("anytls"));
     }
 
 } // namespace
