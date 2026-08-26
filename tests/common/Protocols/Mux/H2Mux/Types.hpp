@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief sing-mux（h2mux）协议基础类型
  * @details sing-mux 是 sing-box 的多路复用协议，9 字节定长帧头
  *          （对齐 sing-box singmux Frame）：
@@ -21,9 +21,9 @@ namespace Preview::Mux::H2Mux
         /// 数据帧
         Data = 0,
         /// 窗口更新
-        window_update = 1,
+        WindowUpdate = 1,
         /// 心跳
-        ping = 2,
+        Ping = 2,
         /// 关闭流
         Close = 3,
     };

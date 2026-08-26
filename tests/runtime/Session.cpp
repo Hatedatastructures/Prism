@@ -106,10 +106,10 @@ namespace
             co_return;
         }
         // 将裸 socket 包装为 reliable 传输层，提供统一的读写接口
-        auto inbound = psm::transport::make_reliable(std::move(socket));
+        auto Inbound = psm::transport::make_reliable(std::move(socket));
 
         // 组装会话参数：服务端上下文、工作线程上下文、入站传输层
-        agent::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
+        agent::session::session_params params{server_ctx, worker_ctx, std::move(Inbound)};
         // 创建会话实例并启动代理生命周期（嗅探、分发、转发）
         auto session_ptr = agent::session::make_session(std::move(params));
         session_ptr->start();
@@ -565,15 +565,15 @@ namespace
             psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
         // 创建 SSL 上下文，测试中跳过证书验证
-        auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
-        ssl_ctx->set_verify_mode(ssl::verify_none);
+        auto SslCtx = std::make_shared<ssl::context>(ssl::context::tlsv12);
+        SslCtx->set_verify_mode(ssl::verify_none);
 
         // 构造服务端上下文：配置、SSL、账户存储
         psm::settings cfg;
         auto account_store = std::make_shared<psm::user::directory>(psm::memory::system::global_pool());
         psm::resource::process server_ctx{
             std::atomic<std::shared_ptr<const psm::settings>>{std::make_shared<const psm::settings>(cfg)},
-            ssl_ctx, account_store};
+            SslCtx, account_store};
 
         // 构造工作线程上下文：io_context、DNS 路由、线程本地内存池
         auto mr = psm::memory::system::local_pool();

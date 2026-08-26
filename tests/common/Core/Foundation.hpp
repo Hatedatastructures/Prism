@@ -1,5 +1,5 @@
 /**
- * @file foundation.hpp
+ * @file Foundation.hpp
  * @brief Core 模块聚合头文件
  * @details 聚合引入基础设施三子模块：
  *   - memory：基于 PMR 的高性能内存管理（容器别名、全局/线程局部内存池、帧竞技场）

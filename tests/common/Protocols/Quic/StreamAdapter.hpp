@@ -95,7 +95,7 @@ namespace Preview::Quic
          * @param provider 流提供者（所有权移交）
          */
         StreamAdapter(net::any_io_executor ex, SharedStreamProvider provider)
-            : ex_(std::move(ex)), provider_(std::move(provider))
+            : Ex_(std::move(ex)), Provider_(std::move(provider))
         {
         }
 
@@ -104,35 +104,35 @@ namespace Preview::Quic
          */
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
         /**
          * @brief 异步读取（委托提供者）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!provider_)
+            if (!Provider_)
             {
                 ec = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await provider_->Read(Buffer, ec);
+            co_return co_await Provider_->Read(Buffer, ec);
         }
 
         /**
          * @brief 异步写入（委托提供者）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!provider_)
+            if (!Provider_)
             {
                 ec = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await provider_->Write(Buffer, ec);
+            co_return co_await Provider_->Write(Buffer, ec);
         }
 
         /**
@@ -140,9 +140,9 @@ namespace Preview::Quic
          */
         void Close() override
         {
-            if (provider_)
+            if (Provider_)
             {
-                provider_->Close();
+                Provider_->Close();
             }
         }
 
@@ -162,8 +162,8 @@ namespace Preview::Quic
         }
 
     private:
-        net::any_io_executor ex_;           ///< 执行器
-        SharedStreamProvider provider_;   ///< 流提供者（独占所有权）
+        net::any_io_executor Ex_;           ///< 执行器
+        SharedStreamProvider Provider_;   ///< 流提供者（独占所有权）
     };
 
     /// 适配器共享指针

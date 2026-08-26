@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief Native 伪装方案类型定义
  * @details Native 是原生 TLS 兜底方案：服务端完成 TLS 握手后
  *          直通（传输透明，无内层协议伪装）。配置为空结构，

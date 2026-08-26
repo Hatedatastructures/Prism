@@ -42,17 +42,17 @@ namespace
         // ipv4 数据不足
         EXPECT_EQ(Hysteria2::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x01, 8, 8})), addr,
                                            consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // ipv6 数据不足
         EXPECT_EQ(Hysteria2::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x03, 1})), addr,
                                            consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // ipv6 成功
         std::vector<std::uint8_t> v6{0x03};
         v6.insert(v6.end(), 16, 0x42);
         v6.push_back(0x00);
         v6.push_back(0x50);
-        EXPECT_EQ(Hysteria2::ParseAddress(v6, addr, consumed), Error::none);
+        EXPECT_EQ(Hysteria2::ParseAddress(v6, addr, consumed), Error::None);
         EXPECT_EQ(addr.Type, Hysteria2::AddressType::Ipv6);
         EXPECT_EQ(addr.Host, std::string(16, '\x42'));
         EXPECT_EQ(addr.Port, 80u);
@@ -70,7 +70,7 @@ namespace
         Hysteria2::Parser p;
         std::error_code ec;
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x01, 0x01, 8})), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::need_more));
+        EXPECT_EQ(ec, make_error_code(Error::NeedMore));
         p.Reset();
         // 成功解析（ipv4）
         std::vector<std::uint8_t> Ok{0x01, 0x01, 8, 8, 8, 8, 0x00, 0x35, 'x'};
@@ -82,17 +82,17 @@ namespace
     TEST(AnyTlsCodecDeep, ParseAuthFrameShort)
     {
         std::array<std::uint8_t, 32> Hash{};
-        std::uint16_t pad_len = 0;
+        std::uint16_t PadLen = 0;
         // 帧头不足
-        EXPECT_EQ(Anytls::ParseAuthFrame(std::span<const std::uint8_t>(make_bytes({0x01})), Hash, pad_len),
-                  Error::bad_length);
+        EXPECT_EQ(Anytls::ParseAuthFrame(std::span<const std::uint8_t>(make_bytes({0x01})), Hash, PadLen),
+                  Error::BadLength);
         // 头长足够但 padding 不足
         std::vector<std::uint8_t> short_pad(34, 0);
-        short_pad[32] = 0x01; // pad_len = 256
-        EXPECT_EQ(Anytls::ParseAuthFrame(short_pad, Hash, pad_len), Error::bad_length);
+        short_pad[32] = 0x01; // PadLen = 256
+        EXPECT_EQ(Anytls::ParseAuthFrame(short_pad, Hash, PadLen), Error::BadLength);
         // 成功
         std::vector<std::uint8_t> Ok(34 + 5, 0);
-        EXPECT_EQ(Anytls::ParseAuthFrame(Ok, Hash, pad_len), Error::none);
+        EXPECT_EQ(Anytls::ParseAuthFrame(Ok, Hash, PadLen), Error::None);
     }
 
     TEST(RealityCodecDeep, Base64UrlBranches)

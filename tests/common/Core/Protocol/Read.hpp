@@ -28,31 +28,31 @@ namespace Preview::Protocol::Common
      * @brief 批量读取至少指定数量的字节
      * @param transport 传输层引用
      * @param Buffer 输出缓冲区
-     * @param min_size 最小读取字节数
+     * @param MinSize 最小读取字节数
      * @return 协程对象，完成后返回错误码和实际读取字节数
-     * @details 循环调用 AsyncReadSome 直到读取至少 min_size 字节。
+     * @details 循环调用 async_read_some 直到读取至少 MinSize 字节。
      * 遇到错误或 EOF 时提前返回，返回已读取的字节数和对应的错误码。
      */
     [[nodiscard]] inline auto ReadMin(Transport::Transmission &transport, std::span<std::byte> Buffer,
-                                       const std::size_t min_size)
+                                       const std::size_t MinSize)
         -> net::awaitable<std::pair<Fault::Code, std::size_t>>
     {
         std::size_t Total = 0;
-        while (Total < min_size)
+        while (Total < MinSize)
         {
             std::error_code ec;
-            const auto n = co_await transport.AsyncReadSome(Buffer.subspan(Total), ec);
+            const auto N = co_await transport.async_read_some(Buffer.subspan(Total), ec);
             if (ec)
             {
                 co_return std::pair{Fault::ToCode(ec), Total};
             }
-            if (n == 0)
+            if (N == 0)
             {
-                co_return std::pair{Fault::Code::eof, Total};
+                co_return std::pair{Fault::Code::Eof, Total};
             }
-            Total += n;
+            Total += N;
         }
-        co_return std::pair{Fault::Code::success, Total};
+        co_return std::pair{Fault::Code::Success, Total};
     }
 
     /**
@@ -82,17 +82,17 @@ namespace Preview::Protocol::Common
         while (opts.current < opts.Target)
         {
             std::error_code ec;
-            const auto n = co_await opts.transport.AsyncReadSome(opts.Buffer.subspan(opts.current), ec);
+            const auto N = co_await opts.transport.async_read_some(opts.Buffer.subspan(opts.current), ec);
             if (ec)
             {
                 co_return std::pair{Fault::ToCode(ec), opts.current};
             }
-            if (n == 0)
+            if (N == 0)
             {
-                co_return std::pair{Fault::Code::eof, opts.current};
+                co_return std::pair{Fault::Code::Eof, opts.current};
             }
-            opts.current += n;
+            opts.current += N;
         }
-        co_return std::pair{Fault::Code::success, opts.current};
+        co_return std::pair{Fault::Code::Success, opts.current};
     }
 } // namespace Preview::Protocol::Common

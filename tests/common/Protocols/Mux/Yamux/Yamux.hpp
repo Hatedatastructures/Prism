@@ -1,5 +1,5 @@
 /**
- * @file yamux.hpp
+ * @file Yamux.hpp
  * @brief yamux 协议聚合头（re-export 子头）
  * @details 统一引入 yamux 族全部子头并导出工厂函数：
  * - types.hpp：常量与帧头结构

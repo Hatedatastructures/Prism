@@ -67,65 +67,65 @@ namespace Preview::Xhttp
          * @param WriteFn 写回调（提交 DATA 帧）
          */
         explicit XhttpTransport(net::any_io_executor ex, WriteCb WriteFn)
-            : ex_(std::move(ex)), WriteFn_(std::move(WriteFn)), notify_(ex_, 64)
+            : Ex_(std::move(ex)), WriteFn_(std::move(WriteFn)), Notify_(Ex_, 64)
         {
         }
 
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             while (RxOffset_ >= RxCurrent_.size())
             {
-                if (closed_)
+                if (Closed_)
                 {
                     ec = std::make_error_code(std::errc::not_connected);
                     co_return 0;
                 }
-                if (eof_)
+                if (Eof_)
                 {
-                    ec = make_error_code(Error::unexpected_eof);
+                    ec = make_error_code(Error::UnexpectedEof);
                     co_return 0;
                 }
-                if (EofPending_ && !notify_.ready())
+                if (EofPending_ && !Notify_.ready())
                 {
                     EofPending_ = false;
-                    eof_ = true;
+                    Eof_ = true;
                     ec.clear();
                     co_return 0;
                 }
                 boost::system::error_code ChEc;
-                auto block = co_await notify_.async_receive(
+                auto Block = co_await Notify_.async_receive(
                     net::redirect_error(net::use_awaitable, ChEc));
                 if (ChEc)
                 {
                     ec = std::make_error_code(std::errc::not_connected);
                     co_return 0;
                 }
-                if (block.empty())
+                if (Block.empty())
                 {
-                    eof_ = true;
+                    Eof_ = true;
                     ec.clear();
                     co_return 0;
                 }
-                RxCurrent_ = std::move(block);
+                RxCurrent_ = std::move(Block);
                 RxOffset_ = 0;
             }
-            const auto n = std::min(Buffer.size(), RxCurrent_.size() - RxOffset_);
-            std::memcpy(Buffer.data(), RxCurrent_.data() + RxOffset_, n);
-            RxOffset_ += n;
+            const auto N = std::min(Buffer.size(), RxCurrent_.size() - RxOffset_);
+            std::memcpy(Buffer.data(), RxCurrent_.data() + RxOffset_, N);
+            RxOffset_ += N;
             ec.clear();
-            co_return n;
+            co_return N;
         }
 
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (closed_ || !WriteFn_)
+            if (Closed_ || !WriteFn_)
             {
                 ec = std::make_error_code(std::errc::not_connected);
                 co_return 0;
@@ -145,14 +145,14 @@ namespace Preview::Xhttp
 
         void Close() override
         {
-            closed_ = true;
-            notify_.cancel();
+            Closed_ = true;
+            Notify_.cancel();
         }
 
         void Cancel() override
         {
-            closed_ = true;
-            notify_.cancel();
+            Closed_ = true;
+            Notify_.cancel();
         }
 
         [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
@@ -171,12 +171,12 @@ namespace Preview::Xhttp
          */
         void Push(std::span<const std::byte> Data)
         {
-            if (closed_ || Data.empty())
+            if (Closed_ || Data.empty())
             {
                 return;
             }
-            std::vector<std::byte> copy(Data.begin(), Data.end(), Preview::Memory::CurrentResource());
-            if (!notify_.try_send(boost::system::error_code{}, std::move(copy)))
+            std::vector<std::byte> copy(Data.begin(), Data.end());
+            if (!Notify_.try_send(boost::system::error_code{}, std::move(copy)))
             {
                 Diagnose::Error("xhttp receive channel full; closing Stream");
                 Close();
@@ -188,10 +188,10 @@ namespace Preview::Xhttp
          */
         void NotifyEof()
         {
-            if (!closed_ && !eof_ && !EofPending_)
+            if (!Closed_ && !Eof_ && !EofPending_)
             {
-                if (!notify_.try_send(boost::system::error_code{},
-                                      std::vector<std::byte>(Preview::Memory::CurrentResource())))
+                if (!Notify_.try_send(boost::system::error_code{},
+                                      std::vector<std::byte>{}))
                 {
                     EofPending_ = true;
                 }
@@ -207,24 +207,24 @@ namespace Preview::Xhttp
             StreamId_ = StreamId;
             if (!WritePending_.empty() && WriteFn_)
             {
-                auto pending = std::make_shared<std::vector<std::byte>>(std::move(WritePending_));
-                auto self = shared_from_this();
+                auto Pending = std::make_shared<std::vector<std::byte>>(std::move(WritePending_));
+                auto Self = shared_from_this();
                 auto WriteFn = WriteFn_;
                 const auto BoundStreamId = StreamId_;
-                auto AsyncFlush = [self, WriteFn = std::move(WriteFn), pending, BoundStreamId]() mutable
+                auto AsyncFlush = [Self, WriteFn = std::move(WriteFn), Pending, BoundStreamId]() mutable
                     -> net::awaitable<void>
                 {
-                    co_await WriteFn(BoundStreamId, std::span<const std::byte>(*pending));
+                    co_await WriteFn(BoundStreamId, std::span<const std::byte>(*Pending));
                 };
-                auto OnError = [self](const std::exception_ptr &ep)
+                auto OnError = [Self](const std::exception_ptr &ep)
                 {
                     if (ep)
                     {
                         Diagnose::Error("xhttp pending Write Failed");
-                        self->Close();
+                        Self->Close();
                     }
                 };
-                net::co_spawn(ex_, std::move(AsyncFlush), std::move(OnError));
+                net::co_spawn(Ex_, std::move(AsyncFlush), std::move(OnError));
             }
         }
 
@@ -235,14 +235,14 @@ namespace Preview::Xhttp
         using ChannelType =
             net::experimental::concurrent_channel<void(boost::system::error_code, std::vector<std::byte>)>;
 
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
         WriteCb WriteFn_;
-        ChannelType notify_;
+        ChannelType Notify_;
         std::vector<std::byte> RxCurrent_;
         std::size_t RxOffset_{0};
         std::vector<std::byte> WritePending_; ///< 匹配前的写缓冲
-        bool closed_{false};
-        bool eof_{false};
+        bool Closed_{false};
+        bool Eof_{false};
         bool EofPending_{false};
     };
 
@@ -256,11 +256,11 @@ namespace Preview::Xhttp
         /**
          * @brief 构造
          * @param raw 底层传输（所有权转移）
-         * @param ssl_ctx TLS 服务端上下文
+         * @param SslCtx TLS 服务端上下文
          * @param cfg xhttp 配置
          */
-        XhttpAccept(SharedTransmission raw, net::ssl::context &ssl_ctx, const Config &cfg)
-            : raw_(std::move(raw)), ssl_ctx_(ssl_ctx), cfg_(cfg)
+        XhttpAccept(SharedTransmission raw, net::ssl::context &SslCtx, const Config &cfg)
+            : Raw_(std::move(raw)), SslCtx_(SslCtx), Cfg_(cfg)
         {
         }
 
@@ -270,26 +270,26 @@ namespace Preview::Xhttp
          */
         [[nodiscard]] auto Run() -> net::awaitable<SharedTransmission>
         {
-            if (!raw_)
+            if (!Raw_)
             {
                 co_return nullptr;
             }
             auto [Code, Stream, recovered] =
-                co_await Preview::Transport::Encrypted::SslHandshake(std::move(raw_), ssl_ctx_);
+                co_await Preview::Transport::Encrypted::SslHandshake(std::move(Raw_), SslCtx_);
             (void)Code;
             (void)recovered;
             if (!Stream)
             {
                 co_return nullptr;
             }
-            encrypted_ = std::make_shared<Preview::Transport::Encrypted>(std::move(Stream));
+            Encrypted_ = std::make_shared<Preview::Transport::Encrypted>(std::move(Stream));
 
-            session_ = std::make_shared<h2::SessionImpl>(encrypted_->Executor(), true);
+            Session_ = std::make_shared<h2::SessionImpl>(Encrypted_->Executor(), true);
             // 写回调捕获 shared_ptr 成员（handler 析构后仍有效）
-            auto Session = session_;
-            auto Encrypted = encrypted_;
-            transport_ = std::make_shared<XhttpTransport>(
-                encrypted_->Executor(),
+            auto Session = Session_;
+            auto Encrypted = Encrypted_;
+            Transport_ = std::make_shared<XhttpTransport>(
+                Encrypted_->Executor(),
                 [Session, Encrypted](std::int32_t sid, std::span<const std::byte> Data)
                     -> net::awaitable<void>
                 {
@@ -299,15 +299,15 @@ namespace Preview::Xhttp
                     if (Session->Collect(out) && !out.empty())
                     {
                         std::error_code WEc;
-                        co_await Encrypted->AsyncWriteSome(out, WEc);
+                        co_await Encrypted->async_write_some(out, WEc);
                     }
                     co_return;
                 });
 
-            session_->on_headers = [transport = transport_, Session = session_, path_cfg = cfg_.Path]
+            Session_->OnHeaders = [Transport = Transport_, Session = Session_, path_cfg = Cfg_.Path]
                 (std::int32_t sid, const h2::HeaderList &headers, bool)
             {
-                if (transport->StreamId_ >= 0)
+                if (Transport->StreamId_ >= 0)
                 {
                     return;
                 }
@@ -336,41 +336,41 @@ namespace Preview::Xhttp
                 }
                 if (IsPost && PathOk)
                 {
-                    transport->BindStream(sid);
+                    Transport->BindStream(sid);
                     h2::HeaderList resp = {{":status", "200"}, {"content-Type", "text/event-Stream"}};
                     Session->SubmitHeaders(sid, resp, false);
                 }
             };
-            session_->on_data = [transport = transport_](std::int32_t sid, std::span<const std::byte> Data)
+            Session_->OnData = [Transport = Transport_](std::int32_t sid, std::span<const std::byte> Data)
             {
-                if (sid == transport->StreamId_)
+                if (sid == Transport->StreamId_)
                 {
-                    transport->Push(Data);
+                    Transport->Push(Data);
                 }
             };
-            session_->on_stream_close = [transport = transport_](std::int32_t sid, std::uint32_t)
+            Session_->OnStreamClose = [Transport = Transport_](std::int32_t sid, std::uint32_t)
             {
-                if (sid == transport->StreamId_)
+                if (sid == Transport->StreamId_)
                 {
-                    transport->NotifyEof();
+                    Transport->NotifyEof();
                 }
             };
 
             // driver 捕获共享成员（self 保活）
-            auto transport = transport_;
-            net::co_spawn(encrypted_->Executor(),
-                          [Session, Encrypted, transport]() mutable -> net::awaitable<void>
+            auto Transport = Transport_;
+            net::co_spawn(Encrypted_->Executor(),
+                          [Session, Encrypted, Transport]() mutable -> net::awaitable<void>
                           {
                               std::array<std::byte, 16384> buf{};
                               while (true)
                               {
                                   std::error_code ec;
-                                  const auto n = co_await Encrypted->AsyncReadSome(buf, ec);
-                                  if (ec || n == 0)
+                                  const auto N = co_await Encrypted->async_read_some(buf, ec);
+                                  if (ec || N == 0)
                                   {
                                       break;
                                   }
-                                  if (!Session->Feed(std::span<const std::byte>(buf.data(), n), ec))
+                                  if (!Session->Feed(std::span<const std::byte>(buf.data(), N), ec))
                                   {
                                       break;
                                   }
@@ -378,42 +378,41 @@ namespace Preview::Xhttp
                                   if (Session->Collect(out) && !out.empty())
                                   {
                                       std::error_code WEc;
-                                      co_await Encrypted->AsyncWriteSome(out, WEc);
+                                      co_await Encrypted->async_write_some(out, WEc);
                                       if (WEc)
                                       {
                                           break;
                                       }
                                   }
                               }
-                              transport->NotifyEof();
+                              Transport->NotifyEof();
                               co_return;
                           },
                           net::detached);
-            co_return transport_;
+            co_return Transport_;
         }
 
     private:
-        SharedTransmission raw_;
-        net::ssl::context &ssl_ctx_;
-        Config cfg_;
-        Preview::SharedTransmission encrypted_;
-        SharedH2Session session_;
-        std::shared_ptr<XhttpTransport> transport_;
-        std::vector<std::byte> PendingOut_;
+        SharedTransmission Raw_;
+        net::ssl::context &SslCtx_;
+        Config Cfg_;
+        Preview::SharedTransmission Encrypted_;
+        SharedH2Session Session_;
+        std::shared_ptr<XhttpTransport> Transport_;
     };
 
     /**
      * @brief 服务端 Accept 便捷入口
      * @param raw 底层传输（所有权转移）
-     * @param ssl_ctx TLS 服务端上下文
+     * @param SslCtx TLS 服务端上下文
      * @param cfg xhttp 配置
      * @return 匹配流的双向传输；失败返回 nullptr
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission raw, net::ssl::context &ssl_ctx,
+    [[nodiscard]] inline auto Accept(SharedTransmission raw, net::ssl::context &SslCtx,
                                      const Config &cfg) -> net::awaitable<SharedTransmission>
     {
-        auto handler = std::make_shared<XhttpAccept>(std::move(raw), ssl_ctx, cfg);
-        co_return co_await handler->Run();
+        auto Handler = std::make_shared<XhttpAccept>(std::move(raw), SslCtx, cfg);
+        co_return co_await Handler->Run();
     }
 
 } // namespace Preview::Xhttp

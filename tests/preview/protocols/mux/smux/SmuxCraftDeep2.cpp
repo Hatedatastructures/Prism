@@ -35,7 +35,7 @@
 // 包含源文件以获得 gcov 覆盖
 #include "../../src/prism/protocol/multiplex/smux/control.cpp"
 
-using MockTransport = psm::testing::MockTransport;
+using MockTransport = Preview::Testing::MockTransport;
 namespace multiplex = psm::multiplex;
 namespace smux = psm::multiplex::smux;
 namespace net = boost::asio;
@@ -817,7 +817,7 @@ TEST(SmuxCraftDeep2, CloseIdempotent)
     fx.craft_obj->active_.store(true, std::memory_order_release);
     fx.craft_obj->close();
     EXPECT_TRUE(!fx.craft_obj->active_.load(std::memory_order_acquire))
-        << "close: active_ = false after first close";
+        << "close: Active_ = false after first close";
 
     fx.craft_obj->close();
     EXPECT_TRUE(!fx.craft_obj->active_.load(std::memory_order_acquire))

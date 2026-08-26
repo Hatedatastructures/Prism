@@ -1,5 +1,5 @@
 /**
- * @file container.hpp
+ * @file Container.hpp
  * @brief 内存容器别名定义
  * @details 定义使用 std::pmr 多态内存资源的容器别名，
  * 为项目提供统一的内存管理基础设施。所有容器类型
@@ -9,7 +9,7 @@
  */
 #pragma once
 
-#include <List>
+#include <list>
 #include <map>
 #include <memory_resource>
 #include <string>
@@ -65,10 +65,19 @@ namespace Preview::Memory
 
     using MonotonicBuffer = std::pmr::monotonic_buffer_resource; // 单调增长缓冲区资源，仅分配不释放
 
-    using string = std::pmr::string; // PMR 字符串类型
+    /// PMR 字符串类型（规范 v2 PascalCase 主别名）
+    using String = std::pmr::string;
 
+    /// PMR 字符串类型（过渡别名，存量引用迁移完毕后删除）
+    using string = std::pmr::string;
+
+    /// PMR 动态数组模板（规范 v2 PascalCase 主别名）
     template <typename Value>
-    using vector = std::pmr::vector<Value>; // PMR 动态数组模板
+    using Vector = std::pmr::vector<Value>;
+
+    /// PMR 动态数组模板（过渡别名，存量引用迁移完毕后删除）
+    template <typename Value>
+    using vector = std::pmr::vector<Value>;
 
     template <typename Value>
     using List = std::pmr::list<Value>; // PMR 双向链表模板

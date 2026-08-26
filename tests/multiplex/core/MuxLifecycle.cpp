@@ -149,10 +149,10 @@ namespace
         std::array<char, 8192> buf{};
         while (true)
         {
-            boost::system::error_code read_ec;
-            auto read_token = net::redirect_error(net::use_awaitable, read_ec);
+            boost::system::error_code ReadEc;
+            auto read_token = net::redirect_error(net::use_awaitable, ReadEc);
             const auto n = co_await socket.async_read_some(net::buffer(buf), read_token);
-            if (read_ec || n == 0)
+            if (ReadEc || n == 0)
             {
                 break;
             }

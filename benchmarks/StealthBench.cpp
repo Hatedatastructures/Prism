@@ -29,7 +29,7 @@ const auto test_password = std::string("test-password-for-benchmark-2024");
 /// 从密码派生的 RestlsSecret
 const auto test_secret = psm::handshake::restls::derive_secret(test_password);
 
-/// TLS ServerHello server_random（32 字节）
+/// TLS ServerHello ServerRandom（32 字节）
 std::array<std::uint8_t, 32> make_server_random()
 {
     std::array<std::uint8_t, 32> rnd{};
@@ -119,7 +119,7 @@ std::vector<std::uint8_t> make_large_data()
 /// ShadowTLS 测试密码
 const auto stls_password = std::string("shadowtls-auth-password");
 
-/// ShadowTLS server_random（32 字节）
+/// ShadowTLS ServerRandom（32 字节）
 std::vector<std::byte> make_stls_server_random()
 {
     std::vector<std::byte> rnd(32);

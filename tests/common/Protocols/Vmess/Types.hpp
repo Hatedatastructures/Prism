@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief VMess 协议基础类型（兼容 Xray/mihomo/sing-vmess AEAD）
  * @details 定义 VMess 常量、命令、安全类型与地址结构。
  *          VMess AEAD 认证头：AuthID(16) + Length(2) + Nonce(8) + Tag(16)，
@@ -13,6 +13,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace Preview::Vmess
 {
@@ -68,30 +70,30 @@ namespace Preview::Vmess
         /// 分块传输
         ChunkStream = 0x01,
         /// 连接复用
-        connection_reuse = 0x02,
+        ConnectionReuse = 0x02,
         /// 分块掩码
-        chunk_masking = 0x04,
+        ChunkMasking = 0x04,
         /// 全局填充
-        global_padding = 0x08,
+        GlobalPadding = 0x08,
         /// 认证长度
-        authenticated_length = 0x10,
+        AuthenticatedLength = 0x10,
     };
 
     /// 安全类型
     enum class Security : std::uint8_t
     {
         /// AES-128-CFB 旧式
-        legacy = 0x01,
+        Legacy = 0x01,
         /// 自动选择
-        auto_ = 0x02,
+        Auto = 0x02,
         /// AES-128-GCM
-        aes_128_gcm = 0x03,
+        Aes128Gcm = 0x03,
         /// ChaCha20-Poly1305
-        chacha20_poly1305 = 0x04,
+        Chacha20Poly1305 = 0x04,
         /// 无加密
-        none = 0x05,
+        None = 0x05,
         /// 零加密
-        zero = 0x06,
+        Zero = 0x06,
     };
 
     /// 地址类型
@@ -139,7 +141,7 @@ namespace Preview::Vmess
         /// 选项
         std::uint8_t opt{0};
         /// 安全类型
-        Security sec{Security::aes_128_gcm};
+        Security sec{Security::Aes128Gcm};
         /// 保留字段
         std::uint8_t reserved{0};
         /// 目标地址

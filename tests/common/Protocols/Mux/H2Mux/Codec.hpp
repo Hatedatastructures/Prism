@@ -30,20 +30,20 @@ namespace Preview::Mux::H2Mux
      * @return 完整帧
      */
     [[nodiscard]] inline auto Build(FrameType Type, std::uint32_t StreamId,
-                                    std::span<const std::uint8_t> payload = {}) -> std::vector<std::uint8_t>
+                                    std::span<const std::uint8_t> Payload = {}) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        out.reserve(FrameHdrsize + payload.size());
+        out.reserve(FrameHdrsize + Payload.size());
         out.push_back(static_cast<std::uint8_t>(Type));
-        out.push_back(static_cast<std::uint8_t>((payload.size() >> 24) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((payload.size() >> 16) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((payload.size() >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(payload.size() & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((Payload.size() >> 24) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((Payload.size() >> 16) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((Payload.size() >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(Payload.size() & 0xFF));
         out.push_back(static_cast<std::uint8_t>((StreamId >> 24) & 0xFF));
         out.push_back(static_cast<std::uint8_t>((StreamId >> 16) & 0xFF));
         out.push_back(static_cast<std::uint8_t>((StreamId >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(StreamId & 0xFF));
-        out.insert(out.end(), payload.begin(), payload.end());
+        out.insert(out.end(), Payload.begin(), Payload.end());
         return out;
     }
 
@@ -53,10 +53,10 @@ namespace Preview::Mux::H2Mux
      * @param payload 负载
      * @return 完整帧
      */
-    [[nodiscard]] inline auto BuildData(std::uint32_t StreamId, std::span<const std::uint8_t> payload)
+    [[nodiscard]] inline auto BuildData(std::uint32_t StreamId, std::span<const std::uint8_t> Payload)
         -> std::vector<std::uint8_t>
     {
-        return Build(FrameType::Data, StreamId, payload);
+        return Build(FrameType::Data, StreamId, Payload);
     }
 
     /**
@@ -68,9 +68,9 @@ namespace Preview::Mux::H2Mux
     [[nodiscard]] inline auto BuildWinupd(std::uint32_t StreamId, std::uint32_t delta)
         -> std::array<std::uint8_t, FrameHdrsize>
     {
-        const auto raw =
+        const auto Raw =
             std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(&delta), sizeof(delta));
-        const auto Frame = Build(FrameType::window_update, StreamId, raw);
+        const auto Frame = Build(FrameType::WindowUpdate, StreamId, Raw);
         std::array<std::uint8_t, FrameHdrsize> out{};
         std::memcpy(out.data(), Frame.data(), FrameHdrsize);
         return out;
@@ -78,18 +78,18 @@ namespace Preview::Mux::H2Mux
 
     /**
      * @brief 构造 Ping 帧
-     * @param ping_id 心跳标识（携带于负载 4 字节）
+     * @param PingId 心跳标识（携带于负载 4 字节）
      * @return 13 字节帧
      */
-    [[nodiscard]] inline auto BuildPing(std::uint32_t ping_id) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto BuildPing(std::uint32_t PingId) -> std::vector<std::uint8_t>
     {
-        const auto payload = std::array<std::uint8_t, 4>{
-            static_cast<std::uint8_t>((ping_id >> 24) & 0xFF),
-            static_cast<std::uint8_t>((ping_id >> 16) & 0xFF),
-            static_cast<std::uint8_t>((ping_id >> 8) & 0xFF),
-            static_cast<std::uint8_t>(ping_id & 0xFF),
+        const auto Payload = std::array<std::uint8_t, 4>{
+            static_cast<std::uint8_t>((PingId >> 24) & 0xFF),
+            static_cast<std::uint8_t>((PingId >> 16) & 0xFF),
+            static_cast<std::uint8_t>((PingId >> 8) & 0xFF),
+            static_cast<std::uint8_t>(PingId & 0xFF),
         };
-        return Build(FrameType::ping, 0, payload);
+        return Build(FrameType::Ping, 0, Payload);
     }
 
     /**
@@ -115,19 +115,19 @@ namespace Preview::Mux::H2Mux
     {
         if (Data.size() < FrameHdrsize)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Type = static_cast<FrameType>(Data[0]);
         out.length = static_cast<std::uint32_t>(Data[1]) << 24 | static_cast<std::uint32_t>(Data[2]) << 16 |
                      static_cast<std::uint32_t>(Data[3]) << 8 | static_cast<std::uint32_t>(Data[4]);
         if (out.length > MaxFrameLength)
         {
-            return Error::bad_length;
+            return Error::BadLength;
         }
         out.StreamId = static_cast<std::uint32_t>(Data[5]) << 24 |
                         static_cast<std::uint32_t>(Data[6]) << 16 | static_cast<std::uint32_t>(Data[7]) << 8 |
                         static_cast<std::uint32_t>(Data[8]);
-        return Error::none;
+        return Error::None;
     }
 
     /**
@@ -136,7 +136,7 @@ namespace Preview::Mux::H2Mux
      */
     [[nodiscard]] inline auto ParsePayload(FrameHeader &, std::span<const std::uint8_t>) -> Error
     {
-        return Error::none;
+        return Error::None;
     }
 
     /**
@@ -200,8 +200,8 @@ namespace Preview::Mux::H2Mux
             switch (Frame.Type)
             {
             case H2Mux::FrameType::Data: return Mux::StreamEvent::Data;
-            case H2Mux::FrameType::Close: return Mux::StreamEvent::fin;
-            default: return Mux::StreamEvent::rst; // window_update/ping 忽略
+            case H2Mux::FrameType::Close: return Mux::StreamEvent::Fin;
+            default: return Mux::StreamEvent::Rst; // window_update/ping 忽略
             }
         }
 

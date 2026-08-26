@@ -28,20 +28,20 @@ namespace Preview::Middleware
      * @brief 管线执行上下文
      * @details 持有管线内共享的数据：入站传输（可被中间件替换）、
      * 目标地址、协议检测结果、流量统计指针。中间件通过修改
-     * inbound 实现"包装"语义（如 pad/mux 装饰）。
+     * Inbound 实现"包装"语义（如 pad/mux 装饰）。
      */
     class Context
     {
     public:
         /// 入站传输（中间件可替换包装）
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
         /// 上游传输（Dial 中间件产出，relay 中间件消费）
         Preview::SharedTransmission Outbound;
         /// 目标地址（拨号中间件消费）
         Preview::Network::Target Target;
         /// 检测到的协议类型
         std::uint16_t detected{0};
-        /// Dgram 会话标记（accept_protocol 设置；Session 转走 udp_service）
+        /// Dgram 会话标记（AcceptProtocol 设置；Session 转走 udp_service）
         bool IsDgram{false};
         /// 流量统计回调（relay 中间件消费）
         struct TrafficSink
@@ -69,7 +69,7 @@ namespace Preview::Middleware
         /// 管线空闲超时（>0 时 relay 优先使用；0 = 用 relay 构造参数）
         std::chrono::milliseconds timeout{0};
         /// 拨号完成回调（协议注入：拨号成功/失败后发送协议级应答）
-        std::function<boost::asio::awaitable<void>(Preview::Fault::Code)> post_dial{};
+        std::function<boost::asio::awaitable<void>(Preview::Fault::Code)> PostDial{};
     };
 
 } // namespace Preview::Middleware

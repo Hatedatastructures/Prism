@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief VLESS 协议基础类型（兼容 Xray/mihomo/sing-box）
  * @details 定义 VLESS 常量、命令、地址类型与请求结构。
  *          VLESS 是无加密的轻量协议，通常承载于 TLS 内部，

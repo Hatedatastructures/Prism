@@ -3,8 +3,8 @@
  * @brief runtime E2E 测试公共样板（RunCoro / echo 上游 / 链路状态等）
  * @details 收敛 tests/preview/core/runtime 下 19 个测试文件的逐字重复样板。
  *          仅测试代码使用，不属于生产库；命名空间与 TestRunner/MockTransport
- *          同层（psm::testing），以 <common/RuntimeTestHelpers.hpp> 引用。
- * @note accept_echo_upstream 的 acceptor 以 shared_ptr 捕获进 detached 协程——
+ *          同层（Preview::Testing），以 <common/RuntimeTestHelpers.hpp> 引用。
+ * @note AcceptEchoUpstream 的 acceptor 以 shared_ptr 捕获进 detached 协程——
  *       禁止退回局部变量 + 引用捕获的写法（函数返回即悬垂，use-after-scope）。
  */
 
@@ -33,12 +33,12 @@
 #include <system_error>
 #include <utility>
 
-#include <common/core/fault/code.hpp>
-#include <common/core/middleware/context.hpp>
-#include <common/core/net/dialer/dialer.hpp>
-#include <common/core/transmission.hpp>
+#include <common/Core/Fault/Code.hpp>
+#include <common/Core/Middleware/Context.hpp>
+#include <common/Core/Net/Dialer/Dialer.hpp>
+#include <common/Core/Transmission.hpp>
 
-namespace psm::testing
+namespace Preview::Testing
 {
     namespace net = boost::asio;
 
@@ -63,19 +63,19 @@ namespace psm::testing
      * @brief TCP echo 服务器：读到的数据原样写回（循环直至 EOF/错误）
      * @param sock 已接受的连接（所有权移交）
      */
-    inline auto TcpEchoServer(net::ip::tcp::socket sock) -> net::awaitable<void>
+    inline auto TcpEchoServer(net::ip::tcp::socket Sock) -> net::awaitable<void>
     {
         std::array<std::byte, 4096> buf{};
         boost::system::error_code ec;
         while (true)
         {
-            const auto n = co_await sock.async_read_some(
+            const auto N = co_await Sock.async_read_some(
                 net::buffer(buf), net::redirect_error(net::use_awaitable, ec));
-            if (ec || n == 0)
+            if (ec || N == 0)
             {
                 break;
             }
-            co_await sock.async_write_some(net::buffer(buf, n),
+            co_await Sock.async_write_some(net::buffer(buf, N),
                                            net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
@@ -88,20 +88,20 @@ namespace psm::testing
      * @brief UDP echo 服务器：收到的数据报原样回发来源端点
      * @param sock 已绑定的 UDP socket（所有权移交）
      */
-    inline auto UdpEchoServer(net::ip::udp::socket sock) -> net::awaitable<void>
+    inline auto UdpEchoServer(net::ip::udp::socket Sock) -> net::awaitable<void>
     {
         std::array<std::byte, 65535> buf{};
         boost::system::error_code ec;
         while (true)
         {
             net::ip::udp::endpoint src;
-            const auto n = co_await sock.async_receive_from(
+            const auto N = co_await Sock.async_receive_from(
                 net::buffer(buf), src, net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
                 break;
             }
-            co_await sock.async_send_to(net::buffer(buf, n), src,
+            co_await Sock.async_send_to(net::buffer(buf, N), src,
                                         net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
@@ -119,28 +119,28 @@ namespace psm::testing
      */
     [[nodiscard]] inline auto StartTcpEchoUpstream(net::io_context &ioc) -> std::uint16_t
     {
-        auto acc = std::make_shared<net::ip::tcp::acceptor>(
+        auto Acc = std::make_shared<net::ip::tcp::acceptor>(
             ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        const auto port = acc->local_endpoint().port();
+        const auto Port = Acc->local_endpoint().port();
         net::co_spawn(
-            acc->get_executor(),
-            [acc]() -> net::awaitable<void>
+            Acc->get_executor(),
+            [Acc]() -> net::awaitable<void>
             {
                 while (true)
                 {
                     boost::system::error_code ec;
-                    auto sock = co_await acc->async_accept(
+                    auto Sock = co_await Acc->async_accept(
                         net::redirect_error(net::use_awaitable, ec));
                     if (ec)
                     {
                         co_return;
                     }
-                    net::co_spawn(acc->get_executor(), TcpEchoServer(std::move(sock)),
+                    net::co_spawn(Acc->get_executor(), TcpEchoServer(std::move(Sock)),
                                   net::detached);
                 }
             },
             net::detached);
-        return port;
+        return Port;
     }
 
     /**
@@ -154,13 +154,13 @@ namespace psm::testing
         while (true)
         {
             boost::system::error_code ec;
-            auto sock =
+            auto Sock =
                 co_await acceptor.async_accept(net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
                 co_return;
             }
-            co_await TcpEchoServer(std::move(sock));
+            co_await TcpEchoServer(std::move(Sock));
         }
     }
 
@@ -173,13 +173,13 @@ namespace psm::testing
         while (true)
         {
             boost::system::error_code ec;
-            auto sock =
+            auto Sock =
                 co_await acceptor.async_accept(net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
                 co_return;
             }
-            sock.close();
+            Sock.close();
         }
     }
 
@@ -190,22 +190,22 @@ namespace psm::testing
      * @param ec 错误码输出（超时为 timed_out）
      * @return 实际读取字节数（超时为 0）
      */
-    inline auto TailReadGuarded(const Preview::SharedTransmission &sock,
+    inline auto TailReadGuarded(const Preview::SharedTransmission &Sock,
                                   std::span<std::byte> buf, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         using boost::asio::experimental::awaitable_operators::operator||;
-        net::steady_timer wd(sock->Executor());
+        net::steady_timer wd(Sock->Executor());
         wd.expires_after(std::chrono::milliseconds(500));
-        auto result =
-            co_await (sock->AsyncReadSome(buf, ec) || wd.async_wait(net::use_awaitable));
-        if (result.index() == 1)
+        auto Result =
+            co_await (Sock->async_read_some(buf, ec) || wd.async_wait(net::use_awaitable));
+        if (Result.index() == 1)
         {
-            sock->Close();
+            Sock->Close();
             ec = std::make_error_code(std::errc::timed_out);
             co_return 0;
         }
-        co_return std::get<0>(std::move(result));
+        co_return std::get<0>(std::move(Result));
     }
 
     /**
@@ -224,7 +224,7 @@ namespace psm::testing
 
     /**
      * @brief 连接纵向链路测试的回环上游（记录请求目标后拨 127.0.0.1:EchoPort）
-     * @param state 共享状态（请求目标写入 requested_*）
+     * @param state 共享状态（请求目标写入 Requested_*）
      * @param target 客户端请求的目标
      * @return 拨号结果（失败为 unreachable）
      */
@@ -236,13 +236,13 @@ namespace psm::testing
         state->RequestedPort = target.Port;
         std::error_code ec;
         Preview::Network::Dialer::Dialer Dialer(state->executor);
-        auto upstream = co_await Dialer.Connect("127.0.0.1", state->EchoPort, ec);
-        if (ec || !upstream)
+        auto Upstream = co_await Dialer.Connect("127.0.0.1", state->EchoPort, ec);
+        if (ec || !Upstream)
         {
-            co_return std::pair{Preview::Fault::Code::host_noreply,
+            co_return std::pair{Preview::Fault::Code::HostNoreply,
                                 Preview::SharedTransmission{}};
         }
-        co_return std::pair{Preview::Fault::Code::success, std::move(upstream)};
+        co_return std::pair{Preview::Fault::Code::Success, std::move(Upstream)};
     }
 
     /**
@@ -251,29 +251,29 @@ namespace psm::testing
      */
     struct ConnectResult
     {
-        Preview::Error Err{Preview::Error::none}; ///< 握手/数据面错误码
+        Preview::Error Err{Preview::Error::None}; ///< 握手/数据面错误码
         std::string Echo;                         ///< 回显数据
         std::string Host;                         ///< 上游记录的请求 host
         std::string Port;                         ///< 上游记录的请求 port
     };
 
     /**
-     * @struct traffic_recorder
+     * @struct TrafficRecorder
      * @brief 流量统计桩（校验 relay/udp 数据面结束后上报）
      */
     struct TrafficRecorder : Preview::Middleware::Context::TrafficSink
     {
-        std::string identity; ///< 最近一次上报的身份
-        std::size_t up{0};    ///< 累计上行字节
-        std::size_t down{0};  ///< 累计下行字节
-        int calls{0};         ///< 上报次数
+        std::string Identity; ///< 最近一次上报的身份
+        std::size_t Up{0};    ///< 累计上行字节
+        std::size_t Down{0};  ///< 累计下行字节
+        int Calls{0};         ///< 上报次数
 
         void Report(std::string_view id, std::size_t u, std::size_t d) override
         {
-            identity = std::string(id);
-            up += u;
-            down += d;
-            ++calls;
+            Identity = std::string(id);
+            Up += u;
+            Down += d;
+            ++Calls;
         }
     };
 
@@ -286,9 +286,9 @@ namespace psm::testing
     [[nodiscard]] inline auto MakeUuid() -> std::array<std::uint8_t, UuidLen>
     {
         std::array<std::uint8_t, UuidLen> u{};
-        for (std::size_t i = 0; i < u.size(); ++i)
+        for (std::size_t I = 0; I < u.size(); ++I)
         {
-            u[i] = static_cast<std::uint8_t>(i + 1);
+            u[I] = static_cast<std::uint8_t>(I + 1);
         }
         return u;
     }
@@ -303,11 +303,11 @@ namespace psm::testing
     {
         static constexpr char digits[] = "0123456789abcdef";
         std::string out(bytes.size() * 2, '0');
-        for (std::size_t i = 0; i < bytes.size(); ++i)
+        for (std::size_t I = 0; I < bytes.size(); ++I)
         {
-            out[i * 2] = digits[bytes[i] >> 4];
-            out[i * 2 + 1] = digits[bytes[i] & 0x0f];
+            out[I * 2] = digits[bytes[I] >> 4];
+            out[I * 2 + 1] = digits[bytes[I] & 0x0f];
         }
         return out;
     }
-} // namespace psm::testing
+} // namespace Preview::Testing

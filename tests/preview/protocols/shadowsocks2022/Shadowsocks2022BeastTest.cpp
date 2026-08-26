@@ -57,7 +57,7 @@ namespace
 
         Shadowsocks2022::Parser p(kPsk);
         p.Put(net::const_buffer(wire.data(), Total), ec);
-        EXPECT_EQ(ec, Error::auth_failed);
+        EXPECT_EQ(ec, Error::AuthFailed);
     }
 
     TEST(Shadow2022Beast, DomainAddress)

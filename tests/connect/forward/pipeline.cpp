@@ -38,15 +38,15 @@ TEST(ForwardPipeline, StatsDefaults)
 TEST(ForwardPipeline, OptionsFields)
 {
     // transmission 是抽象类，用 nullptr 占位（仅验证字段赋值，不实际转发）
-    psm::transport::shared_transmission inbound;
+    psm::transport::shared_transmission Inbound;
     preview::network::target target;
     target.host = psm::memory::string{"example.com", psm::memory::current_resource()};
     target.port = psm::memory::string{"443", psm::memory::current_resource()};
     target.positive = true;
     auto trace_ctx = std::make_shared<psm::diagnose::context>();
 
-    psm::connect::pipeline_options opts{inbound, trace_ctx};
-    EXPECT_EQ(opts.inbound, inbound);
+    psm::connect::pipeline_options opts{Inbound, trace_ctx};
+    EXPECT_EQ(opts.Inbound, Inbound);
     EXPECT_EQ(opts.trace, trace_ctx);
 }
 

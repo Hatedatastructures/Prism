@@ -19,26 +19,26 @@
 
 namespace
 {
-    namespace h2 = std::Http2;
+    namespace h2 = Preview::Http2;
     namespace net = boost::asio;
     using h2::FrameHeader;
     using h2::FrameType;
-    using std::Http2::Header;
-    using std::Http2::HeaderList;
+    using Preview::Http2::Header;
+    using Preview::Http2::HeaderList;
 
     // ── 帧头编解码 ──
 
     TEST(H2Frame, HeaderEncodeDecode)
     {
         std::vector<std::byte> payload(100, std::byte{0xAB});
-        auto Frame = h2::BuildFrame(FrameType::Data, h2::flag_end_stream, 5, payload);
-        ASSERT_EQ(Frame.size(), h2::frame_header_size + 100);
+        auto Frame = h2::BuildFrame(FrameType::Data, h2::FlagEndStream, 5, payload);
+        ASSERT_EQ(Frame.size(), h2::FrameHeaderSize + 100);
 
         const auto h = h2::ParseFrameHeader(Frame);
         ASSERT_TRUE(h.has_value());
         EXPECT_EQ(h->length, 100u);
         EXPECT_EQ(h->Type, FrameType::Data);
-        EXPECT_EQ(h->Flags, h2::flag_end_stream);
+        EXPECT_EQ(h->Flags, h2::FlagEndStream);
         EXPECT_EQ(h->StreamId, 5u);
     }
 
@@ -60,17 +60,17 @@ namespace
     TEST(H2Frame, SettingsRoundTrip)
     {
         std::vector<h2::SettingsEntry> entries = {
-            {h2::settings_max_concurrent_streams, 100},
-            {h2::settings_initial_window_size, 65535},
-            {h2::settings_enable_push, 0},
+            {h2::SettingsMaxConcurrentStreams, 100},
+            {h2::SettingsInitialWindowSize, 65535},
+            {h2::SettingsEnablePush, 0},
         };
         auto encoded = h2::EncodeSettings(entries);
         auto decoded = h2::DecodeSettings(encoded);
         ASSERT_TRUE(decoded.has_value());
         ASSERT_EQ(decoded->size(), 3u);
-        EXPECT_EQ((*decoded)[0].Id, h2::settings_max_concurrent_streams);
+        EXPECT_EQ((*decoded)[0].Id, h2::SettingsMaxConcurrentStreams);
         EXPECT_EQ((*decoded)[0].value, 100u);
-        EXPECT_EQ((*decoded)[1].Id, h2::settings_initial_window_size);
+        EXPECT_EQ((*decoded)[1].Id, h2::SettingsInitialWindowSize);
         EXPECT_EQ((*decoded)[2].value, 0u);
     }
 
@@ -84,21 +84,21 @@ namespace
     {
         auto wu = h2::EncodeWindowUpdate(12345);
         EXPECT_EQ(h2::DecodeU31(wu), 12345u);
-        auto rst = h2::EncodeRstStream(h2::error_cancel);
-        EXPECT_EQ(h2::DecodeU31(rst), h2::error_cancel);
+        auto rst = h2::EncodeRstStream(h2::ErrorCancel);
+        EXPECT_EQ(h2::DecodeU31(rst), h2::ErrorCancel);
     }
 
     TEST(H2Frame, GoawayEncode)
     {
         h2::GoawayParams params;
         params.LastStreamId = 7;
-        params.ErrorCode = h2::error_no_error;
+        params.ErrorCode = h2::ErrorNoError;
         std::vector<std::byte> Debug{std::byte{1}, std::byte{2}};
         params.Debug = Debug;
         auto encoded = h2::EncodeGoaway(params);
         ASSERT_EQ(encoded.size(), 10u);
         EXPECT_EQ(h2::DecodeU31(std::span<const std::byte>(encoded.data(), 4)), 7u);
-        EXPECT_EQ(h2::DecodeU31(std::span<const std::byte>(encoded.data() + 4, 4)), h2::error_no_error);
+        EXPECT_EQ(h2::DecodeU31(std::span<const std::byte>(encoded.data() + 4, 4)), h2::ErrorNoError);
     }
 
     // ── HPACK ──
@@ -106,7 +106,7 @@ namespace
     TEST(H2Hpack, StaticIndexLiteral)
     {
         h2::HpackEncoder encoder;
-        h2::HpackDecoder decoded;
+        h2::HpackDecoder decoder;
 
         HeaderList headers = {
             {":Method", "GET"},   // 静态表索引 2
@@ -115,7 +115,7 @@ namespace
             {"custom-Header", "custom-value"}, // 新名字面量
         };
         auto block = encoder.Encode(headers);
-        auto decoded = decoded.Decode(block);
+        auto decoded = decoder.Decode(block);
         ASSERT_TRUE(decoded.has_value());
         ASSERT_EQ(decoded->size(), 4u);
         EXPECT_EQ((*decoded)[0].Name, ":Method");
@@ -179,14 +179,14 @@ namespace
         int headers_seen = 0;
         int data_seen = 0;
         int closed_seen = 0;
-        Server->on_headers = [&](std::int32_t Id, const HeaderList &hdrs, bool end_stream)
+        Server->OnHeaders = [&](std::int32_t Id, const HeaderList &hdrs, bool EndStream)
         {
             headers_seen = Id;
-            EXPECT_FALSE(end_stream);
+            EXPECT_FALSE(EndStream);
             EXPECT_EQ(hdrs.size(), 2u);
         };
-        Server->on_data = [&](std::int32_t Id, std::span<const std::byte> Data) { data_seen += static_cast<int>(Data.size()); };
-        Server->on_stream_close = [&](std::int32_t Id, std::uint32_t ec) { closed_seen = Id; EXPECT_EQ(ec, h2::error_no_error); };
+        Server->OnData = [&](std::int32_t Id, std::span<const std::byte> Data) { data_seen += static_cast<int>(Data.size()); };
+        Server->OnStreamClose = [&](std::int32_t Id, std::uint32_t ec) { closed_seen = Id; EXPECT_EQ(ec, h2::ErrorNoError); };
 
         std::error_code ec;
         EXPECT_TRUE(Server->Feed(wire, ec));
@@ -200,12 +200,12 @@ namespace
         net::io_context ioc;
         auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
 
-        std::vector<h2::SettingsEntry> entries = {{h2::settings_max_concurrent_streams, 10}};
+        std::vector<h2::SettingsEntry> entries = {{h2::SettingsMaxConcurrentStreams, 10}};
         auto payload = h2::EncodeSettings(entries);
-        auto Frame = h2::BuildFrame(FrameType::settings, 0, 0, payload);
+        auto Frame = h2::BuildFrame(FrameType::Settings, 0, 0, payload);
 
         int settings_seen = 0;
-        Server->on_settings = [&](const std::vector<h2::SettingsEntry> &e) { settings_seen = static_cast<int>(e.size()); };
+        Server->OnSettings = [&](const std::vector<h2::SettingsEntry> &e) { settings_seen = static_cast<int>(e.size()); };
         std::error_code ec;
         EXPECT_TRUE(Server->Feed(Frame, ec));
         EXPECT_EQ(settings_seen, 1);
@@ -213,11 +213,11 @@ namespace
         // ACK 帧入队
         std::vector<std::byte> out;
         Server->Collect(out);
-        ASSERT_GE(out.size(), h2::frame_header_size);
+        ASSERT_GE(out.size(), h2::FrameHeaderSize);
         const auto h = h2::ParseFrameHeader(out);
         ASSERT_TRUE(h.has_value());
-        EXPECT_EQ(h->Type, FrameType::settings);
-        EXPECT_EQ(h->Flags, h2::flag_ack);
+        EXPECT_EQ(h->Type, FrameType::Settings);
+        EXPECT_EQ(h->Flags, h2::FlagAck);
     }
 
     TEST(H2Session, BadFrameRejected)
@@ -230,14 +230,14 @@ namespace
         auto bad = h2::BuildFrame(FrameType::Data, 0, 0, payload);
         std::error_code ec;
         EXPECT_FALSE(Server->Feed(bad, ec));
-        EXPECT_EQ(ec, std::make_error_code(std::Error::protocol_error));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
     }
 
     TEST(H2Session, ContinuationRejected)
     {
         net::io_context ioc;
         auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
-        auto bad = h2::BuildFrame(FrameType::continuation, 0, 1, {});
+        auto bad = h2::BuildFrame(FrameType::Continuation, 0, 1, {});
         std::error_code ec;
         EXPECT_FALSE(Server->Feed(bad, ec));
     }
@@ -247,15 +247,15 @@ namespace
         net::io_context ioc;
         auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
         std::array<std::byte, 8> opaque{};
-        auto ping = h2::BuildFrame(FrameType::ping, 0, 0, opaque);
+        auto ping = h2::BuildFrame(FrameType::Ping, 0, 0, opaque);
         std::error_code ec;
         EXPECT_TRUE(Server->Feed(ping, ec));
         std::vector<std::byte> out;
         Server->Collect(out);
-        ASSERT_GE(out.size(), h2::frame_header_size);
+        ASSERT_GE(out.size(), h2::FrameHeaderSize);
         const auto h = h2::ParseFrameHeader(out);
         ASSERT_TRUE(h.has_value());
-        EXPECT_EQ(h->Type, FrameType::ping);
-        EXPECT_EQ(h->Flags, h2::flag_ack);
+        EXPECT_EQ(h->Type, FrameType::Ping);
+        EXPECT_EQ(h->Flags, h2::FlagAck);
     }
 } // namespace

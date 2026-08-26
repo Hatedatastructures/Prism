@@ -35,8 +35,8 @@ namespace Preview::Mux
     concept FrameCodec = requires {
         typename C::FrameType;
         requires std::default_initializable<typename C::FrameType>;
-        { C::header_len } -> std::convertible_to<const std::size_t>;
-        { C::max_payload_len } -> std::convertible_to<const std::size_t>;
+        { C::HeaderLen } -> std::convertible_to<const std::size_t>;
+        { C::MaxPayloadLen } -> std::convertible_to<const std::size_t>;
         {
             C::PayloadLen(std::declval<const typename C::FrameType &>())
         } -> std::convertible_to<std::size_t>;

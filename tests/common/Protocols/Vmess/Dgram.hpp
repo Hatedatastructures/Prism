@@ -42,7 +42,7 @@ namespace Preview::Vmess
          * @brief 构造函数（工厂调用）
          * @param Stream 底层流连接（已握手，所有权移交）
          */
-        explicit Dgram(SharedTransmission Stream) : next_layer_(std::move(Stream))
+        explicit Dgram(SharedTransmission Stream) : NextLayer_(std::move(Stream))
         {
         }
 
@@ -51,7 +51,7 @@ namespace Preview::Vmess
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -59,7 +59,7 @@ namespace Preview::Vmess
          */
         [[nodiscard]] auto TransportType() const noexcept -> Type override
         {
-            return Type::udp;
+            return Type::Udp;
         }
 
         /**
@@ -85,19 +85,19 @@ namespace Preview::Vmess
         /**
          * @brief 透传读取（底层流原样）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（底层流原样）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -105,7 +105,7 @@ namespace Preview::Vmess
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -113,7 +113,7 @@ namespace Preview::Vmess
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -121,7 +121,7 @@ namespace Preview::Vmess
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -129,7 +129,7 @@ namespace Preview::Vmess
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -137,7 +137,7 @@ namespace Preview::Vmess
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
         /**
@@ -145,7 +145,7 @@ namespace Preview::Vmess
          */
         [[nodiscard]] auto Stream() const noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
     private:
@@ -155,10 +155,10 @@ namespace Preview::Vmess
         [[nodiscard]] auto AsyncSendDatagramImpl(std::span<const std::uint8_t> payload)
             -> net::awaitable<Error>
         {
-            auto *c = dynamic_cast<Conn<Memory> *>(next_layer_.get());
+            auto *c = dynamic_cast<Conn<Memory> *>(NextLayer_.get());
             if (!c)
             {
-                co_return Error::not_open;
+                co_return Error::NotOpen;
             }
             co_return co_await c->AsyncSendDatagram(payload);
         }
@@ -169,15 +169,15 @@ namespace Preview::Vmess
         [[nodiscard]] auto AsyncReceiveDatagramImpl(std::vector<std::uint8_t> &payload)
             -> net::awaitable<Error>
         {
-            auto *c = dynamic_cast<Conn<Memory> *>(next_layer_.get());
+            auto *c = dynamic_cast<Conn<Memory> *>(NextLayer_.get());
             if (!c)
             {
-                co_return Error::not_open;
+                co_return Error::NotOpen;
             }
             co_return co_await c->AsyncReceiveDatagram(payload);
         }
 
-        SharedTransmission next_layer_; ///< 底层流连接（嵌入，同一条 TCP）
+        SharedTransmission NextLayer_; ///< 底层流连接（嵌入，同一条 TCP）
     };
 
     /// 包连接共享指针

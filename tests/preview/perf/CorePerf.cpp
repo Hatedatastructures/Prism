@@ -33,7 +33,7 @@ namespace
 
     static void BM_FaultSucceeded(benchmark::State &State)
     {
-        Preview::Fault::Code c = Preview::Fault::Code::success;
+        Preview::Fault::Code c = Preview::Fault::Code::Success;
         for (auto _ : State)
         {
             benchmark::DoNotOptimize(Preview::Fault::Succeeded(c));
@@ -43,7 +43,7 @@ namespace
 
     static void BM_FaultDescribe(benchmark::State &State)
     {
-        const auto c = Preview::Fault::Code::timeout;
+        const auto c = Preview::Fault::Code::Timeout;
         for (auto _ : State)
         {
             benchmark::DoNotOptimize(Preview::Fault::Describe(c));
@@ -84,7 +84,7 @@ namespace
     {
         std::array<std::uint8_t, 32> key{};
         std::fill(key.begin(), key.end(), 0x42);
-        Preview::Crypto::AeadContext ctx(Preview::Crypto::AeadCipher::aes_128_gcm, key);
+        Preview::Crypto::AeadContext ctx(Preview::Crypto::AeadCipher::Aes128Gcm, key);
 
         std::array<std::uint8_t, 16384> plain{};
         std::array<std::uint8_t, 32> seed{};

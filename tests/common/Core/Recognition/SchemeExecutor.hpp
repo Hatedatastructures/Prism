@@ -2,7 +2,7 @@
  * @file SchemeExecutor.hpp
  * @brief 伪装方案执行器（传输装饰器注册表）
  * @details 将 recognition 识别出的 scheme 名映射为传输包装函数，
- *          在 Session 识别后、协议 Accept 前对 inbound 做 TLS/伪装包装。
+ *          在 Session 识别后、协议 Accept 前对 Inbound 做 TLS/伪装包装。
  *          对应生产库 handshake::scheme + Recognition::route 的 Preview 化。
  */
 
@@ -28,7 +28,7 @@ namespace Preview::Recognition
     class SchemeExecutor
     {
     public:
-        /// 方案包装函数：inbound → 包装后传输（失败返回 nullptr）
+        /// 方案包装函数：Inbound → 包装后传输（失败返回 nullptr）
         using SchemeFn = std::function<net::awaitable<SharedTransmission>(SharedTransmission)>;
 
         /**
@@ -39,28 +39,28 @@ namespace Preview::Recognition
          */
         auto RegisterScheme(std::string Name, SchemeFn fn) -> bool
         {
-            return registry_.emplace(std::move(Name), std::move(fn)).second;
+            return Registry_.emplace(std::move(Name), std::move(fn)).second;
         }
 
         /**
          * @brief 执行方案包装
          * @param scheme 方案名（空表示不包装）
-         * @param inbound 待包装传输
-         * @return 包装后传输；scheme 为空或未注册返回原 inbound；失败返回 nullptr
+         * @param Inbound 待包装传输
+         * @return 包装后传输；scheme 为空或未注册返回原 Inbound；失败返回 nullptr
          */
-        [[nodiscard]] auto Execute(std::string_view scheme, SharedTransmission inbound)
+        [[nodiscard]] auto Execute(std::string_view scheme, SharedTransmission Inbound)
             -> net::awaitable<SharedTransmission>
         {
-            if (scheme.empty() || !inbound)
+            if (scheme.empty() || !Inbound)
             {
-                co_return inbound;
+                co_return Inbound;
             }
-            const auto it = registry_.find(std::string(scheme));
-            if (it == registry_.end())
+            const auto It = Registry_.find(std::string(scheme));
+            if (It == Registry_.end())
             {
-                co_return inbound;
+                co_return Inbound;
             }
-            co_return co_await it->second(std::move(inbound));
+            co_return co_await It->second(std::move(Inbound));
         }
 
         /**
@@ -68,7 +68,7 @@ namespace Preview::Recognition
          */
         [[nodiscard]] auto Has(std::string_view scheme) const -> bool
         {
-            return registry_.find(std::string(scheme)) != registry_.end();
+            return Registry_.find(std::string(scheme)) != Registry_.end();
         }
 
         /**
@@ -76,11 +76,11 @@ namespace Preview::Recognition
          */
         [[nodiscard]] auto Size() const noexcept -> std::size_t
         {
-            return registry_.size();
+            return Registry_.size();
         }
 
     private:
-        std::unordered_map<std::string, SchemeFn> registry_;
+        std::unordered_map<std::string, SchemeFn> Registry_;
     };
 
 } // namespace Preview::Recognition

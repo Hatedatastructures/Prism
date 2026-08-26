@@ -4,9 +4,9 @@
  * @details 按顺序执行中间件链，每个中间件可包装/替换/拒绝
  * 入站传输。对应生产库 forward_pipeline 的显式化：
  *   forward_pipeline 硬编码：Dial → mux → pad → relay
- *   本管线：Pipeline.Add<X>().Add<Y>().run(inbound, ctx)
- * @note 中间件实现 transport 的"装饰器"语义：输入 inbound，
- *       输出（可能包装后的）inbound。
+ *   本管线：Pipeline.Add<X>().Add<Y>().run(Inbound, ctx)
+ * @note 中间件实现 transport 的"装饰器"语义：输入 Inbound，
+ *       输出（可能包装后的）Inbound。
  */
 
 #pragma once
@@ -33,9 +33,9 @@ namespace Preview::Middleware
      * @brief 中间件基类
      * @details 每个中间件一个职责：
      * - Dial：拨号上游（消费 ctx.Target，产出 Outbound）
-     * - mux：多路复用引导（包装 inbound）
-     * - pad：填充包装（包装 inbound）
-     * - relay：双向转发（消费 inbound+Outbound）
+     * - mux：多路复用引导（包装 Inbound）
+     * - pad：填充包装（包装 Inbound）
+     * - relay：双向转发（消费 Inbound+Outbound）
      */
     class Middleware
     {
@@ -50,11 +50,11 @@ namespace Preview::Middleware
 
         /**
          * @brief 处理入站传输
-         * @param inbound 入站传输（可包装/替换/拒绝）
+         * @param Inbound 入站传输（可包装/替换/拒绝）
          * @param ctx 管线上下文
          * @return 处理后的错误码（success = 继续下一中间件）
          */
-        virtual auto Handle(Preview::SharedTransmission &inbound, Context &ctx)
+        virtual auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
             -> net::awaitable<Preview::Fault::Code> = 0;
     };
 
@@ -77,33 +77,33 @@ namespace Preview::Middleware
          */
         auto Add(SharedMiddleware mw) -> Pipeline &
         {
-            chain_.push_back(std::move(mw));
+            Chain_.push_back(std::move(mw));
             return *this;
         }
 
         /**
          * @brief 执行管线
-         * @param inbound 入站传输（可被中间件包装）
+         * @param Inbound 入站传输（可被中间件包装）
          * @param ctx 管线上下文
          * @return 最终错误码（success = 全部通过）
          */
-        auto Run(Preview::SharedTransmission inbound, Context &ctx)
+        auto Run(Preview::SharedTransmission Inbound, Context &ctx)
             -> net::awaitable<Preview::Fault::Code>
         {
-            for (const auto &mw : chain_)
+            for (const auto &mw : Chain_)
             {
-                const auto ec = co_await mw->Handle(inbound, ctx);
-                if (Preview::Fault::Failed(ec))
+                const auto Ec = co_await mw->Handle(Inbound, ctx);
+                if (Preview::Fault::Failed(Ec))
                 {
-                    co_return ec;
+                    co_return Ec;
                 }
             }
-            ctx.inbound = std::move(inbound);
-            co_return Preview::Fault::Code::success;
+            ctx.Inbound = std::move(Inbound);
+            co_return Preview::Fault::Code::Success;
         }
 
     private:
-        std::vector<SharedMiddleware> chain_; ///< 中间件链
+        std::vector<SharedMiddleware> Chain_; ///< 中间件链
     };
 
 } // namespace Preview::Middleware

@@ -1,5 +1,5 @@
 /**
- * @file socks5.hpp
+ * @file Socks5.hpp
  * @brief SOCKS5 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / ConnectPacket（客户端）、
@@ -53,18 +53,18 @@ namespace Preview::Socks5
         Request req;
         req.Cmd = cmd;
         req.Target = Target;
-        auto c = std::make_shared<Conn<>>(std::move(upstream));
-        const auto err = co_await c->WriteHandshake(req, cfg);
+        auto C = std::make_shared<Conn<>>(std::move(upstream));
+        const auto Err = co_await C->WriteHandshake(req, cfg);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -78,12 +78,12 @@ namespace Preview::Socks5
                                              const Address &Target)
         -> net::awaitable<std::pair<Error, SharedDgram>>
     {
-        auto [err, Conn] = co_await Connect(std::move(upstream), cfg, Target, Command::UdpAssociate);
-        if (err != Error::none)
+        auto [Err, Conn] = co_await Connect(std::move(upstream), cfg, Target, Command::UdpAssociate);
+        if (Err != Error::None)
         {
-            co_return std::pair{err, SharedDgram{}};
+            co_return std::pair{Err, SharedDgram{}};
         }
-        co_return std::pair{Error::none, std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::pair{Error::None, std::make_shared<Dgram<>>(std::move(Conn))};
     }
 
     /**
@@ -97,18 +97,18 @@ namespace Preview::Socks5
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, Request, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream));
-        auto [err, req] = co_await c->ReadHandshake(cfg);
+        auto C = std::make_shared<Conn<>>(std::move(upstream));
+        auto [Err, req] = co_await C->ReadHandshake(cfg);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{err, std::move(req), std::move(Conn)};
+        co_return std::tuple{Err, std::move(req), std::move(Conn)};
     }
 
     /**
@@ -120,12 +120,12 @@ namespace Preview::Socks5
     [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, Request, SharedDgram>>
     {
-        auto [err, req, Conn] = co_await Accept(std::move(upstream), cfg);
-        if (err != Error::none)
+        auto [Err, req, Conn] = co_await Accept(std::move(upstream), cfg);
+        if (Err != Error::None)
         {
-            co_return std::tuple{err, std::move(req), SharedDgram{}};
+            co_return std::tuple{Err, std::move(req), SharedDgram{}};
         }
-        co_return std::tuple{Error::none, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::tuple{Error::None, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
     }
 
 } // namespace Preview::Socks5

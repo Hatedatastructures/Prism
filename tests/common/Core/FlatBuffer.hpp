@@ -33,7 +33,7 @@ namespace Preview
          * @brief 构造
          * @param InitialSize 初始容量
          */
-        explicit FlatBuffer(std::size_t InitialSize = DefaultInitialSize) : storage_(InitialSize)
+        explicit FlatBuffer(std::size_t InitialSize = DefaultInitialSize) : Storage_(InitialSize)
         {
         }
 
@@ -56,7 +56,7 @@ namespace Preview
          */
         [[nodiscard]] auto Size() const noexcept -> std::size_t
         {
-            return size_;
+            return Size_;
         }
 
         /**
@@ -65,7 +65,7 @@ namespace Preview
          */
         [[nodiscard]] auto Capacity() const noexcept -> std::size_t
         {
-            return storage_.size();
+            return Storage_.size();
         }
 
         /**
@@ -74,7 +74,7 @@ namespace Preview
          */
         [[nodiscard]] auto Empty() const noexcept -> bool
         {
-            return size_ == 0;
+            return Size_ == 0;
         }
 
         /**
@@ -83,7 +83,7 @@ namespace Preview
          */
         [[nodiscard]] auto MaxSize() const noexcept -> std::size_t
         {
-            return storage_.size() - size_;
+            return Storage_.size() - Size_;
         }
 
         /**
@@ -92,7 +92,7 @@ namespace Preview
          */
         [[nodiscard]] auto Data() const noexcept -> std::span<const std::uint8_t>
         {
-            return {storage_.data(), size_};
+            return {Storage_.data(), Size_};
         }
 
         /**
@@ -101,7 +101,7 @@ namespace Preview
          */
         [[nodiscard]] auto MutableData() noexcept -> std::span<std::uint8_t>
         {
-            return {storage_.data(), size_};
+            return {Storage_.data(), Size_};
         }
 
         /**
@@ -110,25 +110,25 @@ namespace Preview
          * @return 可写区间（[0, n)），实际可用可能更大
          * @note 空间不足时自动增长（倍增），失败返回空区间
          */
-        [[nodiscard]] auto Prepare(std::size_t n) -> std::span<std::uint8_t>
+        [[nodiscard]] auto Prepare(std::size_t N) -> std::span<std::uint8_t>
         {
-            if (n > MaxSize())
+            if (N > MaxSize())
             {
-                if (!Grow(size_ + n))
+                if (!Grow(Size_ + N))
                 {
                     return {};
                 }
             }
-            return {storage_.data() + size_, MaxSize()};
+            return {Storage_.data() + Size_, MaxSize()};
         }
 
         /**
          * @brief 提交已写入的字节数（与 Prepare 配套）
          * @param n 已写入字节数，不得超过 Prepare 返回区间大小
          */
-        auto Commit(std::size_t n) -> void
+        auto Commit(std::size_t N) -> void
         {
-            size_ += std::min(n, MaxSize());
+            Size_ += std::min(N, MaxSize());
         }
 
         /**
@@ -136,15 +136,15 @@ namespace Preview
          * @param n 消费字节数，超过 Size() 时全部消费
          * @note 消费后内存前移，O(n)
          */
-        auto Consume(std::size_t n) -> void
+        auto Consume(std::size_t N) -> void
         {
-            n = std::min(n, size_);
-            if (n == 0)
+            N = std::min(N, Size_);
+            if (N == 0)
             {
                 return;
             }
-            std::memmove(storage_.data(), storage_.data() + n, size_ - n);
-            size_ -= n;
+            std::memmove(Storage_.data(), Storage_.data() + N, Size_ - N);
+            Size_ -= N;
         }
 
         /**
@@ -152,7 +152,7 @@ namespace Preview
          */
         auto Clear() noexcept -> void
         {
-            size_ = 0;
+            Size_ = 0;
         }
 
         /**
@@ -160,15 +160,15 @@ namespace Preview
          */
         auto ShrinkToFit() -> void
         {
-            const auto Target = std::max(size_, InitialSize_);
-            if (Target < storage_.size())
+            const auto Target = std::max(Size_, InitialSize_);
+            if (Target < Storage_.size())
             {
                 std::vector<std::uint8_t> tmp(Target);
-                if (size_ > 0)
+                if (Size_ > 0)
                 {
-                    std::memcpy(tmp.data(), storage_.data(), size_);
+                    std::memcpy(tmp.data(), Storage_.data(), Size_);
                 }
-                storage_.swap(tmp);
+                Storage_.swap(tmp);
             }
         }
 
@@ -178,31 +178,31 @@ namespace Preview
          */
         auto Append(std::span<const std::uint8_t> src) -> std::size_t
         {
-            auto space = Prepare(src.size());
-            if (space.empty())
+            auto Space = Prepare(src.size());
+            if (Space.empty())
             {
                 return 0;
             }
-            const auto n = std::min(space.size(), src.size());
-            std::memcpy(space.data(), src.data(), n);
-            Commit(n);
-            return n;
+            const auto N = std::min(Space.size(), src.size());
+            std::memcpy(Space.data(), src.data(), N);
+            Commit(N);
+            return N;
         }
 
         /**
          * @brief 尝试预分配容量（不改变已有数据）
          */
-        auto Reserve(std::size_t n) -> void
+        auto Reserve(std::size_t N) -> void
         {
-            if (n > storage_.size())
+            if (N > Storage_.size())
             {
-                Grow(n);
+                Grow(N);
             }
         }
 
     private:
-        std::vector<std::uint8_t> storage_;
-        std::size_t size_{0};
+        std::vector<std::uint8_t> Storage_;
+        std::size_t Size_{0};
         std::size_t InitialSize_{DefaultInitialSize};
 
         /**
@@ -210,17 +210,17 @@ namespace Preview
          * @param n 目标容量
          * @return 增长成功返回 true
          */
-        auto Grow(std::size_t n) -> bool
+        auto Grow(std::size_t N) -> bool
         {
-            if (n > MaxSizeLimit)
+            if (N > MaxSizeLimit)
             {
                 return false;
             }
-            auto NewCap = std::max(storage_.size() * 2, n);
+            auto NewCap = std::max(Storage_.size() * 2, N);
             NewCap = std::min(NewCap, MaxSizeLimit);
             try
             {
-                storage_.resize(NewCap);
+                Storage_.resize(NewCap);
                 return true;
             }
             catch (...)

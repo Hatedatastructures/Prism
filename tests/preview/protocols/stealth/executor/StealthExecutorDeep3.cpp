@@ -104,13 +104,13 @@ namespace
     auto make_context() -> handshake::handshake_context
     {
         handshake::handshake_context ctx;
-        ctx.transport = std::make_shared<psm::testing::MockTransport>();
+        ctx.transport = std::make_shared<Preview::Testing::MockTransport>();
 
         auto cfg = std::make_shared<psm::settings>();
         auto proc =
             std::make_shared<psm::resource::process>(psm::resource::process::options{cfg, nullptr, nullptr});
         auto wrk = std::make_shared<psm::resource::worker>(
-            psm::resource::worker::options{proc, psm::memory::std::global_pool()});
+            psm::resource::worker::options{proc, psm::memory::system::global_pool()});
         auto ses = std::make_shared<psm::resource::session>(
             psm::resource::session::options{wrk, 1, 4096, nullptr, {}, nullptr, nullptr});
 
@@ -166,7 +166,7 @@ namespace
 
     TEST(StealthExecutorDeep3, ExecuteSingle_PreservesTransport)
     {
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
         handshake::handshake_result preset;
         preset.transport = mock_transport;
         preset.detected = psm::connect::protocol_type::socks5;
@@ -201,7 +201,7 @@ namespace
 
     TEST(StealthExecutorDeep3, ExecutePipeline_FacadeSuccess)
     {
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
         handshake::handshake_result preset;
         preset.transport = mock_transport;
         preset.detected = psm::connect::protocol_type::http;
@@ -272,7 +272,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_StackFailContinue)
     {
         // Stack 方案失败（返回 transport），应继续尝试下一个
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
 
         // 第一个 stack 方案失败
         handshake::handshake_result fail_preset;
@@ -318,7 +318,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_TlsDetectedContinue)
     {
         // Facade 方案返回 detected=tls → "不是我的"，继续下一个
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
 
         handshake::handshake_result tls_preset;
         tls_preset.transport = mock_transport;
@@ -396,7 +396,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_SchemeNotFound_Skipped)
     {
         // 列表中包含不存在的 scheme → 跳过，下一个成功
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::http;
@@ -432,7 +432,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_SchemeDisabled_Skipped)
     {
         // 方案 active=false → 跳过
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::http;
@@ -497,7 +497,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecuteByAnalysis_EmptyCandidates_DefaultOrder)
     {
         // 空候选列表 → 按 registry 注册顺序执行
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::http;
@@ -532,7 +532,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecuteByAnalysis_WithCandidates_PipelineOrder)
     {
         // 有候选列表 → 按候选顺序执行
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::trojan;
@@ -568,7 +568,7 @@ namespace
 
     TEST(StealthExecutorDeep3, Execute_DelegatesToPipeline)
     {
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::socks5;
@@ -603,7 +603,7 @@ namespace
 
     TEST(StealthExecutorDeep3, Execute_MultipleCandidatesFirstWins)
     {
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
 
         handshake::handshake_result first_ok;
         first_ok.transport = mock_transport;
@@ -685,7 +685,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_FacadeWithPrereadSecondaryProbe)
     {
         // facade 成功且有 preread → secondary_probe 覆盖 detected
-        auto mock_transport = std::make_shared<psm::testing::MockTransport>();
+        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
 
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;

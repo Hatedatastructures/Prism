@@ -203,9 +203,9 @@ namespace
     template <typename Stream>
     void http_handshake(Stream &sock, const std::uint16_t backend_port)
     {
-        char port_buf[8];
-        const auto [pe, pec] = std::to_chars(port_buf, port_buf + sizeof(port_buf), backend_port);
-        const std::string port_str(port_buf, std::distance(port_buf, pe));
+        char PortBuf[8];
+        const auto [pe, pec] = std::to_chars(PortBuf, PortBuf + sizeof(PortBuf), backend_port);
+        const std::string port_str(PortBuf, std::distance(PortBuf, pe));
         const std::string_view cred = "prism:prism";
         const auto b64 = psm::crypto::base64_encode(
             std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(cred.data()), cred.size()));
@@ -393,14 +393,14 @@ namespace
             throw std::runtime_error("write var header failed");
         }
 
-        // 5. 读服务端响应：server_salt(16) + seal(27B) + seal(0B) = 75B
+        // 5. 读服务端响应：ServerSalt(16) + seal(27B) + seal(0B) = 75B
         std::array<std::uint8_t, 75> resp{};
         if (!read_all(sock, resp.data(), resp.size()))
         {
             throw std::runtime_error("read response failed");
         }
-        const std::vector<std::uint8_t> server_salt(resp.begin(), resp.begin() + 16);
-        const auto dec_key = derive_session_key(psk_vec, server_salt);
+        const std::vector<std::uint8_t> ServerSalt(resp.begin(), resp.begin() + 16);
+        const auto dec_key = derive_session_key(psk_vec, ServerSalt);
         dec_ctx = std::make_unique<psm::crypto::aead_context>(psm::crypto::aead_cipher::aes_128_gcm, dec_key);
         std::array<std::uint8_t, 27> resp_fixed{};
         if (dec_ctx->open(resp_fixed, std::span<const std::uint8_t>(resp.data() + 16, 43)) !=

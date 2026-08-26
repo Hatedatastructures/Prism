@@ -1,5 +1,5 @@
 /**
- * @file anytls.hpp
+ * @file Anytls.hpp
  * @brief AnyTLS 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / Accept ——认证握手在工厂内部完成
@@ -67,18 +67,18 @@ namespace Preview::Anytls
     [[nodiscard]] inline auto Connect(SharedTransmission upstream, const ClientConfig &cfg)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto err = co_await c->WriteHandshake();
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
+        const auto Err = co_await C->WriteHandshake();
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -90,18 +90,18 @@ namespace Preview::Anytls
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto err = co_await c->ReadHandshake();
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
+        const auto Err = co_await C->ReadHandshake();
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
 } // namespace Preview::Anytls

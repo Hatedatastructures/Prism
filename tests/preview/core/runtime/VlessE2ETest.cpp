@@ -5,7 +5,7 @@
  *          listener → recognition → AcceptProtocol(vless) →
  *          Dial Middleware → relay Middleware → echo 上游。
  *          验证点：runtime 零协议特判（不复制 SOCKS5 的
- *          Accept/post_dial 编排），VLESS 仅提供握手与数据面。
+ *          Accept/PostDial 编排），VLESS 仅提供握手与数据面。
  */
 
 #include <gtest/gtest.h>
@@ -42,20 +42,20 @@ namespace
     using namespace Preview;
 
     // 公共样板（RunCoro/echo 上游/tail_read_guarded 等见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::AcceptAndClose;
-    using psm::testing::AcceptEchoLoop;
-    using psm::testing::ChainState;
+    using Preview::Testing::AcceptAndClose;
+    using Preview::Testing::AcceptEchoLoop;
+    using Preview::Testing::ChainState;
     
-    using ConnectResult = psm::testing::ConnectResult;
-    using psm::testing::MakeUuid;
-    using psm::testing::RunCoro;
-    using psm::testing::tail_read_guarded;
-    using psm::testing::tcp_echo_server;
-    using psm::testing::ToHex;
-    using TrafficRecorder = psm::testing::TrafficRecorder;
+    using ConnectResult = Preview::Testing::ConnectResult;
+    using Preview::Testing::MakeUuid;
+    using Preview::Testing::RunCoro;
+    using Preview::Testing::TailReadGuarded;
+    using Preview::Testing::TcpEchoServer;
+    using Preview::Testing::ToHex;
+    using TrafficRecorder = Preview::Testing::TrafficRecorder;
 
-    /// VLESS 纵向测试共享状态（复用公共 psm::testing::ChainState）
-    using vless_chain_state = psm::testing::ChainState;
+    /// VLESS 纵向测试共享状态（复用公共 Preview::Testing::ChainState）
+    using vless_chain_state = Preview::Testing::ChainState;
 
     /// 固定测试 UUID 兼容别名（Vless::UuidLen == 16）
     inline auto test_uuid() -> std::array<std::uint8_t, Vless::UuidLen>
@@ -76,7 +76,7 @@ namespace
         const Network::Target &Target)
         -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
     {
-        co_return co_await psm::testing::DialUpstream(State, Target);
+        co_return co_await Preview::Testing::DialUpstream(State, Target);
     }
 
     /// 通用 VLESS TCP 真实链路运行器（自建 ioc）
@@ -93,7 +93,7 @@ namespace
             vless_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -123,9 +123,9 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                if (start_rc != Fault::Code::success)
+                if (start_rc != Fault::Code::Success)
                 {
-                    out.Err = Preview::Error::io_error;
+                    out.Err = Preview::Error::IoError;
                     co_return;
                 }
                 const auto listen_port = listener.LocalEndpoint().port();
@@ -135,7 +135,7 @@ namespace
                 auto raw = co_await d.Connect("127.0.0.1", listen_port, ec);
                 if (ec || !raw)
                 {
-                    out.Err = Preview::Error::io_error;
+                    out.Err = Preview::Error::IoError;
                     listener.Stop();
                     co_return;
                 }
@@ -157,7 +157,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->AsyncReadSome(
+                    const auto n = co_await proxy->async_read_some(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0)
                     {
@@ -192,7 +192,7 @@ namespace
                 *upstream_ep = ep;
             }
         };
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       std::move(on_upstream_error));
 
         Runtime::TcpListener listener(
@@ -221,7 +221,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -239,7 +239,7 @@ namespace
                     std::move(raw), ccfg,
                     Vless::Address{Vless::AddressType::Domain,
                                    "example.com", 443});
-                handshake_ok = err == Error::none && proxy != nullptr;
+                handshake_ok = err == Error::None && proxy != nullptr;
                 if (!proxy)
                 {
                     co_return;
@@ -255,7 +255,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->AsyncReadSome(
+                    const auto n = co_await proxy->async_read_some(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0)
                     {
@@ -288,7 +288,7 @@ namespace
         const auto r = run_vless_connect(
             Vless::Address{Vless::AddressType::Domain, "example.net", 22},
             Vless::ClientConfig{}, scfg);
-        EXPECT_NE(r.Err, Error::none);
+        EXPECT_NE(r.Err, Error::None);
         EXPECT_TRUE(r.Echo.empty());
     }
 
@@ -310,7 +310,7 @@ namespace
                     -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return std::pair{
-                        Fault::Code::connection_refused,
+                        Fault::Code::ConnectionRefused,
                         SharedTransmission{}};
                 };
                 return std::make_shared<Runtime::Session>(std::move(opts));
@@ -323,7 +323,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -346,7 +346,7 @@ namespace
                 }
                 // 拨号失败 → 会话终止 → 读侧 EOF/错误
                 std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->AsyncReadSome(buf, ec);
+                const auto n = co_await proxy->async_read_some(buf, ec);
                 saw_close = (n == 0 || ec != std::error_code{});
                 proxy->Close();
                 listener.Stop();
@@ -358,7 +358,7 @@ namespace
     {
         const auto r = run_vless_connect(
             Vless::Address{Vless::AddressType::Ipv4, "93.184.216.34", 80});
-        EXPECT_EQ(r.Err, Error::none);
+        EXPECT_EQ(r.Err, Error::None);
         EXPECT_EQ(r.Echo, "chain payload");
         EXPECT_EQ(r.Host, "93.184.216.34");
         EXPECT_EQ(r.Port, "80");
@@ -374,7 +374,7 @@ namespace
                                  Bytes.size());
         const auto r = run_vless_connect(
             Vless::Address{Vless::AddressType::Ipv6, v6host, 443});
-        EXPECT_EQ(r.Err, Error::none);
+        EXPECT_EQ(r.Err, Error::None);
         EXPECT_EQ(r.Echo, "chain payload");
         EXPECT_EQ(r.Host, v6host);
         EXPECT_EQ(r.Port, "443");
@@ -389,7 +389,7 @@ namespace
             vless_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -455,7 +455,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->AsyncReadSome(
+                    const auto n = co_await proxy->async_read_some(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0)
                     {
@@ -482,7 +482,7 @@ namespace
             vless_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -534,7 +534,7 @@ namespace
                     co_return;
                 }
                 std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->AsyncReadSome(buf, ec);
+                const auto n = co_await proxy->async_read_some(buf, ec);
                 closed = (n == 0 || ec != std::error_code{});
                 proxy->Close();
                 listener.Stop();
@@ -554,7 +554,7 @@ namespace
             vless_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -612,11 +612,11 @@ namespace
                         payload.size()),
                     ec);
                 std::array<std::byte, 64> buf{};
-                const auto n = co_await proxy->AsyncReadSome(buf, ec);
+                const auto n = co_await proxy->async_read_some(buf, ec);
                 proxy->Close();
                 // 等待 relay 收尾并上报流量
                 net::steady_timer t(ioc);
-                for (int i = 0; i < 300 && recorder.calls == 0; ++i)
+                for (int i = 0; i < 300 && recorder.Calls == 0; ++i)
                 {
                     t.expires_after(std::chrono::milliseconds(10));
                     co_await t.async_wait(net::use_awaitable);
@@ -625,11 +625,11 @@ namespace
                 boost::system::error_code close_ec;
                 echo_acceptor.close(close_ec);
             });
-        EXPECT_GT(recorder.calls, 0);
-        EXPECT_GE(recorder.up, std::string("traffic payload").size());
-        EXPECT_GE(recorder.down, std::string("traffic payload").size());
+        EXPECT_GT(recorder.Calls, 0);
+        EXPECT_GE(recorder.Up, std::string("traffic payload").size());
+        EXPECT_GE(recorder.Down, std::string("traffic payload").size());
         // 认证结果传入 Middleware：identity 为握手 UUID 的十六进制
-        EXPECT_EQ(recorder.identity, ToHex(test_uuid()));
+        EXPECT_EQ(recorder.Identity, ToHex(test_uuid()));
     }
 
     TEST(TcpListener, VlessTcpConnectUpstreamAbort)
@@ -693,7 +693,7 @@ namespace
                 }
                 // 上游 Accept 后立即 Close → 读侧 EOF/错误
                 std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->AsyncReadSome(buf, ec);
+                const auto n = co_await proxy->async_read_some(buf, ec);
                 saw_close = (n == 0 || ec != std::error_code{});
                 proxy->Close();
                 listener.Stop();

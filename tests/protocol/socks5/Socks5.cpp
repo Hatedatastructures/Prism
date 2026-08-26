@@ -69,9 +69,9 @@ namespace
             std::array<std::byte, 1024> buffer;
 
             // 从 SOCKS5 隧道中异步读取客户端载荷
-            std::error_code read_ec;
-            auto n = co_await socks5->async_read_some(std::span(buffer), read_ec);
-            if (psm::fault::failed(psm::fault::to_code(read_ec)) || n == 0)
+            std::error_code ReadEc;
+            auto n = co_await socks5->async_read_some(std::span(buffer), ReadEc);
+            if (psm::fault::failed(psm::fault::to_code(ReadEc)) || n == 0)
             {
                 co_return;
             }

@@ -1,5 +1,5 @@
 /**
- * @file handling.hpp
+ * @file Handling.hpp
  * @brief 极简错误码检查适配层
  * @details 提供对 Fault::Code、std::error_code 和
  * boost::system::error_code 的统一错误检查接口。
@@ -41,7 +41,7 @@ namespace Preview::Fault
     {
         if constexpr (std::is_same_v<ErrorCode, Code>)
         {
-            return ec == Code::success;
+            return ec == Code::Success;
         }
         else if constexpr (std::is_same_v<ErrorCode, std::error_code>)
         {
@@ -85,7 +85,7 @@ namespace Preview::Fault
     {
         if (!ec)
         {
-            return Code::success;
+            return Code::Success;
         }
 
         if (std::string_view(ec.category().name()) == "Preview::fault")
@@ -95,7 +95,7 @@ namespace Preview::Fault
             {
                 return static_cast<Code>(value);
             }
-            return Code::generic_error;
+            return Code::GenericError;
         }
 
         // 协议层错误（Preview::Error，类别名 Preview.Protocol）→ fault 映射
@@ -103,67 +103,67 @@ namespace Preview::Fault
         {
             switch (static_cast<Preview::Error>(ec.value()))
             {
-            case Preview::Error::none: return Code::success;
-            case Preview::Error::need_more: return Code::would_block;
-            case Preview::Error::unexpected_eof: return Code::eof;
-            case Preview::Error::bad_length:
-            case Preview::Error::bad_magic:
-            case Preview::Error::bad_message:
-            case Preview::Error::version_mismatch: return Code::bad_message;
-            case Preview::Error::bad_auth:
-            case Preview::Error::auth_failed: return Code::auth_failed;
-            case Preview::Error::not_supported:
-            case Preview::Error::unsupported: return Code::not_supported;
-            case Preview::Error::bad_address: return Code::unsupported_address;
-            case Preview::Error::not_open:
-            case Preview::Error::broken_pipe:
-            case Preview::Error::io_error: return Code::io_error;
-            case Preview::Error::canceled: return Code::canceled;
-            case Preview::Error::timeout: return Code::timeout;
-            case Preview::Error::protocol_error: return Code::protocol_error;
-            case Preview::Error::kdf_error: return Code::generic_error;
-            default: return Code::generic_error;
+            case Preview::Error::None: return Code::Success;
+            case Preview::Error::NeedMore: return Code::WouldBlock;
+            case Preview::Error::UnexpectedEof: return Code::Eof;
+            case Preview::Error::BadLength:
+            case Preview::Error::BadMagic:
+            case Preview::Error::BadMessage:
+            case Preview::Error::VersionMismatch: return Code::BadMessage;
+            case Preview::Error::BadAuth:
+            case Preview::Error::AuthFailed: return Code::AuthFailed;
+            case Preview::Error::NotSupported:
+            case Preview::Error::Unsupported: return Code::NotSupported;
+            case Preview::Error::BadAddress: return Code::UnsupportedAddress;
+            case Preview::Error::NotOpen:
+            case Preview::Error::BrokenPipe:
+            case Preview::Error::IoError: return Code::IoError;
+            case Preview::Error::Canceled: return Code::Canceled;
+            case Preview::Error::Timeout: return Code::Timeout;
+            case Preview::Error::ProtocolError: return Code::ProtocolError;
+            case Preview::Error::KdfError: return Code::GenericError;
+            default: return Code::GenericError;
             }
         }
 
         if (ec == boost::asio::error::eof)
         {
-            return Code::eof;
+            return Code::Eof;
         }
         if (ec == boost::asio::error::operation_aborted)
         {
-            return Code::canceled;
+            return Code::Canceled;
         }
         if (ec == boost::asio::error::timed_out)
         {
-            return Code::timeout;
+            return Code::Timeout;
         }
         if (ec == boost::asio::error::connection_refused)
         {
-            return Code::connection_refused;
+            return Code::ConnectionRefused;
         }
         if (ec == boost::asio::error::connection_reset)
         {
-            return Code::connection_reset;
+            return Code::ConnectionReset;
         }
         if (ec == boost::asio::error::connection_aborted)
         {
-            return Code::connection_aborted;
+            return Code::ConnectionAborted;
         }
         if (ec == boost::asio::error::host_unreachable)
         {
-            return Code::host_noreply;
+            return Code::HostNoreply;
         }
         if (ec == boost::asio::error::network_unreachable)
         {
-            return Code::net_noreply;
+            return Code::NetNoreply;
         }
         if (ec == boost::asio::error::no_buffer_space)
         {
-            return Code::resource_unavailable;
+            return Code::ResourceUnavailable;
         }
 
-        return Code::io_error;
+        return Code::IoError;
     }
 
     /**
@@ -178,58 +178,58 @@ namespace Preview::Fault
     {
         if (!ec)
         {
-            return Code::success;
+            return Code::Success;
         }
 
-        if (&ec.category() == &Preview::Fault::category())
+        if (&ec.category() == &Preview::Fault::Category())
         {
             const auto value = ec.value();
             if (value >= 0 && value < static_cast<std::int32_t>(Code::_count))
             {
                 return static_cast<Code>(value);
             }
-            return Code::generic_error;
+            return Code::GenericError;
         }
 
         // 预构造错误码对象，避免每次比较都调用 std::make_error_code
-        static const auto ec_refused = std::make_error_code(std::errc::connection_refused);
-        static const auto ec_reset = std::make_error_code(std::errc::connection_reset);
-        static const auto ec_aborted = std::make_error_code(std::errc::connection_aborted);
-        static const auto ec_timeout = std::make_error_code(std::errc::timed_out);
-        static const auto ec_host = std::make_error_code(std::errc::host_unreachable);
-        static const auto ec_net = std::make_error_code(std::errc::network_unreachable);
-        static const auto ec_cancel = std::make_error_code(std::errc::operation_canceled);
+        static const auto EcRefused = std::make_error_code(std::errc::connection_refused);
+        static const auto EcReset = std::make_error_code(std::errc::connection_reset);
+        static const auto EcAborted = std::make_error_code(std::errc::connection_aborted);
+        static const auto EcTimeout = std::make_error_code(std::errc::timed_out);
+        static const auto EcHost = std::make_error_code(std::errc::host_unreachable);
+        static const auto EcNet = std::make_error_code(std::errc::network_unreachable);
+        static const auto EcCancel = std::make_error_code(std::errc::operation_canceled);
 
-        if (ec == ec_refused)
+        if (ec == EcRefused)
         {
-            return Code::connection_refused;
+            return Code::ConnectionRefused;
         }
-        if (ec == ec_reset)
+        if (ec == EcReset)
         {
-            return Code::connection_reset;
+            return Code::ConnectionReset;
         }
-        if (ec == ec_aborted)
+        if (ec == EcAborted)
         {
-            return Code::connection_aborted;
+            return Code::ConnectionAborted;
         }
-        if (ec == ec_timeout)
+        if (ec == EcTimeout)
         {
-            return Code::timeout;
+            return Code::Timeout;
         }
-        if (ec == ec_host)
+        if (ec == EcHost)
         {
-            return Code::host_noreply;
+            return Code::HostNoreply;
         }
-        if (ec == ec_net)
+        if (ec == EcNet)
         {
-            return Code::net_noreply;
+            return Code::NetNoreply;
         }
-        if (ec == ec_cancel)
+        if (ec == EcCancel)
         {
-            return Code::canceled;
+            return Code::Canceled;
         }
 
-        return Code::io_error;
+        return Code::IoError;
     }
 
 } // namespace Preview::Fault

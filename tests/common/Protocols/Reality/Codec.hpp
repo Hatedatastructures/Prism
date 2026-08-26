@@ -45,29 +45,29 @@ namespace Preview::Reality
         static constexpr char Table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         std::string out;
         out.reserve((Data.size() + 2) / 3 * 4);
-        std::size_t i = 0;
-        for (; i + 2 < Data.size(); i += 3)
+        std::size_t I = 0;
+        for (; I + 2 < Data.size(); I += 3)
         {
-            const auto n = static_cast<std::uint32_t>(Data[i]) << 16 |
-                           static_cast<std::uint32_t>(Data[i + 1]) << 8 | Data[i + 2];
-            out.push_back(Table[(n >> 18) & 0x3F]);
-            out.push_back(Table[(n >> 12) & 0x3F]);
-            out.push_back(Table[(n >> 6) & 0x3F]);
-            out.push_back(Table[n & 0x3F]);
+            const auto N = static_cast<std::uint32_t>(Data[I]) << 16 |
+                           static_cast<std::uint32_t>(Data[I + 1]) << 8 | Data[I + 2];
+            out.push_back(Table[(N >> 18) & 0x3F]);
+            out.push_back(Table[(N >> 12) & 0x3F]);
+            out.push_back(Table[(N >> 6) & 0x3F]);
+            out.push_back(Table[N & 0x3F]);
         }
-        if (i + 1 == Data.size())
+        if (I + 1 == Data.size())
         {
-            const auto n = static_cast<std::uint32_t>(Data[i]) << 16;
-            out.push_back(Table[(n >> 18) & 0x3F]);
-            out.push_back(Table[(n >> 12) & 0x3F]);
+            const auto N = static_cast<std::uint32_t>(Data[I]) << 16;
+            out.push_back(Table[(N >> 18) & 0x3F]);
+            out.push_back(Table[(N >> 12) & 0x3F]);
         }
-        else if (i + 2 == Data.size())
+        else if (I + 2 == Data.size())
         {
-            const auto n = static_cast<std::uint32_t>(Data[i]) << 16 | static_cast<std::uint32_t>(Data[i + 1])
+            const auto N = static_cast<std::uint32_t>(Data[I]) << 16 | static_cast<std::uint32_t>(Data[I + 1])
                                                                            << 8;
-            out.push_back(Table[(n >> 18) & 0x3F]);
-            out.push_back(Table[(n >> 12) & 0x3F]);
-            out.push_back(Table[(n >> 6) & 0x3F]);
+            out.push_back(Table[(N >> 18) & 0x3F]);
+            out.push_back(Table[(N >> 12) & 0x3F]);
+            out.push_back(Table[(N >> 6) & 0x3F]);
         }
         return out;
     }
@@ -79,7 +79,7 @@ namespace Preview::Reality
      */
     [[nodiscard]] inline auto Base64urlDecode(std::string_view s) -> std::vector<std::uint8_t>
     {
-        auto val = [](char c) -> int
+        auto Val = [](char c) -> int
         {
             if (c >= 'A' && c <= 'Z')
             {
@@ -104,21 +104,21 @@ namespace Preview::Reality
             return -1;
         };
         std::vector<std::uint8_t> out;
-        std::uint32_t acc = 0;
-        int bits = 0;
+        std::uint32_t Acc = 0;
+        int Bits = 0;
         for (const char c : s)
         {
-            const int v = val(c);
-            if (v < 0)
+            const int V = Val(c);
+            if (V < 0)
             {
                 return {};
             }
-            acc = (acc << 6) | static_cast<std::uint32_t>(v);
-            bits += 6;
-            if (bits >= 8)
+            Acc = (Acc << 6) | static_cast<std::uint32_t>(V);
+            Bits += 6;
+            if (Bits >= 8)
             {
-                bits -= 8;
-                out.push_back(static_cast<std::uint8_t>((acc >> bits) & 0xFF));
+                Bits -= 8;
+                out.push_back(static_cast<std::uint8_t>((Acc >> Bits) & 0xFF));
             }
         }
         return out;
@@ -211,21 +211,21 @@ namespace Preview::Reality
                               std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> md{};
-            unsigned int len = 0;
+            unsigned int Len = 0;
             HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), Data.data(), Data.size(), md.data(),
-                 &len);
+                 &Len);
             return md;
         };
 
         // HKDF-Extract: PRK = HMAC-SHA256(salt, ikm)
-        const auto prk = HmacSha256(ClientRandom.first(20), SharedSecret);
+        const auto Prk = HmacSha256(ClientRandom.first(20), SharedSecret);
 
         // HKDF-Expand: OKM = HMAC-SHA256(PRK, Info || 0x01)，32 字节单块
-        std::vector<std::uint8_t> Info(sizeof(reality_info) - 1 + 1);
-        std::memcpy(Info.data(), reality_info, sizeof(reality_info) - 1);
+        std::vector<std::uint8_t> Info(sizeof(RealityInfo) - 1 + 1);
+        std::memcpy(Info.data(), RealityInfo, sizeof(RealityInfo) - 1);
         Info.back() = 0x01;
-        const auto okm = HmacSha256(prk, Info);
-        std::memcpy(out.data(), okm.data(), KeyLen);
+        const auto Okm = HmacSha256(Prk, Info);
+        std::memcpy(out.data(), Okm.data(), KeyLen);
         return false;
     }
 
@@ -233,7 +233,7 @@ namespace Preview::Reality
      * @brief Seal SessionId（客户端侧，对齐 mihomo reality.go）
      * @param AuthKey 32 字节认证密钥
      * @param ClientRandom 客户端随机数（40 字节，后 12 为 Nonce）
-     * @param plain 明文（16 字节：version + random + short_id + padding）
+     * @param plain 明文（16 字节：version + random + ShortId + padding）
      * @param hello ClientHello 原始消息（AAD，SessionId 区偏移 39 清零）
      * @param out 输出 32 字节密文（16 + tag 16）
      * @return 成功返回 false
@@ -281,13 +281,13 @@ namespace Preview::Reality
         {
             return true;
         }
-        int len = 0;
+        int Len = 0;
         EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.AuthKey.data(), in.ClientRandom.data() + 20);
-        EVP_EncryptUpdate(ctx, nullptr, &len, aad.data(), static_cast<int>(aad.size()));
-        EVP_EncryptUpdate(ctx, out.data(), &len, in.plain.data(), static_cast<int>(in.plain.size()));
-        int OutLen = len;
-        EVP_EncryptFinal_ex(ctx, out.data() + OutLen, &len);
-        OutLen += len;
+        EVP_EncryptUpdate(ctx, nullptr, &Len, aad.data(), static_cast<int>(aad.size()));
+        EVP_EncryptUpdate(ctx, out.data(), &Len, in.plain.data(), static_cast<int>(in.plain.size()));
+        int OutLen = Len;
+        EVP_EncryptFinal_ex(ctx, out.data() + OutLen, &Len);
+        OutLen += Len;
         EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + OutLen);
         EVP_CIPHER_CTX_free(ctx);
         return false;
@@ -317,13 +317,13 @@ namespace Preview::Reality
         {
             return true;
         }
-        int len = 0;
+        int Len = 0;
         EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.AuthKey.data(), in.ClientRandom.data() + 20);
-        EVP_DecryptUpdate(ctx, nullptr, &len, aad.data(), static_cast<int>(aad.size()));
-        EVP_DecryptUpdate(ctx, out.data(), &len, in.cipher.data(), 16);
-        int OutLen = len;
+        EVP_DecryptUpdate(ctx, nullptr, &Len, aad.data(), static_cast<int>(aad.size()));
+        EVP_DecryptUpdate(ctx, out.data(), &Len, in.cipher.data(), 16);
+        int OutLen = Len;
         EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, const_cast<std::uint8_t *>(in.cipher.data()) + 16);
-        const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + OutLen, &len);
+        const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + OutLen, &Len);
         EVP_CIPHER_CTX_free(ctx);
         return Ok != 1;
     }
@@ -337,12 +337,12 @@ namespace Preview::Reality
     [[nodiscard]] inline auto ParsePrivateKey(std::string_view encoded,
                                                 std::array<std::uint8_t, KeyLen> &out) -> bool
     {
-        const auto raw = Base64urlDecode(encoded);
-        if (raw.size() != KeyLen)
+        const auto Raw = Base64urlDecode(encoded);
+        if (Raw.size() != KeyLen)
         {
             return true;
         }
-        std::copy(raw.begin(), raw.end(), out.begin());
+        std::copy(Raw.begin(), Raw.end(), out.begin());
         return false;
     }
 
@@ -369,7 +369,7 @@ namespace Preview::Reality
         {
             return true;
         }
-        auto nibble = [](char c) -> int
+        auto Nibble = [](char c) -> int
         {
             if (c >= '0' && c <= '9')
             {
@@ -385,16 +385,16 @@ namespace Preview::Reality
             }
             return -1;
         };
-        std::size_t pos = 0;
-        for (std::size_t i = 0; i < hex.size(); i += 2)
+        std::size_t Pos = 0;
+        for (std::size_t I = 0; I < hex.size(); I += 2)
         {
-            const int hi = nibble(hex[i]);
-            const int lo = nibble(hex[i + 1]);
-            if (hi < 0 || lo < 0)
+            const int Hi = Nibble(hex[I]);
+            const int Lo = Nibble(hex[I + 1]);
+            if (Hi < 0 || Lo < 0)
             {
                 return true;
             }
-            out[pos++] = static_cast<std::uint8_t>((hi << 4) | lo);
+            out[Pos++] = static_cast<std::uint8_t>((Hi << 4) | Lo);
         }
         return false;
     }

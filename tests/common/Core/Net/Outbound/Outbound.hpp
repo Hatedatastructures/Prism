@@ -49,7 +49,7 @@ namespace Preview::Network::Outbound
          * @param routes 路由表（共享所有权）
          */
         explicit Outbound(net::any_io_executor ex, std::shared_ptr<Preview::Network::Route::RouteTable> routes)
-            : ex_(std::move(ex)), routes_(std::move(routes))
+            : Ex_(std::move(ex)), Routes_(std::move(routes))
         {
         }
 
@@ -64,26 +64,26 @@ namespace Preview::Network::Outbound
         {
             std::string_view DialHost = tgt.Host;
             std::uint16_t DialPort = tgt.Port;
-            if (!tgt.positive && routes_)
+            if (!tgt.positive && Routes_)
             {
-                if (const auto route = routes_->Lookup(tgt.Host); route.has_value())
+                if (const auto Route = Routes_->Lookup(tgt.Host); Route.has_value())
                 {
-                    DialHost = route->Host;
-                    DialPort = route->Port;
+                    DialHost = Route->Host;
+                    DialPort = Route->Port;
                 }
             }
             if (DialPort == 0)
             {
-                ec = make_error_code(Error::bad_address);
+                ec = make_error_code(Error::BadAddress);
                 co_return nullptr;
             }
-            Preview::Network::Dialer::Dialer Dialer(ex_);
+            Preview::Network::Dialer::Dialer Dialer(Ex_);
             co_return co_await Dialer.Connect(DialHost, DialPort, ec);
         }
 
     private:
-        net::any_io_executor ex_;
-        std::shared_ptr<Preview::Network::Route::RouteTable> routes_;
+        net::any_io_executor Ex_;
+        std::shared_ptr<Preview::Network::Route::RouteTable> Routes_;
     };
 
 } // namespace Preview::Network::Outbound

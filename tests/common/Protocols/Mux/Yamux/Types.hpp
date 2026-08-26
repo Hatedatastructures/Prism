@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief yamux 协议基础类型（兼容 Hashicorp/yamux）
  * @details 定义 yamux 多路复用协议的常量、消息类型、标志位与帧头结构。
  *          帧头为 12 字节定长，多字节字段大端序：
@@ -30,26 +30,26 @@ namespace Preview::Mux::Yamux
         /// 数据帧
         Data = 0x00,
         /// 窗口更新
-        window_update = 0x01,
+        WindowUpdate = 0x01,
         /// 心跳
-        ping = 0x02,
+        Ping = 0x02,
         /// 会话终止
-        go_away = 0x03,
+        GoAway = 0x03,
     };
 
     /// 标志位（2 字节，可组合）
     enum class Flags : std::uint16_t
     {
         /// 无标志
-        none = 0x0000,
+        None = 0x0000,
         /// 同步（打开流 / 心跳请求）
-        syn = 0x0001,
+        Syn = 0x0001,
         /// 确认（确认流 / 心跳响应）
-        ack = 0x0002,
+        Ack = 0x0002,
         /// 半关闭
-        fin = 0x0004,
+        Fin = 0x0004,
         /// 重置
-        rst = 0x0008,
+        Rst = 0x0008,
     };
 
     /**
@@ -71,14 +71,14 @@ namespace Preview::Mux::Yamux
      */
     [[nodiscard]] constexpr auto HasFlag(Flags f, Flags flag) noexcept -> bool
     {
-        return (f & flag) != Flags::none;
+        return (f & flag) != Flags::None;
     }
 
     /// GoAway 终止原因码
     enum class AwayCode : std::uint32_t
     {
         /// 协议错误
-        protocol_error = 1,
+        ProtocolError = 1,
     };
 
     /// yamux 帧头
@@ -89,7 +89,7 @@ namespace Preview::Mux::Yamux
         /// 消息类型
         MessageType Type{MessageType::Data};
         /// 标志位组合
-        Flags flag{Flags::none};
+        Flags flag{Flags::None};
         /// 流标识符（0 = 会话级）
         std::uint32_t StreamId{0};
         /// 长度字段（Data = 载荷长，WinUpd = 窗口增量，Ping = ping Id，GoAway = 原因码）

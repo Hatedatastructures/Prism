@@ -45,9 +45,9 @@ namespace Preview
         concept FrameConfig = requires(C &c) {
             typename C::FrameType;
             { C::HeaderLen } -> std::convertible_to<const std::size_t>;
-            { C::ParseHeader(std::span<const std::uint8_t>{}, c.frame_) } -> std::same_as<Error>;
-            { C::PayloadLen(c.frame_) } -> std::convertible_to<std::size_t>;
-            { C::ParsePayload(c.frame_, std::span<const std::uint8_t>{}) } -> std::same_as<Error>;
+            { C::ParseHeader(std::span<const std::uint8_t>{}, c.Frame_) } -> std::same_as<Error>;
+            { C::PayloadLen(c.Frame_) } -> std::convertible_to<std::size_t>;
+            { C::ParsePayload(c.Frame_, std::span<const std::uint8_t>{}) } -> std::same_as<Error>;
         };
 
     } // namespace detail
@@ -58,7 +58,7 @@ namespace Preview
         /// 等待头部
         Header,
         /// 等待载荷
-        payload,
+        Payload,
         /// 解析完成
         Done,
         /// 解析失败（不可恢复）
@@ -78,7 +78,7 @@ namespace Preview
          * @brief 构造
          * @param Capacity 内部缓冲初始容量
          */
-        explicit Parser(std::size_t Capacity = 256) : buf_(Capacity)
+        explicit Parser(std::size_t Capacity = 256) : Buf_(Capacity)
         {
         }
 
@@ -104,7 +104,7 @@ namespace Preview
          */
         [[nodiscard]] auto State() const noexcept -> ParseState
         {
-            return state_;
+            return State_;
         }
 
         /**
@@ -113,7 +113,7 @@ namespace Preview
          */
         [[nodiscard]] auto Done() const noexcept -> bool
         {
-            return state_ == ParseState::Done;
+            return State_ == ParseState::Done;
         }
 
         /**
@@ -122,7 +122,7 @@ namespace Preview
          */
         [[nodiscard]] auto Failed() const noexcept -> bool
         {
-            return state_ == ParseState::Failed;
+            return State_ == ParseState::Failed;
         }
 
         /**
@@ -131,22 +131,22 @@ namespace Preview
          */
         [[nodiscard]] auto Want() const noexcept -> std::size_t
         {
-            if (state_ == ParseState::Done || state_ == ParseState::Failed)
+            if (State_ == ParseState::Done || State_ == ParseState::Failed)
             {
                 return 0;
             }
-            if (state_ == ParseState::Header)
+            if (State_ == ParseState::Header)
             {
-                if (Config::HeaderLen > buf_.Size())
+                if (Config::HeaderLen > Buf_.Size())
                 {
-                    return Config::HeaderLen - buf_.Size();
+                    return Config::HeaderLen - Buf_.Size();
                 }
                 return 0;
             }
-            const auto Total = Config::HeaderLen + Config::PayloadLen(frame_);
-            if (Total > buf_.Size())
+            const auto Total = Config::HeaderLen + Config::PayloadLen(Frame_);
+            if (Total > Buf_.Size())
             {
-                return Total - buf_.Size();
+                return Total - Buf_.Size();
             }
             return 0;
         }
@@ -159,63 +159,63 @@ namespace Preview
          */
         auto Put(std::span<const std::uint8_t> Data) -> Error
         {
-            if (state_ == ParseState::Failed)
+            if (State_ == ParseState::Failed)
             {
-                return Error::protocol_error;
+                return Error::ProtocolError;
             }
-            if (state_ == ParseState::Done)
+            if (State_ == ParseState::Done)
             {
-                return Error::none;
+                return Error::None;
             }
 
             // 追加到内部缓冲
-            if (buf_.Append(Data) < Data.size())
+            if (Buf_.Append(Data) < Data.size())
             {
-                return Error::need_more; // 缓冲增长失败（OOM 防御）
+                return Error::NeedMore; // 缓冲增长失败（OOM 防御）
             }
 
             // 状态机推进
             while (true)
             {
-                if (state_ == ParseState::Header)
+                if (State_ == ParseState::Header)
                 {
-                    if (buf_.Size() < Config::HeaderLen)
+                    if (Buf_.Size() < Config::HeaderLen)
                     {
-                        return Error::need_more;
+                        return Error::NeedMore;
                     }
-                    const auto ec = Config::ParseHeader(buf_.Data().first(Config::HeaderLen), frame_);
-                    if (ec == Error::need_more)
+                    const auto Ec = Config::ParseHeader(Buf_.Data().first(Config::HeaderLen), Frame_);
+                    if (Ec == Error::NeedMore)
                     {
-                        return Error::need_more; // 变长头继续等
+                        return Error::NeedMore; // 变长头继续等
                     }
-                    if (ec != Error::none)
+                    if (Ec != Error::None)
                     {
-                        state_ = ParseState::Failed;
-                        return ec;
+                        State_ = ParseState::Failed;
+                        return Ec;
                     }
-                    buf_.Consume(Config::HeaderLen);
-                    state_ = ParseState::payload;
+                    Buf_.Consume(Config::HeaderLen);
+                    State_ = ParseState::Payload;
                 }
-                else if (state_ == ParseState::payload)
+                else if (State_ == ParseState::Payload)
                 {
-                    const auto need = Config::PayloadLen(frame_);
-                    if (buf_.Size() < need)
+                    const auto Need = Config::PayloadLen(Frame_);
+                    if (Buf_.Size() < Need)
                     {
-                        return Error::need_more;
+                        return Error::NeedMore;
                     }
-                    const auto ec = Config::ParsePayload(frame_, buf_.Data().first(need));
-                    if (ec != Error::none)
+                    const auto Ec = Config::ParsePayload(Frame_, Buf_.Data().first(Need));
+                    if (Ec != Error::None)
                     {
-                        state_ = ParseState::Failed;
-                        return ec;
+                        State_ = ParseState::Failed;
+                        return Ec;
                     }
-                    buf_.Consume(need);
-                    state_ = ParseState::Done;
-                    return Error::none;
+                    Buf_.Consume(Need);
+                    State_ = ParseState::Done;
+                    return Error::None;
                 }
                 else
                 {
-                    return Error::none;
+                    return Error::None;
                 }
             }
         }
@@ -226,7 +226,7 @@ namespace Preview
          */
         [[nodiscard]] auto Frame() const noexcept -> const FrameType &
         {
-            return frame_;
+            return Frame_;
         }
 
         /**
@@ -235,7 +235,7 @@ namespace Preview
          */
         [[nodiscard]] auto Frame() noexcept -> FrameType &
         {
-            return frame_;
+            return Frame_;
         }
 
         /**
@@ -243,9 +243,9 @@ namespace Preview
          */
         auto Reset() noexcept -> void
         {
-            buf_.Clear();
-            frame_ = FrameType{};
-            state_ = ParseState::Header;
+            Buf_.Clear();
+            Frame_ = FrameType{};
+            State_ = ParseState::Header;
         }
 
         /**
@@ -254,13 +254,13 @@ namespace Preview
          */
         [[nodiscard]] auto Residual() const noexcept -> std::span<const std::uint8_t>
         {
-            return buf_.Data();
+            return Buf_.Data();
         }
 
     private:
-        FlatBuffer buf_;
-        FrameType frame_{};
-        ParseState state_{ParseState::Header};
+        FlatBuffer Buf_;
+        FrameType Frame_{};
+        ParseState State_{ParseState::Header};
     };
 
 } // namespace Preview

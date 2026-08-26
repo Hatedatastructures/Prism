@@ -63,7 +63,7 @@ namespace Preview::Network::Udp
          */
         UdpRelay(std::shared_ptr<Preview::Transport::Unreliable> a,
                   std::shared_ptr<Preview::Transport::Unreliable> b, RelayOptions opts = {})
-            : a_(std::move(a)), b_(std::move(b)), opts_(opts)
+            : A_(std::move(a)), B_(std::move(b)), Opts_(opts)
         {
         }
 
@@ -75,50 +75,50 @@ namespace Preview::Network::Udp
         {
             using boost::asio::experimental::awaitable_operators::operator||;
 
-            auto assoc = std::make_shared<AssocTable>();
+            auto Assoc = std::make_shared<AssocTable>();
 
             // 单向转发：from 收 → 按会话表配对目标发 to
             auto RelayOne = [&](Preview::Transport::Unreliable &from,
                                  Preview::Transport::Unreliable &to,
                                  std::shared_ptr<AssocTable> Table,
-                                 bool from_is_a) -> net::awaitable<void>
+                                 bool FromIsA) -> net::awaitable<void>
             {
                 // 64KB 缓冲堆分配：协程帧只留 8 字节 shared_ptr（两方向各持独立缓冲，避免读写竞争）
-                auto buf = std::make_shared<std::array<std::byte, 65535>>();
+                auto Buf = std::make_shared<std::array<std::byte, 65535>>();
                 while (true)
                 {
                     net::ip::udp::endpoint src;
                     boost::system::error_code REc;
-                    const auto n = co_await from.NativeSocket().async_receive_from(
-                        net::buffer(buf->data(), buf->size()), src,
+                    const auto N = co_await from.NativeSocket().async_receive_from(
+                        net::buffer(Buf->data(), Buf->size()), src,
                         net::redirect_error(net::use_awaitable, REc));
-                    if (REc || n == 0)
+                    if (REc || N == 0)
                     {
                         co_return;
                     }
                     // 先学习/配对，再查转发目标（首包即配对）
-                    Table->Touch(src, from_is_a);
-                    const auto peer = Table->PeerOf(src, from_is_a);
-                    if (!peer)
+                    Table->Touch(src, FromIsA);
+                    const auto Peer = Table->PeerOf(src, FromIsA);
+                    if (!Peer)
                     {
                         continue; // 未配对/已回收：丢弃
                     }
                     boost::system::error_code WEc;
                     co_await to.NativeSocket().async_send_to(
-                        net::buffer(buf->data(), n), *peer,
+                        net::buffer(Buf->data(), N), *Peer,
                         net::redirect_error(net::use_awaitable, WEc));
                     if (WEc)
                     {
                         co_return;
                     }
-                    Table->Touch(src, from_is_a);
+                    Table->Touch(src, FromIsA);
                 }
             };
 
-            co_await (RelayOne(*a_, *b_, assoc, true) ||
-                      RelayOne(*b_, *a_, assoc, false) || RecycleLoop(assoc));
-            a_->Close();
-            b_->Close();
+            co_await (RelayOne(*A_, *B_, Assoc, true) ||
+                      RelayOne(*B_, *A_, Assoc, false) || RecycleLoop(Assoc));
+            A_->Close();
+            B_->Close();
             co_return;
         }
 
@@ -132,88 +132,88 @@ namespace Preview::Network::Udp
             /// 单侧条目：配对端点 + 最后活动时刻
             struct Entry
             {
-                net::ip::udp::endpoint peer{}; ///< 对端（配对端点）
+                net::ip::udp::endpoint Peer{}; ///< 对端（配对端点）
                 std::uint64_t LastSeen{0};    ///< 最后活动（毫秒）
             };
 
             /**
              * @brief 查询来源配对目标
              * @param src 来源端点
-             * @param from_a 来源是否 A 侧
+             * @param FromA 来源是否 A 侧
              * @return 配对目标（未配对返回 nullopt）
              */
-            [[nodiscard]] auto PeerOf(const net::ip::udp::endpoint &src, bool from_a) const
+            [[nodiscard]] auto PeerOf(const net::ip::udp::endpoint &src, bool FromA) const
                 -> std::optional<net::ip::udp::endpoint>
             {
                 const auto &Table = [&]() -> const decltype(AToB_) & {
-                    if (from_a)
+                    if (FromA)
                     {
                         return AToB_;
                     }
                     return BToA_;
                 }();
-                const auto it = Table.find(src);
-                if (it == Table.end() || it->second.peer == net::ip::udp::endpoint{})
+                const auto It = Table.find(src);
+                if (It == Table.end() || It->second.Peer == net::ip::udp::endpoint{})
                 {
                     return std::nullopt; // 未学习或未配对
                 }
-                return it->second.peer;
+                return It->second.Peer;
             }
 
             /**
              * @brief 关联/配对：记录来源，与对侧未配对来源配对，刷新活动时间
              * @param src 来源端点（本侧）
-             * @param from_a 来源是否 A 侧
+             * @param FromA 来源是否 A 侧
              */
-            void Touch(const net::ip::udp::endpoint &src, bool from_a)
+            void Touch(const net::ip::udp::endpoint &src, bool FromA)
             {
                 auto &self = [&]() -> decltype(AToB_) & {
-                    if (from_a)
+                    if (FromA)
                     {
                         return AToB_;
                     }
                     return BToA_;
                 }();
                 auto &other = [&]() -> decltype(AToB_) & {
-                    if (from_a)
+                    if (FromA)
                     {
                         return BToA_;
                     }
                     return AToB_;
                 }();
-                const auto now = NowMs();
-                auto it = self.find(src);
-                if (it == self.end())
+                const auto Now = NowMs();
+                auto It = self.find(src);
+                if (It == self.end())
                 {
                     // 新来源：移除本侧旧的未配对条目（单活跃会话简化）
-                    for (auto i = self.begin(); i != self.end();)
+                    for (auto I = self.begin(); I != self.end();)
                     {
-                        if (i->second.peer == net::ip::udp::endpoint{})
+                        if (I->second.Peer == net::ip::udp::endpoint{})
                         {
-                            i = self.erase(i);
+                            I = self.erase(I);
                         }
                         else
                         {
-                            ++i;
+                            ++I;
                         }
                     }
-                    it = self.emplace(src, Entry{{}, now}).first;
+                    It = self.emplace(src, Entry{{}, Now}).first;
                 }
                 else
                 {
-                    it->second.LastSeen = now;
+                    It->second.LastSeen = Now;
                 }
-                if (it->second.peer != net::ip::udp::endpoint{})
+                if (It->second.Peer != net::ip::udp::endpoint{})
                 {
                     return; // 已配对
                 }
                 // 与对侧未配对来源配对（先到者等后到者）
-                for (auto &[other_src, oe] : other)
+                for (auto &[OtherSrc, oe] : other)
                 {
-                    if (oe.peer == net::ip::udp::endpoint{})
+                    if (oe.Peer == net::ip::udp::endpoint{})
                     {
-                        it->second.peer = other_src;
-                        oe.peer = src;
+                        It->second.Peer = OtherSrc;
+                        oe.Peer = src;
                         return;
                     }
                 }
@@ -230,23 +230,23 @@ namespace Preview::Network::Udp
                 {
                     return 0;
                 }
-                const auto now = NowMs();
-                std::size_t removed = 0;
-                for (auto it = AToB_.begin(); it != AToB_.end();)
+                const auto Now = NowMs();
+                std::size_t Removed = 0;
+                for (auto It = AToB_.begin(); It != AToB_.end();)
                 {
-                    if (now - it->second.LastSeen >
+                    if (Now - It->second.LastSeen >
                         static_cast<std::uint64_t>(timeout.count()))
                     {
-                        BToA_.erase(it->second.peer);
-                        it = AToB_.erase(it);
-                        ++removed;
+                        BToA_.erase(It->second.Peer);
+                        It = AToB_.erase(It);
+                        ++Removed;
                     }
                     else
                     {
-                        ++it;
+                        ++It;
                     }
                 }
-                return removed;
+                return Removed;
             }
 
             [[nodiscard]] static auto NowMs() -> std::uint64_t
@@ -267,7 +267,7 @@ namespace Preview::Network::Udp
          */
         [[nodiscard]] auto RecycleLoop(std::shared_ptr<AssocTable> Table) -> net::awaitable<void>
         {
-            if (opts_.IdleTimeout.count() <= 0)
+            if (Opts_.IdleTimeout.count() <= 0)
             {
                 // 禁用回收：超长 timer 挂起（不占 socket 读，避免与转发竞争）
                 net::steady_timer t(co_await net::this_coro::executor);
@@ -279,20 +279,21 @@ namespace Preview::Network::Udp
             while (true)
             {
                 net::steady_timer t(co_await net::this_coro::executor);
-                t.expires_after(opts_.IdleTimeout);
+                t.expires_after(Opts_.IdleTimeout);
                 boost::system::error_code ec;
                 co_await t.async_wait(net::redirect_error(net::use_awaitable, ec));
                 if (ec == net::error::operation_aborted)
                 {
-                    continue;
+                    // 组取消是一次性的：吞掉取消将使 || 组永不完成并泄漏 socket
+                    co_return;
                 }
-                Table->Reap(opts_.IdleTimeout);
+                Table->Reap(Opts_.IdleTimeout);
             }
         }
 
-        std::shared_ptr<Preview::Transport::Unreliable> a_; ///< 端 A
-        std::shared_ptr<Preview::Transport::Unreliable> b_; ///< 端 B
-        RelayOptions opts_;                               ///< 中继选项
+        std::shared_ptr<Preview::Transport::Unreliable> A_; ///< 端 A
+        std::shared_ptr<Preview::Transport::Unreliable> B_; ///< 端 B
+        RelayOptions Opts_;                               ///< 中继选项
     };
 
 } // namespace Preview::Network::Udp

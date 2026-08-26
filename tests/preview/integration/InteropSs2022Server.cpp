@@ -19,7 +19,7 @@
 
 #include <common/Protocols/Shadowsocks2022/Codec.hpp>
 
-namespace FixedHdrPlain = Preview::Shadowsocks2022;
+namespace ss = Preview::Shadowsocks2022;
 
 namespace net = boost::asio;
 
@@ -51,19 +51,19 @@ int main(const int argc, char *argv[])
         const auto now = static_cast<std::uint64_t>(std::time(nullptr));
 
         // 读取握手：salt 16 + 固定头密文 43，再从固定头解析变长头长度动态读取
-        std::array<std::uint8_t, 16 + FixedHdrPlain::fixed_hdr_size> head{};
+        std::array<std::uint8_t, 16 + ss::FixedHdrSize> head{};
         net::read(sock, net::buffer(head), net::transfer_exactly(head.size()));
-        const auto probe_key = FixedHdrPlain::SessionKey(psk, std::span<const std::uint8_t>(head).first(16), 16);
-        FixedHdrPlain::ChunkCodec probe_codec(probe_key);
+        const auto probe_key = ss::SessionKey(psk, std::span<const std::uint8_t>(head).first(16), 16);
+        ss::ChunkCodec probe_codec(probe_key);
         const auto fixed_plain =
-            probe_codec.OpenRaw(std::span<const std::uint8_t>(head).subspan(16, FixedHdrPlain::fixed_hdr_size));
-        if (fixed_plain.size() != FixedHdrPlain::fixed_hdr_plain || fixed_plain[0] != FixedHdrPlain::header_type_client)
+            probe_codec.OpenRaw(std::span<const std::uint8_t>(head).subspan(16, ss::FixedHdrSize));
+        if (fixed_plain.size() != ss::FixedHdrPlain || fixed_plain[0] != ss::HeaderTypeClient)
         {
             std::fprintf(stderr, "FAIL: fixed Header Decrypt\n");
             return 1;
         }
         const auto var_len = static_cast<std::size_t>((fixed_plain[9] << 8) | fixed_plain[10]);
-        std::vector<std::uint8_t> var_enc(var_len + FixedHdrPlain::aead_tag_len);
+        std::vector<std::uint8_t> var_enc(var_len + ss::AeadTagLen);
         net::read(sock, net::buffer(var_enc), net::transfer_exactly(var_enc.size()));
         const auto var_plain = probe_codec.OpenRaw(var_enc);
         if (var_plain.empty())
@@ -71,9 +71,9 @@ int main(const int argc, char *argv[])
             std::fprintf(stderr, "FAIL: var Header Decrypt\n");
             return 1;
         }
-        FixedHdrPlain::Address dst;
+        ss::Address dst;
         std::span<const std::uint8_t> payload;
-        if (FixedHdrPlain::ParseVarHeader(var_plain, dst, payload) != Preview::Error::none)
+        if (ss::ParseVarHeader(var_plain, dst, payload) != Preview::Error::None)
         {
             std::fprintf(stderr, "FAIL: handshake Parse\n");
             return 1;
@@ -82,16 +82,16 @@ int main(const int argc, char *argv[])
 
         // 服务端响应按 SS2022 writeResponse 语义：首次发送数据时才构造，
         // 响应固定头（Type + ts + requestSalt + payloadLen）后紧跟裸块 payload。
-        std::array<std::uint8_t, 16> server_salt{};
+        std::array<std::uint8_t, 16> ServerSalt{};
         std::random_device rd;
-        for (auto &b : server_salt)
+        for (auto &b : ServerSalt)
         {
             b = static_cast<std::uint8_t>(rd() & 0xFF);
         }
-        const auto resp_key = FixedHdrPlain::SessionKey(psk, server_salt, 16);
-        FixedHdrPlain::ChunkCodec resp_codec(resp_key);
-        std::array<std::uint8_t, FixedHdrPlain::resp_fixed_hdr_plain> resp_fixed{};
-        resp_fixed[0] = FixedHdrPlain::header_type_server;
+        const auto resp_key = ss::SessionKey(psk, ServerSalt, 16);
+        ss::ChunkCodec RespCodec(resp_key);
+        std::array<std::uint8_t, ss::RespFixedHdrPlain> resp_fixed{};
+        resp_fixed[0] = ss::HeaderTypeServer;
         for (std::size_t i = 0; i < 8; ++i)
         {
             resp_fixed[1 + i] =
@@ -102,17 +102,17 @@ int main(const int argc, char *argv[])
         bool responded{false};
 
         // 会话密钥（客户端→服务端方向，用客户端 salt）+ chunk 编解码
-        auto key = FixedHdrPlain::SessionKey(psk, std::span<const std::uint8_t>(head).first(16), 16);
+        auto key = ss::SessionKey(psk, std::span<const std::uint8_t>(head).first(16), 16);
         // 客户端握手消耗 Nonce 0,1，数据从 2 起
-        FixedHdrPlain::ChunkCodec Codec(key, 2);
+        ss::ChunkCodec Codec(key, 2);
         // 服务端→客户端方向：首次响应消耗 Nonce 0/1（固定头 + payload），后续 echo 从 2 起
-        FixedHdrPlain::ChunkCodec echo_codec(resp_key, 2);
+        ss::ChunkCodec echo_codec(resp_key, 2);
 
         // 循环读取并 echo（最多 16 块）
         for (int i = 0; i < 16; ++i)
         {
             // Go 客户端按块发送：[len 块 18B][载荷块]
-            std::array<std::uint8_t, FixedHdrPlain::len_block_size> len_enc{};
+            std::array<std::uint8_t, ss::LenBlockSize> len_enc{};
             boost::system::error_code ec;
             const auto n = net::read(sock, net::buffer(len_enc), net::transfer_exactly(len_enc.size()), ec);
             if (ec || n == 0)
@@ -126,9 +126,9 @@ int main(const int argc, char *argv[])
                 return 1;
             }
             // 密文 = 明文长度 + 16B 认证标签
-            std::vector<std::uint8_t> body_enc(*len_opt + FixedHdrPlain::aead_tag_len);
-            net::read(sock, net::buffer(body_enc), net::transfer_exactly(body_enc.size()));
-            const auto plain = Codec.OpenPayload(body_enc);
+            std::vector<std::uint8_t> BodyEnc(*len_opt + ss::AeadTagLen);
+            net::read(sock, net::buffer(BodyEnc), net::transfer_exactly(BodyEnc.size()));
+            const auto plain = Codec.OpenPayload(BodyEnc);
             if (plain.empty())
             {
                 std::fprintf(stderr, "FAIL: Decrypt chunk body\n");
@@ -140,11 +140,11 @@ int main(const int argc, char *argv[])
             {
                 resp_fixed[25] = static_cast<std::uint8_t>((plain.size() >> 8) & 0xFF);
                 resp_fixed[26] = static_cast<std::uint8_t>(plain.size() & 0xFF);
-                const auto resp_fixed_enc = resp_codec.SealRaw(resp_fixed);
-                const auto payload_enc = resp_codec.SealRaw(plain);
+                const auto resp_fixed_enc = RespCodec.SealRaw(resp_fixed);
+                const auto payload_enc = RespCodec.SealRaw(plain);
                 std::vector<std::uint8_t> resp;
-                resp.reserve(server_salt.size() + resp_fixed_enc.size() + payload_enc.size());
-                resp.insert(resp.end(), server_salt.begin(), server_salt.end());
+                resp.reserve(ServerSalt.size() + resp_fixed_enc.size() + payload_enc.size());
+                resp.insert(resp.end(), ServerSalt.begin(), ServerSalt.end());
                 resp.insert(resp.end(), resp_fixed_enc.begin(), resp_fixed_enc.end());
                 resp.insert(resp.end(), payload_enc.begin(), payload_enc.end());
                 net::write(sock, net::buffer(resp));

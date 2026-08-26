@@ -34,14 +34,14 @@ namespace
 
     void load_self_signed(ssl::context &ctx)
     {
-        auto *pkey_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        auto *PkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
         EVP_PKEY *pkey = nullptr;
-        if (pkey_ctx && EVP_PKEY_keygen_init(pkey_ctx) > 0 &&
-            EVP_PKEY_CTX_set_rsa_keygen_bits(pkey_ctx, 2048) > 0)
+        if (PkeyCtx && EVP_PKEY_keygen_init(PkeyCtx) > 0 &&
+            EVP_PKEY_CTX_set_rsa_keygen_bits(PkeyCtx, 2048) > 0)
         {
-            EVP_PKEY_keygen(pkey_ctx, &pkey);
+            EVP_PKEY_keygen(PkeyCtx, &pkey);
         }
-        EVP_PKEY_CTX_free(pkey_ctx);
+        EVP_PKEY_CTX_free(PkeyCtx);
         ASSERT_NE(pkey, nullptr);
 
         auto *x509 = X509_new();
@@ -122,7 +122,7 @@ namespace
         co_await write_wire();
 
         // 读响应循环
-        Session->on_headers = [](std::int32_t, const h2::HeaderList &hdrs, bool)
+        Session->OnHeaders = [](std::int32_t, const h2::HeaderList &hdrs, bool)
         {
             for (const auto &h : hdrs)
             {
@@ -132,7 +132,7 @@ namespace
                 }
             }
         };
-        Session->on_data = [&](std::int32_t, std::span<const std::byte> Data)
+        Session->OnData = [&](std::int32_t, std::span<const std::byte> Data)
         {
             received.insert(received.end(), Data.begin(), Data.end());
         };

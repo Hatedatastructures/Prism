@@ -1,5 +1,5 @@
 /**
- * @file handler.hpp
+ * @file Handler.hpp
  * @brief 协议处理器接口（对象式封装，对标 mihomo Proxy）
  */
 
@@ -26,7 +26,7 @@ namespace Preview::Runtime::Handler
     struct AcceptResult
     {
         /// 握手错误码（none = 成功）
-        Preview::Error err{Preview::Error::none};
+        Preview::Error err{Preview::Error::None};
         /// 客户端请求的目标地址（host/port 文本）
         Preview::Network::Target Target;
         /// 握手完成的数据面通道（失败时为空）
@@ -36,7 +36,7 @@ namespace Preview::Runtime::Handler
         /// true 时 Transmission 形态按协议而异：SOCKS5=TCP 控制连接、Trojan/VMess=Dgram<> 装饰器、VLESS=裸流，udp_service 需按协议 dynamic_pointer_cast
         bool IsDgram{false};
         /// 上游拨号完成后的回调（如 SOCKS5 延迟 CONNECT 应答；空 = 无需回调）
-        std::function<net::awaitable<void>(Preview::Fault::Code)> post_dial;
+        std::function<net::awaitable<void>(Preview::Fault::Code)> PostDial;
     };
 
     /**
@@ -49,10 +49,10 @@ namespace Preview::Runtime::Handler
 
         /**
          * @brief 执行协议握手
-         * @param inbound 已识别协议的入站传输
+         * @param Inbound 已识别协议的入站传输
          * @return 握手结果（目标地址、数据面通道与拨号后回调）
          */
-        virtual auto Accept(Preview::SharedTransmission inbound)
+        virtual auto Accept(Preview::SharedTransmission Inbound)
             -> net::awaitable<AcceptResult> = 0;
 
         /**

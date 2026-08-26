@@ -9,8 +9,8 @@
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/handshake/recognition/tls/signal.hpp>
-#include <prism/net/transport/Transmission.hpp>
-#include <prism/Protocol/tls/types.hpp>
+#include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/tls/types.hpp>
 
 #include <array>
 #include <cstdint>
@@ -441,8 +441,8 @@ namespace
     TEST(TlsSignal, ReadTlsRecordFromTransport)
     {
         auto wire = make_handshake_record();
-        auto mock = std::make_shared<psm::testing::MockTransport>();
-        mock->inject_read(wire);
+        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        mock->InjectRead(wire);
 
         fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
@@ -472,8 +472,8 @@ namespace
         std::vector<std::byte> wire = {std::byte{0x17}, std::byte{0x03}, std::byte{0x03},
                                        std::byte{0x00}, std::byte{0x04}, std::byte{0x01},
                                        std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
-        auto mock = std::make_shared<psm::testing::MockTransport>();
-        mock->inject_read(wire);
+        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        mock->InjectRead(wire);
 
         fault::code ResultEc = fault::code::success;
 
@@ -493,8 +493,8 @@ namespace
 
     TEST(TlsSignal, ReadTlsRecordError)
     {
-        auto mock = std::make_shared<psm::testing::MockTransport>();
-        mock->set_ReadError(std::make_error_code(std::errc::connection_reset));
+        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        mock->SetReadError(std::make_error_code(std::errc::connection_reset));
 
         fault::code ResultEc = fault::code::success;
 
@@ -518,7 +518,7 @@ namespace
         auto wire = make_handshake_record();
         std::span<const std::byte> preread(wire.data(), wire.size());
 
-        auto mock = std::make_shared<psm::testing::MockTransport>();
+        auto mock = std::make_shared<Preview::Testing::MockTransport>();
         // 不注入任何数据 — preread 已包含全部
 
         fault::code ResultEc = fault::code::success;
@@ -546,10 +546,10 @@ namespace
         auto wire = make_handshake_record();
         std::span<const std::byte> preread(wire.data(), 5);
 
-        auto mock = std::make_shared<psm::testing::MockTransport>();
+        auto mock = std::make_shared<Preview::Testing::MockTransport>();
         // 注入剩余部分
         std::vector<std::byte> rest(wire.begin() + 5, wire.end());
-        mock->inject_read(std::move(rest));
+        mock->InjectRead(std::move(rest));
 
         fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
@@ -576,8 +576,8 @@ namespace
         std::array<std::byte, 3> short_preread = {std::byte{0x16}, std::byte{0x03}, std::byte{0x03}};
 
         auto wire = make_handshake_record();
-        auto mock = std::make_shared<psm::testing::MockTransport>();
-        mock->inject_read(wire);
+        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        mock->InjectRead(wire);
 
         fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
@@ -604,7 +604,7 @@ namespace
         std::array<std::byte, 5> non_hs_preread = {std::byte{0x17}, std::byte{0x03}, std::byte{0x03},
                                                    std::byte{0x00}, std::byte{0x04}};
 
-        auto mock = std::make_shared<psm::testing::MockTransport>();
+        auto mock = std::make_shared<Preview::Testing::MockTransport>();
 
         fault::code ResultEc = fault::code::success;
 
@@ -629,7 +629,7 @@ namespace
         std::array<std::byte, 5> oversized_preread = {std::byte{0x16}, std::byte{0x03}, std::byte{0x03},
                                                       std::byte{0x40}, std::byte{0x01}}; // length=16385
 
-        auto mock = std::make_shared<psm::testing::MockTransport>();
+        auto mock = std::make_shared<Preview::Testing::MockTransport>();
 
         fault::code ResultEc = fault::code::success;
 

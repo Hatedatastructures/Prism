@@ -1,5 +1,5 @@
 /**
- * @file route.hpp
+ * @file Route.hpp
  * @brief 出站路由表（positive/reverse）
  * @details 目标 host 路由：
  *          - reverse_map：域名 → 固定端点（反向代理）
@@ -42,7 +42,7 @@ namespace Preview::Network::Route
          */
         void AddReverse(std::string_view host, Endpoint ep)
         {
-            reverse_[std::string(host)] = std::move(ep);
+            Reverse_[std::string(host)] = std::move(ep);
         }
 
         /**
@@ -51,7 +51,7 @@ namespace Preview::Network::Route
          */
         void SetPositive(std::optional<Endpoint> ep)
         {
-            positive_ = std::move(ep);
+            Positive_ = std::move(ep);
         }
 
         /**
@@ -62,11 +62,11 @@ namespace Preview::Network::Route
          */
         [[nodiscard]] auto Lookup(std::string_view host) const -> std::optional<Endpoint>
         {
-            if (const auto it = reverse_.find(std::string(host)); it != reverse_.end())
+            if (const auto It = Reverse_.find(std::string(host)); It != Reverse_.end())
             {
-                return it->second;
+                return It->second;
             }
-            return positive_;
+            return Positive_;
         }
 
         /**
@@ -76,7 +76,7 @@ namespace Preview::Network::Route
          */
         [[nodiscard]] auto IsReverse(std::string_view host) const -> bool
         {
-            return reverse_.contains(std::string(host));
+            return Reverse_.contains(std::string(host));
         }
 
         /**
@@ -85,7 +85,7 @@ namespace Preview::Network::Route
          */
         [[nodiscard]] auto Size() const noexcept -> std::size_t
         {
-            return reverse_.size();
+            return Reverse_.size();
         }
 
         /**
@@ -93,13 +93,13 @@ namespace Preview::Network::Route
          */
         void Clear()
         {
-            reverse_.clear();
-            positive_.reset();
+            Reverse_.clear();
+            Positive_.reset();
         }
 
     private:
-        std::unordered_map<std::string, Endpoint> reverse_; ///< 反向映射
-        std::optional<Endpoint> positive_;                  ///< 正向端点
+        std::unordered_map<std::string, Endpoint> Reverse_; ///< 反向映射
+        std::optional<Endpoint> Positive_;                  ///< 正向端点
     };
 
 } // namespace Preview::Network::Route

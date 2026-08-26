@@ -1,5 +1,5 @@
 /**
- * @file probe_defense.hpp
+ * @file ProbeDefense.hpp
  * @brief 探测行为追踪器(RFC-065 Phase 2)
  * @details per-worker 的主动探测行为追踪。记录每个来源 IP 的
  *          连续握手失败次数,达到阈值后触发挑战-响应防御。
@@ -26,12 +26,12 @@ namespace Preview::Recognition
     {
         std::array<std::byte, 16> Bytes{};
 
-        [[nodiscard]] auto Operator==(const AddressHash &) const noexcept -> bool = default;
+        [[nodiscard]] auto operator==(const AddressHash &) const noexcept -> bool = default;
 
         /**
          * 从 IPv4 地址构造(写入前 4 字节,其余置零)
          */
-        [[nodiscard]] static auto FromV4(std::uint32_t ip) noexcept 
+        [[nodiscard]] static auto FromV4(std::uint32_t Ip) noexcept 
             -> AddressHash;
 
         /**
@@ -43,7 +43,7 @@ namespace Preview::Recognition
         /**
          * 从 boost::asio Endpoint 构造(IPv4/IPv6 自动判断)
          */
-        [[nodiscard]] static auto FromEndpoint(bool is_v6, std::uint8_t *addr_bytes, std::size_t addr_len) noexcept 
+        [[nodiscard]] static auto FromEndpoint(bool is_v6, std::uint8_t *AddrBytes, std::size_t addr_len) noexcept 
             -> AddressHash;
     };
 
@@ -52,7 +52,7 @@ namespace Preview::Recognition
      */
     struct AddressHasher
     {
-        [[nodiscard]] auto Operator()(const AddressHash &key) const noexcept -> std::size_t;
+        [[nodiscard]] auto operator()(const AddressHash &key) const noexcept -> std::size_t;
     };
 
     /**
@@ -80,14 +80,14 @@ namespace Preview::Recognition
      * @class ProbeDefenseTracker
      * @brief 探测行为追踪器(per-worker 实例,单线程访问)
      * @details 所有方法在 worker io_context 单线程上调用,无需 mutex。
-     *          records_ 使用全局 PMR 池(per-worker 生命周期,非热路径)。
+     *          Records_ 使用全局 PMR 池(per-worker 生命周期,非热路径)。
      */
     class ProbeDefenseTracker
     {
     public:
-        explicit ProbeDefenseTracker(std::uint32_t WindowSec = 300, std::uint32_t threshold = 2,
+        explicit ProbeDefenseTracker(std::uint32_t WindowSec = 300, std::uint32_t Threshold = 2,
                          std::uint32_t MaxRecords = 100000) noexcept
-            : WindowSec_(WindowSec), threshold_(threshold), MaxRecords_(MaxRecords)
+            : WindowSec_(WindowSec), Threshold_(Threshold), MaxRecords_(MaxRecords)
         {
         }
 
@@ -128,142 +128,142 @@ namespace Preview::Recognition
 
     private:
         std::uint32_t WindowSec_;
-        std::uint32_t threshold_;
+        std::uint32_t Threshold_;
         std::uint32_t MaxRecords_;
-        std::unordered_map<AddressHash, ProbeRecord, AddressHasher> records_;
+        std::unordered_map<AddressHash, ProbeRecord, AddressHasher> Records_;
     };
 
 
 
-    inline auto AddressHash::FromV4(std::uint32_t ip) noexcept 
+    inline auto AddressHash::FromV4(std::uint32_t Ip) noexcept 
         -> AddressHash
     {
-        AddressHash h{};
+        AddressHash H{};
         // IPv4 地址写入前 4 字节(大端序)
-        h.Bytes[0] = static_cast<std::byte>((ip >> 24) & 0xFF);
-        h.Bytes[1] = static_cast<std::byte>((ip >> 16) & 0xFF);
-        h.Bytes[2] = static_cast<std::byte>((ip >> 8) & 0xFF);
-        h.Bytes[3] = static_cast<std::byte>(ip & 0xFF);
-        return h;
+        H.Bytes[0] = static_cast<std::byte>((Ip >> 24) & 0xFF);
+        H.Bytes[1] = static_cast<std::byte>((Ip >> 16) & 0xFF);
+        H.Bytes[2] = static_cast<std::byte>((Ip >> 8) & 0xFF);
+        H.Bytes[3] = static_cast<std::byte>(Ip & 0xFF);
+        return H;
     }
 
     inline auto AddressHash::FromV6(std::span<const std::byte, 16> addr) noexcept 
         -> AddressHash
     {
-        AddressHash h{};
-        std::memcpy(h.Bytes.data(), addr.data(), 16);
-        return h;
+        AddressHash H{};
+        std::memcpy(H.Bytes.data(), addr.data(), 16);
+        return H;
     }
 
-    inline auto AddressHash::FromEndpoint(bool is_v6, std::uint8_t *addr_bytes, std::size_t addr_len) noexcept 
+    inline auto AddressHash::FromEndpoint(bool is_v6, std::uint8_t *AddrBytes, std::size_t addr_len) noexcept 
         -> AddressHash
     {
         if (is_v6 && addr_len >= 16)
         {
-            AddressHash h{};
-            std::memcpy(h.Bytes.data(), addr_bytes, 16);
-            return h;
+            AddressHash H{};
+            std::memcpy(H.Bytes.data(), AddrBytes, 16);
+            return H;
         }
         if (!is_v6 && addr_len >= 4)
         {
-            std::uint32_t ip = (static_cast<std::uint32_t>(addr_bytes[0]) << 24) |
-                               (static_cast<std::uint32_t>(addr_bytes[1]) << 16) |
-                               (static_cast<std::uint32_t>(addr_bytes[2]) << 8) |
-                               static_cast<std::uint32_t>(addr_bytes[3]);
-            return FromV4(ip);
+            std::uint32_t Ip = (static_cast<std::uint32_t>(AddrBytes[0]) << 24) |
+                               (static_cast<std::uint32_t>(AddrBytes[1]) << 16) |
+                               (static_cast<std::uint32_t>(AddrBytes[2]) << 8) |
+                               static_cast<std::uint32_t>(AddrBytes[3]);
+            return FromV4(Ip);
         }
         return {};
     }
 
-    inline auto AddressHasher::Operator()(const AddressHash &key) const noexcept 
+    inline auto AddressHasher::operator()(const AddressHash &key) const noexcept
         -> std::size_t
     {
         // FNV-1a Hash,简单高效
-        std::size_t h = 14695981039346656037ULL;
+        std::size_t H = 14695981039346656037ULL;
         for (auto b : key.Bytes)
         {
-            h ^= static_cast<std::size_t>(b);
-            h *= 1099511628211ULL;
+            H ^= static_cast<std::size_t>(b);
+            H *= 1099511628211ULL;
         }
-        return h;
+        return H;
     }
 
     inline auto ProbeDefenseTracker::Record(const AddressHash &src, std::uint16_t tier) -> void
     {
-        auto now = std::chrono::steady_clock::now();
-        auto it = records_.find(src);
-        if (it == records_.end())
+        auto Now = std::chrono::steady_clock::now();
+        auto It = Records_.find(src);
+        if (It == Records_.end())
         {
-            if (records_.size() >= MaxRecords_)
+            if (Records_.size() >= MaxRecords_)
             {
                 Expire();
             }
-            records_.emplace(src, ProbeRecord{now, 1, tier});
+            Records_.emplace(src, ProbeRecord{Now, 1, tier});
         }
         else
         {
-            it->second.timestamp = now;
-            it->second.FailCount++;
-            it->second.tier = tier;
+            It->second.timestamp = Now;
+            It->second.FailCount++;
+            It->second.tier = tier;
         }
     }
 
     inline auto ProbeDefenseTracker::FailCount(const AddressHash &src) const noexcept 
         -> std::uint16_t
     {
-        auto it = records_.find(src);
-        if (it == records_.end())
+        auto It = Records_.find(src);
+        if (It == Records_.end())
         {
             return 0;
         }
-        return it->second.FailCount;
+        return It->second.FailCount;
     }
 
     inline auto ProbeDefenseTracker::ShouldChallenge(const AddressHash &src) const noexcept -> bool
     {
-        if (threshold_ == 0)
+        if (Threshold_ == 0)
         {
             return false;
         }
-        return FailCount(src) >= threshold_;
+        return FailCount(src) >= Threshold_;
     }
 
     inline auto ProbeDefenseTracker::Reset(const AddressHash &src)
         -> void
     {
-        records_.erase(src);
+        Records_.erase(src);
     }
 
     inline auto ProbeDefenseTracker::Expire() -> void
     {
-        const auto now = std::chrono::steady_clock::now();
-        const auto window = std::chrono::seconds(WindowSec_);
+        const auto Now = std::chrono::steady_clock::now();
+        const auto Window = std::chrono::seconds(WindowSec_);
 
         // 清除过期记录
-        for (auto it = records_.begin(); it != records_.end();)
+        for (auto It = Records_.begin(); It != Records_.end();)
         {
-            if (now - it->second.timestamp > window)
+            if (Now - It->second.timestamp > Window)
             {
-                it = records_.erase(it);
+                It = Records_.erase(It);
             }
             else
             {
-                ++it;
+                ++It;
             }
         }
 
         // 如果仍超限,淘汰最旧记录
-        while (records_.size() > MaxRecords_)
+        while (Records_.size() > MaxRecords_)
         {
-            auto oldest = records_.begin();
-            for (auto it = records_.begin(); it != records_.end(); ++it)
+            auto Oldest = Records_.begin();
+            for (auto It = Records_.begin(); It != Records_.end(); ++It)
             {
-                if (it->second.timestamp < oldest->second.timestamp)
+                if (It->second.timestamp < Oldest->second.timestamp)
                 {
-                    oldest = it;
+                    Oldest = It;
                 }
             }
-            records_.erase(oldest);
+            Records_.erase(Oldest);
         }
     }
 

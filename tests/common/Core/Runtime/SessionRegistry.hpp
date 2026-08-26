@@ -49,7 +49,7 @@ namespace Preview::Runtime
          */
         void Put(SessionInfo Info)
         {
-            map_.set(Info.Id, std::move(Info));
+            Map_.Set(Info.Id, std::move(Info));
         }
 
         /**
@@ -59,7 +59,7 @@ namespace Preview::Runtime
          */
         auto Remove(std::uint64_t Id) -> bool
         {
-            return map_.Remove(Id);
+            return Map_.Remove(Id);
         }
 
         /**
@@ -70,7 +70,7 @@ namespace Preview::Runtime
          */
         [[nodiscard]] auto Find(std::uint64_t Id, SessionInfo &out) const -> bool
         {
-            return map_.Find(Id, out);
+            return Map_.Find(Id, out);
         }
 
         /**
@@ -78,7 +78,7 @@ namespace Preview::Runtime
          */
         [[nodiscard]] auto Size() const -> std::size_t
         {
-            return map_.Size();
+            return Map_.Size();
         }
 
         /**
@@ -87,11 +87,11 @@ namespace Preview::Runtime
          */
         [[nodiscard]] auto Snapshot() const noexcept -> std::shared_ptr<const MapT>
         {
-            return map_.Snapshot();
+            return Map_.Snapshot();
         }
 
     private:
-        Preview::Memory::CowMap<std::uint64_t, SessionInfo> map_; ///< 会话表
+        Preview::Memory::CowMap<std::uint64_t, SessionInfo> Map_; ///< 会话表
     };
 
 } // namespace Preview::Runtime

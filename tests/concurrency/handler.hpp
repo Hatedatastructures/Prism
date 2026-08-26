@@ -79,7 +79,7 @@ namespace srv
 
         auto response_data = BuildStressResponse(chunk_data);
 
-        std::array<char, 256> recv_buf{};
+        std::array<char, 256> RecvBuf{};
 
         net::steady_timer timer(co_await net::this_coro::executor);
         boost::system::error_code ec;
@@ -105,7 +105,7 @@ namespace srv
             if (!ec)
             {
                 ec.clear();
-                if (auto n = socket.read_some(net::buffer(recv_buf), ec); n > 0)
+                if (auto n = socket.read_some(net::buffer(RecvBuf), ec); n > 0)
                 {
                     has_data = true;
                     psm::diagnose::debug("stress mode: received {} bytes from client", n);

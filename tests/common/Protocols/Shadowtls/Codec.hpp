@@ -52,14 +52,14 @@ namespace Preview::Shadowtls
         auto &SessionId = in.SessionId;
         if (ClientHello.size() < SessionIdStart + TlsSessionIdSz)
         {
-            return Error::bad_length;
+            return Error::BadLength;
         }
 
         // HMAC-SHA1(password, ClientHello[:sidStart] + sessionID + ClientHello[sidEnd:])[:4]
         HMAC_CTX *ctx = HMAC_CTX_new();
         if (!ctx)
         {
-            return Error::io_error;
+            return Error::IoError;
         }
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
         HMAC_Update(ctx, ClientHello.data(), SessionIdStart);
@@ -72,7 +72,7 @@ namespace Preview::Shadowtls
         HMAC_CTX_free(ctx);
 
         std::memcpy(SessionId.data() + TlsSessionIdSz - HmacSize, md.data(), HmacSize);
-        return Error::none;
+        return Error::None;
     }
 
     /**
@@ -104,10 +104,10 @@ namespace Preview::Shadowtls
 
         // 构造 HMAC 数据：hello[5:] 且 SessionId 末尾 4 字节置零
         const std::size_t DataSize = ClientHello.size() - TlsHdrsize;
-        std::vector<std::uint8_t> hmac_data(DataSize);
-        std::memcpy(hmac_data.data(), raw + TlsHdrsize, DataSize);
+        std::vector<std::uint8_t> HmacData(DataSize);
+        std::memcpy(HmacData.data(), raw + TlsHdrsize, DataSize);
         const std::size_t HmacOffsetInData = SessionIdStart + TlsSessionIdSz - HmacSize;
-        std::memset(hmac_data.data() + HmacOffsetInData, 0, HmacSize);
+        std::memset(HmacData.data() + HmacOffsetInData, 0, HmacSize);
 
         // 期望 HMAC
         HMAC_CTX *ctx = HMAC_CTX_new();
@@ -116,7 +116,7 @@ namespace Preview::Shadowtls
             return false;
         }
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
-        HMAC_Update(ctx, hmac_data.data(), hmac_data.size());
+        HMAC_Update(ctx, HmacData.data(), HmacData.size());
         std::array<std::uint8_t, EVP_MAX_MD_SIZE> md{};
         std::uint32_t MdLen = 0;
         HMAC_Final(ctx, md.data(), &MdLen);
@@ -192,9 +192,9 @@ namespace Preview::Shadowtls
         {
             return;
         }
-        for (std::size_t i = 0; i < Data.size(); ++i)
+        for (std::size_t I = 0; I < Data.size(); ++I)
         {
-            Data[i] ^= key[i % key.size()];
+            Data[I] ^= key[I % key.size()];
         }
     }
 

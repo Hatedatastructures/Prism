@@ -80,23 +80,23 @@ namespace
             auto serr = co_await Client->AsyncSendTo(
                 dst, std::span<const std::uint8_t>(
                          reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
-            if (serr != Error::none) { ADD_FAILURE() << (int)serr; co_return; }
+            if (serr != Error::None) { ADD_FAILURE() << (int)serr; co_return; }
 
             Shadowsocks2022::Address src;
             std::vector<std::uint8_t> Rx;
             const auto rerr = co_await RecvGuarded(Server, src, Rx);
-            if (rerr != Error::none) { ADD_FAILURE() << "recv1: " << (rerr ? (int)*rerr : -1); co_return; }
+            if (rerr != Error::None) { ADD_FAILURE() << "recv1: " << (rerr ? (int)*rerr : -1); co_return; }
             const std::string got(reinterpret_cast<const char *>(Rx.data()), Rx.size());
             if (got != payload) { ADD_FAILURE() << got; co_return; }
 
             auto serr2 = co_await Server->AsyncSendTo(
                 src, std::span<const std::uint8_t>(Rx.data(), Rx.size()));
-            if (serr2 != Error::none) { ADD_FAILURE() << (int)serr2; co_return; }
+            if (serr2 != Error::None) { ADD_FAILURE() << (int)serr2; co_return; }
 
             Shadowsocks2022::Address src2;
             std::vector<std::uint8_t> rx2;
             const auto rerr2 = co_await RecvGuarded(Client, src2, rx2);
-            if (rerr2 != Error::none) { ADD_FAILURE() << "recv2: " << (rerr2 ? (int)*rerr2 : -1); co_return; }
+            if (rerr2 != Error::None) { ADD_FAILURE() << "recv2: " << (rerr2 ? (int)*rerr2 : -1); co_return; }
             const std::string echo(reinterpret_cast<const char *>(rx2.data()), rx2.size());
             Ok = (echo == payload);
         }, [&](std::exception_ptr ep) { done_ep = ep; ioc.stop(); });
@@ -127,11 +127,11 @@ namespace
             auto serr = co_await Client->AsyncSendTo(
                 dst, std::span<const std::uint8_t>(
                          reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
-            if (serr != Error::none) { ADD_FAILURE() << (int)serr; co_return; }
+            if (serr != Error::None) { ADD_FAILURE() << (int)serr; co_return; }
             Shadowsocks2022::Address src;
             std::vector<std::uint8_t> Rx;
             const auto rerr = co_await RecvGuarded(Server, src, Rx);
-            if (rerr != Error::none) { ADD_FAILURE() << "recv: " << (rerr ? (int)*rerr : -1); co_return; }
+            if (rerr != Error::None) { ADD_FAILURE() << "recv: " << (rerr ? (int)*rerr : -1); co_return; }
             Ok = (std::string(reinterpret_cast<const char *>(Rx.data()), Rx.size()) == payload);
         }, [&](std::exception_ptr ep) { done_ep = ep; ioc.stop(); });
         ioc.run();
@@ -161,14 +161,14 @@ namespace
             auto serr = co_await Client->AsyncSendTo(
                 dst, std::span<const std::uint8_t>(
                          reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
-            if (serr != Error::none) { ADD_FAILURE() << (int)serr; co_return; }
+            if (serr != Error::None) { ADD_FAILURE() << (int)serr; co_return; }
 
             // 错误 PSK 包必须被拒绝：SessionID 校验失败 → bad_auth，且不产出可读回包。
             // Dgram 为无状态逐包解析，坏包以错误码上浮（对齐 Codec ParseUdpPacket 契约）
             Shadowsocks2022::Address src;
             std::vector<std::uint8_t> Rx;
             const auto rerr = co_await RecvGuarded(Server, src, Rx);
-            if (rerr != Error::bad_auth)
+            if (rerr != Error::BadAuth)
             {
                 ADD_FAILURE() << "expected bad_auth, got "
                               << (rerr ? (int)*rerr : -1);
@@ -177,7 +177,7 @@ namespace
             // 关闭后接收应以错误收口而非挂死
             Server->Close();
             const auto cerr2 = co_await Server->AsyncReceiveFrom(src, Rx);
-            rejected = (cerr2 != Error::none);
+            rejected = (cerr2 != Error::None);
         }, [&](std::exception_ptr ep) { done_ep = ep; ioc.stop(); });
         ioc.run();
         if (done_ep)

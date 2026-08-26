@@ -5,7 +5,7 @@
  * 1. WriteHandshake / ReadHandshake：客户端发认证帧（HTTP/3
  *    HEADERS 风格）与 TCP 目标帧；服务端解析校验（简化：不严格
  *    校验认证内容）
- * 2. 隧道：AsyncReadSome / AsyncWriteSome 透传 TCP 帧载荷
+ * 2. 隧道：async_read_some / async_write_some 透传 TCP 帧载荷
  * 3. UDP 数据面：AsyncSendDatagram / AsyncReceiveDatagram
  *    逐帧编解码（Codec.hpp 纯函数），目标地址随帧携带
  * @note 与 hysteria2.hpp 工厂配对使用（服务端/客户端分离设计）
@@ -56,7 +56,7 @@ namespace Preview::Hysteria2
          */
         explicit Conn(SharedTransmission upstream, std::string password,
                       const Preview::Authenticator *Auth = nullptr)
-            : next_layer_(std::move(upstream)), password_(std::move(password)), auth_(Auth)
+            : NextLayer_(std::move(upstream)), Password_(std::move(password)), Auth_(Auth)
         {
         }
 
@@ -65,7 +65,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -77,19 +77,19 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto WriteHandshake(const Address &Target) -> net::awaitable<Error>
         {
-            const auto Auth = MakeAuthRequest(password_);
+            const auto Auth = MakeAuthRequest(Password_);
             if (co_await SendBytes(AsU8Span(Auth)))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
             const auto Tcp = BuildTcp(Target, {});
             if (co_await SendBytes(Tcp))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            target_ = Target;
-            handshaken_ = true;
-            co_return Error::none;
+            Target_ = Target;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
@@ -101,28 +101,28 @@ namespace Preview::Hysteria2
         [[nodiscard]] auto ReadHandshake() -> net::awaitable<std::pair<Error, Message>>
         {
             // 1. 认证帧：HEADERS 类型 0x01 + 1B 长度 + 头块
-            std::array<std::uint8_t, 2> auth_head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(auth_head)))
+            std::array<std::uint8_t, 2> AuthHead{};
+            if (co_await ReadExact(std::span<std::uint8_t>(AuthHead)))
             {
-                co_return std::pair{Error::io_error, Message{}};
+                co_return std::pair{Error::IoError, Message{}};
             }
-            if (auth_head[0] != 0x01)
+            if (AuthHead[0] != 0x01)
             {
-                co_return std::pair{Error::bad_magic, Message{}};
+                co_return std::pair{Error::BadMagic, Message{}};
             }
-            std::vector<std::uint8_t> auth_body(auth_head[1]);
-            if (co_await ReadExact(auth_body))
+            std::vector<std::uint8_t> AuthBody(AuthHead[1]);
+            if (co_await ReadExact(AuthBody))
             {
-                co_return std::pair{Error::io_error, Message{}};
+                co_return std::pair{Error::IoError, Message{}};
             }
-            const std::string Auth(auth_body.begin(), auth_body.end());
+            const std::string Auth(AuthBody.begin(), AuthBody.end());
             // 提取 Authorization 头值（RFC 7235）：'Authorization: ' 前缀后到行尾
             constexpr std::string_view kAuthPrefix = "Authorization: ";
-            const auto pos = Auth.find(kAuthPrefix);
+            const auto Pos = Auth.find(kAuthPrefix);
             std::string Credential;
-            if (pos != std::string::npos)
+            if (Pos != std::string::npos)
             {
-                const auto ValueStart = pos + kAuthPrefix.size();
+                const auto ValueStart = Pos + kAuthPrefix.size();
                 const auto ValueEnd = Auth.find("\r\n", ValueStart);
                 std::string::size_type Count;
                 if (ValueEnd == std::string::npos)
@@ -136,30 +136,30 @@ namespace Preview::Hysteria2
                 Credential = Auth.substr(ValueStart, Count);
             }
             bool Ok;
-            if (auth_)
+            if (Auth_)
             {
-                Ok = auth_->Check("", Credential).Ok;
+                Ok = Auth_->Check("", Credential).Ok;
             }
             else
             {
-                Ok = (Credential == password_);
+                Ok = (Credential == Password_);
             }
             if (!Ok)
             {
-                co_return std::pair{Error::bad_auth, Message{}};
+                co_return std::pair{Error::BadAuth, Message{}};
             }
 
             // 2. TCP 目标帧
             Message msg;
-            auto err = co_await ReadFrame(msg);
-            if (err != Error::none)
+            auto Err = co_await ReadFrame(msg);
+            if (Err != Error::None)
             {
-                co_return std::pair{err, Message{}};
+                co_return std::pair{Err, Message{}};
             }
-            target_ = msg.dst;
-            parsed_ = msg;
-            handshaken_ = true;
-            co_return std::pair{Error::none, std::move(msg)};
+            Target_ = msg.dst;
+            Parsed_ = msg;
+            Handshaken_ = true;
+            co_return std::pair{Error::None, std::move(msg)};
         }
 
         /**
@@ -167,7 +167,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto Parsed() const -> const Message &
         {
-            return parsed_;
+            return Parsed_;
         }
 
         /**
@@ -180,16 +180,16 @@ namespace Preview::Hysteria2
         [[nodiscard]] auto AsyncSendDatagram(const Address &Target, std::span<const std::uint8_t> payload)
             -> net::awaitable<Error>
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                co_return Error::not_open;
+                co_return Error::NotOpen;
             }
-            const auto wire = BuildUdp(UdpFrameInput{SessionId_, ++PacketId_, &Target, payload});
-            if (co_await SendBytes(wire))
+            const auto Wire = BuildUdp(UdpFrameInput{SessionId_, ++PacketId_, &Target, payload});
+            if (co_await SendBytes(Wire))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
@@ -201,51 +201,51 @@ namespace Preview::Hysteria2
         [[nodiscard]] auto AsyncReceiveDatagram(Address &Target, std::vector<std::uint8_t> &payload)
             -> net::awaitable<Error>
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                co_return Error::not_open;
+                co_return Error::NotOpen;
             }
             Message msg;
-            auto err = co_await ReadFrame(msg);
-            if (err != Error::none)
+            auto Err = co_await ReadFrame(msg);
+            if (Err != Error::None)
             {
-                co_return err;
+                co_return Err;
             }
-            if (msg.Type != Message::Kind::udp)
+            if (msg.Type != Message::Kind::Udp)
             {
-                co_return Error::bad_message;
+                co_return Error::BadMessage;
             }
             Target = msg.dst;
             payload.assign(msg.payload.begin(), msg.payload.end());
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（握手后数据面为裸流）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（握手后数据面为裸流）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -253,7 +253,7 @@ namespace Preview::Hysteria2
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -261,7 +261,7 @@ namespace Preview::Hysteria2
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -269,7 +269,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -277,7 +277,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -285,7 +285,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
         /**
          * @brief 会话是否有效（已握手且底层存在）
@@ -293,7 +293,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto IsValid() const noexcept -> bool
         {
-            return next_layer_ != nullptr && handshaken_;
+            return NextLayer_ != nullptr && Handshaken_;
         }
 
         /**
@@ -302,7 +302,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto Underlying() noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
         /**
@@ -312,7 +312,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto Arena() noexcept -> Preview::Memory::ResourcePointer
         {
-            return mem_.Arena();
+            return Mem_.Arena();
         }
 
     private:
@@ -328,15 +328,15 @@ namespace Preview::Hysteria2
             std::array<std::uint8_t, 1> Kind{};
             if (co_await ReadExact(std::span<std::uint8_t>(Kind)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             msg.Type = static_cast<Message::Kind>(Kind[0]);
-            if (msg.Type == Message::Kind::udp)
+            if (msg.Type == Message::Kind::Udp)
             {
                 std::array<std::uint8_t, 8> ids{};
                 if (co_await ReadExact(std::span<std::uint8_t>(ids)))
                 {
-                    co_return Error::unexpected_eof;
+                    co_return Error::UnexpectedEof;
                 }
 
                 msg.SessionId =
@@ -350,35 +350,35 @@ namespace Preview::Hysteria2
             std::array<std::uint8_t, 1> atyp{};
             if (co_await ReadExact(std::span<std::uint8_t>(atyp)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             msg.dst.Type = static_cast<AddressType>(atyp[0]);
-            auto err = co_await ReadAddressBody(msg.dst);
-            if (err != Error::none)
+            auto Err = co_await ReadAddressBody(msg.dst);
+            if (Err != Error::None)
             {
-                co_return err;
+                co_return Err;
             }
             std::array<std::uint8_t, 2> port{};
             if (co_await ReadExact(std::span<std::uint8_t>(port)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             msg.dst.Port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
-            if (msg.Type != Message::Kind::udp)
+            if (msg.Type != Message::Kind::Udp)
             {
-                co_return Error::none;
+                co_return Error::None;
             }
             // 载荷：剩余一次读（帧边界由调用方约定）
             std::array<std::uint8_t, 512> chunk{};
             std::error_code ec;
-            const auto n =
-                co_await next_layer_->AsyncReadSome(AsBytes(std::span<std::uint8_t>(chunk)), ec);
+            const auto N =
+                co_await NextLayer_->async_read_some(AsBytes(std::span<std::uint8_t>(chunk)), ec);
             if (ec)
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            msg.payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
-            co_return Error::none;
+            msg.payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
+            co_return Error::None;
         }
 
         /**
@@ -392,12 +392,12 @@ namespace Preview::Hysteria2
             while (Done < dst.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(AsBytes(dst.subspan(Done)), ec);
-                if (ec || n == 0)
+                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
@@ -413,12 +413,12 @@ namespace Preview::Hysteria2
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(AsBytes(Data.subspan(Done)), ec);
-                if (ec)
+                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
@@ -435,15 +435,15 @@ namespace Preview::Hysteria2
                 addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return ReadExact(dst); });
         }
 
-        SharedTransmission next_layer_; ///< 底层传输（独占所有权）
-        std::string password_;           ///< 认证密码
-        const Preview::Authenticator *auth_{nullptr}; ///< 认证器（非拥有）
-        Address target_;                 ///< TCP 目标地址（握手后）
-        Message parsed_{};               ///< 服务端握手解析结果
-        std::uint32_t SessionId_{0};    ///< UDP 会话 ID（自增）
-        std::uint32_t PacketId_{0};     ///< UDP 包 ID（自增）
-        bool handshaken_{false};         ///< 握手完成标志
-        Memory mem_; ///< 会话级内存竞技场（热路径零释放分配）
+        SharedTransmission NextLayer_; ///< 底层传输（独占所有权）
+        std::string Password_;           ///< 认证密码
+        const Preview::Authenticator *Auth_{nullptr}; ///< 认证器（非拥有）
+        Address Target_;                 ///< TCP 目标地址（握手后）
+        Message Parsed_{};               ///< 服务端握手解析结果
+        std::uint32_t SessionId_{0};    ///< UDP 会话 ID（测试简化：固定 0）
+        std::uint32_t PacketId_{0};     ///< UDP 包 ID（逐包自增）
+        bool Handshaken_{false};         ///< 握手完成标志
+        Memory Mem_; ///< 会话级内存竞技场（热路径零释放分配）
     };
 
 

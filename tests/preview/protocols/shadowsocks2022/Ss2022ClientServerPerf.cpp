@@ -67,7 +67,7 @@ namespace
                     auto [err, req, srv] = co_await Preview::Shadowsocks2022::Accept(
                         std::make_shared<MemoryStream>(std::move(b)),
                         Preview::Shadowsocks2022::ServerConfig{"perf-Secret"});
-                    if (err != Error::none)
+                    if (err != Error::None)
                     {
                         EXPECT_TRUE(false) << "handshake Failed";
                         co_return;
@@ -78,7 +78,7 @@ namespace
                     while (got < kTotal)
                     {
                         std::error_code ec;
-                        const auto n = co_await srv->AsyncReadSome(std::span<std::byte>(buf), ec);
+                        const auto n = co_await srv->async_read_some(std::span<std::byte>(buf), ec);
                         if (ec || n == 0)
                         {
                             break;
@@ -93,7 +93,7 @@ namespace
                 auto [cerr, cli] = co_await Preview::Shadowsocks2022::Connect(
                     std::make_shared<MemoryStream>(std::move(a)),
                     Preview::Shadowsocks2022::ClientConfig{"perf-Secret"}, make_dst());
-                if (cerr != Error::none)
+                if (cerr != Error::None)
                 {
                     EXPECT_TRUE(false) << "Connect Failed";
                     co_return;
@@ -105,7 +105,7 @@ namespace
                 {
                     const auto n = std::min(kBlock, kTotal - sent);
                     std::error_code ec;
-                    const auto w = co_await cli->AsyncWriteSome(
+                    const auto w = co_await cli->async_write_some(
                         std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), n),
                         ec);
                     if (ec || w == 0)
@@ -140,7 +140,7 @@ namespace
                     auto [err, req, srv] = co_await Preview::Shadowsocks2022::Accept(
                         std::make_shared<MemoryStream>(std::move(b)),
                         Preview::Shadowsocks2022::ServerConfig{"perf-Secret"});
-                    if (err != Error::none)
+                    if (err != Error::None)
                     {
                         co_return;
                     }
@@ -148,13 +148,13 @@ namespace
                     while (true)
                     {
                         std::error_code ec;
-                        const auto n = co_await srv->AsyncReadSome(std::span<std::byte>(buf), ec);
+                        const auto n = co_await srv->async_read_some(std::span<std::byte>(buf), ec);
                         if (ec || n == 0)
                         {
                             break;
                         }
                         ec.clear();
-                        (void)co_await srv->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+                        (void)co_await srv->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
                     }
                     srv->Close();
                 };
@@ -163,13 +163,13 @@ namespace
                 auto [err, cli] = co_await Preview::Shadowsocks2022::Connect(
                     std::make_shared<MemoryStream>(std::move(a)),
                     Preview::Shadowsocks2022::ClientConfig{"perf-Secret"}, make_dst());
-                if (err != Error::none || !cli)
+                if (err != Error::None || !cli)
                 {
                     co_return;
                 }
                 BenchOptions opt;
                 opt.Total = 64 * 1024 * 1024;
-                opt.block = 64 * 1024;
+                opt.Block = 64 * 1024;
                 tp = co_await BenchThroughputTx(*cli, *cli, opt);
                 // 延迟用新连接（回环小包 RTT）
                 auto [a2, b2] = MakeMemoryPair(ioc.get_executor());
@@ -178,7 +178,7 @@ namespace
                     auto [err, req, srv2] = co_await Preview::Shadowsocks2022::Accept(
                         std::make_shared<MemoryStream>(std::move(b2)),
                         Preview::Shadowsocks2022::ServerConfig{"perf-Secret"});
-                    if (err != Error::none)
+                    if (err != Error::None)
                     {
                         co_return;
                     }
@@ -186,13 +186,13 @@ namespace
                     while (true)
                     {
                         std::error_code ec;
-                        const auto n = co_await srv2->AsyncReadSome(std::span<std::byte>(buf), ec);
+                        const auto n = co_await srv2->async_read_some(std::span<std::byte>(buf), ec);
                         if (ec || n == 0)
                         {
                             break;
                         }
                         ec.clear();
-                        (void)co_await srv2->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+                        (void)co_await srv2->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
                     }
                     srv2->Close();
                 };
@@ -200,21 +200,21 @@ namespace
                 auto [err2, cli2] = co_await Preview::Shadowsocks2022::Connect(
                     std::make_shared<MemoryStream>(std::move(a2)),
                     Preview::Shadowsocks2022::ClientConfig{"perf-Secret"}, make_dst());
-                if (err2 != Error::none || !cli2)
+                if (err2 != Error::None || !cli2)
                 {
                     co_return;
                 }
                 BenchOptions lopt;
                 lopt.Total = 1000 * 4 * 1024;
-                lopt.block = 4 * 1024;
+                lopt.Block = 4 * 1024;
                 lat = co_await BenchThroughputTx(*cli2, *cli2, lopt);
                 cli2->Close();
             });
 
         std::printf("ss2022 throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min "
                     "%.3f max %.3f) samples=%zu\n",
-                    tp.mbps, lat.LatencyAvg, lat.LatencyP50, lat.LatencyP95, lat.LatencyP99,
-                    lat.LatencyMin, lat.LatencyMax, lat.samples);
+                    tp.Mbps, lat.LatencyAvg, lat.LatencyP50, lat.LatencyP95, lat.LatencyP99,
+                    lat.LatencyMin, lat.LatencyMax, lat.Samples);
     }
 
 } // namespace

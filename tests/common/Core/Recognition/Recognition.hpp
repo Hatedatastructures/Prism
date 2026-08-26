@@ -1,5 +1,5 @@
 /**
- * @file recognition.hpp
+ * @file Recognition.hpp
  * @brief 协议识别流水线
  * @details 首包探测 → 协议类型判定 →（预读回注）。
  *          输出 detected（协议类型）+ preread（预读数据回注）。
@@ -32,7 +32,7 @@ namespace Preview::Recognition
      */
     struct RecognizeResult
     {
-        ProtocolType detected{ProtocolType::unknown}; ///< 检测到的协议
+        ProtocolType detected{ProtocolType::Unknown}; ///< 检测到的协议
         SharedTransmission transport;                  ///< 回注预读后的传输
         std::vector<std::byte> preread;              ///< 预读数据（供 handler 消费）
         std::string scheme;                          ///< 命中的伪装方案（TLS 时；当前恒空）
@@ -53,7 +53,7 @@ namespace Preview::Recognition
          * @brief 构造
          * @param routes SNI 路由表（可选；预留接口契约，当前未接通）
          */
-        explicit Pipeline(SniRouteTable *routes = nullptr) : routes_(routes)
+        explicit Pipeline(SniRouteTable *routes = nullptr) : Routes_(routes)
         {
         }
 
@@ -94,11 +94,11 @@ namespace Preview::Recognition
          */
         [[nodiscard]] static auto ProbeBytes(const ProbeResult &res) -> std::span<const std::byte>
         {
-            return std::span<const std::byte>(res.pre_read.data(), res.PreReadSize);
+            return std::span<const std::byte>(res.PreRead.data(), res.PreReadSize);
         }
 
         /// SNI 路由表（预留，见类注释）
-        SniRouteTable *routes_;
+        SniRouteTable *Routes_;
     };
 
 } // namespace Preview::Recognition

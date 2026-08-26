@@ -1,5 +1,5 @@
 /**
- * @file h2mux.hpp
+ * @file H2Mux.hpp
  * @brief h2mux 协议聚合头（re-export 子头）
  * @details 统一引入 h2mux 族全部子头并导出工厂函数：
  * - types.hpp：常量与帧头结构

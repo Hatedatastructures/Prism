@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief WebSocket 协议基础类型（RFC 6455）
  * @details WebSocket 是 HTTP 升级伪装方案（对齐 mihomo transport/ws）：
  *          - 握手：Sec-WebSocket-Accept = base64(SHA1(key + GUID))
@@ -32,12 +32,12 @@ namespace Preview::Ws
     /// 帧 Opcode
     enum class Opcode : std::uint8_t
     {
-        continuation = 0x0,
-        text = 0x1,
-        binary = 0x2,
+        Continuation = 0x0,
+        Text = 0x1,
+        Binary = 0x2,
         Close = 0x8,
-        ping = 0x9,
-        pong = 0xA,
+        Ping = 0x9,
+        Pong = 0xA,
     };
 
 } // namespace Preview::Ws

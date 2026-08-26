@@ -89,121 +89,121 @@ namespace Preview::Runtime
          * @brief 构造
          * @param opts 编排选项
          */
-        explicit Session(SessionOptions opts) : opts_(std::move(opts))
+        explicit Session(SessionOptions opts) : Opts_(std::move(opts))
         {
         }
 
         /**
          * @brief 运行会话
-         * @param inbound 入站传输
+         * @param Inbound 入站传输
          * @return 最终错误码（success = 隧道正常结束）
          */
-        [[nodiscard]] auto Run(Preview::SharedTransmission inbound) -> net::awaitable<Preview::Fault::Code>
+        [[nodiscard]] auto Run(Preview::SharedTransmission Inbound) -> net::awaitable<Preview::Fault::Code>
         {
             // 1. 协议识别（预读回注）
-            Preview::Recognition::Pipeline recog(opts_.routes);
-            auto res = co_await recog.Recognize(std::move(inbound));
+            Preview::Recognition::Pipeline recog(Opts_.routes);
+            auto Res = co_await recog.Recognize(std::move(Inbound));
             // 协议专用 listener：已配置 AcceptProtocol 时，recognition 仅负责预读回注，
             // 是否识别成功交给 AcceptProtocol 决定（Trojan/SS2022 等首字节不可识别）。
-            if (!opts_.AcceptProtocol)
+            if (!Opts_.AcceptProtocol)
             {
-                if (!res.success || res.detected == Preview::Recognition::ProtocolType::unknown)
+                if (!Res.success || Res.detected == Preview::Recognition::ProtocolType::Unknown)
                 {
-                    co_return Preview::Fault::Code::protocol_error;
+                    co_return Preview::Fault::Code::ProtocolError;
                 }
             }
 
             // 2. 上下文装配
             Preview::Middleware::Context ctx;
-            ctx.detected = static_cast<std::uint16_t>(res.detected);
-            ctx.inbound = std::move(res.transport);
-            ctx.traffic = opts_.traffic;
-            ctx.pad = opts_.pad;
-            if (opts_.AcceptProtocol)
+            ctx.detected = static_cast<std::uint16_t>(Res.detected);
+            ctx.Inbound = std::move(Res.transport);
+            ctx.traffic = Opts_.traffic;
+            ctx.pad = Opts_.pad;
+            if (Opts_.AcceptProtocol)
             {
-                auto ProtocolGuard = ctx.inbound;
-                const auto ec =
-                    co_await opts_.AcceptProtocol(ctx.inbound, ctx);
-                if (Preview::Fault::Failed(ec))
+                auto ProtocolGuard = ctx.Inbound;
+                const auto Ec =
+                    co_await Opts_.AcceptProtocol(ctx.Inbound, ctx);
+                if (Preview::Fault::Failed(Ec))
                 {
                     if (ProtocolGuard)
                     {
                         ProtocolGuard->Close();
                     }
-                    if (ctx.inbound)
+                    if (ctx.Inbound)
                     {
-                        ctx.inbound->Close();
+                        ctx.Inbound->Close();
                     }
-                    co_return ec;
+                    co_return Ec;
                 }
                 ProtocolGuard.reset();
             }
-            if (opts_.Prepare)
+            if (Opts_.Prepare)
             {
-                const auto ec = co_await opts_.Prepare(res, ctx);
-                if (Preview::Fault::Failed(ec))
+                const auto Ec = co_await Opts_.Prepare(Res, ctx);
+                if (Preview::Fault::Failed(Ec))
                 {
                     // 与 AcceptProtocol 失败路径对称：装配终止时显式收口入站传输
-                    if (ctx.inbound)
+                    if (ctx.Inbound)
                     {
-                        ctx.inbound->Close();
+                        ctx.Inbound->Close();
                     }
-                    co_return ec;
+                    co_return Ec;
                 }
             }
 
             // 3. Dgram 会话（UDP 数据面，替代 Dial/relay 编排）
             if (ctx.IsDgram)
             {
-                if (!opts_.udp_service)
+                if (!Opts_.udp_service)
                 {
-                    if (ctx.inbound)
+                    if (ctx.Inbound)
                     {
-                        ctx.inbound->Close();
+                        ctx.Inbound->Close();
                     }
-                    co_return Preview::Fault::Code::not_supported;
+                    co_return Preview::Fault::Code::NotSupported;
                 }
-                co_return co_await opts_.udp_service(ctx);
+                co_return co_await Opts_.udp_service(ctx);
             }
 
             // 4. 认证 + 多路复用 + 拨号（不含 relay）
-            if (opts_.AcceptProtocol && opts_.Auth)
+            if (Opts_.AcceptProtocol && Opts_.Auth)
             {
-                // 适配器未回填 raw_identity：已通过协议认证的会话会被 Auth
+                // 适配器未回填 RawIdentity：已通过协议认证的会话会被 Auth
                 // 中间件再次拒绝，属配置矛盾，提前告警便于定位
                 Preview::Diagnose::Warn("AcceptProtocol 与 Auth 中间件同时配置："
-                                        "适配器未回填 raw_identity，已通过协议认证的会话将被拒绝");
+                                        "适配器未回填 RawIdentity，已通过协议认证的会话将被拒绝");
             }
             Preview::Middleware::Pipeline pipe;
-            if (opts_.Auth)
+            if (Opts_.Auth)
             {
-                pipe.Add(std::make_shared<Preview::Middleware::Builtin::AuthMiddleware>(opts_.Auth));
+                pipe.Add(std::make_shared<Preview::Middleware::Builtin::AuthMiddleware>(Opts_.Auth));
             }
-            pipe.Add(std::make_shared<Preview::Middleware::Builtin::MuxMiddleware>(opts_.mux));
+            pipe.Add(std::make_shared<Preview::Middleware::Builtin::MuxMiddleware>(Opts_.mux));
             pipe.Add(std::make_shared<Preview::Middleware::Builtin::PadMiddleware>());
-            pipe.Add(std::make_shared<Preview::Middleware::Builtin::DialMiddleware>(opts_.Dial));
-            const auto DialEc = co_await pipe.Run(ctx.inbound, ctx);
+            pipe.Add(std::make_shared<Preview::Middleware::Builtin::DialMiddleware>(Opts_.Dial));
+            const auto DialEc = co_await pipe.Run(ctx.Inbound, ctx);
             if (Preview::Fault::Failed(DialEc))
             {
-                if (ctx.post_dial)
+                if (ctx.PostDial)
                 {
-                    co_await ctx.post_dial(DialEc);
+                    co_await ctx.PostDial(DialEc);
                 }
                 co_return DialEc;
             }
             // 5. 拨号成功后发送协议级应答（如 SOCKS5 CONNECT success）
-            if (ctx.post_dial)
+            if (ctx.PostDial)
             {
-                co_await ctx.post_dial(Preview::Fault::Code::success);
+                co_await ctx.PostDial(Preview::Fault::Code::Success);
             }
             // 6. 双向转发
             Preview::Middleware::Builtin::RelayMiddleware relay(
-                nullptr, opts_.RelayIdleTimeout);
-            co_return co_await relay.Handle(ctx.inbound, ctx);
+                nullptr, Opts_.RelayIdleTimeout);
+            co_return co_await relay.Handle(ctx.Inbound, ctx);
         }
 
     private:
-        SessionOptions opts_; ///< 编排选项
+        SessionOptions Opts_; ///< 编排选项
     };
 
 } // namespace Preview::Runtime

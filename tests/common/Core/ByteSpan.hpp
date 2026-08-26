@@ -1,5 +1,5 @@
 /**
- * @file byte_span.hpp
+ * @file ByteSpan.hpp
  * @brief 字节视图转换工具（零拷贝 span 家族）
  * @details 提供容器/字符串 ↔ std::span 的无拷贝视图转换，消除散落的
  * reinterpret_cast 强转。统一模板 As<To> 以模板参数控制目标元素类型
@@ -114,7 +114,7 @@ namespace Preview
     /**
      * @brief 可变容器/字符串 → 可变视图
      * @details 覆盖 span/string/vector/array 等含 Data()/Size() 的可变对象，
-     * 返回值可作写缓冲（如 AsyncReadSome 读入）。
+     * 返回值可作写缓冲（如 async_read_some 读入）。
      * @tparam To 目标元素类型（byte/uint8_t/char）
      * @tparam C 源容器类型（元素非 const）
      * @param c 源容器

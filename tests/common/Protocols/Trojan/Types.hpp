@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief Trojan 协议基础类型（兼容 trojan-gfw）
  * @details 定义 Trojan 常量、命令、地址类型与请求结构。
  *          Trojan 头部格式：

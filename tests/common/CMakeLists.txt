@@ -1,4 +1,4 @@
-# 协议组件库（纯 header-only，命名空间 preview）
+# 协议组件库（纯 header-only，命名空间 Preview）
 # 单一 prism_ngx INTERFACE 库：core 基础设施 + 7 协议 + 7 伪装 + 3 mux
 add_library(prism_ngx INTERFACE)
 
@@ -111,6 +111,12 @@ target_sources(prism_ngx INTERFACE
         Core/Net/Route/Route.hpp
         Core/Net/Outbound/Outbound.hpp
         # ── core/net/dns ──
+        Core/Net/Dns/Config.hpp
+        Core/Net/Dns/Format.hpp
+        Core/Net/Dns/Cache.hpp
+        Core/Net/Dns/Coalescer.hpp
+        Core/Net/Dns/Rules.hpp
+        Core/Net/Dns/Upstream.hpp
         Core/Net/Dns/Resolver.hpp
         Core/Net/UdpRelay.hpp
         Protocols/Quic/StreamAdapter.hpp

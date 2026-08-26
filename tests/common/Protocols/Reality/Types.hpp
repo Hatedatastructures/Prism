@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief Reality 协议基础类型
  * @details Reality 是 TLS 1.3 指纹伪装方案（对齐 mihomo
  * component/tls/reality.go）：
@@ -25,7 +25,7 @@ namespace Preview::Reality
     inline constexpr std::size_t SessionIdAuthLen = 32;
 
     /// 认证密钥 HKDF Info（"REALITY"）
-    inline constexpr char reality_info[] = "REALITY";
+    inline constexpr char RealityInfo[] = "REALITY";
 
     /// 最大短 ID 长度（8 字节）
     inline constexpr std::size_t MaxShortIdLen = 8;

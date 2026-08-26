@@ -60,9 +60,9 @@ namespace Preview::Trojan
          */
         explicit Conn(SharedTransmission upstream, std::string password,
                       const Preview::Authenticator *Auth = nullptr)
-            : next_layer_(std::move(upstream)), auth_(Auth)
+            : NextLayer_(std::move(upstream)), Auth_(Auth)
         {
-            cred_ = Credential(password);
+            Cred_ = Credential(password);
         }
 
         /**
@@ -70,7 +70,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -80,35 +80,35 @@ namespace Preview::Trojan
          * @return 实际读取字节数
          * @details 握手阶段预读的剩余字节先被消费，清空后透传底层。
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ec.clear();
-            if (used_ > 0)
+            if (Used_ > 0)
             {
-                const auto n = std::min(Buffer.size(), used_);
-                std::memcpy(Buffer.data(), buf_.data(), n);
-                if (n < used_)
+                const auto N = std::min(Buffer.size(), Used_);
+                std::memcpy(Buffer.data(), Buf_.data(), N);
+                if (N < Used_)
                 {
-                    std::memmove(buf_.data(), buf_.data() + n, used_ - n);
+                    std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
                 }
                 else
                 {
-                    buf_.clear();
+                    Buf_.clear();
                 }
-                used_ -= n;
-                co_return n;
+                Used_ -= N;
+                co_return N;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 异步写入（静态分派透传）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -123,16 +123,16 @@ namespace Preview::Trojan
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
-                const auto n = co_await AsyncReadSome(Buffer.subspan(Done), ec);
+                const auto N = co_await async_read_some(Buffer.subspan(Done), ec);
                 if (ec)
                 {
                     co_return Done;
                 }
-                if (n == 0)
+                if (N == 0)
                 {
                     co_return Done;
                 }
-                Done += n;
+                Done += N;
             }
             co_return Done;
         }
@@ -149,17 +149,17 @@ namespace Preview::Trojan
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
-                const auto n = co_await AsyncWriteSome(Buffer.subspan(Done), ec);
+                const auto N = co_await async_write_some(Buffer.subspan(Done), ec);
                 if (ec)
                 {
                     co_return Done;
                 }
-                if (n == 0)
+                if (N == 0)
                 {
-                    ec = make_error_code(Error::broken_pipe);
+                    ec = make_error_code(Error::BrokenPipe);
                     co_return Done;
                 }
-                Done += n;
+                Done += N;
             }
             co_return Done;
         }
@@ -169,7 +169,7 @@ namespace Preview::Trojan
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -177,7 +177,7 @@ namespace Preview::Trojan
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -186,7 +186,7 @@ namespace Preview::Trojan
         [[nodiscard]] auto NextLayer() noexcept 
             -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -195,7 +195,7 @@ namespace Preview::Trojan
         [[nodiscard]] auto NextLayer() const noexcept 
             -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -203,7 +203,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
         /**
@@ -212,7 +212,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto IsValid() const noexcept -> bool
         {
-            return next_layer_ != nullptr && handshaken_;
+            return NextLayer_ != nullptr && Handshaken_;
         }
 
         /**
@@ -221,7 +221,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto Underlying() noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
         /**
@@ -231,7 +231,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto Arena() noexcept -> Preview::Memory::ResourcePointer
         {
-            return mem_.Arena();
+            return Mem_.Arena();
         }
 
         /**
@@ -242,106 +242,106 @@ namespace Preview::Trojan
          * @details 构造并发送请求头，不读响应（对齐主库 trojan）。
          * 由工厂 Connect 内部调用。
          */
-        [[nodiscard]] auto WriteHandshake(const Address &Target, Command cmd = Command::Connect)
+        [[nodiscard]] auto WriteHandshake(const Address &Target, Command Cmd = Command::Connect)
             -> net::awaitable<Error>
         {
-            const auto wire = BuildRequest(cred_, cmd, Target);
-            const bool Failed = co_await SendBytes(wire); // true = 发送失败
-            handshaken_ = !Failed;
+            const auto Wire = BuildRequest(Cred_, Cmd, Target);
+            const bool Failed = co_await SendBytes(Wire); // true = 发送失败
+            Handshaken_ = !Failed;
             if (Failed)
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
          * @brief 服务端握手：解析请求头
-         * @param enable_tcp 是否允许 CONNECT 命令
-         * @param enable_udp 是否允许 UDP_ASSOCIATE 命令
+         * @param EnableTcp 是否允许 CONNECT 命令
+         * @param EnableUdp 是否允许 UDP_ASSOCIATE 命令
          * @return 错误码与解析的请求
          * @details 精确分段读取并校验（凭据/CRLF/命令开关/atyp/尾部）。
          * 认证失败不发送响应，静默断开（对齐 trojan-gfw）。
          * 由工厂 Accept 内部调用。
          */
-        [[nodiscard]] auto ReadHandshake(bool enable_tcp = true, bool enable_udp = false)
+        [[nodiscard]] auto ReadHandshake(bool EnableTcp = true, bool EnableUdp = false)
             -> net::awaitable<std::pair<Error, RequestHeader>>
         {
             // 1. 凭据前缀：Credential(56) + CRLF(2)
             std::array<std::uint8_t, CredentialLen + 2> Prefix{};
             if (co_await ReadExactImpl(std::span<std::uint8_t>(Prefix)))
             {
-                co_return std::pair{Error::io_error, RequestHeader{}};
+                co_return std::pair{Error::IoError, RequestHeader{}};
             }
             const std::string_view got(reinterpret_cast<const char *>(Prefix.data()), CredentialLen);
-            bool bad_auth = false;
-            if (auth_)
+            bool BadAuth = false;
+            if (Auth_)
             {
-                bad_auth = !auth_->Check("", got).Ok;
+                BadAuth = !Auth_->Check("", got).Ok;
             }
             else
             {
-                bad_auth = (got != cred_);
+                BadAuth = (got != Cred_);
             }
-            if (bad_auth)
+            if (BadAuth)
             {
-                co_return std::pair{Error::bad_auth, RequestHeader{}};
+                co_return std::pair{Error::BadAuth, RequestHeader{}};
             }
             if (Prefix[CredentialLen] != '\r' || Prefix[CredentialLen + 1] != '\n')
             {
-                co_return std::pair{Error::bad_magic, RequestHeader{}};
+                co_return std::pair{Error::BadMagic, RequestHeader{}};
             }
 
             // 2. 头部：Cmd(1) + Atyp(1)
             std::array<std::uint8_t, 2> head{};
             if (co_await ReadExactImpl(std::span<std::uint8_t>(head)))
             {
-                co_return std::pair{Error::io_error, RequestHeader{}};
+                co_return std::pair{Error::IoError, RequestHeader{}};
             }
-            const auto cmd = static_cast<Command>(head[0]);
-            if (cmd != Command::Connect && cmd != Command::UdpAssociate && cmd != Command::Mux)
+            const auto Cmd = static_cast<Command>(head[0]);
+            if (Cmd != Command::Connect && Cmd != Command::UdpAssociate && Cmd != Command::Mux)
             {
-                co_return std::pair{Error::bad_message, RequestHeader{}};
+                co_return std::pair{Error::BadMessage, RequestHeader{}};
             }
-            if (cmd == Command::Connect && !enable_tcp)
+            if (Cmd == Command::Connect && !EnableTcp)
             {
-                co_return std::pair{Error::not_supported, RequestHeader{}};
+                co_return std::pair{Error::NotSupported, RequestHeader{}};
             }
-            if (cmd == Command::UdpAssociate && !enable_udp)
+            if (Cmd == Command::UdpAssociate && !EnableUdp)
             {
-                co_return std::pair{Error::not_supported, RequestHeader{}};
+                co_return std::pair{Error::NotSupported, RequestHeader{}};
             }
-            const auto atyp = static_cast<AddressType>(head[1]);
-            if (atyp != AddressType::Ipv4 && atyp != AddressType::Domain && atyp != AddressType::Ipv6)
+            const auto Atyp = static_cast<AddressType>(head[1]);
+            if (Atyp != AddressType::Ipv4 && Atyp != AddressType::Domain && Atyp != AddressType::Ipv6)
             {
-                co_return std::pair{Error::bad_message, RequestHeader{}};
+                co_return std::pair{Error::BadMessage, RequestHeader{}};
             }
 
             // 3. 地址体
             RequestHeader req;
-            req.Cmd = cmd;
-            req.Target.Type = atyp;
-            auto err = co_await ReadAddressBody(req.Target);
-            if (err != Error::none)
+            req.Cmd = Cmd;
+            req.Target.Type = Atyp;
+            auto Err = co_await ReadAddressBody(req.Target);
+            if (Err != Error::None)
             {
-                co_return std::pair{err, RequestHeader{}};
+                co_return std::pair{Err, RequestHeader{}};
             }
 
             // 4. 尾部：Port(2 BE) + CRLF(2)
             std::array<std::uint8_t, 4> tail{};
             if (co_await ReadExactImpl(std::span<std::uint8_t>(tail)))
             {
-                co_return std::pair{Error::io_error, RequestHeader{}};
+                co_return std::pair{Error::IoError, RequestHeader{}};
             }
             req.Target.Port = static_cast<std::uint16_t>(tail[0]) << 8 | tail[1];
             if (tail[2] != '\r' || tail[3] != '\n')
             {
-                co_return std::pair{Error::bad_magic, RequestHeader{}};
+                co_return std::pair{Error::BadMagic, RequestHeader{}};
             }
 
-            request_ = req;
-            handshaken_ = true;
-            co_return std::pair{Error::none, std::move(req)};
+            Request_ = req;
+            Handshaken_ = true;
+            co_return std::pair{Error::None, std::move(req)};
         }
 
         /**
@@ -350,7 +350,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto Request() const -> const RequestHeader &
         {
-            return request_;
+            return Request_;
         }
 
         /**
@@ -389,33 +389,33 @@ namespace Preview::Trojan
             std::size_t Done = 0;
             while (Done < dst.size())
             {
-                if (used_ > 0)
+                if (Used_ > 0)
                 {
-                    const auto n = std::min(dst.size() - Done, used_);
-                    std::memcpy(dst.data() + Done, buf_.data(), n);
-                    if (n < used_)
+                    const auto N = std::min(dst.size() - Done, Used_);
+                    std::memcpy(dst.data() + Done, Buf_.data(), N);
+                    if (N < Used_)
                     {
-                        std::memmove(buf_.data(), buf_.data() + n, used_ - n);
-                        used_ -= n;
+                        std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
+                        Used_ -= N;
                     }
                     else
                     {
-                        buf_.clear();
-                        used_ = 0;
+                        Buf_.clear();
+                        Used_ = 0;
                     }
-                    Done += n;
+                    Done += N;
                     continue;
                 }
                 std::array<std::uint8_t, 512> chunk{};
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(
+                const auto N = co_await NextLayer_->async_read_some(
                     std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()), ec);
-                if (ec || n == 0)
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
-                buf_.insert(buf_.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
-                used_ += n;
+                Buf_.insert(Buf_.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
+                Used_ += N;
             }
             co_return false;
         }
@@ -431,7 +431,7 @@ namespace Preview::Trojan
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(
+                const auto N = co_await NextLayer_->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data() + Done),
                                                Data.size() - Done),
                     ec);
@@ -439,19 +439,23 @@ namespace Preview::Trojan
                 {
                     co_return true;
                 }
-                Done += n;
+                if (N == 0)
+                {
+                    co_return true; // 底层零字节写入，防死循环
+                }
+                Done += N;
             }
             co_return false;
         }
 
-        SharedTransmission next_layer_;              ///< 上游传输（基类传参，运行时多态）
-        std::string cred_;                            ///< 预计算凭据（SHA224 hex）
-        const Preview::Authenticator *auth_{nullptr}; ///< 认证器（非拥有）
-        RequestHeader request_;                      ///< 服务端握手解析结果
-        Memory mem_;                                  ///< 会话内存策略（Arena，热路径零释放分配）
-        typename std::template Buffer<std::uint8_t> buf_{mem_.Arena()}; ///< 预读缓冲（隧道数据暂存）
-        std::size_t used_{0};                                              ///< 缓冲中有效字节数
-        bool handshaken_{false};                                           ///< 握手完成标志
+        SharedTransmission NextLayer_;              ///< 上游传输（基类传参，运行时多态）
+        std::string Cred_;                            ///< 预计算凭据（SHA224 hex）
+        const Preview::Authenticator *Auth_{nullptr}; ///< 认证器（非拥有）
+        RequestHeader Request_;                      ///< 服务端握手解析结果
+        Memory Mem_;                                  ///< 会话内存策略（Arena，热路径零释放分配）
+        typename Memory::template Buffer<std::uint8_t> Buf_{Mem_.Arena()}; ///< 预读缓冲（隧道数据暂存）
+        std::size_t Used_{0};                                              ///< 缓冲中有效字节数
+        bool Handshaken_{false};                                           ///< 握手完成标志
     };
 
     /// 流连接共享指针

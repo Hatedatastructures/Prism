@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief AnyTLS 协议基础类型
  * @details AnyTLS 是 TLS 之上的代理协议（对齐 mihomo transport/anytls）：
  *          - 认证：TLS 握手后首帧 = [SHA-256(password) 32B][PadLen 2B BE][Padding]

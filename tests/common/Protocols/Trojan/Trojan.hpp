@@ -1,12 +1,12 @@
 /**
- * @file trojan.hpp
+ * @file Trojan.hpp
  * @brief Trojan 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / ConnectPacket（客户端）、
  *   Accept / AcceptPacket（服务端）——握手在工厂内部完成
- * - 配置：ClientConfig（Client.hpp）、ServerConfig（Server.hpp）
+ * - 配置：ClientConfig / ServerConfig（本文件）
  * - 连接：Conn（流，Conn.hpp）、Dgram（包，Dgram.hpp）
- * - 编解码（Codec.hpp）、纯数据（types.hpp）
+ * - 编解码（Codec.hpp）、纯数据（Types.hpp）
  * @note 对齐 mihomo/sing-*：TCP 流与 UDP 包为两种独立连接类型；
  *          工厂自由函数承担"创建 + 装配 + 握手编排"。
  * @note span 参数为视图（不持有生命周期），连接所有权经 shared_ptr
@@ -84,18 +84,18 @@ namespace Preview::Trojan
                                       const Address &Target, Command cmd = Command::Connect)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto err = co_await c->WriteHandshake(Target, cmd);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
+        const auto Err = co_await C->WriteHandshake(Target, cmd);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -112,12 +112,12 @@ namespace Preview::Trojan
                                              const Address &Target)
         -> net::awaitable<std::pair<Error, SharedDgram>>
     {
-        auto [err, Conn] = co_await Connect(std::move(upstream), cfg, Target, Command::UdpAssociate);
-        if (err != Error::none)
+        auto [Err, Conn] = co_await Connect(std::move(upstream), cfg, Target, Command::UdpAssociate);
+        if (Err != Error::None)
         {
-            co_return std::pair{err, SharedDgram{}};
+            co_return std::pair{Err, SharedDgram{}};
         }
-        co_return std::pair{Error::none, std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::pair{Error::None, std::make_shared<Dgram<>>(std::move(Conn))};
     }
 
     /**
@@ -133,18 +133,18 @@ namespace Preview::Trojan
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, RequestHeader, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.password, cfg.Authenticator);
-        auto [err, req] = co_await c->ReadHandshake(cfg.EnableTcp, cfg.EnableUdp);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password, cfg.Authenticator);
+        auto [Err, req] = co_await C->ReadHandshake(cfg.EnableTcp, cfg.EnableUdp);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{err, std::move(req), std::move(Conn)};
+        co_return std::tuple{Err, std::move(req), std::move(Conn)};
     }
 
     /**
@@ -158,12 +158,12 @@ namespace Preview::Trojan
     [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, RequestHeader, SharedDgram>>
     {
-        auto [err, req, Conn] = co_await Accept(std::move(upstream), cfg);
-        if (err != Error::none)
+        auto [Err, req, Conn] = co_await Accept(std::move(upstream), cfg);
+        if (Err != Error::None)
         {
-            co_return std::tuple{err, std::move(req), SharedDgram{}};
+            co_return std::tuple{Err, std::move(req), SharedDgram{}};
         }
-        co_return std::tuple{Error::none, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::tuple{Error::None, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
     }
 
 } // namespace Preview::Trojan

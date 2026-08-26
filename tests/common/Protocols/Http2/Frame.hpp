@@ -3,7 +3,7 @@
  * @brief HTTP/2 帧编解码（自包含实现，不依赖 nghttp2）
  * @details 9 字节帧头 + 各类帧载荷编解码：
  *          - FrameHeader：9 字节帧头（len24 + Type + Flags + stream_id31）
- *          - BuildFrame / parse_frame：通用帧组装/解析
+ *          - BuildFrame / ParseFrame：通用帧组装/解析
  *          - 各帧载荷：DATA/HEADERS/SETTINGS/PING/GOAWAY/WINDOW_UPDATE/RST_STREAM
  * @note HPACK 头压缩见 Codec.hpp；流状态机见 Session.hpp
  */
@@ -26,27 +26,27 @@ namespace Preview::Http2
     enum class FrameType : std::uint8_t
     {
         Data = 0x0,          ///< DATA
-        headers = 0x1,       ///< HEADERS
-        priority = 0x2,      ///< PRIORITY
-        rst_stream = 0x3,    ///< RST_STREAM
-        settings = 0x4,      ///< SETTINGS
-        push_promise = 0x5,  ///< PUSH_PROMISE
-        ping = 0x6,          ///< PING
-        goaway = 0x7,        ///< GOAWAY
-        window_update = 0x8, ///< WINDOW_UPDATE
-        continuation = 0x9,  ///< CONTINUATION
+        Headers = 0x1,       ///< HEADERS
+        Priority = 0x2,      ///< PRIORITY
+        RstStream = 0x3,    ///< RST_STREAM
+        Settings = 0x4,      ///< SETTINGS
+        PushPromise = 0x5,  ///< PUSH_PROMISE
+        Ping = 0x6,          ///< PING
+        Goaway = 0x7,        ///< GOAWAY
+        WindowUpdate = 0x8, ///< WINDOW_UPDATE
+        Continuation = 0x9,  ///< CONTINUATION
     };
 
     /// 帧标志位（RFC 7540 §6）
-    enum frame_flag : std::uint8_t
+    enum FrameFlag : std::uint8_t
     {
-        flag_none = 0x0,
-        flag_end_stream = 0x1,    ///< END_STREAM
-        flag_end_headers = 0x4,   ///< END_HEADERS
-        flag_padded = 0x8,        ///< PADDED
-        flag_priority = 0x20,     ///< PRIORITY
-        flag_ack = 0x1,           ///< ACK
-        flag_settings_ack = 0x1,  ///< SETTINGS ACK
+        FlagNone = 0x0,
+        FlagEndStream = 0x1,    ///< END_STREAM
+        FlagEndHeaders = 0x4,   ///< END_HEADERS
+        FlagPadded = 0x8,        ///< PADDED
+        FlagPriority = 0x20,     ///< PRIORITY
+        FlagAck = 0x1,           ///< ACK
+        FlagSettingsAck = 0x1,  ///< SETTINGS ACK
     };
 
     /// 帧头（9 字节）
@@ -187,11 +187,11 @@ namespace Preview::Http2
             return std::nullopt;
         }
         FrameHeader h;
-        const auto head = Data.first<9>();
-        h.length = DecodeLen24(head.first<3>());
-        h.Type = static_cast<FrameType>(std::to_integer<std::uint8_t>(head[3]));
-        h.Flags = std::to_integer<std::uint8_t>(head[4]);
-        h.StreamId = DecodeU31(head.last<4>());
+        const auto Head = Data.first<9>();
+        h.length = DecodeLen24(Head.first<3>());
+        h.Type = static_cast<FrameType>(std::to_integer<std::uint8_t>(Head[3]));
+        h.Flags = std::to_integer<std::uint8_t>(Head[4]);
+        h.StreamId = DecodeU31(Head.last<4>());
         return h;
     }
 
@@ -231,16 +231,16 @@ namespace Preview::Http2
         }
         std::vector<SettingsEntry> entries;
         entries.reserve(Data.size() / 6);
-        for (std::size_t i = 0; i < Data.size(); i += 6)
+        for (std::size_t I = 0; I < Data.size(); I += 6)
         {
             SettingsEntry e;
             e.Id = static_cast<std::uint16_t>(
-                (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Data[i])) << 8) |
-                static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Data[i + 1])));
-            e.value = (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[i + 2])) << 24) |
-                      (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[i + 3])) << 16) |
-                      (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[i + 4])) << 8) |
-                      static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[i + 5]));
+                (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Data[I])) << 8) |
+                static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Data[I + 1])));
+            e.value = (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 2])) << 24) |
+                      (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 3])) << 16) |
+                      (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 4])) << 8) |
+                      static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 5]));
             entries.push_back(e);
         }
         return entries;
@@ -280,9 +280,9 @@ namespace Preview::Http2
         std::vector<std::byte> out;
         out.reserve(8 + params.Debug.size());
         out.resize(8);
-        const auto head = std::span<std::byte>(out.data(), 8);
-        EncodeU31(params.LastStreamId, head.first<4>());
-        EncodeU31(params.ErrorCode, head.last<4>());
+        const auto Head = std::span<std::byte>(out.data(), 8);
+        EncodeU31(params.LastStreamId, Head.first<4>());
+        EncodeU31(params.ErrorCode, Head.last<4>());
         out.insert(out.end(), params.Debug.begin(), params.Debug.end());
         return out;
     }

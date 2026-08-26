@@ -18,7 +18,7 @@
 #include "common/MockTransport.hpp"
 #include <gtest/gtest.h>
 
-using psm::testing::MockTransport;
+using Preview::Testing::MockTransport;
 
 namespace
 {

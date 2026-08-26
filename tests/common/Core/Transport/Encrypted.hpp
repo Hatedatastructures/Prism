@@ -99,40 +99,40 @@ namespace Preview::Transport {
 
         /**
          * @brief 异步读取数据
-         * @details 调用底层 TLS 流的 AsyncReadSome 实现异步读取。
+         * @details 调用底层 TLS 流的 async_read_some 实现异步读取。
          * 返回实际读取的字节数，错误通过 ec 返回。
          * @param Buffer 接收缓冲区
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code SysEc;
-            auto token = net::redirect_error(net::use_awaitable, SysEc);
-            const auto n =
-                co_await SslStream_->async_read_some(net::buffer(Buffer.data(), Buffer.size()), token);
+            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            const auto N =
+                co_await SslStream_->async_read_some(net::buffer(Buffer.data(), Buffer.size()), Token);
             ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
-            co_return n;
+            co_return N;
         }
 
         /**
          * @brief 异步写入数据
-         * @details 调用底层 TLS 流的 AsyncWriteSome 实现异步写入。
+         * @details 调用底层 TLS 流的 async_write_some 实现异步写入。
          * 返回实际写入的字节数，错误通过 ec 返回。
          * @param Buffer 发送缓冲区
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code SysEc;
-            auto token = net::redirect_error(net::use_awaitable, SysEc);
-            const auto n =
-                co_await SslStream_->async_write_some(net::buffer(Buffer.data(), Buffer.size()), token);
+            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            const auto N =
+                co_await SslStream_->async_write_some(net::buffer(Buffer.data(), Buffer.size()), Token);
             ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
-            co_return n;
+            co_return N;
         }
 
         /**
@@ -195,15 +195,15 @@ namespace Preview::Transport {
 
         /**
          * @brief 执行 TLS 服务端握手（静态工厂）
-         * @param inbound 入站传输层（所有权被转移）
-         * @param ssl_ctx SSL 上下文
+         * @param Inbound 入站传输层（所有权被转移）
+         * @param SslCtx SSL 上下文
          * @return 协程对象，完成后返回：错误码、TLS 流（成功时）、
          * 失败时从 Connector 恢复的传输层（成功时为 nullptr）
          * @details 将入站传输层包装为 Connector，执行 TLS 服务端握手。
          * 握手失败时从 Connector 释放传输层所有权，避免 transport 丢失。
          * @note 调用方应确保入站传输已包装 Preview（如有预读数据）。
          */
-        [[nodiscard]] static auto SslHandshake(SharedTransmission inbound, ssl::context &ssl_ctx)
+        [[nodiscard]] static auto SslHandshake(SharedTransmission Inbound, ssl::context &SslCtx)
             -> net::awaitable<std::tuple<Fault::Code, SharedStream, SharedTransmission>>;
 
     private:
@@ -217,27 +217,27 @@ namespace Preview::Transport {
      * @param SslStream TLS 流的共享指针
      * @return SharedTransmission 传输层指针
      */
-    [[nodiscard]] inline SharedTransmission make_encrypted(Encrypted::SharedStream SslStream)
+    [[nodiscard]] inline SharedTransmission MakeEncrypted(Encrypted::SharedStream SslStream)
     {
         return std::make_shared<Encrypted>(std::move(SslStream));
     }
 
 
 
-    inline auto Encrypted::SslHandshake(SharedTransmission inbound, ssl::context &ssl_ctx)
+    inline auto Encrypted::SslHandshake(SharedTransmission Inbound, ssl::context &SslCtx)
         -> net::awaitable<std::tuple<Fault::Code, Encrypted::SharedStream, SharedTransmission>>
     {
-        if (!inbound)
+        if (!Inbound)
         {
             Diagnose::Warn("No inbound Transmission for TLS handshake");
-            co_return std::make_tuple(Fault::Code::io_error, nullptr, nullptr);
+            co_return std::make_tuple(Fault::Code::IoError, nullptr, nullptr);
         }
 
-        ConnectorType Connector(std::move(inbound), {});
-        auto Stream = std::make_shared<StreamType>(std::move(Connector), ssl_ctx);
+        ConnectorType Connector(std::move(Inbound), {});
+        auto Stream = std::make_shared<StreamType>(std::move(Connector), SslCtx);
 
         boost::system::error_code ec;
-        auto token = net::redirect_error(net::use_awaitable, ec);
+        auto Token = net::redirect_error(net::use_awaitable, ec);
 
         // TLS 握手超时（30 秒）：防恶意客户端连接后不发 ClientHello 挂起
         using boost::asio::experimental::awaitable_operators::operator||;
@@ -253,19 +253,19 @@ namespace Preview::Transport {
         if (Result.index() == 1)
         {
             Diagnose::Warn("TLS handshake timeout");
-            auto recovered = Stream->lowest_layer().Release();
-            co_return std::make_tuple(Fault::Code::timeout, nullptr, std::move(recovered));
+            auto Recovered = Stream->next_layer().Release();
+            co_return std::make_tuple(Fault::Code::Timeout, nullptr, std::move(Recovered));
         }
         const auto HEc = std::get<0>(Result);
         if (HEc)
         {
             Diagnose::Warn("TLS handshake Failed: {} ({})", HEc.message(), HEc.value());
-            auto recovered = Stream->lowest_layer().Release();
-            co_return std::make_tuple(Fault::ToCode(HEc), nullptr, std::move(recovered));
+            auto Recovered = Stream->next_layer().Release();
+            co_return std::make_tuple(Fault::ToCode(HEc), nullptr, std::move(Recovered));
         }
 
         Diagnose::Debug("TLS handshake Succeeded");
-        co_return std::make_tuple(Fault::Code::success, Stream, nullptr);
+        co_return std::make_tuple(Fault::Code::Success, Stream, nullptr);
     }
 
 

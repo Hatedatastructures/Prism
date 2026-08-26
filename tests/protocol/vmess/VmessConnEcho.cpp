@@ -191,9 +191,9 @@ namespace
             }
 
             std::array<std::byte, 4096> buf{};
-            std::error_code read_ec;
-            const auto n = co_await agent->async_read_some(buf, read_ec);
-            if (read_ec || n == 0)
+            std::error_code ReadEc;
+            const auto n = co_await agent->async_read_some(buf, ReadEc);
+            if (ReadEc || n == 0)
             {
                 *ok = false;
                 co_return;

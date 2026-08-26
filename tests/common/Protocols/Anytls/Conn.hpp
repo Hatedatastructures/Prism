@@ -53,7 +53,7 @@ namespace Preview::Anytls
          * @param password 认证密码
          */
         explicit Conn(SharedTransmission upstream, std::string password)
-            : next_layer_(std::move(upstream)), password_(std::move(password))
+            : NextLayer_(std::move(upstream)), Password_(std::move(password))
         {
         }
 
@@ -63,7 +63,7 @@ namespace Preview::Anytls
         [[nodiscard]] auto Executor() const 
             -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -75,13 +75,13 @@ namespace Preview::Anytls
             -> net::awaitable<Error>
         {
             std::string Frame;
-            auto err = BuildAuthFrame(password_, PadLen, Frame);
-            if (err != Error::none)
-                co_return err;
+            auto Err = BuildAuthFrame(Password_, PadLen, Frame);
+            if (Err != Error::None)
+                co_return Err;
             if (co_await SendBytes(AsU8Span(Frame)))
-                co_return Error::io_error;
-            handshaken_ = true;
-            co_return Error::none;
+                co_return Error::IoError;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
@@ -94,7 +94,7 @@ namespace Preview::Anytls
             // 头：Hash(32) + PadLen(2 BE)
             std::array<std::uint8_t, AuthFrameHdrlen> head{};
             if (co_await ReadExact(std::span<std::uint8_t>(head)))
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             std::array<std::uint8_t, PasswordHashLen> Hash{};
             std::memcpy(Hash.data(), head.data(), PasswordHashLen);
             const auto PadLen = static_cast<std::uint16_t>(head[PasswordHashLen]) << 8 |
@@ -103,40 +103,40 @@ namespace Preview::Anytls
             {
                 std::vector<std::uint8_t> padding(PadLen);
                 if (co_await ReadExact(padding))
-                    co_return Error::unexpected_eof;
+                    co_return Error::UnexpectedEof;
             }
-            if (!VerifyAuth(password_, Hash))
-                co_return Error::bad_auth;
-            handshaken_ = true;
-            co_return Error::none;
+            if (!VerifyAuth(Password_, Hash))
+                co_return Error::BadAuth;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（数据面原样）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（数据面原样）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -144,7 +144,7 @@ namespace Preview::Anytls
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -152,7 +152,7 @@ namespace Preview::Anytls
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -161,7 +161,7 @@ namespace Preview::Anytls
         [[nodiscard]] auto NextLayer() noexcept 
             -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -170,7 +170,7 @@ namespace Preview::Anytls
         [[nodiscard]] auto NextLayer() const noexcept
              -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -179,7 +179,7 @@ namespace Preview::Anytls
         [[nodiscard]] auto Release() 
             -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
     private:
@@ -195,10 +195,10 @@ namespace Preview::Anytls
             while (Done < dst.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(AsBytes(dst.subspan(Done)), ec);
-                if (ec || n == 0)
+                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
+                if (ec || N == 0)
                     co_return true;
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
@@ -215,17 +215,17 @@ namespace Preview::Anytls
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(AsBytes(Data.subspan(Done)), ec);
+                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
                 if (ec)
                     co_return true;
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
 
-        SharedTransmission next_layer_;  ///< 底层传输（独占所有权）
-        std::string password_;            ///< 认证密码
-        bool handshaken_{false};          ///< 握手完成标志
+        SharedTransmission NextLayer_;  ///< 底层传输（独占所有权）
+        std::string Password_;            ///< 认证密码
+        bool Handshaken_{false};          ///< 握手完成标志
     };
 
     /// 流连接共享指针（默认内存策略）

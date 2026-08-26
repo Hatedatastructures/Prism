@@ -33,11 +33,11 @@ namespace
     using namespace Preview;
 
     // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::AcceptEchoLoop;
-    using psm::testing::RunCoro;
-    using psm::testing::tcp_echo_server;
+    using Preview::Testing::AcceptEchoLoop;
+    using Preview::Testing::RunCoro;
+    using Preview::Testing::TcpEchoServer;
 
-    /// 拨号上游（SessionOptions::Dial 回调实现；直连目标，不经 psm::testing::chain_state）
+    /// 拨号上游（SessionOptions::Dial 回调实现；直连目标，不经 Preview::Testing::ChainState）
     auto dial_direct(net::any_io_executor ex, const Network::Target &t)
         -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
     {
@@ -47,9 +47,9 @@ namespace
             std::string(t.Host), static_cast<unsigned short>(std::stoi(std::string(t.Port))), ec);
         if (ec || !up)
         {
-            co_return std::pair{Fault::Code::unreachable, SharedTransmission{}};
+            co_return std::pair{Fault::Code::Unreachable, SharedTransmission{}};
         }
-        co_return std::pair{Fault::Code::success, std::move(up)};
+        co_return std::pair{Fault::Code::Success, std::move(up)};
     }
 
     /**
@@ -62,7 +62,7 @@ namespace
     {
         Tcp::acceptor echo_ac(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto echo_port = echo_ac.local_endpoint().port();
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_ac), net::detached);
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_ac), net::detached);
 
         auto dialed = std::make_shared<bool>(false);
         auto make_accept_set_target =
@@ -70,7 +70,7 @@ namespace
         {
             ctx.Target.Host = "127.0.0.1";
             ctx.Target.Port = std::to_string(echo_port);
-            co_return Fault::Code::success;
+            co_return Fault::Code::Success;
         };
 
         Runtime::TcpListener listener(ioc.get_executor(),
@@ -90,7 +90,7 @@ namespace
 
         bool Ok = false;
         const auto rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        EXPECT_EQ(rc, Fault::Code::success);
+        EXPECT_EQ(rc, Fault::Code::Success);
         const auto lp = listener.LocalEndpoint().port();
         std::error_code ec;
         Network::Dialer::Dialer d(ioc.get_executor());
@@ -106,7 +106,7 @@ namespace
             std::size_t got = 0;
             while (!ec && got < payload.size())
             {
-                const auto n = co_await raw->AsyncReadSome(
+                const auto n = co_await raw->async_read_some(
                     std::span<std::byte>(buf).subspan(got), ec);
                 if (n == 0) break;
                 got += n;

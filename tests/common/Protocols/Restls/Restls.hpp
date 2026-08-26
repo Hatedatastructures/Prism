@@ -1,11 +1,11 @@
 /**
- * @file restls.hpp
+ * @file Restls.hpp
  * @brief Restls 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / Accept ——认证握手在工厂内部完成
  * - 配置：ClientConfig / ServerConfig（本文件，字段分开定义）
  * - 连接：Conn（流，Conn.hpp，BLAKE3 认证 + 数据透传）
- * - 编解码/认证：Codec.hpp（Secret 派生 + server_mask + auth_mac + mask）
+ * - 编解码/认证：Codec.hpp（Secret 派生 + ServerMask + auth_mac + mask）
  */
 
 #pragma once
@@ -62,50 +62,50 @@ namespace Preview::Restls
      * @brief 创建客户端流连接并完成认证握手
      * @param upstream 上游传输（所有权移交）
      * @param cfg 客户端配置
-     * @param server_random 服务端随机数（32 字节）
+     * @param ServerRandom 服务端随机数（32 字节）
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Connect(SharedTransmission upstream, const ClientConfig &cfg,
-                                      std::span<const std::uint8_t> server_random)
+                                      std::span<const std::uint8_t> ServerRandom)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto err = co_await c->WriteHandshake(server_random);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
+        const auto Err = co_await C->WriteHandshake(ServerRandom);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
      * @brief 接收服务端流连接并完成认证握手
      * @param upstream 上游传输（所有权移交）
      * @param cfg 服务端配置
-     * @param server_random 服务端随机数（32 字节）
+     * @param ServerRandom 服务端随机数（32 字节）
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg,
-                                     std::span<const std::uint8_t> server_random)
+                                     std::span<const std::uint8_t> ServerRandom)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto err = co_await c->ReadHandshake(server_random);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
+        const auto Err = co_await C->ReadHandshake(ServerRandom);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
 } // namespace Preview::Restls

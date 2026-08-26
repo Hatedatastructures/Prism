@@ -30,14 +30,14 @@ namespace
 
     void configure_self_signed(net::ssl::context &ctx)
     {
-        auto *pkey_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        auto *PkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
         EVP_PKEY *pkey = nullptr;
-        if (pkey_ctx && EVP_PKEY_keygen_init(pkey_ctx) > 0 &&
-            EVP_PKEY_CTX_set_rsa_keygen_bits(pkey_ctx, 2048) > 0)
+        if (PkeyCtx && EVP_PKEY_keygen_init(PkeyCtx) > 0 &&
+            EVP_PKEY_CTX_set_rsa_keygen_bits(PkeyCtx, 2048) > 0)
         {
-            EVP_PKEY_keygen(pkey_ctx, &pkey);
+            EVP_PKEY_keygen(PkeyCtx, &pkey);
         }
-        EVP_PKEY_CTX_free(pkey_ctx);
+        EVP_PKEY_CTX_free(PkeyCtx);
         ASSERT_NE(pkey, nullptr);
 
         auto *x509 = X509_new();
@@ -90,9 +90,9 @@ TEST(QuicE2E, HandshakeAndStreamEcho)
     net::io_context ioc;
 
     // 服务端 SSL 上下文（自签名）
-    net::ssl::context ssl_ctx(net::ssl::context::tlsv13);
-    ssl_ctx.set_options(net::ssl::context::default_workarounds);
-    configure_self_signed(ssl_ctx);
+    net::ssl::context SslCtx(net::ssl::context::tlsv13);
+    SslCtx.set_options(net::ssl::context::default_workarounds);
+    configure_self_signed(SslCtx);
     // 客户端 SSL 上下文（不校验证书）
     net::ssl::context client_ctx(net::ssl::context::tlsv13);
     client_ctx.set_verify_mode(net::ssl::verify_none);
@@ -117,7 +117,7 @@ TEST(QuicE2E, HandshakeAndStreamEcho)
         .executor = ioc.get_executor(),
         .peer = client_sock->local_endpoint(),
         .udp = server_sock,
-        .ssl_ctx = ssl_ctx.native_handle(),
+        .ssl_ctx = SslCtx.native_handle(),
         .mr = psm::memory::current_resource(),
         .prefix = std::make_shared<psm::diagnose::context>(),
     });

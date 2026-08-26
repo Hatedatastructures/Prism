@@ -1,5 +1,5 @@
 /**
- * @file ss2022.hpp
+ * @file Ss2022.hpp
  * @brief Shadowsocks2022 协议处理器
  */
 
@@ -14,15 +14,15 @@ namespace Preview::Runtime::Handler
     class Ss2022 final : public ProtocolHandler
     {
     public:
-        explicit Ss2022(Preview::Shadowsocks2022::ServerConfig cfg) : cfg_(std::move(cfg)) {}
+        explicit Ss2022(Preview::Shadowsocks2022::ServerConfig cfg) : Cfg_(std::move(cfg)) {}
 
-        auto Accept(Preview::SharedTransmission inbound)
+        auto Accept(Preview::SharedTransmission Inbound)
             -> net::awaitable<AcceptResult> override
         {
-            auto [err, msg, Conn] = co_await Preview::Shadowsocks2022::Accept(std::move(inbound), cfg_);
+            auto [err, msg, Conn] = co_await Preview::Shadowsocks2022::Accept(std::move(Inbound), Cfg_);
             AcceptResult r;
             r.err = err;
-            if (err != Preview::Error::none || !Conn) co_return r;
+            if (err != Preview::Error::None || !Conn) co_return r;
             r.Target.Host = msg.dst.Host;
             r.Target.Port = std::to_string(msg.dst.Port);
             // identity 留空：SS2022 无客户端标识，禁止把密码写进统计
@@ -33,7 +33,7 @@ namespace Preview::Runtime::Handler
         [[nodiscard]] auto Name() const -> std::string_view override { return "ss2022"; }
 
     private:
-        Preview::Shadowsocks2022::ServerConfig cfg_;
+        Preview::Shadowsocks2022::ServerConfig Cfg_;
     };
 
 } // namespace Preview::Runtime::Handler

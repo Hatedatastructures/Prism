@@ -19,7 +19,7 @@
 
 #include "common/MockTransport.hpp"
 
-using MockTransport = psm::testing::MockTransport;
+using MockTransport = Preview::Testing::MockTransport;
 namespace multiplex = psm::multiplex;
 namespace net = boost::asio;
 

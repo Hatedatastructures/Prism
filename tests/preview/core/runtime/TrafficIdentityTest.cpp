@@ -30,21 +30,21 @@ namespace
     class mem_tx final : public Preview::Transmission
     {
     public:
-        explicit mem_tx(net::any_io_executor ex, std::size_t n) : ex_(std::move(ex)), n_(n)
+        explicit mem_tx(net::any_io_executor ex, std::size_t n) : Ex_(std::move(ex)), n_(n)
         {
         }
 
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (n_ == 0)
             {
-                ec = make_error_code(Error::io_error);
+                ec = make_error_code(Error::IoError);
                 co_return 0;
             }
             const auto n = std::min(Buffer.size(), n_);
@@ -52,7 +52,7 @@ namespace
             co_return n;
         }
 
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             // 黑洞对端：吸收全部写入（返回 0 会被组合 AsyncWrite 判定为
@@ -70,7 +70,7 @@ namespace
         }
 
     private:
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
         std::size_t n_;
     };
 
@@ -99,20 +99,23 @@ namespace
             ctx.identity = "alice";
             ctx.BufferSize = 4096;
 
-            auto inbound = std::make_shared<mem_tx>(ioc.get_executor(), 16384);
+            auto Inbound = std::make_shared<mem_tx>(ioc.get_executor(), 16384);
             auto Outbound = std::make_shared<mem_tx>(ioc.get_executor(), 0);
             aggregating_sink sink;
             ctx.traffic = &sink;
-            auto shared_inbound = std::shared_ptr<Preview::Transmission>(inbound);
+            auto shared_inbound = std::shared_ptr<Preview::Transmission>(Inbound);
 
             Preview::Middleware::Builtin::RelayMiddleware relay(Outbound);
             const auto Code = co_await relay.Handle(shared_inbound, ctx);
-            EXPECT_EQ(Code, Preview::Fault::Code::success);
+            EXPECT_EQ(Code, Preview::Fault::Code::Success);
 
-            // 按身份聚合：alice 应收到 16384 字节
+            // 按身份聚合：alice 上行（Inbound→Outbound）应计 16384 字节
             const auto it = sink.by_identity_.find("alice");
-            if (it == sink.by_identity_.end()) { ADD_FAILURE(); } else {  }
-            
+            EXPECT_NE(it, sink.by_identity_.end());
+            if (it != sink.by_identity_.end())
+            {
+                EXPECT_EQ(it->second.first, 16384u);
+            }
         }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         if (ep)
@@ -132,15 +135,15 @@ namespace
             ctx.identity = "bob";
             ctx.BufferSize = 4096;
 
-            auto inbound = std::make_shared<mem_tx>(ioc.get_executor(), 8192);
+            auto Inbound = std::make_shared<mem_tx>(ioc.get_executor(), 8192);
             auto Outbound = std::make_shared<mem_tx>(ioc.get_executor(), 0);
             aggregating_sink sink;
             ctx.traffic = &sink;
-            auto shared_inbound = std::shared_ptr<Preview::Transmission>(inbound);
+            auto shared_inbound = std::shared_ptr<Preview::Transmission>(Inbound);
 
             Preview::Middleware::Builtin::RelayMiddleware relay(Outbound);
             const auto Code = co_await relay.Handle(shared_inbound, ctx);
-            EXPECT_EQ(Code, Preview::Fault::Code::success);
+            EXPECT_EQ(Code, Preview::Fault::Code::Success);
 
             // bob 独立聚合，alice 不应出现
             EXPECT_EQ(sink.by_identity_.count("bob"), 1u);

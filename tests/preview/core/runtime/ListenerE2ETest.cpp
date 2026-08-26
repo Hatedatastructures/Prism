@@ -38,8 +38,8 @@ namespace
     using namespace Preview;
 
     // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::TcpEchoServer;
-    using psm::testing::RunCoro;
+    using Preview::Testing::TcpEchoServer;
+    using Preview::Testing::RunCoro;
 
     /// 构造可识别首包（socks5 Greeting）
     auto socks5_greeting() -> std::string
@@ -96,7 +96,7 @@ namespace
         // listener：会话（识别 socks5 + Dial 到 echo 上游）
         Preview::Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](Preview::SharedTransmission inbound, std::size_t) -> std::shared_ptr<Preview::Runtime::Session>
+            [&](Preview::SharedTransmission Inbound, std::size_t) -> std::shared_ptr<Preview::Runtime::Session>
             {
                 Preview::Runtime::SessionOptions opts;
                 opts.RelayIdleTimeout = std::chrono::milliseconds(200);
@@ -106,7 +106,7 @@ namespace
                     ctx.Target.positive = true;
                     ctx.Target.Host = "127.0.0.1";
                     ctx.Target.Port = "0"; // 由 Dial 捕获端口替换
-                    co_return Preview::Fault::Code::success;
+                    co_return Preview::Fault::Code::Success;
                 };
                 opts.Dial = [&](const Preview::Network::Target &t) -> net::awaitable<
                     std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
@@ -116,9 +116,9 @@ namespace
                     auto Conn = co_await d.Connect("127.0.0.1", echo_port, ec);
                     if (ec)
                     {
-                        co_return std::pair{Preview::Fault::Code::unreachable, nullptr};
+                        co_return std::pair{Preview::Fault::Code::Unreachable, nullptr};
                     }
-                    co_return std::pair{Preview::Fault::Code::success, std::move(Conn)};
+                    co_return std::pair{Preview::Fault::Code::Success, std::move(Conn)};
                 };
                 return std::make_shared<Preview::Runtime::Session>(std::move(opts));
             },
@@ -130,7 +130,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      const auto start_rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                     EXPECT_EQ(start_rc, Preview::Fault::Code::success);
+                     EXPECT_EQ(start_rc, Preview::Fault::Code::Success);
                      const auto listen_port = listener.LocalEndpoint().port();
 
                      std::error_code ec;
@@ -141,12 +141,12 @@ namespace
                          co_return;
                      }
                      const auto payload = socks5_greeting();
-                     co_await Conn->AsyncWriteSome(
+                     co_await Conn->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
                      std::array<std::byte, 64> buf{};
-                     const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                     const auto n = co_await Conn->async_read_some(buf, ec);
                      echo_back.assign(reinterpret_cast<const char *>(buf.data()), n);
                      Conn->Close();
                      listener.Stop();
@@ -162,7 +162,7 @@ namespace
             [](Preview::SharedTransmission, std::size_t) -> std::shared_ptr<Preview::Runtime::Session>
             { return nullptr; });
 
-        Preview::Fault::Code start_rc = Preview::Fault::Code::success;
+        Preview::Fault::Code start_rc = Preview::Fault::Code::Success;
         bool connected = false;
         bool refused = false;
         RunCoro(ioc,
@@ -191,7 +191,7 @@ namespace
                          conn2->Close();
                      }
                  });
-        EXPECT_EQ(start_rc, Preview::Fault::Code::success);
+        EXPECT_EQ(start_rc, Preview::Fault::Code::Success);
         EXPECT_TRUE(connected);
         EXPECT_TRUE(refused);
     }
@@ -233,7 +233,7 @@ namespace
                     ctx.Target.positive = true;
                     ctx.Target.Host = "127.0.0.1";
                     ctx.Target.Port = "0";
-                    co_return Preview::Fault::Code::success;
+                    co_return Preview::Fault::Code::Success;
                 };
                 opts.Dial = [&](const Preview::Network::Target &) -> net::awaitable<
                     std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
@@ -243,15 +243,15 @@ namespace
                     auto Conn = co_await d.Connect("127.0.0.1", echo_port, ec);
                     if (ec)
                     {
-                        co_return std::pair{Preview::Fault::Code::unreachable, nullptr};
+                        co_return std::pair{Preview::Fault::Code::Unreachable, nullptr};
                     }
-                    co_return std::pair{Preview::Fault::Code::success, std::move(Conn)};
+                    co_return std::pair{Preview::Fault::Code::Success, std::move(Conn)};
                 };
                 return std::make_shared<Preview::Runtime::Session>(std::move(opts));
             },
             4);
 
-        Preview::Fault::Code start_rc = Preview::Fault::Code::success;
+        Preview::Fault::Code start_rc = Preview::Fault::Code::Success;
         // 并发连接：全部 echo 成功
         int success = 0;
         RunCoro(ioc,
@@ -276,13 +276,13 @@ namespace
                                      ++Done;
                                      co_return;
                                  }
-                                 co_await Conn->AsyncWriteSome(
+                                 co_await Conn->async_write_some(
                                      std::span<const std::byte>(
                                          reinterpret_cast<const std::byte *>(payload.data()),
                                          payload.size()),
                                      ec);
                                  std::array<std::byte, 64> buf{};
-                                 const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                                 const auto n = co_await Conn->async_read_some(buf, ec);
                                  if (!ec && std::string_view(reinterpret_cast<const char *>(buf.data()), n) ==
                                                 payload)
                                  {
@@ -301,7 +301,7 @@ namespace
                      }
                      listener.Stop();
                  });
-        EXPECT_EQ(start_rc, Preview::Fault::Code::success);
+        EXPECT_EQ(start_rc, Preview::Fault::Code::Success);
         EXPECT_EQ(success, conn_count);
     }
 

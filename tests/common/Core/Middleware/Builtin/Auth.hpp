@@ -48,8 +48,8 @@ namespace Preview::Middleware::Builtin
          * @param cred 凭据提取函数（可空，默认读 ctx 内预设字段）
          */
         explicit AuthMiddleware(Preview::SharedAuthenticator Auth,
-                                 CredentialFn cred = DefaultCredential)
-            : auth_(std::move(Auth)), cred_(std::move(cred))
+                                 CredentialFn Cred = DefaultCredential)
+            : Auth_(std::move(Auth)), Cred_(std::move(Cred))
         {
         }
 
@@ -63,29 +63,29 @@ namespace Preview::Middleware::Builtin
 
         /**
          * @brief 执行认证
-         * @param inbound 入站传输（不修改）
+         * @param Inbound 入站传输（不修改）
          * @param ctx 上下文（成功后写入 identity）
          * @return success / auth_failed / not_supported
          */
-        auto Handle(Preview::SharedTransmission & /*inbound*/, Context &ctx)
+        auto Handle(Preview::SharedTransmission & /*Inbound*/, Context &ctx)
             -> net::awaitable<Preview::Fault::Code> override
         {
-            if (!auth_ || !cred_)
+            if (!Auth_ || !Cred_)
             {
-                co_return Preview::Fault::Code::not_supported;
+                co_return Preview::Fault::Code::NotSupported;
             }
-            const auto cred = cred_(ctx);
-            if (!cred)
+            const auto Cred = Cred_(ctx);
+            if (!Cred)
             {
-                co_return Preview::Fault::Code::auth_failed;
+                co_return Preview::Fault::Code::AuthFailed;
             }
-            const auto Result = auth_->Check(cred->first, cred->second);
+            const auto Result = Auth_->Check(Cred->first, Cred->second);
             if (!Result.Ok)
             {
-                co_return Preview::Fault::Code::auth_failed;
+                co_return Preview::Fault::Code::AuthFailed;
             }
             ctx.identity = std::move(Result.identity);
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         }
 
     private:
@@ -100,8 +100,8 @@ namespace Preview::Middleware::Builtin
             return std::make_pair(ctx.RawIdentity, ctx.RawSecret);
         }
 
-        Preview::SharedAuthenticator auth_; ///< 认证器
-        CredentialFn cred_;                 ///< 凭据提取
+        Preview::SharedAuthenticator Auth_; ///< 认证器
+        CredentialFn Cred_;                 ///< 凭据提取
     };
 
 } // namespace Preview::Middleware::Builtin

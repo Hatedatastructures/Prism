@@ -54,7 +54,7 @@ namespace Preview::Shadowtls
          * @param password 认证密码
          */
         explicit Conn(SharedTransmission upstream, std::string password)
-            : next_layer_(std::move(upstream)), password_(std::move(password))
+            : NextLayer_(std::move(upstream)), Password_(std::move(password))
         {
         }
 
@@ -64,43 +64,43 @@ namespace Preview::Shadowtls
         [[nodiscard]] auto Executor() const   
           -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
          * @brief 客户端握手：构造并发送带认证 SessionId 的 ClientHello 帧
          * @param ServerRandom 服务端随机数（32 字节，真实 TLS 中由握手生成）
-         * @param client_random 客户端随机数（32 字节）
+         * @param ClientRandom 客户端随机数（32 字节）
          * @return 错误码
          * @details 构造简化 ClientHello：TLS 记录头(5) + 握手头(4) +
          * version(2) + random(32) + sidLen(1) + SessionId(32)，
          * SessionId 末尾 4 字节为 HMAC 认证码。
          */
         [[nodiscard]] auto WriteHandshake(std::span<const std::uint8_t> ServerRandom,
-                                           std::span<const std::uint8_t> client_random)
+                                           std::span<const std::uint8_t> ClientRandom)
           -> net::awaitable<Error>
         {
-            std::vector<std::uint8_t> hello = BuildClientHello(client_random);
+            std::vector<std::uint8_t> hello = BuildClientHello(ClientRandom);
 
             // 构造 SessionId：前 28 字节固定模式 + 末尾 4 字节 HMAC
             std::array<std::uint8_t, TlsSessionIdSz> SessionId{};
-            for (std::size_t i = 0; i < TlsSessionIdSz - HmacSize; ++i)
-                SessionId[i] = static_cast<std::uint8_t>(i * 7 + 3);
+            for (std::size_t I = 0; I < TlsSessionIdSz - HmacSize; ++I)
+                SessionId[I] = static_cast<std::uint8_t>(I * 7 + 3);
                   
             const auto HmacHello = std::span<const std::uint8_t>(hello).subspan(TlsHdrsize);
-            auto err = GenerateSessionId(SessionIdInput{password_, HmacHello, SessionId});
-            if (err != Error::none)
-                co_return err;
+            auto Err = GenerateSessionId(SessionIdInput{Password_, HmacHello, SessionId});
+            if (Err != Error::None)
+                co_return Err;
             std::memcpy(hello.data() + TlsHdrsize + SessionIdStart, SessionId.data(),
                         TlsSessionIdSz);
 
             if (co_await SendBytes(hello))
-                co_return Error::io_error;
+                co_return Error::IoError;
 
             // 保存会话状态
             ServerRandom_.assign(ServerRandom.begin(), ServerRandom.end());
-            handshaken_ = true;
-            co_return Error::none;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
@@ -114,40 +114,40 @@ namespace Preview::Shadowtls
             constexpr std::size_t HelloLen = TlsHdrsize + SessionIdStart + TlsSessionIdSz + 16;
             std::vector<std::uint8_t> hello(HelloLen);
             if (co_await ReadExact(hello))
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             const auto HelloSpan = AsBytesSpan(hello);
-            if (!VerifyClientHello(password_, HelloSpan))
-                co_return Error::bad_auth;
-            handshaken_ = true;
-            co_return Error::none;
+            if (!VerifyClientHello(Password_, HelloSpan))
+                co_return Error::BadAuth;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（握手后数据面为裸流）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
           -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（握手后数据面为裸流）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
           -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -155,7 +155,7 @@ namespace Preview::Shadowtls
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -163,7 +163,7 @@ namespace Preview::Shadowtls
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -172,7 +172,7 @@ namespace Preview::Shadowtls
         [[nodiscard]] auto NextLayer() noexcept 
           -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -181,7 +181,7 @@ namespace Preview::Shadowtls
         [[nodiscard]] auto NextLayer() const noexcept 
           -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -190,16 +190,16 @@ namespace Preview::Shadowtls
         [[nodiscard]] auto Release() 
           -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
     private:
         /**
          * @brief 构造简化 ClientHello（无 TLS 头版本的握手数据）
-         * @param client_random 32 字节客户端随机数
+         * @param ClientRandom 32 字节客户端随机数
          * @return 完整 ClientHello（含 TLS 记录头 5 字节）
          */
-        [[nodiscard]] auto BuildClientHello(std::span<const std::uint8_t> client_random)
+        [[nodiscard]] auto BuildClientHello(std::span<const std::uint8_t> ClientRandom)
           -> std::vector<std::uint8_t>
         {
             std::vector<std::uint8_t> hello(TlsHdrsize + SessionIdStart + TlsSessionIdSz + 16,
@@ -207,9 +207,9 @@ namespace Preview::Shadowtls
             hello[0] = 0x16; // content_handshake
             hello[TlsHdrsize] = HsTypeClienthello;
             hello[TlsHdrsize + SessionIdStart - 1] = TlsSessionIdSz;
-            if (client_random.size() >= TlsRndSize)
+            if (ClientRandom.size() >= TlsRndSize)
             {
-                std::memcpy(hello.data() + TlsHdrsize + 1 + 3 + 2, client_random.data(),
+                std::memcpy(hello.data() + TlsHdrsize + 1 + 3 + 2, ClientRandom.data(),
                             TlsRndSize);
             }
             return hello;
@@ -227,10 +227,10 @@ namespace Preview::Shadowtls
             while (Done < dst.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(AsBytes(dst.subspan(Done)), ec);
-                if (ec || n == 0)
+                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
+                if (ec || N == 0)
                     co_return true;
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
@@ -247,20 +247,20 @@ namespace Preview::Shadowtls
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(AsBytes(Data.subspan(Done)), ec);
+                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
                 if (ec)
                     co_return true;
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
 
-        SharedTransmission next_layer_;      ///< 底层传输（独占所有权）
-        std::string password_;                ///< 认证密码
-        Memory mem_;                          ///< 会话内存策略（Arena，热路径零释放分配）
+        SharedTransmission NextLayer_;      ///< 底层传输（独占所有权）
+        std::string Password_;                ///< 认证密码
+        Memory Mem_;                          ///< 会话内存策略（Arena，热路径零释放分配）
         /// 服务端随机数（握手后，Arena 分配）
-        typename std::template Buffer<std::uint8_t> ServerRandom_{mem_.Arena()};
-        bool handshaken_{false};              ///< 握手完成标志
+        typename Memory::template Buffer<std::uint8_t> ServerRandom_{Mem_.Arena()};
+        bool Handshaken_{false};              ///< 握手完成标志
     };
 
     /// 流连接共享指针（默认内存策略）

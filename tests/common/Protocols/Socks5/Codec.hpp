@@ -41,16 +41,16 @@ namespace Preview::Socks5
     inline auto BuildGreeting(const Greeting &g, std::vector<std::uint8_t, Alloc> &out) -> void
     {
         out.clear();
-        out.reserve(2 + g.methods.size());
+        out.reserve(2 + g.Methods.size());
         out.push_back(g.Ver);
-        out.push_back(static_cast<std::uint8_t>(g.methods.size()));
-        out.insert(out.end(), g.methods.begin(), g.methods.end());
+        out.push_back(static_cast<std::uint8_t>(g.Methods.size()));
+        out.insert(out.end(), g.Methods.begin(), g.Methods.end());
     }
 
     /**
      * @brief 编码 Greeting
      * @param g 问候（版本 + 方法列表）
-     * @return Greeting 字节：[ver 1B][nmethods 1B][methods var]
+     * @return Greeting 字节：[ver 1B][nmethods 1B][Methods var]
      */
     [[nodiscard]] inline auto BuildGreeting(const Greeting &g) -> std::vector<std::uint8_t>
     {
@@ -67,25 +67,25 @@ namespace Preview::Socks5
      * @return 错误码；need_more = 数据不足
      */
     [[nodiscard]] inline auto ParseGreeting(std::span<const std::uint8_t> Data, Greeting &out,
-                                             std::size_t &consumed) -> Error
+                                             std::size_t &Consumed) -> Error
     {
         if (Data.size() < 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Ver = Data[0];
         if (out.Ver != Version)
         {
-            return Error::version_mismatch;
+            return Error::VersionMismatch;
         }
-        const auto nmethods = Data[1];
-        if (Data.size() < 2 + nmethods)
+        const auto Nmethods = Data[1];
+        if (Data.size() < 2 + Nmethods)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        out.methods.assign(Data.begin() + 2, Data.begin() + 2 + nmethods);
-        consumed = 2 + nmethods;
-        return Error::none;
+        out.Methods.assign(Data.begin() + 2, Data.begin() + 2 + Nmethods);
+        Consumed = 2 + Nmethods;
+        return Error::None;
     }
 
     /**
@@ -109,15 +109,15 @@ namespace Preview::Socks5
     {
         if (Data.size() < 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Ver = Data[0];
         if (out.Ver != Version)
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
         out.Method = static_cast<AuthMethod>(Data[1]);
-        return Error::none;
+        return Error::None;
     }
 
     /**
@@ -152,56 +152,56 @@ namespace Preview::Socks5
      * @return 错误码；need_more = 数据不足
      */
     [[nodiscard]] inline auto ParseAddress(std::span<const std::uint8_t> Data, Address &out,
-                                            std::size_t &consumed) -> Error
+                                            std::size_t &Consumed) -> Error
     {
         if (Data.empty())
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Type = static_cast<AddressType>(Data[0]);
-        std::size_t off = 1;
+        std::size_t Off = 1;
         switch (out.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4 + 2)
+            if (Data.size() < Off + 4 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
             out.Host = buf.data();
-            off += 4;
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16 + 2)
+            if (Data.size() < Off + 16 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain: {
-            if (off >= Data.size())
+            if (Off >= Data.size())
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len + 2)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
-        default: return Error::bad_message;
+        default: return Error::BadMessage;
         }
-        out.Port = static_cast<std::uint16_t>(Data[off]) << 8 | Data[off + 1];
-        consumed = off + 2;
-        return Error::none;
+        out.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Consumed = Off + 2;
+        return Error::None;
     }
 
     /**
@@ -241,31 +241,31 @@ namespace Preview::Socks5
      * @return 错误码；need_more = 数据不足
      */
     [[nodiscard]] inline auto ParseRequest(std::span<const std::uint8_t> Data, Request &out,
-                                            std::size_t &consumed) -> Error
+                                            std::size_t &Consumed) -> Error
     {
         if (Data.size() < 4)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Ver = Data[0];
         if (out.Ver != Version)
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
         out.Cmd = static_cast<Command>(Data[1]);
         if (out.Cmd != Command::Connect && out.Cmd != Command::UdpAssociate)
         {
-            return Error::not_supported;
+            return Error::NotSupported;
         }
         out.Rsv = Data[2];
         std::size_t AddrConsumed = 0;
-        const auto ec = ParseAddress(Data.subspan(3), out.Target, AddrConsumed);
-        if (ec != Error::none)
+        const auto Ec = ParseAddress(Data.subspan(3), out.Target, AddrConsumed);
+        if (Ec != Error::None)
         {
-            return ec;
+            return Ec;
         }
-        consumed = 3 + AddrConsumed;
-        return Error::none;
+        Consumed = 3 + AddrConsumed;
+        return Error::None;
     }
 
     /**
@@ -304,23 +304,23 @@ namespace Preview::Socks5
      * @return 错误码；need_more = 数据不足
      */
     [[nodiscard]] inline auto ParseReply(std::span<const std::uint8_t> Data, Reply &out,
-                                          std::size_t &consumed) -> Error
+                                          std::size_t &Consumed) -> Error
     {
         if (Data.size() < 4)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Ver = Data[0];
         out.Code = static_cast<ReplyCode>(Data[1]);
         out.Rsv = Data[2];
         std::size_t AddrConsumed = 0;
-        const auto ec = ParseAddress(Data.subspan(3), out.Bind, AddrConsumed);
-        if (ec != Error::none)
+        const auto Ec = ParseAddress(Data.subspan(3), out.Bind, AddrConsumed);
+        if (Ec != Error::None)
         {
-            return ec;
+            return Ec;
         }
-        consumed = 3 + AddrConsumed;
-        return Error::none;
+        Consumed = 3 + AddrConsumed;
+        return Error::None;
     }
 
     /**
@@ -371,24 +371,24 @@ namespace Preview::Socks5
     {
         if (Data.size() < 3)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         if (Data[0] != 0x00 || Data[1] != 0x00)
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
         if (Data[2] != 0x00)
         {
-            return Error::not_supported;
+            return Error::NotSupported;
         }
-        std::size_t consumed = 0;
-        auto err = ParseAddress(Data.subspan(3), Target, consumed);
-        if (err != Error::none)
+        std::size_t Consumed = 0;
+        auto Err = ParseAddress(Data.subspan(3), Target, Consumed);
+        if (Err != Error::None)
         {
-            return err;
+            return Err;
         }
-        payload = Data.subspan(3 + consumed);
-        return Error::none;
+        payload = Data.subspan(3 + Consumed);
+        return Error::None;
     }
 
     /**
@@ -433,17 +433,17 @@ namespace Preview::Socks5
     {
         if (Data.size() < 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         if (Data[0] != 0x01)
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
         if (Data[1] == 0x00)
         {
-            return Error::none;
+            return Error::None;
         }
-        return Error::bad_auth;
+        return Error::BadAuth;
     }
 
     /**
@@ -459,7 +459,7 @@ namespace Preview::Socks5
             /// 方法选择回复
             MethodReply,
             /// 用户名/密码认证（RFC 1929）
-            userpass,
+            Userpass,
             /// 请求（CONNECT / UDP_ASSOCIATE）
             Request,
             /// 响应（Reply）
@@ -469,13 +469,13 @@ namespace Preview::Socks5
         /// 消息类型
         Kind Type{Kind::Greeting};
         /// 认证方法列表（Greeting）
-        std::vector<std::uint8_t> methods;
+        std::vector<std::uint8_t> Methods;
         /// 认证方法选择（MethodReply / userpass 状态）
         std::uint8_t Method{0x00};
         /// 命令（Request）
         Command Cmd{Command::Connect};
         /// 响应码（Reply）
-        ReplyCode rep{ReplyCode::success};
+        ReplyCode rep{ReplyCode::Success};
         /// 目标 / 绑定地址
         Address addr;
         /// 用户名（userpass）
@@ -497,26 +497,26 @@ namespace Preview::Socks5
          */
         auto Reset(const Message &msg) -> void
         {
-            wire_.clear();
-            offset_ = 0;
+            Wire_.clear();
+            Offset_ = 0;
             switch (msg.Type)
             {
             case Message::Kind::Greeting: {
                 Greeting g;
                 g.Ver = Version;
-                g.methods = msg.methods;
-                wire_ = BuildGreeting(g);
+                g.Methods = msg.Methods;
+                Wire_ = BuildGreeting(g);
                 break;
             }
             case Message::Kind::MethodReply: {
                 MethodReply mr;
                 mr.Ver = Version;
                 mr.Method = static_cast<AuthMethod>(msg.Method);
-                wire_.assign(BuildMethodReply(mr).begin(), BuildMethodReply(mr).end());
+                Wire_.assign(BuildMethodReply(mr).begin(), BuildMethodReply(mr).end());
                 break;
             }
-            case Message::Kind::userpass: {
-                wire_ = BuildUserpass(msg.username, msg.password);
+            case Message::Kind::Userpass: {
+                Wire_ = BuildUserpass(msg.username, msg.password);
                 break;
             }
             case Message::Kind::Request: {
@@ -524,7 +524,7 @@ namespace Preview::Socks5
                 req.Ver = Version;
                 req.Cmd = msg.Cmd;
                 req.Target = msg.addr;
-                wire_ = BuildRequest(req);
+                Wire_ = BuildRequest(req);
                 break;
             }
             case Message::Kind::Reply: {
@@ -532,7 +532,7 @@ namespace Preview::Socks5
                 rep.Ver = Version;
                 rep.Code = msg.rep;
                 rep.Bind = msg.addr;
-                wire_ = BuildReply(rep);
+                Wire_ = BuildReply(rep);
                 break;
             }
             }
@@ -544,13 +544,13 @@ namespace Preview::Socks5
          * @param ec 错误码输出参数
          * @return 写入字节数
          */
-        auto Get(boost::asio::mutable_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Get(boost::asio::mutable_buffer Buffer, std::error_code &Ec) -> std::size_t
         {
-            ec.clear();
-            const auto n = std::min(Buffer.size(), wire_.size() - offset_);
-            std::memcpy(Buffer.data(), wire_.data() + offset_, n);
-            offset_ += n;
-            return n;
+            Ec.clear();
+            const auto N = std::min(Buffer.size(), Wire_.size() - Offset_);
+            std::memcpy(Buffer.data(), Wire_.data() + Offset_, N);
+            Offset_ += N;
+            return N;
         }
 
         /**
@@ -559,12 +559,12 @@ namespace Preview::Socks5
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return offset_ >= wire_.size();
+            return Offset_ >= Wire_.size();
         }
 
     private:
-        std::vector<std::uint8_t> wire_;
-        std::size_t offset_{0};
+        std::vector<std::uint8_t> Wire_;
+        std::size_t Offset_{0};
     };
 
     /**
@@ -583,7 +583,7 @@ namespace Preview::Socks5
          */
         auto Expect(Message::Kind Kind) -> void
         {
-            expect_ = Kind;
+            Expect_ = Kind;
         }
 
         /**
@@ -592,115 +592,115 @@ namespace Preview::Socks5
          * @param ec 错误码输出参数
          * @return 本次消耗的字节数（0 = 半帧等待）
          */
-        auto Put(boost::asio::const_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Put(boost::asio::const_buffer Buffer, std::error_code &Ec) -> std::size_t
         {
-            ec.clear();
+            Ec.clear();
             const auto Data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(Buffer.data()),
                                                             Buffer.size());
-            PrevBufSize_ = buf_.size();
-            buf_.insert(buf_.end(), Data.begin(), Data.end());
-            if (done_)
+            PrevBufSize_ = Buf_.size();
+            Buf_.insert(Buf_.end(), Data.begin(), Data.end());
+            if (Done_)
             {
                 return 0;
             }
-            std::size_t consumed = 0;
-            Error err = Error::none;
+            std::size_t Consumed = 0;
+            Error Err = Error::None;
 
-            switch (expect_)
+            switch (Expect_)
             {
             case Message::Kind::Greeting: {
                 Greeting g;
-                err = ParseGreeting(buf_, g, consumed);
-                if (err == Error::none)
+                Err = ParseGreeting(Buf_, g, Consumed);
+                if (Err == Error::None)
                 {
-                    msg_.Type = Message::Kind::Greeting;
-                    msg_.methods = std::move(g.methods);
+                    Msg_.Type = Message::Kind::Greeting;
+                    Msg_.Methods = std::move(g.Methods);
                 }
                 break;
             }
             case Message::Kind::MethodReply: {
                 MethodReply mr;
-                err = ParseMethodReply(buf_, mr);
-                if (err == Error::none)
+                Err = ParseMethodReply(Buf_, mr);
+                if (Err == Error::None)
                 {
-                    msg_.Type = Message::Kind::MethodReply;
-                    msg_.Method = static_cast<std::uint8_t>(mr.Method);
-                    consumed = 2;
+                    Msg_.Type = Message::Kind::MethodReply;
+                    Msg_.Method = static_cast<std::uint8_t>(mr.Method);
+                    Consumed = 2;
                 }
                 break;
             }
-            case Message::Kind::userpass: {
+            case Message::Kind::Userpass: {
                 // 认证子协商：[ver 0x01][ulen][uname][plen][passwd]
-                std::size_t off = 0;
-                if (buf_.size() < off + 2)
+                std::size_t Off = 0;
+                if (Buf_.size() < Off + 2)
                 {
-                    err = Error::need_more;
+                    Err = Error::NeedMore;
                     break;
                 }
-                if (buf_[0] != 0x01)
+                if (Buf_[0] != 0x01)
                 {
-                    err = Error::bad_magic;
+                    Err = Error::BadMagic;
                     break;
                 }
-                const auto ulen = buf_[1];
-                off = 2;
-                if (buf_.size() < off + ulen + 1)
+                const auto Ulen = Buf_[1];
+                Off = 2;
+                if (Buf_.size() < Off + Ulen + 1)
                 {
-                    err = Error::need_more;
+                    Err = Error::NeedMore;
                     break;
                 }
-                msg_.username.assign(reinterpret_cast<const char *>(buf_.data() + off), ulen);
-                off += ulen;
-                const auto plen = buf_[off++];
-                if (buf_.size() < off + plen)
+                Msg_.username.assign(reinterpret_cast<const char *>(Buf_.data() + Off), Ulen);
+                Off += Ulen;
+                const auto Plen = Buf_[Off++];
+                if (Buf_.size() < Off + Plen)
                 {
-                    err = Error::need_more;
+                    Err = Error::NeedMore;
                     break;
                 }
-                msg_.password.assign(reinterpret_cast<const char *>(buf_.data() + off), plen);
-                off += plen;
-                consumed = off;
-                msg_.Type = Message::Kind::userpass;
+                Msg_.password.assign(reinterpret_cast<const char *>(Buf_.data() + Off), Plen);
+                Off += Plen;
+                Consumed = Off;
+                Msg_.Type = Message::Kind::Userpass;
                 break;
             }
             case Message::Kind::Request: {
                 Request req;
-                err = ParseRequest(buf_, req, consumed);
-                if (err == Error::none)
+                Err = ParseRequest(Buf_, req, Consumed);
+                if (Err == Error::None)
                 {
-                    msg_.Type = Message::Kind::Request;
-                    msg_.Cmd = req.Cmd;
-                    msg_.addr = req.Target;
+                    Msg_.Type = Message::Kind::Request;
+                    Msg_.Cmd = req.Cmd;
+                    Msg_.addr = req.Target;
                 }
                 break;
             }
             case Message::Kind::Reply: {
                 Reply rep;
-                err = ParseReply(buf_, rep, consumed);
-                if (err == Error::none)
+                Err = ParseReply(Buf_, rep, Consumed);
+                if (Err == Error::None)
                 {
-                    msg_.Type = Message::Kind::Reply;
-                    msg_.rep = rep.Code;
-                    msg_.addr = rep.Bind;
+                    Msg_.Type = Message::Kind::Reply;
+                    Msg_.rep = rep.Code;
+                    Msg_.addr = rep.Bind;
                 }
                 break;
             }
             }
 
-            if (err == Error::need_more)
+            if (Err == Error::NeedMore)
             {
                 return 0;
             }
-            if (err != Error::none)
+            if (Err != Error::None)
             {
-                ec = make_error_code(err);
+                Ec = make_error_code(Err);
                 return 0;
             }
-            done_ = true;
+            Done_ = true;
             // 返回本次 Put 中构成帧的字节数（跨帧增量语义）
-            consumed_ = consumed;
-            const auto incremental = std::min(consumed, PrevBufSize_ + Data.size()) - PrevBufSize_;
-            return incremental;
+            Consumed_ = Consumed;
+            const auto Incremental = std::min(Consumed, PrevBufSize_ + Data.size()) - PrevBufSize_;
+            return Incremental;
         }
 
         /**
@@ -709,7 +709,7 @@ namespace Preview::Socks5
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return done_;
+            return Done_;
         }
 
         /**
@@ -718,7 +718,7 @@ namespace Preview::Socks5
          */
         [[nodiscard]] auto Get() const -> const Message &
         {
-            return msg_;
+            return Msg_;
         }
 
         /**
@@ -727,12 +727,12 @@ namespace Preview::Socks5
          */
         [[nodiscard]] auto Remaining() const -> std::span<const std::uint8_t>
         {
-            if (buf_.empty() || !done_)
+            if (Buf_.empty() || !Done_)
             {
                 return {};
             }
             // 记录 consumed 偏移：Put 成功时保存
-            return std::span<const std::uint8_t>(buf_.data() + consumed_, buf_.size() - consumed_);
+            return std::span<const std::uint8_t>(Buf_.data() + Consumed_, Buf_.size() - Consumed_);
         }
 
         /**
@@ -741,13 +741,13 @@ namespace Preview::Socks5
          */
         [[nodiscard]] auto TakeRemaining() -> std::vector<std::uint8_t>
         {
-            if (!done_ || consumed_ >= buf_.size())
+            if (!Done_ || Consumed_ >= Buf_.size())
             {
                 return {};
             }
-            std::vector<std::uint8_t> out(buf_.begin() + static_cast<std::ptrdiff_t>(consumed_), buf_.end());
-            buf_.clear();
-            consumed_ = 0;
+            std::vector<std::uint8_t> out(Buf_.begin() + static_cast<std::ptrdiff_t>(Consumed_), Buf_.end());
+            Buf_.clear();
+            Consumed_ = 0;
             PrevBufSize_ = 0;
             return out;
         }
@@ -758,20 +758,20 @@ namespace Preview::Socks5
          */
         auto Reset() -> void
         {
-            buf_.clear();
-            msg_ = Message{};
-            done_ = false;
-            consumed_ = 0;
+            Buf_.clear();
+            Msg_ = Message{};
+            Done_ = false;
+            Consumed_ = 0;
             PrevBufSize_ = 0;
         }
 
     private:
-        Message::Kind expect_{Message::Kind::Greeting};
-        std::vector<std::uint8_t> buf_;
-        Message msg_{};
-        std::size_t consumed_{0};
+        Message::Kind Expect_{Message::Kind::Greeting};
+        std::vector<std::uint8_t> Buf_;
+        Message Msg_{};
+        std::size_t Consumed_{0};
         std::size_t PrevBufSize_{0};
-        bool done_{false};
+        bool Done_{false};
     };
 
     /**
@@ -779,32 +779,32 @@ namespace Preview::Socks5
      * @param transport 底层传输（Transmission 接口）
      * @param p 解析器（Expect 已设置）
      * @return 错误码（半帧等待由内部循环处理；EOF = unexpected_eof）
-     * @details Beast 风格自由函数：循环 AsyncReadSome → Put，直到解析完成。
+     * @details Beast 风格自由函数：循环 async_read_some → Put，直到解析完成。
      */
     [[nodiscard]] inline auto AsyncRead(SharedTransmission transport, Parser &p) -> net::awaitable<Error>
     {
         std::array<std::uint8_t, 512> buf{};
         while (!p.IsDone())
         {
-            std::error_code ec;
+            std::error_code Ec;
             auto Buffer = AsBytes(std::span<std::uint8_t>(buf));
-            const auto n = co_await transport->AsyncReadSome(Buffer, ec);
-            if (ec)
+            const auto N = co_await transport->async_read_some(Buffer, Ec);
+            if (Ec)
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            if (n == 0)
+            if (N == 0)
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             std::error_code perr;
-            p.Put(boost::asio::buffer(buf.data(), n), perr);
+            p.Put(boost::asio::buffer(buf.data(), N), perr);
             if (perr)
             {
                 co_return static_cast<Error>(perr.value());
             }
         }
-        co_return Error::none;
+        co_return Error::None;
     }
 
     /**
@@ -812,7 +812,7 @@ namespace Preview::Socks5
      * @param transport 底层传输（Transmission 接口）
      * @param s 序列化器（Reset 已设置）
      * @return 错误码
-     * @details Beast 风格自由函数：循环 Get → AsyncWriteSome，直到输出完成。
+     * @details Beast 风格自由函数：循环 Get → async_write_some，直到输出完成。
      */
     [[nodiscard]] inline auto AsyncWrite(SharedTransmission transport, Serializer &s)
         -> net::awaitable<Error>
@@ -820,33 +820,33 @@ namespace Preview::Socks5
         std::array<std::uint8_t, 512> buf{};
         while (!s.IsDone())
         {
-            std::error_code ec;
-            const auto n = s.Get(boost::asio::buffer(buf.data(), buf.size()), ec);
-            if (ec)
+            std::error_code Ec;
+            const auto N = s.Get(boost::asio::buffer(buf.data(), buf.size()), Ec);
+            if (Ec)
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            if (n == 0)
+            if (N == 0)
             {
-                co_return Error::bad_length;
+                co_return Error::BadLength;
             }
             std::size_t Done = 0;
-            while (Done < n)
+            while (Done < N)
             {
-                auto view = AsBytes(std::span<const std::uint8_t>(buf.data() + Done, n - Done));
-                const auto w = co_await transport->AsyncWriteSome(view, ec);
-                if (ec)
+                auto View = AsBytes(std::span<const std::uint8_t>(buf.data() + Done, N - Done));
+                const auto W = co_await transport->async_write_some(View, Ec);
+                if (Ec)
                 {
-                    co_return Error::io_error;
+                    co_return Error::IoError;
                 }
-                if (w == 0)
+                if (W == 0)
                 {
-                    co_return Error::broken_pipe;
+                    co_return Error::BrokenPipe;
                 }
-                Done += w;
+                Done += W;
             }
         }
-        co_return Error::none;
+        co_return Error::None;
     }
 
 } // namespace Preview::Socks5

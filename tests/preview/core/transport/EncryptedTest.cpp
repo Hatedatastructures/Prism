@@ -35,7 +35,7 @@ namespace
     namespace net = boost::asio;
     namespace ssl = net::ssl;
     using namespace psm::transport;
-    using namespace psm::testing;
+    using namespace Preview::Testing;
 
     void load_self_signed_cert(ssl::context &ctx)
     {
@@ -118,13 +118,13 @@ TEST(Encrypted, SslHandshakeSuccess)
         [&]() -> net::awaitable<void>
         {
             auto socket = co_await acceptor.async_accept(net::use_awaitable);
-            auto inbound = std::make_shared<reliable>(std::move(socket));
+            auto Inbound = std::make_shared<reliable>(std::move(socket));
 
             ssl::context ctx(ssl::context::tls_server);
             load_self_signed_cert(ctx);
 
             result =
-                co_await encrypted::ssl_handshake(std::shared_ptr<transmission>(std::move(inbound)), ctx);
+                co_await encrypted::ssl_handshake(std::shared_ptr<transmission>(std::move(Inbound)), ctx);
             done = true;
         },
         net::detached);
@@ -146,7 +146,23 @@ TEST(Encrypted, SslHandshakeSuccess)
         },
         net::detached);
 
-    ioc.run_for(std::chrono::milliseconds(3000));
+    // 完成哨兵：done 或超时（2s）任一先到即停机
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
+        {
+            net::steady_timer t(ioc);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (!done && std::chrono::steady_clock::now() < deadline)
+            {
+                t.expires_after(std::chrono::milliseconds(1));
+                co_await t.async_wait(net::use_awaitable);
+            }
+            ioc.stop();
+        },
+        net::detached);
+
+    ioc.run();
     EXPECT_TRUE(done);
 
     auto &[code, stream, recovered] = result;
@@ -160,12 +176,12 @@ TEST(Encrypted, SslHandshakeSuccess)
 TEST(Encrypted, TransportTypeAndNextLayer)
 {
     net::io_context ioc;
-    ssl::context ssl_ctx(ssl::context::tls_client);
+    ssl::context SslCtx(ssl::context::tls_client);
 
     auto mock = std::make_shared<MockTransport>();
     encrypted::connector_type conn(std::move(mock), {});
 
-    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), ssl_ctx);
+    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
     encrypted enc(stream);
 
     EXPECT_EQ(enc.transport_type(), transmission::type::tcp);
@@ -183,12 +199,12 @@ TEST(Encrypted, TransportTypeAndNextLayer)
 TEST(Encrypted, ReleaseOwnership)
 {
     net::io_context ioc;
-    ssl::context ssl_ctx(ssl::context::tls_client);
+    ssl::context SslCtx(ssl::context::tls_client);
 
     auto mock = std::make_shared<MockTransport>();
     encrypted::connector_type conn(std::move(mock), {});
 
-    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), ssl_ctx);
+    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
     encrypted enc(stream);
 
     auto &s = enc.stream();
@@ -216,13 +232,13 @@ TEST(Encrypted, CloseAndCancelPropagation)
         [&]() -> net::awaitable<void>
         {
             auto socket = co_await acceptor.async_accept(net::use_awaitable);
-            auto inbound = std::make_shared<reliable>(std::move(socket));
+            auto Inbound = std::make_shared<reliable>(std::move(socket));
 
             ssl::context ctx(ssl::context::tls_server);
             load_self_signed_cert(ctx);
 
             auto [code, stream, recovered] =
-                co_await encrypted::ssl_handshake(std::shared_ptr<transmission>(std::move(inbound)), ctx);
+                co_await encrypted::ssl_handshake(std::shared_ptr<transmission>(std::move(Inbound)), ctx);
             if (psm::fault::succeeded(code))
             {
                 server_stream = stream;
@@ -246,7 +262,23 @@ TEST(Encrypted, CloseAndCancelPropagation)
         },
         net::detached);
 
-    ioc.run_for(std::chrono::milliseconds(3000));
+    // 完成哨兵：server_done 或超时（2s）任一先到即停机
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
+        {
+            net::steady_timer t(ioc);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (!server_done && std::chrono::steady_clock::now() < deadline)
+            {
+                t.expires_after(std::chrono::milliseconds(1));
+                co_await t.async_wait(net::use_awaitable);
+            }
+            ioc.stop();
+        },
+        net::detached);
+
+    ioc.run();
     ASSERT_TRUE(server_done);
     ASSERT_TRUE(server_stream);
 
@@ -260,12 +292,12 @@ TEST(Encrypted, CloseAndCancelPropagation)
 TEST(Encrypted, ExecutorIsValid)
 {
     net::io_context ioc;
-    ssl::context ssl_ctx(ssl::context::tls_client);
+    ssl::context SslCtx(ssl::context::tls_client);
 
     auto mock = std::make_shared<MockTransport>();
     encrypted::connector_type conn(std::move(mock), {});
 
-    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), ssl_ctx);
+    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
     encrypted enc(stream);
 
     auto ex = enc.executor();
@@ -277,12 +309,12 @@ TEST(Encrypted, ExecutorIsValid)
 TEST(Encrypted, MakeEncryptedFactory)
 {
     net::io_context ioc;
-    ssl::context ssl_ctx(ssl::context::tls_client);
+    ssl::context SslCtx(ssl::context::tls_client);
 
     auto mock = std::make_shared<MockTransport>();
     encrypted::connector_type conn(std::move(mock), {});
 
-    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), ssl_ctx);
+    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
 
     shared_transmission t = make_encrypted(stream);
     ASSERT_TRUE(t);

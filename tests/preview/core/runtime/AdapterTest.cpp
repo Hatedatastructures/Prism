@@ -2,7 +2,7 @@
  * @file AdapterTest.cpp
  * @brief adapter 接入缝专项测试（阶段 5 v2）
  * @details 覆盖：
- *          - MakeProtocolAccept 的 ctx 装配（Target/identity/IsDgram/post_dial/inbound 替换）
+ *          - MakeProtocolAccept 的 ctx 装配（Target/identity/IsDgram/PostDial/Inbound 替换）
  *          - 失败映射（bad_auth/not_supported/io_error/unexpected_eof/未知错误）
  *          - 全枚举黄金断言：Fault::ToCode 的 make_error_code.Protocol 分支映射稳定
  *          - 空传输兜底（无错误但无传输 → io_error）
@@ -35,9 +35,9 @@ namespace
 {
 
     namespace net = boost::asio;
-    using namespace make_error_code;
+    using namespace Preview;
 
-    using psm::testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
+    using Preview::Testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
 
     /// 可识别首包（socks5 Greeting）
     auto socks5_greeting() -> std::string
@@ -81,7 +81,7 @@ namespace
     auto success_result(std::shared_ptr<MemoryStream> tr) -> Runtime::Handler::AcceptResult
     {
         Runtime::Handler::AcceptResult r;
-        r.err = Error::none;
+        r.err = Error::None;
         r.Target.Host = "example.com";
         r.Target.Port = "443";
         r.identity = "alice";
@@ -104,7 +104,7 @@ namespace
                      SharedTransmission yn = inbound_s;
                      const auto ec = co_await Accept(yn, ctx);
 
-                     EXPECT_EQ(ec, Fault::Code::success);
+                     EXPECT_EQ(ec, Fault::Code::Success);
                      EXPECT_EQ(ctx.Target.Host, "example.com");
                      EXPECT_EQ(ctx.Target.Port, "443");
                      EXPECT_EQ(ctx.identity, "alice");
@@ -121,25 +121,25 @@ namespace
                  {
                      auto [client_s, inbound_s] = make_pair_shared(ioc);
                      Runtime::Handler::AcceptResult r;
-                     r.err = Error::none; // 无错误但无传输 → 兜底 io_error
+                     r.err = Error::None; // 无错误但无传输 → 兜底 io_error
                      auto Accept = make_stub_accept(std::move(r));
 
                      Middleware::Context ctx;
                      SharedTransmission yn = inbound_s;
                      const auto ec = co_await Accept(yn, ctx);
-                     EXPECT_EQ(ec, Fault::Code::io_error);
+                     EXPECT_EQ(ec, Fault::Code::IoError);
                  });
     }
 
     TEST(AdapterSeam, ErrorMapping)
     {
-        const std::pair<std::Error, Fault::Code> cases[] = {
-            {std::Error::bad_auth, Fault::Code::auth_failed},
-            {std::Error::auth_failed, Fault::Code::auth_failed},
-            {std::Error::not_supported, Fault::Code::not_supported},
-            {std::Error::io_error, Fault::Code::io_error},
-            {std::Error::unexpected_eof, Fault::Code::eof},
-            {static_cast<std::Error>(999), Fault::Code::generic_error},
+        const std::pair<Preview::Error, Fault::Code> cases[] = {
+            {Preview::Error::BadAuth, Fault::Code::AuthFailed},
+            {Preview::Error::AuthFailed, Fault::Code::AuthFailed},
+            {Preview::Error::NotSupported, Fault::Code::NotSupported},
+            {Preview::Error::IoError, Fault::Code::IoError},
+            {Preview::Error::UnexpectedEof, Fault::Code::Eof},
+            {static_cast<Preview::Error>(999), Fault::Code::GenericError},
         };
         for (const auto &[err, Want] : cases)
         {
@@ -165,43 +165,43 @@ namespace
     ///  adapter 层不再保留本地副本）
     TEST(AdapterSeam, ErrorMappingMirrorsFaultToCode)
     {
-        const auto Expect = [](std::Error e) -> std::Fault::Code
+        const auto Expect = [](Preview::Error e) -> Preview::Fault::Code
         {
             switch (e)
             {
-            case std::Error::none: return std::Fault::Code::success;
-            case std::Error::need_more: return std::Fault::Code::would_block;
-            case std::Error::unexpected_eof: return std::Fault::Code::eof;
-            case std::Error::bad_length:
-            case std::Error::bad_magic:
-            case std::Error::bad_message:
-            case std::Error::version_mismatch: return std::Fault::Code::bad_message;
-            case std::Error::bad_auth:
-            case std::Error::auth_failed: return std::Fault::Code::auth_failed;
-            case std::Error::not_supported:
-            case std::Error::unsupported: return std::Fault::Code::not_supported;
-            case std::Error::bad_address: return std::Fault::Code::unsupported_address;
-            case std::Error::not_open:
-            case std::Error::broken_pipe:
-            case std::Error::io_error: return std::Fault::Code::io_error;
-            case std::Error::canceled: return std::Fault::Code::canceled;
-            case std::Error::timeout: return std::Fault::Code::timeout;
-            case std::Error::protocol_error: return std::Fault::Code::protocol_error;
-            case std::Error::kdf_error: return std::Fault::Code::generic_error;
-            default: return std::Fault::Code::generic_error;
+            case Preview::Error::None: return Preview::Fault::Code::Success;
+            case Preview::Error::NeedMore: return Preview::Fault::Code::WouldBlock;
+            case Preview::Error::UnexpectedEof: return Preview::Fault::Code::Eof;
+            case Preview::Error::BadLength:
+            case Preview::Error::BadMagic:
+            case Preview::Error::BadMessage:
+            case Preview::Error::VersionMismatch: return Preview::Fault::Code::BadMessage;
+            case Preview::Error::BadAuth:
+            case Preview::Error::AuthFailed: return Preview::Fault::Code::AuthFailed;
+            case Preview::Error::NotSupported:
+            case Preview::Error::Unsupported: return Preview::Fault::Code::NotSupported;
+            case Preview::Error::BadAddress: return Preview::Fault::Code::UnsupportedAddress;
+            case Preview::Error::NotOpen:
+            case Preview::Error::BrokenPipe:
+            case Preview::Error::IoError: return Preview::Fault::Code::IoError;
+            case Preview::Error::Canceled: return Preview::Fault::Code::Canceled;
+            case Preview::Error::Timeout: return Preview::Fault::Code::Timeout;
+            case Preview::Error::ProtocolError: return Preview::Fault::Code::ProtocolError;
+            case Preview::Error::KdfError: return Preview::Fault::Code::GenericError;
+            default: return Preview::Fault::Code::GenericError;
             }
         };
 
-        for (int v = 0; v <= static_cast<int>(std::Error::io_error); ++v)
+        for (int v = 0; v <= static_cast<int>(Preview::Error::IoError); ++v)
         {
-            const auto e = static_cast<std::Error>(v);
-            EXPECT_EQ(Expect(e), std::Fault::ToCode(std::make_error_code(e)))
-                << "mismatch at std::Error value " << v;
+            const auto e = static_cast<Preview::Error>(v);
+            EXPECT_EQ(Expect(e), Preview::Fault::ToCode(Preview::make_error_code(e)))
+                << "mismatch at Preview::Error value " << v;
         }
         // 越界枚举（无对应 case）：走 default 分支
-        const auto bogus = static_cast<std::Error>(999);
-        EXPECT_EQ(std::Fault::Code::generic_error,
-                  std::Fault::ToCode(std::make_error_code(bogus)));
+        const auto bogus = static_cast<Preview::Error>(999);
+        EXPECT_EQ(Preview::Fault::Code::GenericError,
+                  Preview::Fault::ToCode(Preview::make_error_code(bogus)));
     }
 
     TEST(AdapterSeam, SessionRejectsDgramWithoutUdpService)
@@ -212,27 +212,27 @@ namespace
 
         Runtime::SessionOptions opts;
         Runtime::Handler::AcceptResult r;
-        r.err = Error::none;
+        r.err = Error::None;
         r.IsDgram = true;
         r.Transmission = std::move(data_s);
         opts.AcceptProtocol = make_stub_accept(std::move(r));
         Runtime::Session Session(std::move(opts));
 
-        Fault::Code Arc = Fault::Code::success;
+        Fault::Code Arc = Fault::Code::Success;
         RunCoro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      // 先写入可识别首包，recognition 预读不挂起
                      std::error_code wec;
                      const auto payload = socks5_greeting();
-                     co_await inbound_s->AsyncWriteSome(
+                     co_await inbound_s->async_write_some(
                          std::span<const std::byte>(
                              reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
                          wec);
 
                      Arc = co_await Session.Run(client_s);
                  });
-        EXPECT_EQ(Arc, Fault::Code::not_supported);
+        EXPECT_EQ(Arc, Fault::Code::NotSupported);
     }
 
 } // namespace

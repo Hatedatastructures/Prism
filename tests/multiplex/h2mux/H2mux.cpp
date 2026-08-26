@@ -185,7 +185,7 @@ TEST(H2mux, Nghttp2RespondConnect)
 
 /**
  * @brief 测试 DATA 帧的三路分发逻辑
- * @details 模拟 on_data 回调中的 h2_pending_ / ducts_ / parcels_ 查找模式
+ * @details 模拟 OnData 回调中的 h2_pending_ / ducts_ / parcels_ 查找模式
  */
 TEST(H2mux, DataFrameDispatch)
 {
@@ -259,7 +259,7 @@ TEST(H2mux, DataFrameDispatch)
 
 /**
  * @brief 测试 stream close 时从 pending/ducts/parcels 移除
- * @details 模拟 on_stream_close 回调的清理逻辑
+ * @details 模拟 OnStreamClose 回调的清理逻辑
  */
 TEST(H2mux, StreamCloseHandling)
 {

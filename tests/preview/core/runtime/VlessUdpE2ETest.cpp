@@ -46,10 +46,10 @@ namespace
     using namespace Preview;
 
     // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::MakeUuid;
-    using psm::testing::RunCoro;
-    using TrafficRecorder = psm::testing::TrafficRecorder;
-    using psm::testing::UdpEchoServer;
+    using Preview::Testing::MakeUuid;
+    using Preview::Testing::RunCoro;
+    using TrafficRecorder = Preview::Testing::TrafficRecorder;
+    using Preview::Testing::UdpEchoServer;
 
     /// 固定测试 UUID 兼容别名（Vless::UuidLen == 16）
     inline auto test_uuid() -> std::array<std::uint8_t, Vless::UuidLen>
@@ -74,10 +74,10 @@ namespace
         return [echo_port, IdleTimeout](Middleware::Context &ctx)
             -> net::awaitable<Fault::Code>
         {
-            auto Stream = std::dynamic_pointer_cast<Vless::Conn<>>(ctx.inbound);
+            auto Stream = std::dynamic_pointer_cast<Vless::Conn<>>(ctx.Inbound);
             if (!Stream)
             {
-                co_return Fault::Code::protocol_error;
+                co_return Fault::Code::ProtocolError;
             }
             Vless::UdpTunnelOptions opts;
             opts.IdleTimeout = IdleTimeout;
@@ -87,14 +87,14 @@ namespace
             opts.resolve = [echo_port](const Vless::Address &)
                 -> net::awaitable<std::pair<Error, udp::endpoint>>
             {
-                co_return std::pair{Error::none,
+                co_return std::pair{Error::None,
                                     udp::endpoint(net::ip::make_address("127.0.0.1"),
                                                   echo_port)};
             };
             auto tunnel = std::make_shared<Vless::UdpTunnel>(
                 std::move(Stream), std::move(opts));
             co_await tunnel->Run();
-            co_return Fault::Code::success;
+            co_return Fault::Code::Success;
         };
     }
 
@@ -131,7 +131,7 @@ namespace
             reinterpret_cast<const std::byte *>(Frame.data()), Frame.size());
         while (Done < Frame.size())
         {
-            const auto written = co_await proxy->AsyncWriteSome(
+            const auto written = co_await proxy->async_write_some(
                 frame_span.subspan(Done), ec);
             if (ec)
             {
@@ -144,7 +144,7 @@ namespace
         // 看门狗竞速：数据面断裂时失败而非挂死（对齐 helpers 头范式）
         net::steady_timer wd(proxy->Executor());
         wd.expires_after(std::chrono::seconds(2));
-        auto Result = co_await (proxy->AsyncReadSome(std::span(Rx), rec) ||
+        auto Result = co_await (proxy->async_read_some(std::span(Rx), rec) ||
                                 wd.async_wait(net::use_awaitable));
         if (Result.index() == 1 || rec)
         {
@@ -160,7 +160,7 @@ namespace
         if (Vless::ParseUdpPkt(
                 std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t *>(Rx.data()), n),
-                src, payload) != Error::none)
+                src, payload) != Error::None)
         {
             co_return out;
         }
@@ -181,7 +181,7 @@ namespace
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -190,7 +190,7 @@ namespace
                           }
                       });
 
-        auto recorder = std::make_shared<psm::testing::TrafficRecorder>();
+        auto recorder = std::make_shared<Preview::Testing::TrafficRecorder>();
         Runtime::TcpListener listener(
             ioc.get_executor(),
             [&](SharedTransmission, std::size_t)
@@ -212,7 +212,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -229,7 +229,7 @@ namespace
                     std::move(raw), ccfg,
                     Vless::Address{Vless::AddressType::Ipv4, "127.0.0.1", 0},
                     Vless::Command::Udp);
-                handshake_ok = err == Error::none && proxy != nullptr;
+                handshake_ok = err == Error::None && proxy != nullptr;
                 if (!proxy)
                 {
                     co_return;
@@ -251,7 +251,7 @@ namespace
                 // 有界轮询等数据面退出并上报流量（对齐 TrojanTrafficIdentity 样板）
                 net::steady_timer timer(ioc);
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-                while (recorder->calls == 0 &&
+                while (recorder->Calls == 0 &&
                        std::chrono::steady_clock::now() < deadline)
                 {
                     timer.expires_after(std::chrono::milliseconds(5));
@@ -265,9 +265,9 @@ namespace
         EXPECT_EQ(echo2, "vless udp two");
         EXPECT_FALSE(*upstream_ep);
         // UDP 数据面流量必须经 traffic sink 上报（up/down 口径与 relay 一致）
-        EXPECT_GT(recorder->calls, 0);
-        EXPECT_GT(recorder->up, 0u);
-        EXPECT_GT(recorder->down, 0u);
+        EXPECT_GT(recorder->Calls, 0);
+        EXPECT_GT(recorder->Up, 0u);
+        EXPECT_GT(recorder->Down, 0u);
     }
 
     TEST(TcpListener, VlessUdpConnectIdleTimeout)
@@ -281,7 +281,7 @@ namespace
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -332,7 +332,7 @@ namespace
                 co_await t.async_wait(net::use_awaitable);
 
                 std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->AsyncReadSome(std::span(buf), ec);
+                const auto n = co_await proxy->async_read_some(std::span(buf), ec);
                 closed = (n == 0 || ec != std::error_code{});
 
                 proxy->Close();
@@ -354,7 +354,7 @@ namespace
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)

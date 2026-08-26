@@ -6,7 +6,7 @@
  * - 按调用次数注入读取错误（FailNextRead / ReadFailAt）
  * - 按调用次数注入写入错误（FailNextWrite / WriteFailAt）
  * - 限制单次写入返回长度（MaxWrite，模拟半包写）
- * - 捕获全部写入数据（written）
+ * - 捕获全部写入数据（Written）
  * - Close() 后：读返回 0，写返回 io_error
  * @note 仅测试代码使用，禁止被生产代码引用。
  */
@@ -48,14 +48,14 @@ namespace Preview
          * @brief 构造桩
          * @param ex 执行器（通常来自 io_context）
          */
-        explicit ProgrammableTransport(net::any_io_executor ex) : ex_(std::move(ex))
+        explicit ProgrammableTransport(net::any_io_executor ex) : Ex_(std::move(ex))
         {
         }
 
         /** @brief 获取执行器 */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return ex_;
+            return Ex_;
         }
 
         /**
@@ -64,24 +64,24 @@ namespace Preview
          * @param ec 错误码输出参数
          * @return 实际读取字节数
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ++ReadsDone;
             if (FailNextRead || ReadsDone == ReadFailAt)
             {
                 FailNextRead = false;
-                ec = make_error_code(Error::io_error);
+                ec = make_error_code(Error::IoError);
                 co_return 0;
             }
-            if (closed || ReadPos_ >= ToRead.size())
+            if (Closed_ || ReadPos_ >= ToRead.size())
             {
                 co_return 0;
             }
-            const auto n = std::min(Buffer.size(), ToRead.size() - ReadPos_);
-            std::memcpy(Buffer.data(), ToRead.data() + ReadPos_, n);
-            ReadPos_ += n;
-            co_return n;
+            const auto N = std::min(Buffer.size(), ToRead.size() - ReadPos_);
+            std::memcpy(Buffer.data(), ToRead.data() + ReadPos_, N);
+            ReadPos_ += N;
+            co_return N;
         }
 
         /**
@@ -90,34 +90,34 @@ namespace Preview
          * @param ec 错误码输出参数
          * @return 实际写入字节数（MaxWrite 限制时为半包）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ++WritesDone;
-            if (FailNextWrite || WritesDone == WriteFailAt || closed)
+            if (FailNextWrite || WritesDone == WriteFailAt || Closed_)
             {
                 FailNextWrite = false;
-                ec = make_error_code(Error::io_error);
+                ec = make_error_code(Error::IoError);
                 co_return 0;
             }
-            std::size_t cap;
+            std::size_t Cap;
             if (MaxWrite == 0)
             {
-                cap = Buffer.size();
+                Cap = Buffer.size();
             }
             else
             {
-                cap = std::min(Buffer.size(), MaxWrite);
+                Cap = std::min(Buffer.size(), MaxWrite);
             }
             const auto *src = reinterpret_cast<const std::uint8_t *>(Buffer.data());
-            written.insert(written.end(), src, src + cap);
-            co_return cap;
+            Written.insert(Written.end(), src, src + Cap);
+            co_return Cap;
         }
 
         /** @brief 关闭桩（后续读返回 EOF，写返回 io_error） */
         void Close() override
         {
-            closed = true;
+            Closed_ = true;
         }
 
         /** @brief 取消挂起操作 */
@@ -128,7 +128,7 @@ namespace Preview
         /// 注入读取字节流（耗尽后 EOF）
         std::vector<std::uint8_t> ToRead;
         /// 捕获的全部写入数据
-        std::vector<std::uint8_t> written;
+        std::vector<std::uint8_t> Written;
         /// 单次读取后自动复位（注入单点读取错误）
         bool FailNextRead{false};
         /// 单次写入后自动复位（注入单点写入错误）
@@ -145,9 +145,9 @@ namespace Preview
         std::size_t WritesDone{0};
 
     private:
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
         std::size_t ReadPos_{0};
-        bool closed{false};
+        bool Closed_{false};
     };
 
 } // namespace Preview

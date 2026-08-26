@@ -1,5 +1,5 @@
 /**
- * @file vless.hpp
+ * @file Vless.hpp
  * @brief VLESS 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / ConnectPacket（客户端）、
@@ -7,7 +7,7 @@
  * - 配置：ClientConfig / ServerConfig（本文件，字段分开定义）
  * - 连接：Conn（流，Conn.hpp）、Dgram（包，Dgram.hpp）
  * - 数据面：UdpTunnel（UDP 命令数据面，UdpTunnel.hpp）
- * - 编解码（Codec.hpp）、纯数据（types.hpp）
+ * - 编解码（Codec.hpp）、纯数据（Types.hpp）
  */
 
 #pragma once
@@ -79,18 +79,18 @@ namespace Preview::Vless
                                       const Address &Target, Command cmd = Command::Tcp)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.uuid);
-        const auto err = co_await c->WriteHandshake(Target, cmd);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.uuid);
+        const auto Err = co_await C->WriteHandshake(Target, cmd);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -104,12 +104,12 @@ namespace Preview::Vless
                                              const Address &Target)
         -> net::awaitable<std::pair<Error, SharedDgram>>
     {
-        auto [err, Conn] = co_await Connect(std::move(upstream), cfg, Target, Command::Udp);
-        if (err != Error::none)
+        auto [Err, Conn] = co_await Connect(std::move(upstream), cfg, Target, Command::Udp);
+        if (Err != Error::None)
         {
-            co_return std::pair{err, SharedDgram{}};
+            co_return std::pair{Err, SharedDgram{}};
         }
-        co_return std::pair{Error::none, std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::pair{Error::None, std::make_shared<Dgram<>>(std::move(Conn))};
     }
 
     /**
@@ -121,18 +121,18 @@ namespace Preview::Vless
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, RequestHeader, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.uuid, cfg.Authenticator);
-        auto [err, req] = co_await c->ReadHandshake(true, cfg.EnableUdp, true);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.uuid, cfg.Authenticator);
+        auto [Err, req] = co_await C->ReadHandshake(true, cfg.EnableUdp, true);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{err, std::move(req), std::move(Conn)};
+        co_return std::tuple{Err, std::move(req), std::move(Conn)};
     }
 
     /**
@@ -144,12 +144,12 @@ namespace Preview::Vless
     [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, RequestHeader, SharedDgram>>
     {
-        auto [err, req, Conn] = co_await Accept(std::move(upstream), cfg);
-        if (err != Error::none)
+        auto [Err, req, Conn] = co_await Accept(std::move(upstream), cfg);
+        if (Err != Error::None)
         {
-            co_return std::tuple{err, std::move(req), SharedDgram{}};
+            co_return std::tuple{Err, std::move(req), SharedDgram{}};
         }
-        co_return std::tuple{Error::none, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::tuple{Error::None, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
     }
 
 } // namespace Preview::Vless

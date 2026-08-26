@@ -3,7 +3,7 @@
  * @brief Trojan Conn/Dgram 会话层双向测试（Client + Server 视角）
  * @details 覆盖：
  * 1. 客户端 Connect / 服务端 Accept 握手（domain / ipv4 目标）+ 双向回显
- * 2. 预读缓冲消费路径（AsyncReadSome 的 used_ > 0 分支）
+ * 2. 预读缓冲消费路径（async_read_some 的 Used_ > 0 分支）
  * 3. UDP 数据面：ConnectPacket / AcceptPacket + Dgram 收发往返
  * 4. 错误分支：bad_auth / bad_magic / bad_message / not_supported / io_error
  * 5. 装饰器链方法：Executor / Close / Cancel / NextLayer / Release
@@ -75,7 +75,7 @@ namespace
                          cfg.EnableUdp = true;
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
@@ -86,10 +86,10 @@ namespace
                          EXPECT_EQ(Conn->Request().Target.Host, "example.com");
                          std::array<std::byte, 1024> buf{};
                          std::error_code ec;
-                         const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                         const auto n = co_await Conn->async_read_some(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
-                         co_await Conn->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+                         co_await Conn->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
@@ -104,13 +104,13 @@ namespace
                      std::vector<std::uint8_t> wire = Header;
                      wire.insert(wire.end(), payload.begin(), payload.end());
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      // 读取回显
                      std::array<std::byte, 1024> echo{};
                      std::size_t got = 0;
                      while (got < payload.size())
                      {
-                         const auto n = co_await a.AsyncReadSome(
+                         const auto n = co_await a.async_read_some(
                              std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
                          if (ec || n == 0)
                          {
@@ -136,7 +136,7 @@ namespace
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                      Trojan::ServerConfig{"pw"});
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              co_return;
                          }
@@ -151,7 +151,7 @@ namespace
                      auto [herr, cli] = co_await Trojan::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
                          make_addr(Trojan::AddressType::Ipv4, "1.2.3.4", 80));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (cli)
                      {
                          cli->Close();
@@ -176,20 +176,20 @@ namespace
                          auto [err, req, dg] =
                              co_await Trojan::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
                                                             cfg);
-                         if (err != Error::none || !dg)
+                         if (err != Error::None || !dg)
                          {
                              EXPECT_TRUE(false) << "AcceptPacket Failed";
                              co_return;
                          }
                          EXPECT_EQ(req.Cmd, Trojan::Command::UdpAssociate);
-                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::udp);
+                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::Udp);
                          // 接收两个包（domain + ipv4）
                          for (int i = 0; i < 2; ++i)
                          {
                              Trojan::Address src;
                              std::vector<std::uint8_t> payload;
                              const auto rerr = co_await dg->AsyncReceiveFrom(src, payload);
-                             EXPECT_EQ(rerr, Error::none);
+                             EXPECT_EQ(rerr, Error::None);
                              if (i == 0)
                              {
                                  EXPECT_EQ(src.Type, Trojan::AddressType::Domain);
@@ -213,7 +213,7 @@ namespace
                      auto [herr, dg] = co_await Trojan::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
                          make_addr(Trojan::AddressType::Domain, "example.com", 53));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!dg)
                      {
                          co_return;
@@ -223,13 +223,13 @@ namespace
                          make_addr(Trojan::AddressType::Domain, "example.com", 53),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p1.data()),
                                                        p1.size()));
-                     EXPECT_EQ(serr, Error::none);
+                     EXPECT_EQ(serr, Error::None);
                      const std::string p2 = "second pkt";
                      serr = co_await dg->AsyncSendTo(
                          make_addr(Trojan::AddressType::Ipv4, "8.8.8.8", 443),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p2.data()),
                                                        p2.size()));
-                     EXPECT_EQ(serr, Error::none);
+                     EXPECT_EQ(serr, Error::None);
                      dg->Close();
                  });
     }
@@ -247,7 +247,7 @@ namespace
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                      Trojan::ServerConfig{"Expect-pw"});
-                         EXPECT_EQ(err, Error::bad_auth);
+                         EXPECT_EQ(err, Error::BadAuth);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -256,7 +256,7 @@ namespace
                      auto [herr, cli] = co_await Trojan::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"wrong-pw"},
                          make_addr(Trojan::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(herr, Error::none); // 客户端只发送，不感知认证结果
+                     EXPECT_EQ(herr, Error::None); // 客户端只发送，不感知认证结果
                      if (cli)
                      {
                          cli->Close();
@@ -278,7 +278,7 @@ namespace
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                      Trojan::ServerConfig{"pw"});
-                         EXPECT_EQ(err, Error::bad_magic);
+                         EXPECT_EQ(err, Error::BadMagic);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -289,7 +289,7 @@ namespace
                      wire.push_back('\r');
                      wire.push_back('X'); // 应为 \n
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -308,7 +308,7 @@ namespace
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                      Trojan::ServerConfig{"pw"});
-                         EXPECT_EQ(err, Error::bad_message);
+                         EXPECT_EQ(err, Error::BadMessage);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -318,7 +318,7 @@ namespace
                      std::vector<std::uint8_t> wire(cred.begin(), cred.end());
                      wire.insert(wire.end(), {'\r', '\n', 0x99, 0x01, 1, 1, 0, 0, 0, 0, '\r', '\n'});
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -338,7 +338,7 @@ namespace
                          cfg.EnableTcp = false;
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         EXPECT_EQ(err, Error::not_supported);
+                         EXPECT_EQ(err, Error::NotSupported);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -347,7 +347,7 @@ namespace
                      auto [herr, cli] = co_await Trojan::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
                          make_addr(Trojan::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (cli)
                      {
                          cli->Close();
@@ -371,7 +371,7 @@ namespace
                          auto [err, req, dg] =
                              co_await Trojan::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
                                                             cfg);
-                         EXPECT_EQ(err, Error::not_supported);
+                         EXPECT_EQ(err, Error::NotSupported);
                          EXPECT_FALSE(dg);
                          (void)req;
                      };
@@ -380,7 +380,7 @@ namespace
                      auto [herr, dg] = co_await Trojan::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
                          make_addr(Trojan::AddressType::Domain, "example.com", 53));
-                     EXPECT_EQ(herr, Error::none); // 客户端只发送 udp_associate 头
+                     EXPECT_EQ(herr, Error::None); // 客户端只发送 udp_associate 头
                      if (dg)
                      {
                          dg->Close();
@@ -402,7 +402,7 @@ namespace
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                      Trojan::ServerConfig{"pw"});
-                         EXPECT_EQ(err, Error::bad_message);
+                         EXPECT_EQ(err, Error::BadMessage);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -412,7 +412,7 @@ namespace
                      std::vector<std::uint8_t> wire(cred.begin(), cred.end());
                      wire.insert(wire.end(), {'\r', '\n', 0x01, 0x99}); // cmd=Connect, ATYP 非法
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -431,7 +431,7 @@ namespace
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                      Trojan::ServerConfig{"pw"});
-                         EXPECT_EQ(err, Error::bad_magic);
+                         EXPECT_EQ(err, Error::BadMagic);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -445,7 +445,7 @@ namespace
                      wire.push_back('\r');
                      wire.push_back('X'); // 尾部 CRLF 错误
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -464,7 +464,7 @@ namespace
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                      Trojan::ServerConfig{"pw"});
-                         EXPECT_EQ(err, Error::io_error);
+                         EXPECT_EQ(err, Error::IoError);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -474,7 +474,7 @@ namespace
                      std::vector<std::uint8_t> wire(cred.begin(), cred.end());
                      wire.push_back('\r'); // 缺少后续字节
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -491,7 +491,7 @@ namespace
                      auto [err, cli] = co_await Trojan::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
                          make_addr(Trojan::AddressType::Ipv4, "1.1.1.1", 80));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      EXPECT_FALSE(cli);
                  });
     }
@@ -508,7 +508,7 @@ namespace
                                                              "pw");
                      EXPECT_TRUE(c->Executor());
                      EXPECT_NE(c->NextLayer(), nullptr);
-                     EXPECT_NE(c->LowestLayer<MemoryStream>(), nullptr);
+                     EXPECT_NE(c->lowest_layer<MemoryStream>(), nullptr);
                      const Trojan::Conn<> *const_c = c.get();
                      EXPECT_NE(const_c->NextLayer(), nullptr);
                      // 透传读写 + AsyncRead / AsyncWrite 组合
@@ -520,9 +520,9 @@ namespace
                          ec);
                      EXPECT_EQ(w, p.size());
                      std::array<std::byte, 64> buf{};
-                     const auto n = co_await b.AsyncReadSome(buf, ec);
+                     const auto n = co_await b.async_read_some(buf, ec);
                      EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), p);
-                     co_await b.AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
+                     co_await b.async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
                      std::array<std::uint8_t, 4> dst{};
                      const auto Ok = co_await c->ReadExact(std::span<std::uint8_t>(dst));
                      EXPECT_FALSE(Ok);
@@ -549,7 +549,7 @@ namespace
                          make_addr(Trojan::AddressType::Domain, "example.com", 53),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      dg->Close();
                  });
     }
@@ -570,7 +570,7 @@ namespace
                          Trojan::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::bad_magic);
+                         EXPECT_EQ(err, Error::BadMagic);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -582,7 +582,7 @@ namespace
                      wire.push_back('\n'); // CRLF 错误
                      wire.insert(wire.end(), {'a', 'b', 'c', 'd'});
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -603,14 +603,14 @@ namespace
                          Trojan::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::bad_message);
+                         EXPECT_EQ(err, Error::BadMessage);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
                      const std::array<std::uint8_t, 1> atyp{0x99};
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(atyp)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(atyp)), ec);
                      a.Close();
                  });
     }
@@ -631,7 +631,7 @@ namespace
                          Trojan::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::io_error);
+                         EXPECT_EQ(err, Error::IoError);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -643,7 +643,7 @@ namespace
                      wire.push_back('\n');
                      wire.insert(wire.end(), {'a', 'b', 'c'}); // 仅 3 字节
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -661,16 +661,16 @@ namespace
                      // 透传读写（passthrough）
                      std::array<std::byte, 8> buf{};
                      std::error_code ec;
-                     const auto w = co_await dg->AsyncWriteSome(
+                     const auto w = co_await dg->async_write_some(
                          std::span<const std::byte>(buf.data(), 4), ec);
                      EXPECT_EQ(w, 4u);
                      a.Close(); // 对端关闭 → 读 EOF → io_error
-                     const auto n = co_await dg->AsyncReadSome(buf, ec);
+                     const auto n = co_await dg->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
                      Trojan::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      dg->Close();
                      dg->Cancel();
                      EXPECT_NE(dg->NextLayer(), nullptr);

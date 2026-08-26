@@ -188,7 +188,7 @@ namespace
                        const Options &opts) -> net::awaitable<case_result>
     {
         const auto uuid = ParseUuid();
-        Error err{Error::none};
+        Error err{Error::None};
         SharedTransmission proxy;
 
         if (opts.proto == "socks5")
@@ -213,11 +213,11 @@ namespace
             cfg.UsePsk = true;
             if (opts.auth_fail)
             {
-                cfg.psk.fill(0x77);
+                cfg.Psk.fill(0x77);
             }
             else
             {
-                cfg.psk = psk;
+                cfg.Psk = psk;
             }
             auto [e, c] = co_await Shadowsocks2022::Connect(
                 std::move(raw), cfg,
@@ -267,7 +267,7 @@ namespace
             co_return case_result::handshake_failed;
         }
 
-        if (err != Error::none || !proxy)
+        if (err != Error::None || !proxy)
         {
             co_return case_result::handshake_failed;
         }
@@ -287,7 +287,7 @@ namespace
         std::size_t got = 0;
         while (got < k_payload.size())
         {
-            const auto n = co_await proxy->AsyncReadSome(
+            const auto n = co_await proxy->async_read_some(
                 std::span<std::byte>(buf).subspan(got), ec);
             if (ec || n == 0)
             {

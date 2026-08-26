@@ -28,18 +28,18 @@ namespace
         std::array<std::uint8_t, 32> sid2{};
 
         Shadowtls::SessionIdInput in{"pw", hello, sid};
-        EXPECT_EQ(Shadowtls::GenerateSessionId(in), Error::none);
+        EXPECT_EQ(Shadowtls::GenerateSessionId(in), Error::None);
         EXPECT_NE(sid[sid.size() - 1], 0u); // 后 4 字节 HMAC 已写入
 
         // 同输入确定性（sid 前 28 随机 → 仅后 4 字节 HMAC 稳定）
         Shadowtls::SessionIdInput in2{"pw", hello, sid2};
-        EXPECT_EQ(Shadowtls::GenerateSessionId(in2), Error::none);
+        EXPECT_EQ(Shadowtls::GenerateSessionId(in2), Error::None);
         EXPECT_EQ(sid[sid.size() - 1], sid2[sid2.size() - 1]);
 
         // 超短 hello → bad_length
         const std::array<std::uint8_t, 4> tiny{};
         Shadowtls::SessionIdInput bad{"pw", tiny, sid};
-        EXPECT_EQ(Shadowtls::GenerateSessionId(bad), Error::bad_length);
+        EXPECT_EQ(Shadowtls::GenerateSessionId(bad), Error::BadLength);
     }
 
     TEST(ShadowtlsCodecDeep, VerifyClientHelloShort)
@@ -61,13 +61,13 @@ namespace
         in.tag = 'C';
         in.payload = payload;
 
-        const auto hmac = Shadowtls::FrameHmacInput(in);
+        const auto hmac = Shadowtls::FrameHmac(in);
         EXPECT_EQ(hmac.size(), Shadowtls::HmacSize);
         // 同输入确定性
-        EXPECT_EQ(Shadowtls::FrameHmacInput(in), hmac);
+        EXPECT_EQ(Shadowtls::FrameHmac(in), hmac);
         // tag 变化 → 输出变化
         in.tag = 'S';
-        EXPECT_NE(Shadowtls::FrameHmacInput(in), hmac);
+        EXPECT_NE(Shadowtls::FrameHmac(in), hmac);
     }
 
     TEST(ShadowtlsCodecDeep, KdfDerivation)

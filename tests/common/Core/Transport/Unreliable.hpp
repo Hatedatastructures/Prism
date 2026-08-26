@@ -55,7 +55,7 @@ namespace Preview::Transport
          */
         explicit Unreliable(net::any_io_executor Executor,
                             std::optional<EndpointType> RemoteEndpoint = std::nullopt)
-            : socket_(Executor), RemoteEndpoint_(std::move(RemoteEndpoint))
+            : Socket_(Executor), RemoteEndpoint_(std::move(RemoteEndpoint))
         {
         }
 
@@ -67,7 +67,7 @@ namespace Preview::Transport
          * @param RemoteEndpoint 远程端点（可选）
          */
         explicit Unreliable(SocketType socket, std::optional<EndpointType> RemoteEndpoint = std::nullopt)
-            : socket_(std::move(socket)), RemoteEndpoint_(std::move(RemoteEndpoint))
+            : Socket_(std::move(socket)), RemoteEndpoint_(std::move(RemoteEndpoint))
         {
         }
 
@@ -78,28 +78,28 @@ namespace Preview::Transport
          */
         auto Connect(const std::string &remote) -> bool
         {
-            const auto colon = remote.rfind(':');
-            if (colon == std::string::npos)
+            const auto Colon = remote.rfind(':');
+            if (Colon == std::string::npos)
             {
                 return false;
             }
             boost::system::error_code ec;
-            const auto host = remote.substr(0, colon);
-            const auto port = static_cast<unsigned short>(std::strtoul(remote.c_str() + colon + 1, nullptr, 10));
-            const auto ep = net::ip::udp::endpoint(net::ip::make_address(host, ec), port);
+            const auto Host = remote.substr(0, Colon);
+            const auto Port = static_cast<unsigned short>(std::strtoul(remote.c_str() + Colon + 1, nullptr, 10));
+            const auto Ep = net::ip::udp::endpoint(net::ip::make_address(Host, ec), Port);
             if (ec)
             {
                 return false;
             }
-            if (!socket_.is_open())
+            if (!Socket_.is_open())
             {
-                socket_.open(ep.protocol(), ec);
+                Socket_.open(Ep.protocol(), ec);
                 if (ec)
                 {
                     return false;
                 }
             }
-            RemoteEndpoint_ = ep;
+            RemoteEndpoint_ = Ep;
             return true;
         }
 
@@ -108,18 +108,18 @@ namespace Preview::Transport
          * @param port 端口（0 = 系统分配）
          * @return 绑定成功返回 true
          */
-        auto Bind(const unsigned short port) -> bool
+        auto Bind(const unsigned short Port) -> bool
         {
             boost::system::error_code ec;
-            if (!socket_.is_open())
+            if (!Socket_.is_open())
             {
-                socket_.open(net::ip::udp::v4(), ec);
+                Socket_.open(net::ip::udp::v4(), ec);
                 if (ec)
                 {
                     return false;
                 }
             }
-            socket_.bind(net::ip::udp::endpoint(net::ip::udp::v4(), port), ec);
+            Socket_.bind(net::ip::udp::endpoint(net::ip::udp::v4(), Port), ec);
             return !ec;
         }
 
@@ -131,17 +131,17 @@ namespace Preview::Transport
         [[nodiscard]] auto LocalEndpoint() const -> EndpointType
         {
             boost::system::error_code ec;
-            const auto ep = socket_.local_endpoint(ec);
-            return ec ? EndpointType{} : ep;
+            const auto Ep = Socket_.local_endpoint(ec);
+            return ec ? EndpointType{} : Ep;
         }
 
         /**
          * @brief 获取传输层类型
-         * @return Type::udp 不可靠传输始终为 UDP
+         * @return Type::Udp 不可靠传输始终为 UDP
          */
         [[nodiscard]] auto TransportType() const noexcept -> Type override
         {
-            return Type::udp;
+            return Type::Udp;
         }
 
         /**
@@ -169,7 +169,7 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            return const_cast<SocketType &>(socket_).get_executor();
+            return const_cast<SocketType &>(Socket_).get_executor();
         }
 
         /**
@@ -202,16 +202,16 @@ namespace Preview::Transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code SysEc;
-            auto token = net::redirect_error(net::use_awaitable, SysEc);
+            auto Token = net::redirect_error(net::use_awaitable, SysEc);
             while (true)
             {
                 SysEc.clear();
-                std::size_t n = co_await socket_.async_receive_from(net::buffer(Buffer.data(), Buffer.size()),
-                                                                    SenderEndpoint_, token);
+                std::size_t N = co_await Socket_.async_receive_from(net::buffer(Buffer.data(), Buffer.size()),
+                                                                    SenderEndpoint_, Token);
                 if (SysEc)
                 {
                     ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
@@ -220,13 +220,13 @@ namespace Preview::Transport
                 if (!RemoteEndpoint_)
                 {
                     RemoteEndpoint_ = SenderEndpoint_;
-                    ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::success);
-                    co_return n;
+                    ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::Success);
+                    co_return N;
                 }
                 else if (SenderEndpoint_ == *RemoteEndpoint_)
                 {
-                    ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::success);
-                    co_return n;
+                    ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::Success);
+                    co_return N;
                 }
             }
         }
@@ -239,20 +239,20 @@ namespace Preview::Transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (!RemoteEndpoint_)
             {
-                ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::io_error);
+                ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
                 co_return 0;
             }
             boost::system::error_code SysEc;
-            auto token = net::redirect_error(net::use_awaitable, SysEc);
-            const auto n = co_await socket_.async_send_to(net::buffer(Buffer.data(), Buffer.size()),
-                                                          *RemoteEndpoint_, token);
+            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            const auto N = co_await Socket_.async_send_to(net::buffer(Buffer.data(), Buffer.size()),
+                                                          *RemoteEndpoint_, Token);
             ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
-            co_return n;
+            co_return N;
         }
 
         /**
@@ -263,7 +263,7 @@ namespace Preview::Transport
         void Close() override
         {
             boost::system::error_code ec;
-            socket_.close(ec);
+            Socket_.close(ec);
         }
 
         /**
@@ -274,7 +274,7 @@ namespace Preview::Transport
         void Cancel() override
         {
             boost::system::error_code ec;
-            socket_.cancel(ec);
+            Socket_.cancel(ec);
         }
 
         /**
@@ -298,7 +298,7 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto IsOpen() const -> bool override
         {
-            return socket_.is_open();
+            return Socket_.is_open();
         }
 
         /**
@@ -308,7 +308,7 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto NativeSocket() noexcept -> SocketType &
         {
-            return socket_;
+            return Socket_;
         }
 
         /**
@@ -318,11 +318,11 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto NativeSocket() const noexcept -> const SocketType &
         {
-            return socket_;
+            return Socket_;
         }
 
     private:
-        SocketType socket_;                           // UDP socket
+        SocketType Socket_;                           // UDP socket
         std::optional<EndpointType> RemoteEndpoint_; // 远程端点，发送目标和接收过滤依据
         EndpointType SenderEndpoint_;                // 最近接收数据报的来源端点
     };

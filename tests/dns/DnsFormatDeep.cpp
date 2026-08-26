@@ -139,9 +139,9 @@ namespace
         auto r = make_aaaa_record("example.com", bytes);
         auto addr = dns::extract_ipv6(r);
         EXPECT_TRUE(!!addr) << "extract_ipv6: valid AAAA record -> has value";
-        auto addr_bytes = addr->to_bytes();
-        EXPECT_EQ(addr_bytes[0], 0x20) << "extract_ipv6: byte[0] correct";
-        EXPECT_EQ(addr_bytes[1], 0x01) << "extract_ipv6: byte[1] correct";
+        auto AddrBytes = addr->to_bytes();
+        EXPECT_EQ(AddrBytes[0], 0x20) << "extract_ipv6: byte[0] correct";
+        EXPECT_EQ(AddrBytes[1], 0x01) << "extract_ipv6: byte[1] correct";
     }
 
     TEST(DnsFormatDeep, ExtractIpv6WrongType)

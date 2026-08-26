@@ -55,7 +55,7 @@ namespace Preview::Trusttunnel
          * @param pass 认证密码
          */
         explicit Conn(SharedTransmission upstream, std::string user, std::string pass)
-            : next_layer_(std::move(upstream)), user_(std::move(user)), pass_(std::move(pass))
+            : NextLayer_(std::move(upstream)), User_(std::move(user)), Pass_(std::move(pass))
         {
         }
 
@@ -64,7 +64,7 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -76,17 +76,17 @@ namespace Preview::Trusttunnel
         [[nodiscard]] auto WriteHandshake(std::string_view Target, std::uint16_t port)
         -> net::awaitable<Error>
         {
-            const auto Auth = BasicAuth(user_, pass_);
+            const auto Auth = BasicAuth(User_, Pass_);
             std::string Header;
             Header.reserve(64 + Target.size() + Auth.size());
             Header += "CONNECT " + std::string(Target) + ":" + std::to_string(port) + " HTTP/2\r\n";
             Header += "Proxy-Authorization: " + Auth + "\r\n";
             Header += "\r\n";
             if (co_await SendBytes(AsU8Span(Header)))
-                co_return Error::io_error;
-            target_ = std::string(Target);
-            handshaken_ = true;
-            co_return Error::none;
+                co_return Error::IoError;
+            Target_ = std::string(Target);
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
@@ -101,16 +101,14 @@ namespace Preview::Trusttunnel
             std::array<std::uint8_t, 256> chunk{};
             std::string Header;
             bool FoundEnd = false;
-            int LoopCnt = 0;
-            for (int i = 0; i < 16; ++i)
+            for (int I = 0; I < 16; ++I)
             {
-                LoopCnt = i + 1;
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(
+                const auto N = co_await NextLayer_->async_read_some(
                     AsBytes(std::span<std::uint8_t>(chunk)), ec);
-                if (ec || n == 0)
+                if (ec || N == 0)
                     break;
-                Header.append(reinterpret_cast<const char *>(chunk.data()), n);
+                Header.append(reinterpret_cast<const char *>(chunk.data()), N);
                 if (Header.find("\r\n\r\n") != std::string::npos)
                 {
                     FoundEnd = true;
@@ -118,60 +116,60 @@ namespace Preview::Trusttunnel
                 }
             }
             if (!FoundEnd)
-                co_return Error::bad_magic;
+                co_return Error::BadMagic;
             if (Header.find("CONNECT ") != 0)
-                co_return Error::bad_magic;
+                co_return Error::BadMagic;
 
             // 解析目标与认证
             const auto FirstLineEnd = Header.find("\r\n");
             const auto TargetLine = Header.substr(8, FirstLineEnd - 8);
-            const auto colon = TargetLine.find(':');
-            if (colon != std::string::npos)
-                Target = TargetLine.substr(0, colon);
+            const auto Colon = TargetLine.find(':');
+            if (Colon != std::string::npos)
+                Target = TargetLine.substr(0, Colon);
             else
                 Target = TargetLine;
 
             const auto AuthPos = Header.find("Proxy-Authorization: ");
             if (AuthPos == std::string::npos)
-                co_return Error::bad_auth;
+                co_return Error::BadAuth;
             const auto AuthStart = AuthPos + 21;
             const auto AuthEnd = Header.find("\r\n", AuthStart);
             const auto Auth = Header.substr(AuthStart, AuthEnd - AuthStart);
-            if (!VerifyBasicAuth(Auth, user_, pass_))
-                co_return Error::bad_auth;
+            if (!VerifyBasicAuth(Auth, User_, Pass_))
+                co_return Error::BadAuth;
 
-            target_ = Target;
-            handshaken_ = true;
-            co_return Error::none;
+            Target_ = Target;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（数据面原样）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
         -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（数据面原样）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer,
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
                                             std::error_code &ec)
         -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -179,7 +177,7 @@ namespace Preview::Trusttunnel
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -187,7 +185,7 @@ namespace Preview::Trusttunnel
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -195,7 +193,7 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -203,7 +201,7 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -211,7 +209,7 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
     private:
@@ -227,19 +225,19 @@ namespace Preview::Trusttunnel
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(AsBytes(Data.subspan(Done)), ec);
-                if (ec)
+                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
+                if (ec || N == 0)
                     co_return true;
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
 
-        SharedTransmission next_layer_;  ///< 底层传输（独占所有权）
-        std::string user_;                ///< 认证用户名
-        std::string pass_;                ///< 认证密码
-        std::string target_;              ///< CONNECT 目标（握手后）
-        bool handshaken_{false};          ///< 握手完成标志
+        SharedTransmission NextLayer_;  ///< 底层传输（独占所有权）
+        std::string User_;                ///< 认证用户名
+        std::string Pass_;                ///< 认证密码
+        std::string Target_;              ///< CONNECT 目标（握手后）
+        bool Handshaken_{false};          ///< 握手完成标志
     };
 
     /// 流连接共享指针（默认内存策略）

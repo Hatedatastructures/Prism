@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief XHTTP 伪装方案类型定义
  * @details XHTTP = TLS + HTTP/2 + Stream-one（单 POST 长连接）。
  *          客户端经 h2 POST {Path} 建立双向流，服务端响应 200 后

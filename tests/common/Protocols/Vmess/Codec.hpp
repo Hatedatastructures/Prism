@@ -59,9 +59,9 @@ namespace Preview::Vmess
             -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> out{};
-            unsigned int len = 0;
+            unsigned int Len = 0;
             HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), Data.data(), Data.size(), out.data(),
-                 &len);
+                 &Len);
             return out;
         }
 
@@ -73,8 +73,8 @@ namespace Preview::Vmess
         [[nodiscard]] inline auto Md5(std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, 16>
         {
             std::array<std::uint8_t, 16> out{};
-            unsigned int len = 0;
-            EVP_Digest(Data.data(), Data.size(), out.data(), &len, EVP_md5(), nullptr);
+            unsigned int Len = 0;
+            EVP_Digest(Data.data(), Data.size(), out.data(), &Len, EVP_md5(), nullptr);
             return out;
         }
 
@@ -86,8 +86,8 @@ namespace Preview::Vmess
         [[nodiscard]] inline auto Sha256(std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, 32>
         {
             std::array<std::uint8_t, 32> out{};
-            unsigned int len = 0;
-            EVP_Digest(Data.data(), Data.size(), out.data(), &len, EVP_sha256(), nullptr);
+            unsigned int Len = 0;
+            EVP_Digest(Data.data(), Data.size(), out.data(), &Len, EVP_sha256(), nullptr);
             return out;
         }
 
@@ -121,8 +121,8 @@ namespace Preview::Vmess
             -> std::array<std::uint8_t, 64>
         {
             std::array<std::uint8_t, 64> out{};
-            const auto n = std::min(Path.size(), out.size());
-            std::copy(Path.begin(), Path.begin() + static_cast<std::ptrdiff_t>(n), out.begin());
+            const auto N = std::min(Path.size(), out.size());
+            std::copy(Path.begin(), Path.begin() + static_cast<std::ptrdiff_t>(N), out.begin());
             for (auto &b : out)
             {
                 b ^= mask;
@@ -143,31 +143,31 @@ namespace Preview::Vmess
     [[nodiscard]] auto Kdf(std::span<const std::uint8_t> key, const Path &...paths)
         -> std::array<std::uint8_t, 32>
     {
-        std::function<std::array<std::uint8_t, 32>(std::span<const std::uint8_t>)> h =
+        std::function<std::array<std::uint8_t, 32>(std::span<const std::uint8_t>)> H =
             [](std::span<const std::uint8_t> msg) -> std::array<std::uint8_t, 32>
         { return detail::HmacSha256(detail::AsBytes(KdfInnerMarker), msg); };
 
-        auto wrap = [&h](std::span<const std::uint8_t> PathSpan)
+        auto Wrap = [&H](std::span<const std::uint8_t> PathSpan)
         {
-            const auto prev = h;
-            const auto ipad = detail::XorPad(PathSpan, 0x36);
-            const auto opad = detail::XorPad(PathSpan, 0x5C);
-            h = [prev, ipad, opad](std::span<const std::uint8_t> msg) -> std::array<std::uint8_t, 32>
+            const auto Prev = H;
+            const auto Ipad = detail::XorPad(PathSpan, 0x36);
+            const auto Opad = detail::XorPad(PathSpan, 0x5C);
+            H = [Prev, Ipad, Opad](std::span<const std::uint8_t> msg) -> std::array<std::uint8_t, 32>
             {
-                std::vector<std::uint8_t> inner_in(64 + msg.size());
-                std::copy(ipad.begin(), ipad.end(), inner_in.begin());
-                std::copy(msg.begin(), msg.end(), inner_in.begin() + 64);
-                const auto Inner = prev(inner_in);
+                std::vector<std::uint8_t> InnerIn(64 + msg.size());
+                std::copy(Ipad.begin(), Ipad.end(), InnerIn.begin());
+                std::copy(msg.begin(), msg.end(), InnerIn.begin() + 64);
+                const auto Inner = Prev(InnerIn);
 
-                std::array<std::uint8_t, 64 + 32> outer_in{};
-                std::copy(opad.begin(), opad.end(), outer_in.begin());
-                std::copy(Inner.begin(), Inner.end(), outer_in.begin() + 64);
-                return prev(outer_in);
+                std::array<std::uint8_t, 64 + 32> OuterIn{};
+                std::copy(Opad.begin(), Opad.end(), OuterIn.begin());
+                std::copy(Inner.begin(), Inner.end(), OuterIn.begin() + 64);
+                return Prev(OuterIn);
             };
         };
 
-        (wrap(detail::AsBytes(paths)), ...);
-        return h(key);
+        (Wrap(detail::AsBytes(paths)), ...);
+        return H(key);
     }
 
     /**
@@ -180,8 +180,8 @@ namespace Preview::Vmess
     {
         std::array<std::uint8_t, 16 + 36> input{};
         std::copy(uuid.begin(), uuid.end(), input.begin());
-        const auto salt = detail::AsBytes(UuidSalt);
-        std::copy(salt.begin(), salt.end(), input.begin() + 16);
+        const auto Salt = detail::AsBytes(UuidSalt);
+        std::copy(Salt.begin(), Salt.end(), input.begin() + 16);
         return detail::Md5(input);
     }
 
@@ -197,7 +197,7 @@ namespace Preview::Vmess
         {
             return false;
         }
-        auto nibble = [](char c) -> int
+        auto Nibble = [](char c) -> int
         {
             if (c >= '0' && c <= '9')
             {
@@ -213,28 +213,28 @@ namespace Preview::Vmess
             }
             return -1;
         };
-        std::size_t pos = 0;
-        for (std::size_t i = 0; i < uuid.size();)
+        std::size_t Pos = 0;
+        for (std::size_t I = 0; I < uuid.size();)
         {
-            if (uuid[i] == '-')
+            if (uuid[I] == '-')
             {
-                ++i;
+                ++I;
                 continue;
             }
-            if (i + 1 >= uuid.size())
+            if (I + 1 >= uuid.size())
             {
                 return false;
             }
-            const int hi = nibble(uuid[i]);
-            const int lo = nibble(uuid[i + 1]);
-            if (hi < 0 || lo < 0)
+            const int Hi = Nibble(uuid[I]);
+            const int Lo = Nibble(uuid[I + 1]);
+            if (Hi < 0 || Lo < 0)
             {
                 return false;
             }
-            out[pos++] = static_cast<std::uint8_t>((hi << 4) | lo);
-            i += 2;
+            out[Pos++] = static_cast<std::uint8_t>((Hi << 4) | Lo);
+            I += 2;
         }
-        return pos == 16;
+        return Pos == 16;
     }
 
     // ==================== Codec.hpp（认证/请求/响应头）合并 ====================
@@ -249,7 +249,7 @@ namespace Preview::Vmess
         {
             std::span<const std::uint8_t> key;   ///< 密钥
             std::span<const std::uint8_t> Nonce; ///< Nonce
-            std::span<const std::uint8_t> plain; ///< 明文
+            std::span<const std::uint8_t> Plain; ///< 明文
             std::span<const std::uint8_t> aad;   ///< 附加认证数据
         };
 
@@ -271,22 +271,22 @@ namespace Preview::Vmess
          */
         [[nodiscard]] inline auto AesGcmSeal(const SealInput &in) -> std::vector<std::uint8_t>
         {
-            std::vector<std::uint8_t> out(in.plain.size() + 16);
+            std::vector<std::uint8_t> out(in.Plain.size() + 16);
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
             {
                 return {};
             }
-            int len = 0;
+            int Len = 0;
             EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, in.key.data(), in.Nonce.data());
             if (!in.aad.empty())
             {
-                EVP_EncryptUpdate(ctx, nullptr, &len, in.aad.data(), static_cast<int>(in.aad.size()));
+                EVP_EncryptUpdate(ctx, nullptr, &Len, in.aad.data(), static_cast<int>(in.aad.size()));
             }
-            EVP_EncryptUpdate(ctx, out.data(), &len, in.plain.data(), static_cast<int>(in.plain.size()));
-            int OutLen = len;
-            EVP_EncryptFinal_ex(ctx, out.data() + OutLen, &len);
-            OutLen += len;
+            EVP_EncryptUpdate(ctx, out.data(), &Len, in.Plain.data(), static_cast<int>(in.Plain.size()));
+            int OutLen = Len;
+            EVP_EncryptFinal_ex(ctx, out.data() + OutLen, &Len);
+            OutLen += Len;
             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + OutLen);
             out.resize(static_cast<std::size_t>(OutLen) + 16);
             EVP_CIPHER_CTX_free(ctx);
@@ -310,19 +310,19 @@ namespace Preview::Vmess
             {
                 return {};
             }
-            int len = 0;
+            int Len = 0;
             EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, in.key.data(), in.Nonce.data());
             if (!in.aad.empty())
             {
-                EVP_DecryptUpdate(ctx, nullptr, &len, in.aad.data(), static_cast<int>(in.aad.size()));
+                EVP_DecryptUpdate(ctx, nullptr, &Len, in.aad.data(), static_cast<int>(in.aad.size()));
             }
-            EVP_DecryptUpdate(ctx, out.data(), &len, in.cipher.data(),
+            EVP_DecryptUpdate(ctx, out.data(), &Len, in.cipher.data(),
                               static_cast<int>(in.cipher.size() - 16));
-            int OutLen = len;
+            int OutLen = Len;
             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
                                 const_cast<std::uint8_t *>(in.cipher.data()) + in.cipher.size() - 16);
-            const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + OutLen, &len);
-            OutLen += len;
+            const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + OutLen, &Len);
+            OutLen += Len;
             EVP_CIPHER_CTX_free(ctx);
             if (Ok != 1)
             {
@@ -339,13 +339,13 @@ namespace Preview::Vmess
          */
         [[nodiscard]] inline auto Fnv1a32(std::span<const std::uint8_t> Data) -> std::uint32_t
         {
-            std::uint32_t h = 0x811C9DC5;
+            std::uint32_t H = 0x811C9DC5;
             for (const auto b : Data)
             {
-                h ^= b;
-                h *= 0x01000193;
+                H ^= b;
+                H *= 0x01000193;
             }
-            return h;
+            return H;
         }
 
         /**
@@ -353,13 +353,13 @@ namespace Preview::Vmess
          * @param ts 时间戳（秒）
          * @return 大端 8 字节
          */
-        [[nodiscard]] inline auto EncodeTimestamp(std::int64_t ts) -> std::array<std::uint8_t, 8>
+        [[nodiscard]] inline auto EncodeTimestamp(std::int64_t Ts) -> std::array<std::uint8_t, 8>
         {
             std::array<std::uint8_t, 8> out{};
-            const auto u = static_cast<std::uint64_t>(ts);
-            for (std::size_t i = 0; i < 8; ++i)
+            const auto U = static_cast<std::uint64_t>(Ts);
+            for (std::size_t I = 0; I < 8; ++I)
             {
-                out[7 - i] = static_cast<std::uint8_t>((u >> (i * 8)) & 0xFF);
+                out[7 - I] = static_cast<std::uint8_t>((U >> (I * 8)) & 0xFF);
             }
             return out;
         }
@@ -376,19 +376,19 @@ namespace Preview::Vmess
         -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 12> input{};
-        const auto ts = detail::EncodeTimestamp(TimeSec);
-        std::memcpy(input.data(), ts.data(), 8);
+        const auto Ts = detail::EncodeTimestamp(TimeSec);
+        std::memcpy(input.data(), Ts.data(), 8);
         std::memcpy(input.data() + 8, random.data(), 4);
-        const auto h = detail::Fnv1a32(input);
+        const auto H = detail::Fnv1a32(input);
         std::array<std::uint8_t, 16> out{};
         // 后 16 字节：fnv1a 结果填充（对齐 Go authID 派生）
-        out[0] = static_cast<std::uint8_t>((h >> 24) & 0xFF);
-        out[1] = static_cast<std::uint8_t>((h >> 16) & 0xFF);
-        out[2] = static_cast<std::uint8_t>((h >> 8) & 0xFF);
-        out[3] = static_cast<std::uint8_t>(h & 0xFF);
+        out[0] = static_cast<std::uint8_t>((H >> 24) & 0xFF);
+        out[1] = static_cast<std::uint8_t>((H >> 16) & 0xFF);
+        out[2] = static_cast<std::uint8_t>((H >> 8) & 0xFF);
+        out[3] = static_cast<std::uint8_t>(H & 0xFF);
         // 扩展：Md5(authID 前 4 字节) 填充其余
-        const auto ext = detail::Md5(std::span<const std::uint8_t>(out.data(), 4));
-        std::memcpy(out.data() + 4, ext.data(), 12);
+        const auto Ext = detail::Md5(std::span<const std::uint8_t>(out.data(), 4));
+        std::memcpy(out.data() + 4, Ext.data(), 12);
         return out;
     }
 
@@ -397,7 +397,7 @@ namespace Preview::Vmess
      */
     struct AuthHeaderInput
     {
-        std::span<const std::uint8_t> body;      ///< 明文载荷（请求头）
+        std::span<const std::uint8_t> Body;      ///< 明文载荷（请求头）
         std::int64_t TimeSec{0};                ///< UTC 秒（AuthID 用）
         std::span<const std::uint8_t, 4> random; ///< 4 字节随机数
     };
@@ -413,36 +413,36 @@ namespace Preview::Vmess
     {
         const auto AuthId = CreateAuthId(in.TimeSec, in.random);
         // 8 字节随机 Nonce
-        std::array<std::uint8_t, 8> nonce8{};
+        std::array<std::uint8_t, 8> Nonce8{};
         {
             std::random_device rd;
-            const auto r = rd();
-            std::memcpy(nonce8.data(), &r, 4);
-            const auto r2 = rd();
-            std::memcpy(nonce8.data() + 4, &r2, 4);
+            const auto R = rd();
+            std::memcpy(Nonce8.data(), &R, 4);
+            const auto R2 = rd();
+            std::memcpy(Nonce8.data() + 4, &R2, 4);
         }
 
         // 长度密文
-        std::array<std::uint8_t, 2> LenPlain{static_cast<std::uint8_t>(in.body.size() >> 8),
-                                              static_cast<std::uint8_t>(in.body.size() & 0xFF)};
-        const auto LenKey = Kdf(CmdKey, KdfHeaderLenKey, AuthId, nonce8);
-        const auto LenIv = Kdf(CmdKey, KdfHeaderLenIv, AuthId, nonce8);
+        std::array<std::uint8_t, 2> LenPlain{static_cast<std::uint8_t>(in.Body.size() >> 8),
+                                              static_cast<std::uint8_t>(in.Body.size() & 0xFF)};
+        const auto LenKey = Kdf(CmdKey, KdfHeaderLenKey, AuthId, Nonce8);
+        const auto LenIv = Kdf(CmdKey, KdfHeaderLenIv, AuthId, Nonce8);
         const auto LenEnc = detail::AesGcmSeal(
             detail::SealInput{std::span<const std::uint8_t>(LenKey.data(), 16),
                                std::span<const std::uint8_t>(LenIv.data(), 12), LenPlain, AuthId});
 
         // 载荷密文
-        const auto HdrKey = Kdf(CmdKey, KdfHeaderKey, AuthId, nonce8);
-        const auto HdrIv = Kdf(CmdKey, KdfHeaderIv, AuthId, nonce8);
+        const auto HdrKey = Kdf(CmdKey, KdfHeaderKey, AuthId, Nonce8);
+        const auto HdrIv = Kdf(CmdKey, KdfHeaderIv, AuthId, Nonce8);
         const auto HdrEnc = detail::AesGcmSeal(
             detail::SealInput{std::span<const std::uint8_t>(HdrKey.data(), 16),
-                               std::span<const std::uint8_t>(HdrIv.data(), 12), in.body, AuthId});
+                               std::span<const std::uint8_t>(HdrIv.data(), 12), in.Body, AuthId});
 
         std::vector<std::uint8_t> out;
         out.reserve(16 + LenEnc.size() + 8 + HdrEnc.size());
         out.insert(out.end(), AuthId.begin(), AuthId.end());
         out.insert(out.end(), LenEnc.begin(), LenEnc.end());
-        out.insert(out.end(), nonce8.begin(), nonce8.end());
+        out.insert(out.end(), Nonce8.begin(), Nonce8.end());
         out.insert(out.end(), HdrEnc.begin(), HdrEnc.end());
         return out;
     }
@@ -460,35 +460,35 @@ namespace Preview::Vmess
     {
         if (Header.size() < 16 + 18 + 8 + 18)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         const auto AuthId = Header.first(16); // span 参数已含 first
         const auto LenEnc = Header.subspan(16, 18);
-        const auto nonce8 = Header.subspan(16 + 18, 8);
+        const auto Nonce8 = Header.subspan(16 + 18, 8);
 
-        const auto LenKey = Kdf(CmdKey, KdfHeaderLenKey, AuthId, nonce8);
-        const auto LenIv = Kdf(CmdKey, KdfHeaderLenIv, AuthId, nonce8);
+        const auto LenKey = Kdf(CmdKey, KdfHeaderLenKey, AuthId, Nonce8);
+        const auto LenIv = Kdf(CmdKey, KdfHeaderLenIv, AuthId, Nonce8);
         const auto LenPlain = detail::AesGcmOpen(
             detail::OpenInput{std::span<const std::uint8_t>(LenKey.data(), 16),
                                std::span<const std::uint8_t>(LenIv.data(), 12), LenEnc, AuthId});
         if (LenPlain.size() != 2)
         {
-            return Error::bad_auth;
+            return Error::BadAuth;
         }
         const auto length = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
 
-        const auto HdrKey = Kdf(CmdKey, KdfHeaderKey, AuthId, nonce8);
-        const auto HdrIv = Kdf(CmdKey, KdfHeaderIv, AuthId, nonce8);
-        const auto body =
+        const auto HdrKey = Kdf(CmdKey, KdfHeaderKey, AuthId, Nonce8);
+        const auto HdrIv = Kdf(CmdKey, KdfHeaderIv, AuthId, Nonce8);
+        const auto Body =
             detail::AesGcmOpen(detail::OpenInput{std::span<const std::uint8_t>(HdrKey.data(), 16),
                                                     std::span<const std::uint8_t>(HdrIv.data(), 12),
                                                     Header.subspan(16 + 18 + 8, length + 16), AuthId});
-        if (body.empty())
+        if (Body.empty())
         {
-            return Error::bad_auth;
+            return Error::BadAuth;
         }
-        out = body;
-        return Error::none;
+        out = Body;
+        return Error::None;
     }
 
     /**
@@ -529,44 +529,44 @@ namespace Preview::Vmess
         case AddressType::Ipv4: {
             // 点分十进制 → 4 字节二进制（wire 格式为裸 4 字节）
             std::array<std::uint8_t, 4> ip{};
-            std::size_t part = 0;
-            std::uint32_t octet = 0;
+            std::size_t Part = 0;
+            std::uint32_t Octet = 0;
             for (const auto b : hdr.Target.Host)
             {
                 if (b == '.')
                 {
-                    if (part >= 4 || octet > 255)
+                    if (Part >= 4 || Octet > 255)
                     {
                         return {};
                     }
-                    ip[part++] = static_cast<std::uint8_t>(octet);
-                    octet = 0;
+                    ip[Part++] = static_cast<std::uint8_t>(Octet);
+                    Octet = 0;
                 }
                 else if (b >= '0' && b <= '9')
                 {
-                    octet = octet * 10 + static_cast<std::uint32_t>(b - '0');
-                    if (octet > 255)
+                    Octet = Octet * 10 + static_cast<std::uint32_t>(b - '0');
+                    if (Octet > 255)
                     {
                         return {};
                     }
                 }
             }
-            if (part != 3 || octet > 255)
+            if (Part != 3 || Octet > 255)
             {
                 return {};
             }
-            ip[part] = static_cast<std::uint8_t>(octet);
+            ip[Part] = static_cast<std::uint8_t>(Octet);
             out.insert(out.end(), ip.begin(), ip.end());
             break;
         }
         case AddressType::Ipv6: {
             // 文本形式（如 "::1"）解析为 16 字节二进制（线缆约定）；
             // 非法文本或已为 16 字节二进制的输入解析失败，原样拷贝
-            boost::system::error_code ec;
-            const auto v6 = boost::asio::ip::make_address_v6(hdr.Target.Host, ec);
-            if (!ec)
+            boost::system::error_code Ec;
+            const auto V6 = boost::asio::ip::make_address_v6(hdr.Target.Host, Ec);
+            if (!Ec)
             {
-                const auto Bytes = v6.to_bytes();
+                const auto Bytes = V6.to_bytes();
                 out.insert(out.end(), Bytes.begin(), Bytes.end());
             }
             else
@@ -582,7 +582,7 @@ namespace Preview::Vmess
             break;
         }
         }
-        for (std::uint8_t i = 0; i < meta.p; ++i)
+        for (std::uint8_t I = 0; I < meta.p; ++I)
         {
             out.push_back(0);
         }
@@ -615,14 +615,14 @@ namespace Preview::Vmess
     [[nodiscard]] inline auto ParseRequestHeader(std::span<const std::uint8_t> Data, RequestHeader &out,
                                                    RequestMetaOut &meta) -> Error
     {
-        if (Data.size() < 40) // 1+16+16+1+1+1+1+1+2+1 = 41
+        if (Data.size() < 41) // 1+16+16+1+1+1+1+1+2+1 = 41
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Version = Data[0];
         if (out.Version != ProtocolVersion)
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
         std::memcpy(meta.iv.data(), Data.data() + 1, 16);
         std::memcpy(meta.key.data(), Data.data() + 17, 16);
@@ -633,61 +633,61 @@ namespace Preview::Vmess
         out.Cmd = Data[37];
         out.Target.Port = static_cast<std::uint16_t>(Data[38]) << 8 | Data[39];
         out.Target.Type = static_cast<AddressType>(Data[40]);
-        std::size_t off = 41;
+        std::size_t Off = 41;
         switch (out.Target.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4)
+            if (Data.size() < Off + 4)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
             out.Target.Host = buf.data();
-            off += 4;
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16)
+            if (Data.size() < Off + 16)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain:
         default: {
-            if (off >= Data.size())
+            if (Off >= Data.size())
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
         }
-        if (Data.size() < off + 4)
+        if (Data.size() < Off + 4)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         // FNV1a 校验（覆盖整个明文头部 + padding）
         const auto Hash = detail::Fnv1a32(Data.first(Data.size() - 4));
-        const auto expected = static_cast<std::uint32_t>(Data[Data.size() - 4]) << 24 |
+        const auto Expected = static_cast<std::uint32_t>(Data[Data.size() - 4]) << 24 |
                               static_cast<std::uint32_t>(Data[Data.size() - 3]) << 16 |
                               static_cast<std::uint32_t>(Data[Data.size() - 2]) << 8 |
                               static_cast<std::uint32_t>(Data[Data.size() - 1]);
-        if (Hash != expected)
+        if (Hash != Expected)
         {
-            return Error::bad_auth;
+            return Error::BadAuth;
         }
-        return Error::none;
+        return Error::None;
     }
 
     /**
@@ -733,14 +733,14 @@ namespace Preview::Vmess
                                                    const RespHeaderParseInput &in, ResponseHeader &out)
         -> Error
     {
-        const auto plain = detail::AesGcmOpen(detail::OpenInput{RespKey, in.iv, in.Data, in.AuthId});
-        if (plain.size() < 4)
+        const auto Plain = detail::AesGcmOpen(detail::OpenInput{RespKey, in.iv, in.Data, in.AuthId});
+        if (Plain.size() < 4)
         {
-            return Error::bad_auth;
+            return Error::BadAuth;
         }
-        out.Version = plain[0];
-        std::memcpy(out.v.data(), plain.data(), 4);
-        return Error::none;
+        out.Version = Plain[0];
+        std::memcpy(out.v.data(), Plain.data(), 4);
+        return Error::None;
     }
 
     namespace detail
@@ -754,14 +754,14 @@ namespace Preview::Vmess
          * @param out 输出密文（含 tag）
          */
         inline auto ChunkSeal(std::span<const std::uint8_t> key, std::span<const std::uint8_t, 12> Nonce,
-                               std::span<const std::uint8_t> plain, std::span<std::uint8_t> out) -> void
+                               std::span<const std::uint8_t> Plain, std::span<std::uint8_t> out) -> void
         {
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-            int len = 0;
+            int Len = 0;
             EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), Nonce.data());
-            EVP_EncryptUpdate(ctx, out.data(), &len, plain.data(), static_cast<int>(plain.size()));
-            EVP_EncryptFinal_ex(ctx, out.data() + len, &len);
-            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + plain.size());
+            EVP_EncryptUpdate(ctx, out.data(), &Len, Plain.data(), static_cast<int>(Plain.size()));
+            EVP_EncryptFinal_ex(ctx, out.data() + Len, &Len);
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + Plain.size());
             EVP_CIPHER_CTX_free(ctx);
         }
 
@@ -781,12 +781,12 @@ namespace Preview::Vmess
                 return false;
             }
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-            int len = 0;
+            int Len = 0;
             EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), Nonce.data());
-            EVP_DecryptUpdate(ctx, out.data(), &len, cipher.data(), static_cast<int>(cipher.size() - 16));
+            EVP_DecryptUpdate(ctx, out.data(), &Len, cipher.data(), static_cast<int>(cipher.size() - 16));
             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
                                 const_cast<std::uint8_t *>(cipher.data()) + cipher.size() - 16);
-            const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + len, &len);
+            const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + Len, &Len);
             EVP_CIPHER_CTX_free(ctx);
             return Ok == 1;
         }
@@ -797,9 +797,9 @@ namespace Preview::Vmess
          */
         inline auto IncNonce(std::span<std::uint8_t, 12> Nonce) -> void
         {
-            for (std::size_t i = Nonce.size(); i > 0; --i)
+            for (std::size_t I = Nonce.size(); I > 0; --I)
             {
-                if (++Nonce[i - 1] != 0)
+                if (++Nonce[I - 1] != 0)
                 {
                     break;
                 }
@@ -815,7 +815,7 @@ namespace Preview::Vmess
     {
     public:
         /// 分块开销：2 长度 + 16 长度 tag + 16 载荷 tag
-        static constexpr std::size_t overhead = 2 + 16 + 16;
+        static constexpr std::size_t Overhead = 2 + 16 + 16;
 
         /**
          * @brief 构造
@@ -824,10 +824,10 @@ namespace Preview::Vmess
          */
         explicit ChunkEncryptor(std::span<const std::uint8_t, 16> key,
                                  std::span<const std::uint8_t, 12> Nonce)
-            : key_()
+            : Key_()
         {
-            std::memcpy(key_.data(), key.data(), 16);
-            std::memcpy(nonce_.data(), Nonce.data(), 12);
+            std::memcpy(Key_.data(), key.data(), 16);
+            std::memcpy(Nonce_.data(), Nonce.data(), 12);
         }
 
         /**
@@ -836,28 +836,28 @@ namespace Preview::Vmess
          * @param out 输出（容量 ≥ plain.size() + overhead）
          * @return 写入字节数（含块头）
          */
-        auto Seal(std::span<const std::uint8_t> plain, std::span<std::uint8_t> out) -> std::size_t
+        auto Seal(std::span<const std::uint8_t> Plain, std::span<std::uint8_t> out) -> std::size_t
         {
-            const auto n = plain.size();
-            if (out.size() < n + overhead)
+            const auto N = Plain.size();
+            if (out.size() < N + Overhead)
             {
                 return 0;
             }
 
             // 长度字段（大端 2 字节）加密
             std::array<std::uint8_t, 2> LenPlain{};
-            LenPlain[0] = static_cast<std::uint8_t>((n >> 8) & 0xFF);
-            LenPlain[1] = static_cast<std::uint8_t>(n & 0xFF);
+            LenPlain[0] = static_cast<std::uint8_t>((N >> 8) & 0xFF);
+            LenPlain[1] = static_cast<std::uint8_t>(N & 0xFF);
             std::array<std::uint8_t, 2 + 16> LenEnc{};
-            detail::ChunkSeal(key_, nonce_, LenPlain, LenEnc);
-            detail::IncNonce(nonce_);
+            detail::ChunkSeal(Key_, Nonce_, LenPlain, LenEnc);
+            detail::IncNonce(Nonce_);
 
             std::memcpy(out.data(), LenEnc.data(), LenEnc.size());
 
             // 载荷加密
-            detail::ChunkSeal(key_, nonce_, plain, out.subspan(LenEnc.size()));
-            detail::IncNonce(nonce_);
-            return LenEnc.size() + n + 16;
+            detail::ChunkSeal(Key_, Nonce_, Plain, out.subspan(LenEnc.size()));
+            detail::IncNonce(Nonce_);
+            return LenEnc.size() + N + 16;
         }
 
         /**
@@ -871,8 +871,8 @@ namespace Preview::Vmess
         }
 
     private:
-        std::array<std::uint8_t, 16> key_;
-        std::array<std::uint8_t, 12> nonce_;
+        std::array<std::uint8_t, 16> Key_;
+        std::array<std::uint8_t, 12> Nonce_;
     };
 
     /**
@@ -888,10 +888,10 @@ namespace Preview::Vmess
          */
         explicit ChunkDecryptor(std::span<const std::uint8_t, 16> key,
                                  std::span<const std::uint8_t, 12> Nonce)
-            : key_()
+            : Key_()
         {
-            std::memcpy(key_.data(), key.data(), 16);
-            std::memcpy(nonce_.data(), Nonce.data(), 12);
+            std::memcpy(Key_.data(), key.data(), 16);
+            std::memcpy(Nonce_.data(), Nonce.data(), 12);
         }
 
         /**
@@ -903,20 +903,20 @@ namespace Preview::Vmess
         {
             if (head.size() < 18)
             {
-                return std::unexpected(Error::need_more);
+                return std::unexpected(Error::NeedMore);
             }
             std::array<std::uint8_t, 2> LenPlain{};
-            if (!detail::ChunkOpen(key_, nonce_, head.first(18), LenPlain))
+            if (!detail::ChunkOpen(Key_, Nonce_, head.first(18), LenPlain))
             {
-                return std::unexpected(Error::bad_auth);
+                return std::unexpected(Error::BadAuth);
             }
-            detail::IncNonce(nonce_);
-            const auto n = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
-            if (n > MaxChunkLen)
+            detail::IncNonce(Nonce_);
+            const auto N = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
+            if (N > MaxChunkLen)
             {
-                return std::unexpected(Error::bad_length);
+                return std::unexpected(Error::BadLength);
             }
-            return n;
+            return N;
         }
 
         /**
@@ -929,14 +929,14 @@ namespace Preview::Vmess
         {
             if (Data.size() < 16 || out.size() < Data.size() - 16)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            if (!detail::ChunkOpen(key_, nonce_, Data, out.first(Data.size() - 16)))
+            if (!detail::ChunkOpen(Key_, Nonce_, Data, out.first(Data.size() - 16)))
             {
-                return Error::bad_auth;
+                return Error::BadAuth;
             }
-            detail::IncNonce(nonce_);
-            return Error::none;
+            detail::IncNonce(Nonce_);
+            return Error::None;
         }
 
         /**
@@ -946,39 +946,39 @@ namespace Preview::Vmess
          * @param consumed 输出消耗字节数
          * @return 错误码；need_more = 数据不足
          */
-        auto Open(std::span<const std::uint8_t> Data, std::span<std::uint8_t> out, std::size_t &consumed)
+        auto Open(std::span<const std::uint8_t> Data, std::span<std::uint8_t> out, std::size_t &Consumed)
             -> Error
         {
             if (Data.size() < 18)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            auto len = OpenLen(Data);
-            if (!len)
+            auto Len = OpenLen(Data);
+            if (!Len)
             {
-                return len.error();
+                return Len.error();
             }
-            if (*len == 0)
+            if (*Len == 0)
             {
-                consumed = 18;
-                return Error::none; // 流结束
+                Consumed = 18;
+                return Error::None; // 流结束
             }
-            if (Data.size() < 18 + *len + 16)
+            if (Data.size() < 18 + *Len + 16)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto ec = OpenPayload(Data.subspan(18, *len + 16), out);
-            if (ec != Error::none)
+            const auto Ec = OpenPayload(Data.subspan(18, *Len + 16), out);
+            if (Ec != Error::None)
             {
-                return ec;
+                return Ec;
             }
-            consumed = 18 + *len + 16;
-            return Error::none;
+            Consumed = 18 + *Len + 16;
+            return Error::None;
         }
 
     private:
-        std::array<std::uint8_t, 16> key_;
-        std::array<std::uint8_t, 12> nonce_;
+        std::array<std::uint8_t, 16> Key_;
+        std::array<std::uint8_t, 12> Nonce_;
     };
 
     // ==================== chunk.hpp（分块 AEAD）合并 ====================
@@ -991,10 +991,10 @@ namespace Preview::Vmess
         /// 客户端 UUID（16 字节）
         std::array<std::uint8_t, 16> uuid{};
         /// 请求 Nonce（作为请求头 IV）
-        std::array<std::uint8_t, 16> request_nonce{};
+        std::array<std::uint8_t, 16> RequestNonce{};
         /// 请求密钥（作为请求头 Key）
-        std::array<std::uint8_t, 16> request_key{};
-        /// 命令字节（cmd_tcp / cmd_udp / cmd_mux）
+        std::array<std::uint8_t, 16> RequestKey{};
+        /// 命令字节（CmdTcp / CmdUdp / cmd_mux）
         std::uint8_t Cmd{static_cast<std::uint8_t>(Command::Tcp)};
         /// 目标地址
         Address dst;
@@ -1012,7 +1012,7 @@ namespace Preview::Vmess
          * @brief 构造
          * @param uuid 客户端 UUID（16 字节）
          */
-        explicit Serializer(const std::array<std::uint8_t, 16> &uuid) : uuid_(uuid)
+        explicit Serializer(const std::array<std::uint8_t, 16> &uuid) : Uuid_(uuid)
         {
         }
 
@@ -1023,16 +1023,16 @@ namespace Preview::Vmess
          */
         auto Reset(const Message &msg, std::uint64_t TimeSec) -> void
         {
-            const auto CmdKey = CmdKeyFromUuid(uuid_);
+            const auto CmdKey = CmdKeyFromUuid(Uuid_);
             RequestHeader hdr;
             hdr.Version = ProtocolVersion;
             hdr.Cmd = msg.Cmd;
             hdr.opt = 0;
-            hdr.sec = Security::aes_128_gcm;
+            hdr.sec = Security::Aes128Gcm;
             hdr.reserved = 0;
             hdr.Target = msg.dst;
-            const auto body = BuildRequestHeader(
-                hdr, RequestMeta{msg.request_nonce, msg.request_key, msg.RespHeader, 0});
+            const auto Body = BuildRequestHeader(
+                hdr, RequestMeta{msg.RequestNonce, msg.RequestKey, msg.RespHeader, 0});
 
             std::random_device rd;
             std::array<std::uint8_t, 4> random{};
@@ -1040,9 +1040,9 @@ namespace Preview::Vmess
             {
                 b = static_cast<std::uint8_t>(rd() & 0xFF);
             }
-            wire_ = SealAuthHeader(CmdKey,
-                                     AuthHeaderInput{body, static_cast<std::int64_t>(TimeSec), random});
-            offset_ = 0;
+            Wire_ = SealAuthHeader(CmdKey,
+                                     AuthHeaderInput{Body, static_cast<std::int64_t>(TimeSec), random});
+            Offset_ = 0;
         }
 
         /**
@@ -1051,13 +1051,13 @@ namespace Preview::Vmess
          * @param ec 错误码（成功 = 空）
          * @return 实际写入字节数
          */
-        auto Get(boost::asio::mutable_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Get(boost::asio::mutable_buffer Buffer, std::error_code &Ec) -> std::size_t
         {
-            ec.clear();
-            const auto n = std::min(Buffer.size(), wire_.size() - offset_);
-            std::memcpy(Buffer.data(), wire_.data() + offset_, n);
-            offset_ += n;
-            return n;
+            Ec.clear();
+            const auto N = std::min(Buffer.size(), Wire_.size() - Offset_);
+            std::memcpy(Buffer.data(), Wire_.data() + Offset_, N);
+            Offset_ += N;
+            return N;
         }
 
         /**
@@ -1066,13 +1066,13 @@ namespace Preview::Vmess
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return offset_ >= wire_.size();
+            return Offset_ >= Wire_.size();
         }
 
     private:
-        std::array<std::uint8_t, 16> uuid_;
-        std::vector<std::uint8_t> wire_;
-        std::size_t offset_{0};
+        std::array<std::uint8_t, 16> Uuid_;
+        std::vector<std::uint8_t> Wire_;
+        std::size_t Offset_{0};
     };
 
     /**
@@ -1085,7 +1085,7 @@ namespace Preview::Vmess
          * @brief 构造
          * @param uuid 客户端 UUID（16 字节，不匹配则 auth_failed）
          */
-        explicit Parser(const std::array<std::uint8_t, 16> &uuid) : uuid_(uuid)
+        explicit Parser(const std::array<std::uint8_t, 16> &uuid) : Uuid_(uuid)
         {
         }
 
@@ -1095,30 +1095,30 @@ namespace Preview::Vmess
          * @param ec 错误码（auth_failed = UUID 不匹配，need_more = 数据不足）
          * @return 已累积缓冲字节数
          */
-        auto Put(boost::asio::const_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Put(boost::asio::const_buffer Buffer, std::error_code &Ec) -> std::size_t
         {
-            ec.clear();
-            if (done_)
+            Ec.clear();
+            if (Done_)
             {
-                return buf_.size();
+                return Buf_.size();
             }
             const auto Data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(Buffer.data()),
                                                             Buffer.size());
-            buf_.insert(buf_.end(), Data.begin(), Data.end());
-            if (buf_.size() < 16 + 18 + 8 + 18)
+            Buf_.insert(Buf_.end(), Data.begin(), Data.end());
+            if (Buf_.size() < 16 + 18 + 8 + 18)
             {
-                ec = make_error_code(Error::need_more);
+                Ec = make_error_code(Error::NeedMore);
                 return 0;
             }
 
-            const auto CmdKey = CmdKeyFromUuid(uuid_);
-            const auto AuthId = std::span<const std::uint8_t>(buf_).first(16);
-            const auto LenEnc = std::span<const std::uint8_t>(buf_).subspan(16, 18);
-            const auto nonce8 = std::span<const std::uint8_t>(buf_).subspan(34, 8);
+            const auto CmdKey = CmdKeyFromUuid(Uuid_);
+            const auto AuthId = std::span<const std::uint8_t>(Buf_).first(16);
+            const auto LenEnc = std::span<const std::uint8_t>(Buf_).subspan(16, 18);
+            const auto Nonce8 = std::span<const std::uint8_t>(Buf_).subspan(34, 8);
 
             // 先解长度块，确定请求头密文总长
-            const auto LenKey = Kdf(CmdKey, KdfHeaderLenKey, AuthId, nonce8);
-            const auto LenIv = Kdf(CmdKey, KdfHeaderLenIv, AuthId, nonce8);
+            const auto LenKey = Kdf(CmdKey, KdfHeaderLenKey, AuthId, Nonce8);
+            const auto LenIv = Kdf(CmdKey, KdfHeaderLenIv, AuthId, Nonce8);
             std::array<std::uint8_t, 16> lk{};
             std::memcpy(lk.data(), LenKey.data(), 16);
             std::array<std::uint8_t, 12> liv{};
@@ -1126,43 +1126,43 @@ namespace Preview::Vmess
             const auto LenPlain = detail::AesGcmOpen(detail::OpenInput{lk, liv, LenEnc, AuthId});
             if (LenPlain.size() != 2)
             {
-                ec = make_error_code(Error::auth_failed);
+                Ec = make_error_code(Error::AuthFailed);
                 return 0;
             }
             const auto length = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
             const auto Total = 16 + 18 + 8 + length + 16;
-            if (buf_.size() < Total)
+            if (Buf_.size() < Total)
             {
-                ec = make_error_code(Error::need_more);
+                Ec = make_error_code(Error::NeedMore);
                 return 0;
             }
 
             // 解请求头并校验 FNV1a
-            std::vector<std::uint8_t> body;
-            const auto err =
-                OpenAuthHeader(CmdKey, std::span<const std::uint8_t>(buf_).first(Total), body);
-            if (err != Error::none)
+            std::vector<std::uint8_t> Body;
+            const auto Err =
+                OpenAuthHeader(CmdKey, std::span<const std::uint8_t>(Buf_).first(Total), Body);
+            if (Err != Error::None)
             {
-                ec = make_error_code(err);
+                Ec = make_error_code(Err);
                 return 0;
             }
             RequestHeader hdr{};
             RequestMetaOut meta{};
-            const auto perr = ParseRequestHeader(body, hdr, meta);
-            if (perr != Error::none)
+            const auto Perr = ParseRequestHeader(Body, hdr, meta);
+            if (Perr != Error::None)
             {
-                ec = make_error_code(perr);
+                Ec = make_error_code(Perr);
                 return 0;
             }
 
-            msg_.uuid = uuid_;
-            msg_.request_nonce = meta.iv;
-            msg_.request_key = meta.key;
-            msg_.Cmd = static_cast<std::uint8_t>(hdr.Cmd);
-            msg_.dst = hdr.Target;
-            msg_.RespHeader = meta.v;
-            done_ = true;
-            return buf_.size();
+            Msg_.uuid = Uuid_;
+            Msg_.RequestNonce = meta.iv;
+            Msg_.RequestKey = meta.key;
+            Msg_.Cmd = static_cast<std::uint8_t>(hdr.Cmd);
+            Msg_.dst = hdr.Target;
+            Msg_.RespHeader = meta.v;
+            Done_ = true;
+            return Buf_.size();
         }
 
         /**
@@ -1171,7 +1171,7 @@ namespace Preview::Vmess
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return done_;
+            return Done_;
         }
 
         /**
@@ -1180,7 +1180,7 @@ namespace Preview::Vmess
          */
         [[nodiscard]] auto Get() const -> const Message &
         {
-            return msg_;
+            return Msg_;
         }
 
         /**
@@ -1188,16 +1188,16 @@ namespace Preview::Vmess
          */
         auto Reset() -> void
         {
-            buf_.clear();
-            msg_ = Message{};
-            done_ = false;
+            Buf_.clear();
+            Msg_ = Message{};
+            Done_ = false;
         }
 
     private:
-        std::array<std::uint8_t, 16> uuid_;
-        std::vector<std::uint8_t> buf_;
-        Message msg_{};
-        bool done_{false};
+        std::array<std::uint8_t, 16> Uuid_;
+        std::vector<std::uint8_t> Buf_;
+        Message Msg_{};
+        bool Done_{false};
     };
 
     /**
@@ -1213,10 +1213,10 @@ namespace Preview::Vmess
          */
         struct Result
         {
-            /// 错误码（Error::none 成功）
-            std::error_code ec;
+            /// 错误码（Error::None 成功）
+            std::error_code Ec;
             /// 已消耗 wire 字节数
-            std::size_t consumed{0};
+            std::size_t Consumed{0};
         };
 
         /**
@@ -1228,8 +1228,8 @@ namespace Preview::Vmess
         {
             std::array<std::uint8_t, 12> Nonce{};
             std::memcpy(Nonce.data(), iv.data(), 12);
-            enc_ = ChunkEncryptor(key, Nonce);
-            dec_ = ChunkDecryptor(key, Nonce);
+            Enc_ = ChunkEncryptor(key, Nonce);
+            Dec_ = ChunkDecryptor(key, Nonce);
         }
 
         /**
@@ -1240,9 +1240,9 @@ namespace Preview::Vmess
          */
         auto Encrypt(std::span<const std::uint8_t> payload, std::string &wire) -> bool
         {
-            std::vector<std::uint8_t> out(payload.size() + ChunkEncryptor::overhead);
-            const auto n = enc_.Seal(payload, out);
-            wire.assign(reinterpret_cast<const char *>(out.data()), n);
+            std::vector<std::uint8_t> out(payload.size() + ChunkEncryptor::Overhead);
+            const auto N = Enc_.Seal(payload, out);
+            wire.assign(reinterpret_cast<const char *>(out.data()), N);
             return false;
         }
 
@@ -1254,55 +1254,55 @@ namespace Preview::Vmess
          * @note 结束块（长度 0）时 consumed = 18，明文为空串；
          *       计算明文长度前先校验，避免无符号下溢越界读。
          */
-        auto Decrypt(std::span<const std::uint8_t> wire, std::string &plain) -> Result
+        auto Decrypt(std::span<const std::uint8_t> wire, std::string &Plain) -> Result
         {
-            Result r;
+            Result R;
             if (wire.size() < 18)
             {
-                r.ec = make_error_code(Error::need_more);
-                return r;
+                R.Ec = make_error_code(Error::NeedMore);
+                return R;
             }
             std::vector<std::uint8_t> out(wire.size());
-            std::size_t consumed = 0;
-            const auto ec = dec_.Open(wire, out, consumed);
-            if (ec != Error::none)
+            std::size_t Consumed = 0;
+            const auto Ec = Dec_.Open(wire, out, Consumed);
+            if (Ec != Error::None)
             {
-                r.ec = make_error_code(ec);
-                return r;
+                R.Ec = make_error_code(Ec);
+                return R;
             }
             std::size_t PlainLen;
-            if (consumed >= 18 + 16)
+            if (Consumed >= 18 + 16)
             {
-                PlainLen = consumed - 18 - 16;
+                PlainLen = Consumed - 18 - 16;
             }
             else
             {
                 PlainLen = 0;
             }
-            plain.assign(reinterpret_cast<const char *>(out.data()), PlainLen);
-            r.consumed = consumed;
-            return r;
+            Plain.assign(reinterpret_cast<const char *>(out.data()), PlainLen);
+            R.Consumed = Consumed;
+            return R;
         }
 
     private:
-        ChunkEncryptor enc_{std::array<std::uint8_t, 16>{}, std::array<std::uint8_t, 12>{}};
-        ChunkDecryptor dec_{std::array<std::uint8_t, 16>{}, std::array<std::uint8_t, 12>{}};
+        ChunkEncryptor Enc_{std::array<std::uint8_t, 16>{}, std::array<std::uint8_t, 12>{}};
+        ChunkDecryptor Dec_{std::array<std::uint8_t, 16>{}, std::array<std::uint8_t, 12>{}};
     };
 
     /**
      * @brief 构造 VMess AEAD 响应头（Beast 风格）
      * @details 响应 = [18B 长度块] + [20B 响应头块] = 38 字节：
-     *          respBodyKey = Sha256(request_key)[:16]
-     *          respBodyIV  = Sha256(request_nonce)[:16]
+     *          respBodyKey = Sha256(RequestKey)[:16]
+     *          respBodyIV  = Sha256(RequestNonce)[:16]
      *          AAD = 随机 AuthID（内部生成）
-     * @param msg 请求消息（request_key / request_nonce / RespHeader）
+     * @param msg 请求消息（RequestKey / RequestNonce / RespHeader）
      * @param resp 输出响应字节
      * @return false = 成功
      */
     [[nodiscard]] inline auto MakeResponse(const Message &msg, std::string &resp) -> bool
     {
-        const auto RespBodyKey = detail::Sha256(msg.request_key);
-        const auto RespBodyIv = detail::Sha256(msg.request_nonce);
+        const auto RespBodyKey = detail::Sha256(msg.RequestKey);
+        const auto RespBodyIv = detail::Sha256(msg.RequestNonce);
         std::array<std::uint8_t, 16> RespKey16{};
         std::memcpy(RespKey16.data(), RespBodyKey.data(), 16);
         std::array<std::uint8_t, 16> RespIv16{};

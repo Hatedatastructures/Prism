@@ -30,11 +30,11 @@ namespace
         traffic.Add(0, 5, 7);
 
         auto s0 = traffic.Slot(0);
-        EXPECT_EQ(s0.up, 15);
-        EXPECT_EQ(s0.down, 27);
+        EXPECT_EQ(s0.Up, 15);
+        EXPECT_EQ(s0.Down, 27);
         auto s1 = traffic.Slot(1);
-        EXPECT_EQ(s1.up, 0);
-        EXPECT_EQ(s1.down, 0);
+        EXPECT_EQ(s1.Up, 0);
+        EXPECT_EQ(s1.Down, 0);
     }
 
     TEST(PerWorkerTraffic, MultiWorkerAggregate)
@@ -46,8 +46,8 @@ namespace
         traffic.Add(3, 7, 8);
 
         auto g = traffic.Total();
-        EXPECT_EQ(g.up, 16);
-        EXPECT_EQ(g.down, 20);
+        EXPECT_EQ(g.Up, 16);
+        EXPECT_EQ(g.Down, 20);
         EXPECT_EQ(traffic.WorkerCount(), 4);
     }
 
@@ -55,8 +55,8 @@ namespace
     {
         Preview::Runtime::PerWorkerTraffic traffic(2);
         traffic.Add(99, 100, 100);
-        EXPECT_EQ(traffic.Total().up, 0);
-        EXPECT_EQ(traffic.Slot(99).up, 0);
+        EXPECT_EQ(traffic.Total().Up, 0);
+        EXPECT_EQ(traffic.Slot(99).Up, 0);
     }
 
     TEST(PerWorkerTraffic, ConcurrentAddNoLoss)
@@ -88,11 +88,11 @@ namespace
 
         for (std::size_t w = 0; w < workers; ++w)
         {
-            EXPECT_EQ(traffic.Slot(w).up, expect_per_worker);
-            EXPECT_EQ(traffic.Slot(w).down,
+            EXPECT_EQ(traffic.Slot(w).Up, expect_per_worker);
+            EXPECT_EQ(traffic.Slot(w).Down,
                       static_cast<std::uint64_t>(threads_per) * iters * 1);
         }
-        EXPECT_EQ(traffic.Total().up, expect_per_worker * workers);
+        EXPECT_EQ(traffic.Total().Up, expect_per_worker * workers);
     }
 
     TEST(IdentityTraffic, AggregateByIdentity)
@@ -103,11 +103,11 @@ namespace
         traffic.Add("bob", 100, 1);
 
         auto a = traffic.PerIdentity("alice");
-        EXPECT_EQ(a.up, 15);
-        EXPECT_EQ(a.down, 25);
+        EXPECT_EQ(a.Up, 15);
+        EXPECT_EQ(a.Down, 25);
         auto b = traffic.PerIdentity("bob");
-        EXPECT_EQ(b.up, 100);
-        EXPECT_EQ(traffic.PerIdentity("nobody").up, 0);
+        EXPECT_EQ(b.Up, 100);
+        EXPECT_EQ(traffic.PerIdentity("nobody").Up, 0);
         EXPECT_EQ(traffic.IdentityCount(), 2);
     }
 
@@ -123,7 +123,7 @@ namespace
         for (const auto &[Id, pod] : All)
         {
             (void)Id;
-            total_up += pod.up;
+            total_up += pod.Up;
         }
         EXPECT_EQ(total_up, 4);
     }
@@ -133,12 +133,12 @@ namespace
         Preview::Runtime::TrafficPod a{1, 2};
         Preview::Runtime::TrafficPod b{3, 4};
         a += b;
-        EXPECT_EQ(a.up, 4);
-        EXPECT_EQ(a.down, 6);
+        EXPECT_EQ(a.Up, 4);
+        EXPECT_EQ(a.Down, 6);
 
         const auto c = Preview::Runtime::TrafficPod{1, 1} + Preview::Runtime::TrafficPod{2, 2};
-        EXPECT_EQ(c.up, 3);
-        EXPECT_EQ(c.down, 3);
+        EXPECT_EQ(c.Up, 3);
+        EXPECT_EQ(c.Down, 3);
     }
 
 } // namespace

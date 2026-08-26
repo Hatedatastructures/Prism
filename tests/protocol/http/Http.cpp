@@ -65,9 +65,9 @@ namespace
             auto trans = nego->release();
 
             std::array<std::byte, 1024> buffer{};
-            std::error_code read_ec;
-            auto n = co_await trans->async_read_some(std::span(buffer), read_ec);
-            if (read_ec || n == 0)
+            std::error_code ReadEc;
+            auto n = co_await trans->async_read_some(std::span(buffer), ReadEc);
+            if (ReadEc || n == 0)
             {
                 co_return;
             }

@@ -88,9 +88,9 @@ namespace Preview::Protocol::Common
          * 内存分配器。返回的字符串包含有效的域名内容。
          */
         [[nodiscard]] auto ToString(Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource()) const
-            -> std::string
+            -> Preview::Memory::String
         {
-            return std::string(value.data(), length, mr);
+            return Preview::Memory::String(value.data(), length, mr);
         }
     };
 
@@ -111,9 +111,9 @@ namespace Preview::Protocol::Common
      * 自定义内存分配器，适用于日志记录和调试输出场景。
      */
     [[nodiscard]] inline auto AddrToStr(const Address &addr, Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource())
-        -> std::string
+        -> Preview::Memory::String
     {
-        auto translate = [mr]<typename A>(const A &arg) -> std::string
+        auto Translate = [mr]<typename A>(const A &arg) -> Preview::Memory::String
         {
             using Type = std::decay_t<A>;
             if constexpr (std::is_same_v<Type, Ipv4Address>)
@@ -122,9 +122,9 @@ namespace Preview::Protocol::Common
                 const char *Result = inet_ntop(AF_INET, arg.Bytes.data(), Buffer.data(), Buffer.size());
                 if (Result == nullptr)
                 {
-                    return std::string(mr);
+                    return Preview::Memory::String(mr);
                 }
-                return std::string(Buffer.data(), mr);
+                return Preview::Memory::String(Buffer.data(), mr);
             }
             else if constexpr (std::is_same_v<Type, Ipv6Address>)
             {
@@ -132,9 +132,9 @@ namespace Preview::Protocol::Common
                 const char *Result = inet_ntop(AF_INET6, arg.Bytes.data(), Buffer.data(), Buffer.size());
                 if (Result == nullptr)
                 {
-                    return std::string(mr);
+                    return Preview::Memory::String(mr);
                 }
-                return std::string(Buffer.data(), mr);
+                return Preview::Memory::String(Buffer.data(), mr);
             }
             else if constexpr (std::is_same_v<Type, DomainAddress>)
             {
@@ -145,7 +145,7 @@ namespace Preview::Protocol::Common
                 return {};
             }
         };
-        return std::visit(translate, addr);
+        return std::visit(Translate, addr);
     }
 
     /**
@@ -158,17 +158,17 @@ namespace Preview::Protocol::Common
         -> bool
     {
         out.fill(0);
-        std::size_t seg = 0, val = 0;
+        std::size_t Seg = 0, val = 0;
         for (const char ch : text)
         {
             if (ch == '.')
             {
-                if (seg >= 3 || val > 255)
+                if (Seg >= 3 || val > 255)
                 {
                     out.fill(0);
                     return false;
                 }
-                out[seg++] = static_cast<std::uint8_t>(val);
+                out[Seg++] = static_cast<std::uint8_t>(val);
                 val = 0;
             }
             else if (ch >= '0' && ch <= '9')
@@ -186,7 +186,7 @@ namespace Preview::Protocol::Common
                 return false;
             }
         }
-        if (seg != 3 || val > 255)
+        if (Seg != 3 || val > 255)
         {
             out.fill(0);
             return false;
@@ -223,10 +223,10 @@ namespace Preview::Protocol::Common
             // 文本形式（如 "::1"）解析为 16 字节二进制（线缆约定）；
             // 非法文本或已为 16 字节二进制的输入解析失败，原样拷贝（与既有测试断言一致）
             boost::system::error_code ec;
-            const auto v6 = net::ip::make_address_v6(addr.Host, ec);
+            const auto V6 = net::ip::make_address_v6(addr.Host, ec);
             if (!ec)
             {
-                const auto Bytes = v6.to_bytes();
+                const auto Bytes = V6.to_bytes();
                 out.insert(out.end(), Bytes.begin(), Bytes.end());
             }
             else
@@ -275,7 +275,7 @@ namespace Preview::Protocol::Common
             std::array<std::uint8_t, 4> ip{};
             if (co_await ReadFn(std::span<std::uint8_t>(ip)))
             {
-                co_return Preview::Error::io_error;
+                co_return Preview::Error::IoError;
             }
             std::array<char, 16> buf{};
             std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
@@ -286,7 +286,7 @@ namespace Preview::Protocol::Common
             std::array<std::uint8_t, 16> ip{};
             if (co_await ReadFn(std::span<std::uint8_t>(ip)))
             {
-                co_return Preview::Error::io_error;
+                co_return Preview::Error::IoError;
             }
             addr.Host.assign(reinterpret_cast<const char *>(ip.data()), 16);
         }
@@ -295,19 +295,19 @@ namespace Preview::Protocol::Common
             std::array<std::uint8_t, 1> len{};
             if (co_await ReadFn(std::span<std::uint8_t>(len)))
             {
-                co_return Preview::Error::io_error;
+                co_return Preview::Error::IoError;
             }
             std::vector<std::uint8_t> host(len[0]);
             if (co_await ReadFn(host))
             {
-                co_return Preview::Error::io_error;
+                co_return Preview::Error::IoError;
             }
             addr.Host.assign(reinterpret_cast<const char *>(host.data()), host.size());
         }
         else
         {
-            co_return Preview::Error::bad_message;
+            co_return Preview::Error::BadMessage;
         }
-        co_return Preview::Error::none;
+        co_return Preview::Error::None;
     }
 } // namespace Preview::Protocol::Common

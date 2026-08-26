@@ -77,7 +77,7 @@ namespace
                              Shadowsocks2022::Address src;
                              std::vector<std::uint8_t> payload;
                              const auto err = co_await Server->AsyncReceiveFrom(src, payload);
-                             if (err == Error::none)
+                             if (err == Error::None)
                              {
                                  received.assign(reinterpret_cast<const char *>(payload.data()),
                                                  payload.size());
@@ -90,7 +90,7 @@ namespace
                      const auto err = co_await Client->AsyncSendTo(
                          dest, std::span<const std::uint8_t>(
                                    reinterpret_cast<const std::uint8_t *>(msg.data()), msg.size()));
-                     EXPECT_EQ(err, Error::none);
+                     EXPECT_EQ(err, Error::None);
 
                      // 等服务端收到
                      for (int i = 0; i < 50 && received.empty(); ++i)
@@ -139,7 +139,7 @@ namespace
                              Shadowsocks2022::Address src;
                              std::vector<std::uint8_t> payload;
                              const auto err = co_await Server->AsyncReceiveFrom(src, payload);
-                             if (err == Error::none)
+                             if (err == Error::None)
                              {
                                  co_await Server->AsyncSendTo(src, payload);
                              }
@@ -151,13 +151,13 @@ namespace
                      auto err = co_await Client->AsyncSendTo(
                          dest, std::span<const std::uint8_t>(
                                    reinterpret_cast<const std::uint8_t *>(msg.data()), msg.size()));
-                     EXPECT_EQ(err, Error::none);
+                     EXPECT_EQ(err, Error::None);
 
                      // 客户端收回显
                      Shadowsocks2022::Address src2;
                      std::vector<std::uint8_t> back;
                      err = co_await Client->AsyncReceiveFrom(src2, back);
-                     EXPECT_EQ(err, Error::none);
+                     EXPECT_EQ(err, Error::None);
                      echoed.assign(reinterpret_cast<const char *>(back.data()), back.size());
                  });
         EXPECT_EQ(echoed, "echo-me");
@@ -198,7 +198,7 @@ namespace
                              Shadowsocks2022::Address src;
                              std::vector<std::uint8_t> payload;
                              const auto err = co_await Server->AsyncReceiveFrom(src, payload);
-                             server_received = (err == Error::none);
+                             server_received = (err == Error::None);
                          },
                          net::detached);
 

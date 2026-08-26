@@ -24,7 +24,7 @@ namespace
         std::vector<std::uint8_t> buf;
         buf.push_back(0x00); // version
         buf.insert(buf.end(), uuid.begin(), uuid.end());
-        buf.push_back(0x00); // addnl_len = 0 (plain)
+        buf.push_back(0x00); // AddnlLen = 0 (plain)
         buf.push_back(cmd);
         buf.push_back(static_cast<std::uint8_t>(port >> 8));
         buf.push_back(static_cast<std::uint8_t>(port & 0xFF));
@@ -105,7 +105,7 @@ namespace
         std::vector<std::uint8_t> uuid(16, 0);
         std::vector<std::uint8_t> addr = {127, 0, 0, 1};
         auto buf = build_request(0x01, 0x01, uuid, addr, 443);
-        buf[17] = 0x05; // addnl_len = 5 (non-zero -> reject)
+        buf[17] = 0x05; // AddnlLen = 5 (non-zero -> reject)
         auto result = psm::protocol::vless::format::parse_request(buf);
         EXPECT_TRUE(!result.has_value()) << "parse request non-zero addnl: nullopt";
     }

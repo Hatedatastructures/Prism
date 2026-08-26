@@ -56,7 +56,7 @@ namespace Preview::Vless
          */
         explicit Conn(SharedTransmission upstream, std::array<std::uint8_t, UuidLen> uuid,
                       const Preview::Authenticator *Auth = nullptr)
-            : next_layer_(std::move(upstream)), uuid_(uuid), auth_(Auth)
+            : NextLayer_(std::move(upstream)), Uuid_(uuid), Auth_(Auth)
         {
         }
 
@@ -65,7 +65,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -74,35 +74,35 @@ namespace Preview::Vless
          * @param ec 错误码输出参数
          * @return 实际读取字节数
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ec.clear();
-            if (used_ > 0)
+            if (Used_ > 0)
             {
-                const auto n = std::min(Buffer.size(), used_);
-                std::memcpy(Buffer.data(), buf_.data(), n);
-                if (n < used_)
+                const auto N = std::min(Buffer.size(), Used_);
+                std::memcpy(Buffer.data(), Buf_.data(), N);
+                if (N < Used_)
                 {
-                    std::memmove(buf_.data(), buf_.data() + n, used_ - n);
+                    std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
                 }
                 else
                 {
-                    buf_.clear();
+                    Buf_.clear();
                 }
-                used_ -= n;
-                co_return n;
+                Used_ -= N;
+                co_return N;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 异步写入（透传）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -110,9 +110,9 @@ namespace Preview::Vless
          */
         void Close() override
         {
-            if (next_layer_)
+            if (NextLayer_)
             {
-                next_layer_->Close();
+                NextLayer_->Close();
             }
         }
 
@@ -121,9 +121,9 @@ namespace Preview::Vless
          */
         void Cancel() override
         {
-            if (next_layer_)
+            if (NextLayer_)
             {
-                next_layer_->Cancel();
+                NextLayer_->Cancel();
             }
         }
 
@@ -132,7 +132,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -140,7 +140,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -148,7 +148,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
         /**
          * @brief 会话是否有效（已握手且底层存在）
@@ -156,7 +156,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto IsValid() const noexcept -> bool
         {
-            return next_layer_ != nullptr && handshaken_;
+            return NextLayer_ != nullptr && Handshaken_;
         }
 
         /**
@@ -165,7 +165,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto Underlying() noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
         /**
@@ -175,7 +175,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto Arena() noexcept -> Preview::Memory::ResourcePointer
         {
-            return mem_.Arena();
+            return Mem_.Arena();
         }
 
         /**
@@ -186,44 +186,44 @@ namespace Preview::Vless
          * @details 构造请求头（version/uuid/cmd/Target）发送，
          * 读取 2 字节响应校验 Version 回显（对齐 Xray）。
          */
-        [[nodiscard]] auto WriteHandshake(const Address &Target, Command cmd = Command::Tcp)
+        [[nodiscard]] auto WriteHandshake(const Address &Target, Command Cmd = Command::Tcp)
             -> net::awaitable<Error>
         {
             RequestHeader hdr;
             hdr.Version = ProtocolVersion;
-            hdr.Uuid = uuid_;
-            hdr.Cmd = cmd;
+            hdr.Uuid = Uuid_;
+            hdr.Cmd = Cmd;
             hdr.Target = Target;
-            const auto wire = BuildRequest(hdr);
-            if (co_await SendBytes(wire))
+            const auto Wire = BuildRequest(hdr);
+            if (co_await SendBytes(Wire))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
 
-            std::array<std::uint8_t, 2> resp{};
-            if (co_await ReadExactImpl(std::span<std::uint8_t>(resp)))
+            std::array<std::uint8_t, 2> Resp{};
+            if (co_await ReadExactImpl(std::span<std::uint8_t>(Resp)))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            if (resp[0] != ProtocolVersion)
+            if (Resp[0] != ProtocolVersion)
             {
-                co_return Error::bad_magic;
+                co_return Error::BadMagic;
             }
-            handshaken_ = true;
-            co_return Error::none;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
          * @brief 服务端握手：四段解析请求头 + 校验 + 发送响应
-         * @param enable_tcp 是否允许 TCP 命令
-         * @param enable_udp 是否允许 UDP 命令
+         * @param EnableTcp 是否允许 TCP 命令
+         * @param EnableUdp 是否允许 UDP 命令
          * @param EnableMux 是否允许 MUX 命令
          * @return 错误码与解析的请求
          * @details 精确分段读取（固定前缀 18B → Addons → 尾部 4B →
          * 地址体），校验 version/addnl/uuid/cmd/atyp。认证失败
          * （UUID 不匹配）不发送响应，静默断开（对齐 Xray）。
          */
-        [[nodiscard]] auto ReadHandshake(bool enable_tcp = true, bool enable_udp = true,
+        [[nodiscard]] auto ReadHandshake(bool EnableTcp = true, bool EnableUdp = true,
                                           bool EnableMux = true)
             -> net::awaitable<std::pair<Error, RequestHeader>>
         {
@@ -231,80 +231,80 @@ namespace Preview::Vless
             std::array<std::uint8_t, 18> Prefix{};
             if (co_await ReadExactImpl(std::span<std::uint8_t>(Prefix)))
             {
-                co_return std::pair{Error::io_error, RequestHeader{}};
+                co_return std::pair{Error::IoError, RequestHeader{}};
             }
             if (Prefix[0] != ProtocolVersion)
             {
-                co_return std::pair{Error::bad_magic, RequestHeader{}};
+                co_return std::pair{Error::BadMagic, RequestHeader{}};
             }
 
-            // 2. Addons（对齐主库：addnl_len 必须为 0）
+            // 2. Addons（对齐主库：AddnlLen 必须为 0）
             if (Prefix[17] != 0)
             {
-                co_return std::pair{Error::bad_message, RequestHeader{}};
+                co_return std::pair{Error::BadMessage, RequestHeader{}};
             }
 
             // 3. 尾部：Cmd(1) + Port(2 BE) + Atyp(1)
             std::array<std::uint8_t, 4> tail{};
             if (co_await ReadExactImpl(std::span<std::uint8_t>(tail)))
             {
-                co_return std::pair{Error::io_error, RequestHeader{}};
+                co_return std::pair{Error::IoError, RequestHeader{}};
             }
-            const auto cmd = static_cast<Command>(tail[0]);
-            if (cmd != Command::Tcp && cmd != Command::Udp && cmd != Command::Mux)
+            const auto Cmd = static_cast<Command>(tail[0]);
+            if (Cmd != Command::Tcp && Cmd != Command::Udp && Cmd != Command::Mux)
             {
-                co_return std::pair{Error::bad_message, RequestHeader{}};
+                co_return std::pair{Error::BadMessage, RequestHeader{}};
             }
-            if ((cmd == Command::Tcp && !enable_tcp) || (cmd == Command::Udp && !enable_udp) ||
-                (cmd == Command::Mux && !EnableMux))
+            if ((Cmd == Command::Tcp && !EnableTcp) || (Cmd == Command::Udp && !EnableUdp) ||
+                (Cmd == Command::Mux && !EnableMux))
             {
-                co_return std::pair{Error::not_supported, RequestHeader{}};
+                co_return std::pair{Error::NotSupported, RequestHeader{}};
             }
-            const auto atyp = static_cast<AddressType>(tail[3]);
-            if (atyp != AddressType::Ipv4 && atyp != AddressType::Domain && atyp != AddressType::Ipv6)
+            const auto Atyp = static_cast<AddressType>(tail[3]);
+            if (Atyp != AddressType::Ipv4 && Atyp != AddressType::Domain && Atyp != AddressType::Ipv6)
             {
-                co_return std::pair{Error::bad_message, RequestHeader{}};
+                co_return std::pair{Error::BadMessage, RequestHeader{}};
             }
 
             // 4. 地址体
             RequestHeader req;
             std::memcpy(req.Uuid.data(), Prefix.data() + 1, UuidLen);
-            req.Cmd = cmd;
-            req.Target.Type = atyp;
+            req.Cmd = Cmd;
+            req.Target.Type = Atyp;
             req.Target.Port = static_cast<std::uint16_t>(tail[1]) << 8 | tail[2];
-            auto err = co_await ReadAddressBody(req.Target);
-            if (err != Error::none)
+            auto Err = co_await ReadAddressBody(req.Target);
+            if (Err != Error::None)
             {
-                co_return std::pair{err, RequestHeader{}};
+                co_return std::pair{Err, RequestHeader{}};
             }
 
             // 5. UUID 校验（memcmp，不匹配则静默断开；可注入认证器）
-            const std::string_view got_uuid(reinterpret_cast<const char *>(Prefix.data() + 1), UuidLen);
-            const std::string_view expect_uuid(reinterpret_cast<const char *>(uuid_.data()), UuidLen);
-            bool bad_auth = false;
-            if (auth_)
+            const std::string_view GotUuid(reinterpret_cast<const char *>(Prefix.data() + 1), UuidLen);
+            const std::string_view expect_uuid(reinterpret_cast<const char *>(Uuid_.data()), UuidLen);
+            bool BadAuth = false;
+            if (Auth_)
             {
-                bad_auth = !auth_->Check("", got_uuid).Ok;
+                BadAuth = !Auth_->Check("", GotUuid).Ok;
             }
             else
             {
-                bad_auth = (got_uuid != expect_uuid);
+                BadAuth = (GotUuid != expect_uuid);
             }
-            if (bad_auth)
+            if (BadAuth)
             {
-                co_return std::pair{Error::bad_auth, RequestHeader{}};
+                co_return std::pair{Error::BadAuth, RequestHeader{}};
             }
 
             // 6. 发送 2 字节响应 [Version 0x00][Addons Length 0x00]
-            const auto resp = MakeResponse();
-            if (co_await SendBytes(resp))
+            const auto Resp = MakeResponse();
+            if (co_await SendBytes(Resp))
             {
-                co_return std::pair{Error::io_error, RequestHeader{}};
+                co_return std::pair{Error::IoError, RequestHeader{}};
             }
 
-            parsed_ = req;
-            handshaken_ = true;
-            co_return std::pair{Error::none, std::move(req)};
+            Parsed_ = req;
+            Handshaken_ = true;
+            co_return std::pair{Error::None, std::move(req)};
         }
 
         /**
@@ -313,7 +313,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto Parsed() const -> const RequestHeader &
         {
-            return parsed_;
+            return Parsed_;
         }
 
         /**
@@ -349,33 +349,33 @@ namespace Preview::Vless
             std::size_t Done = 0;
             while (Done < dst.size())
             {
-                if (used_ > 0)
+                if (Used_ > 0)
                 {
-                    const auto n = std::min(dst.size() - Done, used_);
-                    std::memcpy(dst.data() + Done, buf_.data(), n);
-                    if (n < used_)
+                    const auto N = std::min(dst.size() - Done, Used_);
+                    std::memcpy(dst.data() + Done, Buf_.data(), N);
+                    if (N < Used_)
                     {
-                        std::memmove(buf_.data(), buf_.data() + n, used_ - n);
-                        used_ -= n;
+                        std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
+                        Used_ -= N;
                     }
                     else
                     {
-                        buf_.clear();
-                        used_ = 0;
+                        Buf_.clear();
+                        Used_ = 0;
                     }
-                    Done += n;
+                    Done += N;
                     continue;
                 }
                 std::array<std::uint8_t, 512> chunk{};
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(
+                const auto N = co_await NextLayer_->async_read_some(
                     std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()), ec);
-                if (ec || n == 0)
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
-                buf_.insert(buf_.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
-                used_ += n;
+                Buf_.insert(Buf_.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
+                Used_ += N;
             }
             co_return false;
         }
@@ -391,7 +391,7 @@ namespace Preview::Vless
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(
+                const auto N = co_await NextLayer_->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data() + Done),
                                                Data.size() - Done),
                     ec);
@@ -399,19 +399,23 @@ namespace Preview::Vless
                 {
                     co_return true;
                 }
-                Done += n;
+                if (N == 0)
+                {
+                    co_return true; // 底层零字节写入，防死循环
+                }
+                Done += N;
             }
             co_return false;
         }
 
-        SharedTransmission next_layer_;          ///< 上游传输（独占所有权）
-        std::array<std::uint8_t, UuidLen> uuid_; ///< 协议 UUID（凭据/校验）
-        const Preview::Authenticator *auth_{nullptr}; ///< 认证器（非拥有）
-        RequestHeader parsed_;                   ///< 服务端握手解析结果
-        Memory mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
-        typename std::template Buffer<std::uint8_t> buf_{mem_.Arena()}; ///< 预读缓冲（隧道数据暂存）
-        std::size_t used_{0};                     ///< 缓冲中有效字节数
-        bool handshaken_{false};         ///< 握手完成标志
+        SharedTransmission NextLayer_;          ///< 上游传输（独占所有权）
+        std::array<std::uint8_t, UuidLen> Uuid_; ///< 协议 UUID（凭据/校验）
+        const Preview::Authenticator *Auth_{nullptr}; ///< 认证器（非拥有）
+        RequestHeader Parsed_;                   ///< 服务端握手解析结果
+        Memory Mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
+        typename Memory::template Buffer<std::uint8_t> Buf_{Mem_.Arena()}; ///< 预读缓冲（隧道数据暂存）
+        std::size_t Used_{0};                     ///< 缓冲中有效字节数
+        bool Handshaken_{false};         ///< 握手完成标志
     };
 
 

@@ -4,7 +4,7 @@
  * @details 覆盖八个传输装饰器/叶子模块：
  * - PadTransport：填充启用/禁用、最小/最大边界、数据透传、大块透传兜底、
  *   随机填充确定性（不破坏数据）、StopAfter 透传
- * - make_error_code：预读字节优先返回、耗尽后透传底层、EOF、WrapWithPreview
+ * - PreviewTransport：预读字节优先返回、耗尽后透传底层、EOF、WrapWithPreview
  * - Snapshot：捕获/回滚重放、回滚后继续读取、写入后禁止回滚
  * - Reliable：真实 TCP 读满/写满、EOF、对端关闭写错误、错误中断返回已读字节
  * - Encrypted：内存管道上的真实 TLS 握手 + 加解密往返、握手失败恢复、
@@ -50,10 +50,9 @@
 #include <common/Core/Transport/Encrypted.hpp>
 #include <common/Core/Transport/MemoryStream.hpp>
 #include <common/Core/Transport/Pad.hpp>
-#include <common/Core/Transport/make_error_code.hpp>
+#include <common/Core/Transport/Preview.hpp>
 #include <common/Core/Transport/Reliable.hpp>
 #include <common/Core/Transport/Snapshot.hpp>
-#include <common/Core/Transport/Unreliable.hpp>
 #include <common/Core/Transport/Unreliable.hpp>
 #include <gtest/gtest.h>
 
@@ -61,7 +60,7 @@ namespace
 {
     namespace net = boost::asio;
     namespace ssl = boost::asio::ssl;
-    using namespace std::Transport;
+    using namespace Preview::Transport;
 
     /**
      * @brief 驱动协程运行，异常透传
@@ -88,26 +87,26 @@ namespace
     /**
      * @brief 捕获写入字节的内存 sink（pad 测试用）
      */
-    class fake_sink final : public std::Transmission
+    class fake_sink final : public Preview::Transmission
     {
     public:
-        explicit fake_sink(net::any_io_executor ex) : ex_(std::move(ex))
+        explicit fake_sink(net::any_io_executor ex) : Ex_(std::move(ex))
         {
         }
 
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte>, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ec.clear();
             co_return 0;
         }
 
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> buf, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buf, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ec.clear();
@@ -126,25 +125,25 @@ namespace
         std::vector<std::byte> written_; ///< 捕获的写入字节
 
     private:
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
     };
 
     /**
      * @brief 可编程行为 mock（Reliable 组合操作错误路径用）
      */
-    class programmable_mock final : public std::Transmission
+    class programmable_mock final : public Preview::Transmission
     {
     public:
-        explicit programmable_mock(net::any_io_executor ex) : ex_(std::move(ex))
+        explicit programmable_mock(net::any_io_executor ex) : Ex_(std::move(ex))
         {
         }
 
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte>, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (read_calls_++ == 0)
@@ -156,7 +155,7 @@ namespace
             co_return 0;
         }
 
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte>, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             ec.clear();
@@ -176,7 +175,7 @@ namespace
         std::size_t write_n_{0};       ///< 每次写返回字节数
 
     private:
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
         std::size_t read_calls_{0};
     };
 
@@ -226,38 +225,38 @@ namespace
      */
     [[nodiscard]] auto sv_bytes(std::string_view s) -> std::span<const std::byte>
     {
-        return std::AsBytesSpan(s);
+        return Preview::AsBytesSpan(s);
     }
 
     // ══════════════════════ PadTransport ══════════════════════
 
     TEST(PadTransport, EnabledDisabled)
     {
-        std::Transport::PadConfig def;
+        Preview::Transport::PadConfig def;
         EXPECT_TRUE(def.Enabled());
 
-        std::Transport::PadConfig off;
+        Preview::Transport::PadConfig off;
         off.PadTargets = "";
         EXPECT_FALSE(off.Enabled());
 
         // 禁用填充：透传零开销（写入字节数 == 数据长度）
         net::io_context ioc;
         auto sink = std::make_shared<fake_sink>(ioc.get_executor());
-        std::Transport::PadTransport pad(sink, off);
+        Preview::Transport::PadTransport pad(sink, off);
         const std::string_view msg = "raw-passthrough";
         std::error_code ec;
         net::co_spawn(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto n = co_await pad.AsyncWriteSome(sv_bytes(msg), ec);
+                const auto n = co_await pad.async_write_some(sv_bytes(msg), ec);
                 EXPECT_EQ(n, msg.size());
                 EXPECT_FALSE(ec);
             },
             net::detached);
         ioc.run();
         EXPECT_EQ(sink->written_.size(), msg.size());
-        EXPECT_EQ(std::AsStrView(std::AsU8(std::span<const std::byte>(sink->written_))), msg);
+        EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<const std::byte>(sink->written_))), msg);
     }
 
     TEST(PadTransport, MinBoundaryPadToTarget)
@@ -265,10 +264,10 @@ namespace
         // 固定目标 "5"：小数据补齐到 5 字节，大数据零填充
         net::io_context ioc;
         auto sink = std::make_shared<fake_sink>(ioc.get_executor());
-        std::Transport::PadConfig cfg;
+        Preview::Transport::PadConfig cfg;
         cfg.PadTargets = "5";
         cfg.MaxPadBytes = 0; // 数据 >= 目标时零填充，保证确定性
-        std::Transport::PadTransport pad(sink, cfg);
+        Preview::Transport::PadTransport pad(sink, cfg);
 
         std::array<std::byte, 3> small{std::byte{1}, std::byte{2}, std::byte{3}};
         std::array<std::byte, 8> large{};
@@ -277,12 +276,12 @@ namespace
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto n1 = co_await pad.AsyncWriteSome(std::span<const std::byte>(small), ec);
+                const auto n1 = co_await pad.async_write_some(std::span<const std::byte>(small), ec);
                 EXPECT_FALSE(ec);
                 EXPECT_EQ(n1, 3u); // 返回值 = 原始数据长度
                 EXPECT_EQ(sink->written_.size(), 5u); // 补齐到目标 5
 
-                const auto n2 = co_await pad.AsyncWriteSome(std::span<const std::byte>(large), ec);
+                const auto n2 = co_await pad.async_write_some(std::span<const std::byte>(large), ec);
                 EXPECT_FALSE(ec);
                 EXPECT_EQ(n2, 8u);
                 EXPECT_EQ(sink->written_.size(), 13u); // 数据 >= 目标 → 零填充
@@ -296,9 +295,9 @@ namespace
         // 区间 "80-150"：填充后总大小必须落在区间内
         net::io_context ioc;
         auto sink = std::make_shared<fake_sink>(ioc.get_executor());
-        std::Transport::PadConfig cfg;
+        Preview::Transport::PadConfig cfg;
         cfg.PadTargets = "80-150";
-        std::Transport::PadTransport pad(sink, cfg);
+        Preview::Transport::PadTransport pad(sink, cfg);
 
         const std::string_view msg = "ten-Bytes";
         std::error_code ec;
@@ -306,7 +305,7 @@ namespace
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto n = co_await pad.AsyncWriteSome(sv_bytes(msg), ec);
+                const auto n = co_await pad.async_write_some(sv_bytes(msg), ec);
                 EXPECT_FALSE(ec);
                 EXPECT_EQ(n, msg.size());
             },
@@ -315,7 +314,7 @@ namespace
         ASSERT_GE(sink->written_.size(), 80u);
         ASSERT_LE(sink->written_.size(), 150u);
         // 数据前缀完好
-        const auto wire = std::AsStrView(std::AsU8(std::span<const std::byte>(sink->written_)));
+        const auto wire = Preview::AsStrView(Preview::AsU8(std::span<const std::byte>(sink->written_)));
         EXPECT_EQ(wire.substr(0, msg.size()), msg);
     }
 
@@ -326,16 +325,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
-                     std::Transport::PadConfig cfg;
-                     std::Transport::PadTransport pad(sa, cfg);
+                     Preview::Transport::PadConfig cfg;
+                     Preview::Transport::PadTransport pad(sa, cfg);
 
                      const std::string_view msg = "hello world, padding must not corrupt me";
                      std::error_code ec;
-                     const auto n = co_await pad.AsyncWriteSome(sv_bytes(msg), ec);
+                     const auto n = co_await pad.async_write_some(sv_bytes(msg), ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(n, msg.size());
 
@@ -344,7 +343,7 @@ namespace
                      const auto r = co_await sb->AsyncRead(std::span<std::byte>(rbuf), ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(r, msg.size());
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<const std::byte>(rbuf))), msg);
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<const std::byte>(rbuf))), msg);
                  });
     }
 
@@ -353,8 +352,8 @@ namespace
         // 数据 + 填充 > pad_buf_（16384+256）→ 直接透传
         net::io_context ioc;
         auto sink = std::make_shared<fake_sink>(ioc.get_executor());
-        std::Transport::PadConfig cfg;
-        std::Transport::PadTransport pad(sink, cfg);
+        Preview::Transport::PadConfig cfg;
+        Preview::Transport::PadTransport pad(sink, cfg);
 
         constexpr std::size_t big = 17000;
         std::vector<std::byte> payload(big, std::byte{0x5A});
@@ -363,7 +362,7 @@ namespace
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto n = co_await pad.AsyncWriteSome(std::span<const std::byte>(payload), ec);
+                const auto n = co_await pad.async_write_some(std::span<const std::byte>(payload), ec);
                 EXPECT_FALSE(ec);
                 EXPECT_EQ(n, big);
             },
@@ -380,10 +379,10 @@ namespace
         net::io_context ioc;
         auto sink1 = std::make_shared<fake_sink>(ioc.get_executor());
         auto sink2 = std::make_shared<fake_sink>(ioc.get_executor());
-        std::Transport::PadConfig cfg;
+        Preview::Transport::PadConfig cfg;
         cfg.PadTargets = "30-50";
-        std::Transport::PadTransport pad1(sink1, cfg);
-        std::Transport::PadTransport pad2(sink2, cfg);
+        Preview::Transport::PadTransport pad1(sink1, cfg);
+        Preview::Transport::PadTransport pad2(sink2, cfg);
 
         const std::string_view msg = "0123456789";
         std::error_code ec;
@@ -391,10 +390,10 @@ namespace
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto n1 = co_await pad1.AsyncWriteSome(sv_bytes(msg), ec);
+                const auto n1 = co_await pad1.async_write_some(sv_bytes(msg), ec);
                 EXPECT_EQ(n1, msg.size());
                 EXPECT_FALSE(ec);
-                const auto n2 = co_await pad2.AsyncWriteSome(sv_bytes(msg), ec);
+                const auto n2 = co_await pad2.async_write_some(sv_bytes(msg), ec);
                 EXPECT_EQ(n2, msg.size());
                 EXPECT_FALSE(ec);
             },
@@ -405,8 +404,8 @@ namespace
         ASSERT_LE(sink1->written_.size(), 50u);
         ASSERT_GE(sink2->written_.size(), 30u);
         ASSERT_LE(sink2->written_.size(), 50u);
-        const auto w1 = std::AsStrView(std::AsU8(std::span<const std::byte>(sink1->written_)));
-        const auto w2 = std::AsStrView(std::AsU8(std::span<const std::byte>(sink2->written_)));
+        const auto w1 = Preview::AsStrView(Preview::AsU8(std::span<const std::byte>(sink1->written_)));
+        const auto w2 = Preview::AsStrView(Preview::AsU8(std::span<const std::byte>(sink2->written_)));
         EXPECT_EQ(w1.substr(0, msg.size()), msg);
         EXPECT_EQ(w2.substr(0, msg.size()), msg);
         EXPECT_NE(w1, w2); // 不同密钥 → 不同填充
@@ -417,10 +416,10 @@ namespace
         // StopAfter = 2：前两次填充，之后透传
         net::io_context ioc;
         auto sink = std::make_shared<fake_sink>(ioc.get_executor());
-        std::Transport::PadConfig cfg;
+        Preview::Transport::PadConfig cfg;
         cfg.PadTargets = "20";
         cfg.StopAfter = 2;
-        std::Transport::PadTransport pad(sink, cfg);
+        Preview::Transport::PadTransport pad(sink, cfg);
 
         const std::string_view msg = "abc";
         std::error_code ec;
@@ -430,7 +429,7 @@ namespace
             {
                 for (std::size_t i = 0; i < 3; ++i)
                 {
-                    const auto n = co_await pad.AsyncWriteSome(sv_bytes(msg), ec);
+                    const auto n = co_await pad.async_write_some(sv_bytes(msg), ec);
                     EXPECT_EQ(n, 3u);
                     EXPECT_FALSE(ec);
                 }
@@ -439,123 +438,123 @@ namespace
         ioc.run();
 
         ASSERT_EQ(sink->written_.size(), 20u + 20u + 3u); // 2 次补齐到 20 + 1 次透传
-        const auto wire = std::AsStrView(std::AsU8(std::span<const std::byte>(sink->written_)));
+        const auto wire = Preview::AsStrView(Preview::AsU8(std::span<const std::byte>(sink->written_)));
         EXPECT_EQ(wire.substr(0, 3), "abc");
         EXPECT_EQ(wire.substr(20, 3), "abc");
         EXPECT_EQ(wire.substr(40, 3), "abc");
     }
 
-    // ══════════════════════ make_error_code ══════════════════════
+    // ══════════════════════ PreviewTransport ══════════════════════
 
-    TEST(make_error_code, PrereadReturnedFirst)
+    TEST(PreviewTransport, PrereadReturnedFirst)
     {
         net::io_context ioc;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
                      const std::string_view preread = "ABCDEF";
-                     std::Transport::make_error_code pv(sb, sv_bytes(preread));
+                     Preview::Transport::PreviewTransport pv(sb, sv_bytes(preread));
 
                      std::array<std::byte, 3> buf{};
                      std::error_code ec;
-                     auto n = co_await pv.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     auto n = co_await pv.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 3u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf))), "ABC");
-                     n = co_await pv.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf))), "ABC");
+                     n = co_await pv.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 3u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf))), "DEF");
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf))), "DEF");
                  });
     }
 
-    TEST(make_error_code, ExhaustedDelegatesToInner)
+    TEST(PreviewTransport, ExhaustedDelegatesToInner)
     {
         net::io_context ioc;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
                      // 预读 4 字节，底层还有 3 字节
                      std::error_code ec;
-                     co_await sa->AsyncWriteSome(sv_bytes("XYZ"), ec);
+                     co_await sa->async_write_some(sv_bytes("XYZ"), ec);
 
                      const std::string_view preread = "PRE-";
-                     std::Transport::make_error_code pv(sb, sv_bytes(preread));
+                     Preview::Transport::PreviewTransport pv(sb, sv_bytes(preread));
 
                      std::array<std::byte, 4> buf{};
-                     auto n = co_await pv.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     auto n = co_await pv.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 4u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf))), "PRE-");
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf))), "PRE-");
 
                      // 预读耗尽 → 委托底层
-                     n = co_await pv.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     n = co_await pv.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 3u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(3))), "XYZ");
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(3))), "XYZ");
                  });
     }
 
-    TEST(make_error_code, EofAfterPreread)
+    TEST(PreviewTransport, EofAfterPreread)
     {
         net::io_context ioc;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
                      sa->Shutdown(); // 对端半关（EOF）
 
-                     std::Transport::make_error_code pv(sb, sv_bytes("ab"));
+                     Preview::Transport::PreviewTransport pv(sb, sv_bytes("ab"));
                      std::array<std::byte, 4> buf{};
                      std::error_code ec;
-                     auto n = co_await pv.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     auto n = co_await pv.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 2u);
                      EXPECT_FALSE(ec);
                      // 预读耗尽后读取底层 → EOF
-                     n = co_await pv.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     n = co_await pv.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_FALSE(ec);
                  });
     }
 
-    TEST(make_error_code, WrapWithPreviewBehavior)
+    TEST(PreviewTransport, WrapWithPreviewBehavior)
     {
         net::io_context ioc;
-        auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-        auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-        auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+        auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+        auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+        auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
         // 空预读 → 不包装
-        auto not_wrapped = std::Transport::WrapWithPreview(sa, {});
+        auto not_wrapped = Preview::Transport::WrapWithPreview(sa, {});
         EXPECT_EQ(not_wrapped.get(), sa.get());
 
-        // 非空预读 → 包装为 make_error_code
-        auto wrapped = std::Transport::WrapWithPreview(sb, sv_bytes("hello"));
-        auto *pv = dynamic_cast<std::Transport::make_error_code *>(wrapped.get());
+        // 非空预读 → 包装为 PreviewTransport
+        auto wrapped = Preview::Transport::WrapWithPreview(sb, sv_bytes("hello"));
+        auto *pv = dynamic_cast<Preview::Transport::PreviewTransport *>(wrapped.get());
         ASSERT_NE(pv, nullptr);
         EXPECT_EQ(pv->NextLayer(), sb.get());
-        EXPECT_EQ(wrapped->TransportType(), std::Transmission::Type::Tcp);
+        EXPECT_EQ(wrapped->TransportType(), Preview::Transmission::Type::Tcp);
 
         // completion-handler 风格预读路径
         net::io_context ioc2;
         std::promise<std::pair<boost::system::error_code, std::size_t>> Done;
         auto fut = Done.get_future();
-        std::Transport::make_error_code pv2(sb, sv_bytes("hi"));
+        Preview::Transport::PreviewTransport pv2(sb, sv_bytes("hi"));
         std::array<std::byte, 8> buf{};
-        pv2.AsyncReadSome(std::span<std::byte>(buf), [&](boost::system::error_code ec, std::size_t n)
+        pv2.async_read_some(std::span<std::byte>(buf), [&](boost::system::error_code ec, std::size_t n)
                             { Done.set_value({ec, n}); });
         ioc2.run();
         const auto [ec, n] = fut.get();
         EXPECT_FALSE(ec);
         EXPECT_EQ(n, 2u);
-        EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(2))), "hi");
+        EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(2))), "hi");
     }
 
     // ══════════════════════ Snapshot ══════════════════════
@@ -566,28 +565,28 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
                      std::error_code ec;
-                     co_await sa->AsyncWriteSome(sv_bytes("0123456789"), ec);
+                     co_await sa->async_write_some(sv_bytes("0123456789"), ec);
 
-                     auto snap = std::make_shared<std::Transport::Snapshot>(sb);
+                     auto snap = std::make_shared<Preview::Transport::Snapshot>(sb);
                      EXPECT_TRUE(snap->CanRewind());
                      EXPECT_EQ(snap->NextLayer(), sb.get());
 
                      std::array<std::byte, 4> buf{};
-                     auto n = co_await snap->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     auto n = co_await snap->async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 4u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf))), "0123");
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf))), "0123");
 
                      snap->Rewind();
                      EXPECT_TRUE(snap->CanRewind());
 
-                     n = co_await snap->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     n = co_await snap->async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 4u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf))), "0123");
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf))), "0123");
                  });
     }
 
@@ -597,35 +596,35 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
                      std::error_code ec;
-                     co_await sa->AsyncWriteSome(sv_bytes("0123456789"), ec);
+                     co_await sa->async_write_some(sv_bytes("0123456789"), ec);
 
-                     auto snap = std::make_shared<std::Transport::Snapshot>(sb);
+                     auto snap = std::make_shared<Preview::Transport::Snapshot>(sb);
 
                      // 读 6 字节，回滚，再读完
                      std::array<std::byte, 6> buf{};
-                     auto n = co_await snap->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     auto n = co_await snap->async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 6u);
                      snap->Rewind();
                      n = co_await snap->AsyncRead(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 6u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf))), "012345");
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf))), "012345");
 
                      // 回放完剩余捕获，再读新数据
                      std::array<std::byte, 8> buf2{};
-                     n = co_await snap->AsyncReadSome(std::span<std::byte>(buf2), ec);
+                     n = co_await snap->async_read_some(std::span<std::byte>(buf2), ec);
                      EXPECT_EQ(n, 4u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf2).first(4))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf2).first(4))),
                                "6789");
 
-                     co_await sa->AsyncWriteSome(sv_bytes("abcd"), ec);
-                     n = co_await snap->AsyncReadSome(std::span<std::byte>(buf2), ec);
+                     co_await sa->async_write_some(sv_bytes("abcd"), ec);
+                     n = co_await snap->async_read_some(std::span<std::byte>(buf2), ec);
                      EXPECT_EQ(n, 4u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf2).first(4))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf2).first(4))),
                                "abcd");
                  });
     }
@@ -636,15 +635,15 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
-                     auto snap = std::make_shared<std::Transport::Snapshot>(sb);
+                     auto snap = std::make_shared<Preview::Transport::Snapshot>(sb);
 
                      // 写入委托给底层
                      std::error_code ec;
-                     const auto n = co_await snap->AsyncWriteSome(sv_bytes("out"), ec);
+                     const auto n = co_await snap->async_write_some(sv_bytes("out"), ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(n, 3u);
                      // 写入后禁止回滚
@@ -652,9 +651,9 @@ namespace
 
                      // 对端收到写入数据
                      std::array<std::byte, 8> buf{};
-                     const auto r = co_await sa->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     const auto r = co_await sa->async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 3u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(3))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(3))),
                                "out");
 
                      // Close/Cancel 委托底层
@@ -671,14 +670,14 @@ namespace
     {
         net::io_context ioc;
         ssl::context ctx(ssl::context::tls_server);
-        std::tuple<std::Fault::Code, Encrypted::SharedStream, std::SharedTransmission> Result;
+        std::tuple<Preview::Fault::Code, Encrypted::SharedStream, Preview::SharedTransmission> Result;
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      Result = co_await Encrypted::SslHandshake(nullptr, ctx);
                  });
         auto &[Code, Stream, recovered] = Result;
-        EXPECT_EQ(Code, std::Fault::Code::io_error);
+        EXPECT_EQ(Code, Preview::Fault::Code::IoError);
         EXPECT_EQ(Stream, nullptr);
         EXPECT_EQ(recovered, nullptr);
     }
@@ -689,19 +688,19 @@ namespace
         ssl::context server_ctx(ssl::context::tls_server);
         load_self_signed_cert(server_ctx);
 
-        std::tuple<std::Fault::Code, Encrypted::SharedStream, std::SharedTransmission> Result;
+        std::tuple<Preview::Fault::Code, Encrypted::SharedStream, Preview::SharedTransmission> Result;
         std::exception_ptr coro_ep;
         net::co_spawn(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
                 // 客户端发送非 TLS 垃圾数据
                 std::error_code ec;
-                co_await sa->AsyncWriteSome(sv_bytes("GARBAGE-not-a-Client-hello"), ec);
+                co_await sa->async_write_some(sv_bytes("GARBAGE-not-a-Client-hello"), ec);
 
                 Result = co_await Encrypted::SslHandshake(sb, server_ctx);
             },
@@ -728,10 +727,10 @@ namespace
                (void *)std::get<2>(Result).get());
 
         auto &[Code, Stream, recovered] = Result;
-        EXPECT_NE(Code, std::Fault::Code::success);
+        EXPECT_NE(Code, Preview::Fault::Code::Success);
         EXPECT_EQ(Stream, nullptr);
         ASSERT_NE(recovered, nullptr); // 失败后从 Connector 恢复底层传输
-        EXPECT_EQ(recovered->TransportType(), std::Transmission::Type::Tcp);
+        EXPECT_EQ(recovered->TransportType(), Preview::Transmission::Type::Tcp);
     }
 
     TEST(Encrypted, TlsRoundTripOverMemoryPipe)
@@ -747,22 +746,22 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
                      // 服务端握手
                      auto server_handshake = [&]() -> net::awaitable<Encrypted::SharedStream>
                      {
                          auto [Code, Stream, recovered] = co_await Encrypted::SslHandshake(sb, server_ctx);
-                         EXPECT_EQ(Code, std::Fault::Code::success);
+                         EXPECT_EQ(Code, Preview::Fault::Code::Success);
                          co_return Stream;
                      };
 
                      // 客户端握手
                      auto client_handshake = [&]() -> net::awaitable<Encrypted::SharedStream>
                      {
-                         std::Transport::Connector c(sa);
+                         Preview::Transport::Connector c(sa);
                          auto Stream = std::make_shared<Encrypted::StreamType>(std::move(c), client_ctx);
                          boost::system::error_code ec;
                          co_await Stream->async_handshake(ssl::stream_base::client,
@@ -782,27 +781,27 @@ namespace
                      auto client_t = std::make_shared<Encrypted>(c_stream);
 
                      // 装饰器访问器（NextLayer 穿透 ssl::Stream → Connector 到底层）
-                     EXPECT_EQ(client_t->TransportType(), std::Transmission::Type::Tcp);
+                     EXPECT_EQ(client_t->TransportType(), Preview::Transmission::Type::Tcp);
                      EXPECT_NE(client_t->NextLayer(), nullptr);
 
                      // 客户端 → 服务端（加密写 → 解密读）
                      std::error_code ec;
-                     const auto w1 = co_await client_t->AsyncWriteSome(sv_bytes("hello"), ec);
+                     const auto w1 = co_await client_t->async_write_some(sv_bytes("hello"), ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(w1, 5u);
                      std::array<std::byte, 16> buf{};
-                     auto r = co_await server_t->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     auto r = co_await server_t->async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 5u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(5))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(5))),
                                "hello");
 
                      // 服务端 → 客户端
-                     const auto w2 = co_await server_t->AsyncWriteSome(sv_bytes("world"), ec);
+                     const auto w2 = co_await server_t->async_write_some(sv_bytes("world"), ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(w2, 5u);
-                     r = co_await client_t->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     r = co_await client_t->async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 5u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(5))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(5))),
                                "world");
 
                      // 大块往返
@@ -827,13 +826,13 @@ namespace
         net::io_context ioc;
         ssl::context ctx(ssl::context::tls_server);
 
-        auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-        auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-        std::Transport::Connector c(sa);
+        auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+        auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+        Preview::Transport::Connector c(sa);
         auto Stream = std::make_shared<Encrypted::StreamType>(std::move(c), ctx);
 
         auto t = std::make_shared<Encrypted>(Stream);
-        EXPECT_EQ(t->TransportType(), std::Transmission::Type::Tcp);
+        EXPECT_EQ(t->TransportType(), Preview::Transmission::Type::Tcp);
         EXPECT_NE(t->NextLayer(), nullptr);
         EXPECT_EQ(t->Stream().native_handle(), Stream->native_handle());
         EXPECT_NO_THROW((void)t->Executor());
@@ -854,31 +853,31 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
                      // 底层先有数据（预读注入应优先返回）
                      std::error_code ec;
-                     co_await sa->AsyncWriteSome(sv_bytes("Inner-Data"), ec);
+                     co_await sa->async_write_some(sv_bytes("Inner-Data"), ec);
 
-                     std::Transport::Connector Conn(sb, sv_bytes("PRE"));
+                     Preview::Transport::Connector Conn(sb, sv_bytes("PRE"));
                      std::array<std::byte, 8> buf{};
                      boost::system::error_code c_ec;
-                     auto n = co_await Conn.AsyncReadSome(net::buffer(buf),
+                     auto n = co_await Conn.async_read_some(net::buffer(buf),
                                                             net::redirect_error(net::use_awaitable, c_ec));
                      EXPECT_FALSE(c_ec);
                      EXPECT_EQ(n, 3u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(3))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(3))),
                                "PRE");
 
                      // 预读耗尽 → 委托底层
                      c_ec.clear();
-                     n = co_await Conn.AsyncReadSome(net::buffer(buf),
+                     n = co_await Conn.async_read_some(net::buffer(buf),
                                                        net::redirect_error(net::use_awaitable, c_ec));
                      EXPECT_FALSE(c_ec);
                      EXPECT_EQ(n, 8u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf))), "Inner-da");
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf))), "Inner-Da");
                  });
     }
 
@@ -888,23 +887,23 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
-                     std::Transport::Connector Conn(sb);
+                     Preview::Transport::Connector Conn(sb);
                      const std::string_view msg = "Write-me";
                      boost::system::error_code w_ec;
-                     const auto n = co_await Conn.AsyncWriteSome(
+                     const auto n = co_await Conn.async_write_some(
                          net::buffer(msg.data(), msg.size()), net::redirect_error(net::use_awaitable, w_ec));
                      EXPECT_FALSE(w_ec);
                      EXPECT_EQ(n, msg.size());
 
                      std::array<std::byte, 16> buf{};
                      std::error_code ec;
-                     const auto r = co_await sa->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     const auto r = co_await sa->async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, msg.size());
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(r))), msg);
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(r))), msg);
                  });
     }
 
@@ -914,42 +913,42 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-                     auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-                     auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+                     auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+                     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+                     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
-                     std::Transport::Connector Conn(sb);
+                     Preview::Transport::Connector Conn(sb);
                      const std::string_view msg = "member-loop";
                      std::error_code ec;
                      const auto w = co_await Conn.AsyncWrite(std::span<const std::byte>(sv_bytes(msg)), ec);
                      EXPECT_EQ(w, msg.size());
                      EXPECT_FALSE(ec);
 
-                     std::Transport::Connector conn_reader(sa);
+                     Preview::Transport::Connector conn_reader(sa);
                      std::vector<std::byte> buf(msg.size());
                      const auto r = co_await conn_reader.AsyncRead(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, msg.size());
                      EXPECT_FALSE(ec);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf))), msg);
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf))), msg);
                  });
     }
 
     TEST(Connector, MoveReleaseAccessors)
     {
         net::io_context ioc;
-        auto [a, b] = std::MakeMemoryPair(ioc.get_executor());
-        auto sa = std::make_shared<std::MemoryStream>(std::move(a));
-        auto sb = std::make_shared<std::MemoryStream>(std::move(b));
+        auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
+        auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+        auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
-        std::Transport::Connector Conn(sb);
+        Preview::Transport::Connector Conn(sb);
         EXPECT_EQ(&Conn.Transmission(), sb.get());
-        EXPECT_EQ(Conn.Executor(), Conn.GetExecutor());
+        EXPECT_EQ(Conn.Executor(), Conn.get_executor());
 
         // 移动构造
-        std::Transport::Connector moved(std::move(Conn));
+        Preview::Transport::Connector moved(std::move(Conn));
         // 移动赋值
-        std::Transport::Connector assigned(
-            std::make_shared<std::MemoryStream>(ioc.get_executor()));
+        Preview::Transport::Connector assigned(
+            std::make_shared<Preview::MemoryStream>(ioc.get_executor()));
         assigned = std::move(moved);
 
         // Release 返回底层传输
@@ -970,15 +969,15 @@ namespace
                      const auto connect_ep =
                          net::ip::tcp::endpoint(net::ip::address_v4::loopback(), ep.port());
 
-                     std::shared_ptr<std::Transport::Reliable> Server;
+                     std::shared_ptr<Preview::Transport::Reliable> Server;
                      auto accept_coro = [&]() -> net::awaitable<void>
                      {
                          auto sock = co_await acceptor.async_accept(net::use_awaitable);
-                         Server = std::make_shared<std::Transport::Reliable>(std::move(sock));
+                         Server = std::make_shared<Preview::Transport::Reliable>(std::move(sock));
                      };
                      net::co_spawn(ioc.get_executor(), accept_coro(), net::detached);
 
-                     std::Transport::Reliable Client(ioc.get_executor());
+                     Preview::Transport::Reliable Client(ioc.get_executor());
                      boost::system::error_code oec;
                      Client.NativeSocket().open(net::ip::tcp::v4(), oec);
                      if (oec)
@@ -1000,18 +999,18 @@ namespace
                      EXPECT_EQ(w, 5u);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 8> buf{};
-                     const auto r = co_await Server->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     const auto r = co_await Server->async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 5u);
                      EXPECT_FALSE(ec);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(5))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(5))),
                                "hello");
 
                      // 反向：服务端写 3，客户端读满 3
                      const auto w2 = co_await Server->AsyncWrite(sv_bytes("xyz"), ec);
                      EXPECT_EQ(w2, 3u);
-                     const auto r2 = co_await Client.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     const auto r2 = co_await Client.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r2, 3u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(3))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(3))),
                                "xyz");
 
                      Client.Close();
@@ -1030,15 +1029,15 @@ namespace
                      const auto connect_ep =
                          net::ip::tcp::endpoint(net::ip::address_v4::loopback(), ep.port());
 
-                     std::shared_ptr<std::Transport::Reliable> Server;
+                     std::shared_ptr<Preview::Transport::Reliable> Server;
                      auto accept_coro = [&]() -> net::awaitable<void>
                      {
                          auto sock = co_await acceptor.async_accept(net::use_awaitable);
-                         Server = std::make_shared<std::Transport::Reliable>(std::move(sock));
+                         Server = std::make_shared<Preview::Transport::Reliable>(std::move(sock));
                      };
                      net::co_spawn(ioc.get_executor(), accept_coro(), net::detached);
 
-                     std::Transport::Reliable Client(ioc.get_executor());
+                     Preview::Transport::Reliable Client(ioc.get_executor());
                      boost::system::error_code oec;
                      Client.NativeSocket().open(net::ip::tcp::v4(), oec);
                      co_await Client.NativeSocket().async_connect(connect_ep, net::use_awaitable);
@@ -1067,15 +1066,15 @@ namespace
                      const auto connect_ep =
                          net::ip::tcp::endpoint(net::ip::address_v4::loopback(), ep.port());
 
-                     std::shared_ptr<std::Transport::Reliable> Server;
+                     std::shared_ptr<Preview::Transport::Reliable> Server;
                      auto accept_coro = [&]() -> net::awaitable<void>
                      {
                          auto sock = co_await acceptor.async_accept(net::use_awaitable);
-                         Server = std::make_shared<std::Transport::Reliable>(std::move(sock));
+                         Server = std::make_shared<Preview::Transport::Reliable>(std::move(sock));
                      };
                      net::co_spawn(ioc.get_executor(), accept_coro(), net::detached);
 
-                     std::Transport::Reliable Client(ioc.get_executor());
+                     Preview::Transport::Reliable Client(ioc.get_executor());
                      boost::system::error_code oec;
                      Client.NativeSocket().open(net::ip::tcp::v4(), oec);
                      co_await Client.NativeSocket().async_connect(connect_ep, net::use_awaitable);
@@ -1151,17 +1150,17 @@ namespace
         ioc.run();
         EXPECT_EQ(got, 0u);
         ASSERT_TRUE(ec);
-        EXPECT_EQ(ec, std::make_error_code(std::Error::broken_pipe));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::BrokenPipe));
     }
 
     TEST(Reliable, AccessorsAndRelease)
     {
         net::io_context ioc;
-        std::Transport::Reliable t(ioc.get_executor());
+        Preview::Transport::Reliable t(ioc.get_executor());
 
-        EXPECT_EQ(t.TransportType(), std::Transmission::Type::Tcp);
+        EXPECT_EQ(t.TransportType(), Preview::Transmission::Type::Tcp);
         EXPECT_EQ(t.NextLayer(), nullptr);
-        EXPECT_EQ(t.LowestLayer<std::Transport::Reliable>(), &t);
+        EXPECT_EQ(t.lowest_layer<Preview::Transport::Reliable>(), &t);
         EXPECT_NO_THROW((void)t.Executor());
 
         // 构造后 socket 未打开：Release 返回未打开的 socket
@@ -1171,7 +1170,7 @@ namespace
         // 二次 Release：无 socket → nullopt
         EXPECT_FALSE(t.ReleaseSocket().has_value());
 
-        std::Transport::Reliable t2(ioc.get_executor());
+        Preview::Transport::Reliable t2(ioc.get_executor());
         EXPECT_NO_THROW(t2.Close());
         EXPECT_NO_THROW(t2.Cancel());
     }
@@ -1184,8 +1183,8 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     std::Transport::Unreliable Server(ioc.get_executor());
-                     std::Transport::Unreliable Client(ioc.get_executor());
+                     Preview::Transport::Unreliable Server(ioc.get_executor());
+                     Preview::Transport::Unreliable Client(ioc.get_executor());
 
                      boost::system::error_code oec;
                      Server.NativeSocket().open(net::ip::udp::v4(), oec);
@@ -1208,23 +1207,23 @@ namespace
 
                      // 客户端 → 服务端（服务端首次接收自动记录远程）
                      std::error_code ec;
-                     const auto w = co_await Client.AsyncWriteSome(sv_bytes("ping"), ec);
+                     const auto w = co_await Client.async_write_some(sv_bytes("ping"), ec);
                      EXPECT_EQ(w, 4u);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 16> buf{};
-                     auto r = co_await Server.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     auto r = co_await Server.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 4u);
                      EXPECT_FALSE(ec);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(4))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(4))),
                                "ping");
                      EXPECT_TRUE(Server.RemoteEndpoint().has_value());
 
                      // 服务端回写（远程已记录）
-                     const auto w2 = co_await Server.AsyncWriteSome(sv_bytes("pong"), ec);
+                     const auto w2 = co_await Server.async_write_some(sv_bytes("pong"), ec);
                      EXPECT_EQ(w2, 4u);
-                     r = co_await Client.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     r = co_await Client.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 4u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(4))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(4))),
                                "pong");
 
                      Server.Close();
@@ -1235,7 +1234,7 @@ namespace
     TEST(Unreliable, WriteWithoutRemoteFails)
     {
         net::io_context ioc;
-        std::Transport::Unreliable u(ioc.get_executor());
+        Preview::Transport::Unreliable u(ioc.get_executor());
         boost::system::error_code oec;
         u.NativeSocket().open(net::ip::udp::v4(), oec);
         u.NativeSocket().bind({net::ip::udp::v4(), 0}, oec);
@@ -1247,13 +1246,13 @@ namespace
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto n = co_await u.AsyncWriteSome(sv_bytes("nope"), ec);
+                const auto n = co_await u.async_write_some(sv_bytes("nope"), ec);
                 EXPECT_EQ(n, 0u);
             },
             net::detached);
         ioc.run();
         ASSERT_TRUE(ec);
-        EXPECT_EQ(ec, std::Fault::make_error_code(std::Fault::Code::io_error));
+        EXPECT_EQ(ec, Preview::Fault::make_error_code(Preview::Fault::Code::IoError));
     }
 
     TEST(Unreliable, SourceFiltering)
@@ -1262,9 +1261,9 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     std::Transport::Unreliable Server(ioc.get_executor());
-                     std::Transport::Unreliable client_a(ioc.get_executor());
-                     std::Transport::Unreliable client_b(ioc.get_executor());
+                     Preview::Transport::Unreliable Server(ioc.get_executor());
+                     Preview::Transport::Unreliable client_a(ioc.get_executor());
+                     Preview::Transport::Unreliable client_b(ioc.get_executor());
 
                      boost::system::error_code oec;
                      Server.NativeSocket().open(net::ip::udp::v4(), oec);
@@ -1287,13 +1286,13 @@ namespace
 
                      // B 的包先到 → 被丢弃；A 的包后到 → 被接收
                      std::error_code ec;
-                     co_await client_b.AsyncWriteSome(sv_bytes("intruder"), ec);
-                     co_await client_a.AsyncWriteSome(sv_bytes("trusted"), ec);
+                     co_await client_b.async_write_some(sv_bytes("intruder"), ec);
+                     co_await client_a.async_write_some(sv_bytes("trusted"), ec);
 
                      std::array<std::byte, 16> buf{};
-                     const auto r = co_await Server.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     const auto r = co_await Server.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 7u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(7))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(7))),
                                "trusted");
 
                      Server.Close();
@@ -1305,8 +1304,8 @@ namespace
     TEST(Unreliable, AccessorsCloseCancel)
     {
         net::io_context ioc;
-        std::Transport::Unreliable u(ioc.get_executor());
-        EXPECT_EQ(u.TransportType(), std::Transmission::Type::udp);
+        Preview::Transport::Unreliable u(ioc.get_executor());
+        EXPECT_EQ(u.TransportType(), Preview::Transmission::Type::Udp);
         EXPECT_EQ(u.NextLayer(), nullptr);
         EXPECT_FALSE(u.RemoteEndpoint().has_value());
 
@@ -1328,8 +1327,8 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     std::Transport::Unreliable Client(ioc.get_executor());
-                     std::Transport::Unreliable Server(ioc.get_executor());
+                     Preview::Transport::Unreliable Client(ioc.get_executor());
+                     Preview::Transport::Unreliable Server(ioc.get_executor());
 
                      boost::system::error_code oec;
                      Server.NativeSocket().open(net::ip::udp::v4(), oec);
@@ -1357,22 +1356,22 @@ namespace
 
                      // 客户端 → 服务端
                      std::error_code ec;
-                     const auto w = co_await Client.AsyncWriteSome(sv_bytes("udp!"), ec);
+                     const auto w = co_await Client.async_write_some(sv_bytes("udp!"), ec);
                      EXPECT_EQ(w, 4u);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 16> buf{};
-                     auto r = co_await Server.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     auto r = co_await Server.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 4u);
                      EXPECT_FALSE(ec);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(4))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(4))),
                                "udp!");
 
                      // 服务端 → 客户端
-                     const auto w2 = co_await Server.AsyncWriteSome(sv_bytes("back"), ec);
+                     const auto w2 = co_await Server.async_write_some(sv_bytes("back"), ec);
                      EXPECT_EQ(w2, 4u);
-                     r = co_await Client.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     r = co_await Client.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 4u);
-                     EXPECT_EQ(std::AsStrView(std::AsU8(std::span<std::byte>(buf).first(4))),
+                     EXPECT_EQ(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(buf).first(4))),
                                "back");
 
                      Server.Cancel();
@@ -1384,14 +1383,14 @@ namespace
     TEST(UdpTransmission, WriteWithoutOpenFails)
     {
         net::io_context ioc;
-        std::Transport::Unreliable u(ioc.get_executor()); // socket 未打开
+        Preview::Transport::Unreliable u(ioc.get_executor()); // socket 未打开
 
         std::error_code ec;
         net::co_spawn(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                const auto n = co_await u.AsyncWriteSome(sv_bytes("x"), ec);
+                const auto n = co_await u.async_write_some(sv_bytes("x"), ec);
                 EXPECT_EQ(n, 0u);
             },
             net::detached);
@@ -1405,7 +1404,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     std::Transport::Unreliable u(ioc.get_executor());
+                     Preview::Transport::Unreliable u(ioc.get_executor());
                      boost::system::error_code oec;
                      u.NativeSocket().open(net::ip::udp::v4(), oec);
                      if (oec || !u.Bind(0))
@@ -1417,7 +1416,7 @@ namespace
 
                      std::error_code ec;
                      std::array<std::byte, 8> buf{};
-                     const auto r = co_await u.AsyncReadSome(std::span<std::byte>(buf), ec);
+                     const auto r = co_await u.async_read_some(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(r, 0u);
                      EXPECT_TRUE(ec);
                  });

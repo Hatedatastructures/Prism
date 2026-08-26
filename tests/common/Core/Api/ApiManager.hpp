@@ -75,7 +75,7 @@ namespace Preview::Api
         RegistryApiManager(const Preview::Runtime::SessionRegistry *registry,
                              const Preview::Runtime::PerWorkerTraffic *traffic,
                              const Preview::Runtime::IdentityTraffic *identity = nullptr)
-            : registry_(registry), traffic_(traffic), identity_(identity)
+            : Registry_(registry), Traffic_(traffic), Identity_(identity)
         {
         }
 
@@ -85,12 +85,12 @@ namespace Preview::Api
         [[nodiscard]] auto ListSessions() const -> std::vector<ResourceNode> override
         {
             std::vector<ResourceNode> out;
-            if (!registry_)
+            if (!Registry_)
             {
                 return out;
             }
-            const auto snap = registry_->Snapshot();
-            for (const auto &[Id, Info] : *snap)
+            const auto Snap = Registry_->Snapshot();
+            for (const auto &[Id, Info] : *Snap)
             {
                 ResourceNode node;
                 node.Name = "Session";
@@ -106,11 +106,11 @@ namespace Preview::Api
          */
         [[nodiscard]] auto TrafficSummary() const -> Preview::Runtime::TrafficPod override
         {
-            if (!traffic_)
+            if (!Traffic_)
             {
                 return {};
             }
-            return traffic_->Total();
+            return Traffic_->Total();
         }
 
         /**
@@ -121,24 +121,24 @@ namespace Preview::Api
             std::string out = "{";
             out += "\"sessions\":";
             std::size_t RegSize = 0;
-            if (registry_)
+            if (Registry_)
             {
-                RegSize = registry_->Size();
+                RegSize = Registry_->Size();
             }
             out += std::to_string(RegSize);
-            if (identity_)
+            if (Identity_)
             {
                 out += ",\"identities\":";
-                out += std::to_string(identity_->IdentityCount());
+                out += std::to_string(Identity_->IdentityCount());
             }
             out += "}";
             return out;
         }
 
     private:
-        const Preview::Runtime::SessionRegistry *registry_;         ///< 会话注册表
-        const Preview::Runtime::PerWorkerTraffic *traffic_;        ///< 流量聚合
-        const Preview::Runtime::IdentityTraffic *identity_;         ///< 身份聚合（可选）
+        const Preview::Runtime::SessionRegistry *Registry_;         ///< 会话注册表
+        const Preview::Runtime::PerWorkerTraffic *Traffic_;        ///< 流量聚合
+        const Preview::Runtime::IdentityTraffic *Identity_;         ///< 身份聚合（可选）
     };
 
 } // namespace Preview::Api

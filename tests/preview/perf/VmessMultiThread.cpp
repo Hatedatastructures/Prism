@@ -55,7 +55,7 @@ namespace
                 Vmess::ServerConfig scfg;
                 scfg.uuid = uuid;
                 auto [err, req, Conn] = co_await Vmess::Accept(ss, scfg);
-                if (err != Error::none || !Conn)
+                if (err != Error::None || !Conn)
                 {
                     co_return;
                 }
@@ -64,7 +64,7 @@ namespace
                 std::size_t Done = 0;
                 while (Done < Total)
                 {
-                    const auto n = co_await Conn->AsyncReadSome(
+                    const auto n = co_await Conn->async_read_some(
                         std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                     if (ec || n == 0)
                     {
@@ -87,7 +87,7 @@ namespace
             ccfg.uuid = uuid;
             auto [err, Conn] = co_await Vmess::Connect(
                 ss, ccfg, Vmess::Address{Vmess::AddressType::Domain, "t.internal", 443});
-            if (err != Error::none || !Conn)
+            if (err != Error::None || !Conn)
             {
                 ioc.stop();
                 co_return;
@@ -96,7 +96,7 @@ namespace
             std::error_code ec;
             while (Done < Total)
             {
-                const auto n = co_await Conn->AsyncWriteSome(
+                const auto n = co_await Conn->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
                 if (ec || n == 0)
                 {

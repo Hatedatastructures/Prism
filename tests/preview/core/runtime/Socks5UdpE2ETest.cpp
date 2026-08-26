@@ -44,9 +44,9 @@ namespace
     using namespace Preview;
 
     // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::RunCoro;
-    using TrafficRecorder = psm::testing::TrafficRecorder;
-    using psm::testing::UdpEchoServer;
+    using Preview::Testing::RunCoro;
+    using TrafficRecorder = Preview::Testing::TrafficRecorder;
+    using Preview::Testing::UdpEchoServer;
 
 
     /// 构造 SOCKS5 服务端接入回调（UDP_ASSOCIATE → Dgram 会话标记）
@@ -70,10 +70,10 @@ namespace
         return [resolve = std::move(resolve), IdleTimeout](Middleware::Context &ctx)
             -> net::awaitable<Fault::Code>
         {
-            auto Tcp = std::dynamic_pointer_cast<Socks5::Conn<>>(ctx.inbound);
+            auto Tcp = std::dynamic_pointer_cast<Socks5::Conn<>>(ctx.Inbound);
             if (!Tcp)
             {
-                co_return Fault::Code::protocol_error;
+                co_return Fault::Code::ProtocolError;
             }
             Socks5::UdpAssocOptions opts;
             opts.IdleTimeout = IdleTimeout;
@@ -82,13 +82,13 @@ namespace
             opts.traffic = ctx.traffic;
             opts.identity = ctx.identity;
             auto svc = std::make_shared<Socks5::UdpAssoc>(
-                ctx.inbound->Executor(), std::move(Tcp), std::move(opts));
-            if (co_await svc->BindAndReply() != Error::none)
+                ctx.Inbound->Executor(), std::move(Tcp), std::move(opts));
+            if (co_await svc->BindAndReply() != Error::None)
             {
-                co_return Fault::Code::io_error;
+                co_return Fault::Code::IoError;
             }
             co_await svc->Run();
-            co_return Fault::Code::success;
+            co_return Fault::Code::Success;
         };
     }
 
@@ -100,7 +100,7 @@ namespace
             [echo_port](const Socks5::Address &)
                 -> net::awaitable<std::pair<Error, udp::endpoint>>
             {
-                co_return std::pair{Error::none,
+                co_return std::pair{Error::None,
                                     net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"),
                                                   echo_port)};
             },
@@ -161,7 +161,7 @@ namespace
         if (Socks5::ParseUdpDatagram(
                 std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t *>(Rx.data()), n),
-                src, payload) != Error::none)
+                src, payload) != Error::None)
         {
             co_return out;
         }
@@ -182,7 +182,7 @@ namespace
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -190,7 +190,7 @@ namespace
                               *eph = ep;
                           }
                       });
-        auto recorder = std::make_shared<psm::testing::TrafficRecorder>();
+        auto recorder = std::make_shared<Preview::Testing::TrafficRecorder>();
 
         Runtime::TcpListener listener(
             ioc.get_executor(),
@@ -213,7 +213,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 // TCP 握手 UDP_ASSOCIATE → BND
@@ -229,7 +229,7 @@ namespace
                     std::move(raw), Socks5::ClientConfig{},
                     Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
                     Socks5::Command::UdpAssociate);
-                handshake_ok = err == Error::none && Conn != nullptr;
+                handshake_ok = err == Error::None && Conn != nullptr;
                 if (!Conn)
                 {
                     co_return;
@@ -260,7 +260,7 @@ namespace
                 // 有界轮询等数据面退出并上报流量（对齐 TrojanTrafficIdentity 样板）
                 net::steady_timer timer(ioc);
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-                while (recorder->calls == 0 &&
+                while (recorder->Calls == 0 &&
                        std::chrono::steady_clock::now() < deadline)
                 {
                     timer.expires_after(std::chrono::milliseconds(5));
@@ -274,9 +274,9 @@ namespace
         EXPECT_EQ(echo2, "udp payload two");
         EXPECT_FALSE(*upstream_ep);
         // UDP 数据面流量必须经 traffic sink 上报（up/down 口径与 relay 一致）
-        EXPECT_GT(recorder->calls, 0);
-        EXPECT_GT(recorder->up, 0u);
-        EXPECT_GT(recorder->down, 0u);
+        EXPECT_GT(recorder->Calls, 0);
+        EXPECT_GT(recorder->Up, 0u);
+        EXPECT_GT(recorder->Down, 0u);
     }
 
     TEST(TcpListener, Socks5UdpAssociateBadFrame)
@@ -290,7 +290,7 @@ namespace
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -373,7 +373,7 @@ namespace
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -469,7 +469,7 @@ namespace
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -580,7 +580,7 @@ namespace
                         -> net::awaitable<std::pair<Error, udp::endpoint>>
                     {
                         // 黑洞端点：无监听者、无回包
-                        co_return std::pair{Error::none,
+                        co_return std::pair{Error::None,
                                             net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 1)};
                     },
                     idle_to);
@@ -647,7 +647,7 @@ namespace
                 std::array<std::byte, 1> Probe{};
                 net::steady_timer Wait(ioc);
                 Wait.expires_after(idle_to + std::chrono::milliseconds(400));
-                auto rd = Conn->AsyncReadSome(std::span(Probe), ec);
+                auto rd = Conn->async_read_some(std::span(Probe), ec);
                 auto wt = Wait.async_wait(net::use_awaitable);
                 using boost::asio::experimental::awaitable_operators::operator||;
                 const auto res = co_await (std::move(rd) || std::move(wt));

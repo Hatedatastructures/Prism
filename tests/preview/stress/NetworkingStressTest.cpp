@@ -136,7 +136,7 @@ namespace
                                         reinterpret_cast<const std::byte *>(msg.data()), msg.size()),
                                     ec);
                                 std::array<std::byte, 64> buf{};
-                                const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                                const auto n = co_await Conn->async_read_some(buf, ec);
                                 if (!ec && std::string_view(reinterpret_cast<const char *>(buf.data()),
                                                             n) == msg)
                                 {

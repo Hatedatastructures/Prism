@@ -59,18 +59,18 @@ namespace
         }
 
         constexpr std::size_t data_size = buf_size - tls_hdrsize;
-        psm::memory::vector<std::uint8_t> hmac_data(data_size, psm::memory::current_resource());
+        psm::memory::vector<std::uint8_t> HmacData(data_size, psm::memory::current_resource());
         for (std::size_t i = 0; i < data_size; ++i)
         {
-            hmac_data[i] = static_cast<std::uint8_t>(buf[tls_hdrsize + i]);
+            HmacData[i] = static_cast<std::uint8_t>(buf[tls_hdrsize + i]);
         }
 
         constexpr std::size_t hmac_offset_in_data =
             session_id_len_idx + 1 + tls_session_id_sz - hmac_size - tls_hdrsize;
-        std::memset(hmac_data.data() + hmac_offset_in_data, 0, hmac_size);
+        std::memset(HmacData.data() + hmac_offset_in_data, 0, hmac_size);
 
         auto expected =
-            compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
+            compute_hmac(password, reinterpret_cast<const std::byte *>(HmacData.data()), HmacData.size());
 
         constexpr std::size_t client_hmac_offset = session_id_len_idx + 1 + tls_session_id_sz - hmac_size;
         raw[client_hmac_offset + 0] = expected[0];

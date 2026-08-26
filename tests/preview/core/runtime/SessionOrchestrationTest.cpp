@@ -39,7 +39,7 @@ namespace
     namespace net = boost::asio;
     using namespace Preview;
 
-    using psm::testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
+    using Preview::Testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
 
     /// 测试流量统计 sink
     class test_traffic_sink final : public Preview::Middleware::Context::TrafficSink
@@ -65,12 +65,12 @@ namespace
         std::error_code ec;
         while (true)
         {
-            const auto n = co_await client_side->AsyncReadSome(std::span<std::byte>(buf), ec);
+            const auto n = co_await client_side->async_read_some(std::span<std::byte>(buf), ec);
             if (ec || n == 0)
             {
                 break;
             }
-            co_await client_side->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+            co_await client_side->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
             if (ec)
             {
                 break;
@@ -107,12 +107,12 @@ namespace
             ctx.Target.positive = true;
             ctx.Target.Host = "upstream.test";
             ctx.Target.Port = "8080";
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         };
         opts.Dial = [outbound_s](const Preview::Network::Target &) -> net::awaitable<
             std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
         {
-            co_return std::pair{Preview::Fault::Code::success, outbound_s};
+            co_return std::pair{Preview::Fault::Code::Success, outbound_s};
         };
         return opts;
     }
@@ -140,7 +140,7 @@ namespace
                      // 客户端发 socks5 首包
                      std::error_code wec;
                      const auto payload = socks5_greeting();
-                     co_await client_s->AsyncWriteSome(
+                     co_await client_s->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          wec);
@@ -148,7 +148,7 @@ namespace
                      // 上游回显 → 客户端收到
                      std::array<std::byte, 64> rbuf{};
                      std::error_code rec;
-                     const auto rn = co_await client_s->AsyncReadSome(std::span<std::byte>(rbuf), rec);
+                     const auto rn = co_await client_s->async_read_some(std::span<std::byte>(rbuf), rec);
                      EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(rbuf.data()), rn), payload);
 
                      client_s->Close();
@@ -163,20 +163,20 @@ namespace
         Preview::Runtime::SessionOptions opts;
         Preview::Runtime::Session Session(opts);
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
         RunCoro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      // 垃圾首包（不可识别）
                      const std::string garbage = "\xff\xfe\xfd\xfc\xfb";
                      std::error_code wec;
-                     co_await client_s->AsyncWriteSome(
+                     co_await client_s->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(garbage.data()),
                                                     garbage.size()),
                          wec);
                      rc = co_await Session.Run(inbound_s);
                  });
-        EXPECT_EQ(rc, Preview::Fault::Code::protocol_error);
+        EXPECT_EQ(rc, Preview::Fault::Code::ProtocolError);
     }
 
     TEST(SessionOrchestration, AuthRejectedMidway)
@@ -191,23 +191,23 @@ namespace
         {
             ctx.RawIdentity = "alice";
             ctx.RawSecret = "bad";
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         };
         Preview::Runtime::Session Session(opts);
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
         RunCoro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      std::error_code wec;
                      const auto payload = socks5_greeting();
-                     co_await client_s->AsyncWriteSome(
+                     co_await client_s->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          wec);
                      rc = co_await Session.Run(inbound_s);
                  });
-        EXPECT_EQ(rc, Preview::Fault::Code::auth_failed);
+        EXPECT_EQ(rc, Preview::Fault::Code::AuthFailed);
     }
 
     TEST(SessionOrchestration, TrafficReportedOnRelayEnd)
@@ -226,7 +226,7 @@ namespace
             ctx.Target.positive = true;
             ctx.RawIdentity = "alice";
             ctx.RawSecret = "pw";
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         };
         Preview::Runtime::Session Session(opts);
 
@@ -244,14 +244,14 @@ namespace
 
                      std::error_code wec;
                      const auto payload = socks5_greeting();
-                     co_await client_s->AsyncWriteSome(
+                     co_await client_s->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          wec);
                      // 等回显（relay 转发 → echo → 回显）
                      std::array<std::byte, 64> buf{};
                      std::error_code sec;
-                     const auto n = co_await client_s->AsyncReadSome(std::span<std::byte>(buf), sec);
+                     const auto n = co_await client_s->async_read_some(std::span<std::byte>(buf), sec);
                      EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n), payload);
 
                      // 空闲 50ms → relay 超时关闭 → 会话结束 → 上报
@@ -280,24 +280,24 @@ namespace
             ctx.Target.positive = true;
             ctx.Target.Host = "Target.test";
             ctx.Target.Port = "443";
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         };
         opts.Dial = [&](const Preview::Network::Target &t) -> net::awaitable<
             std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
         {
             dialed_host = t.Host;
             dialed_port = t.Port;
-            co_return std::pair{Preview::Fault::Code::success, outbound_s};
+            co_return std::pair{Preview::Fault::Code::Success, outbound_s};
         };
         Preview::Runtime::Session Session(opts);
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
         RunCoro(ioc,
                  [&]() -> net::awaitable<void>
                  {
                      std::error_code wec;
                      const auto payload = socks5_greeting();
-                     co_await client_s->AsyncWriteSome(
+                     co_await client_s->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          wec);
@@ -305,7 +305,7 @@ namespace
                      upstream_s->Close(); // 未启动上游协程，显式结束下行方向
                      rc = co_await Session.Run(inbound_s);
                  });
-        EXPECT_EQ(rc, Preview::Fault::Code::success);
+        EXPECT_EQ(rc, Preview::Fault::Code::Success);
         EXPECT_EQ(dialed_host, "Target.test");
         EXPECT_EQ(dialed_port, "443");
     }

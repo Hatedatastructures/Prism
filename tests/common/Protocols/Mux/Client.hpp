@@ -13,6 +13,8 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
 
 #include <cstddef>
 #include <memory>
@@ -58,10 +60,10 @@ namespace Preview::Mux
             {
                 return false;
             }
-            auto o = opt;
-            o.Role = Preview::Role::Client;
-            session_ = SessionType::Create(std::move(raw), o);
-            return session_ != nullptr;
+            auto O = opt;
+            O.Role = Preview::Role::Client;
+            Session_ = SessionType::Create(std::move(raw), O);
+            return Session_ != nullptr;
         }
 
         /**
@@ -70,11 +72,11 @@ namespace Preview::Mux
          */
         auto OpenStream() -> net::awaitable<SharedTransmission>
         {
-            if (!session_)
+            if (!Session_)
             {
                 co_return nullptr;
             }
-            auto Handle = co_await session_->OpenStream();
+            auto Handle = co_await Session_->OpenStream();
             if (!Handle)
             {
                 co_return nullptr;
@@ -84,13 +86,19 @@ namespace Preview::Mux
 
         /**
          * @brief 关闭会话
+         * @details Session::Close() 是惰性协程，经 co_spawn 投递到
+         * 会话执行器上执行；lambda 按值捕获会话保证存活。
          */
         auto Close() -> void
         {
-            if (session_)
+            auto Session = Session_;
+            if (!Session)
             {
-                session_->Close();
+                return;
             }
+            net::co_spawn(
+                Session->Executor(), [Session]() -> net::awaitable<void> { co_await Session->Close(); },
+                net::detached);
         }
 
         /**
@@ -99,7 +107,7 @@ namespace Preview::Mux
          */
         [[nodiscard]] auto IsOpen() const -> bool
         {
-            return session_ && session_->IsOpen();
+            return Session_ && Session_->IsOpen();
         }
 
         /**
@@ -108,11 +116,11 @@ namespace Preview::Mux
          */
         [[nodiscard]] auto Session() const noexcept -> std::shared_ptr<SessionType>
         {
-            return session_;
+            return Session_;
         }
 
     private:
-        std::shared_ptr<SessionType> session_;
+        std::shared_ptr<SessionType> Session_;
     };
 
     /// 多路复用客户端共享指针

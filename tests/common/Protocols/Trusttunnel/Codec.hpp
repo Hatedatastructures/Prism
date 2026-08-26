@@ -36,32 +36,32 @@ namespace Preview::Trusttunnel
         const std::string raw = std::string(user) + ":" + std::string(pass);
         std::string enc;
         enc.reserve((raw.size() + 2) / 3 * 4);
-        std::size_t i = 0;
-        for (; i + 2 < raw.size(); i += 3)
+        std::size_t I = 0;
+        for (; I + 2 < raw.size(); I += 3)
         {
-            const auto n = static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[i])) << 16 |
-                           static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[i + 1])) << 8 |
-                           static_cast<std::uint8_t>(raw[i + 2]);
-            enc.push_back(base64_table[(n >> 18) & 0x3F]);
-            enc.push_back(base64_table[(n >> 12) & 0x3F]);
-            enc.push_back(base64_table[(n >> 6) & 0x3F]);
-            enc.push_back(base64_table[n & 0x3F]);
+            const auto N = static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I])) << 16 |
+                           static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I + 1])) << 8 |
+                           static_cast<std::uint8_t>(raw[I + 2]);
+            enc.push_back(base64_table[(N >> 18) & 0x3F]);
+            enc.push_back(base64_table[(N >> 12) & 0x3F]);
+            enc.push_back(base64_table[(N >> 6) & 0x3F]);
+            enc.push_back(base64_table[N & 0x3F]);
         }
-        if (i + 1 == raw.size())
+        if (I + 1 == raw.size())
         {
-            const auto n = static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[i])) << 16;
-            enc.push_back(base64_table[(n >> 18) & 0x3F]);
-            enc.push_back(base64_table[(n >> 12) & 0x3F]);
+            const auto N = static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I])) << 16;
+            enc.push_back(base64_table[(N >> 18) & 0x3F]);
+            enc.push_back(base64_table[(N >> 12) & 0x3F]);
             enc.push_back('=');
             enc.push_back('=');
         }
-        else if (i + 2 == raw.size())
+        else if (I + 2 == raw.size())
         {
-            const auto n = static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[i])) << 16 |
-                           static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[i + 1])) << 8;
-            enc.push_back(base64_table[(n >> 18) & 0x3F]);
-            enc.push_back(base64_table[(n >> 12) & 0x3F]);
-            enc.push_back(base64_table[(n >> 6) & 0x3F]);
+            const auto N = static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I])) << 16 |
+                           static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I + 1])) << 8;
+            enc.push_back(base64_table[(N >> 18) & 0x3F]);
+            enc.push_back(base64_table[(N >> 12) & 0x3F]);
+            enc.push_back(base64_table[(N >> 6) & 0x3F]);
             enc.push_back('=');
         }
         return std::string(BasicPrefix) + enc;
@@ -82,14 +82,14 @@ namespace Preview::Trusttunnel
         {
             return false;
         }
-        const auto encoded = authorization.substr(BasicPrefix.size());
-        if (encoded.empty())
+        const auto Encoded = authorization.substr(BasicPrefix.size());
+        if (Encoded.empty())
         {
             return false;
         }
 
         // base64 解码
-        auto val = [](char c) -> int
+        auto Val = [](char c) -> int
         {
             if (c >= 'A' && c <= 'Z')
             {
@@ -114,53 +114,53 @@ namespace Preview::Trusttunnel
             return -1;
         };
         std::string raw;
-        std::uint32_t acc = 0;
-        int bits = 0;
-        for (const char c : encoded)
+        std::uint32_t Acc = 0;
+        int Bits = 0;
+        for (const char c : Encoded)
         {
             if (c == '=')
             {
                 break;
             }
-            const int v = val(c);
-            if (v < 0)
+            const int V = Val(c);
+            if (V < 0)
             {
                 return false;
             }
-            acc = (acc << 6) | static_cast<std::uint32_t>(v);
-            bits += 6;
-            if (bits >= 8)
+            Acc = (Acc << 6) | static_cast<std::uint32_t>(V);
+            Bits += 6;
+            if (Bits >= 8)
             {
-                bits -= 8;
-                raw.push_back(static_cast<char>((acc >> bits) & 0xFF));
+                Bits -= 8;
+                raw.push_back(static_cast<char>((Acc >> Bits) & 0xFF));
             }
         }
-        const auto colon = raw.find(':');
-        if (colon == std::string::npos)
+        const auto Colon = raw.find(':');
+        if (Colon == std::string::npos)
         {
             return false;
         }
-        user = raw.substr(0, colon);
-        pass = raw.substr(colon + 1);
+        user = raw.substr(0, Colon);
+        pass = raw.substr(Colon + 1);
         return true;
     }
 
     /**
      * @brief 校验 Basic Auth（服务端侧）
      * @param authorization 客户端头值
-     * @param expect_user 期望用户名
-     * @param expect_pass 期望密码
+     * @param ExpectUser 期望用户名
+     * @param ExpectPass 期望密码
      * @return true = 匹配
      */
-    [[nodiscard]] inline auto VerifyBasicAuth(std::string_view authorization, std::string_view expect_user,
-                                                std::string_view expect_pass) -> bool
+    [[nodiscard]] inline auto VerifyBasicAuth(std::string_view authorization, std::string_view ExpectUser,
+                                                std::string_view ExpectPass) -> bool
     {
         std::string user, pass;
         if (!ParseBasicAuth(authorization, user, pass))
         {
             return false;
         }
-        return user == expect_user && pass == expect_pass;
+        return user == ExpectUser && pass == ExpectPass;
     }
 
 } // namespace Preview::Trusttunnel

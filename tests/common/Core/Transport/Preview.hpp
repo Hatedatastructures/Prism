@@ -31,7 +31,7 @@ namespace Preview::Transport {
     namespace net = boost::asio;
 
     /**
-     * @class Preview
+      * @class PreviewTransport
      * @brief 预读数据回放包装器
      * @details 继承 Transmission 抽象基类，在内部传输层外包装一层
      * 预读数据。优先从内部缓冲区返回数据，耗完后委托给内部传输。
@@ -41,7 +41,7 @@ namespace Preview::Transport {
      * 析构后 FrameArena 失效，Preview 析构时 m_resource 悬垂。详见
      * docs/ARCHITECTURE.md "资源所有权模型"。
      */
-    class Preview final : public Transmission
+    class PreviewTransport final : public Transmission
     {
     public:
         /**
@@ -52,7 +52,7 @@ namespace Preview::Transport {
          * GlobalPool 分配（永生），保证 Preview 即使被 detached 协程长期持有，
          * 析构时也不会因 m_resource 悬垂崩溃。
          */
-        explicit Preview(SharedTransmission Inner, std::span<const std::byte> preread);
+        explicit PreviewTransport(SharedTransmission Inner, std::span<const std::byte> preread);
 
         /**
          * @brief 获取内层传输
@@ -61,7 +61,7 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
         {
-            return inner_.get();
+            return Inner_.get();
         }
 
         /**
@@ -70,7 +70,7 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Transmission * override
         {
-            return inner_.get();
+            return Inner_.get();
         }
 
         /**
@@ -79,9 +79,9 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto TransportType() const noexcept -> Type override
         {
-            if (inner_)
+            if (Inner_)
             {
-                return inner_->TransportType();
+                return Inner_->TransportType();
             }
             return Type::Tcp;
         }
@@ -101,7 +101,7 @@ namespace Preview::Transport {
          * @details 优先从预读缓冲区返回数据，预读数据耗尽后委托给
          * 内部传输对象进行实际读取。
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -110,7 +110,7 @@ namespace Preview::Transport {
          * @param ec 输出错误码
          * @return 协程对象，完成后返回写入的字节数
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -119,7 +119,7 @@ namespace Preview::Transport {
          * @param Buffer 目标缓冲区
          * @param handler 完成处理器
          */
-        void AsyncReadSome(
+        void async_read_some(
             std::span<std::byte> Buffer,
             net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
 
@@ -129,7 +129,7 @@ namespace Preview::Transport {
          * @param Buffer 源数据缓冲区
          * @param handler 完成处理器
          */
-        void AsyncWriteSome(
+        void async_write_some(
             std::span<const std::byte> Buffer,
             net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override;
 
@@ -140,12 +140,12 @@ namespace Preview::Transport {
         [[nodiscard]] auto AsyncWrite(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
-            if (!inner_)
+            if (!Inner_)
             {
                 ec = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await inner_->AsyncWrite(Buffer, ec);
+            co_return co_await Inner_->AsyncWrite(Buffer, ec);
         }
 
         /**
@@ -166,124 +166,124 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto Inner() const noexcept -> SharedTransmission
         {
-            return inner_;
+            return Inner_;
         }
 
     private:
-        SharedTransmission inner_;                // 内部传输对象
+        SharedTransmission Inner_;                // 内部传输对象
         std::vector<std::byte> PrereadBuffer_; // 预读数据缓冲区（拥有所有权）
-        std::size_t offset_{0};                    // 当前预读偏移量
+        std::size_t Offset_{0};                    // 当前预读偏移量
     };
 
     /**
      * @brief 将入站传输包装为带预读数据的传输
-     * @param inbound 入站传输（所有权转移）
+     * @param Inbound 入站传输（所有权转移）
      * @param Data 协议嗅探期间捕获的预读数据
      * @return 包装后的传输对象；若 Data 为空则直接返回原始入站传输
-     * @details 若 Data 不为空，将 inbound 的所有权转移到 Preview 包装器中，
+     * @details 若 Data 不为空，将 Inbound 的所有权转移到 Preview 包装器中，
      * 在后续读取时优先重放预读数据。Preview 内部 PrereadBuffer_ 用 GlobalPool
      * 分配（永生），不接受外部 PMR Allocator，避免 Session 级资源外流到 detached
      * 协程（详见 docs/ARCHITECTURE.md）。
      * @note 调用后入站传输所有权转移至返回值。
      */
-    [[nodiscard]] inline auto WrapWithPreview(SharedTransmission inbound, std::span<const std::byte> Data)
+    [[nodiscard]] inline auto WrapWithPreview(SharedTransmission Inbound, std::span<const std::byte> Data)
         -> SharedTransmission
     {
         if (!Data.empty())
         {
-            inbound = std::make_shared<Preview>(std::move(inbound), Data);
+            Inbound = std::make_shared<PreviewTransport>(std::move(Inbound), Data);
         }
-        return inbound;
+        return Inbound;
     }
 
 
 
 
-    inline Preview::Preview(SharedTransmission Inner, std::span<const std::byte> preread)
-        : inner_(std::move(Inner)), PrereadBuffer_(preread.begin(), preread.end())
+    inline PreviewTransport::PreviewTransport(SharedTransmission Inner, std::span<const std::byte> preread)
+        : Inner_(std::move(Inner)), PrereadBuffer_(preread.begin(), preread.end())
     {
     }
 
-    inline auto Preview::Executor() const -> ExecutorType
+    inline auto PreviewTransport::Executor() const -> ExecutorType
     {
-        if (!inner_)
+        if (!Inner_)
         {
             Diagnose::Error("Preview::Executor() called with null Inner transport");
             return ExecutorType{};
         }
-        return inner_->Executor();
+        return Inner_->Executor();
     }
 
-    inline auto Preview::AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+    inline auto PreviewTransport::async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
-        if (offset_ < PrereadBuffer_.size())
+        if (Offset_ < PrereadBuffer_.size())
         {
-            const auto Remaining = PrereadBuffer_.size() - offset_;
+            const auto Remaining = PrereadBuffer_.size() - Offset_;
             const auto ToCopy = (std::min)(Remaining, Buffer.size());
             if (ToCopy > 0)
             {
-                std::memcpy(Buffer.data(), PrereadBuffer_.data() + offset_, ToCopy);
-                offset_ += ToCopy;
+                std::memcpy(Buffer.data(), PrereadBuffer_.data() + Offset_, ToCopy);
+                Offset_ += ToCopy;
             }
             ec.clear();
             co_return ToCopy;
         }
 
-        if (!inner_)
+        if (!Inner_)
         {
             ec = std::make_error_code(std::errc::bad_file_descriptor);
             co_return 0;
         }
 
-        co_return co_await inner_->AsyncReadSome(Buffer, ec);
+        co_return co_await Inner_->async_read_some(Buffer, ec);
     }
 
-    inline auto Preview::AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+    inline auto PreviewTransport::async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
-        if (!inner_)
+        if (!Inner_)
         {
             ec = std::make_error_code(std::errc::bad_file_descriptor);
             co_return 0;
         }
-        co_return co_await inner_->AsyncWriteSome(Buffer, ec);
+        co_return co_await Inner_->async_write_some(Buffer, ec);
     }
 
-    inline void Preview::Close()
+    inline void PreviewTransport::Close()
     {
-        if (inner_)
+        if (Inner_)
         {
-            inner_->Close();
+            Inner_->Close();
         }
     }
 
-    inline void Preview::Cancel()
+    inline void PreviewTransport::Cancel()
     {
-        if (inner_)
+        if (Inner_)
         {
-            inner_->Cancel();
+            Inner_->Cancel();
         }
     }
 
-    inline void Preview::AsyncReadSome(
+    inline void PreviewTransport::async_read_some(
         std::span<std::byte> Buffer,
         net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
     {
-        if (offset_ < PrereadBuffer_.size())
+        if (Offset_ < PrereadBuffer_.size())
         {
-            const auto Remaining = PrereadBuffer_.size() - offset_;
+            const auto Remaining = PrereadBuffer_.size() - Offset_;
             const auto ToCopy = (std::min)(Remaining, Buffer.size());
             if (ToCopy > 0)
             {
-                std::memcpy(Buffer.data(), PrereadBuffer_.data() + offset_, ToCopy);
-                offset_ += ToCopy;
+                std::memcpy(Buffer.data(), PrereadBuffer_.data() + Offset_, ToCopy);
+                Offset_ += ToCopy;
             }
             std::move(handler)(boost::system::error_code{}, ToCopy);
             return;
         }
 
-        if (!inner_)
+        if (!Inner_)
         {
             std::move(handler)(boost::system::error_code(static_cast<int>(std::errc::bad_file_descriptor),
                                                          boost::system::generic_category()),
@@ -291,14 +291,14 @@ namespace Preview::Transport {
             return;
         }
 
-        inner_->AsyncReadSome(Buffer, std::move(handler));
+        Inner_->async_read_some(Buffer, std::move(handler));
     }
 
-    inline void Preview::AsyncWriteSome(
+    inline void PreviewTransport::async_write_some(
         std::span<const std::byte> Buffer,
         net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
     {
-        if (!inner_)
+        if (!Inner_)
         {
             std::move(handler)(boost::system::error_code(static_cast<int>(std::errc::bad_file_descriptor),
                                                          boost::system::generic_category()),
@@ -306,7 +306,7 @@ namespace Preview::Transport {
             return;
         }
 
-        inner_->AsyncWriteSome(Buffer, std::move(handler));
+        Inner_->async_write_some(Buffer, std::move(handler));
     }
 
 

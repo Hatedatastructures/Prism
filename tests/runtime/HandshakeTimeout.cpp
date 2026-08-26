@@ -433,12 +433,12 @@ namespace
 
             // 尝试读取（server 端不会发数据）
             std::array<std::byte, 64> buf{};
-            std::error_code read_ec;
-            co_await trans->async_read_some(buf, read_ec);
+            std::error_code ReadEc;
+            co_await trans->async_read_some(buf, ReadEc);
 
-            EXPECT_TRUE(!!read_ec) << "read should fail after deadline cancels transport";
+            EXPECT_TRUE(!!ReadEc) << "read should fail after deadline cancels transport";
             // 错误码应该是 canceled 或 eof（cancel 后 socket 被取消）
-            auto fault_code = psm::fault::to_code(read_ec);
+            auto fault_code = psm::fault::to_code(ReadEc);
             bool is_expected = (fault_code == psm::fault::code::canceled) ||
                                (fault_code == psm::fault::code::eof) ||
                                (fault_code == psm::fault::code::io_error);

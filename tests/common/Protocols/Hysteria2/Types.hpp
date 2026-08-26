@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief Hysteria2 协议基础类型
  * @details Hysteria2 是 QUIC 之上的代理协议：
  *          - 认证：HTTP/3 风格 HEADERS 帧（:Method POST, :Path /Auth, authorization）
@@ -49,7 +49,7 @@ namespace Preview::Hysteria2
             /// TCP 数据
             Tcp = 0x01,
             /// UDP 数据（带 Session/packet Id）
-            udp = 0x02,
+            Udp = 0x02,
         };
 
         /// 消息类型

@@ -179,7 +179,7 @@ namespace
         for (int i = 0; i < 2000; ++i)
         {
             const auto Data = mutate_bytes(rng);
-            std::vector<std::uint8_t> out(Preview::Memory::CurrentResource());
+            std::vector<std::uint8_t> out;
             (void)qpack::HuffmanDecode(std::span<const std::uint8_t>(Data), out);
             // 注：qpack huffman 位填充可致输出略膨胀（实测 ~1.32x，最短码 5bit 界限 1.6x），
             //     无安全上限可断言；保持健壮性角色（不崩溃 + ASan 捕获越界）。

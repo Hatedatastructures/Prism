@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file QuicGatewayE2E.cpp
  * @brief QUIC 入站网关端到端测试（Hysteria2 / TUIC v5）
  * @details 搭建最小网关环境（进程资源 + worker + balancer + quic_gateway），
@@ -39,14 +39,14 @@ namespace
 
     void configure_self_signed(net::ssl::context &ctx)
     {
-        auto *pkey_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        auto *PkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
         EVP_PKEY *pkey = nullptr;
-        if (pkey_ctx && EVP_PKEY_keygen_init(pkey_ctx) > 0 &&
-            EVP_PKEY_CTX_set_rsa_keygen_bits(pkey_ctx, 2048) > 0)
+        if (PkeyCtx && EVP_PKEY_keygen_init(PkeyCtx) > 0 &&
+            EVP_PKEY_CTX_set_rsa_keygen_bits(PkeyCtx, 2048) > 0)
         {
-            EVP_PKEY_keygen(pkey_ctx, &pkey);
+            EVP_PKEY_keygen(PkeyCtx, &pkey);
         }
-        EVP_PKEY_CTX_free(pkey_ctx);
+        EVP_PKEY_CTX_free(PkeyCtx);
         ASSERT_NE(pkey, nullptr);
 
         auto *x509 = X509_new();
@@ -90,7 +90,7 @@ namespace
     struct gateway_env
     {
         std::shared_ptr<psm::settings> cfg;
-        std::shared_ptr<net::ssl::context> ssl_ctx;
+        std::shared_ptr<net::ssl::context> SslCtx;
         std::shared_ptr<psm::user::directory> accounts;
         std::shared_ptr<psm::resource::process> process;
         std::shared_ptr<psm::resource::worker> worker;
@@ -98,6 +98,16 @@ namespace
         std::shared_ptr<psm::runtime::front::quic_gateway> gateway;
         std::thread worker_thread;
         std::uint16_t port{0};
+
+        ~gateway_env()
+        {
+            // 断言失败抛异常时 teardown 可能未执行：析构兜底 join，
+            // 避免 joinable 线程析构触发 std::terminate
+            if (worker_thread.joinable())
+            {
+                worker_thread.join();
+            }
+        }
 
         void setup(bool hysteria2, bool tuic)
         {
@@ -122,16 +132,16 @@ namespace
                 .uuid = psm::memory::string("123e4567-e89b-12d3-a456-426614174000"),
                 .password = psm::memory::string("tuic_password")});
 
-            ssl_ctx = std::make_shared<net::ssl::context>(net::ssl::context::tlsv13);
-            ssl_ctx->set_options(net::ssl::context::default_workarounds);
-            configure_self_signed(*ssl_ctx);
+            SslCtx = std::make_shared<net::ssl::context>(net::ssl::context::tlsv13);
+            SslCtx->set_options(net::ssl::context::default_workarounds);
+            configure_self_signed(*SslCtx);
 
             accounts = std::make_shared<psm::user::directory>(psm::memory::current_resource());
             accounts->upsert("hysteria2_password", 0);
             accounts->upsert("123e4567-e89b-12d3-a456-426614174000", 0);
 
             process = std::make_shared<psm::resource::process>(
-                psm::resource::process::options{cfg, ssl_ctx, accounts});
+                psm::resource::process::options{cfg, SslCtx, accounts});
 
             worker = std::make_shared<psm::resource::worker>(
                 psm::resource::worker::options{process, psm::memory::current_resource(), 0});

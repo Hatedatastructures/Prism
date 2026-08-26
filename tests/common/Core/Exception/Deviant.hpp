@@ -52,7 +52,7 @@ namespace Preview::Exception
          */
         explicit Deviant(std::error_code ec, std::string_view desc = {},
                          const std::source_location &loc = std::source_location::current())
-            : std::runtime_error(CreateWhat(ec, desc)), ec_(ec), location_(loc)
+            : std::runtime_error(CreateWhat(ec, desc)), Ec_(ec), Location_(loc)
         {
         }
 
@@ -65,7 +65,7 @@ namespace Preview::Exception
          */
         explicit Deviant(const std::string &msg,
                          const std::source_location &loc = std::source_location::current())
-            : Deviant(std::error_code(static_cast<int>(Fault::Code::generic_error), Fault::category()), msg,
+            : Deviant(std::error_code(static_cast<int>(Fault::Code::GenericError), Fault::Category()), msg,
                       loc)
         {
         }
@@ -91,7 +91,7 @@ namespace Preview::Exception
          */
         [[nodiscard]] auto ErrorCode() const noexcept -> const std::error_code &
         {
-            return ec_;
+            return Ec_;
         }
 
         /**
@@ -100,7 +100,7 @@ namespace Preview::Exception
          */
         [[nodiscard]] auto Location() const noexcept -> const std::source_location &
         {
-            return location_;
+            return Location_;
         }
 
         /**
@@ -109,7 +109,7 @@ namespace Preview::Exception
          */
         [[nodiscard]] auto Filename() const -> std::string
         {
-            return std::filesystem::path(location_.file_name()).filename().string();
+            return std::filesystem::path(Location_.file_name()).filename().string();
         }
 
         /**
@@ -121,7 +121,7 @@ namespace Preview::Exception
          */
         [[nodiscard]] virtual auto Dump() const -> std::string
         {
-            return std::format("[{}:{}] [{}:{}] {}", Filename(), location_.line(), TypeName(), ec_.value(),
+            return std::format("[{}:{}] [{}:{}] {}", Filename(), Location_.line(), TypeName(), Ec_.value(),
                                std::runtime_error::what());
         }
 
@@ -150,7 +150,7 @@ namespace Preview::Exception
             return std::format("{}: {}", ec.message(), desc);
         }
 
-        std::error_code ec_;            // 错误码
-        std::source_location location_; // 异常发生的位置
+        std::error_code Ec_;            // 错误码
+        std::source_location Location_; // 异常发生的位置
     }; // class Deviant
 } // namespace Preview::Exception

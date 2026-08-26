@@ -1,5 +1,5 @@
 /**
- * @file qpack.hpp
+ * @file Qpack.hpp
  * @brief QPACK 头压缩编解码（RFC 9204 静态表 + HPACK huffman）
  * @details 实现 Hysteria2 HTTP/3 认证所需的 QPACK 解码/编码：
  *          1. 静态表 99 项（RFC 9204 附录 A）
@@ -47,7 +47,7 @@ namespace Preview::Http3::Qpack
      *          metacubex/qpack 客户端编码器对应。
      */
     [[nodiscard]] auto DecodeHeaderBlock(std::span<const std::uint8_t> Data, Preview::Memory::ResourcePointer mr)
-        -> std::vector<HeaderField>;
+        -> Preview::Memory::vector<HeaderField>;
 
     /**
      * @brief 编码一个头字段为 QPACK 字段表示
@@ -93,40 +93,40 @@ namespace Preview::Http3::Qpack
         /**
          * @brief varint 解码（HPACK/QPACK 通用格式）
          * @param in 输入字节序列
-         * @param prefix_bits 前缀位宽
+         * @param PrefixBits 前缀位宽
          * @param value 解码结果
          * @param consumed 消耗的字节数
          * @return 是否解码成功
          */
-        [[nodiscard]] auto ReadVarint(std::span<const std::uint8_t> in, std::uint8_t prefix_bits,
-                                       std::uint64_t &value, std::size_t &consumed) -> bool
+        [[nodiscard]] auto ReadVarint(std::span<const std::uint8_t> in, std::uint8_t PrefixBits,
+                                       std::uint64_t &value, std::size_t &Consumed) -> bool
         {
             if (in.empty())
             {
                 return false;
             }
-            const std::uint64_t PrefixMask = (1ULL << prefix_bits) - 1;
-            std::uint64_t v = in[0] & PrefixMask;
-            std::size_t offset = 1;
-            if (v < PrefixMask)
+            const std::uint64_t PrefixMask = (1ULL << PrefixBits) - 1;
+            std::uint64_t V = in[0] & PrefixMask;
+            std::size_t Offset = 1;
+            if (V < PrefixMask)
             {
-                value = v;
-                consumed = offset;
+                value = V;
+                Consumed = Offset;
                 return true;
             }
-            std::uint64_t shift = 0;
-            while (offset < in.size())
+            std::uint64_t Shift = 0;
+            while (Offset < in.size())
             {
-                const auto b = in[offset++];
-                v += static_cast<std::uint64_t>(b & 0x7F) << shift;
-                if ((b & 0x80) == 0)
+                const auto B = in[Offset++];
+                V += static_cast<std::uint64_t>(B & 0x7F) << Shift;
+                if ((B & 0x80) == 0)
                 {
-                    value = v;
-                    consumed = offset;
+                    value = V;
+                    Consumed = Offset;
                     return true;
                 }
-                shift += 7;
-                if (shift >= 63)
+                Shift += 7;
+                if (Shift >= 63)
                 {
                     return false;
                 }
@@ -137,52 +137,52 @@ namespace Preview::Http3::Qpack
         /**
          * @brief varint 编码（前缀位保留）
          * @param out 输出缓冲区
-         * @param prefix_bits 前缀位宽
+         * @param PrefixBits 前缀位宽
          * @param value 待编码的值
-         * @param prefix_pattern 前缀模式
+         * @param PrefixPattern 前缀模式
          * @return 写入的字节数，失败返回 0
          */
-        [[nodiscard]] auto WriteVarint(std::span<std::uint8_t> out, std::uint8_t prefix_bits,
-                                        const std::uint64_t value, std::uint8_t prefix_pattern)
+        [[nodiscard]] auto WriteVarint(std::span<std::uint8_t> out, std::uint8_t PrefixBits,
+                                        const std::uint64_t value, std::uint8_t PrefixPattern)
             -> std::size_t
         {
-            const std::uint64_t PrefixMask = (1ULL << prefix_bits) - 1;
-            std::size_t n = 0;
+            const std::uint64_t PrefixMask = (1ULL << PrefixBits) - 1;
+            std::size_t N = 0;
             if (value < PrefixMask)
             {
                 if (out.size() < 1)
                 {
                     return 0;
                 }
-                out[0] = static_cast<std::uint8_t>(prefix_pattern | value);
+                out[0] = static_cast<std::uint8_t>(PrefixPattern | value);
                 return 1;
             }
             if (out.size() < 1)
             {
                 return 0;
             }
-            out[0] = static_cast<std::uint8_t>(prefix_pattern | PrefixMask);
-            n = 1;
-            auto rest = value - PrefixMask;
-            while (rest >= 128)
+            out[0] = static_cast<std::uint8_t>(PrefixPattern | PrefixMask);
+            N = 1;
+            auto Rest = value - PrefixMask;
+            while (Rest >= 128)
             {
-                if (out.size() <= n)
+                if (out.size() <= N)
                 {
                     return 0;
                 }
-                out[n++] = static_cast<std::uint8_t>((rest & 0x7F) | 0x80);
-                rest >>= 7;
+                out[N++] = static_cast<std::uint8_t>((Rest & 0x7F) | 0x80);
+                Rest >>= 7;
             }
-            if (out.size() <= n)
+            if (out.size() <= N)
             {
                 return 0;
             }
-            out[n++] = static_cast<std::uint8_t>(rest);
-            return n;
+            out[N++] = static_cast<std::uint8_t>(Rest);
+            return N;
         }
 
         /// HPACK huffman 编码表（RFC 7541 附录 B）
-        constexpr std::array<std::uint32_t, 256> huffman_codes = {
+        constexpr std::array<std::uint32_t, 256> HuffmanCodes = {
             0x1ff8,    0x7fffd8,  0xfffffe2,  0xfffffe3, 0xfffffe4, 0xfffffe5,  0xfffffe6,  0xfffffe7,
             0xfffffe8, 0xffffea,  0x3ffffffc, 0xfffffe9, 0xfffffea, 0x3ffffffd, 0xfffffeb,  0xfffffec,
             0xfffffed, 0xfffffee, 0xfffffef,  0xffffff0, 0xffffff1, 0xffffff2,  0x3ffffffe, 0xffffff3,
@@ -217,7 +217,7 @@ namespace Preview::Http3::Qpack
             0x7ffffeb, 0xffffffe, 0x7ffffec,  0x7ffffed, 0x7ffffee, 0x7ffffef,  0x7fffff0,  0x3ffffee};
 
         /// HPACK huffman 码长表（RFC 7541 附录 B）
-        constexpr std::array<std::uint8_t, 256> huffman_lens = {
+        constexpr std::array<std::uint8_t, 256> HuffmanLens = {
             13, 23, 28, 28, 28, 28, 28, 28, 28, 24, 30, 28, 28, 30, 28, 28, 28, 28, 28, 28, 28, 28, 30, 28,
             28, 28, 28, 28, 28, 28, 28, 28, 6,  10, 10, 12, 13, 6,  8,  11, 10, 10, 8,  11, 8,  6,  6,  6,
             5,  5,  5,  6,  6,  6,  6,  6,  6,  6,  7,  8,  15, 6,  12, 10, 13, 6,  7,  7,  7,  7,  7,  7,
@@ -239,12 +239,12 @@ namespace Preview::Http3::Qpack
             {
                 row.fill(-1);
             }
-            for (std::uint16_t sym = 0; sym < 256; ++sym)
+            for (std::uint16_t Sym = 0; Sym < 256; ++Sym)
             {
-                const auto len = huffman_lens[sym];
-                if (len <= 8)
+                const auto Len = HuffmanLens[Sym];
+                if (Len <= 8)
                 {
-                    tbl[len][static_cast<std::size_t>(huffman_codes[sym])] = static_cast<std::int16_t>(sym);
+                    tbl[Len][static_cast<std::size_t>(HuffmanCodes[Sym])] = static_cast<std::int16_t>(Sym);
                 }
             }
             return tbl;
@@ -252,18 +252,18 @@ namespace Preview::Http3::Qpack
         constexpr auto HuffmanLookup = BuildHuffmanLookup();
 
         /// 快速 huffman 符号解码：len ≤ 8 查表，否则线性扫描
-        [[nodiscard]] inline auto HuffmanFindSym(const std::uint32_t Code, const std::uint16_t len)
+        [[nodiscard]] inline auto HuffmanFindSym(const std::uint32_t Code, const std::uint16_t Len)
             -> std::int16_t
         {
-            if (len <= 8)
+            if (Len <= 8)
             {
-                return HuffmanLookup[len][Code & 0xFF];
+                return HuffmanLookup[Len][Code & 0xFF];
             }
-            for (std::uint16_t sym = 0; sym < 256; ++sym)
+            for (std::uint16_t Sym = 0; Sym < 256; ++Sym)
             {
-                if (huffman_lens[sym] == len && huffman_codes[sym] == Code)
+                if (HuffmanLens[Sym] == Len && HuffmanCodes[Sym] == Code)
                 {
-                    return static_cast<std::int16_t>(sym);
+                    return static_cast<std::int16_t>(Sym);
                 }
             }
             return -1;
@@ -276,7 +276,7 @@ namespace Preview::Http3::Qpack
             std::string_view value;
         };
 
-        constexpr std::array<StaticEntry, 99> static_table = {
+        constexpr std::array<StaticEntry, 99> StaticTable = {
             StaticEntry{":authority", ""},
             StaticEntry{":Path", "/"},
             StaticEntry{"age", "0"},
@@ -390,12 +390,12 @@ namespace Preview::Http3::Qpack
         {
             std::string_view Name;
             std::uint8_t FirstIndex;   // 名称引用编码的基准索引（该名称首个静态表条目）
-            std::uint16_t ValueOffset; // 值条目在 encoder_values 中的偏移
+            std::uint16_t ValueOffset; // 值条目在 EncoderValues 中的偏移
             std::uint8_t ValueCount;   // 值条目数量（0 = 该名称仅有空值条目）
         };
 
-        /// 编码器值条目表（按 encoder_names 同名顺序排列）
-        constexpr std::array<EncoderValueEntry, 78> encoder_values = {
+        /// 编码器值条目表（按 EncoderNames 同名顺序排列）
+        constexpr std::array<EncoderValueEntry, 78> EncoderValues = {
             // :Method（索引 15-21）
             EncoderValueEntry{"CONNECT", 15},
             EncoderValueEntry{"DELETE", 16},
@@ -508,7 +508,7 @@ namespace Preview::Http3::Qpack
         };
 
         /// 编码器名称表（热路径名称靠前，线性扫描命中快）
-        constexpr std::array<EncoderNameEntry, 52> encoder_names = {
+        constexpr std::array<EncoderNameEntry, 52> EncoderNames = {
             EncoderNameEntry{":Method", 15, 0, 7},
             EncoderNameEntry{":Path", 1, 7, 1},
             EncoderNameEntry{":status", 24, 8, 14},
@@ -563,19 +563,19 @@ namespace Preview::Http3::Qpack
             EncoderNameEntry{"x-Frame-Options", 97, 76, 2},
         };
 
-        /// 编译期校验：encoder 表与 static_table 语义一致（索引/名称/值对齐）
+        /// 编译期校验：encoder 表与 StaticTable 语义一致（索引/名称/值对齐）
         constexpr auto ValidateEncoderTables() -> bool
         {
-            for (const auto &Entry : encoder_names)
+            for (const auto &Entry : EncoderNames)
             {
-                if (static_table[Entry.FirstIndex].Name != Entry.Name)
+                if (StaticTable[Entry.FirstIndex].Name != Entry.Name)
                 {
                     return false;
                 }
-                for (std::size_t i = 0; i < Entry.ValueCount; ++i)
+                for (std::size_t I = 0; I < Entry.ValueCount; ++I)
                 {
-                    const auto &ve = encoder_values[Entry.ValueOffset + i];
-                    if (static_table[ve.index].Name != Entry.Name || static_table[ve.index].value != ve.value)
+                    const auto &ve = EncoderValues[Entry.ValueOffset + I];
+                    if (StaticTable[ve.index].Name != Entry.Name || StaticTable[ve.index].value != ve.value)
                     {
                         return false;
                     }
@@ -593,7 +593,7 @@ namespace Preview::Http3::Qpack
          */
         [[nodiscard]] auto LookupEncoderName(std::string_view Name) -> const EncoderNameEntry *
         {
-            for (const auto &Entry : encoder_names)
+            for (const auto &Entry : EncoderNames)
             {
                 if (Entry.Name == Name)
                 {
@@ -612,30 +612,30 @@ namespace Preview::Http3::Qpack
         [[nodiscard]] auto HuffmanDecodeImpl(std::span<const std::uint8_t> in,
                                                std::vector<std::uint8_t> &out) -> bool
         {
-            std::uint64_t acc = 0;
+            std::uint64_t Acc = 0;
             std::uint32_t AccBits = 0;
-            for (const auto b : in)
+            for (const auto B : in)
             {
-                acc = (acc << 8) | b;
+                Acc = (Acc << 8) | B;
                 AccBits += 8;
                 // 每读入一字节即尝试从高位匹配最短符号
                 while (AccBits > 0)
                 {
-                    bool matched = false;
-                    for (std::uint16_t len = 1; len <= AccBits && len <= 30; ++len)
+                    bool Matched = false;
+                    for (std::uint16_t Len = 1; Len <= AccBits && Len <= 30; ++Len)
                     {
-                        const std::uint64_t mask = (1ULL << len) - 1;
-                        const auto Code = static_cast<std::uint32_t>((acc >> (AccBits - len)) & mask);
-                        const auto sym = HuffmanFindSym(Code, len);
-                        if (sym >= 0)
+                        const std::uint64_t Mask = (1ULL << Len) - 1;
+                        const auto Code = static_cast<std::uint32_t>((Acc >> (AccBits - Len)) & Mask);
+                        const auto Sym = HuffmanFindSym(Code, Len);
+                        if (Sym >= 0)
                         {
-                            out.push_back(static_cast<std::uint8_t>(sym));
-                            AccBits -= len;
-                            matched = true;
+                            out.push_back(static_cast<std::uint8_t>(Sym));
+                            AccBits -= Len;
+                            Matched = true;
                             break;
                         }
                     }
-                    if (!matched)
+                    if (!Matched)
                     {
                         break; // 数据不足，等待更多字节
                     }
@@ -644,16 +644,16 @@ namespace Preview::Http3::Qpack
             // 剩余位数：RFC 7541 5.2 要求以 1 填充（EOS 前缀），0 位时无需校验
             if (AccBits > 0)
             {
-                std::uint64_t mask = 0;
+                std::uint64_t Mask = 0;
                 if (AccBits >= 64)
                 {
-                    mask = ~0ULL;
+                    Mask = ~0ULL;
                 }
                 else
                 {
-                    mask = ((1ULL << AccBits) - 1);
+                    Mask = ((1ULL << AccBits) - 1);
                 }
-                if ((acc & mask) != mask)
+                if ((Acc & Mask) != Mask)
                 {
                     return false;
                 }
@@ -673,34 +673,34 @@ namespace Preview::Http3::Qpack
                                              const std::span<std::uint8_t> out,
                                              std::size_t &OutN) -> bool
         {
-            std::uint64_t acc = 0;
+            std::uint64_t Acc = 0;
             std::uint32_t AccBits = 0;
             OutN = 0;
-            for (const auto b : in)
+            for (const auto B : in)
             {
-                acc = (acc << 8) | b;
+                Acc = (Acc << 8) | B;
                 AccBits += 8;
                 while (AccBits > 0)
                 {
-                    bool matched = false;
-                    for (std::uint16_t len = 1; len <= AccBits && len <= 30; ++len)
+                    bool Matched = false;
+                    for (std::uint16_t Len = 1; Len <= AccBits && Len <= 30; ++Len)
                     {
-                        const std::uint64_t mask = (1ULL << len) - 1;
-                        const auto Code = static_cast<std::uint32_t>((acc >> (AccBits - len)) & mask);
-                        const auto sym = HuffmanFindSym(Code, len);
-                        if (sym >= 0)
+                        const std::uint64_t Mask = (1ULL << Len) - 1;
+                        const auto Code = static_cast<std::uint32_t>((Acc >> (AccBits - Len)) & Mask);
+                        const auto Sym = HuffmanFindSym(Code, Len);
+                        if (Sym >= 0)
                         {
                             if (OutN >= out.size())
                             {
                                 return false;
                             }
-                            out[OutN++] = static_cast<std::uint8_t>(sym);
-                            AccBits -= len;
-                            matched = true;
+                            out[OutN++] = static_cast<std::uint8_t>(Sym);
+                            AccBits -= Len;
+                            Matched = true;
                             break;
                         }
                     }
-                    if (!matched)
+                    if (!Matched)
                     {
                         break;
                     }
@@ -708,16 +708,16 @@ namespace Preview::Http3::Qpack
             }
             if (AccBits > 0)
             {
-                std::uint64_t mask = 0;
+                std::uint64_t Mask = 0;
                 if (AccBits >= 64)
                 {
-                    mask = ~0ULL;
+                    Mask = ~0ULL;
                 }
                 else
                 {
-                    mask = ((1ULL << AccBits) - 1);
+                    Mask = ((1ULL << AccBits) - 1);
                 }
-                if ((acc & mask) != mask)
+                if ((Acc & Mask) != Mask)
                 {
                     return false;
                 }
@@ -736,37 +736,37 @@ namespace Preview::Http3::Qpack
         [[nodiscard]] auto HuffmanEncodeTo(std::string_view in, std::span<std::uint8_t> out)
             -> std::size_t
         {
-            std::uint64_t acc = 0;
+            std::uint64_t Acc = 0;
             std::uint32_t AccBits = 0;
-            std::size_t n = 0;
+            std::size_t N = 0;
             for (const auto c : in)
             {
-                const auto sym = static_cast<std::uint8_t>(c);
-                const auto len = huffman_lens[sym];
-                acc = (acc << len) | huffman_codes[sym];
-                AccBits += len;
+                const auto Sym = static_cast<std::uint8_t>(c);
+                const auto Len = HuffmanLens[Sym];
+                Acc = (Acc << Len) | HuffmanCodes[Sym];
+                AccBits += Len;
                 // 防止 64 位溢出：累积超 32 位即冲刷整字节
                 while (AccBits >= 8)
                 {
-                    if (n >= out.size())
+                    if (N >= out.size())
                     {
                         return 0;
                     }
-                    out[n++] = static_cast<std::uint8_t>(acc >> (AccBits - 8));
+                    out[N++] = static_cast<std::uint8_t>(Acc >> (AccBits - 8));
                     AccBits -= 8;
                 }
             }
             // 尾部不足 8 位：高位补 1 填充（RFC 7541 5.2 EOS 前缀）
             if (AccBits > 0)
             {
-                if (n >= out.size())
+                if (N >= out.size())
                 {
                     return 0;
                 }
-                const auto pad = 8 - AccBits;
-                out[n++] = static_cast<std::uint8_t>((acc << pad) | (0xFFU >> AccBits));
+                const auto Pad = 8 - AccBits;
+                out[N++] = static_cast<std::uint8_t>((Acc << Pad) | (0xFFU >> AccBits));
             }
-            return n;
+            return N;
         }
 
         /**
@@ -777,29 +777,29 @@ namespace Preview::Http3::Qpack
          */
         [[nodiscard]] auto HuffmanEncodeImpl(std::string_view in, std::vector<std::uint8_t> &out) -> bool
         {
-            std::uint64_t acc = 0;
+            std::uint64_t Acc = 0;
             std::uint32_t AccBits = 0;
             for (const auto c : in)
             {
-                const auto sym = static_cast<std::uint8_t>(c);
-                const auto len = huffman_lens[sym];
-                acc = (acc << len) | huffman_codes[sym];
-                AccBits += len;
+                const auto Sym = static_cast<std::uint8_t>(c);
+                const auto Len = HuffmanLens[Sym];
+                Acc = (Acc << Len) | HuffmanCodes[Sym];
+                AccBits += Len;
                 // 防止 64 位溢出：累积超 32 位即冲刷整字节
                 while (AccBits >= 8)
                 {
-                    out.push_back(static_cast<std::uint8_t>(acc >> (AccBits - 8)));
+                    out.push_back(static_cast<std::uint8_t>(Acc >> (AccBits - 8)));
                     AccBits -= 8;
                 }
             }
             // 尾部不足 8 位：高位补 1 填充（RFC 7541 5.2 EOS 前缀）
             if (AccBits > 0)
             {
-                const auto over = AccBits;
-                const auto pad = 8 - over;
+                const auto Over = AccBits;
+                const auto Pad = 8 - Over;
                 const std::uint8_t EosPadByte = 0xFF; // EOS 0x3fffffff 的最高 8 位
-                acc = (acc << pad) | (EosPadByte >> over);
-                out.push_back(static_cast<std::uint8_t>(acc));
+                Acc = (Acc << Pad) | (EosPadByte >> Over);
+                out.push_back(static_cast<std::uint8_t>(Acc));
             }
             return true;
         }
@@ -812,54 +812,54 @@ namespace Preview::Http3::Qpack
          * @param mr 内存资源
          * @return 是否解析成功
          */
-        [[nodiscard]] auto ParseName(std::span<const std::uint8_t> in, std::size_t &offset,
+        [[nodiscard]] auto ParseName(std::span<const std::uint8_t> in, std::size_t &Offset,
                                       std::string &out) -> bool
         {
-            if (offset >= in.size())
+            if (Offset >= in.size())
             {
                 return false;
             }
-            const bool huffman = (in[offset] & 0x08) != 0;
-            std::uint64_t len = 0;
-            std::size_t consumed = 0;
-            if (!ReadVarint(in.subspan(offset), 3, len, consumed))
+            const bool Huffman = (in[Offset] & 0x08) != 0;
+            std::uint64_t Len = 0;
+            std::size_t Consumed = 0;
+            if (!ReadVarint(in.subspan(Offset), 3, Len, Consumed))
             {
                 return false;
             }
-            offset += consumed;
-            if (len > in.size() - offset)
+            Offset += Consumed;
+            if (Len > in.size() - Offset)
             {
                 return false;
             }
             // 热路径零分配：短值走栈缓冲，超长才回退堆
             std::array<std::uint8_t, 255> stack{};
-            std::vector<std::uint8_t> heap(Preview::Memory::CurrentResource());
-            if (huffman)
+            std::vector<std::uint8_t> heap;
+            if (Huffman)
             {
-                const auto est = static_cast<std::size_t>(len) * 2;
-                if (est <= stack.size())
+                const auto Est = static_cast<std::size_t>(Len) * 2;
+                if (Est <= stack.size())
                 {
                     std::size_t OutN = 0;
-                    if (!HuffmanDecodeTo(in.subspan(offset, static_cast<std::size_t>(len)),
+                    if (!HuffmanDecodeTo(in.subspan(Offset, static_cast<std::size_t>(Len)),
                                            stack, OutN))
                     {
                         return false;
                     }
-                    offset += static_cast<std::size_t>(len);
+                    Offset += static_cast<std::size_t>(Len);
                     out.assign(reinterpret_cast<const char *>(stack.data()), OutN);
                     return true;
                 }
-                if (!HuffmanDecodeImpl(in.subspan(offset, static_cast<std::size_t>(len)), heap))
+                if (!HuffmanDecodeImpl(in.subspan(Offset, static_cast<std::size_t>(Len)), heap))
                 {
                     return false;
                 }
-                offset += static_cast<std::size_t>(len);
+                Offset += static_cast<std::size_t>(Len);
                 out.assign(reinterpret_cast<const char *>(heap.data()), heap.size());
                 return true;
             }
-            offset += static_cast<std::size_t>(len);
-            out.assign(reinterpret_cast<const char *>(in.data() + offset - static_cast<std::ptrdiff_t>(len)),
-                       static_cast<std::size_t>(len));
+            Offset += static_cast<std::size_t>(Len);
+            out.assign(reinterpret_cast<const char *>(in.data() + Offset - static_cast<std::ptrdiff_t>(Len)),
+                       static_cast<std::size_t>(Len));
             return true;
         }
 
@@ -871,53 +871,53 @@ namespace Preview::Http3::Qpack
          * @param mr 内存资源
          * @return 是否解析成功
          */
-        [[nodiscard]] auto ParseValue(std::span<const std::uint8_t> in, std::size_t &offset, std::string &out) -> bool
+        [[nodiscard]] auto ParseValue(std::span<const std::uint8_t> in, std::size_t &Offset, std::string &out) -> bool
         {
-            if (offset >= in.size())
+            if (Offset >= in.size())
             {
                 return false;
             }
-            const bool huffman = (in[offset] & 0x80) != 0;
-            std::uint64_t len = 0;
-            std::size_t consumed = 0;
-            if (!ReadVarint(in.subspan(offset), 7, len, consumed))
+            const bool Huffman = (in[Offset] & 0x80) != 0;
+            std::uint64_t Len = 0;
+            std::size_t Consumed = 0;
+            if (!ReadVarint(in.subspan(Offset), 7, Len, Consumed))
             {
                 return false;
             }
-            offset += consumed;
-            if (len > in.size() - offset)
+            Offset += Consumed;
+            if (Len > in.size() - Offset)
             {
                 return false;
             }
             // 热路径零分配：短值走栈缓冲，超长才回退堆
             std::array<std::uint8_t, 255> stack{};
-            std::vector<std::uint8_t> heap(Preview::Memory::CurrentResource());
-            if (huffman)
+            std::vector<std::uint8_t> heap;
+            if (Huffman)
             {
-                const auto est = static_cast<std::size_t>(len) * 2;
-                if (est <= stack.size())
+                const auto Est = static_cast<std::size_t>(Len) * 2;
+                if (Est <= stack.size())
                 {
                     std::size_t OutN = 0;
-                    if (!HuffmanDecodeTo(in.subspan(offset, static_cast<std::size_t>(len)),
+                    if (!HuffmanDecodeTo(in.subspan(Offset, static_cast<std::size_t>(Len)),
                                            stack, OutN))
                     {
                         return false;
                     }
-                    offset += static_cast<std::size_t>(len);
+                    Offset += static_cast<std::size_t>(Len);
                     out.assign(reinterpret_cast<const char *>(stack.data()), OutN);
                     return true;
                 }
-                if (!HuffmanDecodeImpl(in.subspan(offset, static_cast<std::size_t>(len)), heap))
+                if (!HuffmanDecodeImpl(in.subspan(Offset, static_cast<std::size_t>(Len)), heap))
                 {
                     return false;
                 }
-                offset += static_cast<std::size_t>(len);
+                Offset += static_cast<std::size_t>(Len);
                 out.assign(reinterpret_cast<const char *>(heap.data()), heap.size());
                 return true;
             }
-            offset += static_cast<std::size_t>(len);
-            out.assign(reinterpret_cast<const char *>(in.data() + offset - static_cast<std::ptrdiff_t>(len)),
-                       static_cast<std::size_t>(len));
+            Offset += static_cast<std::size_t>(Len);
+            out.assign(reinterpret_cast<const char *>(in.data() + Offset - static_cast<std::ptrdiff_t>(Len)),
+                       static_cast<std::size_t>(Len));
             return true;
         }
 
@@ -926,21 +926,21 @@ namespace Preview::Http3::Qpack
          * @param out 输出缓冲区
          * @param offset 当前写入偏移（写入后自动前进）
          * @param value 待写入的字符串
-         * @param prefix_bits 长度前缀位宽（3 或 7）
-         * @param huff_flag 长度前缀的模式位（含 H 位）
+         * @param PrefixBits 长度前缀位宽（3 或 7）
+         * @param HuffFlag 长度前缀的模式位（含 H 位）
          * @return 是否写入成功
          * @note 热路径零分配：≤63 字符走栈缓冲（255 B），超长回退堆
          */
-        [[nodiscard]] auto WriteStringPrefixed(std::span<std::uint8_t> out, std::size_t &offset,
-                                                 const std::string_view value, std::uint8_t prefix_bits,
-                                                 const std::uint8_t huff_flag) -> bool
+        [[nodiscard]] auto WriteStringPrefixed(std::span<std::uint8_t> out, std::size_t &Offset,
+                                                 const std::string_view value, std::uint8_t PrefixBits,
+                                                 const std::uint8_t HuffFlag) -> bool
         {
             std::array<std::uint8_t, 255> stack;
-            std::array<std::uint8_t, 16> len_buf;
+            std::array<std::uint8_t, 16> LenBuf;
             std::vector<std::uint8_t> heap; // 仅超长回退时分配
             // 最坏膨胀 30 bit/符号 ≈ 4 B/字符；255 B 栈缓冲可容纳 ≤63 字符
             std::size_t EncN = 0;
-            const std::uint8_t *enc_data = nullptr;
+            const std::uint8_t *EncData = nullptr;
             if (value.size() * 4 <= stack.size())
             {
                 EncN = HuffmanEncodeTo(value, stack);
@@ -948,7 +948,7 @@ namespace Preview::Http3::Qpack
                 {
                     return false;
                 }
-                enc_data = stack.data();
+                EncData = stack.data();
             }
             else
             {
@@ -957,116 +957,116 @@ namespace Preview::Http3::Qpack
                     return false;
                 }
                 EncN = heap.size();
-                enc_data = heap.data();
+                EncData = heap.data();
             }
-            const auto LenN = WriteVarint(len_buf, prefix_bits, EncN, huff_flag);
-            if (LenN == 0 || out.size() < offset + LenN + EncN)
+            const auto LenN = WriteVarint(LenBuf, PrefixBits, EncN, HuffFlag);
+            if (LenN == 0 || out.size() < Offset + LenN + EncN)
             {
                 return false;
             }
-            std::memcpy(out.data() + offset, len_buf.data(), LenN);
-            offset += LenN;
+            std::memcpy(out.data() + Offset, LenBuf.data(), LenN);
+            Offset += LenN;
             if (EncN > 0)
             {
-                std::memcpy(out.data() + offset, enc_data, EncN);
-                offset += EncN;
+                std::memcpy(out.data() + Offset, EncData, EncN);
+                Offset += EncN;
             }
             return true;
         }
     } // namespace
 
     inline auto DecodeHeaderBlock(std::span<const std::uint8_t> Data, const Preview::Memory::ResourcePointer mr)
-        -> std::vector<HeaderField>
+        -> Preview::Memory::vector<HeaderField>
     {
-        std::vector<HeaderField> fields(mr);
+        Preview::Memory::vector<HeaderField> fields(mr);
         fields.reserve(8); // 常见认证头 5-8 个字段，预防扩容分配
-        std::size_t offset = 0;
+        std::size_t Offset = 0;
 
         // Header Block Prefix：Required Insert Count（8 位前缀）+ Delta Base（7 位前缀）
         std::uint64_t RequiredCount = 0;
-        std::size_t consumed = 0;
-        if (!ReadVarint(Data.subspan(offset), 8, RequiredCount, consumed))
+        std::size_t Consumed = 0;
+        if (!ReadVarint(Data.subspan(Offset), 8, RequiredCount, Consumed))
         {
             return fields;
         }
-        offset += consumed;
+        Offset += Consumed;
         if (RequiredCount != 0)
         {
             return fields;
         }
 
-        std::uint64_t base = 0;
-        if (!ReadVarint(Data.subspan(offset), 7, base, consumed))
+        std::uint64_t Base = 0;
+        if (!ReadVarint(Data.subspan(Offset), 7, Base, Consumed))
         {
             return fields;
         }
-        offset += consumed;
-        if (base != 0)
+        Offset += Consumed;
+        if (Base != 0)
         {
             return fields;
         }
 
-        while (offset < Data.size())
+        while (Offset < Data.size())
         {
-            const auto first = Data[offset];
-            if ((first & 0x80) != 0)
+            const auto First = Data[Offset];
+            if ((First & 0x80) != 0)
             {
                 // 1Txxxxxx：索引字段（T=1 静态表）
-                if ((first & 0x40) == 0)
+                if ((First & 0x40) == 0)
                 {
                     return fields; // 动态表索引不支持
                 }
                 std::uint64_t index = 0;
-                if (!ReadVarint(Data.subspan(offset), 6, index, consumed))
+                if (!ReadVarint(Data.subspan(Offset), 6, index, Consumed))
                 {
                     return fields;
                 }
-                offset += consumed;
-                if (index >= static_table.size())
+                Offset += Consumed;
+                if (index >= StaticTable.size())
                 {
                     return fields;
                 }
                 HeaderField hf{};
-                hf.Name.assign(static_table[index].Name);
-                hf.value.assign(static_table[index].value);
+                hf.Name.assign(StaticTable[index].Name);
+                hf.value.assign(StaticTable[index].value);
                 fields.push_back(std::move(hf));
             }
-            else if ((first & 0xC0) == 0x40)
+            else if ((First & 0xC0) == 0x40)
             {
                 // 01Nxxxxx：字面量，名称引用静态表
                 std::uint64_t index = 0;
-                if (!ReadVarint(Data.subspan(offset), 4, index, consumed))
+                if (!ReadVarint(Data.subspan(Offset), 4, index, Consumed))
                 {
                     return fields;
                 }
-                offset += consumed;
-                if (index >= static_table.size())
+                Offset += Consumed;
+                if (index >= StaticTable.size())
                 {
                     return fields;
                 }
                 HeaderField hf{};
-                hf.Name.assign(static_table[index].Name);
-                if (!ParseValue(Data, offset, hf.value))
+                hf.Name.assign(StaticTable[index].Name);
+                if (!ParseValue(Data, Offset, hf.value))
                 {
                     return fields;
                 }
                 fields.push_back(std::move(hf));
             }
-            else if ((first & 0xE0) == 0x20)
+            else if ((First & 0xE0) == 0x20)
             {
                 // 001xxxxx：字面量，字面名称（3 位前缀 + H 位 0x08）
                 HeaderField hf{};
-                if (!ParseName(Data, offset, hf.Name))
+                if (!ParseName(Data, Offset, hf.Name))
                 {
                     return fields;
                 }
-                if (!ParseValue(Data, offset, hf.value))
+                if (!ParseValue(Data, Offset, hf.value))
                 {
                     return fields;
                 }
                 fields.push_back(std::move(hf));
             }
-            else if ((first & 0xE0) == 0x00)
+            else if ((First & 0xE0) == 0x00)
             {
                 // 000xxxxx：动态表指令（本实现不支持，直接失败）
                 return fields;
@@ -1099,9 +1099,9 @@ namespace Preview::Http3::Qpack
         if (const auto *Entry = LookupEncoderName(Name))
         {
             // 值全匹配 → 索引字段（1Txxxxxx，T=1）：1 字节完成，免 huffman
-            for (std::size_t i = 0; i < Entry->ValueCount; ++i)
+            for (std::size_t I = 0; I < Entry->ValueCount; ++I)
             {
-                const auto &ve = encoder_values[Entry->ValueOffset + i];
+                const auto &ve = EncoderValues[Entry->ValueOffset + I];
                 if (ve.value == value)
                 {
                     return WriteVarint(out, 6, ve.index, 0xC0);
@@ -1113,28 +1113,28 @@ namespace Preview::Http3::Qpack
                 return WriteVarint(out, 6, Entry->FirstIndex, 0xC0);
             }
             // 值不匹配 → 名称引用字面量（01Nxxxxx，N=0，T=1）：免名称 huffman
-            std::size_t offset = WriteVarint(out, 4, Entry->FirstIndex, 0x50);
-            if (offset == 0)
+            std::size_t Offset = WriteVarint(out, 4, Entry->FirstIndex, 0x50);
+            if (Offset == 0)
             {
                 return 0;
             }
-            if (!WriteStringPrefixed(out, offset, value, 7, 0x80))
+            if (!WriteStringPrefixed(out, Offset, value, 7, 0x80))
             {
                 return 0;
             }
-            return offset;
+            return Offset;
         }
         // 2) 未命中 → 字面量无名称引用（001xxxxx，H=1，huffman 编码）
-        std::size_t offset = 0;
-        if (!WriteStringPrefixed(out, offset, Name, 3, 0x20 | 0x08))
+        std::size_t Offset = 0;
+        if (!WriteStringPrefixed(out, Offset, Name, 3, 0x20 | 0x08))
         {
             return 0;
         }
-        if (!WriteStringPrefixed(out, offset, value, 7, 0x80))
+        if (!WriteStringPrefixed(out, Offset, value, 7, 0x80))
         {
             return 0;
         }
-        return offset;
+        return Offset;
     }
 
     inline auto HuffmanDecode(std::span<const std::uint8_t> in, std::vector<std::uint8_t> &out) -> bool

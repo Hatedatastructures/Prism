@@ -70,13 +70,13 @@ namespace
             {
                 const auto err = co_await accept_server(ioc, std::make_shared<MemoryStream>(std::move(b)),
                                                         Socks5::ServerConfig{});
-                EXPECT_EQ(err, Preview::Error::version_mismatch);
+                EXPECT_EQ(err, Preview::Error::VersionMismatch);
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             const std::vector<std::uint8_t> wire{0x04, 0x01, 0x00}; // 错误版本
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
@@ -90,13 +90,13 @@ namespace
             {
                 const auto err = co_await accept_server(ioc, std::make_shared<MemoryStream>(std::move(b)),
                                                         Socks5::ServerConfig{});
-                EXPECT_EQ(err, Preview::Error::io_error); // 半包后 EOF → 底层 IO 错误
+                EXPECT_EQ(err, Preview::Error::IoError); // 半包后 EOF → 底层 IO 错误
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             const std::vector<std::uint8_t> wire{0x05, 0x02}; // 缺 nmethods 后续
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
             a.Close();
         });
     }
@@ -115,7 +115,7 @@ namespace
             auto server_coro = [&]() -> net::awaitable<void>
             {
                 const auto err = co_await accept_server(ioc, std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Preview::Error::bad_auth);
+                EXPECT_EQ(err, Preview::Error::BadAuth);
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -126,7 +126,7 @@ namespace
             wire.insert(wire.end(), {0x07});
             wire.insert(wire.end(), {'w', 'r', 'o', 'n', 'g', 'p', 'w'});
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
@@ -141,7 +141,7 @@ namespace
                 auto [err, req, Conn] = co_await Socks5::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), Socks5::ServerConfig{});
                 // 非法命令 → not_supported（ParseRequest 命令白名单）
-                EXPECT_EQ(err, Preview::Error::not_supported);
+                EXPECT_EQ(err, Preview::Error::NotSupported);
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -149,9 +149,9 @@ namespace
             std::vector<std::uint8_t> wire{0x05, 0x01, 0x00};
             wire.insert(wire.end(), {0x05, 0x99, 0x00, 0x01, 10, 0, 0, 1, 0x01, 0xBB});
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
             std::array<std::uint8_t, 16> resp{};
-            co_await a.AsyncReadSome(AsBytes(std::span<std::uint8_t>(resp)), ec);
+            co_await a.async_read_some(AsBytes(std::span<std::uint8_t>(resp)), ec);
         });
     }
 
@@ -165,14 +165,14 @@ namespace
             {
                 const auto err = co_await accept_server(ioc, std::make_shared<MemoryStream>(std::move(b)),
                                                         Socks5::ServerConfig{});
-                EXPECT_EQ(err, Preview::Error::bad_message); // ATYP=9 → ParseAddress 拒绝
+                EXPECT_EQ(err, Preview::Error::BadMessage); // ATYP=9 → ParseAddress 拒绝
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             std::vector<std::uint8_t> wire{0x05, 0x01, 0x00};
             wire.insert(wire.end(), {0x05, 0x01, 0x00, 0x09, 0x00, 0x50}); // ATYP=9 非法
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
@@ -186,7 +186,7 @@ namespace
             {
                 const auto err = co_await accept_server(ioc, std::make_shared<MemoryStream>(std::move(b)),
                                                         Socks5::ServerConfig{});
-                EXPECT_EQ(err, Preview::Error::io_error); // 请求头半包后 EOF
+                EXPECT_EQ(err, Preview::Error::IoError); // 请求头半包后 EOF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -195,7 +195,7 @@ namespace
             wire.insert(wire.end(), {0x05, 0x01, 0x00, 0x03, 0x14});
             wire.insert(wire.end(), {'h', 'e', 'l', 'l', 'o'});
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
             a.Close();
         });
     }
@@ -211,12 +211,12 @@ namespace
             {
                 std::array<std::uint8_t, 8> buf{};
                 std::error_code ec;
-                const auto n = co_await b.AsyncReadSome(
+                const auto n = co_await b.async_read_some(
                     std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                 (void)n;
                 // Greeting 响应（错误版本 0x04）
                 const std::array<std::uint8_t, 2> sel{0x04, 0x00};
-                co_await b.AsyncWriteSome(
+                co_await b.async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(sel.data()), sel.size()), ec);
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -225,7 +225,7 @@ namespace
             auto [err, Conn] = co_await Socks5::Connect(
                 std::make_shared<MemoryStream>(std::move(a)), cfg,
                 make_addr(Socks5::AddressType::Domain, "example.com", 443));
-            EXPECT_EQ(err, Preview::Error::version_mismatch);
+            EXPECT_EQ(err, Preview::Error::VersionMismatch);
         });
     }
 
@@ -242,13 +242,13 @@ namespace
             auto server_coro = [&]() -> net::awaitable<void>
             {
                 const auto err = co_await accept_server(ioc, std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Preview::Error::not_supported);
+                EXPECT_EQ(err, Preview::Error::NotSupported);
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             const std::vector<std::uint8_t> wire{0x05, 0x01, 0x00}; // 只提 no_auth
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 

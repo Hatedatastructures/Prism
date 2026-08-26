@@ -8,13 +8,13 @@
 
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/connection/Dialer/Dialer.hpp>
-#include <prism/net/connection/Target.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
+#include <prism/net/connection/target.hpp>
 #include <prism/net/connection/tunnel/forward/basic.hpp>
 #include <prism/net/connection/tunnel/tunnel.hpp>
-#include <prism/net/transport/Transmission.hpp>
-#include <prism/Protocol/common/Form.hpp>
-#include <prism/Resource/Session.hpp>
+#include <prism/net/transport/transmission.hpp>
+#include <prism/protocol/common/form.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
@@ -30,7 +30,7 @@ namespace
 {
     namespace net = boost::asio;
     using namespace psm::connect;
-    using namespace psm::testing;
+    using namespace Preview::Testing;
     using namespace psm::protocol;
 } // anonymous namespace
 
@@ -38,12 +38,12 @@ namespace
 
 TEST(Forward, OptionsStructure)
 {
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     psm::connect::target tgt;
     tgt.host = "example.com";
     tgt.port = "443";
 
-    forward_options opts{"test", tgt, inbound};
+    forward_options opts{"test", tgt, Inbound};
 
     EXPECT_EQ(opts.label, "test");
     EXPECT_EQ(opts.target.host, "example.com");
@@ -55,12 +55,12 @@ TEST(Forward, OptionsStructure)
 
 TEST(Forward, OptionsMoveSemantics)
 {
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     psm::connect::target tgt;
     tgt.host = "test.org";
     tgt.port = "80";
 
-    forward_options opts{"move_test", tgt, inbound};
+    forward_options opts{"move_test", tgt, Inbound};
 
     auto moved_inbound = std::move(opts.inbound);
     EXPECT_TRUE(moved_inbound);
@@ -72,19 +72,19 @@ TEST(Forward, OptionsMoveSemantics)
 TEST(Forward, TunnelOptionsStructure)
 {
     net::io_context ioc;
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     auto Outbound = std::make_shared<MockTransport>();
 
     // 创建最小资源上下文
     auto cfg = std::make_shared<psm::settings>();
     auto proc_opts = psm::resource::process::options{cfg, nullptr, nullptr};
     auto proc = std::make_shared<psm::resource::process>(std::move(proc_opts));
-    auto wrk_opts = psm::resource::worker::options{proc, psm::memory::std::global_pool()};
+    auto wrk_opts = psm::resource::worker::options{proc, psm::memory::system::global_pool()};
     auto wrk = std::make_shared<psm::resource::worker>(std::move(wrk_opts));
-    auto ses_opts = psm::resource::session::options{wrk, 1, 8192, inbound, {}, nullptr, nullptr};
+    auto ses_opts = psm::resource::session::options{wrk, 1, 8192, Inbound, {}, nullptr, nullptr};
     auto ses = std::make_shared<psm::resource::session>(std::move(ses_opts));
 
-    tunnel_options opts{inbound, inbound, 8192, write_policy::complete};
+    tunnel_options opts{Inbound, Inbound, 8192, write_policy::complete};
 
     EXPECT_EQ(opts.policy, write_policy::complete);
     EXPECT_TRUE(opts.inbound);

@@ -409,13 +409,13 @@ TEST(YamuxWindow, WindowUpdateFrameOverSocketPair)
         net::write(client_sock, net::buffer(frame.data(), frame.size()), write_ec);
         ASSERT_TRUE(!write_ec) << "SocketPair: write WindowUpdate frame succeeded";
 
-        std::array<std::byte, yamux::frame_hdrsize> recv_buf{};
-        boost::system::error_code read_ec;
-        const auto n = net::read(server_sock, net::buffer(recv_buf.data(), recv_buf.size()), read_ec);
-        EXPECT_TRUE(!read_ec) << "SocketPair: read WindowUpdate frame succeeded";
+        std::array<std::byte, yamux::frame_hdrsize> RecvBuf{};
+        boost::system::error_code ReadEc;
+        const auto n = net::read(server_sock, net::buffer(RecvBuf.data(), RecvBuf.size()), ReadEc);
+        EXPECT_TRUE(!ReadEc) << "SocketPair: read WindowUpdate frame succeeded";
         EXPECT_EQ(n, yamux::frame_hdrsize) << "SocketPair: received exactly 12 bytes";
 
-        auto parsed = yamux::parse_header(recv_buf);
+        auto parsed = yamux::parse_header(RecvBuf);
         ASSERT_TRUE(parsed.has_value()) << "SocketPair: WindowUpdate header parse succeeded";
         EXPECT_TRUE(parsed->type == yamux::message_type::window_update)
             << "SocketPair: WindowUpdate type == window_update";
@@ -433,9 +433,9 @@ TEST(YamuxWindow, WindowUpdateFrameOverSocketPair)
         ASSERT_TRUE(!write_ec) << "SocketPair: write SYN frame succeeded";
 
         std::array<std::byte, yamux::frame_hdrsize> syn_recv{};
-        boost::system::error_code read_ec;
-        net::read(server_sock, net::buffer(syn_recv.data(), syn_recv.size()), read_ec);
-        EXPECT_TRUE(!read_ec) << "SocketPair: read SYN frame succeeded";
+        boost::system::error_code ReadEc;
+        net::read(server_sock, net::buffer(syn_recv.data(), syn_recv.size()), ReadEc);
+        EXPECT_TRUE(!ReadEc) << "SocketPair: read SYN frame succeeded";
 
         auto syn_parsed = yamux::parse_header(syn_recv);
         ASSERT_TRUE(syn_parsed.has_value()) << "SocketPair: SYN header parse succeeded";
@@ -458,9 +458,9 @@ TEST(YamuxWindow, WindowUpdateFrameOverSocketPair)
         ASSERT_TRUE(!write_ec) << "SocketPair: write ACK frame succeeded";
 
         std::array<std::byte, yamux::frame_hdrsize> ack_recv{};
-        boost::system::error_code read_ec;
-        net::read(client_sock, net::buffer(ack_recv.data(), ack_recv.size()), read_ec);
-        EXPECT_TRUE(!read_ec) << "SocketPair: read ACK frame succeeded";
+        boost::system::error_code ReadEc;
+        net::read(client_sock, net::buffer(ack_recv.data(), ack_recv.size()), ReadEc);
+        EXPECT_TRUE(!ReadEc) << "SocketPair: read ACK frame succeeded";
 
         auto ack_parsed = yamux::parse_header(ack_recv);
         ASSERT_TRUE(ack_parsed.has_value()) << "SocketPair: ACK header parse succeeded";

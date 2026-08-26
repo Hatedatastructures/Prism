@@ -28,8 +28,8 @@ namespace Preview::Recognition
      */
     struct ProbeResult
     {
-        ProtocolType Type{ProtocolType::unknown}; ///< 检测到的协议类型
-        std::array<std::byte, 24> pre_read{};       ///< 预读数据
+        ProtocolType Type{ProtocolType::Unknown}; ///< 检测到的协议类型
+        std::array<std::byte, 24> PreRead{};       ///< 预读数据
         std::size_t PreReadSize{0};               ///< 预读字节数
         bool success{false};                        ///< 检测成功（类型非 unknown）
     };
@@ -48,24 +48,24 @@ namespace Preview::Recognition
         -> net::awaitable<ProbeResult>
     {
         ProbeResult Result;
-        const auto peek = (std::min)(MaxSize, MaxProbeSize);
-        auto span = std::span(Result.pre_read.data(), peek);
+        const auto Peek = (std::min)(MaxSize, MaxProbeSize);
+        auto span = std::span(Result.PreRead.data(), Peek);
 
         std::error_code ec;
-        const auto n = co_await transport.AsyncReadSome(span, ec);
-        if (ec || n == 0)
+        const auto N = co_await transport.async_read_some(span, ec);
+        if (ec || N == 0)
         {
             co_return Result;
         }
-        Result.PreReadSize = n;
+        Result.PreReadSize = N;
 
         std::array<std::uint8_t, MaxProbeSize> Bytes{};
-        for (std::size_t i = 0; i < n; ++i)
+        for (std::size_t I = 0; I < N; ++I)
         {
-            Bytes[i] = std::to_integer<std::uint8_t>(Result.pre_read[i]);
+            Bytes[I] = std::to_integer<std::uint8_t>(Result.PreRead[I]);
         }
-        Result.Type = Detect(std::span<const std::uint8_t>(Bytes.data(), n));
-        Result.success = Result.Type != ProtocolType::unknown;
+        Result.Type = Detect(std::span<const std::uint8_t>(Bytes.data(), N));
+        Result.success = Result.Type != ProtocolType::Unknown;
         co_return Result;
     }
 

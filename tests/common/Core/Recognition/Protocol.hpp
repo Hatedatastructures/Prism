@@ -20,16 +20,16 @@ namespace Preview::Recognition
      */
     enum class ProtocolType : std::uint8_t
     {
-        unknown,     ///< 未知
-        http,        ///< HTTP（含 CONNECT）
-        socks5,      ///< SOCKS5（0x05）
-        trojan,      ///< Trojan（hex 0x0D 0x0A 0x0D 0x0A）
-        vless,       ///< VLESS（0x56 0x4C 0x45 0x53 0x53）
-        shadowsocks, ///< Shadowsocks（2022 系）
-        vmess,       ///< VMess（0x01 0x00 0x00 ...）
-        hysteria2,   ///< Hysteria2（QUIC，不适用 TCP 探测）
-        tuic,        ///< TUIC（QUIC，不适用 TCP 探测）
-        tls,         ///< TLS（0x16 0x03）
+        Unknown,     ///< 未知
+        Http,        ///< HTTP（含 CONNECT）
+        Socks5,      ///< SOCKS5（0x05）
+        Trojan,      ///< Trojan（hex 0x0D 0x0A 0x0D 0x0A）
+        Vless,       ///< VLESS（0x56 0x4C 0x45 0x53 0x53）
+        Shadowsocks, ///< Shadowsocks（2022 系）
+        Vmess,       ///< VMess（0x01 0x00 0x00 ...）
+        Hysteria2,   ///< Hysteria2（QUIC，不适用 TCP 探测）
+        Tuic,        ///< TUIC（QUIC，不适用 TCP 探测）
+        Tls,         ///< TLS（0x16 0x03）
     };
 
     /**
@@ -41,16 +41,16 @@ namespace Preview::Recognition
     {
         switch (Type)
         {
-        case ProtocolType::unknown: return "unknown";
-        case ProtocolType::http: return "http";
-        case ProtocolType::socks5: return "socks5";
-        case ProtocolType::trojan: return "trojan";
-        case ProtocolType::vless: return "vless";
-        case ProtocolType::shadowsocks: return "shadowsocks";
-        case ProtocolType::vmess: return "vmess";
-        case ProtocolType::hysteria2: return "hysteria2";
-        case ProtocolType::tuic: return "tuic";
-        case ProtocolType::tls: return "tls";
+        case ProtocolType::Unknown: return "unknown";
+        case ProtocolType::Http: return "http";
+        case ProtocolType::Socks5: return "socks5";
+        case ProtocolType::Trojan: return "trojan";
+        case ProtocolType::Vless: return "vless";
+        case ProtocolType::Shadowsocks: return "shadowsocks";
+        case ProtocolType::Vmess: return "vmess";
+        case ProtocolType::Hysteria2: return "hysteria2";
+        case ProtocolType::Tuic: return "tuic";
+        case ProtocolType::Tls: return "tls";
         default: return "unknown";
         }
     }
@@ -59,10 +59,10 @@ namespace Preview::Recognition
     inline constexpr std::uint8_t VmessMagic = 0x01;
 
     /// Trojan 特征（前 4 字节 CRLF）
-    inline constexpr std::array<std::uint8_t, 4> trojan_magic = {0x0D, 0x0A, 0x0D, 0x0A};
+    inline constexpr std::array<std::uint8_t, 4> TrojanMagic = {0x0D, 0x0A, 0x0D, 0x0A};
 
     /// VLESS 特征（"VLESS"）
-    inline constexpr std::array<std::uint8_t, 5> vless_magic = {0x56, 0x4C, 0x45, 0x53, 0x53};
+    inline constexpr std::array<std::uint8_t, 5> VlessMagic = {0x56, 0x4C, 0x45, 0x53, 0x53};
 
     /**
      * @brief 按首包字节检测协议类型
@@ -82,52 +82,52 @@ namespace Preview::Recognition
     {
         if (Data.empty())
         {
-            return ProtocolType::unknown;
+            return ProtocolType::Unknown;
         }
         switch (Data[0])
         {
         case 0x05:
-            return ProtocolType::socks5;
+            return ProtocolType::Socks5;
         case 0x16:
             if (Data.size() >= 2 && Data[1] == 0x03)
             {
-                return ProtocolType::tls;
+                return ProtocolType::Tls;
             }
-            return ProtocolType::unknown;
+            return ProtocolType::Unknown;
         default: break;
         }
-        if (Data.size() >= 5 && Data[0] == vless_magic[0] && Data[1] == vless_magic[1] &&
-            Data[2] == vless_magic[2] && Data[3] == vless_magic[3] && Data[4] == vless_magic[4])
+        if (Data.size() >= 5 && Data[0] == VlessMagic[0] && Data[1] == VlessMagic[1] &&
+            Data[2] == VlessMagic[2] && Data[3] == VlessMagic[3] && Data[4] == VlessMagic[4])
         {
-            return ProtocolType::vless;
+            return ProtocolType::Vless;
         }
         // VLESS 结构化识别（Xray 首字节为 version 0x00）：仅在预读窗口内有效——
-        // Probe 最多预读 24 字节（见 Probe.hpp max_probe_size），头部固定部分
+        // Probe 最多预读 24 字节（见 Probe.hpp MaxProbeSize），头部固定部分
         // 已占 22 字节，故仅 addnl ≤ 2 可命中；更长 addons 无法在窗口内完成
         // 校验，只能回落到上方 "VLESS" 魔数路径
         if (Data.size() >= 18 && Data[0] == 0x00)
         {
-            const std::size_t addnl = Data[17];
-            const std::size_t need = 18 + addnl + 4;
-            if (Data.size() >= need)
+            const std::size_t Addnl = Data[17];
+            const std::size_t Need = 18 + Addnl + 4;
+            if (Data.size() >= Need)
             {
-                const auto cmd = Data[18 + addnl];
-                const auto atyp = Data[21 + addnl];
-                if ((cmd == 0x01 || cmd == 0x02) &&
-                    (atyp == 0x01 || atyp == 0x02 || atyp == 0x03))
+                const auto Cmd = Data[18 + Addnl];
+                const auto Atyp = Data[21 + Addnl];
+                if ((Cmd == 0x01 || Cmd == 0x02) &&
+                    (Atyp == 0x01 || Atyp == 0x02 || Atyp == 0x03))
                 {
-                    return ProtocolType::vless;
+                    return ProtocolType::Vless;
                 }
             }
         }
-        if (Data.size() >= 4 && Data[0] == trojan_magic[0] && Data[1] == trojan_magic[1] &&
-            Data[2] == trojan_magic[2] && Data[3] == trojan_magic[3])
+        if (Data.size() >= 4 && Data[0] == TrojanMagic[0] && Data[1] == TrojanMagic[1] &&
+            Data[2] == TrojanMagic[2] && Data[3] == TrojanMagic[3])
         {
-            return ProtocolType::trojan;
+            return ProtocolType::Trojan;
         }
         if (Data.size() >= 1 && Data[0] == VmessMagic)
         {
-            return ProtocolType::vmess;
+            return ProtocolType::Vmess;
         }
         // HTTP 方法前缀
         constexpr std::string_view methods[] = {"GET ", "POST ", "CONNECT ", "PUT ", "DELETE ", "HEAD "};
@@ -136,10 +136,10 @@ namespace Preview::Recognition
             if (Data.size() >= m.size() &&
                 std::string_view(reinterpret_cast<const char *>(Data.data()), m.size()) == m)
             {
-                return ProtocolType::http;
+                return ProtocolType::Http;
             }
         }
-        return ProtocolType::unknown;
+        return ProtocolType::Unknown;
     }
 
 } // namespace Preview::Recognition

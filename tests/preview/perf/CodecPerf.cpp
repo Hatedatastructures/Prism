@@ -136,7 +136,7 @@ int main()
             plain[i] = static_cast<std::uint8_t>(i);
         }
         std::vector<std::uint8_t> wire;
-        wire.resize(plain.size() + ChunkEncryptor::overhead);
+        wire.resize(plain.size() + ChunkEncryptor::Overhead);
 
         bench("vmess chunk Seal 16KB", 10000, [&]()
               {

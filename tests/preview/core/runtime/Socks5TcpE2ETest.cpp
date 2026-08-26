@@ -3,7 +3,7 @@
  * @brief SOCKS5 TCP CONNECT 真实纵向链路测试（阶段 5 v2 补缺）
  * @details 覆盖：
  *          - 真实 TCP listener → Session → adapter::MakeAcceptSocks5 →
- *            Dial → post_dial(success) → relay → echo 上游
+ *            Dial → PostDial(success) → relay → echo 上游
  *          - CONNECT 应答「拨号后发送」：上游拒绝时客户端收到 connection_refused
  *          - runtime 传给 Dial 的目标地址与客户端请求一致
  */
@@ -41,9 +41,9 @@ namespace
     using namespace Preview;
 
     // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::RunCoro;
-    using psm::testing::TcpEchoServer;
-    using psm::testing::StartTcpEchoUpstream;
+    using Preview::Testing::RunCoro;
+    using Preview::Testing::TcpEchoServer;
+    using Preview::Testing::StartTcpEchoUpstream;
 
     /// SOCKS5 无认证 Greeting
     auto socks5_greeting() -> std::string
@@ -119,7 +119,7 @@ namespace
     {
         return Preview::Runtime::TcpListener(
             ioc.get_executor(),
-            [&, echo_port, refused](Preview::SharedTransmission inbound, std::size_t)
+            [&, echo_port, refused](Preview::SharedTransmission Inbound, std::size_t)
                 -> std::shared_ptr<Preview::Runtime::Session>
             {
                 Preview::Runtime::SessionOptions opts;
@@ -135,16 +135,16 @@ namespace
                     EXPECT_EQ(t.Port, "443");
                     if (refused)
                     {
-                        co_return std::pair{Preview::Fault::Code::connection_refused, nullptr};
+                        co_return std::pair{Preview::Fault::Code::ConnectionRefused, nullptr};
                     }
                     std::error_code ec;
                     Preview::Network::Dialer::Dialer d(ioc.get_executor());
                     auto Conn = co_await d.Connect("127.0.0.1", echo_port, ec);
                     if (ec)
                     {
-                        co_return std::pair{Preview::Fault::Code::unreachable, nullptr};
+                        co_return std::pair{Preview::Fault::Code::Unreachable, nullptr};
                     }
-                    co_return std::pair{Preview::Fault::Code::success, std::move(Conn)};
+                    co_return std::pair{Preview::Fault::Code::Success, std::move(Conn)};
                 };
                 return std::make_shared<Preview::Runtime::Session>(std::move(opts));
             },
@@ -164,7 +164,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      const auto start_rc = co_await listener.Start(net::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 0));
-                     EXPECT_EQ(start_rc, Preview::Fault::Code::success);
+                     EXPECT_EQ(start_rc, Preview::Fault::Code::Success);
                      const auto listen_port = listener.LocalEndpoint().port();
 
                      std::error_code ec;
@@ -230,14 +230,14 @@ namespace
     TEST(Socks5TcpChain, FullConnectEcho)
     {
         const auto r = run_socks5_connect(false);
-        EXPECT_EQ(r.rep, static_cast<std::uint8_t>(Socks5::ReplyCode::success));
+        EXPECT_EQ(r.rep, static_cast<std::uint8_t>(Socks5::ReplyCode::Success));
         EXPECT_EQ(r.echo, "socks5-e2e-payload");
     }
 
     TEST(Socks5TcpChain, DialRefusedMapsToConnectionRefused)
     {
         const auto r = run_socks5_connect(true);
-        EXPECT_EQ(r.rep, static_cast<std::uint8_t>(Socks5::ReplyCode::connection_refused));
+        EXPECT_EQ(r.rep, static_cast<std::uint8_t>(Socks5::ReplyCode::ConnectionRefused));
         EXPECT_TRUE(r.echo.empty());
     }
 
@@ -290,9 +290,9 @@ namespace
                     auto Conn = co_await d.Connect("127.0.0.1", echo_port, dec);
                     if (dec)
                     {
-                        co_return std::pair{Preview::Fault::Code::unreachable, nullptr};
+                        co_return std::pair{Preview::Fault::Code::Unreachable, nullptr};
                     }
-                    co_return std::pair{Preview::Fault::Code::success, std::move(Conn)};
+                    co_return std::pair{Preview::Fault::Code::Success, std::move(Conn)};
                 };
                 return std::make_shared<Preview::Runtime::Session>(std::move(opts));
             },
@@ -304,7 +304,7 @@ namespace
                  {
                      const auto start_rc = co_await listener.Start(
                          net::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 0));
-                     EXPECT_EQ(start_rc, Preview::Fault::Code::success);
+                     EXPECT_EQ(start_rc, Preview::Fault::Code::Success);
                      const auto listen_port = listener.LocalEndpoint().port();
 
                      std::error_code ec;

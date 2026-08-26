@@ -74,7 +74,7 @@ namespace Preview::Vless
          * @param opts 隧道选项
          */
         explicit UdpTunnel(std::shared_ptr<Conn<>> Stream, UdpTunnelOptions opts)
-            : stream_(std::move(Stream)), opts_(std::move(opts)), egress_(stream_->Executor())
+            : Stream_(std::move(Stream)), Opts_(std::move(opts)), Egress_(Stream_->Executor())
         {
         }
 
@@ -86,8 +86,8 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto Run() -> net::awaitable<void>
         {
-            auto self = shared_from_this();
-            net::steady_timer idle(stream_->Executor());
+            auto Self = shared_from_this();
+            net::steady_timer idle(Stream_->Executor());
             // 大缓冲堆分配，避免协程帧膨胀与逐轮零初始化
             std::vector<std::byte> Rx(65535);
             std::vector<std::byte> up(65535);
@@ -99,29 +99,29 @@ namespace Preview::Vless
             {
                 std::error_code REc;
                 const auto RxSpan = std::span<std::byte>(Rx);
-                auto Read = stream_->AsyncReadSome(RxSpan, REc);
-                std::size_t n = 0;
-                if (opts_.IdleTimeout.count() > 0)
+                auto Read = Stream_->async_read_some(RxSpan, REc);
+                std::size_t N = 0;
+                if (Opts_.IdleTimeout.count() > 0)
                 {
-                    idle.expires_after(opts_.IdleTimeout);
+                    idle.expires_after(Opts_.IdleTimeout);
                     using boost::asio::experimental::awaitable_operators::operator||;
                     auto Result = co_await (std::move(Read) || idle.async_wait(net::use_awaitable));
                     if (Result.index() == 1)
                     {
                         break; // 空闲超时
                     }
-                    n = std::get<0>(std::move(Result));
+                    N = std::get<0>(std::move(Result));
                 }
                 else
                 {
-                    n = co_await std::move(Read); // 0 = 禁用回收
+                    N = co_await std::move(Read); // 0 = 禁用回收
                 }
                 if (REc)
                 {
                     break;
                 }
                 idle.cancel();
-                if (n == 0)
+                if (N == 0)
                 {
                     break; // 流 EOF
                 }
@@ -131,29 +131,29 @@ namespace Preview::Vless
                 std::span<const std::uint8_t> payload;
                 const auto PErr = ParseUdpPkt(
                     std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(Rx.data()), n),
+                        reinterpret_cast<const std::uint8_t *>(Rx.data()), N),
                     Target, payload);
-                if (PErr != Error::none)
+                if (PErr != Error::None)
                 {
                     continue; // 非法帧丢弃（对齐生产端语义）
                 }
 
                 // 目标解析 → 转发载荷
                 auto TargetEp = co_await ResolveTarget(Target);
-                if (TargetEp.first != Error::none)
+                if (TargetEp.first != Error::None)
                 {
                     continue;
                 }
                 boost::system::error_code WEc;
-                if (!egress_.is_open())
+                if (!Egress_.is_open())
                 {
-                    egress_.open(TargetEp.second.protocol(), WEc);
+                    Egress_.open(TargetEp.second.protocol(), WEc);
                 }
                 if (WEc)
                 {
                     break;
                 }
-                co_await egress_.async_send_to(
+                co_await Egress_.async_send_to(
                     net::buffer(payload.data(), payload.size()), TargetEp.second,
                     net::redirect_error(net::use_awaitable, WEc));
                 if (WEc)
@@ -181,13 +181,18 @@ namespace Preview::Vless
                 std::size_t Done = 0;
                 while (Done < tx.size())
                 {
-                    const auto written = co_await stream_->AsyncWriteSome(
+                    const auto Written = co_await Stream_->async_write_some(
                         AsBytes(TxSpan.subspan(Done)), SEc);
                     if (SEc)
                     {
                         break;
                     }
-                    Done += written;
+                    if (Written == 0)
+                    {
+                        SEc = std::make_error_code(std::errc::broken_pipe); // 底层零字节写入，防死循环
+                        break;
+                    }
+                    Done += Written;
                 }
                 if (SEc)
                 {
@@ -197,9 +202,9 @@ namespace Preview::Vless
                 RecvBytes += *UpN;
             }
             Close();
-            if (opts_.traffic != nullptr)
+            if (Opts_.traffic != nullptr)
             {
-                opts_.traffic->Report(opts_.identity, SentBytes, RecvBytes);
+                Opts_.traffic->Report(Opts_.identity, SentBytes, RecvBytes);
             }
             co_return;
         }
@@ -210,10 +215,10 @@ namespace Preview::Vless
         void Close()
         {
             boost::system::error_code ec;
-            egress_.close(ec);
-            if (stream_)
+            Egress_.close(ec);
+            if (Stream_)
             {
-                stream_->Close();
+                Stream_->Close();
             }
         }
 
@@ -231,16 +236,16 @@ namespace Preview::Vless
             -> net::awaitable<std::optional<std::size_t>>
         {
             using boost::asio::experimental::awaitable_operators::operator||;
-            if (opts_.IdleTimeout.count() <= 0)
+            if (Opts_.IdleTimeout.count() <= 0)
             {
-                co_return co_await egress_.async_receive_from(
+                co_return co_await Egress_.async_receive_from(
                     net::buffer(buf), ep, net::redirect_error(net::use_awaitable, ec));
             }
-            net::steady_timer wd(stream_->Executor());
-            wd.expires_after(opts_.IdleTimeout);
-            auto recv = egress_.async_receive_from(
+            net::steady_timer wd(Stream_->Executor());
+            wd.expires_after(Opts_.IdleTimeout);
+            auto Recv = Egress_.async_receive_from(
                 net::buffer(buf), ep, net::redirect_error(net::use_awaitable, ec));
-            auto Result = co_await (std::move(recv) || wd.async_wait(net::use_awaitable));
+            auto Result = co_await (std::move(Recv) || wd.async_wait(net::use_awaitable));
             if (Result.index() == 1)
             {
                 co_return std::nullopt; // 上游静默
@@ -256,19 +261,19 @@ namespace Preview::Vless
         [[nodiscard]] auto ResolveTarget(const Address &Target)
             -> net::awaitable<std::pair<Error, net::ip::udp::endpoint>>
         {
-            if (opts_.resolve)
+            if (Opts_.resolve)
             {
-                co_return co_await opts_.resolve(Target);
+                co_return co_await Opts_.resolve(Target);
             }
             // 默认：IP 直解，域名尝试（失败返回 bad_address）
             boost::system::error_code ec;
-            const auto ip = net::ip::make_address(Target.Host, ec);
+            const auto Ip = net::ip::make_address(Target.Host, ec);
             if (ec)
             {
-                co_return std::pair{Error::bad_address, net::ip::udp::endpoint{}};
+                co_return std::pair{Error::BadAddress, net::ip::udp::endpoint{}};
             }
-            co_return std::pair{Error::none,
-                                net::ip::udp::endpoint(ip, Target.Port)};
+            co_return std::pair{Error::None,
+                                net::ip::udp::endpoint(Ip, Target.Port)};
         }
 
         /**
@@ -293,9 +298,9 @@ namespace Preview::Vless
             return out;
         }
 
-        std::shared_ptr<Conn<>> stream_; ///< VLESS 流连接（已握手）
-        UdpTunnelOptions opts_;        ///< 隧道选项
-        net::ip::udp::socket egress_;    ///< 出站 UDP socket（上游）
+        std::shared_ptr<Conn<>> Stream_; ///< VLESS 流连接（已握手）
+        UdpTunnelOptions Opts_;        ///< 隧道选项
+        net::ip::udp::socket Egress_;    ///< 出站 UDP socket（上游）
     };
 
 } // namespace Preview::Vless

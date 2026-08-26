@@ -1,5 +1,5 @@
 /**
- * @file throttle.hpp
+ * @file Throttle.hpp
  * @brief 限速与封禁中间件（T5-4 O4）
  * @details - ThrottleMiddleware：令牌桶限速（取不到令牌 → blocked）
  *          - BanMiddleware：失败计数超阈值 → 动态封禁（窗口过期自动解封）
@@ -45,7 +45,7 @@ namespace Preview::Middleware::Builtin
          */
         explicit ThrottleMiddleware(Preview::Rate::TokenBucket *bucket,
                                      std::uint64_t (*NowFn)() = nullptr)
-            : bucket_(bucket), now_fn_(NowFn)
+            : Bucket_(bucket), NowFn_(NowFn)
         {
         }
 
@@ -61,35 +61,35 @@ namespace Preview::Middleware::Builtin
          * @brief 限速检查
          * @return success / blocked / not_supported
          */
-        auto Handle(Preview::SharedTransmission & /*inbound*/, Context & /*ctx*/)
+        auto Handle(Preview::SharedTransmission & /*Inbound*/, Context & /*ctx*/)
             -> net::awaitable<Preview::Fault::Code> override
         {
-            if (!bucket_)
+            if (!Bucket_)
             {
-                co_return Preview::Fault::Code::not_supported;
+                co_return Preview::Fault::Code::NotSupported;
             }
-            std::uint64_t now = 0;
-            if (now_fn_)
+            std::uint64_t Now = 0;
+            if (NowFn_)
             {
-                now = now_fn_();
+                Now = NowFn_();
             }
             else
             {
-                now = static_cast<std::uint64_t>(
+                Now = static_cast<std::uint64_t>(
                     std::chrono::duration_cast<std::chrono::milliseconds>(
                         std::chrono::steady_clock::now().time_since_epoch())
                         .count());
             }
-            if (!bucket_->TryTake(1, now))
+            if (!Bucket_->TryTake(1, Now))
             {
-                co_return Preview::Fault::Code::blocked;
+                co_return Preview::Fault::Code::Blocked;
             }
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         }
 
     private:
-        Preview::Rate::TokenBucket *bucket_; ///< 令牌桶（非拥有）
-        std::uint64_t (*now_fn_)();           ///< 时钟函数
+        Preview::Rate::TokenBucket *Bucket_; ///< 令牌桶（非拥有）
+        std::uint64_t (*NowFn_)();           ///< 时钟函数
     };
 
     /**
@@ -109,7 +109,7 @@ namespace Preview::Middleware::Builtin
          */
         explicit BanMiddleware(std::size_t MaxFailures, std::uint64_t WindowMs,
                                 std::uint64_t (*NowFn)())
-            : MaxFailures_(MaxFailures), WindowMs_(WindowMs), now_fn_(NowFn)
+            : MaxFailures_(MaxFailures), WindowMs_(WindowMs), NowFn_(NowFn)
         {
         }
 
@@ -125,7 +125,7 @@ namespace Preview::Middleware::Builtin
          * @brief 封禁判定（按 ctx 远端键）
          * @return success / blocked
          */
-        auto Handle(Preview::SharedTransmission & /*inbound*/, Context &ctx)
+        auto Handle(Preview::SharedTransmission & /*Inbound*/, Context &ctx)
             -> net::awaitable<Preview::Fault::Code> override
         {
             std::string key = "unknown";
@@ -135,9 +135,9 @@ namespace Preview::Middleware::Builtin
             }
             if (IsBanned(key))
             {
-                co_return Preview::Fault::Code::blocked;
+                co_return Preview::Fault::Code::Blocked;
             }
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         }
 
         /**
@@ -146,12 +146,12 @@ namespace Preview::Middleware::Builtin
          */
         void RecordFailure(std::string_view key)
         {
-            const auto now = now_fn_();
-            auto &State = failures_[std::string(key)];
-            if (State.Count == 0 || now - State.first > WindowMs_)
+            const auto Now = NowFn_();
+            auto &State = Failures_[std::string(key)];
+            if (State.Count == 0 || Now - State.first > WindowMs_)
             {
                 State.Count = 1; // 新窗口
-                State.first = now;
+                State.first = Now;
             }
             else
             {
@@ -159,7 +159,7 @@ namespace Preview::Middleware::Builtin
             }
             if (State.Count >= MaxFailures_)
             {
-                banned_[std::string(key)] = now; // 封禁起点
+                Banned_[std::string(key)] = Now; // 封禁起点
             }
         }
 
@@ -169,13 +169,13 @@ namespace Preview::Middleware::Builtin
          */
         [[nodiscard]] auto IsBanned(std::string_view key) const -> bool
         {
-            const auto it = banned_.find(std::string(key));
-            if (it == banned_.end())
+            const auto It = Banned_.find(std::string(key));
+            if (It == Banned_.end())
             {
                 return false;
             }
-            const auto now = now_fn_();
-            if (now - it->second > WindowMs_)
+            const auto Now = NowFn_();
+            if (Now - It->second > WindowMs_)
             {
                 return false; // 窗口过期自动解封
             }
@@ -190,9 +190,9 @@ namespace Preview::Middleware::Builtin
         };
         std::size_t MaxFailures_;                    ///< 失败阈值
         std::uint64_t WindowMs_;                     ///< 窗口（毫秒）
-        std::uint64_t (*now_fn_)();                   ///< 时钟函数
-        mutable std::unordered_map<std::string, FailureState> failures_; ///< 失败计数
-        mutable std::unordered_map<std::string, std::uint64_t> banned_;   ///< 封禁表
+        std::uint64_t (*NowFn_)();                   ///< 时钟函数
+        mutable std::unordered_map<std::string, FailureState> Failures_; ///< 失败计数
+        mutable std::unordered_map<std::string, std::uint64_t> Banned_;   ///< 封禁表
     };
 
 } // namespace Preview::Middleware::Builtin

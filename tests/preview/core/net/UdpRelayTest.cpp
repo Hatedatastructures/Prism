@@ -57,7 +57,7 @@ TEST(UdpRelay, AssociationAndEcho)
     const auto b_ep = b->NativeSocket().local_endpoint();
 
     // 中继 A↔B（动态关联）
-    bool relay_done = false;
+    bool RelayDone = false;
     net::co_spawn(
         ioc.get_executor(),
         [&]() -> net::awaitable<void>
@@ -66,7 +66,7 @@ TEST(UdpRelay, AssociationAndEcho)
             opts.IdleTimeout = std::chrono::milliseconds(0); // 禁用回收
             Preview::Network::Udp::UdpRelay relay(a, b, opts);
             co_await relay.Run();
-            relay_done = true;
+            RelayDone = true;
         },
         net::detached);
 
@@ -139,7 +139,7 @@ TEST(UdpRelay, AssociationAndEcho)
              });
 
     EXPECT_EQ(a_received, "echo-me");
-    (void)relay_done;
+    (void)RelayDone;
 }
 
 TEST(UdpRelay, AssociationTimeoutReap)
@@ -318,7 +318,7 @@ TEST(UdpRelay, EndCloseTerminates)
     b->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
     ASSERT_FALSE(oec);
 
-    bool relay_done = false;
+    bool RelayDone = false;
     net::co_spawn(
         ioc.get_executor(),
         [&]() -> net::awaitable<void>
@@ -327,7 +327,7 @@ TEST(UdpRelay, EndCloseTerminates)
             opts.IdleTimeout = std::chrono::milliseconds(0); // 禁用回收，只验证关闭语义
             Preview::Network::Udp::UdpRelay relay(a, b, opts);
             co_await relay.Run();
-            relay_done = true;
+            RelayDone = true;
         },
         net::detached);
 
@@ -340,12 +340,12 @@ TEST(UdpRelay, EndCloseTerminates)
                  co_await t.async_wait(net::use_awaitable);
                  a->Close();
                  // 轮询等待 relay 完成（保持 ioc 运行以调度取消回调）
-                 for (int i = 0; i < 100 && !relay_done; ++i)
+                 for (int i = 0; i < 100 && !RelayDone; ++i)
                  {
                      net::steady_timer p(ioc);
                      p.expires_after(std::chrono::milliseconds(10));
                      co_await p.async_wait(net::use_awaitable);
                  }
              });
-    EXPECT_TRUE(relay_done);
+    EXPECT_TRUE(RelayDone);
 }

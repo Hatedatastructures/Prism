@@ -11,7 +11,7 @@
 #include <gtest/gtest.h>
 
 #include <prism/net/connection/tunnel/tunnel.hpp>
-#include <prism/Resource/Session.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
@@ -27,7 +27,7 @@
 
 namespace net = boost::asio;
 
-using namespace psm::testing; // MockTransport（对齐同目录 TunnelTest 惯例）
+using namespace Preview::Testing; // MockTransport（对齐同目录 TunnelTest 惯例）
 
 namespace {
 
@@ -68,7 +68,7 @@ namespace {
         auto proc = std::make_shared<psm::resource::process>(
             psm::resource::process::options{cfg, nullptr, nullptr});
         auto wrk = std::make_shared<psm::resource::worker>(
-            psm::resource::worker::options{proc, psm::memory::std::global_pool()});
+            psm::resource::worker::options{proc, psm::memory::system::global_pool()});
         return std::make_shared<psm::resource::session>(
             psm::resource::session::options{wrk, 1, buf, nullptr, {}, nullptr, nullptr});
     }
@@ -117,8 +117,8 @@ TEST(TunnelHalfClose, SmallRequestLargeResponse)
     harness h(ioc);
     const std::vector<std::byte> req(128, std::byte{0x11});
     const std::vector<std::byte> rsp(64 * 1024, std::byte{0x22});
-    h.in->inject_read(req.data(), req.size());
-    h.out->inject_read(rsp.data(), rsp.size());
+    h.in->InjectRead(req.data(), req.size());
+    h.out->InjectRead(rsp.data(), rsp.size());
     h.Start();
 
     auto body = [&]() -> net::awaitable<void>
@@ -129,7 +129,7 @@ TEST(TunnelHalfClose, SmallRequestLargeResponse)
         co_await wait_until(ioc, [&]
                             { return h.out->WrittenData().size() >= req.size() &&
                                      h.in->WrittenData().size() >= rsp.size(); });
-        h.in->shutdown();
+        h.in->Shutdown();
         co_await h.join();
         h.out->close();
     };
@@ -145,8 +145,8 @@ TEST(TunnelHalfClose, LargeRequestSmallResponse)
     harness h(ioc);
     const std::vector<std::byte> req(64 * 1024, std::byte{0x33});
     const std::vector<std::byte> rsp(128, std::byte{0x44});
-    h.in->inject_read(req.data(), req.size());
-    h.out->inject_read(rsp.data(), rsp.size());
+    h.in->InjectRead(req.data(), req.size());
+    h.out->InjectRead(rsp.data(), rsp.size());
     h.Start();
 
     auto body = [&]() -> net::awaitable<void>
@@ -155,7 +155,7 @@ TEST(TunnelHalfClose, LargeRequestSmallResponse)
         co_await wait_until(ioc, [&]
                             { return h.in->WrittenData().size() >= rsp.size() &&
                                      h.out->WrittenData().size() >= req.size(); });
-        h.out->shutdown();
+        h.out->Shutdown();
         h.in->close();
         co_await h.join();
         h.out->close();
@@ -169,8 +169,8 @@ TEST(TunnelHalfClose, BidirectionalEOF)
 {
     net::io_context ioc;
     harness h(ioc);
-    h.in->inject_read(std::vector<std::byte>{std::byte{0x01}}.data(), 1);
-    h.out->inject_read(std::vector<std::byte>{std::byte{0x02}}.data(), 1);
+    h.in->InjectRead(std::vector<std::byte>{std::byte{0x01}}.data(), 1);
+    h.out->InjectRead(std::vector<std::byte>{std::byte{0x02}}.data(), 1);
     h.Start();
 
     auto body = [&]() -> net::awaitable<void>
@@ -179,8 +179,8 @@ TEST(TunnelHalfClose, BidirectionalEOF)
         co_await wait_until(ioc, [&]
                             { return h.in->WrittenData().size() >= 1 &&
                                      h.out->WrittenData().size() >= 1; });
-        h.in->shutdown();
-        h.out->shutdown();
+        h.in->Shutdown();
+        h.out->Shutdown();
         co_await h.join();
         h.in->close();
         h.out->close();
@@ -197,14 +197,14 @@ TEST(TunnelHalfClose, IdleTimeoutMidHalfClose)
     net::io_context ioc;
     harness h(ioc);
     const std::vector<std::byte> req(10, std::byte{0x55});
-    h.in->inject_read(req.data(), req.size());
+    h.in->InjectRead(req.data(), req.size());
     h.Start();
 
     auto body = [&]() -> net::awaitable<void>
     {
         // 单向数据送达后半关闭入站；级联 EOF 应使隧道收口而非挂死
         co_await wait_until(ioc, [&] { return h.out->WrittenData().size() >= req.size(); });
-        h.in->shutdown();
+        h.in->Shutdown();
         co_await h.join();
         h.out->close();
     };

@@ -41,7 +41,7 @@ namespace Preview::Account
          */
         explicit Entry(std::uint32_t MaxConnections = 0, bool Disabled = false,
                        std::uint64_t ExpireAt = 0)
-            : MaxConnections_(MaxConnections), disabled_(Disabled), ExpireAt_(ExpireAt)
+            : MaxConnections_(MaxConnections), Disabled_(Disabled), ExpireAt_(ExpireAt)
         {
         }
 
@@ -51,23 +51,23 @@ namespace Preview::Account
          */
         [[nodiscard]] auto TryAddActive() -> bool
         {
-            if (disabled_.load(std::memory_order_acquire))
+            if (Disabled_.load(std::memory_order_acquire))
             {
                 return false;
             }
             if (MaxConnections_ == 0)
             {
-                active_.fetch_add(1, std::memory_order_relaxed);
+                Active_.fetch_add(1, std::memory_order_relaxed);
                 return true;
             }
-            auto current = active_.load(std::memory_order_relaxed);
+            auto Current = Active_.load(std::memory_order_relaxed);
             while (true)
             {
-                if (current >= MaxConnections_)
+                if (Current >= MaxConnections_)
                 {
                     return false;
                 }
-                if (active_.compare_exchange_weak(current, current + 1, std::memory_order_relaxed,
+                if (Active_.compare_exchange_weak(Current, Current + 1, std::memory_order_relaxed,
                                                   std::memory_order_relaxed))
                 {
                     return true;
@@ -80,7 +80,7 @@ namespace Preview::Account
          */
         void ReleaseActive()
         {
-            active_.fetch_sub(1, std::memory_order_relaxed);
+            Active_.fetch_sub(1, std::memory_order_relaxed);
         }
 
         /**
@@ -88,7 +88,7 @@ namespace Preview::Account
          */
         [[nodiscard]] auto Active() const -> std::uint32_t
         {
-            return active_.load(std::memory_order_relaxed);
+            return Active_.load(std::memory_order_relaxed);
         }
 
         /**
@@ -104,7 +104,7 @@ namespace Preview::Account
          */
         [[nodiscard]] auto Disabled() const -> bool
         {
-            return disabled_.load(std::memory_order_acquire);
+            return Disabled_.load(std::memory_order_acquire);
         }
 
         /**
@@ -119,16 +119,16 @@ namespace Preview::Account
          * @brief 是否已过期
          * @param now 当前时间戳（须传入；ExpireAt 为 0 永不过期）
          */
-        [[nodiscard]] auto Expired(std::uint64_t now) const -> bool
+        [[nodiscard]] auto Expired(std::uint64_t Now) const -> bool
         {
-            const auto at = ExpireAt_.load(std::memory_order_acquire);
-            return at != 0 && now >= at;
+            const auto At = ExpireAt_.load(std::memory_order_acquire);
+            return At != 0 && Now >= At;
         }
 
     private:
-        std::atomic<std::uint32_t> active_{0}; ///< 活跃连接数
+        std::atomic<std::uint32_t> Active_{0}; ///< 活跃连接数
         std::uint32_t MaxConnections_{0};     ///< 连接上限（0 = 无限制）
-        std::atomic<bool> disabled_{false};    ///< 禁用标志
+        std::atomic<bool> Disabled_{false};    ///< 禁用标志
         std::atomic<std::uint64_t> ExpireAt_{0}; ///< 过期时间戳（0 = 永不过期）
     };
 
@@ -153,7 +153,7 @@ namespace Preview::Account
          * @brief 构造持约
          * @param e 条目
          */
-        explicit Lease(SharedEntry e) : entry_(std::move(e))
+        explicit Lease(SharedEntry E) : Entry_(std::move(E))
         {
         }
 
@@ -162,9 +162,9 @@ namespace Preview::Account
          */
         ~Lease()
         {
-            if (entry_)
+            if (Entry_)
             {
-                entry_->ReleaseActive();
+                Entry_->ReleaseActive();
             }
         }
 
@@ -174,7 +174,7 @@ namespace Preview::Account
         /**
          * @brief 移动构造
          */
-        Lease(Lease &&other) noexcept : entry_(std::move(other.entry_))
+        Lease(Lease &&other) noexcept : Entry_(std::move(other.Entry_))
         {
         }
 
@@ -185,11 +185,11 @@ namespace Preview::Account
         {
             if (this != &other)
             {
-                if (entry_)
+                if (Entry_)
                 {
-                    entry_->ReleaseActive();
+                    Entry_->ReleaseActive();
                 }
-                entry_ = std::move(other.entry_);
+                Entry_ = std::move(other.Entry_);
             }
             return *this;
         }
@@ -199,7 +199,7 @@ namespace Preview::Account
          */
         [[nodiscard]] explicit operator bool() const noexcept
         {
-            return static_cast<bool>(entry_);
+            return static_cast<bool>(Entry_);
         }
 
         /**
@@ -207,11 +207,11 @@ namespace Preview::Account
          */
         [[nodiscard]] auto Get() const -> SharedEntry
         {
-            return entry_;
+            return Entry_;
         }
 
     private:
-        SharedEntry entry_; ///< 条目
+        SharedEntry Entry_; ///< 条目
     };
 
     /**
@@ -232,7 +232,7 @@ namespace Preview::Account
         void Upsert(std::string_view Credential, std::uint32_t MaxConnections = 0, bool Disabled = false,
                     std::uint64_t ExpireAt = 0)
         {
-            entries_.set(std::string(Credential),
+            Entries_.Set(std::string(Credential),
                          std::make_shared<Entry>(MaxConnections, Disabled, ExpireAt));
         }
 
@@ -243,7 +243,7 @@ namespace Preview::Account
          */
         void Insert(std::string_view Credential, SharedEntry existing)
         {
-            entries_.set(std::string(Credential), std::move(existing));
+            Entries_.Set(std::string(Credential), std::move(existing));
         }
 
         /**
@@ -253,7 +253,7 @@ namespace Preview::Account
          */
         auto Remove(std::string_view Credential) -> bool
         {
-            return entries_.Remove(std::string(Credential));
+            return Entries_.Remove(std::string(Credential));
         }
 
         /**
@@ -263,10 +263,10 @@ namespace Preview::Account
          */
         [[nodiscard]] auto Find(std::string_view Credential) const -> SharedEntry
         {
-            SharedEntry e;
-            if (entries_.Find(std::string(Credential), e))
+            SharedEntry E;
+            if (Entries_.Find(std::string(Credential), E))
             {
-                return e;
+                return E;
             }
             return nullptr;
         }
@@ -287,10 +287,10 @@ namespace Preview::Account
         template <typename Fn>
         void ForEach(Fn &&fn) const
         {
-            const auto snap = entries_.Snapshot();
-            for (const auto &[cred, e] : *snap)
+            const auto Snap = Entries_.Snapshot();
+            for (const auto &[cred, E] : *Snap)
             {
-                fn(std::string_view(cred), e);
+                fn(std::string_view(cred), E);
             }
         }
 
@@ -299,7 +299,7 @@ namespace Preview::Account
          */
         [[nodiscard]] auto Size() const -> std::size_t
         {
-            return entries_.Size();
+            return Entries_.Size();
         }
 
         /**
@@ -307,11 +307,11 @@ namespace Preview::Account
          */
         void Clear()
         {
-            entries_.Clear();
+            Entries_.Clear();
         }
 
     private:
-        Preview::Memory::CowMap<std::string, SharedEntry> entries_; ///< 凭证 → 条目
+        Preview::Memory::CowMap<std::string, SharedEntry> Entries_; ///< 凭证 → 条目
     };
 
     /**
@@ -322,18 +322,18 @@ namespace Preview::Account
      * @return 持约 Lease；失败（不存在/禁用/过期/超限）返回空
      */
     [[nodiscard]] inline auto TryAcquire(const Directory &dir, std::string_view Credential,
-                                          std::uint64_t now = 0) -> Lease
+                                          std::uint64_t Now = 0) -> Lease
     {
-        auto e = dir.Find(Credential);
-        if (!e || e->Disabled() || (now != 0 && e->Expired(now)))
+        auto E = dir.Find(Credential);
+        if (!E || E->Disabled() || (Now != 0 && E->Expired(Now)))
         {
             return Lease{};
         }
-        if (!e->TryAddActive())
+        if (!E->TryAddActive())
         {
             return Lease{};
         }
-        return Lease(std::move(e));
+        return Lease(std::move(E));
     }
 
 } // namespace Preview::Account

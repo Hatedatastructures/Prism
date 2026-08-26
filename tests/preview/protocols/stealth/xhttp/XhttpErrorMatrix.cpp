@@ -70,7 +70,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     n = co_await t->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     n = co_await t->async_read_some(std::span<std::byte>(buf), ec);
                  });
         EXPECT_NE(ec, std::error_code{});
 
@@ -84,7 +84,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     n = co_await t2->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     n = co_await t2->async_read_some(std::span<std::byte>(buf), ec);
                  });
         EXPECT_EQ(n, 0u);
         EXPECT_FALSE(ec); // EOF 语义：返回 0 且无错误
@@ -111,7 +111,7 @@ namespace
                      // 未绑定流（-1）写 → 缓冲
                      std::error_code ec;
                      const std::string msg = "buffered";
-                     co_await t->AsyncWriteSome(
+                     co_await t->async_write_some(
                          AsBytesSpan(std::string_view(msg)), ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(flushed_stream, -99); // 未 flush
@@ -146,7 +146,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     n = co_await t->AsyncReadSome(Buffer, ec);
+                     n = co_await t->async_read_some(Buffer, ec);
                  });
 
         EXPECT_EQ(n, 0U);
@@ -172,7 +172,7 @@ namespace
                          {
                              std::array<std::byte, 64> buf{};
                              std::error_code ec;
-                             const auto n = co_await t->AsyncReadSome(std::span<std::byte>(buf), ec);
+                             const auto n = co_await t->async_read_some(std::span<std::byte>(buf), ec);
                              if (n > 0)
                              {
                                  got.assign(reinterpret_cast<const char *>(buf.data()), n);

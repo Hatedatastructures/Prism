@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief ShadowTLS v3 协议基础类型
  * @details ShadowTLS v3 是 TLS 会话复用伪装方案：
  *          - 客户端把认证 HMAC 塞进 ClientHello 的 SessionId（Tier 1）

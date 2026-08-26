@@ -3,17 +3,17 @@
  * @brief multiplex/duct 深度同步逻辑测试
  * @details 通过 #include 源文件访问 duct 的全部实现，
  *          使用 TestCore（core 子类）+ MockTransport 构建 duct，
- *          测试构造、析构、close、on_data、on_fin 等同步/协程路径。
+ *          测试构造、析构、close、OnData、on_fin 等同步/协程路径。
  *
  *          start() 测试不使用 run()，因为 MockTransport 的 async_read_some
  *          在队列为空时用 100us 定时器轮询，run() 会无限循环。
  *          改为：在关闭 target 前，注入足够的数据让 readloop 读完，
- *          然后 close target → readloop 检测 closed_=true 返回 eof。
+ *          然后 close target → readloop 检测 Closed_=true 返回 eof。
  *
  *          PMR 内存安全：DuctFixture 析构时必须先 close() duct 并排干 ioc，
- *          因为 target_readloop 的 data vector 使用 duct 的 mr_。
+ *          因为 target_readloop 的 data vector 使用 duct 的 Mr_。
  *          成员按声明逆序析构，如果 duct_obj 后于 target_transport 析构，
- *          target_readloop 中可能还有引用 mr_ 的挂起操作。
+ *          target_readloop 中可能还有引用 Mr_ 的挂起操作。
  */
 
 #include <prism/diagnose/log.hpp>
@@ -25,7 +25,7 @@
 
 #include "common/MockTransport.hpp"
 
-using MockTransport = psm::testing::MockTransport;
+using MockTransport = Preview::Testing::MockTransport;
 namespace multiplex = psm::multiplex;
 namespace net = boost::asio;
 
@@ -107,10 +107,10 @@ namespace
             {
                 duct_obj->close();
             }
-            // 排干 target 的 ioc：readloop 检测 closed_=true 返回 eof，
+            // 排干 target 的 ioc：readloop 检测 Closed_=true 返回 eof，
             // writeloop 检测 channel 已 cancel 返回错误
             // 使用 poll() 而非 run()，因为 run() 会阻塞在 timer 轮询
-            // 但 close() 已设置 closed_=true，所以 timer wait 回调中
+            // 但 close() 已设置 Closed_=true，所以 timer wait 回调中
             // async_read_some 会立即返回 eof
             target_transport->GetIoContext().restart();
             // 用 run_one 驱动有限步：每步处理一个就绪 handler
@@ -226,7 +226,7 @@ namespace
         fx.duct_obj->on_fin();
     }
 
-    // ─── on_data 协程路径 ─────────────────────
+    // ─── OnData 协程路径 ─────────────────────
 
     TEST(DuctDeep, OnDataAfterClose)
     {
@@ -241,7 +241,7 @@ namespace
 
     // ─── start 路径 ────────────────────────
     // 核心问题：start() spawn 两个协程到 target 的 ioc。
-    // readloop 在 closed_=true 后才退出（返回 eof 给 async_read_some）。
+    // readloop 在 Closed_=true 后才退出（返回 eof 给 async_read_some）。
     // 但 MockTransport 的 timer 轮询需要 run() 来驱动 timer wait 回调。
     // 解决方案：不调用 start() — 只测试同步路径。
     // start() 相关路径在已有的 MultiplexDuct.cpp 集成测试中覆盖。

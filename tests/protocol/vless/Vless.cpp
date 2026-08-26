@@ -44,7 +44,7 @@ TEST(Vless, ParseRequestIPv4)
     std::vector<std::uint8_t> buf;
     buf.push_back(0x00);             // version
     buf.insert(buf.end(), 16, 0x00); // UUID (全零)
-    buf.push_back(0x00);             // addnl_len = 0
+    buf.push_back(0x00);             // AddnlLen = 0
     buf.push_back(0x01);             // cmd = tcp
     buf.push_back(0x00);
     buf.push_back(0x50); // port = 80 (big-endian)
@@ -77,7 +77,7 @@ TEST(Vless, ParseRequestDomain)
     std::vector<std::uint8_t> buf;
     buf.push_back(0x00);             // version
     buf.insert(buf.end(), 16, 0x00); // UUID
-    buf.push_back(0x00);             // addnl_len = 0
+    buf.push_back(0x00);             // AddnlLen = 0
     buf.push_back(0x01);             // cmd = tcp
     buf.push_back(0x01);
     buf.push_back(0xBB);                                     // port = 443 (big-endian)
@@ -103,7 +103,7 @@ TEST(Vless, ParseRequestIPv6)
     std::vector<std::uint8_t> buf;
     buf.push_back(0x00);             // version
     buf.insert(buf.end(), 16, 0x00); // UUID
-    buf.push_back(0x00);             // addnl_len = 0
+    buf.push_back(0x00);             // AddnlLen = 0
     buf.push_back(0x01);             // cmd = tcp
     buf.push_back(0x20);
     buf.push_back(0xFB); // port = 8443 (big-endian)
@@ -179,10 +179,10 @@ TEST(Vless, ParseRequestNonZeroAddnl)
     std::vector<std::uint8_t> buf;
     buf.push_back(0x00);             // version
     buf.insert(buf.end(), 16, 0x00); // UUID
-    buf.push_back(0x05);             // addnl_len = 5 (non-zero, unsupported)
+    buf.push_back(0x05);             // AddnlLen = 5 (non-zero, unsupported)
 
     auto result = protocol::vless::format::parse_request(buf);
-    EXPECT_TRUE(!result.has_value()) << "non-zero addnl_len should return nullopt";
+    EXPECT_TRUE(!result.has_value()) << "non-zero AddnlLen should return nullopt";
 }
 
 /**
@@ -385,9 +385,9 @@ namespace
             std::array<std::byte, 1024> byte_buf{};
             try
             {
-                std::error_code read_ec;
-                std::size_t n = co_await vless->async_read_some(byte_buf, read_ec);
-                if (read_ec)
+                std::error_code ReadEc;
+                std::size_t n = co_await vless->async_read_some(byte_buf, ReadEc);
+                if (ReadEc)
                 {
                     co_return;
                 }
@@ -424,7 +424,7 @@ namespace
             std::vector<std::uint8_t> req;
             req.push_back(0x00);             // version
             req.insert(req.end(), 16, 0x00); // UUID (全零)
-            req.push_back(0x00);             // addnl_len = 0
+            req.push_back(0x00);             // AddnlLen = 0
             req.push_back(0x01);             // cmd = tcp
             req.push_back(0x00);
             req.push_back(0x50); // port = 80

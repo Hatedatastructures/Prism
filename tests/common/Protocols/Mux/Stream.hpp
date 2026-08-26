@@ -6,7 +6,7 @@
  * NextLayer() 返回 nullptr（叶子节点）。
  * @note StreamHandle::Close() / Reset() 为协程（体内无挂起点），
  * 必须经 co_spawn 驱动执行，适配器以 shared_ptr 捕获句柄保活。
- * @note n == 0 的读返回视为对端关闭，ec 置 Error::unexpected_eof。
+ * @note n == 0 的读返回视为对端关闭，ec 置 Error::UnexpectedEof。
  */
 
 #pragma once
@@ -42,7 +42,7 @@ namespace Preview::Mux
          * @brief 构造
          * @param Handle mux 虚拟流句柄（所有权移交）
          */
-        explicit StreamTransmission(std::shared_ptr<StreamHandle<>> Handle) : handle_(std::move(Handle))
+        explicit StreamTransmission(std::shared_ptr<StreamHandle<>> Handle) : Handle_(std::move(Handle))
         {
         }
 
@@ -52,9 +52,9 @@ namespace Preview::Mux
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            if (handle_)
+            if (Handle_)
             {
-                return handle_->Executor();
+                return Handle_->Executor();
             }
             return net::any_io_executor{};
         }
@@ -65,26 +65,26 @@ namespace Preview::Mux
          * @param ec 错误码输出参数
          * @return 实际读取字节数
          * @details 转调 StreamHandle::ReadSome；n == 0（对端关闭/
-         * 半关/超时）时 ec 置 Error::unexpected_eof。
+         * 半关/超时）时 ec 置 Error::UnexpectedEof。
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handle_)
+            if (!Handle_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            const auto n = co_await handle_->ReadSome(AsU8(Buffer));
-            if (n == 0)
+            const auto N = co_await Handle_->ReadSome(AsU8(Buffer));
+            if (N == 0)
             {
-                ec = make_error_code(Error::unexpected_eof);
+                ec = make_error_code(Error::UnexpectedEof);
             }
             else
             {
                 ec.clear();
             }
-            co_return n;
+            co_return N;
         }
 
         /**
@@ -95,18 +95,18 @@ namespace Preview::Mux
          * @details 转调 StreamHandle::WriteAll（内部完整写入），
          * 错误经 boost→std 隐式转换存入 ec。
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handle_)
+            if (!Handle_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            const auto err = co_await handle_->WriteAll(AsU8(Buffer));
-            if (err)
+            const auto Err = co_await Handle_->WriteAll(AsU8(Buffer));
+            if (Err)
             {
-                ec = err;
+                ec = Err;
                 co_return 0;
             }
             ec.clear();
@@ -120,7 +120,7 @@ namespace Preview::Mux
          */
         void Close() override
         {
-            auto Handle = handle_;
+            auto Handle = Handle_;
             if (!Handle)
             {
                 return;
@@ -137,7 +137,7 @@ namespace Preview::Mux
          */
         void Reset()
         {
-            auto Handle = handle_;
+            auto Handle = Handle_;
             if (!Handle)
             {
                 return;
@@ -152,9 +152,9 @@ namespace Preview::Mux
          */
         void Cancel() override
         {
-            if (handle_)
+            if (Handle_)
             {
-                handle_->Cancel();
+                Handle_->Cancel();
             }
         }
 
@@ -164,7 +164,7 @@ namespace Preview::Mux
          */
         [[nodiscard]] auto IsOpen() const -> bool
         {
-            return handle_ && handle_->IsOpen();
+            return Handle_ && Handle_->IsOpen();
         }
 
         /**
@@ -173,11 +173,11 @@ namespace Preview::Mux
          */
         [[nodiscard]] auto Handle() const noexcept -> std::shared_ptr<StreamHandle<>>
         {
-            return handle_;
+            return Handle_;
         }
 
     private:
-        std::shared_ptr<StreamHandle<>> handle_; ///< mux 虚拟流句柄
+        std::shared_ptr<StreamHandle<>> Handle_; ///< mux 虚拟流句柄
     };
 
     /// 流传输共享指针

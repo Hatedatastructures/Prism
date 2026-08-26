@@ -29,23 +29,23 @@ namespace Preview::Gun
      */
     [[nodiscard]] inline auto EncodeVarint(std::uint32_t value, std::span<std::uint8_t> out) -> std::size_t
     {
-        std::uint32_t v = value;
-        std::size_t n = 0;
-        while (v >= 0x80)
+        std::uint32_t V = value;
+        std::size_t N = 0;
+        while (V >= 0x80)
         {
-            if (n >= out.size())
+            if (N >= out.size())
             {
                 return 0;
             }
-            out[n++] = static_cast<std::uint8_t>((v & 0x7F) | 0x80);
-            v >>= 7;
+            out[N++] = static_cast<std::uint8_t>((V & 0x7F) | 0x80);
+            V >>= 7;
         }
-        if (n >= out.size())
+        if (N >= out.size())
         {
             return 0;
         }
-        out[n++] = static_cast<std::uint8_t>(v);
-        return n;
+        out[N++] = static_cast<std::uint8_t>(V);
+        return N;
     }
 
     /**
@@ -57,14 +57,14 @@ namespace Preview::Gun
     [[nodiscard]] inline auto DecodeVarint(std::span<const std::uint8_t> in, std::uint32_t &value)
         -> std::size_t
     {
-        std::uint32_t v = 0;
-        for (std::size_t i = 0; i < in.size() && i < MaxVarintLen; ++i)
+        std::uint32_t V = 0;
+        for (std::size_t I = 0; I < in.size() && I < MaxVarintLen; ++I)
         {
-            v |= static_cast<std::uint32_t>(in[i] & 0x7F) << (7 * i);
-            if ((in[i] & 0x80) == 0)
+            V |= static_cast<std::uint32_t>(in[I] & 0x7F) << (7 * I);
+            if ((in[I] & 0x80) == 0)
             {
-                value = v;
-                return i + 1;
+                value = V;
+                return I + 1;
             }
         }
         return 0;
@@ -86,8 +86,8 @@ namespace Preview::Gun
      */
     [[nodiscard]] inline auto EncodeFrame(std::span<const std::uint8_t> payload) -> std::vector<std::uint8_t>
     {
-        std::array<std::uint8_t, MaxVarintLen> varint_buf{};
-        const auto VarintLen = EncodeVarint(static_cast<std::uint32_t>(payload.size()), varint_buf);
+        std::array<std::uint8_t, MaxVarintLen> VarintBuf{};
+        const auto VarintLen = EncodeVarint(static_cast<std::uint32_t>(payload.size()), VarintBuf);
         std::vector<std::uint8_t> out;
         out.reserve(HeaderFixedLen + VarintLen + payload.size());
         out.push_back(0x00);
@@ -97,7 +97,7 @@ namespace Preview::Gun
         out.push_back(static_cast<std::uint8_t>((Total >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>(Total & 0xFF));
         out.push_back(0x0A);
-        out.insert(out.end(), varint_buf.begin(), varint_buf.begin() + VarintLen);
+        out.insert(out.end(), VarintBuf.begin(), VarintBuf.begin() + VarintLen);
         out.insert(out.end(), payload.begin(), payload.end());
         return out;
     }
@@ -121,14 +121,14 @@ namespace Preview::Gun
         }
         const auto Total = static_cast<std::uint32_t>(in[1]) << 24 | static_cast<std::uint32_t>(in[2]) << 16 |
                            static_cast<std::uint32_t>(in[3]) << 8 | static_cast<std::uint32_t>(in[4]);
-        std::uint32_t plen = 0;
-        const auto vlen = DecodeVarint(in.subspan(HeaderFixedLen), plen);
-        if (vlen == 0 || Total != 1 + vlen + plen)
+        std::uint32_t Plen = 0;
+        const auto Vlen = DecodeVarint(in.subspan(HeaderFixedLen), Plen);
+        if (Vlen == 0 || Total != 1 + Vlen + Plen)
         {
             return false;
         }
-        Header.PayloadLen = plen;
-        Header.HeaderLen = HeaderFixedLen + vlen;
+        Header.PayloadLen = Plen;
+        Header.HeaderLen = HeaderFixedLen + Vlen;
         return true;
     }
 

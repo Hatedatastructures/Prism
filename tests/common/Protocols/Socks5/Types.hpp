@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief SOCKS5 协议基础类型（RFC 1928）
  * @details 定义 SOCKS5 常量、认证方法、命令、地址类型与结构。
  *          握手流程：Greeting（版本+方法列表）→ 方法协商 → 请求 → 响应。
@@ -33,13 +33,13 @@ namespace Preview::Socks5
     enum class AuthMethod : std::uint8_t
     {
         /// 无认证
-        no_auth = 0x00,
+        NoAuth = 0x00,
         /// GSSAPI
-        gssapi = 0x01,
+        Gssapi = 0x01,
         /// 用户名/密码
-        user_pass = 0x02,
+        UserPass = 0x02,
         /// 无可用方法
-        no_acceptable = 0xFF,
+        NoAcceptable = 0xFF,
     };
 
     /// 命令
@@ -68,23 +68,23 @@ namespace Preview::Socks5
     enum class ReplyCode : std::uint8_t
     {
         /// 成功
-        success = 0x00,
+        Success = 0x00,
         /// 一般失败
-        general_failure = 0x01,
+        GeneralFailure = 0x01,
         /// 规则不允许
-        not_allowed = 0x02,
+        NotAllowed = 0x02,
         /// 网络不可达
-        network_unreachable = 0x03,
+        NetworkUnreachable = 0x03,
         /// 主机不可达
-        host_unreachable = 0x04,
+        HostUnreachable = 0x04,
         /// 连接被拒
-        connection_refused = 0x05,
+        ConnectionRefused = 0x05,
         /// TTL 过期
-        ttl_expired = 0x06,
+        TtlExpired = 0x06,
         /// 命令不支持
-        command_not_supported = 0x07,
+        CommandNotSupported = 0x07,
         /// 地址类型不支持
-        address_not_supported = 0x08,
+        AddressNotSupported = 0x08,
     };
 
     /// 目标地址
@@ -104,7 +104,7 @@ namespace Preview::Socks5
         /// 版本
         std::uint8_t Ver{Version};
         /// 支持的方法列表
-        std::vector<std::uint8_t> methods;
+        std::vector<std::uint8_t> Methods;
     };
 
     /// 方法选择（响应）
@@ -113,7 +113,7 @@ namespace Preview::Socks5
         /// 版本
         std::uint8_t Ver{Version};
         /// 选择的方法
-        AuthMethod Method{AuthMethod::no_auth};
+        AuthMethod Method{AuthMethod::NoAuth};
     };
 
     /// 请求
@@ -135,7 +135,7 @@ namespace Preview::Socks5
         /// 版本
         std::uint8_t Ver{Version};
         /// 响应码
-        ReplyCode Code{ReplyCode::success};
+        ReplyCode Code{ReplyCode::Success};
         /// 保留字节（0x00）
         std::uint8_t Rsv{0};
         /// 绑定地址

@@ -31,37 +31,37 @@ namespace Preview::Quic
      */
     enum class ProtocolGuess : std::uint8_t
     {
-        hysteria2, ///< Hysteria2（HTTP/3 认证）
-        tuic,      ///< TUIC v5
-        unknown,   ///< 无法判定
+        Hysteria2, ///< Hysteria2（HTTP/3 认证）
+        Tuic,      ///< TUIC v5
+        Unknown,   ///< 无法判定
     };
 
     /**
      * @brief 按首字节猜测 QUIC 上层协议
-     * @param first_bytes 流的首字节（至少 1 字节）
+     * @param FirstBytes 流的首字节（至少 1 字节）
      * @return 协议猜测结果
      * @details 分流规则（对齐生产 quic_gateway.cpp）：
      * - 0x04 = HTTP/3 SETTINGS 帧 → hysteria2
      * - 0x40 = tuic → tuic
      * - 其余 / 空输入 → unknown
      */
-    [[nodiscard]] inline auto GuessProtocol(std::span<const std::byte> first_bytes) noexcept
+    [[nodiscard]] inline auto GuessProtocol(std::span<const std::byte> FirstBytes) noexcept
         -> ProtocolGuess
     {
-        if (first_bytes.empty())
+        if (FirstBytes.empty())
         {
-            return ProtocolGuess::unknown;
+            return ProtocolGuess::Unknown;
         }
-        const auto fb = std::to_integer<std::uint8_t>(first_bytes.front());
-        if (fb == 0x04)
+        const auto Fb = std::to_integer<std::uint8_t>(FirstBytes.front());
+        if (Fb == 0x04)
         {
-            return ProtocolGuess::hysteria2;
+            return ProtocolGuess::Hysteria2;
         }
-        if (fb == 0x40)
+        if (Fb == 0x40)
         {
-            return ProtocolGuess::tuic;
+            return ProtocolGuess::Tuic;
         }
-        return ProtocolGuess::unknown;
+        return ProtocolGuess::Unknown;
     }
 
     /**
@@ -72,7 +72,7 @@ namespace Preview::Quic
      */
     struct ConnectionState
     {
-        ProtocolGuess Type{ProtocolGuess::unknown}; ///< 已判定的协议类型
+        ProtocolGuess Type{ProtocolGuess::Unknown}; ///< 已判定的协议类型
         bool authenticated{false};                    ///< 是否认证通过
         std::uint64_t StreamCount{0};                ///< 已分发数据流数
     };
@@ -105,7 +105,7 @@ namespace Preview::Quic
          */
         [[nodiscard]] auto RegisterConnection(ConnKey key) -> bool
         {
-            return conns_.emplace(key, ConnectionState{}).second;
+            return Conns_.emplace(key, ConnectionState{}).second;
         }
 
         /**
@@ -115,7 +115,7 @@ namespace Preview::Quic
          */
         auto EraseConnection(ConnKey key) -> bool
         {
-            return conns_.erase(key) != 0;
+            return Conns_.erase(key) != 0;
         }
 
         /**
@@ -125,12 +125,12 @@ namespace Preview::Quic
          */
         [[nodiscard]] auto Lookup(ConnKey key) noexcept -> ConnectionState *
         {
-            const auto it = conns_.find(key);
-            if (it == conns_.end())
+            const auto It = Conns_.find(key);
+            if (It == Conns_.end())
             {
                 return nullptr;
             }
-            return &it->second;
+            return &It->second;
         }
 
         /**
@@ -140,12 +140,12 @@ namespace Preview::Quic
          */
         [[nodiscard]] auto Lookup(ConnKey key) const noexcept -> const ConnectionState *
         {
-            const auto it = conns_.find(key);
-            if (it == conns_.end())
+            const auto It = Conns_.find(key);
+            if (It == Conns_.end())
             {
                 return nullptr;
             }
-            return &it->second;
+            return &It->second;
         }
 
         /**
@@ -154,33 +154,33 @@ namespace Preview::Quic
          */
         [[nodiscard]] auto Size() const noexcept -> std::size_t
         {
-            return conns_.size();
+            return Conns_.size();
         }
 
         /**
          * @brief 分发新数据流（首字节分流入口）
          * @param key 连接键
-         * @param first_bytes 流首字节（至少 1 字节）
+         * @param FirstBytes 流首字节（至少 1 字节）
          * @return 是否成功分发给已知协议（unknown 返回 false）
          * @details 判定成功后写入连接状态并调用对应虚钩子；
          * 未知协议返回 false 由调用方关闭连接。
          */
-        auto Dispatch(ConnKey key, std::span<const std::byte> first_bytes) -> bool
+        auto Dispatch(ConnKey key, std::span<const std::byte> FirstBytes) -> bool
         {
             auto *State = Lookup(key);
             if (!State)
             {
                 return false;
             }
-            const auto guess = GuessProtocol(first_bytes);
-            State->Type = guess;
-            switch (guess)
+            const auto Guess = GuessProtocol(FirstBytes);
+            State->Type = Guess;
+            switch (Guess)
             {
-            case ProtocolGuess::hysteria2:
-                OnH3Stream(key, first_bytes);
+            case ProtocolGuess::Hysteria2:
+                OnH3Stream(key, FirstBytes);
                 return true;
-            case ProtocolGuess::tuic:
-                OnTuicStream(key, first_bytes);
+            case ProtocolGuess::Tuic:
+                OnTuicStream(key, FirstBytes);
                 return true;
             default:
                 return false;
@@ -191,29 +191,29 @@ namespace Preview::Quic
         /**
          * @brief hysteria2 流分发钩子（默认空操作）
          * @param key 连接键
-         * @param first_bytes 流首字节
+         * @param FirstBytes 流首字节
          * @details 子类重写：将流接入 nghttp3 认证流程。
          */
-        virtual auto OnH3Stream(ConnKey key, std::span<const std::byte> first_bytes) -> void
+        virtual auto OnH3Stream(ConnKey key, std::span<const std::byte> FirstBytes) -> void
         {
             (void)key;
-            (void)first_bytes;
+            (void)FirstBytes;
         }
 
         /**
          * @brief tuic 流分发钩子（默认空操作）
          * @param key 连接键
-         * @param first_bytes 流首字节
+         * @param FirstBytes 流首字节
          * @details 子类重写：将流接入 tuic 认证/数据流程。
          */
-        virtual auto OnTuicStream(ConnKey key, std::span<const std::byte> first_bytes) -> void
+        virtual auto OnTuicStream(ConnKey key, std::span<const std::byte> FirstBytes) -> void
         {
             (void)key;
-            (void)first_bytes;
+            (void)FirstBytes;
         }
 
     private:
-        std::unordered_map<ConnKey, ConnectionState> conns_; ///< 连接表
+        std::unordered_map<ConnKey, ConnectionState> Conns_; ///< 连接表
     };
 
 } // namespace Preview::Quic

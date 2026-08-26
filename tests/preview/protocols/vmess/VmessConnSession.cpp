@@ -82,7 +82,7 @@ namespace
         while (Done < dst.size())
         {
             std::error_code ec;
-            const auto n = co_await Stream.AsyncReadSome(AsBytes(dst.subspan(Done)), ec);
+            const auto n = co_await Stream.async_read_some(AsBytes(dst.subspan(Done)), ec);
             if (ec || n == 0)
             {
                 co_return true;
@@ -125,14 +125,14 @@ namespace
         hdr.Version = Vmess::ProtocolVersion;
         hdr.Cmd = static_cast<std::uint8_t>(static_cast<std::uint8_t>(Vmess::Command::Tcp));
         hdr.opt = static_cast<std::uint8_t>(Vmess::Option::ChunkStream);
-        hdr.sec = Vmess::Security::aes_128_gcm;
+        hdr.sec = Vmess::Security::Aes128Gcm;
         hdr.Target = make_addr(Vmess::AddressType::Domain, "example.com", 443);
         const auto plain = Vmess::BuildRequestHeader(hdr, Vmess::RequestMeta{iv, key, v, p});
         const auto cmd_key = Vmess::CmdKeyFromUuid(uuid);
         const auto sealed = Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{plain, time_sec, random4});
         const auto auth_id = Vmess::CreateAuthId(time_sec, random4);
         std::error_code ec;
-        co_await Stream.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(sealed)), ec);
+        co_await Stream.async_write_some(AsBytes(std::span<const std::uint8_t>(sealed)), ec);
         if (ec)
         {
             co_return false;
@@ -179,31 +179,31 @@ namespace
         Vmess::ResponseHeader rh;
         const auto oerr = Vmess::OpenResponseHeader(rk, Vmess::RespHeaderParseInput{riv, resp_enc, auth_id},
                                                       rh);
-        if (oerr != Error::none || rh.Version != v)
+        if (oerr != Error::None || rh.Version != v)
         {
             co_return false;
         }
 
         // 5. 派生分块密钥，发送数据块 + 结束块
         const auto body_key = Vmess::Kdf(key, iv);
-        std::array<std::uint8_t, 16> chunk_key{};
-        std::memcpy(chunk_key.data(), body_key.data(), 16);
-        std::array<std::uint8_t, 12> chunk_nonce{};
-        std::memcpy(chunk_nonce.data(), iv.data(), 12);
-        Vmess::ChunkEncryptor enc(chunk_key, chunk_nonce);
-        std::vector<std::uint8_t> chunk(payload.size() + Vmess::ChunkEncryptor::overhead);
+        std::array<std::uint8_t, 16> ChunkKey{};
+        std::memcpy(ChunkKey.data(), body_key.data(), 16);
+        std::array<std::uint8_t, 12> ChunkNonce{};
+        std::memcpy(ChunkNonce.data(), iv.data(), 12);
+        Vmess::ChunkEncryptor enc(ChunkKey, ChunkNonce);
+        std::vector<std::uint8_t> chunk(payload.size() + Vmess::ChunkEncryptor::Overhead);
         const auto enc_n = enc.Seal(
             std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(payload.data()),
                                           payload.size()),
             chunk);
-        co_await Stream.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(chunk).first(enc_n)), ec);
+        co_await Stream.async_write_some(AsBytes(std::span<const std::uint8_t>(chunk).first(enc_n)), ec);
         if (ec)
         {
             co_return false;
         }
         std::array<std::uint8_t, 34> end_block{};
         const auto end_n = enc.Finish(end_block);
-        co_await Stream.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(end_block).first(end_n)), ec);
+        co_await Stream.async_write_some(AsBytes(std::span<const std::uint8_t>(end_block).first(end_n)), ec);
         if (ec)
         {
             co_return false;
@@ -228,7 +228,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
@@ -239,10 +239,10 @@ namespace
                          EXPECT_EQ(Conn->Parsed().dst.Host, "example.com");
                          std::array<std::byte, 1024> buf{};
                          std::error_code ec;
-                         const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                         const auto n = co_await Conn->async_read_some(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
-                         co_await Conn->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+                         co_await Conn->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
@@ -253,19 +253,19 @@ namespace
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
                          co_return;
                      }
                      std::error_code ec;
-                     co_await cli->AsyncWriteSome(
+                     co_await cli->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 1024> buf{};
-                     const auto n = co_await cli->AsyncReadSome(buf, ec);
+                     const auto n = co_await cli->async_read_some(buf, ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
                      cli->Close();
@@ -289,27 +289,27 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
                          }
                          std::array<std::byte, 1024> buf{};
                          std::error_code ec;
-                         const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                         const auto n = co_await Conn->async_read_some(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
                          // 经底层传输写原始结束块（Accept 已把底层流 move 进 Conn，
                          // 用 NextLayer() 导航获取底层传输，不可再用已移动的局部流）
-                         const auto body_key = Vmess::Kdf(req.request_key, req.request_nonce);
-                         std::array<std::uint8_t, 16> chunk_key{};
-                         std::memcpy(chunk_key.data(), body_key.data(), 16);
-                         std::array<std::uint8_t, 12> chunk_nonce{};
-                         std::memcpy(chunk_nonce.data(), req.request_nonce.data(), 12);
-                         Vmess::ChunkEncryptor enc(chunk_key, chunk_nonce);
+                         const auto body_key = Vmess::Kdf(req.RequestKey, req.RequestNonce);
+                         std::array<std::uint8_t, 16> ChunkKey{};
+                         std::memcpy(ChunkKey.data(), body_key.data(), 16);
+                         std::array<std::uint8_t, 12> ChunkNonce{};
+                         std::memcpy(ChunkNonce.data(), req.RequestNonce.data(), 12);
+                         Vmess::ChunkEncryptor enc(ChunkKey, ChunkNonce);
                          std::array<std::uint8_t, 34> end_block{};
                          const auto end_n = enc.Finish(end_block);
-                         co_await Conn->NextLayer()->AsyncWriteSome(
+                         co_await Conn->NextLayer()->async_write_some(
                              AsBytes(std::span<const std::uint8_t>(end_block).first(end_n)), ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
@@ -322,26 +322,26 @@ namespace
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
                          co_return;
                      }
                      std::error_code ec;
-                     co_await cli->AsyncWriteSome(
+                     co_await cli->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
                      EXPECT_FALSE(ec);
                      // 流式读取：结束块 → EOF（0 字节、无错误）
                      std::array<std::byte, 64> buf{};
-                     const auto n = co_await cli->AsyncReadSome(buf, ec);
+                     const auto n = co_await cli->async_read_some(buf, ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(n, 0u);
                      // 数据报读取：结束块 → unexpected_eof
                      std::vector<std::uint8_t> out;
                      const auto derr = co_await cli->AsyncReceiveDatagram(out);
-                     EXPECT_EQ(derr, Error::unexpected_eof);
+                     EXPECT_EQ(derr, Error::UnexpectedEof);
                      cli->Close();
                  });
     }
@@ -367,7 +367,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              server_done.try_send(boost::system::error_code{});
@@ -375,11 +375,11 @@ namespace
                          }
                          std::array<std::byte, 1024> buf{};
                          std::error_code ec;
-                         const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                         const auto n = co_await Conn->async_read_some(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
                          // 结束块 → 流结束（0 字节、无错误）
-                         const auto m = co_await Conn->AsyncReadSome(buf, ec);
+                         const auto m = co_await Conn->async_read_some(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(m, 0u);
                          Conn->Close();
@@ -412,16 +412,16 @@ namespace
                          auto [err, req, dg] =
                              co_await Vmess::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
                                                            cfg);
-                         if (err != Error::none || !dg)
+                         if (err != Error::None || !dg)
                          {
                              EXPECT_TRUE(false) << "AcceptPacket Failed";
                              co_return;
                          }
                          EXPECT_EQ(req.Cmd, static_cast<std::uint8_t>(Vmess::Command::Udp));
-                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::udp);
+                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::Udp);
                          std::vector<std::uint8_t> payload;
                          const auto rerr = co_await dg->AsyncReceiveFrom(payload);
-                         EXPECT_EQ(rerr, Error::none);
+                         EXPECT_EQ(rerr, Error::None);
                          EXPECT_EQ(std::string(payload.begin(), payload.end()), "vmess datagram");
                          EXPECT_TRUE(dg->Stream());
                          dg->Close();
@@ -433,7 +433,7 @@ namespace
                      auto [herr, dg] = co_await Vmess::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 53));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!dg)
                      {
                          co_return;
@@ -442,7 +442,7 @@ namespace
                      const auto serr = co_await dg->AsyncSendTo(
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(serr, Error::none);
+                     EXPECT_EQ(serr, Error::None);
                      dg->Close();
                  });
     }
@@ -463,7 +463,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         EXPECT_EQ(err, Error::bad_auth);
+                         EXPECT_EQ(err, Error::BadAuth);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -492,14 +492,14 @@ namespace
                      hdr.Version = Vmess::ProtocolVersion;
                      hdr.Cmd = static_cast<std::uint8_t>(static_cast<std::uint8_t>(Vmess::Command::Tcp));
                      hdr.opt = static_cast<std::uint8_t>(Vmess::Option::ChunkStream);
-                     hdr.sec = Vmess::Security::aes_128_gcm;
+                     hdr.sec = Vmess::Security::Aes128Gcm;
                      hdr.Target = make_addr(Vmess::AddressType::Domain, "example.com", 443);
                      const auto plain = Vmess::BuildRequestHeader(hdr, Vmess::RequestMeta{iv, key, v, 0});
                      const auto cmd_key = Vmess::CmdKeyFromUuid(bad_uuid);
                      const auto sealed =
                          Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{plain, time_sec, random4});
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(sealed)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(sealed)), ec);
                      a.Close();
                  });
     }
@@ -517,17 +517,17 @@ namespace
                      auto c = std::make_shared<Vmess::Conn<>>(uuid);
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n = co_await c->AsyncReadSome(buf, ec);
+                     const auto n = co_await c->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::NotOpen));
                      ec.clear();
-                     co_await c->AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
-                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
+                     co_await c->async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::NotOpen));
                      const auto e1 = co_await c->AsyncSendDatagram(AsU8(std::span<std::byte>(buf)).first(4));
-                     EXPECT_EQ(e1, Error::not_open);
+                     EXPECT_EQ(e1, Error::NotOpen);
                      std::vector<std::uint8_t> out;
                      const auto e2 = co_await c->AsyncReceiveDatagram(out);
-                     EXPECT_EQ(e2, Error::not_open);
+                     EXPECT_EQ(e2, Error::NotOpen);
                      c->Close();
                      c->Cancel();
                  });
@@ -548,7 +548,7 @@ namespace
                      auto [err, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Ipv4, "1.1.1.1", 80));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      EXPECT_FALSE(cli);
                  });
     }
@@ -576,7 +576,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [serr, sreq, sconn] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (serr == Error::none && sconn)
+                         if (serr == Error::None && sconn)
                          {
                              sconn->Close();
                          }
@@ -588,13 +588,13 @@ namespace
                      auto [err, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(err, Error::none);
+                     EXPECT_EQ(err, Error::None);
                      if (!cli)
                      {
                          co_return;
                      }
                      EXPECT_NE(cli->NextLayer(), nullptr);
-                     EXPECT_NE(cli->LowestLayer<MemoryStream>(), nullptr);
+                     EXPECT_NE(cli->lowest_layer<MemoryStream>(), nullptr);
                      EXPECT_TRUE(cli->Executor());
                      cli->Cancel(); // 绑定后 Cancel 透传
                      // const 版本装饰器导航
@@ -620,19 +620,19 @@ namespace
                      const auto serr = co_await dg->AsyncSendTo(
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(serr, Error::not_open);
+                     EXPECT_EQ(serr, Error::NotOpen);
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(out);
-                     EXPECT_EQ(rerr, Error::not_open);
+                     EXPECT_EQ(rerr, Error::NotOpen);
                      EXPECT_TRUE(dg->Executor());
                      // 透传读写（passthrough）
                      std::array<std::byte, 8> buf{};
                      std::error_code ec;
-                     const auto w = co_await dg->AsyncWriteSome(
+                     const auto w = co_await dg->async_write_some(
                          std::span<const std::byte>(buf.data(), 4), ec);
                      EXPECT_EQ(w, 4u); // 对端未关，写入成功
                      b.Close();        // 关闭对端 → 读 EOF
-                     const auto n = co_await dg->AsyncReadSome(buf, ec);
+                     const auto n = co_await dg->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
                      dg->Close();
                      dg->Cancel();

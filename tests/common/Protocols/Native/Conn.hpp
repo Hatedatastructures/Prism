@@ -31,11 +31,11 @@ namespace Preview::Native
     /**
      * @brief 执行服务端 TLS 握手并返回直通传输
      * @param raw 底层传输（所有权转移）
-     * @param ssl_ctx TLS 服务端上下文（证书已配置）
+     * @param SslCtx TLS 服务端上下文（证书已配置）
      * @return 握手成功的加密传输；失败返回 nullptr
      * @details TLS 握手成功后传输透明（无内层协议处理）。
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission raw, net::ssl::context &ssl_ctx)
+    [[nodiscard]] inline auto Accept(SharedTransmission raw, net::ssl::context &SslCtx)
         -> net::awaitable<SharedTransmission>
     {
         if (!raw)
@@ -43,7 +43,7 @@ namespace Preview::Native
             co_return nullptr;
         }
         auto [Code, Stream, recovered] = co_await Preview::Transport::Encrypted::SslHandshake(
-            std::move(raw), ssl_ctx);
+            std::move(raw), SslCtx);
         (void)Code;
         (void)recovered;
         if (!Stream)

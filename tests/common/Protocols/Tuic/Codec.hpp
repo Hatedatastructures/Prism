@@ -60,56 +60,56 @@ namespace Preview::Tuic
      * @return 错误码
      */
     [[nodiscard]] inline auto ParseAddress(std::span<const std::uint8_t> Data, Address &out,
-                                            std::size_t &consumed) -> Error
+                                            std::size_t &Consumed) -> Error
     {
         if (Data.empty())
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Type = static_cast<AddressType>(Data[0]);
-        std::size_t off = 1;
+        std::size_t Off = 1;
         switch (out.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4 + 2)
+            if (Data.size() < Off + 4 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
             out.Host = buf.data();
-            off += 4;
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16 + 2)
+            if (Data.size() < Off + 16 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain:
         default: {
-            if (off >= Data.size())
+            if (Off >= Data.size())
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len + 2)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
         }
-        out.Port = static_cast<std::uint16_t>(Data[off]) << 8 | Data[off + 1];
-        consumed = off + 2;
-        return Error::none;
+        out.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Consumed = Off + 2;
+        return Error::None;
     }
 
     /**
@@ -164,51 +164,51 @@ namespace Preview::Tuic
      * @param consumed 输出消耗字节数
      * @return 错误码
      */
-    [[nodiscard]] inline auto Parse(std::span<const std::uint8_t> Data, Message &out, std::size_t &consumed)
+    [[nodiscard]] inline auto Parse(std::span<const std::uint8_t> Data, Message &out, std::size_t &Consumed)
         -> Error
     {
         if (Data.size() < 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         if (Data[0] != ProtocolVersion)
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
         out.Cmd = Data[1];
-        std::size_t off = 2;
+        std::size_t Off = 2;
         if (out.Cmd == CmdPacket)
         {
-            if (Data.size() < off + 8)
+            if (Data.size() < Off + 8)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.AssocId = static_cast<std::uint32_t>(Data[off]) |
-                           static_cast<std::uint32_t>(Data[off + 1]) << 8 |
-                           static_cast<std::uint32_t>(Data[off + 2]) << 16 |
-                           static_cast<std::uint32_t>(Data[off + 3]) << 24;
-            out.PktId = static_cast<std::uint32_t>(Data[off + 4]) |
-                         static_cast<std::uint32_t>(Data[off + 5]) << 8 |
-                         static_cast<std::uint32_t>(Data[off + 6]) << 16 |
-                         static_cast<std::uint32_t>(Data[off + 7]) << 24;
-            off += 8;
+            out.AssocId = static_cast<std::uint32_t>(Data[Off]) |
+                           static_cast<std::uint32_t>(Data[Off + 1]) << 8 |
+                           static_cast<std::uint32_t>(Data[Off + 2]) << 16 |
+                           static_cast<std::uint32_t>(Data[Off + 3]) << 24;
+            out.PktId = static_cast<std::uint32_t>(Data[Off + 4]) |
+                         static_cast<std::uint32_t>(Data[Off + 5]) << 8 |
+                         static_cast<std::uint32_t>(Data[Off + 6]) << 16 |
+                         static_cast<std::uint32_t>(Data[Off + 7]) << 24;
+            Off += 8;
         }
         if (out.Cmd == CmdConnect || out.Cmd == CmdPacket)
         {
             std::size_t AddrConsumed = 0;
-            const auto ec = ParseAddress(Data.subspan(off), out.dst, AddrConsumed);
-            if (ec != Error::none)
+            const auto Ec = ParseAddress(Data.subspan(Off), out.dst, AddrConsumed);
+            if (Ec != Error::None)
             {
-                return ec;
+                return Ec;
             }
-            off += AddrConsumed;
+            Off += AddrConsumed;
         }
         if (out.Cmd == CmdPacket)
         {
-            out.payload.assign(reinterpret_cast<const char *>(Data.data() + off), Data.size() - off);
+            out.payload.assign(reinterpret_cast<const char *>(Data.data() + Off), Data.size() - Off);
         }
-        consumed = Data.size();
-        return Error::none;
+        Consumed = Data.size();
+        return Error::None;
     }
 
     /**
@@ -222,20 +222,20 @@ namespace Preview::Tuic
          */
         auto Reset(const Message &msg) -> void
         {
-            wire_ = Build(msg);
-            offset_ = 0;
+            Wire_ = Build(msg);
+            Offset_ = 0;
         }
 
         /**
          * @brief 增量输出
          */
-        auto Get(boost::asio::mutable_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Get(boost::asio::mutable_buffer Buffer, std::error_code &Ec) -> std::size_t
         {
-            ec.clear();
-            const auto n = std::min(Buffer.size(), wire_.size() - offset_);
-            std::memcpy(Buffer.data(), wire_.data() + offset_, n);
-            offset_ += n;
-            return n;
+            Ec.clear();
+            const auto N = std::min(Buffer.size(), Wire_.size() - Offset_);
+            std::memcpy(Buffer.data(), Wire_.data() + Offset_, N);
+            Offset_ += N;
+            return N;
         }
 
         /**
@@ -244,12 +244,12 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return offset_ >= wire_.size();
+            return Offset_ >= Wire_.size();
         }
 
     private:
-        std::vector<std::uint8_t> wire_;
-        std::size_t offset_{0};
+        std::vector<std::uint8_t> Wire_;
+        std::size_t Offset_{0};
     };
 
     /**
@@ -261,26 +261,26 @@ namespace Preview::Tuic
         /**
          * @brief 增量喂入
          */
-        auto Put(boost::asio::const_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Put(boost::asio::const_buffer Buffer, std::error_code &Ec) -> std::size_t
         {
-            ec.clear();
+            Ec.clear();
             const auto Data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(Buffer.data()),
                                                             Buffer.size());
-            buf_.insert(buf_.end(), Data.begin(), Data.end());
-            std::size_t consumed = 0;
-            const auto err = Parse(buf_, msg_, consumed);
-            if (err == Error::need_more)
+            Buf_.insert(Buf_.end(), Data.begin(), Data.end());
+            std::size_t Consumed = 0;
+            const auto Err = Parse(Buf_, Msg_, Consumed);
+            if (Err == Error::NeedMore)
             {
-                ec = make_error_code(Error::need_more);
+                Ec = make_error_code(Error::NeedMore);
                 return 0;
             }
-            if (err != Error::none)
+            if (Err != Error::None)
             {
-                ec = make_error_code(err);
+                Ec = make_error_code(Err);
                 return 0;
             }
-            done_ = true;
-            return consumed;
+            Done_ = true;
+            return Consumed;
         }
 
         /**
@@ -289,7 +289,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return done_;
+            return Done_;
         }
 
         /**
@@ -298,7 +298,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto Get() const -> const Message &
         {
-            return msg_;
+            return Msg_;
         }
 
         /**
@@ -306,15 +306,15 @@ namespace Preview::Tuic
          */
         auto Reset() -> void
         {
-            buf_.clear();
-            msg_ = Message{};
-            done_ = false;
+            Buf_.clear();
+            Msg_ = Message{};
+            Done_ = false;
         }
 
     private:
-        std::vector<std::uint8_t> buf_;
-        Message msg_{};
-        bool done_{false};
+        std::vector<std::uint8_t> Buf_;
+        Message Msg_{};
+        bool Done_{false};
     };
 
 } // namespace Preview::Tuic

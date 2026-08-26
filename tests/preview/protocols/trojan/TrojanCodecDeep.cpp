@@ -69,13 +69,13 @@ namespace
         v4.push_back(0x01);
         v4.push_back(8);
         v4.push_back(8);
-        EXPECT_EQ(Trojan::ParseRequest(v4, hdr, consumed), Error::need_more);
+        EXPECT_EQ(Trojan::ParseRequest(v4, hdr, consumed), Error::NeedMore);
 
         // ipv6 数据不足
         std::vector<std::uint8_t> v6 = base;
         v6.push_back(0x04);
         v6.insert(v6.end(), 3, 0x42);
-        EXPECT_EQ(Trojan::ParseRequest(v6, hdr, consumed), Error::need_more);
+        EXPECT_EQ(Trojan::ParseRequest(v6, hdr, consumed), Error::NeedMore);
 
         // ipv6 成功
         std::vector<std::uint8_t> v6ok = base;
@@ -85,7 +85,7 @@ namespace
         v6ok.push_back(0xBB);
         v6ok.push_back('\r');
         v6ok.push_back('\n');
-        EXPECT_EQ(Trojan::ParseRequest(v6ok, hdr, consumed), Error::none);
+        EXPECT_EQ(Trojan::ParseRequest(v6ok, hdr, consumed), Error::None);
         EXPECT_EQ(hdr.Target.Type, Trojan::AddressType::Ipv6);
         EXPECT_EQ(hdr.Target.Host, std::string(16, '\x42'));
         EXPECT_EQ(hdr.Target.Port, 443u);
@@ -99,7 +99,7 @@ namespace
 
         // need_more
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x01})), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::need_more));
+        EXPECT_EQ(ec, make_error_code(Error::NeedMore));
         p.Reset();
 
         // bad_magic（CRLF 缺失）
@@ -107,7 +107,7 @@ namespace
         bad.push_back('X');
         bad.push_back('\n');
         EXPECT_EQ(p.Put(boost::asio::buffer(bad), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::bad_magic));
+        EXPECT_EQ(ec, make_error_code(Error::BadMagic));
         p.Reset();
 
         // auth_failed（CRLF 正确但凭据不匹配）
@@ -122,7 +122,7 @@ namespace
         wrong.push_back('\r');
         wrong.push_back('\n');
         EXPECT_EQ(p.Put(boost::asio::buffer(wrong), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::auth_failed));
+        EXPECT_EQ(ec, make_error_code(Error::AuthFailed));
         p.Reset();
 
         // 成功（正确凭据 + ipv4 + CRLF 结尾）

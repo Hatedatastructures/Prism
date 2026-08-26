@@ -49,7 +49,7 @@ namespace
                 std::size_t Done = 0;
                 while (Done < Total)
                 {
-                    const auto n = co_await b.AsyncReadSome(
+                    const auto n = co_await b.async_read_some(
                         std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                     if (ec || n == 0)
                     {
@@ -64,8 +64,12 @@ namespace
             std::size_t Done = 0;
             while (Done < Total)
             {
-                const auto n = co_await a.AsyncWriteSome(
+                const auto n = co_await a.async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), block), ec);
+                if (ec || n == 0)
+                {
+                    break; // 断链守卫：避免零推进忙循环
+                }
                 Done += n;
             }
         }, [&](std::exception_ptr) { ioc.stop(); });
@@ -131,7 +135,7 @@ namespace
                 co_await acceptor.async_accept(sock, net::use_awaitable);
                 auto ss = std::make_shared<Transport::Reliable>(std::move(sock));
                 auto [err, req, Conn] = co_await Socks5::Accept(ss, Socks5::ServerConfig{});
-                if (err != Error::none || !Conn)
+                if (err != Error::None || !Conn)
                 {
                     co_return;
                 }
@@ -140,7 +144,7 @@ namespace
                 std::size_t Done = 0;
                 while (Done < Total)
                 {
-                    const auto n = co_await Conn->AsyncReadSome(
+                    const auto n = co_await Conn->async_read_some(
                         std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                     if (ec || n == 0)
                     {
@@ -163,7 +167,7 @@ namespace
             auto [err, Conn] = co_await Socks5::Connect(
                 ss, Socks5::ClientConfig{},
                 Socks5::Address{Socks5::AddressType::Domain, "echo.internal", 9999});
-            if (err != Error::none || !Conn)
+            if (err != Error::None || !Conn)
             {
                 ioc.stop();
                 co_return;
@@ -172,8 +176,12 @@ namespace
             std::error_code ec;
             while (Done < Total)
             {
-                const auto n = co_await Conn->AsyncWriteSome(
+                const auto n = co_await Conn->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), block), ec);
+                if (ec || n == 0)
+                {
+                    break; // 断链守卫：避免零推进忙循环
+                }
                 Done += n;
             }
             Conn->Close();

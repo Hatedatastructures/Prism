@@ -68,14 +68,14 @@ namespace
             {
                 std::array<std::byte, 512> buf{};
                 std::error_code ec;
-                const auto n = co_await pad->AsyncReadSome(buf, ec);
+                const auto n = co_await pad->async_read_some(buf, ec);
                 EXPECT_GT(n, 0u);
             };
             net::co_spawn(ioc.get_executor(), sink(), net::detached);
 
             const std::string Data = "pad-roundtrip-Data";
             std::error_code ec;
-            co_await a.AsyncWriteSome(
+            co_await a.async_write_some(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data()), Data.size()), ec);
             EXPECT_FALSE(ec);
         });
@@ -97,14 +97,14 @@ namespace
             {
                 std::array<std::byte, 128> buf{};
                 std::error_code ec;
-                const auto n = co_await pad->AsyncReadSome(buf, ec);
+                const auto n = co_await pad->async_read_some(buf, ec);
                 EXPECT_EQ(n, 5u);
             };
             net::co_spawn(ioc.get_executor(), sink(), net::detached);
 
             const std::string Data = "hello";
             std::error_code ec;
-            co_await a.AsyncWriteSome(
+            co_await a.async_write_some(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data()), Data.size()), ec);
         });
     }
@@ -116,13 +116,13 @@ namespace
         run_coro(ioc, [&]() -> net::awaitable<void>
         {
             const std::string head = "preread";
-            auto Preview = std::make_shared<Preview::Transport::Preview>(
+            auto PrereadTx = std::make_shared<Preview::Transport::PreviewTransport>(
                 std::make_shared<MemoryStream>(std::move(b)),
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(head.data()), head.size()));
 
             std::array<std::byte, 16> buf{};
             std::error_code ec;
-            const auto n = co_await Preview->AsyncReadSome(buf, ec);
+            const auto n = co_await PrereadTx->async_read_some(buf, ec);
             EXPECT_EQ(n, 7u);
         });
     }
@@ -137,11 +137,11 @@ namespace
                 std::make_shared<MemoryStream>(std::move(b)));
             const std::string Data = "snap";
             std::error_code ec;
-            co_await a.AsyncWriteSome(
+            co_await a.async_write_some(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data()), Data.size()), ec);
 
             std::array<std::byte, 16> buf{};
-            const auto n = co_await snap->AsyncReadSome(buf, ec);
+            const auto n = co_await snap->async_read_some(buf, ec);
             EXPECT_EQ(n, 4u);
         });
     }

@@ -26,8 +26,8 @@ namespace
     TEST(AccountCowMap, SetFindUpdate)
     {
         Preview::Memory::CowMap<std::string, int> m;
-        m.set("a", 1);
-        m.set("b", 2);
+        m.Set("a", 1);
+        m.Set("b", 2);
 
         int v = 0;
         EXPECT_TRUE(m.Find("a", v));
@@ -38,7 +38,7 @@ namespace
         EXPECT_EQ(m.Size(), 2);
 
         // 更新
-        m.set("a", 10);
+        m.Set("a", 10);
         EXPECT_TRUE(m.Find("a", v));
         EXPECT_EQ(v, 10);
         EXPECT_EQ(m.Size(), 2);
@@ -47,8 +47,8 @@ namespace
     TEST(AccountCowMap, RemoveAndClear)
     {
         Preview::Memory::CowMap<std::string, int> m;
-        m.set("a", 1);
-        m.set("b", 2);
+        m.Set("a", 1);
+        m.Set("b", 2);
         EXPECT_TRUE(m.Remove("a"));
         EXPECT_FALSE(m.Remove("a"));
         EXPECT_EQ(m.Size(), 1);
@@ -62,10 +62,10 @@ namespace
     TEST(AccountCowMap, SnapshotIsolation)
     {
         Preview::Memory::CowMap<std::string, int> m;
-        m.set("a", 1);
+        m.Set("a", 1);
 
         auto snap1 = m.Snapshot(); // 旧快照
-        m.set("b", 2);             // 写时复制：旧快照不受影响
+        m.Set("b", 2);             // 写时复制：旧快照不受影响
         EXPECT_EQ(snap1->size(), 1);
         EXPECT_EQ(m.Size(), 2);
     }

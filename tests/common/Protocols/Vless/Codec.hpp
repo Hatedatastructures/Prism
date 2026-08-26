@@ -12,6 +12,7 @@
 #pragma once
 
 #include <boost/asio/buffer.hpp>
+#include <boost/asio/ip/address_v6.hpp>
 
 #include <array>
 #include <cstddef>
@@ -39,7 +40,7 @@ namespace Preview::Vless
      *       （原内联实现 ipv4 无校验存在越界写，统一实现修复为非法输入输出 0.0.0.0）
      */
     template <typename Alloc>
-    [[nodiscard]] inline auto EncodeAddress(const Address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
+    inline auto EncodeAddress(const Address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
         Preview::Protocol::Common::EncodeAddress(addr, out);
     }
@@ -63,59 +64,59 @@ namespace Preview::Vless
      * @return 错误码；need_more = 数据不足
      */
     [[nodiscard]] inline auto ParseAddress(std::span<const std::uint8_t> Data, Address &out,
-                                            std::size_t &off) -> Error
+                                            std::size_t &Off) -> Error
     {
-        if (off >= Data.size())
+        if (Off >= Data.size())
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        out.Type = static_cast<AddressType>(Data[off++]);
+        out.Type = static_cast<AddressType>(Data[Off++]);
         switch (out.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4)
+            if (Data.size() < Off + 4)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
             out.Host = buf.data();
-            off += 4;
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16)
+            if (Data.size() < Off + 16)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain:
         default: {
-            if (off >= Data.size())
+            if (Off >= Data.size())
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
         }
-        if (Data.size() < off + 2)
+        if (Data.size() < Off + 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        out.Port = static_cast<std::uint16_t>(Data[off]) << 8 | Data[off + 1];
-        off += 2;
-        return Error::none;
+        out.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Off += 2;
+        return Error::None;
     }
 
     /**
@@ -145,7 +146,20 @@ namespace Preview::Vless
             break;
         }
         case AddressType::Ipv6: {
-            out.insert(out.end(), hdr.Target.Host.begin(), hdr.Target.Host.end());
+            // 文本形式（如 "::1"）解析为 16 字节二进制（线缆约定，对齐
+            // Protocol/common::EncodeAddress）；非法文本或已为 16 字节
+            // 二进制的输入解析失败，原样拷贝
+            boost::system::error_code ec;
+            const auto V6 = net::ip::make_address_v6(hdr.Target.Host, ec);
+            if (!ec)
+            {
+                const auto Bytes = V6.to_bytes();
+                out.insert(out.end(), Bytes.begin(), Bytes.end());
+            }
+            else
+            {
+                out.insert(out.end(), hdr.Target.Host.begin(), hdr.Target.Host.end());
+            }
             break;
         }
         case AddressType::Domain:
@@ -186,70 +200,70 @@ namespace Preview::Vless
      * @return 错误码；need_more = 数据不足
      */
     [[nodiscard]] inline auto ParseRequest(std::span<const std::uint8_t> Data, RequestHeader &out,
-                                            std::size_t &consumed) -> Error
+                                            std::size_t &Consumed) -> Error
     {
         if (Data.size() < 22) // 1 + 16 + 1 + 1 + 2 + 1
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Version = Data[0];
         if (out.Version != ProtocolVersion)
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
         std::memcpy(out.Uuid.data(), Data.data() + 1, UuidLen);
         const auto AddnlLen = Data[17];
         if (Data.size() < 18 + AddnlLen + 1 + 2 + 1)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Addons.assign(Data.begin() + 18, Data.begin() + 18 + AddnlLen);
-        std::size_t off = 18 + AddnlLen;
-        out.Cmd = static_cast<Command>(Data[off++]);
-        out.Target.Port = static_cast<std::uint16_t>(Data[off]) << 8 | Data[off + 1];
-        off += 2;
-        out.Target.Type = static_cast<AddressType>(Data[off++]);
+        std::size_t Off = 18 + AddnlLen;
+        out.Cmd = static_cast<Command>(Data[Off++]);
+        out.Target.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Off += 2;
+        out.Target.Type = static_cast<AddressType>(Data[Off++]);
         switch (out.Target.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4)
+            if (Data.size() < Off + 4)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
             out.Target.Host = buf.data();
-            off += 4;
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16)
+            if (Data.size() < Off + 16)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain:
         default: {
-            if (off >= Data.size())
+            if (Off >= Data.size())
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
         }
-        consumed = off;
-        return Error::none;
+        Consumed = Off;
+        return Error::None;
     }
 
     /**
@@ -296,14 +310,14 @@ namespace Preview::Vless
     [[nodiscard]] inline auto ParseUdpPkt(std::span<const std::uint8_t> Data, Address &Target,
                                             std::span<const std::uint8_t> &payload) -> Error
     {
-        std::size_t off = 0;
-        auto err = ParseAddress(Data, Target, off);
-        if (err != Error::none)
+        std::size_t Off = 0;
+        auto Err = ParseAddress(Data, Target, Off);
+        if (Err != Error::None)
         {
-            return err;
+            return Err;
         }
-        payload = Data.subspan(off);
-        return Error::none;
+        payload = Data.subspan(Off);
+        return Error::None;
     }
 
     /**
@@ -322,7 +336,7 @@ namespace Preview::Vless
     {
         /// 用户 UUID（16 字节）
         std::array<std::uint8_t, UuidLen> uuid{};
-        /// 命令（CmdTcp / cmd_udp / cmd_mux）
+        /// 命令（CmdTcp / CmdUdp / cmd_mux）
         std::uint8_t cmd{CmdTcp};
         /// 目标地址
         Address dst;
@@ -340,7 +354,7 @@ namespace Preview::Vless
          * @brief 构造
          * @param uuid 用户 UUID
          */
-        explicit Serializer(const std::array<std::uint8_t, UuidLen> &uuid) : uuid_(uuid)
+        explicit Serializer(const std::array<std::uint8_t, UuidLen> &uuid) : Uuid_(uuid)
         {
         }
 
@@ -353,11 +367,11 @@ namespace Preview::Vless
         {
             RequestHeader hdr;
             hdr.Version = ProtocolVersion;
-            hdr.Uuid = uuid_;
+            hdr.Uuid = Uuid_;
             hdr.Cmd = static_cast<Command>(msg.cmd);
             hdr.Target = msg.dst;
-            wire_ = BuildRequest(hdr);
-            offset_ = 0;
+            Wire_ = BuildRequest(hdr);
+            Offset_ = 0;
         }
 
         /**
@@ -369,10 +383,10 @@ namespace Preview::Vless
         auto Get(boost::asio::mutable_buffer Buffer, std::error_code &ec) -> std::size_t
         {
             ec.clear();
-            const auto n = std::min(Buffer.size(), wire_.size() - offset_);
-            std::memcpy(Buffer.data(), wire_.data() + offset_, n);
-            offset_ += n;
-            return n;
+            const auto N = std::min(Buffer.size(), Wire_.size() - Offset_);
+            std::memcpy(Buffer.data(), Wire_.data() + Offset_, N);
+            Offset_ += N;
+            return N;
         }
 
         /**
@@ -381,13 +395,13 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return offset_ >= wire_.size();
+            return Offset_ >= Wire_.size();
         }
 
     private:
-        std::array<std::uint8_t, UuidLen> uuid_;
-        std::vector<std::uint8_t> wire_;
-        std::size_t offset_{0};
+        std::array<std::uint8_t, UuidLen> Uuid_;
+        std::vector<std::uint8_t> Wire_;
+        std::size_t Offset_{0};
     };
 
     /**
@@ -400,7 +414,7 @@ namespace Preview::Vless
          * @brief 构造
          * @param uuid 期望的用户 UUID（校验用）
          */
-        explicit Parser(const std::array<std::uint8_t, UuidLen> &uuid) : uuid_(uuid)
+        explicit Parser(const std::array<std::uint8_t, UuidLen> &uuid) : Uuid_(uuid)
         {
         }
 
@@ -415,32 +429,32 @@ namespace Preview::Vless
             ec.clear();
             const auto Data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(Buffer.data()),
                                                             Buffer.size());
-            buf_.insert(buf_.end(), Data.begin(), Data.end());
-            std::size_t consumed = 0;
+            Buf_.insert(Buf_.end(), Data.begin(), Data.end());
+            std::size_t Consumed = 0;
             RequestHeader req;
-            const auto err = ParseRequest(buf_, req, consumed);
-            if (err == Error::need_more)
+            const auto Err = ParseRequest(Buf_, req, Consumed);
+            if (Err == Error::NeedMore)
             {
-                ec = make_error_code(Error::need_more);
+                ec = make_error_code(Error::NeedMore);
                 return 0;
             }
-            if (err != Error::none)
+            if (Err != Error::None)
             {
-                ec = make_error_code(err);
+                ec = make_error_code(Err);
                 return 0;
             }
             // UUID 校验
-            if (req.Uuid != uuid_)
+            if (req.Uuid != Uuid_)
             {
-                ec = make_error_code(Error::auth_failed);
+                ec = make_error_code(Error::AuthFailed);
                 return 0;
             }
-            msg_.uuid = req.Uuid;
-            msg_.cmd = static_cast<std::uint8_t>(req.Cmd);
-            msg_.dst = req.Target;
-            msg_.valid = true;
-            done_ = true;
-            return consumed;
+            Msg_.uuid = req.Uuid;
+            Msg_.cmd = static_cast<std::uint8_t>(req.Cmd);
+            Msg_.dst = req.Target;
+            Msg_.valid = true;
+            Done_ = true;
+            return Consumed;
         }
 
         /**
@@ -449,7 +463,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return done_;
+            return Done_;
         }
 
         /**
@@ -458,7 +472,7 @@ namespace Preview::Vless
          */
         [[nodiscard]] auto Get() const -> const Message &
         {
-            return msg_;
+            return Msg_;
         }
 
         /**
@@ -467,16 +481,16 @@ namespace Preview::Vless
          */
         auto Reset() -> void
         {
-            buf_.clear();
-            msg_ = Message{};
-            done_ = false;
+            Buf_.clear();
+            Msg_ = Message{};
+            Done_ = false;
         }
 
     private:
-        std::array<std::uint8_t, UuidLen> uuid_;
-        std::vector<std::uint8_t> buf_;
-        Message msg_{};
-        bool done_{false};
+        std::array<std::uint8_t, UuidLen> Uuid_;
+        std::vector<std::uint8_t> Buf_;
+        Message Msg_{};
+        bool Done_{false};
     };
 
 } // namespace Preview::Vless

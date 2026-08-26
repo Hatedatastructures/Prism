@@ -63,7 +63,7 @@ namespace
             {
                 auto [err, req, Conn] = co_await Socks5::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), Socks5::ServerConfig{});
-                if (err != Error::none || !Conn)
+                if (err != Error::None || !Conn)
                 {
                     co_return;
                 }
@@ -73,7 +73,7 @@ namespace
                 while (Done < kTotal)
                 {
                     std::error_code ec;
-                    const auto n = co_await Conn->AsyncReadSome(
+                    const auto n = co_await Conn->async_read_some(
                         std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                     if (ec || n == 0)
                     {
@@ -89,7 +89,7 @@ namespace
                     Reply[i] = static_cast<std::uint8_t>((Total >> (i * 8)) & 0xFF);
                 }
                 std::error_code ec;
-                co_await Conn->AsyncWriteSome(
+                co_await Conn->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Reply.data()), Reply.size()),
                     ec);
             };
@@ -100,7 +100,7 @@ namespace
                 std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{},
                 Socks5::Address{Socks5::AddressType::Domain, "Target.example", 443});
 
-            if (err != Error::none || !Conn)
+            if (err != Error::None || !Conn)
             {
                 ADD_FAILURE() << "Client Connect Failed";
                 co_return;
@@ -118,7 +118,7 @@ namespace
                 std::size_t off = 0;
                 while (off < kChunk)
                 {
-                    const auto n = co_await Conn->AsyncWriteSome(
+                    const auto n = co_await Conn->async_write_some(
                         std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data() + off),
                                                    kChunk - off),
                         ec);
@@ -138,7 +138,7 @@ namespace
             std::error_code ec;
             while (got < 8)
             {
-                const auto n = co_await Conn->AsyncReadSome(
+                const auto n = co_await Conn->async_read_some(
                     std::span<std::byte>(reinterpret_cast<std::byte *>(Reply.data() + got), 8 - got), ec);
                 if (ec || n == 0)
                 {
@@ -239,13 +239,13 @@ namespace
                 {
                     auto [err, req, Conn] = co_await Socks5::Accept(
                         std::make_shared<MemoryStream>(std::move(b)), Socks5::ServerConfig{});
-                    if (err == Error::none && Conn)
+                    if (err == Error::None && Conn)
                     {
                         std::array<std::uint8_t, 256> buf{};
                         std::error_code ec;
                         while (true)
                         {
-                            const auto n = co_await Conn->AsyncReadSome(
+                            const auto n = co_await Conn->async_read_some(
                                 std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                             if (ec || n == 0)
                             {
@@ -259,7 +259,7 @@ namespace
                 auto [err, Conn] = co_await Socks5::Connect(
                     std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{},
                     Socks5::Address{Socks5::AddressType::Ipv4, "10.0.0.1", 80});
-                if (err != Error::none || !Conn)
+                if (err != Error::None || !Conn)
                 {
                     ADD_FAILURE() << "Conn " << i << " Connect Failed";
                     continue;
@@ -271,7 +271,7 @@ namespace
                 std::size_t off = 0;
                 while (off < chunk.size())
                 {
-                    const auto n = co_await Conn->AsyncWriteSome(
+                    const auto n = co_await Conn->async_write_some(
                         std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data() + off),
                                                    chunk.size() - off),
                         ec);

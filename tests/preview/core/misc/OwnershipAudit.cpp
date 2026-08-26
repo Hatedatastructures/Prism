@@ -3,10 +3,10 @@
  * @brief tests/common 资源所有权与内存安全审计复现测试
  * @details 对审计发现的缺陷逐一复现（修复前崩溃/泄漏，修复后通过）：
  * - VmessChunkStreamEndBlock：vmess ChunkStream::Decrypt 处理结束块时
- *   consumed(18) - 34 无符号下溢 → string::assign 越界读
+ *   Consumed(18) - 34 无符号下溢 → string::assign 越界读
  * - PadMaxRangeNoDivZero：PadTransport RngNextU16 区间溢出 → 除零 UB
  * - MuxSessionCycleLeak：底层断开后 Session ↔ StreamHandle 循环引用泄漏
- * - TaskRegistryDanglingOwner：registry 析构后 token 访问悬垂 owner_
+ * - TaskRegistryDanglingOwner：registry 析构后 token 访问悬垂 Owner_
  */
 
 #include <boost/asio/co_spawn.hpp>
@@ -52,26 +52,26 @@ namespace
     class fake_sink final : public Preview::Transmission
     {
     public:
-        explicit fake_sink(net::any_io_executor ex) : ex_(std::move(ex))
+        explicit fake_sink(net::any_io_executor ex) : Ex_(std::move(ex))
         {
         }
 
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte>, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &Ec)
             -> net::awaitable<std::size_t> override
         {
-            ec.clear();
+            Ec.clear();
             co_return 0;
         }
 
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> buf, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> buf, std::error_code &Ec)
             -> net::awaitable<std::size_t> override
         {
-            ec.clear();
+            Ec.clear();
             written_.insert(written_.end(), buf.begin(), buf.end());
             co_return buf.size();
         }
@@ -87,13 +87,13 @@ namespace
         std::vector<std::byte> written_; ///< 捕获的写入字节
 
     private:
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
     };
 
     /**
      * @brief 验证 vmess ChunkStream::Decrypt 结束块边界
-     * @details 结束块（长度 0）时 Open() 返回 consumed = 18，修复前
-     * consumed - 18 - 16 无符号下溢为 SIZE_MAX，string::assign 越界读
+     * @details 结束块（长度 0）时 Open() 返回 Consumed = 18，修复前
+     * Consumed - 18 - 16 无符号下溢为 SIZE_MAX，string::assign 越界读
      * 导致段错误。修复后明文为空串。
      */
     TEST(OwnershipAudit, VmessChunkStreamEndBlock)
@@ -117,7 +117,7 @@ namespace
             std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(wire1.data()),
                                           wire1.size()),
             plain1);
-        EXPECT_FALSE(r1.ec);
+        EXPECT_FALSE(r1.Ec);
         EXPECT_EQ(plain1.size(), 3u);
 
         // 结束块：修复前此处越界读崩溃
@@ -126,9 +126,9 @@ namespace
             std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(wire2.data()),
                                           wire2.size()),
             plain2);
-        EXPECT_FALSE(r2.ec);
+        EXPECT_FALSE(r2.Ec);
         EXPECT_TRUE(plain2.empty());
-        EXPECT_EQ(r2.consumed, 18u);
+        EXPECT_EQ(r2.Consumed, 18u);
     }
 
     /**
@@ -146,18 +146,18 @@ namespace
         Preview::Transport::PadTransport pad(sink, cfg);
 
         std::array<std::byte, 1> buf{std::byte{0x42}};
-        std::error_code ec;
+        std::error_code Ec;
         std::size_t n = 0;
         net::co_spawn(
             ioc,
             [&]() -> net::awaitable<void>
             {
-                n = co_await pad.AsyncWriteSome(buf, ec);
+                n = co_await pad.async_write_some(buf, Ec);
             },
             net::detached);
         ioc.run();
 
-        EXPECT_FALSE(ec);
+        EXPECT_FALSE(Ec);
         EXPECT_EQ(n, 1u);
         EXPECT_GE(sink->written_.size(), 1u);
     }
@@ -165,7 +165,7 @@ namespace
     /**
      * @brief 验证 mux 会话底层断开后无循环引用泄漏
      * @details 对端关闭 → 帧循环读到 EOF 退出 → Teardown 清空流表。
-     * 修复前 streams_ 中残余 StreamHandle 与 Session 互相持有
+     * 修复前 Streams_ 中残余 StreamHandle 与 Session 互相持有
      * shared_ptr，外部引用全部释放后对象仍存活（泄漏）。
      */
     TEST(OwnershipAudit, MuxSessionCycleLeak)
@@ -216,11 +216,11 @@ namespace
     }
 
     /**
-     * @brief 验证 TaskToken 在注册表析构后不访问悬垂 owner_
+     * @brief 验证 TaskToken 在注册表析构后不访问悬垂 Owner_
      * @details CancelAndWait + 析构后，token 仍被 co_spawn completion
      * handler 持有；ioc.run() 驱动协程完成后 completion 触发 token
-     * 析构。修复前 Release() 访问已析构的 owner_（UAF），修复后
-     * Detach() 已将 owner_ 置空。
+     * 析构。修复前 Release() 访问已析构的 Owner_（UAF），修复后
+     * Detach() 已将 Owner_ 置空。
      */
     TEST(OwnershipAudit, TaskRegistryDanglingOwner)
     {
@@ -237,7 +237,7 @@ namespace
             (void)reg.CancelAndWait();
         } // registry 析构；token 仍被 completion handler 持有
 
-        // 驱动协程完成 → completion → token 析构 → 修复前访问悬垂 owner_
+        // 驱动协程完成 → completion → token 析构 → 修复前访问悬垂 Owner_
         ioc->run();
         ioc.reset();
     }

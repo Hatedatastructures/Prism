@@ -1,5 +1,5 @@
 /**
- * @file compatible.hpp
+ * @file Compatible.hpp
  * @brief 错误码标准库兼容性支持
  * @details 提供 Fault::Code 与 std::error_code 和
  * boost::system::error_code 的双向兼容性实现，包括
@@ -33,23 +33,23 @@ namespace Preview::Fault
      */
     [[nodiscard]] inline auto CachedMessage(Code c) noexcept -> const std::string &
     {
-        constexpr auto code_count = static_cast<std::size_t>(Code::_count);
-        static const auto messages = []()
+        constexpr auto CodeCount = static_cast<std::size_t>(Code::_count);
+        static const auto Messages = []()
         {
-            std::array<std::string, code_count + 1> arr{};
-            for (std::size_t i = 0; i < code_count; ++i)
+            std::array<std::string, CodeCount + 1> arr{};
+            for (std::size_t I = 0; I < CodeCount; ++I)
             {
-                arr[i] = std::string(Describe(static_cast<Code>(i)));
+                arr[I] = std::string(Describe(static_cast<Code>(I)));
             }
-            arr[code_count] = "unknown";
+            arr[CodeCount] = "unknown";
             return arr;
         }();
 
-        if (const auto index = static_cast<std::size_t>(c); index < code_count)
+        if (const auto index = static_cast<std::size_t>(c); index < CodeCount)
         {
-            return messages[index];
+            return Messages[index];
         }
-        return messages[code_count];
+        return Messages[CodeCount];
     }
 
     /**
@@ -89,7 +89,7 @@ namespace Preview::Fault
      * @details 首次调用时构造单例，C++11 保证线程安全。
      * @warning 不要在静态析构阶段使用返回的引用。
      */
-    [[nodiscard]] inline auto category() noexcept -> const std::error_category &
+    [[nodiscard]] inline auto Category() noexcept -> const std::error_category &
     {
         static FaultCategory instance;
         return instance;
@@ -109,7 +109,7 @@ namespace Preview::Fault
      */
     [[nodiscard]] inline auto make_error_code(Code c) noexcept -> std::error_code
     {
-        return {static_cast<int>(c), category()};
+        return {static_cast<int>(c), Category()};
     }
 
 } // namespace Preview::Fault
@@ -197,7 +197,7 @@ namespace boost::system
      * @details 首次调用时构造单例，C++11 保证线程安全。
      * @warning 不要在静态析构阶段使用返回的引用。
      */
-    [[nodiscard]] inline auto category() noexcept -> const boost::system::error_category &
+    [[nodiscard]] inline auto Category() noexcept -> const boost::system::error_category &
     {
         static FaultCategory instance;
         return instance;
@@ -212,7 +212,7 @@ namespace boost::system
      */
     [[nodiscard]] inline auto make_error_code(const Preview::Fault::Code c) noexcept -> error_code
     {
-        return {static_cast<int>(c), category()};
+        return {static_cast<int>(c), Category()};
     }
 
 } // namespace boost::system

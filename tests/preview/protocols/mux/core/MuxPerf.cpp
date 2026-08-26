@@ -89,7 +89,7 @@ namespace
                     while (got < kTotal)
                     {
                         std::error_code ec;
-                        const auto n = co_await s->AsyncReadSome(std::span<std::byte>(buf), ec);
+                        const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
                         if (ec || n == 0)
                         {
                             break;
@@ -115,7 +115,7 @@ namespace
                 {
                     const auto n = std::min(kBlock, kTotal - sent);
                     std::error_code ec;
-                    const auto w = co_await s->AsyncWriteSome(
+                    const auto w = co_await s->async_write_some(
                         std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), n),
                         ec);
                     if (ec || w == 0)
@@ -165,13 +165,13 @@ namespace
                          while (true)
                          {
                              std::error_code ec;
-                             const auto n = co_await s->AsyncReadSome(std::span<std::byte>(buf), ec);
+                             const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
                              if (ec || n == 0)
                              {
                                  break;
                              }
                              ec.clear();
-                             (void)co_await s->AsyncWriteSome(std::span<const std::byte>(buf.data(), n),
+                             (void)co_await s->async_write_some(std::span<const std::byte>(buf.data(), n),
                                                                 ec);
                          }
                          s->Close();
@@ -186,7 +186,7 @@ namespace
                      }
                      BenchOptions opt;
                      opt.Total = 64 * 1024 * 1024;
-                     opt.block = 64 * 1024;
+                     opt.Block = 64 * 1024;
                      rep = co_await BenchThroughputTx(*s, *s, opt);
                      s->Close();
                      cl.Close();
@@ -202,8 +202,8 @@ namespace
 
         std::printf("%s throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min %.3f "
                     "max %.3f) samples=%zu\n",
-                    Name, rep.mbps, rep.LatencyAvg, rep.LatencyP50, rep.LatencyP95, rep.LatencyP99,
-                    rep.LatencyMin, rep.LatencyMax, rep.samples);
+                    Name, rep.Mbps, rep.LatencyAvg, rep.LatencyP50, rep.LatencyP95, rep.LatencyP99,
+                    rep.LatencyMin, rep.LatencyMax, rep.Samples);
     }
 
     TEST(MuxPerf, SmuxTransfer100MB)

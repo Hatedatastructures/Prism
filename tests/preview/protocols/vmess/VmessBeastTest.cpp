@@ -19,8 +19,8 @@ namespace
     {
         Vmess::Message msg;
         msg.uuid = kUuid;
-        msg.request_nonce.fill(0x11);
-        msg.request_key.fill(0x22);
+        msg.RequestNonce.fill(0x11);
+        msg.RequestKey.fill(0x22);
         msg.Cmd = Vmess::CmdTcp;
         msg.dst.Type = Vmess::AddressType::Ipv4;
         msg.dst.Host = "127.0.0.1";
@@ -50,8 +50,8 @@ namespace
                                                      0x33, 0x33, 0x33, 0x33, 0x44, 0x44, 0x44, 0x44};
         Vmess::Message msg;
         msg.uuid = other;
-        msg.request_nonce.fill(0x11);
-        msg.request_key.fill(0x22);
+        msg.RequestNonce.fill(0x11);
+        msg.RequestKey.fill(0x22);
         msg.Cmd = static_cast<std::uint8_t>(static_cast<std::uint8_t>(Vmess::Command::Tcp));
         msg.dst.Type = Vmess::AddressType::Ipv4;
         msg.dst.Host = "127.0.0.1";
@@ -65,7 +65,7 @@ namespace
 
         Vmess::Parser p(kUuid);
         p.Put(net::const_buffer(wire.data(), Total), ec);
-        EXPECT_EQ(ec, Error::auth_failed);
+        EXPECT_EQ(ec, Error::AuthFailed);
     }
 
     TEST(VmessBeast, ChunkStreamRoundtrip)
@@ -90,16 +90,16 @@ namespace
         const auto r = dec.Decrypt(
             std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(wire.data()), wire.size()),
             plain);
-        EXPECT_FALSE(r.ec);
-        EXPECT_EQ(r.consumed, wire.size());
+        EXPECT_FALSE(r.Ec);
+        EXPECT_EQ(r.Consumed, wire.size());
         EXPECT_EQ(plain, payload);
     }
 
     TEST(VmessBeast, ResponseHeader)
     {
         Vmess::Message msg{};
-        msg.request_key.fill(0x11);
-        msg.request_nonce.fill(0x22);
+        msg.RequestKey.fill(0x11);
+        msg.RequestNonce.fill(0x22);
         msg.RespHeader = 0x77;
         std::string resp;
         EXPECT_FALSE(Vmess::MakeResponse(msg, resp));

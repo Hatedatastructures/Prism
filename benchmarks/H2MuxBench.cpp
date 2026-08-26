@@ -268,7 +268,7 @@ void BM_H2_ConnectStreamCycle(benchmark::State &state)
             benchmark::DoNotOptimize(it);
         }
 
-        // 4. on_stream_close: 清理
+        // 4. OnStreamClose: 清理
         pending.erase(stream_id);
         ++stream_id;
     }

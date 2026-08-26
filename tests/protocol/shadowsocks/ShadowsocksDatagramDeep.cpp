@@ -118,8 +118,8 @@ namespace
         std::memcpy(nonce.data() + 4, packet_id.data(), 8);
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
-        memory::vector<std::uint8_t> body_enc(body_enc_len, memory::current_resource());
-        ctx.seal(body_enc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
+        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
 
         // AES-ECB 加密 SeparateHeader
         std::array<std::uint8_t, 16> separate_plain{};
@@ -131,7 +131,7 @@ namespace
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), header_enc.data(), 16);
-        std::memcpy(result.data() + 16, body_enc.data(), body_enc_len);
+        std::memcpy(result.data() + 16, BodyEnc.data(), body_enc_len);
         return result;
     }
 
@@ -177,8 +177,8 @@ namespace
         std::memcpy(nonce.data() + 4, packet_id.data(), 8);
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
-        memory::vector<std::uint8_t> body_enc(body_enc_len, memory::current_resource());
-        ctx.seal(body_enc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
+        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
 
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);
@@ -189,7 +189,7 @@ namespace
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), header_enc.data(), 16);
-        std::memcpy(result.data() + 16, body_enc.data(), body_enc_len);
+        std::memcpy(result.data() + 16, BodyEnc.data(), body_enc_len);
         return result;
     }
 
@@ -239,8 +239,8 @@ namespace
         std::memcpy(nonce.data() + 4, packet_id.data(), 8);
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
-        memory::vector<std::uint8_t> body_enc(body_enc_len, memory::current_resource());
-        ctx.seal(body_enc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
+        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
 
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);
@@ -251,7 +251,7 @@ namespace
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), header_enc.data(), 16);
-        std::memcpy(result.data() + 16, body_enc.data(), body_enc_len);
+        std::memcpy(result.data() + 16, BodyEnc.data(), body_enc_len);
         return result;
     }
 
@@ -306,13 +306,13 @@ namespace
         std::memcpy(nonce.data() + 8, packet_id.data(), 8);
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
-        memory::vector<std::uint8_t> body_enc(body_enc_len, memory::current_resource());
-        ctx.seal(body_enc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
+        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), session_id.data(), 8);
         std::memcpy(result.data() + 8, packet_id.data(), 8);
-        std::memcpy(result.data() + 16, body_enc.data(), body_enc_len);
+        std::memcpy(result.data() + 16, BodyEnc.data(), body_enc_len);
         return result;
     }
 
@@ -352,13 +352,13 @@ namespace
         std::memcpy(nonce.data() + 8, packet_id.data(), 8);
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
-        memory::vector<std::uint8_t> body_enc(body_enc_len, memory::current_resource());
-        ctx.seal(body_enc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
+        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), session_id.data(), 8);
         std::memcpy(result.data() + 8, packet_id.data(), 8);
-        std::memcpy(result.data() + 16, body_enc.data(), body_enc_len);
+        std::memcpy(result.data() + 16, BodyEnc.data(), body_enc_len);
         return result;
     }
 

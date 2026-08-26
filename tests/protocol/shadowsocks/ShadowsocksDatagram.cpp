@@ -191,8 +191,8 @@ namespace
 
         // AEAD 加密 body
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
-        psm::memory::vector<std::uint8_t> body_enc(body_enc_len, psm::memory::current_resource());
-        ctx.seal(body_enc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        psm::memory::vector<std::uint8_t> BodyEnc(body_enc_len, psm::memory::current_resource());
+        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
 
         // AES-ECB 加密 SeparateHeader
         std::array<std::uint8_t, 16> separate_plain{};
@@ -206,7 +206,7 @@ namespace
         // 组装最终包
         psm::memory::vector<std::byte> result(16 + body_enc_len, psm::memory::current_resource());
         std::memcpy(result.data(), header_enc.data(), 16);
-        std::memcpy(result.data() + 16, body_enc.data(), body_enc_len);
+        std::memcpy(result.data() + 16, BodyEnc.data(), body_enc_len);
 
         return result;
     }
@@ -249,14 +249,14 @@ namespace
         std::memcpy(nonce.data() + 8, packet_id.data(), 8);
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
-        psm::memory::vector<std::uint8_t> body_enc(body_enc_len, psm::memory::current_resource());
-        ctx.seal(body_enc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        psm::memory::vector<std::uint8_t> BodyEnc(body_enc_len, psm::memory::current_resource());
+        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
 
-        // 组装: SessionID(8) + PacketID(8) + body_enc
+        // 组装: SessionID(8) + PacketID(8) + BodyEnc
         psm::memory::vector<std::byte> result(16 + body_enc_len, psm::memory::current_resource());
         std::memcpy(result.data(), session_id.data(), 8);
         std::memcpy(result.data() + 8, packet_id.data(), 8);
-        std::memcpy(result.data() + 16, body_enc.data(), body_enc_len);
+        std::memcpy(result.data() + 16, BodyEnc.data(), body_enc_len);
 
         return result;
     }
@@ -418,8 +418,8 @@ namespace
         std::memcpy(nonce.data() + 4, packet_id.data(), 8);
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
-        psm::memory::vector<std::uint8_t> body_enc(body_enc_len, psm::memory::current_resource());
-        ctx.seal(body_enc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        psm::memory::vector<std::uint8_t> BodyEnc(body_enc_len, psm::memory::current_resource());
+        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
 
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);
@@ -430,7 +430,7 @@ namespace
 
         psm::memory::vector<std::byte> packet(16 + body_enc_len, psm::memory::current_resource());
         std::memcpy(packet.data(), header_enc.data(), 16);
-        std::memcpy(packet.data() + 16, body_enc.data(), body_enc_len);
+        std::memcpy(packet.data() + 16, BodyEnc.data(), body_enc_len);
 
         boost::asio::ip::udp::endpoint sender(boost::asio::ip::make_address("127.0.0.1"), 9999);
         auto [ec, result] = relay->decrypt_inbound(packet, sender);

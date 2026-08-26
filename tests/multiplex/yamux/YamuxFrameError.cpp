@@ -82,7 +82,7 @@ namespace
         ASSERT_TRUE(parsed.has_value()) << "roundtrip ping: parsed";
         EXPECT_TRUE(parsed->type == message_type::ping) << "roundtrip ping: type=ping";
         EXPECT_TRUE(parsed->stream_id == 0) << "roundtrip ping: stream_id=0";
-        EXPECT_TRUE(parsed->length == 12345) << "roundtrip ping: length=ping_id";
+        EXPECT_TRUE(parsed->length == 12345) << "roundtrip ping: length=PingId";
     }
 
     TEST(YamuxFrameError, RoundtripGoaway)

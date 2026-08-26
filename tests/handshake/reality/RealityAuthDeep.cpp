@@ -138,7 +138,7 @@ namespace
 
     TEST(RealityAuthDeep, MatchShortIdEmptyAllowed)
     {
-        // 空字符串表示接受任意 short_id
+        // 空字符串表示接受任意 ShortId
         psm::memory::vector<psm::memory::string> ids(psm::memory::current_resource());
         ids.emplace_back("");
         std::array<std::uint8_t, 8> sid{};
@@ -187,7 +187,7 @@ namespace
 
     TEST(RealityAuthDeep, MatchShortIdPrefixMatch)
     {
-        // short_id 比 allowed 长，但前缀匹配
+        // ShortId 比 allowed 长，但前缀匹配
         psm::memory::vector<psm::memory::string> ids(psm::memory::current_resource());
         ids.emplace_back("0102");
         std::array<std::uint8_t, 8> sid{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};

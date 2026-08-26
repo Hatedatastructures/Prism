@@ -13,7 +13,7 @@
 #include "common/MockTransport.hpp"
 #include <gtest/gtest.h>
 
-using psm::testing::MockTransport;
+using Preview::Testing::MockTransport;
 
 namespace
 {
@@ -191,7 +191,7 @@ namespace
         EXPECT_TRUE(pv->next_layer() == mock.get()) << "wrap: Preview wraps mock";
     }
 
-    // ─── completion-handler AsyncReadSome 测试 ──
+    // ─── completion-handler async_read_some 测试 ──
 
     TEST(PreviewDeep, CompletionReadWithPreread)
     {
@@ -246,7 +246,7 @@ namespace
                           });
 
         // 注入数据让 mock 完成
-        mock->inject_read(std::vector<std::byte>(2, std::byte{0x55}));
+        mock->InjectRead(std::vector<std::byte>(2, std::byte{0x55}));
         mock->GetIoContext().run();
 
         EXPECT_TRUE(called2) << "completion_read_exhaust: second Read completed";
@@ -275,7 +275,7 @@ namespace
         EXPECT_EQ(result_n, 0) << "completion_read_null: 0 Bytes";
     }
 
-    // ─── completion-handler AsyncWriteSome 测试 ──
+    // ─── completion-handler async_write_some 测试 ──
 
     TEST(PreviewDeep, CompletionWriteNullInner)
     {
@@ -317,28 +317,28 @@ namespace
                                called = true;
                            });
 
-        // mock 的 AsyncWriteSome 需要 io_context Run
+        // mock 的 async_write_some 需要 io_context Run
         mock->GetIoContext().run();
         EXPECT_TRUE(called) << "completion_write: handler called";
         EXPECT_TRUE(!result_ec) << "completion_write: no Error";
         EXPECT_EQ(result_n, 2) << "completion_write: 2 Bytes";
     }
 
-    // ─── LowestLayer 测试 ────────────────────
+    // ─── lowest_layer 测试 ────────────────────
 
-    TEST(PreviewDeep, LowestLayer)
+    TEST(PreviewDeep, lowest_layer)
     {
         auto mock = make_mock();
         psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
         auto *ll = p.lowest_layer<MockTransport>();
-        EXPECT_EQ(ll, mock.get()) << "LowestLayer: navigates to mock";
+        EXPECT_EQ(ll, mock.get()) << "lowest_layer: navigates to mock";
     }
 
     TEST(PreviewDeep, LowestLayerNull)
     {
         psm::transport::preview p(nullptr, std::span<const std::byte>{});
         auto *ll = p.lowest_layer<psm::transport::transmission>();
-        EXPECT_EQ(ll, &p) << "LowestLayer: null Inner -> self";
+        EXPECT_EQ(ll, &p) << "lowest_layer: null Inner -> self";
     }
 
 } // namespace

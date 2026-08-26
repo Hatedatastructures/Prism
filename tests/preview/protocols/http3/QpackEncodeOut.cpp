@@ -16,11 +16,11 @@ namespace
         std::array<std::uint8_t, 512> buf{};
         auto offset = Preview::Http3::Qpack::EncodePrefix(buf);
         offset += Preview::Http3::Qpack::EncodeLiteral(
-            ":Method", "POST", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
+            ":method", "POST", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
         offset += Preview::Http3::Qpack::EncodeLiteral(
-            ":Path", "/Auth", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
+            ":path", "/Auth", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
         offset += Preview::Http3::Qpack::EncodeLiteral(
-            "hysteria-Auth", "password123",
+            "hysteria-auth", "password123",
             std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
 
         std::string hex;

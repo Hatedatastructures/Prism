@@ -47,13 +47,13 @@ namespace
         }
 
         // 边界值：首个枚举（success = 0）与最后一个枚举（badcfg = 63）
-        EXPECT_EQ(Preview::Fault::Describe(Code::success), "success");
-        EXPECT_EQ(Preview::Fault::Describe(Code::generic_error), "generic_error");
-        EXPECT_EQ(Preview::Fault::Describe(Code::badcfg), "badcfg");
+        EXPECT_EQ(Preview::Fault::Describe(Code::Success), "success");
+        EXPECT_EQ(Preview::Fault::Describe(Code::GenericError), "generic_error");
+        EXPECT_EQ(Preview::Fault::Describe(Code::Badcfg), "badcfg");
 
         // 枚举总数不变式：0..63 共 64 个，_count 仅用于统计
         EXPECT_EQ(code_count, 64);
-        EXPECT_EQ(static_cast<int>(Code::success), 0);
+        EXPECT_EQ(static_cast<int>(Code::Success), 0);
     }
 
     TEST(FaultCoverage, DescribeUnknownBranch)
@@ -68,15 +68,15 @@ namespace
     TEST(FaultCoverage, SucceededFailedEveryCode)
     {
         // 唯一成功码：Succeeded 为 true、Failed 为 false
-        EXPECT_TRUE(Preview::Fault::Succeeded(Code::success));
-        EXPECT_FALSE(Preview::Fault::Failed(Code::success));
+        EXPECT_TRUE(Preview::Fault::Succeeded(Code::Success));
+        EXPECT_FALSE(Preview::Fault::Failed(Code::Success));
 
         // 全部错误码：Succeeded 为 false、Failed 为 true
         volatile int Cursor = 0;
         for (; Cursor < code_count; ++Cursor)
         {
             const auto c = static_cast<Code>(Cursor);
-            if (c == Code::success)
+            if (c == Code::Success)
             {
                 continue;
             }
@@ -109,14 +109,14 @@ namespace
 
     TEST(FaultCoverage, StdCategoryNameAndMessage)
     {
-        const auto &cat = Preview::Fault::category();
+        const auto &cat = Preview::Fault::Category();
 
         // Name() 非空且固定
         EXPECT_FALSE(std::string_view(cat.name()).empty());
         EXPECT_EQ(std::string_view(cat.name()), "Preview::fault");
 
         // 单例：多次调用同一实例
-        EXPECT_EQ(&cat, &Preview::Fault::category());
+        EXPECT_EQ(&cat, &Preview::Fault::Category());
 
         // Message() 对全部已知码非空
         volatile int Cursor = 0;
@@ -131,14 +131,14 @@ namespace
 
     TEST(FaultCoverage, BoostCategoryNameAndMessage)
     {
-        const auto &cat = boost::system::category();
+        const auto &cat = boost::system::Category();
 
         EXPECT_FALSE(std::string_view(cat.name()).empty());
         EXPECT_EQ(std::string_view(cat.name()), "Preview::fault");
-        EXPECT_EQ(&cat, &boost::system::category());
+        EXPECT_EQ(&cat, &boost::system::Category());
 
-        EXPECT_EQ(cat.message(static_cast<int>(Code::eof)), "eof");
-        EXPECT_EQ(cat.message(static_cast<int>(Code::success)), "success");
+        EXPECT_EQ(cat.message(static_cast<int>(Code::Eof)), "eof");
+        EXPECT_EQ(cat.message(static_cast<int>(Code::Success)), "success");
         EXPECT_EQ(cat.message(static_cast<int>(Code::_count)), "unknown");
         EXPECT_EQ(cat.message(-7), "unknown");
     }
@@ -146,8 +146,8 @@ namespace
     TEST(FaultCoverage, make_error_codeStdRoundTrip)
     {
         // 覆盖首、中、尾三类代表性错误码
-        const Code samples[] = {Code::success, Code::generic_error, Code::timeout,
-                                Code::verifyfail, Code::badcfg};
+        const Code samples[] = {Code::Success, Code::GenericError, Code::Timeout,
+                                Code::Verifyfail, Code::Badcfg};
         for (const auto c : samples)
         {
             const std::error_code ec = Preview::Fault::make_error_code(c);
@@ -160,7 +160,7 @@ namespace
 
     TEST(FaultCoverage, make_error_codeBoostRoundTrip)
     {
-        const Code samples[] = {Code::success, Code::eof, Code::connection_refused, Code::badcfg};
+        const Code samples[] = {Code::Success, Code::Eof, Code::ConnectionRefused, Code::Badcfg};
         for (const auto c : samples)
         {
             const boost::system::error_code ec = boost::system::make_error_code(c);
@@ -174,15 +174,15 @@ namespace
     TEST(FaultCoverage, ImplicitConversionBothSides)
     {
         // IsErrorCodeEnum 特化：std 侧支持隐式转换
-        const std::error_code ec = Code::timeout;
-        EXPECT_EQ(ec.value(), static_cast<int>(Code::timeout));
+        const std::error_code ec = Code::Timeout;
+        EXPECT_EQ(ec.value(), static_cast<int>(Code::Timeout));
         EXPECT_EQ(std::string_view(ec.category().name()), "Preview::fault");
 
         // boost 侧隐式转换存在缺陷（见 logs/issues.md B-31，ADL 命中
         // Preview::Fault::make_error_code 返回 std::error_code 导致垃圾值），
         // 此处仅验证显式构造路径
-        const boost::system::error_code bec = boost::system::make_error_code(Code::eof);
-        EXPECT_EQ(bec.value(), static_cast<int>(Code::eof));
+        const boost::system::error_code bec = boost::system::make_error_code(Code::Eof);
+        EXPECT_EQ(bec.value(), static_cast<int>(Code::Eof));
         EXPECT_EQ(std::string_view(bec.category().name()), "Preview::fault");
     }
 
@@ -190,7 +190,7 @@ namespace
     {
         // 哈希特化委托 std::hash<int>
         std::hash<Code> hasher;
-        const Code samples[] = {Code::success, Code::generic_error, Code::timeout, Code::badcfg};
+        const Code samples[] = {Code::Success, Code::GenericError, Code::Timeout, Code::Badcfg};
         for (const auto c : samples)
         {
             EXPECT_EQ(hasher(c), std::hash<int>{}(static_cast<int>(c)));
@@ -202,10 +202,10 @@ namespace
     TEST(FaultCoverage, SucceededFailedHelpers)
     {
         // Fault::Code 类型
-        EXPECT_TRUE(Preview::Fault::Succeeded(Code::success));
-        EXPECT_FALSE(Preview::Fault::Succeeded(Code::badcfg));
-        EXPECT_FALSE(Preview::Fault::Failed(Code::success));
-        EXPECT_TRUE(Preview::Fault::Failed(Code::badcfg));
+        EXPECT_TRUE(Preview::Fault::Succeeded(Code::Success));
+        EXPECT_FALSE(Preview::Fault::Succeeded(Code::Badcfg));
+        EXPECT_FALSE(Preview::Fault::Failed(Code::Success));
+        EXPECT_TRUE(Preview::Fault::Failed(Code::Badcfg));
 
         // std::error_code 类型
         EXPECT_TRUE(Preview::Fault::Succeeded(std::error_code{}));
@@ -225,30 +225,30 @@ namespace
     TEST(FaultCoverage, ToCodeBoostEmpty)
     {
         // 空错误码 → success
-        EXPECT_EQ(Preview::Fault::ToCode(boost::system::error_code{}), Code::success);
+        EXPECT_EQ(Preview::Fault::ToCode(boost::system::error_code{}), Code::Success);
     }
 
     TEST(FaultCoverage, ToCodeBoostAsioMappings)
     {
         // 全部 Asio → fault 映射分支
-        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::eof), Code::eof);
-        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::operation_aborted), Code::canceled);
-        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::timed_out), Code::timeout);
+        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::eof), Code::Eof);
+        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::operation_aborted), Code::Canceled);
+        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::timed_out), Code::Timeout);
         EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::connection_refused),
-                  Code::connection_refused);
-        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::connection_reset), Code::connection_reset);
+                  Code::ConnectionRefused);
+        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::connection_reset), Code::ConnectionReset);
         EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::connection_aborted),
-                  Code::connection_aborted);
-        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::host_unreachable), Code::host_noreply);
-        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::network_unreachable), Code::net_noreply);
+                  Code::ConnectionAborted);
+        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::host_unreachable), Code::HostNoreply);
+        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::network_unreachable), Code::NetNoreply);
         EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::no_buffer_space),
-                  Code::resource_unavailable);
+                  Code::ResourceUnavailable);
     }
 
     TEST(FaultCoverage, ToCodeBoostOwnCategory)
     {
         // 自有分类：范围内值原样还原
-        const Code samples[] = {Code::success, Code::kexfail, Code::badcfg};
+        const Code samples[] = {Code::Success, Code::Kexfail, Code::Badcfg};
         for (const auto c : samples)
         {
             const boost::system::error_code ec = boost::system::make_error_code(c);
@@ -256,10 +256,10 @@ namespace
         }
 
         // 自有分类：正负越界值 → generic_error
-        const boost::system::error_code hi{9999, boost::system::category()};
-        const boost::system::error_code lo{-1, boost::system::category()};
-        EXPECT_EQ(Preview::Fault::ToCode(hi), Code::generic_error);
-        EXPECT_EQ(Preview::Fault::ToCode(lo), Code::generic_error);
+        const boost::system::error_code hi{9999, boost::system::Category()};
+        const boost::system::error_code lo{-1, boost::system::Category()};
+        EXPECT_EQ(Preview::Fault::ToCode(hi), Code::GenericError);
+        EXPECT_EQ(Preview::Fault::ToCode(lo), Code::GenericError);
     }
 
     TEST(FaultCoverage, ToCodeBoostUnknown)
@@ -267,38 +267,38 @@ namespace
         // 未映射的系统错误 → io_error
         const boost::system::error_code ec{
             static_cast<int>(boost::system::errc::invalid_argument), boost::system::generic_category()};
-        EXPECT_EQ(Preview::Fault::ToCode(ec), Code::io_error);
-        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::broken_pipe), Code::io_error);
+        EXPECT_EQ(Preview::Fault::ToCode(ec), Code::IoError);
+        EXPECT_EQ(Preview::Fault::ToCode(boost::asio::error::broken_pipe), Code::IoError);
     }
 
     TEST(FaultCoverage, ToCodeStdEmpty)
     {
         // 空错误码 → success
-        EXPECT_EQ(Preview::Fault::ToCode(std::error_code{}), Code::success);
+        EXPECT_EQ(Preview::Fault::ToCode(std::error_code{}), Code::Success);
     }
 
     TEST(FaultCoverage, ToCodeStdErrcMappings)
     {
         // 全部 std::errc → fault 映射分支
         EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::connection_refused)),
-                  Code::connection_refused);
+                  Code::ConnectionRefused);
         EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::connection_reset)),
-                  Code::connection_reset);
+                  Code::ConnectionReset);
         EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::connection_aborted)),
-                  Code::connection_aborted);
-        EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::timed_out)), Code::timeout);
+                  Code::ConnectionAborted);
+        EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::timed_out)), Code::Timeout);
         EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::host_unreachable)),
-                  Code::host_noreply);
+                  Code::HostNoreply);
         EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::network_unreachable)),
-                  Code::net_noreply);
+                  Code::NetNoreply);
         EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::operation_canceled)),
-                  Code::canceled);
+                  Code::Canceled);
     }
 
     TEST(FaultCoverage, ToCodeStdOwnCategory)
     {
         // 自有分类：范围内值原样还原
-        const Code samples[] = {Code::success, Code::badsni, Code::badcfg};
+        const Code samples[] = {Code::Success, Code::Badsni, Code::Badcfg};
         for (const auto c : samples)
         {
             const std::error_code ec = Preview::Fault::make_error_code(c);
@@ -306,18 +306,18 @@ namespace
         }
 
         // 自有分类：正负越界值 → generic_error
-        const std::error_code hi{9999, Preview::Fault::category()};
-        const std::error_code lo{-1, Preview::Fault::category()};
-        EXPECT_EQ(Preview::Fault::ToCode(hi), Code::generic_error);
-        EXPECT_EQ(Preview::Fault::ToCode(lo), Code::generic_error);
+        const std::error_code hi{9999, Preview::Fault::Category()};
+        const std::error_code lo{-1, Preview::Fault::Category()};
+        EXPECT_EQ(Preview::Fault::ToCode(hi), Code::GenericError);
+        EXPECT_EQ(Preview::Fault::ToCode(lo), Code::GenericError);
     }
 
     TEST(FaultCoverage, ToCodeStdUnknown)
     {
         // 未映射的标准错误 → io_error
         EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::invalid_argument)),
-                  Code::io_error);
+                  Code::IoError);
         EXPECT_EQ(Preview::Fault::ToCode(std::make_error_code(std::errc::no_such_file_or_directory)),
-                  Code::io_error);
+                  Code::IoError);
     }
 } // namespace

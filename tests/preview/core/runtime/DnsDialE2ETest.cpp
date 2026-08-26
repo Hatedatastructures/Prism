@@ -25,7 +25,7 @@ namespace
     using Tcp = net::ip::tcp;
     using namespace Preview;
 
-    using psm::testing::run_coro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
+    using Preview::Testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
 
     // DNS 感知拨号：域名先经 Resolver 解析为 IP 再 Dialer.Connect
     auto dial_with_dns(net::any_io_executor ex, const Network::Target &tgt)
@@ -41,8 +41,8 @@ namespace
             std::string port_str(tgt.Port);
             unsigned short port = static_cast<unsigned short>(std::stoi(port_str));
             auto tr = co_await d.Connect(tgt.Host, port, ec);
-            if (ec || !tr) co_return std::pair{Fault::Code::unreachable, SharedTransmission{}};
-            co_return std::pair{Fault::Code::success, std::move(tr)};
+            if (ec || !tr) co_return std::pair{Fault::Code::Unreachable, SharedTransmission{}};
+            co_return std::pair{Fault::Code::Success, std::move(tr)};
         }
         // 域名：经 Resolver 解析
         Network::Dns::Resolver Resolver(ex);
@@ -50,7 +50,7 @@ namespace
         auto addrs = co_await Resolver.AsyncResolve(std::string(tgt.Host), rec);
         if (rec || addrs.empty())
         {
-            co_return std::pair{Fault::Code::unreachable, SharedTransmission{}};
+            co_return std::pair{Fault::Code::Unreachable, SharedTransmission{}};
         }
         for (const auto &a : addrs)
         {
@@ -58,9 +58,9 @@ namespace
             std::string port_str(tgt.Port);
             unsigned short port = static_cast<unsigned short>(std::stoi(port_str));
             auto tr = co_await d.Connect(a.to_string(), port, ec);
-            if (!ec && tr) co_return std::pair{Fault::Code::success, std::move(tr)};
+            if (!ec && tr) co_return std::pair{Fault::Code::Success, std::move(tr)};
         }
-        co_return std::pair{Fault::Code::unreachable, SharedTransmission{}};
+        co_return std::pair{Fault::Code::Unreachable, SharedTransmission{}};
     }
 
     TEST(DnsResolver, ResolveLocalhost)
@@ -129,7 +129,7 @@ namespace
             tgt.Host = "127.0.0.1";
             tgt.Port = std::to_string(echo_port);
             auto [Code, tr] = co_await dial_with_dns(ioc.get_executor(), tgt);
-            EXPECT_EQ(Code, Fault::Code::success);
+            EXPECT_EQ(Code, Fault::Code::Success);
             if (!tr) { ADD_FAILURE() << "tr null"; co_return; }
             // 透传验证
             const std::string payload = "dns Dial";
@@ -137,7 +137,7 @@ namespace
             co_await tr->AsyncWrite(std::span<const std::byte>(reinterpret_cast<const std::byte*>(payload.data()), payload.size()), ec);
             EXPECT_FALSE(ec);
             std::array<std::byte, 64> buf{};
-            auto n = co_await tr->AsyncReadSome(buf, ec);
+            auto n = co_await tr->async_read_some(buf, ec);
             EXPECT_FALSE(ec);
             std::string echo(reinterpret_cast<char*>(buf.data()), n);
             Ok = (echo == payload);

@@ -4,7 +4,7 @@
  * @details 通过 #define private public 访问 private 成员，使用 MockTransport
  *          注入帧数据测试 recv_loop/dispatch_frame 各命令分支：
  *          constructor、close、get_stream_channel、
- *          on_settings（v1/v2/padding-md5 匹配/不匹配）、
+ *          OnSettings（v1/v2/padding-md5 匹配/不匹配）、
  *          on_syn（正常/无 settings/zero stream_id/第一/后续 stream）、
  *          on_psh（第一 stream 首包/后续/后续 stream 首 PSH/未知 stream）、
  *          on_fin、alert、heart_req、waste、default、
@@ -35,7 +35,7 @@
 
 #include "../../src/prism/handshake/anytls/session.cpp"
 
-using MockTransport = psm::testing::MockTransport;
+using MockTransport = Preview::Testing::MockTransport;
 namespace anytls = psm::handshake::anytls;
 namespace net = boost::asio;
 
@@ -148,7 +148,7 @@ namespace
         EXPECT_EQ(missing, nullptr) << "get_channel: missing -> nullptr";
     }
 
-    // ─── on_settings v1 ───────────────────────────
+    // ─── OnSettings v1 ───────────────────────────
 
     TEST(AnytlsSessionDeep, OnSettingsV1)
     {
@@ -157,7 +157,7 @@ namespace
 
         auto payload = make_settings_payload("v=1\n");
         auto frame = make_frame_bytes(anytls::command::settings, 0, payload);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -192,7 +192,7 @@ namespace
         EXPECT_TRUE(fx.session->peer_version_ == 1) << "settings v1: version 1";
     }
 
-    // ─── on_settings v2（发送 server_settings）────
+    // ─── OnSettings v2（发送 server_settings）────
 
     TEST(AnytlsSessionDeep, OnSettingsV2)
     {
@@ -201,7 +201,7 @@ namespace
 
         auto payload = make_settings_payload("v=2\npadding-md5=abc\n");
         auto frame = make_frame_bytes(anytls::command::settings, 0, payload);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -239,7 +239,7 @@ namespace
         EXPECT_GE(written.size(), 7) << "settings v2: server_settings written";
     }
 
-    // ─── on_settings v2 + padding mismatch ────────
+    // ─── OnSettings v2 + padding mismatch ────────
 
     TEST(AnytlsSessionDeep, OnSettingsV2PaddingMismatch)
     {
@@ -250,7 +250,7 @@ namespace
         // padding 的 md5 不匹配 "abc"
         auto payload = make_settings_payload("v=2\npadding-md5=abc\n");
         auto frame = make_frame_bytes(anytls::command::settings, 0, payload);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -288,7 +288,7 @@ namespace
         EXPECT_GE(written.size(), 14) << "pad mismatch: frames written";
     }
 
-    // ─── on_settings v2 + padding match ───────────
+    // ─── OnSettings v2 + padding match ───────────
 
     TEST(AnytlsSessionDeep, OnSettingsV2PaddingMatch)
     {
@@ -300,7 +300,7 @@ namespace
         // 发送匹配的 md5
         auto payload = make_settings_payload(std::string("v=2\npadding-md5=") + std::string(pad->md5) + "\n");
         auto frame = make_frame_bytes(anytls::command::settings, 0, payload);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -347,7 +347,7 @@ namespace
         fx.session->received_settings_ = true;
 
         auto frame = make_frame_bytes(anytls::command::syn, 1);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -393,7 +393,7 @@ namespace
         fx.session->init_id_ = 1;
 
         auto frame = make_frame_bytes(anytls::command::syn, 2);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -437,7 +437,7 @@ namespace
         // received_settings_ = false (default)
 
         auto frame = make_frame_bytes(anytls::command::syn, 1);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -480,7 +480,7 @@ namespace
         fx.session->received_settings_ = true;
 
         auto frame = make_frame_bytes(anytls::command::syn, 0);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -529,7 +529,7 @@ namespace
 
         auto data = std::vector<std::uint8_t>{0x01, 0x02, 0x03};
         auto frame = make_frame_bytes(anytls::command::psh, 1, data);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -582,7 +582,7 @@ namespace
 
         auto data = std::vector<std::uint8_t>{0x04, 0x05};
         auto frame = make_frame_bytes(anytls::command::psh, 2, data);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -636,7 +636,7 @@ namespace
 
         auto data = std::vector<std::uint8_t>{0x01};
         auto frame = make_frame_bytes(anytls::command::psh, 2, data);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -687,7 +687,7 @@ namespace
 
         auto data = std::vector<std::uint8_t>{0xAA, 0xBB};
         auto frame = make_frame_bytes(anytls::command::psh, 1, data);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -737,7 +737,7 @@ namespace
 
         auto data = std::vector<std::uint8_t>{0x01};
         auto frame = make_frame_bytes(anytls::command::psh, 99, data);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -784,7 +784,7 @@ namespace
         fx.session->streams_[5] = ch;
 
         auto frame = make_frame_bytes(anytls::command::fin, 5);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -827,7 +827,7 @@ namespace
         fx.session->received_settings_ = true;
 
         auto frame = make_frame_bytes(anytls::command::fin, 99);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -873,7 +873,7 @@ namespace
         fx.session->streams_[3] = ch;
 
         auto frame = make_frame_bytes(anytls::command::alert, 3);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -916,7 +916,7 @@ namespace
         fx.session->received_settings_ = true;
 
         auto frame = make_frame_bytes(anytls::command::alert, 77);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -959,7 +959,7 @@ namespace
         fx.session->received_settings_ = true;
 
         auto frame = make_frame_bytes(anytls::command::heart_req, 0);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -1010,7 +1010,7 @@ namespace
         fx.session->received_settings_ = true;
 
         auto frame = make_frame_bytes(anytls::command::waste, 0);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -1064,7 +1064,7 @@ namespace
         {
             frame_bytes.push_back(static_cast<std::byte>(b));
         }
-        fx.transport->inject_read(frame_bytes.data(), frame_bytes.size());
+        fx.transport->InjectRead(frame_bytes.data(), frame_bytes.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -1152,7 +1152,7 @@ namespace
         // 注入只有 3 字节（不足 7），read_exact 会读取 3 字节后再次 async_read_some
         // MockTransport 队列空后进入轮询定时器，close() 后 read_exact 返回 false
         std::vector<std::byte> short_data(3, std::byte{0x00});
-        fx.transport->inject_read(short_data.data(), short_data.size());
+        fx.transport->InjectRead(short_data.data(), short_data.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -1206,7 +1206,7 @@ namespace
 
         auto payload = make_settings_payload("v=1\n");
         auto frame = make_frame_bytes(anytls::command::settings, 0, payload);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -1462,7 +1462,7 @@ namespace
     {
         SessionFixture fx;
         fx.init();
-        fx.transport->set_WriteError(std::make_error_code(std::errc::broken_pipe));
+        fx.transport->SetWriteError(std::make_error_code(std::errc::broken_pipe));
 
         std::error_code ec;
         std::exception_ptr ep;
@@ -1501,7 +1501,7 @@ namespace
 
         auto payload = make_settings_payload("v=1\n");
         auto frame = make_frame_bytes(anytls::command::settings, 0, payload);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -1588,7 +1588,7 @@ namespace
         fx.init();
 
         // 设置读错误让 recv_loop 抛出
-        fx.transport->set_ReadError(std::make_error_code(std::errc::io_error));
+        fx.transport->SetReadError(std::make_error_code(std::errc::io_error));
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -1644,9 +1644,9 @@ namespace
         auto f3 = make_frame_bytes(anytls::command::psh, 1, psh_data);
 
         // 依次注入
-        fx.transport->inject_read(f1.data(), f1.size());
-        fx.transport->inject_read(f2.data(), f2.size());
-        fx.transport->inject_read(f3.data(), f3.size());
+        fx.transport->InjectRead(f1.data(), f1.size());
+        fx.transport->InjectRead(f2.data(), f2.size());
+        fx.transport->InjectRead(f3.data(), f3.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -1704,7 +1704,7 @@ namespace
         }
 
         // 注入 header 后关闭
-        fx.transport->inject_read(frame_bytes.data(), frame_bytes.size());
+        fx.transport->InjectRead(frame_bytes.data(), frame_bytes.size());
         fx.transport->close();
 
         std::exception_ptr ep;
@@ -1753,7 +1753,7 @@ namespace
 
         auto data = std::vector<std::uint8_t>{0x01};
         auto frame = make_frame_bytes(anytls::command::psh, 99, data);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>
@@ -1788,7 +1788,7 @@ namespace
         EXPECT_EQ(fx.session->streams_.count(99), 0u) << "psh sub unknown: no stream 99";
     }
 
-    // ─── on_settings 空 payload ─────────────────
+    // ─── OnSettings 空 payload ─────────────────
 
     TEST(AnytlsSessionDeep, OnSettingsEmptyPayload)
     {
@@ -1796,7 +1796,7 @@ namespace
         fx.init();
 
         auto frame = make_frame_bytes(anytls::command::settings, 0);
-        fx.transport->inject_read(frame.data(), frame.size());
+        fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
         auto coro = [&]() -> net::awaitable<void>

@@ -52,9 +52,9 @@ namespace Preview::Http11
             {
                 return false;
             }
-            for (std::size_t i = 0; i < l.size(); ++i)
+            for (std::size_t I = 0; I < l.size(); ++I)
             {
-                if (ToLower(l[i]) != ToLower(r[i]))
+                if (ToLower(l[I]) != ToLower(r[I]))
                 {
                     return false;
                 }
@@ -65,16 +65,16 @@ namespace Preview::Http11
         /// @brief 去除首尾空白
         [[nodiscard]] inline auto Trim(std::string_view v) noexcept -> std::string_view
         {
-            auto s = v;
-            while (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
+            auto S = v;
+            while (!S.empty() && (S.front() == ' ' || S.front() == '\t'))
             {
-                s.remove_prefix(1);
+                S.remove_prefix(1);
             }
-            while (!s.empty() && (s.back() == ' ' || s.back() == '\t'))
+            while (!S.empty() && (S.back() == ' ' || S.back() == '\t'))
             {
-                s.remove_suffix(1);
+                S.remove_suffix(1);
             }
-            return s;
+            return S;
         }
     } // namespace detail
 
@@ -89,18 +89,18 @@ namespace Preview::Http11
         const auto LineEnd = raw.find("\r\n");
         if (LineEnd == std::string_view::npos)
         {
-            return Fault::Code::parse_error;
+            return Fault::Code::ParseError;
         }
 
         const auto FirstSpace = raw.find(' ');
         if (FirstSpace == std::string_view::npos || FirstSpace >= LineEnd)
         {
-            return Fault::Code::parse_error;
+            return Fault::Code::ParseError;
         }
         const auto SecondSpace = raw.find(' ', FirstSpace + 1);
         if (SecondSpace == std::string_view::npos || SecondSpace >= LineEnd)
         {
-            return Fault::Code::parse_error;
+            return Fault::Code::ParseError;
         }
 
         out.Method = raw.substr(0, FirstSpace);
@@ -111,7 +111,7 @@ namespace Preview::Http11
         const auto HeadersEnd = raw.find("\r\n\r\n", LineEnd);
         if (HeadersEnd == std::string_view::npos)
         {
-            return Fault::Code::parse_error;
+            return Fault::Code::ParseError;
         }
         out.HdrEnd = HeadersEnd + 4;
 
@@ -119,26 +119,26 @@ namespace Preview::Http11
         std::string_view block = raw.substr(LineEnd + 2, HeadersEnd - LineEnd - 2);
         while (!block.empty())
         {
-            const auto next = block.find("\r\n");
+            const auto Next = block.find("\r\n");
             std::string_view line;
-            if (next == std::string_view::npos)
+            if (Next == std::string_view::npos)
             {
                 line = block;
                 block = {};
             }
             else
             {
-                line = block.substr(0, next);
-                block = block.substr(next + 2);
+                line = block.substr(0, Next);
+                block = block.substr(Next + 2);
             }
 
-            const auto colon = line.find(':');
-            if (colon == std::string_view::npos)
+            const auto Colon = line.find(':');
+            if (Colon == std::string_view::npos)
             {
                 continue;
             }
-            const auto Name = detail::Trim(line.substr(0, colon));
-            const auto value = detail::Trim(line.substr(colon + 1));
+            const auto Name = detail::Trim(line.substr(0, Colon));
+            const auto value = detail::Trim(line.substr(Colon + 1));
             if (detail::Iequals(Name, "host"))
             {
                 out.host = value;
@@ -148,7 +148,7 @@ namespace Preview::Http11
                 out.authorization = value;
             }
         }
-        return Fault::Code::success;
+        return Fault::Code::Success;
     }
 
     /**
@@ -198,11 +198,11 @@ namespace Preview::Http11
             return 0;
         }
         int Code = 0;
-        for (std::size_t i = FirstSpace + 1; i < LineEnd && std::isdigit(
-                                                           static_cast<unsigned char>(raw[i]));
-             ++i)
+        for (std::size_t I = FirstSpace + 1; I < LineEnd && std::isdigit(
+                                                           static_cast<unsigned char>(raw[I]));
+             ++I)
         {
-            Code = Code * 10 + (raw[i] - '0');
+            Code = Code * 10 + (raw[I] - '0');
         }
         return Code;
     }

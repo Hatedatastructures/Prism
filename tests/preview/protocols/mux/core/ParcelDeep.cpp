@@ -3,7 +3,7 @@
  * @brief multiplex/parcel 深度同步逻辑测试
  * @details 通过 #include 源文件访问 parcel 的全部实现，
  *          使用 TestCore（core 子类）+ MockTransport 构建 parcel，
- *          测试构造、析构、close、set_destination、on_data 等同步/协程路径。
+ *          测试构造、析构、close、set_destination、OnData 等同步/协程路径。
  *
  *          start() 不使用 run()，原因与 DuctDeep 相同：
  *          MockTransport 的 timer 轮询在队列为空时挂起。
@@ -19,7 +19,7 @@
 
 #include "common/MockTransport.hpp"
 
-using MockTransport = psm::testing::MockTransport;
+using MockTransport = Preview::Testing::MockTransport;
 namespace multiplex = psm::multiplex;
 namespace net = boost::asio;
 
@@ -199,11 +199,11 @@ namespace
         fx.datagram_obj->close();
     }
 
-    // ─── on_data 协程路径 ─────────────────────
+    // ─── OnData 协程路径 ─────────────────────
 
     TEST(ParcelDeep, OnDataAfterClose)
     {
-        // on_data 是协程，close 后 co_return。但不 spawn 也能验证 close 后安全。
+        // OnData 是协程，close 后 co_return。但不 spawn 也能验证 close 后安全。
         ParcelFixture fx;
         fx.datagram_obj->close();
     }

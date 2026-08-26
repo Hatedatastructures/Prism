@@ -31,44 +31,44 @@ namespace
     using namespace Preview;
 
     // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::AcceptEchoLoop;
-    using psm::testing::RunCoro;
-    using psm::testing::tcp_echo_server;
+    using Preview::Testing::AcceptEchoLoop;
+    using Preview::Testing::RunCoro;
+    using Preview::Testing::TcpEchoServer;
 
     class mux_decorator final : public Transmission
     {
     public:
-        explicit mux_decorator(SharedTransmission Inner) : inner_(std::move(Inner)) {}
-        [[nodiscard]] auto Executor() const -> ExecutorType override { return inner_->Executor(); }
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override
+        explicit mux_decorator(SharedTransmission Inner) : Inner_(std::move(Inner)) {}
+        [[nodiscard]] auto Executor() const -> ExecutorType override { return Inner_->Executor(); }
+        [[nodiscard]] auto async_read_some(std::span<std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override
         {
-            co_return co_await inner_->AsyncReadSome(b, ec);
+            co_return co_await Inner_->async_read_some(b, ec);
         }
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override
         {
-            co_return co_await inner_->AsyncWriteSome(b, ec);
+            co_return co_await Inner_->async_write_some(b, ec);
         }
-        void Close() override { inner_->Close(); }
-        void Cancel() override { inner_->Cancel(); }
-        void Shutdown() override { inner_->Shutdown(); }
-        void SetTimeout(std::chrono::milliseconds ms) override { inner_->SetTimeout(ms); }
-        [[nodiscard]] auto IsOpen() const -> bool override { return inner_->IsOpen(); }
-        [[nodiscard]] auto NextLayer() noexcept -> Transmission* override { return inner_.get(); }
-        [[nodiscard]] auto NextLayer() const noexcept -> const Transmission* override { return inner_.get(); }
+        void Close() override { Inner_->Close(); }
+        void Cancel() override { Inner_->Cancel(); }
+        void Shutdown() override { Inner_->Shutdown(); }
+        void SetTimeout(std::chrono::milliseconds ms) override { Inner_->SetTimeout(ms); }
+        [[nodiscard]] auto IsOpen() const -> bool override { return Inner_->IsOpen(); }
+        [[nodiscard]] auto NextLayer() noexcept -> Transmission* override { return Inner_.get(); }
+        [[nodiscard]] auto NextLayer() const noexcept -> const Transmission* override { return Inner_.get(); }
         bool wrapped{true};
     private:
-        SharedTransmission inner_;
+        SharedTransmission Inner_;
     };
 
     struct fake_tx final : Transmission
     {
-        explicit fake_tx(net::any_io_executor ex) : ex_(ex) {}
-        [[nodiscard]] auto Executor() const -> ExecutorType override { return ex_; }
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
+        explicit fake_tx(net::any_io_executor ex) : Ex_(ex) {}
+        [[nodiscard]] auto Executor() const -> ExecutorType override { return Ex_; }
+        [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
+        [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
         void Close() override {}
         void Cancel() override {}
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
     };
 
     TEST(MuxMiddleware, DirectWrapsInbound)
@@ -87,7 +87,7 @@ namespace
                     co_return true;
                 });
             const auto ec = co_await mux_mw.Handle(Inner, ctx);
-            EXPECT_EQ(ec, Fault::Code::success);
+            EXPECT_EQ(ec, Fault::Code::Success);
             auto dec = std::dynamic_pointer_cast<mux_decorator>(Inner);
             Ok = (dec && dec->wrapped);
         }, [&](std::exception_ptr ep){ if(ep) std::rethrow_exception(ep); ioc.stop(); });
@@ -100,19 +100,19 @@ namespace
         net::io_context ioc;
         Tcp::acceptor echo_ac(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto echo_port = echo_ac.local_endpoint().port();
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_ac), net::detached);
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_ac), net::detached);
 
         bool mux_called = false;
         bool dialed = false;
         bool relay_ok = false;
 
         // 通过 AcceptProtocol 使 recognition 放宽，然后走 mux→Dial→relay
-        auto make_accept_set_target = [&](SharedTransmission &inbound, Middleware::Context &ctx)
+        auto make_accept_set_target = [&](SharedTransmission &Inbound, Middleware::Context &ctx)
             -> net::awaitable<Fault::Code>
         {
             ctx.Target.Host = "127.0.0.1";
             ctx.Target.Port = std::to_string(echo_port);
-            co_return Fault::Code::success;
+            co_return Fault::Code::Success;
         };
 
         Runtime::TcpListener listener(ioc.get_executor(),
@@ -120,10 +120,10 @@ namespace
             {
                 Runtime::SessionOptions opts;
                 opts.AcceptProtocol = make_accept_set_target;
-                opts.mux = [&](SharedTransmission &inbound, Middleware::Context &) -> net::awaitable<bool>
+                opts.mux = [&](SharedTransmission &Inbound, Middleware::Context &) -> net::awaitable<bool>
                 {
                     mux_called = true;
-                    inbound = std::make_shared<mux_decorator>(std::move(inbound));
+                    Inbound = std::make_shared<mux_decorator>(std::move(Inbound));
                     co_return true;
                 };
                 opts.Dial = [&](const Network::Target &t) -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
@@ -134,8 +134,8 @@ namespace
                     std::string host_str(t.Host);
                     std::string port_str(t.Port);
                     auto up = co_await d.Connect(host_str, static_cast<unsigned short>(std::stoi(port_str)), ec);
-                    if (ec || !up) co_return std::pair{Fault::Code::unreachable, SharedTransmission{}};
-                    co_return std::pair{Fault::Code::success, std::move(up)};
+                    if (ec || !up) co_return std::pair{Fault::Code::Unreachable, SharedTransmission{}};
+                    co_return std::pair{Fault::Code::Success, std::move(up)};
                 };
                 return std::make_shared<Runtime::Session>(std::move(opts));
             });
@@ -143,7 +143,7 @@ namespace
         RunCoro(ioc, [&]() -> net::awaitable<void>
         {
             const auto rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-            EXPECT_EQ(rc, Fault::Code::success);
+            EXPECT_EQ(rc, Fault::Code::Success);
             const auto lp = listener.LocalEndpoint().port();
             std::error_code ec;
             Network::Dialer::Dialer d(ioc.get_executor());
@@ -155,7 +155,7 @@ namespace
             std::size_t got=0;
             while (!ec && got < payload.size())
             {
-                auto n = co_await raw->AsyncReadSome(std::span<std::byte>(buf).subspan(got), ec);
+                auto n = co_await raw->async_read_some(std::span<std::byte>(buf).subspan(got), ec);
                 if (n==0) break;
                 got+=n;
             }

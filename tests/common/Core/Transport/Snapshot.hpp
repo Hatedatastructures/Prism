@@ -6,7 +6,7 @@
  * 失败时 Rewind，下一个 scheme 从同一起点重试。
  *
  * 设计约束：
- * - Rewind 仅在未发生写入时有效（wrote_ == false）
+ * - Rewind 仅在未发生写入时有效（Wrote_ == false）
  * - 认证阶段是纯读取，安全 Rewind
  * - 一旦开始写入（如 TLS 握手），transport 状态不可恢复
  */
@@ -40,10 +40,10 @@ namespace Preview::Transport
         /**
          * @brief 构造 Snapshot 包装器
          * @param Inner 被包装的内层传输
-         * @param mr PMR 内存资源，用于 captured_ 缓冲区分配
+         * @param mr PMR 内存资源，用于 Captured_ 缓冲区分配
          */
         explicit Snapshot(SharedTransmission Inner, Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource())
-            : inner_(std::move(Inner)), captured_(mr)
+            : Inner_(std::move(Inner)), Captured_(mr)
         {
         }
 
@@ -53,9 +53,9 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto TransportType() const noexcept -> Type override
         {
-            if (inner_)
+            if (Inner_)
             {
-                return inner_->TransportType();
+                return Inner_->TransportType();
             }
             return Type::Tcp;
         }
@@ -66,12 +66,12 @@ namespace Preview::Transport
          */
         [[nodiscard]] Transmission *NextLayer() noexcept override
         {
-            return inner_.get();
+            return Inner_.get();
         }
 
         [[nodiscard]] const Transmission *NextLayer() const noexcept override
         {
-            return inner_.get();
+            return Inner_.get();
         }
 
         /**
@@ -81,50 +81,50 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            if (!inner_)
+            if (!Inner_)
             {
                 throw std::runtime_error("Snapshot::Executor() called on null Inner");
             }
-            return inner_->Executor();
+            return Inner_->Executor();
         }
 
         /**
          * @brief 异步读取数据（带捕获和回放）
          * @details 两阶段读取：
-         * 1. 若 captured_ 中有未回放的数据，从 captured_ 复制到 Buffer（同步）
-         * 2. 否则从内层传输读取，同时追加到 captured_（异步）
+         * 1. 若 Captured_ 中有未回放的数据，从 Captured_ 复制到 Buffer（同步）
+         * 2. 否则从内层传输读取，同时追加到 Captured_（异步）
          * @param Buffer 接收缓冲区
          * @param ec 错误码输出
          * @return 读取的字节数
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!inner_)
+            if (!Inner_)
             {
                 ec = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
 
-            // Phase 1: 从 captured_ 回放
-            if (ReadPos_ < captured_.size())
+            // Phase 1: 从 Captured_ 回放
+            if (ReadPos_ < Captured_.size())
             {
-                const auto Remaining = captured_.size() - ReadPos_;
-                const auto n = (std::min)(Buffer.size(), Remaining);
-                std::memcpy(Buffer.data(), captured_.data() + ReadPos_, n);
-                ReadPos_ += n;
+                const auto Remaining = Captured_.size() - ReadPos_;
+                const auto N = (std::min)(Buffer.size(), Remaining);
+                std::memcpy(Buffer.data(), Captured_.data() + ReadPos_, N);
+                ReadPos_ += N;
                 ec = {};
-                co_return n;
+                co_return N;
             }
 
             // Phase 2: 从内层读取并捕获
-            const auto n = co_await inner_->AsyncReadSome(Buffer, ec);
-            if (n > 0 && !ec)
+            const auto N = co_await Inner_->async_read_some(Buffer, ec);
+            if (N > 0 && !ec)
             {
-                captured_.insert(captured_.end(), Buffer.data(), Buffer.data() + n);
-                ReadPos_ += n;
+                Captured_.insert(Captured_.end(), Buffer.data(), Buffer.data() + N);
+                ReadPos_ += N;
             }
-            co_return n;
+            co_return N;
         }
 
         /**
@@ -134,16 +134,16 @@ namespace Preview::Transport
          * @param ec 错误码输出
          * @return 写入的字节数
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            wrote_ = true;
-            if (!inner_)
+            Wrote_ = true;
+            if (!Inner_)
             {
                 ec = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await inner_->AsyncWriteSome(Buffer, ec);
+            co_return co_await Inner_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -152,9 +152,9 @@ namespace Preview::Transport
          */
         void Close() override
         {
-            if (inner_)
+            if (Inner_)
             {
-                inner_->Close();
+                Inner_->Close();
             }
         }
 
@@ -164,16 +164,16 @@ namespace Preview::Transport
          */
         void Cancel() override
         {
-            if (inner_)
+            if (Inner_)
             {
-                inner_->Cancel();
+                Inner_->Cancel();
             }
         }
 
         /**
          * @brief 回滚读取位置到起点
-         * @details 将 ReadPos_ 归零，下次 AsyncReadSome 将从 captured_ 起点回放。
-         * 不清空 captured_ 数据。调用前应检查 CanRewind()。
+         * @details 将 ReadPos_ 归零，下次 async_read_some 将从 Captured_ 起点回放。
+         * 不清空 Captured_ 数据。调用前应检查 CanRewind()。
          */
         void Rewind() noexcept
         {
@@ -187,7 +187,7 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto CanRewind() const noexcept -> bool
         {
-            return !wrote_;
+            return !Wrote_;
         }
 
         /**
@@ -196,14 +196,14 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto Inner() const noexcept -> SharedTransmission
         {
-            return inner_;
+            return Inner_;
         }
 
     private:
-        SharedTransmission inner_;
-        std::vector<std::byte> captured_;
+        SharedTransmission Inner_;
+        Preview::Memory::vector<std::byte> Captured_; ///< 预读捕获缓冲（PMR 分配）
         std::size_t ReadPos_{0};
-        bool wrote_{false};
+        bool Wrote_{false};
     };
 
     /**

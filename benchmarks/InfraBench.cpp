@@ -233,7 +233,7 @@ BENCHMARK(BM_Directory_TryAcquire_Miss);
 
 void BM_Directory_TryAcquire_Capped(benchmark::State &state)
 {
-    // 创建一个 max_connections=1 的账户，填满后测试拒绝路径
+    // 创建一个 MaxConnections=1 的账户，填满后测试拒绝路径
     psm::user::directory capped_dir;
     capped_dir.upsert("capped-user", 1);
 

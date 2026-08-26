@@ -1,5 +1,5 @@
 /**
- * @file hkdf.hpp
+ * @file Hkdf.hpp
  * @brief HKDF-SHA256 密钥派生工具
  * @details 提供 HMAC-SHA256、HKDF-Extract、HKDF-Expand 和
  * TLS 1.3 专用的 HKDF-Expand-Label 函数。这些函数是 TLS 1.3
@@ -105,7 +105,7 @@ namespace Preview::Crypto
      * @param params 扩展标签参数
      * @return 错误码和输出字节的配对
      * @details 按照 RFC 8446 Section 7.1 实现：
-     * HkdfLabel = Length(2) || label_len(1) || "tls13 " + Label || context_len(1) || Context
+     * HkdfLabel = Length(2) || LabelLen(1) || "tls13 " + Label || context_len(1) || Context
      * HKDF-Expand-Label(Secret, Label, Context, Length) = HKDF-Expand(Secret, HkdfLabel, Length)
      * @note TLS 1.3 自动在 Label 前添加 "tls13 " 前缀。
      */
@@ -183,8 +183,8 @@ namespace Preview::Crypto
     {
         if (salt.empty())
         {
-            std::array<std::uint8_t, Sha256Len> zero_salt{};
-            return HmacSha256(zero_salt, ikm);
+            std::array<std::uint8_t, Sha256Len> ZeroSalt{};
+            return HmacSha256(ZeroSalt, ikm);
         }
         return HmacSha256(salt, ikm);
     }
@@ -194,18 +194,18 @@ namespace Preview::Crypto
     {
         if (length > 255 * Sha256Len)
         {
-            return {Fault::Code::invalid_argument, {}};
+            return {Fault::Code::InvalidArgument, {}};
         }
 
         if (prk.size() < Sha256Len)
         {
-            return {Fault::Code::invalid_argument, {}};
+            return {Fault::Code::InvalidArgument, {}};
         }
 
         constexpr std::size_t MaxInfoSize = 514;
         if (Info.size() > MaxInfoSize)
         {
-            return {Fault::Code::invalid_argument, {}};
+            return {Fault::Code::InvalidArgument, {}};
         }
 
         std::vector<std::uint8_t> Result;
@@ -213,36 +213,36 @@ namespace Preview::Crypto
 
         std::array<std::uint8_t, Sha256Len> t{};
         std::size_t TSize = 0;
-        std::size_t offset = 0;
-        std::uint8_t counter = 1;
+        std::size_t Offset = 0;
+        std::uint8_t Counter = 1;
 
-        while (offset < length)
+        while (Offset < length)
         {
             constexpr std::size_t MaxHmacBuf = Sha256Len + MaxInfoSize + 1;
-            std::array<std::uint8_t, MaxHmacBuf> hmac_buf;
+            std::array<std::uint8_t, MaxHmacBuf> HmacBuf;
             const auto HmacSize = TSize + Info.size() + 1;
             if (TSize > 0)
             {
-                std::memcpy(hmac_buf.data(), t.data(), TSize);
+                std::memcpy(HmacBuf.data(), t.data(), TSize);
             }
             if (!Info.empty())
             {
-                std::memcpy(hmac_buf.data() + TSize, Info.data(), Info.size());
+                std::memcpy(HmacBuf.data() + TSize, Info.data(), Info.size());
             }
-            hmac_buf[HmacSize - 1] = counter;
+            HmacBuf[HmacSize - 1] = Counter;
 
-            const auto block = HmacSha256(prk.first(Sha256Len), {hmac_buf.data(), HmacSize});
+            const auto Block = HmacSha256(prk.first(Sha256Len), {HmacBuf.data(), HmacSize});
 
-            const auto ToCopy = std::min(Sha256Len, length - offset);
-            Result.insert(Result.end(), block.begin(), block.begin() + static_cast<std::ptrdiff_t>(ToCopy));
-            offset += ToCopy;
+            const auto ToCopy = std::min(Sha256Len, length - Offset);
+            Result.insert(Result.end(), Block.begin(), Block.begin() + static_cast<std::ptrdiff_t>(ToCopy));
+            Offset += ToCopy;
 
-            t = block;
+            t = Block;
             TSize = Sha256Len;
-            ++counter;
+            ++Counter;
         }
 
-        return {Fault::Code::success, std::move(Result)};
+        return {Fault::Code::Success, std::move(Result)};
     }
 
     inline auto ExpandLabel(const ExpandParams params)
@@ -257,35 +257,35 @@ namespace Preview::Crypto
 
         if (FullLabelLen > 255)
         {
-            return {Fault::Code::invalid_argument, {}};
+            return {Fault::Code::InvalidArgument, {}};
         }
 
         if (Context.size() > 255)
         {
-            return {Fault::Code::invalid_argument, {}};
+            return {Fault::Code::InvalidArgument, {}};
         }
 
         constexpr std::size_t MaxLabelBuf = 2 + 1 + 255 + 1 + 255;
-        std::array<std::uint8_t, MaxLabelBuf> label_buf;
-        std::size_t pos = 0;
+        std::array<std::uint8_t, MaxLabelBuf> LabelBuf;
+        std::size_t Pos = 0;
 
-        label_buf[pos++] = static_cast<std::uint8_t>((length >> 8) & 0xFF);
-        label_buf[pos++] = static_cast<std::uint8_t>(length & 0xFF);
+        LabelBuf[Pos++] = static_cast<std::uint8_t>((length >> 8) & 0xFF);
+        LabelBuf[Pos++] = static_cast<std::uint8_t>(length & 0xFF);
 
-        label_buf[pos++] = static_cast<std::uint8_t>(FullLabelLen);
-        std::memcpy(label_buf.data() + pos, Tls13Prefix.data(), Tls13Prefix.size());
-        pos += Tls13Prefix.size();
-        std::memcpy(label_buf.data() + pos, Label.data(), Label.size());
-        pos += Label.size();
+        LabelBuf[Pos++] = static_cast<std::uint8_t>(FullLabelLen);
+        std::memcpy(LabelBuf.data() + Pos, Tls13Prefix.data(), Tls13Prefix.size());
+        Pos += Tls13Prefix.size();
+        std::memcpy(LabelBuf.data() + Pos, Label.data(), Label.size());
+        Pos += Label.size();
 
-        label_buf[pos++] = static_cast<std::uint8_t>(Context.size());
+        LabelBuf[Pos++] = static_cast<std::uint8_t>(Context.size());
         if (!Context.empty())
         {
-            std::memcpy(label_buf.data() + pos, Context.data(), Context.size());
-            pos += Context.size();
+            std::memcpy(LabelBuf.data() + Pos, Context.data(), Context.size());
+            Pos += Context.size();
         }
 
-        return HkdfExpand(Secret, {label_buf.data(), pos}, length);
+        return HkdfExpand(Secret, {LabelBuf.data(), Pos}, length);
     }
 
     inline auto Sha256(std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, Sha256Len>

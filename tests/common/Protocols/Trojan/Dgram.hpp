@@ -57,7 +57,7 @@ namespace Preview::Trojan
          * @brief 构造函数（工厂调用）
          * @param Stream 底层流连接（已握手，所有权移交）
          */
-        explicit Dgram(SharedTransmission Stream) : next_layer_(std::move(Stream))
+        explicit Dgram(SharedTransmission Stream) : NextLayer_(std::move(Stream))
         {
         }
 
@@ -66,7 +66,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -74,7 +74,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto TransportType() const noexcept -> Type override
         {
-            return Type::udp;
+            return Type::Udp;
         }
 
         /**
@@ -91,15 +91,19 @@ namespace Preview::Trojan
             while (Done < TxWire_.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(
+                const auto N = co_await NextLayer_->async_write_some(
                     AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done), ec);
                 if (ec)
                 {
-                    co_return Error::io_error;
+                    co_return Error::IoError;
                 }
-                Done += n;
+                if (N == 0)
+                {
+                    co_return Error::BrokenPipe; // 底层零字节写入，防死循环
+                }
+                Done += N;
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
@@ -116,18 +120,18 @@ namespace Preview::Trojan
             std::array<std::uint8_t, 1> atyp{};
             if (co_await ReadExact(std::span<std::uint8_t>(atyp)))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
             src.Type = static_cast<AddressType>(atyp[0]);
-            auto err = co_await ReadAddressBody(src);
-            if (err != Error::none)
+            auto Err = co_await ReadAddressBody(src);
+            if (Err != Error::None)
             {
-                co_return err;
+                co_return Err;
             }
             std::array<std::uint8_t, 2> port{};
             if (co_await ReadExact(std::span<std::uint8_t>(port)))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
             src.Port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
 
@@ -135,39 +139,39 @@ namespace Preview::Trojan
             std::array<std::uint8_t, 4> head{};
             if (co_await ReadExact(std::span<std::uint8_t>(head)))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
             if (head[2] != '\r' || head[3] != '\n')
             {
-                co_return Error::bad_magic;
+                co_return Error::BadMagic;
             }
-            const auto len = static_cast<std::size_t>(head[0]) << 8 | head[1];
+            const auto Len = static_cast<std::size_t>(head[0]) << 8 | head[1];
 
             // 3. 读取载荷
-            payload.resize(len);
-            if (len > 0 && co_await ReadExact(payload))
+            payload.resize(Len);
+            if (Len > 0 && co_await ReadExact(payload))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（底层流原样）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（底层流原样）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -175,7 +179,7 @@ namespace Preview::Trojan
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -183,7 +187,7 @@ namespace Preview::Trojan
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -191,7 +195,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -199,7 +203,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -207,7 +211,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
         /**
@@ -215,7 +219,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto Stream() const noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
     private:
@@ -230,12 +234,12 @@ namespace Preview::Trojan
             while (Done < dst.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(AsBytes(dst.subspan(Done)), ec);
-                if (ec || n == 0)
+                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
@@ -252,9 +256,9 @@ namespace Preview::Trojan
                 addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return ReadExact(dst); });
         }
 
-        SharedTransmission next_layer_; ///< 底层流连接（嵌入，同一条 TCP）
-        Memory mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
-        typename std::template Buffer<std::uint8_t> TxWire_{mem_.Arena()}; ///< 发送缓冲（Arena 复用，热路径零分配）
+        SharedTransmission NextLayer_; ///< 底层流连接（嵌入，同一条 TCP）
+        Memory Mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
+        typename Memory::template Buffer<std::uint8_t> TxWire_{Mem_.Arena()}; ///< 发送缓冲（Arena 复用，热路径零分配）
     };
 
     /// 包连接共享指针（默认内存策略）

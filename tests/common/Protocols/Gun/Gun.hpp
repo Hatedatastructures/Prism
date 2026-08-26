@@ -1,5 +1,5 @@
 /**
- * @file gun.hpp
+ * @file Gun.hpp
  * @brief gRPC (gun) 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / Accept ——CONNECT 握手在工厂内部完成
@@ -35,18 +35,18 @@ namespace Preview::Gun
     [[nodiscard]] inline auto Connect(SharedTransmission upstream, std::string_view host)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream));
-        const auto err = co_await c->WriteHandshake(host);
+        auto C = std::make_shared<Conn<>>(std::move(upstream));
+        const auto Err = co_await C->WriteHandshake(host);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -57,19 +57,19 @@ namespace Preview::Gun
     [[nodiscard]] inline auto Accept(SharedTransmission upstream)
         -> net::awaitable<std::tuple<Error, std::string, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream));
+        auto C = std::make_shared<Conn<>>(std::move(upstream));
         std::string host;
-        const auto err = co_await c->ReadHandshake(host);
+        const auto Err = co_await C->ReadHandshake(host);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{err, std::move(host), std::move(Conn)};
+        co_return std::tuple{Err, std::move(host), std::move(Conn)};
     }
 
 } // namespace Preview::Gun

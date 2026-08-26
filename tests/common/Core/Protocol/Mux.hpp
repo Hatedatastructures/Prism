@@ -1,5 +1,5 @@
 /**
- * @file mux.hpp
+ * @file Mux.hpp
  * @brief 多路复用目标检测
  * @details 提供检测目标地址是否为多路复用标记地址的工具函数。
  * 用于在协议管道中判断是否需要使用多路复用路径处理连接。
@@ -18,8 +18,8 @@ namespace Preview::Protocol
      */
     enum class MuxSwitch : std::uint8_t
     {
-        off, ///< 禁用多路复用
-        on   ///< 启用多路复用
+        Off, ///< 禁用多路复用
+        On   ///< 启用多路复用
     };
 
     /**
@@ -32,7 +32,7 @@ namespace Preview::Protocol
      */
     [[nodiscard]] inline auto IsMuxTarget(std::string_view host, MuxSwitch mux) noexcept -> bool
     {
-        if (mux != MuxSwitch::on)
+        if (mux != MuxSwitch::On)
         {
             return false;
         }

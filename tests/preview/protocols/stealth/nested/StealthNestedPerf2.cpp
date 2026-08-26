@@ -140,14 +140,14 @@ namespace
                         [server_raw, server_f, res, server_done]() mutable -> net::awaitable<void>
                         {
                             auto [serr, sconn] = co_await server_f.server_accept(std::move(server_raw));
-                            if (serr != Error::none || !sconn)
+                            if (serr != Error::None || !sconn)
                             {
                                 res->timeout = true;
                                 server_done->store(true);
                                 co_return;
                             }
                             auto [verr, Inner] = co_await server_f.server_inner(std::move(sconn));
-                            if (verr != Error::none || !Inner)
+                            if (verr != Error::None || !Inner)
                             {
                                 res->timeout = true;
                                 server_done->store(true);
@@ -160,7 +160,7 @@ namespace
                             while (got < kTotal)
                             {
                                 std::error_code ec;
-                                const auto n = co_await Inner->AsyncReadSome(
+                                const auto n = co_await Inner->async_read_some(
                                     std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()),
                                                          buf.size()),
                                     ec);
@@ -180,13 +180,13 @@ namespace
 
                     // 客户端：伪装 Connect → 内层 Connect → 写 128MB
                     auto [cerr, cconn] = co_await factory.client_connect(std::move(client_raw));
-                    if (cerr != Error::none || !cconn)
+                    if (cerr != Error::None || !cconn)
                     {
                         res->timeout = true;
                         co_return;
                     }
                     auto [herr, cli] = co_await factory.client_inner(std::move(cconn));
-                    if (herr != Error::none || !cli)
+                    if (herr != Error::None || !cli)
                     {
                         res->timeout = true;
                         co_return;
@@ -202,7 +202,7 @@ namespace
                     {
                         lcg_fill(buf, State);
                         std::error_code ec;
-                        const auto n = co_await cli->AsyncWriteSome(
+                        const auto n = co_await cli->async_write_some(
                             std::span<const std::byte>(reinterpret_cast<const std::byte *>(buf.data()),
                                                        buf.size()),
                             ec);
@@ -257,13 +257,13 @@ namespace
         auto server_inner(SharedTransmission s) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, req, c] = co_await Vless::Accept(std::move(s), Vless::ServerConfig{uuid});
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_inner(SharedTransmission s) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, c] = co_await Vless::Connect(std::move(s), Vless::ClientConfig{uuid}, dst);
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         std::array<std::uint8_t, 16> uuid{};
@@ -275,7 +275,7 @@ namespace
         auto server_inner(SharedTransmission s) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, req, c] = co_await Trojan::Accept(std::move(s), Trojan::ServerConfig{"pw"});
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_inner(SharedTransmission s) -> net::awaitable<std::pair<Error, SharedTransmission>>
@@ -285,7 +285,7 @@ namespace
             dst.Host = "93.184.216.34";
             dst.Port = 443;
             auto [err, c] = co_await Trojan::Connect(std::move(s), Trojan::ClientConfig{"pw"}, dst);
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
     };
@@ -295,7 +295,7 @@ namespace
         auto server_inner(SharedTransmission s) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, req, c] = co_await Socks5::Accept(std::move(s), Socks5::ServerConfig{});
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_inner(SharedTransmission s) -> net::awaitable<std::pair<Error, SharedTransmission>>
@@ -305,7 +305,7 @@ namespace
             dst.Host = "93.184.216.34";
             dst.Port = 443;
             auto [err, c] = co_await Socks5::Connect(std::move(s), Socks5::ClientConfig{}, dst);
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
     };
@@ -317,7 +317,7 @@ namespace
         auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, c] = co_await Shadowtls::Accept(std::move(up), Shadowtls::ServerConfig{"st"});
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
@@ -331,7 +331,7 @@ namespace
             }
             auto [err, c] =
                 co_await Shadowtls::Connect(std::move(up), Shadowtls::ClientConfig{"st"}, sr, cr);
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
     };
@@ -341,13 +341,13 @@ namespace
         auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, c] = co_await Anytls::Accept(std::move(up), Anytls::ServerConfig{"at"});
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, c] = co_await Anytls::Connect(std::move(up), Anytls::ClientConfig{"at"});
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
     };
@@ -359,14 +359,14 @@ namespace
             auto [err, t, c] =
                 co_await Trusttunnel::Accept(std::move(up), Trusttunnel::ServerConfig{"u", "p"});
             (void)t;
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, c] = co_await Trusttunnel::Connect(std::move(up), Trusttunnel::ClientConfig{"u", "p"},
                                                           "example.com", 443);
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
     };
@@ -377,13 +377,13 @@ namespace
         {
             auto [err, k, c] = co_await Ws::Accept(std::move(up), Ws::ServerConfig{});
             (void)k;
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, c] = co_await Ws::Connect(std::move(up), Ws::ClientConfig{"example.com"});
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
     };
@@ -394,13 +394,13 @@ namespace
         {
             auto [err, h, c] = co_await Gun::Accept(std::move(up));
             (void)h;
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, c] = co_await Gun::Connect(std::move(up), "example.com");
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
     };
@@ -431,21 +431,21 @@ namespace
         {
             Reality::ServerConfig cfg;
             cfg.private_key = srv_priv;
-            cfg.short_id.fill(0x42);
+            cfg.ShortId.fill(0x42);
             auto [err, sid, c] = co_await Reality::Accept(std::move(up), cfg, cli_pub,
                                                           Reality::HandshakeParams{random, hello});
             (void)sid;
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             Reality::ClientConfig cfg;
             cfg.private_key = cli_priv;
-            cfg.short_id.fill(0x42);
+            cfg.ShortId.fill(0x42);
             auto [err, c] = co_await Reality::Connect(std::move(up), cfg, srv_pub,
-                                                      Reality::HandshakeParams{random, hello, cfg.short_id});
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+                                                      Reality::HandshakeParams{random, hello, cfg.ShortId});
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
     };
@@ -460,7 +460,7 @@ namespace
                 sr[i] = static_cast<std::uint8_t>(i * 3 + 1);
             }
             auto [err, c] = co_await Restls::Accept(std::move(up), Restls::ServerConfig{"rs"}, sr);
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
@@ -471,7 +471,7 @@ namespace
                 sr[i] = static_cast<std::uint8_t>(i * 3 + 1);
             }
             auto [err, c] = co_await Restls::Connect(std::move(up), Restls::ClientConfig{"rs"}, sr);
-            co_return std::pair{err, err == Error::none ? SharedTransmission(std::move(c))
+            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
     };
@@ -481,11 +481,11 @@ namespace
     {
         auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            co_return std::pair{Error::none, std::move(up)};
+            co_return std::pair{Error::None, std::move(up)};
         }
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            co_return std::pair{Error::none, std::move(up)};
+            co_return std::pair{Error::None, std::move(up)};
         }
     };
 

@@ -103,25 +103,25 @@ namespace
         Preview::Middleware::Builtin::ThrottleMiddleware mw(&bucket, fake_clock);
 
         Preview::Middleware::Context ctx;
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code r1 = Preview::Fault::Code::success;
-        Preview::Fault::Code r2 = Preview::Fault::Code::success;
-        Preview::Fault::Code r3 = Preview::Fault::Code::success;
+        Preview::Fault::Code r1 = Preview::Fault::Code::Success;
+        Preview::Fault::Code r2 = Preview::Fault::Code::Success;
+        Preview::Fault::Code r3 = Preview::Fault::Code::Success;
         std::exception_ptr ep;
         net::co_spawn(ioc,
                       [&]() -> net::awaitable<void>
                       {
-                          r1 = co_await mw.Handle(inbound, ctx);
-                          r2 = co_await mw.Handle(inbound, ctx);
-                          r3 = co_await mw.Handle(inbound, ctx);
+                          r1 = co_await mw.Handle(Inbound, ctx);
+                          r2 = co_await mw.Handle(Inbound, ctx);
+                          r3 = co_await mw.Handle(Inbound, ctx);
                       },
                       [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         ASSERT_FALSE(ep);
-        EXPECT_EQ(r1, Preview::Fault::Code::success);
-        EXPECT_EQ(r2, Preview::Fault::Code::success);
-        EXPECT_EQ(r3, Preview::Fault::Code::blocked);
+        EXPECT_EQ(r1, Preview::Fault::Code::Success);
+        EXPECT_EQ(r2, Preview::Fault::Code::Success);
+        EXPECT_EQ(r3, Preview::Fault::Code::Blocked);
     }
 
     TEST(BanMiddleware, ThresholdBans)
@@ -161,15 +161,15 @@ namespace
 
         Preview::Middleware::Context ctx;
         ctx.RawIdentity = "offender";
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
         std::exception_ptr ep;
-        net::co_spawn(ioc, [&]() -> net::awaitable<void> { rc = co_await ban.Handle(inbound, ctx); },
+        net::co_spawn(ioc, [&]() -> net::awaitable<void> { rc = co_await ban.Handle(Inbound, ctx); },
                       [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         ASSERT_FALSE(ep);
-        EXPECT_EQ(rc, Preview::Fault::Code::blocked);
+        EXPECT_EQ(rc, Preview::Fault::Code::Blocked);
     }
 
 } // namespace

@@ -42,19 +42,19 @@ namespace Preview::Transport {
         using TransmissionPtr = Preview::SharedTransmission;
         using lowest_layer_type = Transmission;
 
-        [[nodiscard]] auto lowest_layer() noexcept -> Transmission & { return *trans_; }
-        [[nodiscard]] auto lowest_layer() const noexcept -> const Transmission & { return *trans_; }
+        [[nodiscard]] auto lowest_layer() noexcept -> Transmission & { return *Trans_; }
+        [[nodiscard]] auto lowest_layer() const noexcept -> const Transmission & { return *Trans_; }
 
         /**
          * @brief 构造函数（传输层指针 + 预读数据）
          * @details 使用传输层指针和可选的预读数据构造适配器。
-         * 预读数据将在首次 AsyncReadSome 调用时优先返回，
+         * 预读数据将在首次 async_read_some 调用时优先返回，
          * 避免协议检测阶段已读取的数据丢失。
          * @param trans 传输层对象指针，所有权将被转移
          * @param preread 预读数据切片，默认为空
          */
         explicit Connector(TransmissionPtr trans, std::span<const std::byte> preread = {})
-            : trans_(std::move(trans))
+            : Trans_(std::move(trans))
         {
             if (!preread.empty())
             {
@@ -69,7 +69,7 @@ namespace Preview::Transport {
          * @param other 要移动的适配器对象
          */
         Connector(Connector &&other) noexcept
-            : trans_(std::move(other.trans_)), PrereadBuffer_(std::move(other.PrereadBuffer_)),
+            : Trans_(std::move(other.Trans_)), PrereadBuffer_(std::move(other.PrereadBuffer_)),
               PrereadOffset_(other.PrereadOffset_)
         {
             other.PrereadOffset_ = 0;
@@ -86,7 +86,7 @@ namespace Preview::Transport {
         {
             if (this != &other)
             {
-                trans_ = std::move(other.trans_);
+                Trans_ = std::move(other.Trans_);
                 PrereadBuffer_ = std::move(other.PrereadBuffer_);
                 PrereadOffset_ = other.PrereadOffset_;
                 other.PrereadOffset_ = 0;
@@ -100,9 +100,9 @@ namespace Preview::Transport {
          * AsyncStream 概念要求。
          * @return ExecutorType 执行器对象
          */
-        [[nodiscard]] auto GetExecutor() -> ExecutorType
+        [[nodiscard]] auto get_executor() -> ExecutorType
         {
-            return trans_->Executor();
+            return Trans_->Executor();
         }
 
         /**
@@ -111,7 +111,7 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto NextLayer() noexcept -> Transmission *
         {
-            return trans_.get();
+            return Trans_.get();
         }
 
         /**
@@ -120,38 +120,22 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Transmission *
         {
-            return trans_.get();
+            return Trans_.get();
         }
 
         /**
          * @brief 获取执行器
-         * @details 委托给 GetExecutor()，提供便捷的执行器访问。
+         * @details 委托给 get_executor()，提供便捷的执行器访问。
          * @return ExecutorType 执行器对象
          */
         [[nodiscard]] auto Executor() -> ExecutorType
         {
-            return GetExecutor();
-        }
-
-        /// @brief Asio 概念兼容层（规范 v2 例外）：Boost.Asio 以精确小写名
-        ///        调用下一层（ssl::stream 等），以下三个转发不可改名。
-        auto get_executor() -> ExecutorType { return GetExecutor(); }
-
-        template <typename... Args>
-        auto async_read_some(Args &&...args)
-        {
-            return AsyncReadSome(std::forward<Args>(args)...);
-        }
-
-        template <typename... Args>
-        auto async_write_some(Args &&...args)
-        {
-            return AsyncWriteSome(std::forward<Args>(args)...);
+            return get_executor();
         }
 
         /**
-         * @brief 适配 AsyncReadSome
-         * @details 将 Boost.Asio 的 AsyncReadSome 调用适配到 Transmission 接口。
+         * @brief 适配 async_read_some
+         * @details 将 Boost.Asio 的 async_read_some 调用适配到 Transmission 接口。
          * 如果存在未消费的预读数据，优先从预读缓冲区拷贝到用户缓冲区，
          * 避免额外的异步读取操作。预读数据消费完毕后委托给传输层。
          * @tparam MutableBufferSequence 可变缓冲区序列类型
@@ -161,7 +145,7 @@ namespace Preview::Transport {
          * @return 异步操作结果，类型取决于完成令牌
          */
         template <typename MutableBufferSequence, typename CompletionToken>
-        [[maybe_unused]] auto AsyncReadSome(const MutableBufferSequence &buffers, CompletionToken &&token)
+        [[maybe_unused]] auto async_read_some(const MutableBufferSequence &buffers, CompletionToken &&token)
         {
             if (PrereadOffset_ < PrereadBuffer_.size())
             {
@@ -171,40 +155,40 @@ namespace Preview::Transport {
                 auto BufEnd = net::buffer_sequence_end(buffers);
                 for (; BufIt != BufEnd && BytesToCopy < BytesAvailable; ++BufIt)
                 {
-                    auto buf = *BufIt;
-                    std::size_t BufSize = buf.size();
+                    auto Buf = *BufIt;
+                    std::size_t BufSize = Buf.size();
                     std::size_t CopySize = std::min(BufSize, BytesAvailable - BytesToCopy);
-                    std::memcpy(buf.data(), PrereadBuffer_.data() + PrereadOffset_ + BytesToCopy,
+                    std::memcpy(Buf.data(), PrereadBuffer_.data() + PrereadOffset_ + BytesToCopy,
                                 CopySize);
                     BytesToCopy += CopySize;
                 }
                 PrereadOffset_ += BytesToCopy;
-                auto handler = [BytesToCopy]<typename Callback>(Callback &&handler)
+                auto Handler = [BytesToCopy]<typename Callback>(Callback &&Handler)
                 {
                     boost::system::error_code ec;
-                    std::forward<Callback>(handler)(ec, BytesToCopy);
+                    std::forward<Callback>(Handler)(ec, BytesToCopy);
                 };
                 return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                    handler, token);
+                    Handler, token);
             }
 
             // 预读数据已耗尽，直接委托给传输层的 completion-handler 方法
             // 读语义：填充首个非空缓冲（ReadSome 语义允许；非连续缓冲无法单次填充）
             return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                [trans = trans_, first_buf = *net::buffer_sequence_begin(buffers)](auto &&handler) mutable
+                [trans = Trans_, FirstBuf = *net::buffer_sequence_begin(buffers)](auto &&Handler) mutable
                 {
                     // asio mutable_buffer::Data() 返回 void*，byte_span helper 不覆盖，
                     // 保留显式转换
-                    std::span<std::byte> span(reinterpret_cast<std::byte *>(first_buf.data()),
-                                              first_buf.size());
-                    trans->AsyncReadSome(span, std::forward<decltype(handler)>(handler));
+                    std::span<std::byte> span(reinterpret_cast<std::byte *>(FirstBuf.data()),
+                                              FirstBuf.size());
+                    trans->async_read_some(span, std::forward<decltype(Handler)>(Handler));
                 },
                 token);
         }
 
         /**
-         * @brief 适配 AsyncWriteSome
-         * @details 将 Boost.Asio 的 AsyncWriteSome 调用直接委托给传输层。
+         * @brief 适配 async_write_some
+         * @details 将 Boost.Asio 的 async_write_some 调用直接委托给传输层。
          * @tparam ConstBufferSequence 常量缓冲区序列类型
          * @tparam CompletionToken 完成令牌类型
          * @param buffers 常量缓冲区序列，包含要写入的数据
@@ -212,40 +196,40 @@ namespace Preview::Transport {
          * @return 异步操作结果，类型取决于完成令牌
          */
         template <typename ConstBufferSequence, typename CompletionToken>
-        auto AsyncWriteSome(const ConstBufferSequence &buffers, CompletionToken &&token)
+        auto async_write_some(const ConstBufferSequence &buffers, CompletionToken &&token)
         {
             return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                [trans = trans_, buffers](auto &&handler) mutable
+                [trans = Trans_, buffers](auto &&Handler) mutable
                 {
                     // 遍历全部缓冲逐段写入（不静默丢弃后续缓冲）
-                    auto it = net::buffer_sequence_begin(buffers);
+                    auto It = net::buffer_sequence_begin(buffers);
                     const auto end = net::buffer_sequence_end(buffers);
-                    auto h = std::make_shared<std::decay_t<decltype(handler)>>(
-                        std::forward<decltype(handler)>(handler));
-                    auto next = [trans, end, h](auto &&self, auto it, std::size_t Done) mutable -> void
+                    auto H = std::make_shared<std::decay_t<decltype(Handler)>>(
+                        std::forward<decltype(Handler)>(Handler));
+                    auto Next = [trans, end, H](auto &&self, auto It, std::size_t Done) mutable -> void
                     {
-                        if (it == end)
+                        if (It == end)
                         {
                             boost::system::error_code ec;
-                            (*h)(ec, Done);
+                            (*H)(ec, Done);
                             return;
                         }
-                        auto buf = *it;
-                        std::span<const std::byte> span(reinterpret_cast<const std::byte *>(buf.data()),
-                                                        buf.size());
-                        trans->AsyncWriteSome(span,
-                                                [self, it, end, h, Done](boost::system::error_code ec,
+                        auto Buf = *It;
+                        std::span<const std::byte> span(reinterpret_cast<const std::byte *>(Buf.data()),
+                                                        Buf.size());
+                        trans->async_write_some(span,
+                                                [self, It, end, H, Done](boost::system::error_code ec,
                                                                          std::size_t n) mutable
                                                 {
                                                     if (ec)
                                                     {
-                                                        (*h)(ec, Done + n);
+                                                        (*H)(ec, Done + n);
                                                         return;
                                                     }
-                                                    self(self, ++it, Done + n);
+                                                    self(self, ++It, Done + n);
                                                 });
                     };
-                    next(next, it, 0);
+                    Next(Next, It, 0);
                 },
                 token);
         }
@@ -261,7 +245,7 @@ namespace Preview::Transport {
         [[nodiscard]] auto AsyncWrite(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
-            co_return co_await trans_->AsyncWrite(Buffer, ec);
+            co_return co_await Trans_->AsyncWrite(Buffer, ec);
         }
 
         /**
@@ -275,7 +259,7 @@ namespace Preview::Transport {
         [[nodiscard]] auto AsyncRead(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
-            co_return co_await trans_->AsyncRead(Buffer, ec);
+            co_return co_await Trans_->AsyncRead(Buffer, ec);
         }
 
         using LowestLayerType = Connector;
@@ -283,7 +267,7 @@ namespace Preview::Transport {
         /**
          * @brief 获取底层对象
          * @details 返回 Connector 自身的引用，满足 Boost.Asio 的
-         * LowestLayer 访问要求。
+         * lowest_layer 访问要求。
          * @return LowestLayerType& 当前对象的引用
          */
         [[nodiscard]] auto LowestLayer() -> LowestLayerType &
@@ -294,7 +278,7 @@ namespace Preview::Transport {
         /**
          * @brief 获取底层对象（常量版本）
          * @details 返回 Connector 自身的常量引用，满足 Boost.Asio 的
-         * LowestLayer 常量访问要求。
+         * lowest_layer 常量访问要求。
          * @return const LowestLayerType& 当前对象的常量引用
          */
         [[nodiscard]] auto LowestLayer() const -> const LowestLayerType &
@@ -309,7 +293,7 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto Transmission() const -> Transmission &
         {
-            return *trans_;
+            return *Trans_;
         }
 
         /**
@@ -319,11 +303,11 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto Release() -> TransmissionPtr
         {
-            return std::move(trans_);
+            return std::move(Trans_);
         }
 
     private:
-        TransmissionPtr trans_;                   // 传输层对象的共享指针
+        TransmissionPtr Trans_;                   // 传输层对象的共享指针
         std::vector<std::byte> PrereadBuffer_; // 预读数据缓冲区
         std::size_t PrereadOffset_ = 0;           // 预读数据当前消费偏移量
     }; // class Connector

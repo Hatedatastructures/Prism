@@ -16,17 +16,17 @@ namespace
     TEST(ShadowtlsTransportPure2, ComputeWriteKeyBasic)
     {
         const char *password = "test_password";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            server_random[i] = static_cast<std::byte>(i);
+            ServerRandom[i] = static_cast<std::byte>(i);
         }
 
-        auto key = compute_write_key(password, server_random);
+        auto key = compute_write_key(password, ServerRandom);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: size=32";
 
         // 相同输入产生相同输出
-        auto key2 = compute_write_key(password, server_random);
+        auto key2 = compute_write_key(password, ServerRandom);
         bool identical = true;
         for (std::size_t i = 0; i < 32; ++i)
         {
@@ -41,35 +41,35 @@ namespace
     TEST(ShadowtlsTransportPure2, ComputeWriteKeyEmptyPassword)
     {
         std::string_view password;
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            server_random[i] = static_cast<std::byte>(i);
+            ServerRandom[i] = static_cast<std::byte>(i);
         }
 
-        auto key = compute_write_key(password, server_random);
+        auto key = compute_write_key(password, ServerRandom);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: empty password -> size=32";
     }
 
     TEST(ShadowtlsTransportPure2, ComputeWriteKeyEmptyRandom)
     {
         const char *password = "test_password";
-        std::span<const std::byte> server_random;
+        std::span<const std::byte> ServerRandom;
 
-        auto key = compute_write_key(password, server_random);
+        auto key = compute_write_key(password, ServerRandom);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: empty random -> size=32";
     }
 
     TEST(ShadowtlsTransportPure2, ComputeWriteKeyDifferentPasswords)
     {
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            server_random[i] = static_cast<std::byte>(i);
+            ServerRandom[i] = static_cast<std::byte>(i);
         }
 
-        auto key1 = compute_write_key("password_a", server_random);
-        auto key2 = compute_write_key("password_b", server_random);
+        auto key1 = compute_write_key("password_a", ServerRandom);
+        auto key2 = compute_write_key("password_b", ServerRandom);
 
         bool different = false;
         for (std::size_t i = 0; i < 32; ++i)

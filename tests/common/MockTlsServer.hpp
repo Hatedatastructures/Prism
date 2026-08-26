@@ -6,7 +6,7 @@
  *
  * 用法：
  *   tcp::acceptor acceptor(ioc, {address, 0});
- *   co_spawn(ioc, mock_tls_server::run(acceptor, 3), detached);
+ *   co_spawn(ioc, MockTlsServer::run(acceptor, 3), detached);
  */
 
 #pragma once
@@ -23,38 +23,38 @@
 #include <cstring>
 #include <vector>
 
-namespace psm::testing
+namespace Preview::Testing
 {
     namespace net = boost::asio;
 
-    struct mock_tls_server
+    struct MockTlsServer
     {
         /**
          * @brief 运行 TLS echo 服务器
          * @param acceptor TCP 接受器
-         * @param max_connections 最大连接数，达到后退出
+         * @param MaxConnections 最大连接数，达到后退出
          * @details 使用 BoringSSL 在内存中完成 TLS 握手，
          * 将原始 TLS 记录通过 BIO 写入 TCP socket。
          */
-        static auto run(net::ip::tcp::acceptor &acceptor, int max_connections = 1) -> net::awaitable<void>
+        static auto Run(net::ip::tcp::acceptor &acceptor, int MaxConnections = 1) -> net::awaitable<void>
         {
             // 创建 SSL_CTX
-            auto *ssl_ctx = SSL_CTX_new(TLS_method());
-            SSL_CTX_set_min_proto_version(ssl_ctx, TLS1_3_VERSION);
-            SSL_CTX_set_max_proto_version(ssl_ctx, TLS1_3_VERSION);
+            auto *SslCtx = SSL_CTX_new(TLS_method());
+            SSL_CTX_set_min_proto_version(SslCtx, TLS1_3_VERSION);
+            SSL_CTX_set_max_proto_version(SslCtx, TLS1_3_VERSION);
 
             // 生成自签名 Ed25519 证书
-            auto *pkey_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, nullptr);
+            auto *PkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_ED25519, nullptr);
             EVP_PKEY *pkey = nullptr;
-            if (pkey_ctx && EVP_PKEY_keygen_init(pkey_ctx) > 0)
+            if (PkeyCtx && EVP_PKEY_keygen_init(PkeyCtx) > 0)
             {
-                EVP_PKEY_keygen(pkey_ctx, &pkey);
+                EVP_PKEY_keygen(PkeyCtx, &pkey);
             }
-            EVP_PKEY_CTX_free(pkey_ctx);
+            EVP_PKEY_CTX_free(PkeyCtx);
 
             if (!pkey)
             {
-                SSL_CTX_free(ssl_ctx);
+                SSL_CTX_free(SslCtx);
                 co_return;
             }
 
@@ -74,51 +74,51 @@ namespace psm::testing
             X509_set_pubkey(x509, pkey);
             X509_sign(x509, pkey, nullptr);
 
-            SSL_CTX_use_certificate(ssl_ctx, x509);
-            SSL_CTX_use_PrivateKey(ssl_ctx, pkey);
+            SSL_CTX_use_certificate(SslCtx, x509);
+            SSL_CTX_use_PrivateKey(SslCtx, pkey);
 
             X509_free(x509);
 
-            for (int i = 0; i < max_connections; ++i)
+            for (int I = 0; I < MaxConnections; ++I)
             {
-                auto socket = co_await acceptor.async_accept(net::use_awaitable);
+                auto Socket = co_await acceptor.async_accept(net::use_awaitable);
 
                 // 创建 BIO 对：一个给 SSL 用，一个用于读取 SSL 写出的数据
-                auto *read_bio = BIO_new(BIO_s_mem());
-                auto *write_bio = BIO_new(BIO_s_mem());
+                auto *ReadBio = BIO_new(BIO_s_mem());
+                auto *WriteBio = BIO_new(BIO_s_mem());
 
-                auto *ssl = SSL_new(ssl_ctx);
+                auto *ssl = SSL_new(SslCtx);
                 SSL_set_accept_state(ssl);
-                SSL_set_bio(ssl, read_bio, write_bio);
+                SSL_set_bio(ssl, ReadBio, WriteBio);
 
-                // 协程：持续从 write_bio 读取 TLS 记录并写入 socket
-                // 完成时经 relay_done 通知主协程，确保 SSL_free（释放
-                // write_bio）前 detached 协程已退出，避免 use-after-free
-                net::experimental::channel<void()> relay_done(co_await net::this_coro::executor, 1);
-                auto relay_out = [&socket, write_bio, &relay_done]() -> net::awaitable<void>
+                // 协程：持续从 WriteBio 读取 TLS 记录并写入 socket
+                // 完成时经 RelayDone 通知主协程，确保 SSL_free（释放
+                // WriteBio）前 detached 协程已退出，避免 use-after-free
+                net::experimental::channel<void()> RelayDone(co_await net::this_coro::executor, 1);
+                auto RelayOut = [&Socket, WriteBio, &RelayDone]() -> net::awaitable<void>
                 {
                     std::array<std::byte, 16384> buf{};
                     while (true)
                     {
-                        int n = BIO_read(write_bio, buf.data(), static_cast<int>(buf.size()));
-                        if (n <= 0)
+                        int N = BIO_read(WriteBio, buf.data(), static_cast<int>(buf.size()));
+                        if (N <= 0)
                         {
                             // 短暂 yield 让其他协程运行，然后重试
                             net::steady_timer timer(co_await net::this_coro::executor);
                             timer.expires_after(std::chrono::milliseconds(1));
                             co_await timer.async_wait(net::use_awaitable);
 
-                            n = BIO_read(write_bio, buf.data(), static_cast<int>(buf.size()));
-                            if (n <= 0)
+                            N = BIO_read(WriteBio, buf.data(), static_cast<int>(buf.size()));
+                            if (N <= 0)
                             {
                                 break;
                             }
                         }
 
-                        if (n > 0)
+                        if (N > 0)
                         {
                             boost::system::error_code ec;
-                            co_await net::async_write(socket, net::buffer(buf.data(), n),
+                            co_await net::async_write(Socket, net::buffer(buf.data(), N),
                                                       net::redirect_error(net::use_awaitable, ec));
                             if (ec)
                             {
@@ -126,26 +126,26 @@ namespace psm::testing
                             }
                         }
                     }
-                    relay_done.try_send();
+                    RelayDone.try_send();
                 };
-                net::co_spawn(co_await net::this_coro::executor, std::move(relay_out), net::detached);
+                net::co_spawn(co_await net::this_coro::executor, std::move(RelayOut), net::detached);
 
                 // 主循环：从 socket 读取数据，喂给 SSL，echo 回写
-                std::array<std::byte, 16384> recv_buf{};
-                std::array<std::byte, 16384> app_buf{};
+                std::array<std::byte, 16384> RecvBuf{};
+                std::array<std::byte, 16384> AppBuf{};
                 while (true)
                 {
-                    boost::system::error_code read_ec;
-                    auto n = co_await socket.async_read_some(
-                        net::buffer(recv_buf), net::redirect_error(net::use_awaitable, read_ec));
+                    boost::system::error_code ReadEc;
+                    auto N = co_await Socket.async_read_some(
+                        net::buffer(RecvBuf), net::redirect_error(net::use_awaitable, ReadEc));
 
-                    if (read_ec || n == 0)
+                    if (ReadEc || N == 0)
                     {
                         break;
                     }
 
-                    // 将收到的数据写入 read_bio（SSL 会读取）
-                    BIO_write(read_bio, recv_buf.data(), static_cast<int>(n));
+                    // 将收到的数据写入 ReadBio（SSL 会读取）
+                    BIO_write(ReadBio, RecvBuf.data(), static_cast<int>(N));
 
                     // 如果 SSL 握手还没完成，尝试完成
                     if (!SSL_is_init_finished(ssl))
@@ -155,23 +155,23 @@ namespace psm::testing
                     }
 
                     // 握手完成后，尝试读取应用数据并 echo
-                    int app_n = SSL_read(ssl, app_buf.data(), static_cast<int>(app_buf.size()));
-                    if (app_n > 0)
+                    int AppN = SSL_read(ssl, AppBuf.data(), static_cast<int>(AppBuf.size()));
+                    if (AppN > 0)
                     {
-                        SSL_write(ssl, app_buf.data(), app_n);
+                        SSL_write(ssl, AppBuf.data(), AppN);
                     }
                 }
 
-                // 等待 relay_out 退出后再释放 SSL（连带释放 write_bio），
+                // 等待 RelayOut 退出后再释放 SSL（连带释放 WriteBio），
                 // 防止 detached 协程在 BIO 上执行 use-after-free
-                co_await relay_done.async_receive(net::use_awaitable);
+                co_await RelayDone.async_receive(net::use_awaitable);
 
-                SSL_free(ssl); // 这也会释放 read_bio 和 write_bio
+                SSL_free(ssl); // 这也会释放 ReadBio 和 WriteBio
             }
 
             EVP_PKEY_free(pkey);
-            SSL_CTX_free(ssl_ctx);
+            SSL_CTX_free(SslCtx);
         }
     };
 
-} // namespace psm::testing
+} // namespace Preview::Testing

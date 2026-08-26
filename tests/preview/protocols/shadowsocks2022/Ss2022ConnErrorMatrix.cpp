@@ -61,7 +61,7 @@ namespace
             auto server_coro = [&]() -> net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Shadowsocks2022::Accept(b_stream, srv_cfg);
-                EXPECT_EQ(err, Error::bad_auth); // 错误密码 → 固定头解密失败
+                EXPECT_EQ(err, Error::BadAuth); // 错误密码 → 固定头解密失败
                 b_stream->Close();           // 解除客户端响应读取阻塞（EOF）
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -73,7 +73,7 @@ namespace
                 std::make_shared<MemoryStream>(std::move(a)), ccfg,
                 ss::Address{ss::AddressType::Domain, "t.internal", 443});
             // 客户端侧：错误密码 → 服务端静默断开（bad_auth 后不写响应）→ 读响应 EOF
-            EXPECT_EQ(err, Error::io_error);
+            EXPECT_EQ(err, Error::IoError);
         });
     }
 
@@ -90,14 +90,14 @@ namespace
             {
                 auto [err, req, Conn] =
                     co_await Shadowsocks2022::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::io_error); // 半包后 EOF
+                EXPECT_EQ(err, Error::IoError); // 半包后 EOF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             // 只发 4 字节（salt 未收满）后关闭
             const std::vector<std::uint8_t> wire{0x01, 0x02, 0x03, 0x04};
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
             a.Close();
         });
     }

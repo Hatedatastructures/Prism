@@ -79,7 +79,7 @@ namespace Preview::Mux::Yamux
         -> std::array<std::uint8_t, FrameHdrsize>
     {
         const FrameHeader hdr{
-            .Type = MessageType::window_update,
+            .Type = MessageType::WindowUpdate,
             .flag = f,
             .StreamId = StreamId,
             .length = delta,
@@ -90,17 +90,17 @@ namespace Preview::Mux::Yamux
     /**
      * @brief 构造 Ping 帧
      * @param f 标志位（SYN 请求 / ACK 响应）
-     * @param ping_id 心跳标识
+     * @param PingId 心跳标识
      * @return 12 字节帧
      */
-    [[nodiscard]] inline auto BuildPing(Flags f, std::uint32_t ping_id) noexcept
+    [[nodiscard]] inline auto BuildPing(Flags f, std::uint32_t PingId) noexcept
         -> std::array<std::uint8_t, FrameHdrsize>
     {
         const FrameHeader hdr{
-            .Type = MessageType::ping,
+            .Type = MessageType::Ping,
             .flag = f,
             .StreamId = 0,
-            .length = ping_id,
+            .length = PingId,
         };
         return BuildHeader(hdr);
     }
@@ -113,8 +113,8 @@ namespace Preview::Mux::Yamux
     [[nodiscard]] inline auto BuildGoaway(AwayCode Code) noexcept -> std::array<std::uint8_t, FrameHdrsize>
     {
         const FrameHeader hdr{
-            .Type = MessageType::go_away,
-            .flag = Flags::none,
+            .Type = MessageType::GoAway,
+            .flag = Flags::None,
             .StreamId = 0,
             .length = static_cast<std::uint32_t>(Code),
         };
@@ -150,7 +150,7 @@ namespace Preview::Mux::Yamux
                                         std::span<const std::uint8_t> payload) noexcept
         -> std::vector<std::uint8_t>
     {
-        return BuildData(Flags::syn, StreamId, payload);
+        return BuildData(Flags::Syn, StreamId, payload);
     }
 
     /**
@@ -158,12 +158,12 @@ namespace Preview::Mux::Yamux
      * @param StreamId 流标识符
      * @return 12 字节帧
      */
-    [[nodiscard]] inline auto BuildSyn(std::uint32_t StreamId) noexcept
+    [[nodiscard]] inline auto BuildFin(std::uint32_t StreamId) noexcept
         -> std::array<std::uint8_t, FrameHdrsize>
     {
         const FrameHeader hdr{
             .Type = MessageType::Data,
-            .flag = Flags::fin,
+            .flag = Flags::Fin,
             .StreamId = StreamId,
         };
         return BuildHeader(hdr);
@@ -180,21 +180,21 @@ namespace Preview::Mux::Yamux
     {
         if (Data.size() < FrameHdrsize)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.version = Data[0];
         if (out.version != ProtocolVersion)
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
         out.Type = static_cast<MessageType>(Data[1]);
         switch (out.Type)
         {
         case MessageType::Data:
-        case MessageType::window_update:
-        case MessageType::ping:
-        case MessageType::go_away: break;
-        default: return Error::bad_message;
+        case MessageType::WindowUpdate:
+        case MessageType::Ping:
+        case MessageType::GoAway: break;
+        default: return Error::BadMessage;
         }
         out.flag = static_cast<Flags>(static_cast<std::uint16_t>(Data[2]) << 8 |
                                       static_cast<std::uint16_t>(Data[3]));
@@ -203,7 +203,7 @@ namespace Preview::Mux::Yamux
                         static_cast<std::uint32_t>(Data[7]);
         out.length = static_cast<std::uint32_t>(Data[8]) << 24 | static_cast<std::uint32_t>(Data[9]) << 16 |
                      static_cast<std::uint32_t>(Data[10]) << 8 | static_cast<std::uint32_t>(Data[11]);
-        return Error::none;
+        return Error::None;
     }
 
     /**
@@ -212,7 +212,7 @@ namespace Preview::Mux::Yamux
      */
     [[nodiscard]] inline auto ParsePayload(FrameHeader &, std::span<const std::uint8_t>) -> Error
     {
-        return Error::none;
+        return Error::None;
     }
 
     /**
@@ -279,21 +279,21 @@ namespace Preview::Mux::Yamux
         {
             if (Frame.Type == MessageType::Data)
             {
-                if (HasFlag(Frame.flag, Flags::syn))
+                if (HasFlag(Frame.flag, Flags::Syn))
                 {
                     return Mux::StreamEvent::Open;
                 }
-                if (HasFlag(Frame.flag, Flags::fin))
+                if (HasFlag(Frame.flag, Flags::Fin))
                 {
-                    return Mux::StreamEvent::fin;
+                    return Mux::StreamEvent::Fin;
                 }
-                if (HasFlag(Frame.flag, Flags::rst))
+                if (HasFlag(Frame.flag, Flags::Rst))
                 {
-                    return Mux::StreamEvent::rst;
+                    return Mux::StreamEvent::Rst;
                 }
                 return Mux::StreamEvent::Data;
             }
-            return Mux::StreamEvent::rst; // winupd/ping/goaway：会话级，忽略
+            return Mux::StreamEvent::Rst; // winupd/ping/goaway：会话级，忽略
         }
 
         /**
@@ -323,7 +323,7 @@ namespace Preview::Mux::Yamux
          */
         [[nodiscard]] static auto BuildOpen(std::uint32_t Id) -> std::vector<std::uint8_t>
         {
-            const auto Frame = Yamux::BuildWinupd(Flags::syn, Id, DefaultWindow);
+            const auto Frame = Yamux::BuildWinupd(Flags::Syn, Id, DefaultWindow);
             return {Frame.begin(), Frame.end()};
         }
 
@@ -336,7 +336,7 @@ namespace Preview::Mux::Yamux
         [[nodiscard]] static auto BuildData(std::uint32_t Id, std::span<const std::uint8_t> Data)
             -> std::vector<std::uint8_t>
         {
-            return Yamux::BuildData(Flags::none, Id, Data);
+            return Yamux::BuildData(Flags::None, Id, Data);
         }
 
         /**
@@ -344,9 +344,9 @@ namespace Preview::Mux::Yamux
          * @param Id 流标识符
          * @return 完整帧
          */
-        [[nodiscard]] static auto BuildSyn(std::uint32_t Id) -> std::vector<std::uint8_t>
+        [[nodiscard]] static auto BuildFin(std::uint32_t Id) -> std::vector<std::uint8_t>
         {
-            const auto Frame = Yamux::BuildSyn(Id);
+            const auto Frame = Yamux::BuildFin(Id);
             return {Frame.begin(), Frame.end()};
         }
 
@@ -357,7 +357,7 @@ namespace Preview::Mux::Yamux
          */
         [[nodiscard]] static auto BuildRst(std::uint32_t Id) -> std::vector<std::uint8_t>
         {
-            return Yamux::BuildData(Flags::rst, Id, {});
+            return Yamux::BuildData(Flags::Rst, Id, {});
         }
     };
 

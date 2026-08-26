@@ -156,8 +156,8 @@ namespace
         EXPECT_TRUE(sessions[0].detail.find("alice") != std::string::npos);
 
         const auto sum = api.TrafficSummary();
-        EXPECT_EQ(sum.up, 100);
-        EXPECT_EQ(sum.down, 200);
+        EXPECT_EQ(sum.Up, 100);
+        EXPECT_EQ(sum.Down, 200);
 
         const auto snap = api.ConfigSnapshot();
         EXPECT_TRUE(snap.find("\"sessions\":1") != std::string::npos);
@@ -170,7 +170,7 @@ namespace
 
         Preview::Api::RegistryApiManager api(&registry, &traffic);
         EXPECT_TRUE(api.ListSessions().empty());
-        EXPECT_EQ(api.TrafficSummary().up, 0);
+        EXPECT_EQ(api.TrafficSummary().Up, 0);
         EXPECT_TRUE(api.ConfigSnapshot().find("\"sessions\":0") != std::string::npos);
     }
 

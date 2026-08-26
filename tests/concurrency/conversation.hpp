@@ -16,7 +16,7 @@ namespace srv
     {
     public:
         explicit conversation(boost::asio::ip::tcp::socket socket, std::chrono::milliseconds delay)
-            : socket_(std::move(socket)), delay_(delay)
+            : Socket_(std::move(socket)), delay_(delay)
         {
         }
 
@@ -26,7 +26,7 @@ namespace srv
             auto process = [self = std::move(self)]() -> boost::asio::awaitable<void>
             { co_await self->run(); };
 
-            boost::asio::co_spawn(socket_.get_executor(), std::move(process), boost::asio::detached);
+            boost::asio::co_spawn(Socket_.get_executor(), std::move(process), boost::asio::detached);
         }
 
     private:
@@ -45,7 +45,7 @@ namespace srv
                     break;
                 }
 
-                auto n = co_await socket_.async_read_some(net::buffer(buf.data() + used, buf.size() - used),
+                auto n = co_await Socket_.async_read_some(net::buffer(buf.data() + used, buf.size() - used),
                                                           net::redirect_error(net::use_awaitable, ec));
                 if (ec)
                 {
@@ -72,25 +72,25 @@ namespace srv
             if (mode == srv::mode::stress)
             {
                 psm::diagnose::info("stress mode activated");
-                co_await HandleStress(socket_, psm::memory::current_resource());
+                co_await HandleStress(Socket_, psm::memory::current_resource());
             }
             else
             {
                 co_await HandleConcurrent();
             }
 
-            socket_.close(ec);
+            Socket_.close(ec);
         }
 
         boost::asio::awaitable<void> HandleConcurrent()
         {
             const auto response_data =
                 BuildHttpResponse(200, "OK", JSON_CONTENT, R"({"code":0,"message":"success"})");
-            co_await net::async_write(socket_, net::buffer(response_data), net::use_awaitable);
+            co_await net::async_write(Socket_, net::buffer(response_data), net::use_awaitable);
             co_return;
         }
 
-        boost::asio::ip::tcp::socket socket_;
+        boost::asio::ip::tcp::socket Socket_;
         std::chrono::milliseconds delay_;
     };
 } // namespace srv

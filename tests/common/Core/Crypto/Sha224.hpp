@@ -29,13 +29,13 @@ namespace Preview::Crypto
         std::array<std::uint8_t, SHA224_DIGEST_LENGTH> Hash{};
         SHA224(reinterpret_cast<const std::uint8_t *>(input.data()), input.size(), Hash.data());
 
-        std::string Result{Preview::Memory::CurrentResource()};
+        std::string Result;
         Result.reserve(56);
         for (const auto byte : Hash)
         {
-            constexpr char hex_chars[] = "0123456789abcdef";
-            Result.push_back(hex_chars[(byte >> 4) & 0x0F]);
-            Result.push_back(hex_chars[byte & 0x0F]);
+            constexpr char HexChars[] = "0123456789abcdef";
+            Result.push_back(HexChars[(byte >> 4) & 0x0F]);
+            Result.push_back(HexChars[byte & 0x0F]);
         }
         return Result;
     }
@@ -68,7 +68,7 @@ namespace Preview::Crypto
     {
         if (Credential.size() == 56 && IsHex(Credential))
         {
-            return std::string{Credential, Preview::Memory::CurrentResource()};
+            return std::string{Credential};
         }
         return Sha224(Credential);
     }

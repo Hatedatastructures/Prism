@@ -39,7 +39,7 @@ namespace
         ch.push_back(std::byte{0x00});
         ch.push_back(std::byte{0x00});
         ch.push_back(std::byte{0x00});
-        // legacy_version
+        // LegacyVersion
         ch.push_back(std::byte{0x03});
         ch.push_back(std::byte{0x03});
         // random 32
@@ -89,7 +89,7 @@ TEST(EchKeygen, GenerateKeypair)
 {
     Ech::EchKeypair kp;
     const auto Code = Ech::GenerateKeypair("example.com", 32, kp);
-    EXPECT_EQ(Code, Preview::Fault::Code::success);
+    EXPECT_EQ(Code, Preview::Fault::Code::Success);
     EXPECT_FALSE(kp.EchConfig.empty());
     EXPECT_FALSE(kp.EchConfigList.empty());
     // ECHConfigList = 2 字节长度前缀 + Config
@@ -108,8 +108,8 @@ TEST(EchKeygen, KeypairFromPrivateDeterministic)
 
     Ech::EchKeypair kp1;
     Ech::EchKeypair kp2;
-    EXPECT_EQ(Ech::KeypairFromPrivate(key, "example.com", 32, kp1), Preview::Fault::Code::success);
-    EXPECT_EQ(Ech::KeypairFromPrivate(key, "example.com", 32, kp2), Preview::Fault::Code::success);
+    EXPECT_EQ(Ech::KeypairFromPrivate(key, "example.com", 32, kp1), Preview::Fault::Code::Success);
+    EXPECT_EQ(Ech::KeypairFromPrivate(key, "example.com", 32, kp2), Preview::Fault::Code::Success);
 
     // 确定性：相同私钥 → 相同 ECHConfig
     ASSERT_EQ(kp1.EchConfig.size(), kp2.EchConfig.size());
@@ -119,7 +119,7 @@ TEST(EchKeygen, KeypairFromPrivateDeterministic)
 TEST(EchKeygen, MakeEchKeys)
 {
     Ech::EchKeypair kp;
-    ASSERT_EQ(Ech::GenerateKeypair("example.com", 32, kp), Preview::Fault::Code::success);
+    ASSERT_EQ(Ech::GenerateKeypair("example.com", 32, kp), Preview::Fault::Code::Success);
 
     auto *keys = Ech::MakeEchKeys(kp.private_key, kp.EchConfig);
     ASSERT_NE(keys, nullptr);

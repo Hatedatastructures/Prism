@@ -64,7 +64,7 @@ namespace
     // 加密 1MB 数据，计算 MB/s 吞吐量
     // ================================================================
 
-    void bench_aes256_gcm_throughput(psm::testing::TestRunner &runner)
+    void bench_aes256_gcm_throughput(Preview::Testing::TestRunner &runner)
     {
         runner.LogInfo("Running AES-256-GCM throughput benchmark...");
 
@@ -111,7 +111,7 @@ namespace
     // 执行 1000 次密钥交换，计算平均延迟（微秒）
     // ================================================================
 
-    void bench_x25519_latency(psm::testing::TestRunner &runner)
+    void bench_x25519_latency(Preview::Testing::TestRunner &runner)
     {
         runner.LogInfo("Running X25519 key exchange latency benchmark...");
 
@@ -169,7 +169,7 @@ namespace
     // 分配/释放 10000 个 256 字节块，计算 ops/s
     // ================================================================
 
-    void bench_global_pool_allocation(psm::testing::TestRunner &runner)
+    void bench_global_pool_allocation(Preview::Testing::TestRunner &runner)
     {
         runner.LogInfo("Running global pool allocation benchmark...");
 
@@ -207,7 +207,7 @@ namespace
     // 通过 localhost socket pair 收发 1KB 数据，计算 RTT（微秒）
     // ================================================================
 
-    void bench_tcp_echo_latency(psm::testing::TestRunner &runner)
+    void bench_tcp_echo_latency(Preview::Testing::TestRunner &runner)
     {
         runner.LogInfo("Running TCP echo latency benchmark...");
 
@@ -338,7 +338,7 @@ auto main() -> int
     // 初始化日志系统（使用默认配置，仅控制台输出）
     psm::diagnose::init({});
 
-    psm::testing::TestRunner runner("RegressionBench");
+    Preview::Testing::TestRunner runner("RegressionBench");
 
     runner.LogInfo("=== Performance Regression Benchmarks ===");
     runner.LogInfo("");

@@ -16,7 +16,7 @@
 
 #include "common/MockTransport.hpp"
 
-using MockTransport = psm::testing::MockTransport;
+using MockTransport = Preview::Testing::MockTransport;
 namespace multiplex = psm::multiplex;
 namespace h2mux = psm::multiplex::h2mux;
 namespace net = boost::asio;
@@ -158,11 +158,11 @@ namespace
             boost::system::error_code ec;
             co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
 
-            // respond_connect 需要 session_ 已由 init_nghttp2 创建
+            // respond_connect 需要 Session_ 已由 init_nghttp2 创建
             fx.craft_obj->respond_connect(1, 200);
             respond_ok = true; // 只要没崩溃就算通过
 
-            // close 使 active_=false 并 cancel/close transport
+            // close 使 Active_=false 并 cancel/close transport
             fx.craft_obj->close();
             close_ok = !fx.craft_obj->is_active();
         };

@@ -1,5 +1,5 @@
 /**
- * @file vless.hpp
+ * @file Vless.hpp
  * @brief VLESS 协议处理器
  */
 
@@ -16,15 +16,15 @@ namespace Preview::Runtime::Handler
     class Vless final : public ProtocolHandler
     {
     public:
-        explicit Vless(Preview::Vless::ServerConfig cfg) : cfg_(std::move(cfg)) {}
+        explicit Vless(Preview::Vless::ServerConfig cfg) : Cfg_(std::move(cfg)) {}
 
-        auto Accept(Preview::SharedTransmission inbound)
+        auto Accept(Preview::SharedTransmission Inbound)
             -> net::awaitable<AcceptResult> override
         {
-            auto [err, req, Conn] = co_await Preview::Vless::Accept(std::move(inbound), cfg_);
+            auto [err, req, Conn] = co_await Preview::Vless::Accept(std::move(Inbound), Cfg_);
             AcceptResult r;
             r.err = err;
-            if (err != Preview::Error::none || !Conn) co_return r;
+            if (err != Preview::Error::None || !Conn) co_return r;
             r.Target.Host = req.Target.Host;
             r.Target.Port = std::to_string(req.Target.Port);
             r.identity = Preview::Runtime::Detail::UuidHex(req.Uuid);
@@ -36,7 +36,7 @@ namespace Preview::Runtime::Handler
         [[nodiscard]] auto Name() const -> std::string_view override { return "vless"; }
 
     private:
-        Preview::Vless::ServerConfig cfg_;
+        Preview::Vless::ServerConfig Cfg_;
     };
 
 } // namespace Preview::Runtime::Handler

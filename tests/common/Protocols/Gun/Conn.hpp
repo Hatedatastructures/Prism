@@ -3,7 +3,8 @@
  * @brief gRPC (gun) 会话连接对象（Transmission 装饰器）
  * @details 将底层传输包装为 gun 连接（对齐 mihomo transport/gun）：
  * 1. WriteHandshake / ReadHandshake：HTTP/2 CONNECT 握手（简化）
- * 2. 数据面：gun 帧编解码（Codec.hpp 纯函数），本类负责帧边界恢复
+ * 2. 数据面：gun-lite 模式裸透传（帧编解码由上层 h2 会话负责，
+ *    Codec.hpp 纯函数供需要帧边界的测试直接使用）
  * @note 与 gun.hpp 工厂配对使用（服务端/客户端分离设计）
  * @note 实例非线程安全，应在同一协程或线程内使用
  */
@@ -50,7 +51,7 @@ namespace Preview::Gun
          * @param upstream 底层传输（所有权移交）
          */
         explicit Conn(SharedTransmission upstream)
-            : next_layer_(std::move(upstream))
+            : NextLayer_(std::move(upstream))
         {
         }
 
@@ -60,7 +61,7 @@ namespace Preview::Gun
         [[nodiscard]] auto Executor() const 
             -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -73,9 +74,9 @@ namespace Preview::Gun
         {
             const std::string Header = "CONNECT " + std::string(host) + " HTTP/2\r\n\r\n";
             if (co_await SendBytes(AsU8Span(Header)))
-                co_return Error::io_error;
-            handshaken_ = true;
-            co_return Error::none;
+                co_return Error::IoError;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
@@ -88,51 +89,51 @@ namespace Preview::Gun
         {
             std::array<std::uint8_t, 256> chunk{};
             std::string Header;
-            for (int i = 0; i < 16; ++i)
+            for (int I = 0; I < 16; ++I)
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(
+                const auto N = co_await NextLayer_->async_read_some(
                     AsBytes(std::span<std::uint8_t>(chunk)), ec);
-                if (ec || n == 0)
+                if (ec || N == 0)
                     break;
-                Header.append(reinterpret_cast<const char *>(chunk.data()), n);
+                Header.append(reinterpret_cast<const char *>(chunk.data()), N);
                 if (Header.find("\r\n\r\n") != std::string::npos)
                     break;
             }
             if (Header.find("CONNECT ") != 0)
-                co_return Error::bad_magic;
+                co_return Error::BadMagic;
             const auto FirstLineEnd = Header.find("\r\n");
             host = Header.substr(8, FirstLineEnd - 8);
-            handshaken_ = true;
-            co_return Error::none;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（数据面原样）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（数据面原样）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -140,7 +141,7 @@ namespace Preview::Gun
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -148,7 +149,7 @@ namespace Preview::Gun
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -157,7 +158,7 @@ namespace Preview::Gun
         [[nodiscard]] auto NextLayer() noexcept
             -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -166,7 +167,7 @@ namespace Preview::Gun
         [[nodiscard]] auto NextLayer() const noexcept 
             -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -175,7 +176,7 @@ namespace Preview::Gun
         [[nodiscard]] auto Release() 
             -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
     private:
@@ -191,16 +192,16 @@ namespace Preview::Gun
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(AsBytes(Data.subspan(Done)), ec);
+                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
                 if (ec)
                     co_return true;
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
 
-        SharedTransmission next_layer_;  ///< 底层传输（独占所有权）
-        bool handshaken_{false};          ///< 握手完成标志
+        SharedTransmission NextLayer_;  ///< 底层传输（独占所有权）
+        bool Handshaken_{false};          ///< 握手完成标志
     };
 
     /// 流连接共享指针（默认内存策略）

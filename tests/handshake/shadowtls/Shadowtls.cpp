@@ -54,21 +54,21 @@ namespace
         using namespace psm::handshake::shadowtls;
 
         const std::string password = "test_password";
-        std::array<std::byte, 32> server_random{};
-        for (std::size_t i = 0; i < server_random.size(); ++i)
+        std::array<std::byte, 32> ServerRandom{};
+        for (std::size_t i = 0; i < ServerRandom.size(); ++i)
         {
-            server_random[i] = static_cast<std::byte>(0xA0 + i);
+            ServerRandom[i] = static_cast<std::byte>(0xA0 + i);
         }
 
-        const auto write_key = compute_write_key(password, server_random);
+        const auto write_key = compute_write_key(password, ServerRandom);
 
         EXPECT_EQ(write_key.size(), 32) << "WriteKey is 32 bytes (SHA256 output)";
         EXPECT_TRUE(!write_key.empty()) << "WriteKey is non-empty";
 
-        const auto write_key2 = compute_write_key(password, server_random);
+        const auto write_key2 = compute_write_key(password, ServerRandom);
         EXPECT_EQ(write_key, write_key2) << "WriteKey deterministic";
 
-        const auto write_key3 = compute_write_key("other_password", server_random);
+        const auto write_key3 = compute_write_key("other_password", ServerRandom);
         EXPECT_NE(write_key, write_key3) << "WriteKey differs with different password";
     }
 
@@ -77,10 +77,10 @@ namespace
         using namespace psm::handshake::shadowtls;
 
         const std::string password = "test_password";
-        std::array<std::byte, 32> server_random{};
-        for (std::size_t i = 0; i < server_random.size(); ++i)
+        std::array<std::byte, 32> ServerRandom{};
+        for (std::size_t i = 0; i < ServerRandom.size(); ++i)
         {
-            server_random[i] = static_cast<std::byte>(i);
+            ServerRandom[i] = static_cast<std::byte>(i);
         }
 
         std::array<std::byte, 16> payload{};
@@ -90,19 +90,19 @@ namespace
         }
 
         // compute_write_hmac：服务端→客户端方向，不含后缀
-        const auto write_hmac = compute_write_hmac(password, server_random, payload);
+        const auto write_hmac = compute_write_hmac(password, ServerRandom, payload);
 
         // compute_write_hmac 使用 "S" 标签（服务端→客户端方向）
         // verify_frame_hmac 使用 "C" 标签（客户端→服务端方向）
         // 两者标签不同，write_hmac 不应该通过 verify
-        EXPECT_TRUE(!verify_frame_hmac(verify_input{password, server_random, payload, write_hmac}))
+        EXPECT_TRUE(!verify_frame_hmac(verify_input{password, ServerRandom, payload, write_hmac}))
             << "Write HMAC ('S' tag) should fail against verify ('C' tag)";
 
         // 手动构建含 "C" 标签的客户端 HMAC（参照 sing-shadowtls hmacVerify）
         // HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
         HMAC_CTX *ctx = HMAC_CTX_new();
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
-        HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(server_random.data()), server_random.size());
+        HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(ServerRandom.data()), ServerRandom.size());
         constexpr unsigned char tag_c = 'C';
         HMAC_Update(ctx, &tag_c, 1);
         HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(payload.data()), payload.size());
@@ -114,7 +114,7 @@ namespace
         std::array<std::uint8_t, 4> read_hmac{};
         std::memcpy(read_hmac.data(), md.data(), 4);
 
-        EXPECT_TRUE(verify_frame_hmac(verify_input{password, server_random, payload, read_hmac}))
+        EXPECT_TRUE(verify_frame_hmac(verify_input{password, ServerRandom, payload, read_hmac}))
             << "Frame HMAC verification with correct client HMAC ('C' tag)";
     }
 

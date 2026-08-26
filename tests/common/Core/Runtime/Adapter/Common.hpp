@@ -1,5 +1,5 @@
 /**
- * @file common.hpp
+ * @file Common.hpp
  * @brief adapter 公共工具（handler 共享，避免重复实现）
  */
 
@@ -22,10 +22,10 @@ namespace Preview::Runtime::Detail
     {
         static constexpr char digits[] = "0123456789abcdef";
         std::string s(32, '0');
-        for (std::size_t i = 0; i < 16; ++i)
+        for (std::size_t I = 0; I < 16; ++I)
         {
-            s[2 * i] = digits[u[i] >> 4];
-            s[2 * i + 1] = digits[u[i] & 0xf];
+            s[2 * I] = digits[u[I] >> 4];
+            s[2 * I + 1] = digits[u[I] & 0xf];
         }
         return s;
     }

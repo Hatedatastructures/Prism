@@ -11,10 +11,12 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
@@ -54,7 +56,7 @@ namespace
                           auto [err, req, Conn] =
                               co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                       Socks5::ServerConfig{});
-                          if (err != Error::none || !Conn)
+                          if (err != Error::None || !Conn)
                           {
                               co_return;
                           }
@@ -62,12 +64,12 @@ namespace
                           std::error_code ec;
                           while (true)
                           {
-                              const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                              const auto n = co_await Conn->async_read_some(buf, ec);
                               if (ec || n == 0)
                               {
                                   break;
                               }
-                              co_await Conn->AsyncWriteSome(
+                              co_await Conn->async_write_some(
                                   std::span<const std::byte>(buf.data(), n), ec);
                           }
                           Conn->Close();
@@ -91,12 +93,12 @@ namespace
                      wire.push_back(0xBB);
                      wire.insert(wire.end(), payload.begin(), payload.end());
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      std::array<std::uint8_t, 12> resp{};
                      std::size_t got = 0;
                      while (got < resp.size())
                      {
-                         const auto n = co_await a.AsyncReadSome(
+                         const auto n = co_await a.async_read_some(
                              AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
                          if (ec || n == 0)
                          {
@@ -113,7 +115,7 @@ namespace
                      got = 0;
                      while (got < payload.size())
                      {
-                         const auto n = co_await a.AsyncReadSome(
+                         const auto n = co_await a.async_read_some(
                              std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
                          if (ec || n == 0)
                          {
@@ -163,14 +165,14 @@ namespace
                     auto [err, req, Conn] =
                         co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                 Socks5::ServerConfig{});
-                    if (err == Error::none && Conn)
+                    if (err == Error::None && Conn)
                     {
                         std::array<std::byte, 128> buf{};
                         std::error_code ec;
-                        const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                        const auto n = co_await Conn->async_read_some(buf, ec);
                         if (!ec && n > 0)
                         {
-                            co_await Conn->AsyncWriteSome(
+                            co_await Conn->async_write_some(
                                 std::span<const std::byte>(buf.data(), n), ec);
                         }
                         Conn->Close();
@@ -190,12 +192,12 @@ namespace
                     wire.push_back(0xBB);
                     wire.insert(wire.end(), payload.begin(), payload.end());
                     std::error_code ec;
-                    co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                    co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                     std::array<std::uint8_t, 12> resp{};
                     std::size_t got = 0;
                     while (got < resp.size())
                     {
-                        const auto n = co_await a.AsyncReadSome(
+                        const auto n = co_await a.async_read_some(
                             AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
                         if (ec || n == 0)
                         {
@@ -210,7 +212,7 @@ namespace
                         std::size_t rg = 0;
                         while (rg < payload.size())
                         {
-                            const auto n = co_await a.AsyncReadSome(
+                            const auto n = co_await a.async_read_some(
                                 std::span<std::byte>(echo.data() + rg, echo.size() - rg), ec);
                             if (ec || n == 0)
                             {
@@ -229,9 +231,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     while (success.load() < 32)
+                     // 超时守卫：客户端失败时避免无限自旋
+                     net::steady_timer t(ioc);
+                     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                     while (success.load() < 32 && std::chrono::steady_clock::now() < deadline)
                      {
-                         co_await net::post(ioc.get_executor(), net::use_awaitable);
+                         t.expires_after(std::chrono::milliseconds(1));
+                         co_await t.async_wait(net::use_awaitable);
                      }
                  });
         EXPECT_EQ(success.load(), 32);
@@ -255,7 +261,7 @@ namespace
                 auto [err, req, Conn] =
                     co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                             Socks5::ServerConfig{});
-                if (err != Error::none || !Conn)
+                if (err != Error::None || !Conn)
                 {
                     co_return;
                 }
@@ -264,7 +270,7 @@ namespace
                 std::size_t Total = 0;
                 while (Total < kTotal)
                 {
-                    const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                    const auto n = co_await Conn->async_read_some(buf, ec);
                     if (ec || n == 0)
                     {
                         break;
@@ -288,12 +294,12 @@ namespace
                      wire.push_back(0x01);
                      wire.push_back(0xBB);
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      std::array<std::uint8_t, 12> resp{};
                      std::size_t got = 0;
                      while (got < resp.size())
                      {
-                         const auto n = co_await a.AsyncReadSome(
+                         const auto n = co_await a.async_read_some(
                              AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
                          if (ec || n == 0)
                          {
@@ -304,7 +310,7 @@ namespace
                      std::vector<std::byte> chunk(kChunk, std::byte{0xAB});
                      for (std::size_t sent = 0; sent < kTotal; sent += kChunk)
                      {
-                         co_await a.AsyncWriteSome(std::span<const std::byte>(chunk), ec);
+                         co_await a.async_write_some(std::span<const std::byte>(chunk), ec);
                          if (ec)
                          {
                              break;

@@ -4,7 +4,7 @@
  * @details 通过 #define private/protected public 访问 craft 的非公开成员，
  *          直接调用 init_nghttp2、handle_connect、respond_connect，
  *          以及 nghttp2 静态回调 on_begin_headers、on_header、on_frame_recv、
- *          on_data、on_stream_close。使用手动构造的 nghttp2_frame 结构测试回调逻辑。
+ *          OnData、OnStreamClose。使用手动构造的 nghttp2_frame 结构测试回调逻辑。
  *          通过 #include 源文件确保 gcov 计入覆盖行。
  */
 
@@ -27,7 +27,7 @@
 // 包含源文件以获得 gcov 覆盖
 #include "../src/prism/protocol/multiplex/h2mux/control.cpp"
 
-using MockTransport = psm::testing::MockTransport;
+using MockTransport = Preview::Testing::MockTransport;
 namespace multiplex = psm::multiplex;
 namespace h2mux = psm::multiplex::h2mux;
 namespace net = boost::asio;
@@ -451,7 +451,7 @@ namespace
         EXPECT_TRUE(fx.craft_obj->connect_resolved_) << "on_frame_recv: resolved after connect";
     }
 
-    // ─── on_data ──────────────────────────────────
+    // ─── OnData ──────────────────────────────────
 
     TEST(H2muxCraftDeep2, OnDataPendingStream)
     {
@@ -463,7 +463,7 @@ namespace
 
         std::uint8_t data[] = {0x01, 0x02, 0x03};
         auto rc = h2mux::control::on_data(nullptr, 0, 3, data, 3, fx.craft_obj.get());
-        EXPECT_EQ(rc, 0) << "on_data: pending stream -> 0";
+        EXPECT_EQ(rc, 0) << "OnData: pending stream -> 0";
     }
 
     TEST(H2muxCraftDeep2, OnDataDuctNullPtr)
@@ -475,7 +475,7 @@ namespace
 
         std::uint8_t data[] = {0x01, 0x02};
         auto rc = h2mux::control::on_data(nullptr, 0, 5, data, 2, fx.craft_obj.get());
-        EXPECT_EQ(rc, 0) << "on_data: duct null -> 0 (falls to RST)";
+        EXPECT_EQ(rc, 0) << "OnData: duct null -> 0 (falls to RST)";
     }
 
     TEST(H2muxCraftDeep2, OnDataParcelNullPtr)
@@ -487,7 +487,7 @@ namespace
 
         std::uint8_t data[] = {0x01, 0x02};
         auto rc = h2mux::control::on_data(nullptr, 0, 7, data, 2, fx.craft_obj.get());
-        EXPECT_EQ(rc, 0) << "on_data: parcel null -> 0 (falls to RST)";
+        EXPECT_EQ(rc, 0) << "OnData: parcel null -> 0 (falls to RST)";
     }
 
     TEST(H2muxCraftDeep2, OnDataUnknownStream)
@@ -497,10 +497,10 @@ namespace
 
         std::uint8_t data[] = {0x01};
         auto rc = h2mux::control::on_data(nullptr, 0, 99, data, 1, fx.craft_obj.get());
-        EXPECT_EQ(rc, 0) << "on_data: unknown -> 0 (RST submitted)";
+        EXPECT_EQ(rc, 0) << "OnData: unknown -> 0 (RST submitted)";
     }
 
-    // ─── on_stream_close ──────────────────────────
+    // ─── OnStreamClose ──────────────────────────
 
     TEST(H2muxCraftDeep2, OnStreamClosePending)
     {
@@ -509,8 +509,8 @@ namespace
         fx.craft_obj->h2_pending_[1] = std::move(entry);
 
         auto rc = h2mux::control::on_stream_close(nullptr, 1, 0, fx.craft_obj.get());
-        EXPECT_EQ(rc, 0) << "on_stream_close: returns 0";
-        EXPECT_TRUE(fx.craft_obj->h2_pending_.count(1) == 0) << "on_stream_close: pending erased";
+        EXPECT_EQ(rc, 0) << "OnStreamClose: returns 0";
+        EXPECT_TRUE(fx.craft_obj->h2_pending_.count(1) == 0) << "OnStreamClose: pending erased";
     }
 
     TEST(H2muxCraftDeep2, OnStreamCloseDuctNullPtr)
@@ -519,8 +519,8 @@ namespace
         fx.craft_obj->streams_[3]; // null shared_ptr
 
         auto rc = h2mux::control::on_stream_close(nullptr, 3, 0, fx.craft_obj.get());
-        EXPECT_EQ(rc, 0) << "on_stream_close: duct null -> 0";
-        EXPECT_TRUE(fx.craft_obj->streams_.count(3) == 1) << "on_stream_close: duct entry remains";
+        EXPECT_EQ(rc, 0) << "OnStreamClose: duct null -> 0";
+        EXPECT_TRUE(fx.craft_obj->streams_.count(3) == 1) << "OnStreamClose: duct entry remains";
     }
 
     TEST(H2muxCraftDeep2, OnStreamCloseParcelNullPtr)
@@ -529,15 +529,15 @@ namespace
         fx.craft_obj->datagrams_[4]; // null shared_ptr
 
         auto rc = h2mux::control::on_stream_close(nullptr, 4, 0, fx.craft_obj.get());
-        EXPECT_EQ(rc, 0) << "on_stream_close: parcel null -> 0";
-        EXPECT_TRUE(fx.craft_obj->datagrams_.count(4) == 1) << "on_stream_close: parcel entry remains";
+        EXPECT_EQ(rc, 0) << "OnStreamClose: parcel null -> 0";
+        EXPECT_TRUE(fx.craft_obj->datagrams_.count(4) == 1) << "OnStreamClose: parcel entry remains";
     }
 
     TEST(H2muxCraftDeep2, OnStreamCloseNoEntries)
     {
         CraftFixture fx;
         auto rc = h2mux::control::on_stream_close(nullptr, 999, 0, fx.craft_obj.get());
-        EXPECT_EQ(rc, 0) << "on_stream_close: no entries -> 0";
+        EXPECT_EQ(rc, 0) << "OnStreamClose: no entries -> 0";
     }
 
 } // namespace

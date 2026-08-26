@@ -1,5 +1,5 @@
 /**
- * @file blake3.hpp
+ * @file Blake3.hpp
  * @brief BLAKE3 哈希与密钥派生工具
  * @details 提供 BLAKE3 的三种工作模式：
  * 1. DeriveKey：基于上下文字符串的密钥派生，用于 SS2022 会话子密钥
@@ -29,7 +29,7 @@ namespace Preview::Crypto
      * @details 使用 BLAKE3 的 DeriveKey 模式，从上下文字符串和密钥材料
      * 派生指定长度的密钥。上下文字符串用于域分离，确保不同用途
      * 派生出不同的密钥。输出长度由 out 的大小决定。
-     * @param Context 上下文字符串（如 "shadowsocks 2022 Session subkey"）
+     * @param Context 上下文字符串（如 "shadowsocks 2022 session subkey"）
      * @param material 输入密钥材料
      * @param out 输出缓冲区，其大小决定派生密钥长度
      */
@@ -42,11 +42,11 @@ namespace Preview::Crypto
      * 派生指定长度的密钥。返回包含派生密钥的 vector。
      * @param Context 上下文字符串
      * @param material 输入密钥材料
-     * @param out_len 输出密钥长度
+     * @param OutLen 输出密钥长度
      * @return 派生出的密钥字节
      */
     [[nodiscard]] auto DeriveKey(std::string_view Context, std::span<const std::uint8_t> material,
-                                  std::size_t out_len) -> std::vector<std::uint8_t>;
+                                  std::size_t OutLen) -> std::vector<std::uint8_t>;
 
     /**
      * @brief 初始化 BLAKE3 keyed hasher
@@ -90,9 +90,9 @@ namespace Preview::Crypto
     }
 
     inline auto DeriveKey(std::string_view Context, std::span<const std::uint8_t> material,
-                            const std::size_t out_len) -> std::vector<std::uint8_t>
+                            const std::size_t OutLen) -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> out(out_len);
+        std::vector<std::uint8_t> out(OutLen);
         DeriveKey(Context, material, out);
         return out;
     }

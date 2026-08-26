@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <common/Core/Memory/Container.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/transport/transmission.hpp>
 
@@ -20,7 +21,7 @@
 #include <system_error>
 #include <vector>
 
-namespace psm::testing
+namespace Preview::Testing
 {
     namespace net = boost::asio;
 
@@ -40,7 +41,7 @@ namespace psm::testing
          * @brief 构造 MockTransport
          * @details 初始化内部 io_context 和 PMR 容器。
          */
-        MockTransport() : read_queue_(&buffer_resource_), written_data_(&buffer_resource_)
+        MockTransport() : ReadQueue_(&BufferResource_), WrittenData_(&BufferResource_)
         {
         }
 
@@ -49,7 +50,7 @@ namespace psm::testing
          */
         ~MockTransport() override
         {
-            closed_ = true;
+            Closed_ = true;
         }
 
         // ── 禁止拷贝和移动 ──
@@ -67,7 +68,7 @@ namespace psm::testing
          */
         [[nodiscard]] auto executor() const -> executor_type override
         {
-            return const_cast<net::io_context &>(ioc_).get_executor();
+            return const_cast<net::io_context &>(Ioc_).get_executor();
         }
 
         /**
@@ -82,85 +83,85 @@ namespace psm::testing
             -> net::awaitable<std::size_t> override
         {
             // 如果设置了读取错误，直接返回
-            if (read_error_.has_value())
+            if (ReadError_.has_value())
             {
-                ec = read_error_.value();
-                read_error_.reset();
+                ec = ReadError_.value();
+                ReadError_.reset();
                 co_return 0;
             }
 
             // 如果队列不为空，立即返回数据
-            if (!read_queue_.empty())
+            if (!ReadQueue_.empty())
             {
-                auto &chunk = read_queue_.front();
-                const auto copy_size = (std::min)(chunk.size(), buffer.size());
-                std::copy_n(chunk.data(), copy_size, buffer.data());
-                if (copy_size >= chunk.size())
+                auto &chunk = ReadQueue_.front();
+                const auto CopySize = (std::min)(chunk.size(), buffer.size());
+                std::copy_n(chunk.data(), CopySize, buffer.data());
+                if (CopySize >= chunk.size())
                 {
                     // 整块已消费
-                    read_queue_.erase(read_queue_.begin());
+                    ReadQueue_.erase(ReadQueue_.begin());
                 }
                 else
                 {
                     // 部分消费，保留剩余字节
-                    chunk.erase(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(copy_size));
+                    chunk.erase(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(CopySize));
                 }
-                co_return copy_size;
+                co_return CopySize;
             }
 
             // 如果已经关闭或半关闭，返回 eof
-            if (closed_ || shutdown_)
+            if (Closed_ || Shutdown_)
             {
                 ec = psm::fault::code::eof;
                 co_return 0;
             }
 
             // 队列为空，通过短定时器轮询等待数据注入或被取消
-            while (!closed_ && !shutdown_ && !cancelled_ && read_queue_.empty() && !read_error_.has_value())
+            while (!Closed_ && !Shutdown_ && !Cancelled_ && ReadQueue_.empty() && !ReadError_.has_value())
             {
-                auto timer = net::steady_timer(co_await net::this_coro::executor);
-                timer.expires_after(std::chrono::microseconds(100));
-                co_await timer.async_wait(net::use_awaitable);
+                auto Timer = net::steady_timer(co_await net::this_coro::executor);
+                Timer.expires_after(std::chrono::microseconds(100));
+                co_await Timer.async_wait(net::use_awaitable);
             }
 
             // 被取消（一次性语义：cancel() 唤醒后返回 canceled，与 stream_handle 一致）
-            if (cancelled_)
+            if (Cancelled_)
             {
-                cancelled_ = false;
+                Cancelled_ = false;
                 ec = psm::fault::code::canceled;
                 co_return 0;
             }
 
             // 被关闭或半关闭
-            if (closed_ || shutdown_)
+            if (Closed_ || Shutdown_)
             {
                 ec = psm::fault::code::eof;
                 co_return 0;
             }
 
             // 检查错误
-            if (read_error_.has_value())
+            if (ReadError_.has_value())
             {
-                ec = read_error_.value();
-                read_error_.reset();
+                ec = ReadError_.value();
+                ReadError_.reset();
                 co_return 0;
             }
 
             // 取出数据
-            if (!read_queue_.empty())
+            if (!ReadQueue_.empty())
             {
-                auto &chunk = read_queue_.front();
-                const auto copy_size = (std::min)(chunk.size(), buffer.size());
-                std::copy_n(chunk.data(), copy_size, buffer.data());
-                if (copy_size >= chunk.size())
+                auto &chunk = ReadQueue_.front();
+                const auto CopySize = (std::min)(chunk.size(), buffer.size());
+                std::copy_n(chunk.data(), CopySize, buffer.data());
+                if (CopySize >= chunk.size())
                 {
-                    read_queue_.erase(read_queue_.begin());
+                    ReadQueue_.erase(ReadQueue_.begin());
                 }
                 else
                 {
-                    chunk.erase(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(copy_size));
+                    chunk.erase(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(CopySize));
                 }
-                co_return copy_size;
+                co_return CopySize;
             }
 
             ec = psm::fault::code::eof;
@@ -169,7 +170,7 @@ namespace psm::testing
 
         /**
          * @brief 异步写入部分数据
-         * @details 将 buffer 数据追加到 written_data_ 缓冲区。
+         * @details 将 buffer 数据追加到 WrittenData_ 缓冲区。
          * 如果设置了写入错误，直接返回错误。
          * @param buffer 发送缓冲区
          * @param ec 错误码输出参数
@@ -178,31 +179,31 @@ namespace psm::testing
         auto async_write_some(std::span<const std::byte> buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (write_error_.has_value())
+            if (WriteError_.has_value())
             {
-                ec = write_error_.value();
-                write_error_.reset();
+                ec = WriteError_.value();
+                WriteError_.reset();
                 co_return 0;
             }
 
-            if (closed_)
+            if (Closed_)
             {
                 ec = psm::fault::code::eof;
                 co_return 0;
             }
 
-            const auto old_size = written_data_.size();
-            written_data_.insert(written_data_.end(), buffer.begin(), buffer.end());
-            co_return written_data_.size() - old_size;
+            const auto OldSize = WrittenData_.size();
+            WrittenData_.insert(WrittenData_.end(), buffer.begin(), buffer.end());
+            co_return WrittenData_.size() - OldSize;
         }
 
         /**
          * @brief 半关闭（读端 EOF，写端仍可写）
          * @details 模拟 transmission::shutdown 语义：对端读返回 0，本端仍可写
          */
-        void shutdown()
+        void Shutdown()
         {
-            shutdown_ = true;
+            Shutdown_ = true;
         }
 
         /**
@@ -211,7 +212,7 @@ namespace psm::testing
          */
         void close() override
         {
-            closed_ = true;
+            Closed_ = true;
         }
 
         /**
@@ -220,7 +221,7 @@ namespace psm::testing
          */
         void cancel() override
         {
-            cancelled_ = true;
+            Cancelled_ = true;
         }
 
         // ── 测试辅助方法 ──
@@ -231,9 +232,9 @@ namespace psm::testing
          * 必须通过 io_context.run() 或 io_context.poll() 驱动才能被读协程感知。
          * @param data 要注入的数据
          */
-        void inject_read(std::vector<std::byte> data)
+        void InjectRead(std::vector<std::byte> data)
         {
-            read_queue_.push_back(std::move(data));
+            ReadQueue_.push_back(std::move(data));
         }
 
         /**
@@ -242,71 +243,71 @@ namespace psm::testing
          * @param data 数据指针
          * @param size 数据长度
          */
-        void inject_read(const std::byte *data, std::size_t size)
+        void InjectRead(const std::byte *data, std::size_t size)
         {
-            read_queue_.emplace_back(data, data + size);
+            ReadQueue_.emplace_back(data, data + size);
         }
 
         /**
          * @brief 获取所有已写入的数据
          * @return 写入数据的 const 引用
          */
-        [[nodiscard]] auto written_data() const -> const memory::vector<std::byte> &
+        [[nodiscard]] auto WrittenData() const -> const Preview::Memory::vector<std::byte> &
         {
-            return written_data_;
+            return WrittenData_;
         }
 
         /**
          * @brief 清空已写入的数据缓冲区
          */
-        void clear_written_data()
+        void ClearWrittenData()
         {
-            written_data_.clear();
+            WrittenData_.clear();
         }
 
         /**
          * @brief 设置下次读取返回的错误码
          * @param ec 错误码
          */
-        void set_read_error(std::error_code ec)
+        void SetReadError(std::error_code ec)
         {
-            read_error_ = ec;
+            ReadError_ = ec;
         }
 
         /**
          * @brief 设置下次写入返回的错误码
          * @param ec 错误码
          */
-        void set_write_error(std::error_code ec)
+        void SetWriteError(std::error_code ec)
         {
-            write_error_ = ec;
+            WriteError_ = ec;
         }
 
         /**
          * @brief 检查传输层是否已关闭
          * @return true 表示已关闭
          */
-        [[nodiscard]] auto is_closed() const -> bool
+        [[nodiscard]] auto IsClosed() const -> bool
         {
-            return closed_;
+            return Closed_;
         }
 
         /**
          * @brief 检查是否半关闭
          * @return true 表示已半关闭
          */
-        [[nodiscard]] auto is_shutdown() const -> bool
+        [[nodiscard]] auto IsShutdown() const -> bool
         {
-            return shutdown_;
+            return Shutdown_;
         }
 
         /**
          * @brief 检查传输层是否已取消
          * @return true 表示已取消
          */
-        [[nodiscard]] auto is_cancelled() const -> bool
+        [[nodiscard]] auto IsCancelled() const -> bool
         {
-            return cancelled_;
+            return Cancelled_;
         }
 
         /**
@@ -314,38 +315,38 @@ namespace psm::testing
          * @details 可用于 io_context.run() 或 io_context.poll() 驱动异步操作完成。
          * @return io_context 的引用
          */
-        [[nodiscard]] auto get_io_context() -> net::io_context &
+        [[nodiscard]] auto GetIoContext() -> net::io_context &
         {
-            return ioc_;
+            return Ioc_;
         }
 
     private:
         /** @brief 内部 io_context，提供 executor */
-        net::io_context ioc_{1};
+        net::io_context Ioc_{1};
 
         /** @brief PMR 缓冲区内存资源 */
-        memory::unsynchronized_pool buffer_resource_;
+        Preview::Memory::UnsynchronizedPool BufferResource_;
 
         /** @brief 读取队列，存储预注入的数据块 */
-        memory::vector<std::vector<std::byte>> read_queue_;
+        Preview::Memory::vector<std::vector<std::byte>> ReadQueue_;
 
         /** @brief 写入数据捕获缓冲区 */
-        memory::vector<std::byte> written_data_;
+        Preview::Memory::vector<std::byte> WrittenData_;
 
         /** @brief 预设的读取错误码 */
-        std::optional<std::error_code> read_error_;
+        std::optional<std::error_code> ReadError_;
 
         /** @brief 预设的写入错误码 */
-        std::optional<std::error_code> write_error_;
+        std::optional<std::error_code> WriteError_;
 
         /** @brief 半关闭标记（读 EOF，写仍可） */
-        bool shutdown_ = false;
+        bool Shutdown_ = false;
 
         /** @brief 关闭状态标记 */
-        bool closed_ = false;
+        bool Closed_ = false;
 
         /** @brief 取消状态标记 */
-        bool cancelled_ = false;
+        bool Cancelled_ = false;
     };
 
-} // namespace psm::testing
+} // namespace Preview::Testing

@@ -129,13 +129,13 @@ namespace
      * HMAC = HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
      * @note 参照 sing-shadowtls hmacVerify（含 "C" 标签）
      */
-    auto build_app_data_frame(const std::string &password, const std::array<std::byte, 32> &server_random,
+    auto build_app_data_frame(const std::string &password, const std::array<std::byte, 32> &ServerRandom,
                               const std::vector<std::uint8_t> &payload) -> std::vector<std::byte>
     {
         // 计算 HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
         HMAC_CTX *ctx = HMAC_CTX_new();
         HMAC_Init_ex(ctx, password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
-        HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(server_random.data()), 32);
+        HMAC_Update(ctx, reinterpret_cast<const unsigned char *>(ServerRandom.data()), 32);
         constexpr unsigned char tag_c = 'C';
         HMAC_Update(ctx, &tag_c, 1);
         HMAC_Update(ctx, payload.data(), payload.size());
@@ -205,11 +205,11 @@ namespace
     TEST(ShadowTlsE2E, FrameHmacProtocol)
     {
         const std::string password = "frame_test_password";
-        auto server_random = generate_random_bytes(32);
+        auto ServerRandom = generate_random_bytes(32);
         std::array<std::byte, 32> sr{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            sr[i] = static_cast<std::byte>(server_random[i]);
+            sr[i] = static_cast<std::byte>(ServerRandom[i]);
         }
 
         std::vector<std::uint8_t> payload = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
@@ -236,11 +236,11 @@ namespace
     TEST(ShadowTlsE2E, FrameHmacProtocolWrongHmac)
     {
         const std::string password = "frame_test_password";
-        auto server_random = generate_random_bytes(32);
+        auto ServerRandom = generate_random_bytes(32);
         std::array<std::byte, 32> sr{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            sr[i] = static_cast<std::byte>(server_random[i]);
+            sr[i] = static_cast<std::byte>(ServerRandom[i]);
         }
 
         std::vector<std::uint8_t> payload = {0x01, 0x02, 0x03, 0x04};

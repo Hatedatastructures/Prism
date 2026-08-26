@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief Shadowsocks 2022 协议基础类型（SIP022 规范）
  * @details 定义 SS2022 常量、方法类型与地址结构。
  *          握手首包：[Salt 16B][固定头密文 27B][变长头密文（含地址）]。
@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace Preview::Shadowsocks2022
 {
@@ -21,11 +22,11 @@ namespace Preview::Shadowsocks2022
     enum class CipherMethod : std::uint8_t
     {
         /// 2022-blake3-aes-128-gcm（16 字节密钥）
-        aes_128_gcm,
+        Aes128Gcm,
         /// 2022-blake3-aes-256-gcm（32 字节密钥）
-        aes_256_gcm,
+        Aes256Gcm,
         /// 2022-blake3-chacha20-poly1305（32 字节密钥）
-        chacha20_poly1305,
+        Chacha20Poly1305,
     };
 
     /// 请求头类型字节（客户端）
@@ -56,7 +57,7 @@ namespace Preview::Shadowsocks2022
     inline constexpr std::size_t LenBlockSize = 2 + AeadTagLen;
 
     /// BLAKE3 KDF 上下文字符串
-    inline constexpr std::string_view KdfContext = "shadowsocks 2022 Session subkey";
+    inline constexpr std::string_view KdfContext = "shadowsocks 2022 session subkey";
 
     /// SOCKS5 风格地址类型
     enum class AddressType : std::uint8_t

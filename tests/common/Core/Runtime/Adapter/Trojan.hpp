@@ -1,5 +1,5 @@
 /**
- * @file trojan.hpp
+ * @file Trojan.hpp
  * @brief Trojan 协议处理器
  */
 
@@ -15,15 +15,15 @@ namespace Preview::Runtime::Handler
     class Trojan final : public ProtocolHandler
     {
     public:
-        explicit Trojan(Preview::Trojan::ServerConfig cfg) : cfg_(std::move(cfg)) {}
+        explicit Trojan(Preview::Trojan::ServerConfig cfg) : Cfg_(std::move(cfg)) {}
 
-        auto Accept(Preview::SharedTransmission inbound)
+        auto Accept(Preview::SharedTransmission Inbound)
             -> net::awaitable<AcceptResult> override
         {
-            auto [err, req, Conn] = co_await Preview::Trojan::Accept(std::move(inbound), cfg_);
+            auto [err, req, Conn] = co_await Preview::Trojan::Accept(std::move(Inbound), Cfg_);
             AcceptResult r;
             r.err = err;
-            if (err != Preview::Error::none || !Conn) co_return r;
+            if (err != Preview::Error::None || !Conn) co_return r;
             r.Target.Host = req.Target.Host;
             r.Target.Port = std::to_string(req.Target.Port);
             // identity 留空：Trojan 无客户端标识，禁止把密码写进统计
@@ -42,7 +42,7 @@ namespace Preview::Runtime::Handler
         [[nodiscard]] auto Name() const -> std::string_view override { return "trojan"; }
 
     private:
-        Preview::Trojan::ServerConfig cfg_;
+        Preview::Trojan::ServerConfig Cfg_;
     };
 
 } // namespace Preview::Runtime::Handler

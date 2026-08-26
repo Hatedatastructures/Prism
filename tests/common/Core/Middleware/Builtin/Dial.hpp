@@ -43,7 +43,7 @@ namespace Preview::Middleware::Builtin
          * @brief 构造函数
          * @param Dial 拨号函数（默认返回 not_supported，需注入）
          */
-        explicit DialMiddleware(DialFn Dial = {}) : dial_(std::move(Dial))
+        explicit DialMiddleware(DialFn Dial = {}) : Dial_(std::move(Dial))
         {
         }
 
@@ -57,28 +57,28 @@ namespace Preview::Middleware::Builtin
 
         /**
          * @brief 拨号上游
-         * @param inbound 入站传输（本中间件不改动）
+         * @param Inbound 入站传输（本中间件不改动）
          * @param ctx 管线上下文（消费 Target）
          * @return 拨号结果码
          */
-        auto Handle(Preview::SharedTransmission & /*inbound*/, Context &ctx)
+        auto Handle(Preview::SharedTransmission & /*Inbound*/, Context &ctx)
             -> net::awaitable<Preview::Fault::Code> override
         {
-            if (!dial_)
+            if (!Dial_)
             {
-                co_return Preview::Fault::Code::not_supported;
+                co_return Preview::Fault::Code::NotSupported;
             }
-            auto [ec, Outbound] = co_await dial_(ctx.Target);
+            auto [ec, Outbound] = co_await Dial_(ctx.Target);
             if (Preview::Fault::Failed(ec) || !Outbound)
             {
                 co_return ec;
             }
             ctx.Outbound = std::move(Outbound);
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         }
 
     private:
-        DialFn dial_; ///< 拨号函数（可注入）
+        DialFn Dial_; ///< 拨号函数（可注入）
     };
 
 } // namespace Preview::Middleware::Builtin

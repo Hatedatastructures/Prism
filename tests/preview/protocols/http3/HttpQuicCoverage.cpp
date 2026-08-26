@@ -84,19 +84,19 @@ namespace
             return open_result;
         }
 
-        auto SubmitHeaders(std::int32_t StreamId, const h2::HeaderList &, bool end_stream)
+        auto SubmitHeaders(std::int32_t StreamId, const h2::HeaderList &, bool EndStream)
             -> std::int32_t override
         {
             submitted_headers_streams.push_back(StreamId);
-            headers_end.push_back(end_stream);
+            headers_end.push_back(EndStream);
             return 0;
         }
 
-        auto SubmitData(std::int32_t StreamId, std::span<const std::byte> Data, bool end_stream)
+        auto SubmitData(std::int32_t StreamId, std::span<const std::byte> Data, bool EndStream)
             -> std::int32_t override
         {
             submitted_data_streams.push_back(StreamId);
-            data_end.push_back(end_stream);
+            data_end.push_back(EndStream);
             submitted_data.emplace_back(Data.begin(), Data.end());
             return 0;
         }
@@ -301,11 +301,11 @@ namespace
         // 名称命中值不同 → 名称引用字面量
         std::array<std::uint8_t, 64> b2{};
         std::size_t off2 = qp::EncodePrefix(b2);
-        off2 += qp::EncodeLiteral(":Method", "HEAD",
+        off2 += qp::EncodeLiteral(":method", "HEAD",
                                    std::span<std::uint8_t>(b2.data() + off2, b2.size() - off2));
         auto f2 = qp::DecodeHeaderBlock(std::span<const std::uint8_t>(b2.data(), off2), mr);
         ASSERT_EQ(f2.size(), 1);
-        EXPECT_EQ(std::string_view(f2[0].Name.data(), f2[0].Name.size()), ":Method");
+        EXPECT_EQ(std::string_view(f2[0].Name.data(), f2[0].Name.size()), ":method");
         EXPECT_EQ(std::string_view(f2[0].value.data(), f2[0].value.size()), "HEAD");
 
         // 未命中 → 字面量名称（长值走堆路径，>63 字符）
@@ -316,23 +316,23 @@ namespace
         }
         std::array<std::uint8_t, 1024> b3{};
         std::size_t off = qp::EncodePrefix(b3);
-        off += qp::EncodeLiteral("hysteria-Auth", long_value,
+        off += qp::EncodeLiteral("hysteria-auth", long_value,
                                   std::span<std::uint8_t>(b3.data() + off, b3.size() - off));
         auto f3 = qp::DecodeHeaderBlock(std::span<const std::uint8_t>(b3.data(), off), mr);
         ASSERT_EQ(f3.size(), 1);
-        EXPECT_EQ(std::string_view(f3[0].Name.data(), f3[0].Name.size()), "hysteria-Auth");
+        EXPECT_EQ(std::string_view(f3[0].Name.data(), f3[0].Name.size()), "hysteria-auth");
         EXPECT_EQ(std::string_view(f3[0].value.data(), f3[0].value.size()), long_value);
 
         // 编码前缀 + 完整认证头集回环
         std::array<std::uint8_t, 1024> b4{};
         std::size_t off4 = qp::EncodePrefix(b4);
-        off4 += qp::EncodeLiteral(":Method", "POST",
+        off4 += qp::EncodeLiteral(":method", "POST",
                                    std::span<std::uint8_t>(b4.data() + off4, b4.size() - off4));
-        off4 += qp::EncodeLiteral(":Path", "/Auth",
+        off4 += qp::EncodeLiteral(":path", "/Auth",
                                    std::span<std::uint8_t>(b4.data() + off4, b4.size() - off4));
-        off4 += qp::EncodeLiteral("hysteria-Auth", "password123",
+        off4 += qp::EncodeLiteral("hysteria-auth", "password123",
                                    std::span<std::uint8_t>(b4.data() + off4, b4.size() - off4));
-        off4 += qp::EncodeLiteral("hysteria-cc-Rx", "0",
+        off4 += qp::EncodeLiteral("hysteria-cc-rx", "0",
                                    std::span<std::uint8_t>(b4.data() + off4, b4.size() - off4));
         auto f4 = qp::DecodeHeaderBlock(std::span<const std::uint8_t>(b4.data(), off4), mr);
         ASSERT_EQ(f4.size(), 4);
@@ -344,7 +344,7 @@ namespace
         // 输出缓冲不足 → 编码失败返回 0
         std::array<std::uint8_t, 0> tiny{};
         EXPECT_EQ(qp::EncodePrefix(tiny), 0);
-        EXPECT_EQ(qp::EncodeLiteral(":Method", "POST", tiny), 0);
+        EXPECT_EQ(qp::EncodeLiteral(":method", "POST", tiny), 0);
     }
 
     TEST(Http3Qpack, HuffmanRoundtripAndErrors)
@@ -360,21 +360,21 @@ namespace
 
         for (const auto &s : samples)
         {
-            Preview::Memory::vector<std::uint8_t> enc(mr);
+            std::vector<std::uint8_t> enc;
             ASSERT_TRUE(qp::HuffmanEncode(s, enc));
-            Preview::Memory::vector<std::uint8_t> dec(mr);
+            std::vector<std::uint8_t> dec;
             ASSERT_TRUE(qp::HuffmanDecode(enc, dec));
             EXPECT_EQ(std::string(dec.begin(), dec.end()), s);
         }
 
         // 'a'（码 00011 len5 + EOS 填充）精确字节 0x1F
-        Preview::Memory::vector<std::uint8_t> enc_a(mr);
+        std::vector<std::uint8_t> enc_a;
         ASSERT_TRUE(qp::HuffmanEncode("a", enc_a));
         ASSERT_EQ(enc_a.size(), 1);
         EXPECT_EQ(enc_a[0], 0x1F);
 
         // 坏填充：0x10 解出 '2' 后剩余 3 位不满足 EOS 全 1 → 失败
-        Preview::Memory::vector<std::uint8_t> dec_bad(mr);
+        std::vector<std::uint8_t> dec_bad;
         const std::array<std::uint8_t, 1> bad{0x10};
         EXPECT_FALSE(qp::HuffmanDecode(bad, dec_bad));
     }
@@ -386,15 +386,15 @@ namespace
         const auto mr = Preview::Memory::CurrentResource();
         std::array<std::uint8_t, 512> buf{};
         std::size_t off = qp::EncodePrefix(buf);
-        off += qp::EncodeLiteral(":Method", "POST",
+        off += qp::EncodeLiteral(":method", "POST",
                                   std::span<std::uint8_t>(buf.data() + off, buf.size() - off));
         off += qp::EncodeLiteral(":authority", "hysteria",
                                   std::span<std::uint8_t>(buf.data() + off, buf.size() - off));
-        off += qp::EncodeLiteral(":Path", "/Auth",
+        off += qp::EncodeLiteral(":path", "/Auth",
                                   std::span<std::uint8_t>(buf.data() + off, buf.size() - off));
-        off += qp::EncodeLiteral("hysteria-Auth", "password123",
+        off += qp::EncodeLiteral("hysteria-auth", "password123",
                                   std::span<std::uint8_t>(buf.data() + off, buf.size() - off));
-        off += qp::EncodeLiteral("hysteria-cc-Rx", "12345",
+        off += qp::EncodeLiteral("hysteria-cc-rx", "12345",
                                   std::span<std::uint8_t>(buf.data() + off, buf.size() - off));
 
         h3a::AuthRequest req(mr);
@@ -412,21 +412,21 @@ namespace
         // 方法非 POST
         std::array<std::uint8_t, 128> b1{};
         std::size_t off1 = qp::EncodePrefix(b1);
-        off1 += qp::EncodeLiteral(":Method", "GET",
+        off1 += qp::EncodeLiteral(":method", "GET",
                                    std::span<std::uint8_t>(b1.data() + off1, b1.size() - off1));
-        off1 += qp::EncodeLiteral(":Path", "/Auth",
+        off1 += qp::EncodeLiteral(":path", "/Auth",
                                    std::span<std::uint8_t>(b1.data() + off1, b1.size() - off1));
-        off1 += qp::EncodeLiteral("hysteria-Auth", "password123",
+        off1 += qp::EncodeLiteral("hysteria-auth", "password123",
                                    std::span<std::uint8_t>(b1.data() + off1, b1.size() - off1));
         h3a::AuthRequest req1(mr);
         EXPECT_FALSE(h3a::ParseAuthRequest(std::span<const std::uint8_t>(b1.data(), off1), req1, mr));
 
-        // 缺少 hysteria-Auth
+        // 缺少 hysteria-auth
         std::array<std::uint8_t, 128> b2{};
         std::size_t off2 = qp::EncodePrefix(b2);
-        off2 += qp::EncodeLiteral(":Method", "POST",
+        off2 += qp::EncodeLiteral(":method", "POST",
                                    std::span<std::uint8_t>(b2.data() + off2, b2.size() - off2));
-        off2 += qp::EncodeLiteral(":Path", "/Auth",
+        off2 += qp::EncodeLiteral(":path", "/Auth",
                                    std::span<std::uint8_t>(b2.data() + off2, b2.size() - off2));
         h3a::AuthRequest req2(mr);
         EXPECT_FALSE(h3a::ParseAuthRequest(std::span<const std::uint8_t>(b2.data(), off2), req2, mr));
@@ -448,20 +448,32 @@ namespace
         const auto n = h3a::EncodeAuthResponse(h3a::StatusAuthOk, true, 1000000, out);
         ASSERT_GT(n, 2);
 
-        // HTTP/3 帧头：Type=HEADERS(1) + 单字节长度（块 < 128）
+        // HTTP/3 帧头：Type=HEADERS(1) + Length varint（RFC 9000 §16）
         const auto *hdr = reinterpret_cast<const std::uint8_t *>(out.data());
-        EXPECT_EQ(hdr[0], h3a::FrameHeaders);
-        const auto len = hdr[1];
-        ASSERT_LE(len, n - 2);
+        auto ParseVarint = [](const std::uint8_t *p, std::size_t &pos) -> std::uint64_t
+        {
+            const auto first = p[pos++];
+            std::uint64_t v = first & 0x3F;
+            static constexpr std::uint8_t Extra[4] = {0, 1, 3, 7};
+            for (std::size_t i = 0; i < Extra[first >> 6]; ++i)
+            {
+                v = (v << 8) | p[pos++];
+            }
+            return v;
+        };
+        std::size_t pos = 0;
+        EXPECT_EQ(ParseVarint(hdr, pos), h3a::FrameHeaders);
+        const auto len = ParseVarint(hdr, pos);
+        ASSERT_LE(len, n - pos);
 
         // 帧载荷即 QPACK 块 → 解码回环
         const auto fields =
-            qp::DecodeHeaderBlock(std::span<const std::uint8_t>(hdr + 2, len), mr);
+            qp::DecodeHeaderBlock(std::span<const std::uint8_t>(hdr + pos, len), mr);
         ASSERT_EQ(fields.size(), 4);
         EXPECT_EQ(std::string_view(fields[0].value.data(), fields[0].value.size()), "233");
         EXPECT_EQ(std::string_view(fields[1].Name.data(), fields[1].Name.size()), "hysteria-udp");
         EXPECT_EQ(std::string_view(fields[1].value.data(), fields[1].value.size()), "true");
-        EXPECT_EQ(std::string_view(fields[2].Name.data(), fields[2].Name.size()), "hysteria-cc-Rx");
+        EXPECT_EQ(std::string_view(fields[2].Name.data(), fields[2].Name.size()), "hysteria-cc-rx");
         EXPECT_EQ(std::string_view(fields[2].value.data(), fields[2].value.size()), "1000000");
         EXPECT_EQ(std::string_view(fields[3].Name.data(), fields[3].Name.size()), "hysteria-padding");
         EXPECT_EQ(std::string_view(fields[3].value.data(), fields[3].value.size()), "0");
@@ -471,8 +483,12 @@ namespace
         const auto n2 = h3a::EncodeAuthResponse(233, false, 0, out2);
         ASSERT_GT(n2, 2);
         const auto *hdr2 = reinterpret_cast<const std::uint8_t *>(out2.data());
+        std::size_t pos2 = 0;
+        ParseVarint(hdr2, pos2); // Type
+        const auto len2 = ParseVarint(hdr2, pos2);
+        ASSERT_LE(len2, n2 - pos2);
         const auto fields2 =
-            qp::DecodeHeaderBlock(std::span<const std::uint8_t>(hdr2 + 2, hdr2[1]), mr);
+            qp::DecodeHeaderBlock(std::span<const std::uint8_t>(hdr2 + pos2, len2), mr);
         ASSERT_EQ(fields2.size(), 4);
         EXPECT_EQ(std::string_view(fields2[1].value.data(), fields2[1].value.size()), "false");
         EXPECT_EQ(std::string_view(fields2[2].value.data(), fields2[2].value.size()), "0");
@@ -488,9 +504,9 @@ namespace
     {
         auto srv = h3::MakeServer({});
         // 未初始化：Feed 直接协议错误（Conn 为空）
-        EXPECT_EQ(srv->Feed(0, {}, false), Preview::Fault::Code::protocol_error);
+        EXPECT_EQ(srv->Feed(0, {}, false), Preview::Fault::Code::ProtocolError);
 
-        // open_uni_stream 失败 → Init 失败
+        // OpenUniStream 失败 → Init 失败
         EXPECT_FALSE(srv->Init([]() -> std::int64_t { return -1; }));
 
         // 正常初始化：控制流 3 / encoder 7 / decoder 11（服务器 uni 流）
@@ -532,35 +548,38 @@ namespace
 
         // 客户端控制流（Stream 2）：空 SETTINGS
         const std::array<std::byte, 2> settings{std::byte{0x04}, std::byte{0x00}};
-        EXPECT_EQ(srv->Feed(2, settings, false), Preview::Fault::Code::success);
+        EXPECT_EQ(srv->Feed(2, settings, false), Preview::Fault::Code::Success);
 
         // 客户端 QPACK encoder 流（Stream 6）：Set Dynamic Table Capacity=0
         const std::array<std::byte, 1> qenc{std::byte{0x20}};
-        EXPECT_EQ(srv->Feed(6, qenc, false), Preview::Fault::Code::success);
+        EXPECT_EQ(srv->Feed(6, qenc, false), Preview::Fault::Code::Success);
 
         // 认证请求流（Stream 0）：QPACK 编码的 HEADERS 帧。
-        // nghttp3 要求请求含 :Method+:Path+:scheme 且 :authority/Host 至少其一
+        // nghttp3 要求请求含 :method+:path+:scheme 且 :authority/Host 至少其一
         std::array<std::uint8_t, 512> block{};
         std::size_t off = qp::EncodePrefix(block);
-        off += qp::EncodeLiteral(":Method", "POST",
+        off += qp::EncodeLiteral(":method", "POST",
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
         off += qp::EncodeLiteral(":scheme", "https",
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
         off += qp::EncodeLiteral(":authority", "hysteria",
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
-        off += qp::EncodeLiteral(":Path", "/Auth",
+        off += qp::EncodeLiteral(":path", "/Auth",
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
-        off += qp::EncodeLiteral("hysteria-Auth", "password123",
+        off += qp::EncodeLiteral("hysteria-auth", "password123",
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
-        off += qp::EncodeLiteral("hysteria-cc-Rx", "12345",
+        off += qp::EncodeLiteral("hysteria-cc-rx", "12345",
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
-        ASSERT_LT(off, 128);
+        ASSERT_LT(off, block.size());
+
+        // HTTP/3 HEADERS 帧：Type varint(1) + Length varint（RFC 9000 §16）+ QPACK 块
         std::array<std::byte, 600> Frame{};
-        Frame[0] = std::byte{0x01}; // HEADERS 帧类型
-        Frame[1] = static_cast<std::byte>(off);
-        std::memcpy(Frame.data() + 2, block.data(), off);
-        EXPECT_EQ(srv->Feed(0, std::span<const std::byte>(Frame.data(), off + 2), true),
-                  Preview::Fault::Code::success);
+        std::size_t fn = 0;
+        ASSERT_TRUE(h3a::WriteFrameVarint(Frame, fn, h3a::FrameHeaders));
+        ASSERT_TRUE(h3a::WriteFrameVarint(Frame, fn, off));
+        std::memcpy(Frame.data() + fn, block.data(), off);
+        EXPECT_EQ(srv->Feed(0, std::span<const std::byte>(Frame.data(), fn + off), true),
+                  Preview::Fault::Code::Success);
 
         // 认证头解析结果
         EXPECT_TRUE(srv->AuthHeadersComplete());
@@ -572,8 +591,8 @@ namespace
         EXPECT_TRUE(srv->CheckAuth());
 
         // 认证响应提交并泵出（响应 HEADERS 帧发往 Stream 0）
-        EXPECT_EQ(srv->SubmitAuthResponse(), Preview::Fault::Code::success);
-        Preview::Memory::vector<h3::OutPacket> out(mr);
+        EXPECT_EQ(srv->SubmitAuthResponse(), Preview::Fault::Code::Success);
+        std::vector<h3::OutPacket> out;
         ASSERT_TRUE(srv->PumpOutput(out));
         ASSERT_FALSE(out.empty());
         bool found_response = false;
@@ -615,20 +634,20 @@ namespace
     TEST(QuicGateway, GuessProtocolFirstByte)
     {
         // 空输入 → unknown
-        EXPECT_EQ(Preview::Quic::GuessProtocol({}), Preview::Quic::ProtocolGuess::unknown);
+        EXPECT_EQ(Preview::Quic::GuessProtocol({}), Preview::Quic::ProtocolGuess::Unknown);
         // 0x04 = HTTP/3 SETTINGS → hysteria2
         const std::array<std::byte, 1> h3{std::byte{0x04}};
         const std::array<std::byte, 2> h3two{std::byte{0x04}, std::byte{0x01}};
         const std::array<std::byte, 1> tuic{std::byte{0x40}};
-        EXPECT_EQ(Preview::Quic::GuessProtocol(h3), Preview::Quic::ProtocolGuess::hysteria2);
-        EXPECT_EQ(Preview::Quic::GuessProtocol(h3two), Preview::Quic::ProtocolGuess::hysteria2);
+        EXPECT_EQ(Preview::Quic::GuessProtocol(h3), Preview::Quic::ProtocolGuess::Hysteria2);
+        EXPECT_EQ(Preview::Quic::GuessProtocol(h3two), Preview::Quic::ProtocolGuess::Hysteria2);
         // 0x40 = tuic
-        EXPECT_EQ(Preview::Quic::GuessProtocol(tuic), Preview::Quic::ProtocolGuess::tuic);
+        EXPECT_EQ(Preview::Quic::GuessProtocol(tuic), Preview::Quic::ProtocolGuess::Tuic);
         // 其余字节 → unknown
         for (const auto fb : {std::byte{0x00}, std::byte{0x05}, std::byte{0x3F}, std::byte{0x41}})
         {
             const std::array<std::byte, 1> b{fb};
-            EXPECT_EQ(Preview::Quic::GuessProtocol(b), Preview::Quic::ProtocolGuess::unknown);
+            EXPECT_EQ(Preview::Quic::GuessProtocol(b), Preview::Quic::ProtocolGuess::Unknown);
         }
     }
 
@@ -645,7 +664,7 @@ namespace
         // 新登记连接状态默认值
         auto *st = gw.Lookup(key);
         ASSERT_NE(st, nullptr);
-        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::unknown);
+        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::Unknown);
         EXPECT_FALSE(st->authenticated);
         EXPECT_EQ(st->StreamCount, 0);
 
@@ -653,7 +672,7 @@ namespace
         EXPECT_EQ(gw.Lookup(0xDEAD), nullptr);
         const auto *cst = static_cast<const Preview::Quic::GatewayCommon &>(gw).Lookup(key);
         ASSERT_NE(cst, nullptr);
-        EXPECT_EQ(cst->Type, Preview::Quic::ProtocolGuess::unknown);
+        EXPECT_EQ(cst->Type, Preview::Quic::ProtocolGuess::Unknown);
 
         EXPECT_TRUE(gw.EraseConnection(key));
         EXPECT_FALSE(gw.EraseConnection(key)); // 重复移除返回 false
@@ -702,7 +721,7 @@ namespace
         EXPECT_TRUE(gw.Dispatch(key, fb_h3));
         auto *st = gw.Lookup(key);
         ASSERT_NE(st, nullptr);
-        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::hysteria2);
+        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::Hysteria2);
         EXPECT_EQ(gw.h3_calls, 1);
         EXPECT_EQ(gw.tuic_calls, 0);
         ASSERT_EQ(gw.h3_keys.size(), 1);
@@ -710,14 +729,14 @@ namespace
 
         // 0x40 → tuic 钩子（同一连接可切换判定）
         EXPECT_TRUE(gw.Dispatch(key, fb_tuic));
-        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::tuic);
+        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::Tuic);
         EXPECT_EQ(gw.tuic_calls, 1);
         ASSERT_EQ(gw.tuic_keys.size(), 1);
         EXPECT_EQ(gw.tuic_keys[0], key);
 
         // 未知首字节 → false，钩子不触发
         EXPECT_FALSE(gw.Dispatch(key, fb_unk));
-        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::unknown);
+        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::Unknown);
         EXPECT_EQ(gw.h3_calls, 1);
         EXPECT_EQ(gw.tuic_calls, 1);
     }
@@ -793,8 +812,8 @@ namespace
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                n1 = co_await adapter->AsyncReadSome(buf, ec);
-                n2 = co_await adapter->AsyncReadSome(buf, ec); // 数据耗尽 → EOF
+                n1 = co_await adapter->async_read_some(buf, ec);
+                n2 = co_await adapter->async_read_some(buf, ec); // 数据耗尽 → EOF
                 co_return;
             },
             [&](std::exception_ptr e) { ep = e; });
@@ -823,7 +842,7 @@ namespace
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                n = co_await adapter->AsyncWriteSome(payload, ec);
+                n = co_await adapter->async_write_some(payload, ec);
                 co_return;
             },
             [&](std::exception_ptr e) { ep = e; });
@@ -853,8 +872,8 @@ namespace
             ioc.get_executor(),
             [&]() -> net::awaitable<void>
             {
-                n = co_await adapter->AsyncReadSome(buf, ec);
-                wn = co_await adapter->AsyncWriteSome(one, wec);
+                n = co_await adapter->async_read_some(buf, ec);
+                wn = co_await adapter->async_write_some(one, wec);
                 co_return;
             },
             [&](std::exception_ptr e) { ep = e; });

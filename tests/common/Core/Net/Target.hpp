@@ -28,8 +28,8 @@ namespace Preview::Network
             Port.assign("80");
         }
 
-        std::string Host;
-        std::string Port;
+        Preview::Memory::string Host;
+        Preview::Memory::string Port;
         bool positive{false};
     };
 

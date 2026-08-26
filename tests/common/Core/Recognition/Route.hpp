@@ -1,5 +1,5 @@
 /**
- * @file route.hpp
+ * @file Route.hpp
  * @brief SNI 路由表（域名 → 伪装方案）
  * @details 供 stealth 方案识别：TLS ClientHello 的 SNI 域名查表
  *          决定执行哪个伪装方案。支持精确匹配与通配子域。
@@ -34,7 +34,7 @@ namespace Preview::Recognition
          */
         void Add(std::string_view domain, std::string_view scheme)
         {
-            routes_[std::string(domain)] = std::string(scheme);
+            Routes_[std::string(domain)] = std::string(scheme);
         }
 
         /**
@@ -45,12 +45,12 @@ namespace Preview::Recognition
          */
         [[nodiscard]] auto Lookup(std::string_view sni) const -> std::string_view
         {
-            if (const auto it = routes_.find(std::string(sni)); it != routes_.end())
+            if (const auto It = Routes_.find(std::string(sni)); It != Routes_.end())
             {
-                return it->second;
+                return It->second;
             }
             // 通配匹配：*.Domain 命中 sni 的父域
-            for (const auto &[domain, scheme] : routes_)
+            for (const auto &[domain, scheme] : Routes_)
             {
                 if (domain.size() > 2 && domain[0] == '*' && domain[1] == '.')
                 {
@@ -71,7 +71,7 @@ namespace Preview::Recognition
          */
         [[nodiscard]] auto Size() const noexcept -> std::size_t
         {
-            return routes_.size();
+            return Routes_.size();
         }
 
         /**
@@ -79,11 +79,11 @@ namespace Preview::Recognition
          */
         void Clear()
         {
-            routes_.clear();
+            Routes_.clear();
         }
 
     private:
-        std::unordered_map<std::string, std::string> routes_;
+        std::unordered_map<std::string, std::string> Routes_;
     };
 
 } // namespace Preview::Recognition

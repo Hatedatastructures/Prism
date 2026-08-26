@@ -22,27 +22,27 @@ namespace
     TEST(ShadowtlsTransportPure, ComputeWriteKeyBasic)
     {
         const char *password = "test_password";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            server_random[i] = std::byte{i};
+            ServerRandom[i] = std::byte{i};
         }
 
-        auto key = compute_write_key(password, server_random);
+        auto key = compute_write_key(password, ServerRandom);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: size=32";
     }
 
     TEST(ShadowtlsTransportPure, ComputeWriteKeyDeterministic)
     {
         const char *password = "mypassword";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            server_random[i] = std::byte{i + 1};
+            ServerRandom[i] = std::byte{i + 1};
         }
 
-        auto k1 = compute_write_key(password, server_random);
-        auto k2 = compute_write_key(password, server_random);
+        auto k1 = compute_write_key(password, ServerRandom);
+        auto k2 = compute_write_key(password, ServerRandom);
         EXPECT_EQ(k1.size(), k2.size()) << "compute_write_key: same sizes";
         bool identical = true;
         for (std::size_t i = 0; i < k1.size(); ++i)
@@ -57,10 +57,10 @@ namespace
 
     TEST(ShadowtlsTransportPure, ComputeWriteKeyDifferentPassword)
     {
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
 
-        auto k1 = compute_write_key("password1", server_random);
-        auto k2 = compute_write_key("password2", server_random);
+        auto k1 = compute_write_key("password1", ServerRandom);
+        auto k2 = compute_write_key("password2", ServerRandom);
         EXPECT_NE(k1, k2) << "compute_write_key: different password -> different key";
     }
 
@@ -77,8 +77,8 @@ namespace
 
     TEST(ShadowtlsTransportPure, ComputeWriteKeyEmptyPassword)
     {
-        std::array<std::byte, 32> server_random{};
-        auto key = compute_write_key("", server_random);
+        std::array<std::byte, 32> ServerRandom{};
+        auto key = compute_write_key("", ServerRandom);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: empty password -> size=32";
         // 非全零
         bool all_zero = true;
@@ -102,13 +102,13 @@ namespace
     TEST(ShadowtlsTransportPure, ComputeWriteKeyLongPassword)
     {
         std::string long_pw(256, 'A');
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            server_random[i] = std::byte{i};
+            ServerRandom[i] = std::byte{i};
         }
 
-        auto key = compute_write_key(long_pw, server_random);
+        auto key = compute_write_key(long_pw, ServerRandom);
         EXPECT_EQ(key.size(), 32) << "compute_write_key: long password -> size=32";
     }
 

@@ -6,8 +6,8 @@
  * 2. 构造固定头 + 变长头（地址 + padding + 初始载荷）加密
  * 3. 发送 [salt][固定头密文][变长头密文]
  * 4. 读取响应固定头并校验类型字节（0x01）
- * 5. 隧道：AsyncReadSome 解密 chunk（上限 0x3FFF），
- *    AsyncWriteSome 分块加密发送；发送侧 Nonce 与握手衔接
+ * 5. 隧道：async_read_some 解密 chunk（上限 0x3FFF），
+ *    async_write_some 分块加密发送；发送侧 Nonce 与握手衔接
  * 6. UDP 数据面：AsyncSendDatagram / AsyncReceiveDatagram
  *    逐包 AEAD 编解码（Codec.hpp 纯函数），目标地址随包携带；
  *    数据报平面与隧道流平面互斥（同一会话二选一）
@@ -59,25 +59,26 @@ namespace Preview::Shadowsocks2022
     class Conn : public Preview::Transmission, public std::enable_shared_from_this<Conn<Memory>>
     {
     public:
-        /// 底层预读批量大小（多 chunk 共享一次 IOCP 往返）
-
         /**
          * @brief 构造函数
          * @param NextLayer 已建立连接的底层传输
          * @param cfg 客户端配置
          * @details 接管底层传输所有权，调用者不应再使用原指针。
          */
-        explicit Conn(std::string password) : psk_(DerivePsk(password))
+        explicit Conn(std::string password, std::uint64_t TimeWindow = 90)
+            : Psk_(DerivePsk(password)), TimeWindow_(TimeWindow)
         {
         }
 
         /**
          * @brief 构造函数（直接指定 16 字节 PSK）
          * @param psk 标准配置 PSK（base64 psk 解码后的原始字节）
+         * @param TimeWindow 时间戳容忍窗口（秒）
          * @details 与生产 Prism / sing-shadowsocks 配置一致：
          * 标准 SS2022 PSK 是 base64 解码后的原始字节，不走密码派生。
          */
-        explicit Conn(std::array<std::uint8_t, 16> psk) : psk_(psk)
+        explicit Conn(std::array<std::uint8_t, 16> psk, std::uint64_t TimeWindow = 90)
+            : Psk_(psk), TimeWindow_(TimeWindow)
         {
         }
 
@@ -88,7 +89,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -100,38 +101,38 @@ namespace Preview::Shadowsocks2022
          * 明文缓冲拷贝给调用方。
          * @warning 未握手或已结束时返回 0 并置 ec；与数据报模式互斥
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            if (eof_)
+            if (Eof_)
             {
                 ec.clear();
                 co_return 0;
             }
             while (PlainOff_ >= PlainRx_.size())
             {
-                const auto err = co_await ReadChunk();
-                if (err != Error::none)
+                const auto Err = co_await ReadChunk();
+                if (Err != Error::None)
                 {
-                    ec = make_error_code(err);
+                    ec = make_error_code(Err);
                     co_return 0;
                 }
-                if (eof_)
+                if (Eof_)
                 {
                     ec.clear();
                     co_return 0;
                 }
             }
-            const auto n = std::min(Buffer.size(), PlainRx_.size() - PlainOff_);
-            std::memcpy(Buffer.data(), PlainRx_.data() + PlainOff_, n);
-            PlainOff_ += n;
+            const auto N = std::min(Buffer.size(), PlainRx_.size() - PlainOff_);
+            std::memcpy(Buffer.data(), PlainRx_.data() + PlainOff_, N);
+            PlainOff_ += N;
             ec.clear();
-            co_return n;
+            co_return N;
         }
 
         /**
@@ -142,12 +143,12 @@ namespace Preview::Shadowsocks2022
          * @details SS2022 chunk 上限 0x3FFF：超过时按块分片加密发送。
          * @warning 未握手时返回 0 并置 ec；与数据报模式互斥
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t>
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
             if (Buffer.empty())
@@ -157,22 +158,22 @@ namespace Preview::Shadowsocks2022
             }
             std::size_t Done = 0;
             // 循环外复用加密缓冲（消除每块堆分配）；16KB+ 走线程局部池（分级分配）
-            auto out = mem_.template MakeBuffer<std::uint8_t>(ss::MaxChunkSize + 2 * ss::AeadTagLen + 2);
+            auto Out = Mem_.template MakeBuffer<std::uint8_t>(ss::MaxChunkSize + 2 * ss::AeadTagLen + 2);
             while (Done < Buffer.size())
             {
-                const auto n = std::min(static_cast<std::size_t>(ss::MaxChunkSize), Buffer.size() - Done);
-                const auto enc = enc_->Seal(AsU8(Buffer.subspan(Done, n)), out);
-                if (enc == 0)
+                const auto N = std::min(static_cast<std::size_t>(ss::MaxChunkSize), Buffer.size() - Done);
+                const auto Enc = Enc_->Seal(AsU8(Buffer.subspan(Done, N)), Out);
+                if (Enc == 0)
                 {
-                    ec = make_error_code(Error::bad_length);
+                    ec = make_error_code(Error::BadLength);
                     co_return 0;
                 }
-                if (co_await SendBytes(std::span<const std::uint8_t>(out.data(), enc)))
+                if (co_await SendBytes(std::span<const std::uint8_t>(Out.data(), Enc)))
                 {
-                    ec = make_error_code(Error::io_error);
+                    ec = make_error_code(Error::IoError);
                     co_return 0;
                 }
-                Done += n;
+                Done += N;
             }
             ec.clear();
             co_return Buffer.size();
@@ -184,9 +185,9 @@ namespace Preview::Shadowsocks2022
          */
         void Close() override
         {
-            if (next_layer_)
+            if (NextLayer_)
             {
-                next_layer_->Close();
+                NextLayer_->Close();
             }
         }
 
@@ -196,9 +197,9 @@ namespace Preview::Shadowsocks2022
          */
         void Cancel() override
         {
-            if (next_layer_)
+            if (NextLayer_)
             {
-                next_layer_->Cancel();
+                NextLayer_->Cancel();
             }
         }
 
@@ -208,7 +209,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -217,7 +218,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -226,7 +227,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
         /**
          * @brief 会话是否有效（已握手且底层存在）
@@ -234,7 +235,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto IsValid() const noexcept -> bool
         {
-            return next_layer_ != nullptr && handshaken_;
+            return NextLayer_ != nullptr && Handshaken_;
         }
 
         /**
@@ -243,7 +244,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Underlying() noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
         /**
@@ -253,7 +254,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Arena() noexcept -> Preview::Memory::ResourcePointer
         {
-            return mem_.Arena();
+            return Mem_.Arena();
         }
 
         /**
@@ -262,18 +263,18 @@ namespace Preview::Shadowsocks2022
          * @return 错误码
          * @details 构造并发送首包，读取响应固定头校验类型字节，
          * 保存会话密钥（UDP 数据面复用）。
-         * @warning 调用前必须确保 next_layer_ 已建立连接
+         * @warning 调用前必须确保 NextLayer_ 已建立连接
          */
         [[nodiscard]] auto WriteHandshake(SharedTransmission upstream, const ss::Address &Target)
             -> net::awaitable<Error>
         {
-            next_layer_ = std::move(upstream);
+            NextLayer_ = std::move(upstream);
             // 1. 生成随机盐并派生会话密钥
             // @note 盐必须 CSPRNG：MinGW 的 std::random_device 存在确定性序列风险，
             //       盐重复 = 跨会话 keystream 重用（与生产 RAND_bytes 口径一致）
             std::array<std::uint8_t, 16> salt{};
             RAND_bytes(salt.data(), static_cast<int>(salt.size()));
-            const auto key = ss::SessionKey(psk_, salt, 16);
+            const auto key = ss::SessionKey(Psk_, salt, 16);
 
             // 2. 构造固定头 + 变长头（地址 + padding + 初始载荷）
             std::random_device rd; // padding 长度非密码学用途，random_device 足够
@@ -297,75 +298,75 @@ namespace Preview::Shadowsocks2022
             wire.insert(wire.end(), VarEnc.begin(), VarEnc.end());
             if (co_await SendBytes(wire))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
 
             // 4. 读取标准响应：Server salt(16) + 裸块固定头（27B 明文 + 16B tag）
-            std::array<std::uint8_t, 16> server_salt{};
-            if (co_await RecvExact(std::span<std::uint8_t>(server_salt)))
+            std::array<std::uint8_t, 16> ServerSalt{};
+            if (co_await RecvExact(std::span<std::uint8_t>(ServerSalt)))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            const auto RespKey = ss::SessionKey(psk_, server_salt, 16);
-            ss::ChunkCodec resp_codec(RespKey);
+            const auto RespKey = ss::SessionKey(Psk_, ServerSalt, 16);
+            ss::ChunkCodec RespCodec(RespKey);
             std::array<std::uint8_t, ss::RespFixedHdrSize> RespEnc{};
             if (co_await RecvExact(std::span<std::uint8_t>(RespEnc)))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            const auto RespPlain = resp_codec.OpenRaw(RespEnc);
+            const auto RespPlain = RespCodec.OpenRaw(RespEnc);
             if (RespPlain.size() != ss::RespFixedHdrPlain ||
                 RespPlain[0] != ss::HeaderTypeServer)
             {
-                co_return Error::bad_auth;
+                co_return Error::BadAuth;
             }
             // 校验 requestSalt 回显
             if (std::memcmp(RespPlain.data() + 9, salt.data(), 16) != 0)
             {
-                co_return Error::bad_auth;
+                co_return Error::BadAuth;
             }
             // 响应初始载荷（若有）：裸块，缓存为数据面首个读块
             const auto RespPayloadLen =
                 static_cast<std::size_t>(RespPlain[25]) << 8 | RespPlain[26];
             if (RespPayloadLen > 0)
             {
-                typename std::template Buffer<std::uint8_t> PayloadEnc =
-                    mem_.template MakeBuffer<std::uint8_t>(RespPayloadLen + ss::AeadTagLen);
+                typename Memory::template Buffer<std::uint8_t> PayloadEnc =
+                    Mem_.template MakeBuffer<std::uint8_t>(RespPayloadLen + ss::AeadTagLen);
                 if (co_await RecvExact(PayloadEnc))
                 {
-                    co_return Error::io_error;
+                    co_return Error::IoError;
                 }
-                auto payload = resp_codec.OpenRaw(PayloadEnc);
-                if (payload.empty())
+                auto Payload = RespCodec.OpenRaw(PayloadEnc);
+                if (Payload.empty())
                 {
-                    co_return Error::bad_auth;
+                    co_return Error::BadAuth;
                 }
-                PlainRx_.assign(payload.begin(), payload.end());
+                PlainRx_.assign(Payload.begin(), Payload.end());
                 PlainOff_ = 0;
             }
             else
             {
                 // 标准响应固定头后总是跟一个 AEAD 块（SIP022 读响应流程）：
                 // payloadLen=0 时为 16B 空块（Seal(0B)），必须消费以保持数据面 chunk 对齐
-                std::array<std::uint8_t, ss::AeadTagLen> empty_block{};
-                if (co_await RecvExact(std::span<std::uint8_t>(empty_block)))
+                std::array<std::uint8_t, ss::AeadTagLen> EmptyBlock{};
+                if (co_await RecvExact(std::span<std::uint8_t>(EmptyBlock)))
                 {
-                    co_return Error::io_error;
+                    co_return Error::IoError;
                 }
                 std::vector<std::uint8_t> EmptyPlain;
-                if (!resp_codec.OpenRaw(empty_block, EmptyPlain))
+                if (!RespCodec.OpenRaw(EmptyBlock, EmptyPlain))
                 {
-                    co_return Error::bad_auth;
+                    co_return Error::BadAuth;
                 }
             }
 
             // 5. 初始化编解码器：发送侧 Nonce 已推进到数据块起始，
             //    接收侧响应已消耗 Nonce 0-1
-            enc_.emplace(std::move(Codec));
-            dec_.emplace(std::move(resp_codec));
-            std::memcpy(session_key_.data(), key.data(), 16);
-            handshaken_ = true;
-            co_return Error::none;
+            Enc_.emplace(std::move(Codec));
+            Dec_.emplace(std::move(RespCodec));
+            std::memcpy(SessionKey_.data(), key.data(), 16);
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
@@ -380,23 +381,23 @@ namespace Preview::Shadowsocks2022
          * 同一会话不可混用
          */
         [[nodiscard]] auto AsyncSendDatagram(const ss::Address &Target,
-                                               std::span<const std::uint8_t> payload) -> net::awaitable<Error>
+                                               std::span<const std::uint8_t> Payload) -> net::awaitable<Error>
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                co_return Error::not_open;
+                co_return Error::NotOpen;
             }
-            const auto packet =
-                ss::BuildUdpPacket(ss::UdpBuildInput{session_key_, ++UdpPktId_, &Target, payload});
-            if (packet.empty())
+            const auto Packet =
+                ss::BuildUdpPacket(ss::UdpBuildInput{SessionKey_, ++UdpPktId_, &Target, Payload});
+            if (Packet.empty())
             {
-                co_return Error::bad_length;
+                co_return Error::BadLength;
             }
-            if (co_await SendBytes(packet))
+            if (co_await SendBytes(Packet))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
@@ -411,37 +412,37 @@ namespace Preview::Shadowsocks2022
          * @warning 仅在握手成功后调用；数据报模式与流式模式互斥，
          * 同一会话不可混用
          */
-        [[nodiscard]] auto AsyncReceiveDatagram(ss::Address &Target, std::vector<std::uint8_t> &payload)
+        [[nodiscard]] auto AsyncReceiveDatagram(ss::Address &Target, std::vector<std::uint8_t> &Payload)
             -> net::awaitable<Error>
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                co_return Error::not_open;
+                co_return Error::NotOpen;
             }
 
             // 1. SeparateHeader（16B 明文）：SessionID + PacketID
             std::array<std::uint8_t, ss::SeparateHdrLen> separate{};
             if (co_await UdpReadExact(std::span<std::uint8_t>(separate)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
 
             // 2. 明文 Type + Timestamp
             std::array<std::uint8_t, 1 + ss::UdpTsLen> head{};
             if (co_await UdpReadExact(std::span<std::uint8_t>(head)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             if (head[0] != ss::UdpType)
             {
-                co_return Error::bad_message;
+                co_return Error::BadMessage;
             }
 
             // 3. ATYP + 地址体 + PORT（明文，可精确分段）
             std::array<std::uint8_t, 1> atyp{};
             if (co_await UdpReadExact(std::span<std::uint8_t>(atyp)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             const auto AtypType = static_cast<ss::AddressType>(atyp[0]);
             std::size_t AddrLen = 0;
@@ -459,24 +460,24 @@ namespace Preview::Shadowsocks2022
                 std::array<std::uint8_t, 1> dlen{};
                 if (co_await UdpReadExact(std::span<std::uint8_t>(dlen)))
                 {
-                    co_return Error::unexpected_eof;
+                    co_return Error::UnexpectedEof;
                 }
                 DomainLen = dlen[0];
                 AddrLen = dlen[0];
             }
             else
             {
-                co_return Error::bad_message;
+                co_return Error::BadMessage;
             }
-            std::vector<std::uint8_t> addr_body(AddrLen);
-            if (co_await UdpReadExact(addr_body))
+            std::vector<std::uint8_t> AddrBody(AddrLen);
+            if (co_await UdpReadExact(AddrBody))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             std::array<std::uint8_t, 2> port{};
             if (co_await UdpReadExact(std::span<std::uint8_t>(port)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
 
             // 4. 剩余密文 + tag：从预读缓冲取（不足再读底层）
@@ -491,30 +492,30 @@ namespace Preview::Shadowsocks2022
             {
                 std::array<std::uint8_t, 512> chunk{};
                 std::error_code ec;
-                const auto n =
-                    co_await next_layer_->AsyncReadSome(AsBytes(std::span<std::uint8_t>(chunk)), ec);
-                if (ec || n == 0)
+                const auto N =
+                    co_await NextLayer_->async_read_some(AsBytes(std::span<std::uint8_t>(chunk)), ec);
+                if (ec || N == 0)
                 {
-                    co_return Error::unexpected_eof;
+                    co_return Error::UnexpectedEof;
                 }
-                UdpRx_.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
+                UdpRx_.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
             }
-            const auto n = UdpRx_.size();
+            const auto N = UdpRx_.size();
 
             // 5. 组装完整数据报并解析（解密 + 校验）
-            std::vector<std::uint8_t> packet;
-            packet.reserve(ss::SeparateHdrLen + head.size() + 1 + addr_body.size() + 2 + n);
-            packet.insert(packet.end(), separate.begin(), separate.end());
-            packet.insert(packet.end(), head.begin(), head.end());
-            packet.insert(packet.end(), atyp.begin(), atyp.end());
+            std::vector<std::uint8_t> Packet;
+            Packet.reserve(ss::SeparateHdrLen + head.size() + 1 + AddrBody.size() + 2 + N);
+            Packet.insert(Packet.end(), separate.begin(), separate.end());
+            Packet.insert(Packet.end(), head.begin(), head.end());
+            Packet.insert(Packet.end(), atyp.begin(), atyp.end());
             if (DomainLen > 0)
             {
-                packet.push_back(DomainLen);
+                Packet.push_back(DomainLen);
             }
-            packet.insert(packet.end(), addr_body.begin(), addr_body.end());
-            packet.insert(packet.end(), port.begin(), port.end());
-            packet.insert(packet.end(), UdpRx_.begin(), UdpRx_.begin() + static_cast<std::ptrdiff_t>(n));
-            co_return ss::ParseUdpPacket(ss::UdpParseInput{session_key_, packet, &Target, &payload});
+            Packet.insert(Packet.end(), AddrBody.begin(), AddrBody.end());
+            Packet.insert(Packet.end(), port.begin(), port.end());
+            Packet.insert(Packet.end(), UdpRx_.begin(), UdpRx_.begin() + static_cast<std::ptrdiff_t>(N));
+            co_return ss::ParseUdpPacket(ss::UdpParseInput{SessionKey_, Packet, &Target, &Payload});
         }
 
         /**
@@ -527,22 +528,22 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] auto ReadHandshake(SharedTransmission upstream)
             -> net::awaitable<std::pair<Error, ss::Message>>
         {
-            next_layer_ = std::move(upstream);
+            NextLayer_ = std::move(upstream);
             ss::Message Parsed;
-            auto err = co_await ReadRequest(Parsed);
-            if (err != Error::none)
+            auto Err = co_await ReadRequest(Parsed);
+            if (Err != Error::None)
             {
-                co_return std::pair{err, ss::Message{}};
+                co_return std::pair{Err, ss::Message{}};
             }
 
-            err = co_await SendSuccess();
-            if (err != Error::none)
+            Err = co_await SendSuccess();
+            if (Err != Error::None)
             {
-                co_return std::pair{err, ss::Message{}};
+                co_return std::pair{Err, ss::Message{}};
             }
-            handshaken_ = true;
-            parsed_ = Parsed;
-            co_return std::pair{Error::none, std::move(Parsed)};
+            Handshaken_ = true;
+            Parsed_ = Parsed;
+            co_return std::pair{Error::None, std::move(Parsed)};
         }
 
         /**
@@ -551,7 +552,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Parsed() const -> const ss::Message &
         {
-            return parsed_;
+            return Parsed_;
         }
 
         /**
@@ -573,8 +574,8 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] static auto DerivePsk(std::string_view password) -> std::array<std::uint8_t, 16>
         {
             std::array<std::uint8_t, 32> Hash{};
-            unsigned int len = 0;
-            EVP_Digest(password.data(), password.size(), Hash.data(), &len, EVP_sha256(), nullptr);
+            unsigned int Len = 0;
+            EVP_Digest(password.data(), password.size(), Hash.data(), &Len, EVP_sha256(), nullptr);
             std::array<std::uint8_t, 16> psk{};
             std::memcpy(psk.data(), Hash.data(), 16);
             return psk;
@@ -582,7 +583,7 @@ namespace Preview::Shadowsocks2022
 
         /**
          * @brief 读取并解密一个数据分块（内部循环补读）
-         * @return 错误码；none 且 eof_ = 结束块
+         * @return 错误码；none 且 Eof_ = 结束块
          * @details 块格式：[2B 长度密文 + 16B tag][载荷密文 + 16B tag]。
          * 解密失败（tag 校验）返回 bad_auth。
          */
@@ -592,36 +593,36 @@ namespace Preview::Shadowsocks2022
             std::array<std::uint8_t, ss::LenBlockSize> head{};
             if (co_await RecvExact(std::span<std::uint8_t>(head)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
 
             // 2. 解密长度字段
-            auto len = dec_->OpenLen(head);
-            if (!len)
+            auto Len = Dec_->OpenLen(head);
+            if (!Len)
             {
-                co_return Error::bad_auth;
+                co_return Error::BadAuth;
             }
-            if (*len == 0) // 结束块
+            if (*Len == 0) // 结束块
             {
-                eof_ = true;
-                co_return Error::none;
+                Eof_ = true;
+                co_return Error::None;
             }
 
             // 3. 读取载荷密文（len + 16 tag）并解密
-            typename std::template Buffer<std::uint8_t> enc =
-                mem_.template MakeBuffer<std::uint8_t>(*len + ss::AeadTagLen);
-            if (co_await RecvExact(enc))
+            typename Memory::template Buffer<std::uint8_t> Enc =
+                Mem_.template MakeBuffer<std::uint8_t>(*Len + ss::AeadTagLen);
+            if (co_await RecvExact(Enc))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             // 解密直接写入 PlainRx_（消除临时 vector + 拷贝）
-            PlainRx_.resize(*len);
-            if (dec_->OpenPayload(enc, PlainRx_) == 0)
+            PlainRx_.resize(*Len);
+            if (Dec_->OpenPayload(Enc, PlainRx_) == 0)
             {
-                co_return Error::bad_auth;
+                co_return Error::BadAuth;
             }
             PlainOff_ = 0;
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
@@ -638,33 +639,33 @@ namespace Preview::Shadowsocks2022
             // 标准响应：Server salt(16) + 裸块固定头（Type + ts + requestSalt + payloadLen=0）
             // @note 盐必须 CSPRNG：MinGW 的 std::random_device 存在确定性序列风险，
             //       盐重复 = 跨会话 keystream 重用（与生产 RAND_bytes 口径一致）
-            std::array<std::uint8_t, 16> server_salt{};
-            RAND_bytes(server_salt.data(), static_cast<int>(server_salt.size()));
-            const auto RespKey = ss::SessionKey(this->psk_, server_salt, 16);
+            std::array<std::uint8_t, 16> ServerSalt{};
+            RAND_bytes(ServerSalt.data(), static_cast<int>(ServerSalt.size()));
+            const auto RespKey = ss::SessionKey(this->Psk_, ServerSalt, 16);
             std::array<std::uint8_t, ss::RespFixedHdrPlain> RespPlain{};
             RespPlain[0] = ss::HeaderTypeServer;
-            for (std::size_t i = 0; i < 8; ++i)
+            for (std::size_t I = 0; I < 8; ++I)
             {
-                RespPlain[1 + i] =
-                    static_cast<std::uint8_t>((TimeSec >> (56 - static_cast<unsigned>(i) * 8)) & 0xFF);
+                RespPlain[1 + I] =
+                    static_cast<std::uint8_t>((TimeSec >> (56 - static_cast<unsigned>(I) * 8)) & 0xFF);
             }
-            std::memcpy(RespPlain.data() + 9, this->client_salt_.data(), 16);
-            ss::ChunkCodec resp_codec(RespKey);
-            const auto RespEnc = resp_codec.SealRaw(RespPlain);
+            std::memcpy(RespPlain.data() + 9, this->ClientSalt_.data(), 16);
+            ss::ChunkCodec RespCodec(RespKey);
+            const auto RespEnc = RespCodec.SealRaw(RespPlain);
             // 标准读响应流程要求固定头后总是跟一个 AEAD 块：payloadLen=0 时为空块（16B）
             // 与 Prism / mihomo / sing readResponse（ReadWithLength(0) 读 0+16B）一致
-            const auto EmptyEnc = resp_codec.SealRaw({});
+            const auto EmptyEnc = RespCodec.SealRaw({});
             std::vector<std::uint8_t> wire;
-            wire.reserve(server_salt.size() + RespEnc.size() + EmptyEnc.size());
-            wire.insert(wire.end(), server_salt.begin(), server_salt.end());
+            wire.reserve(ServerSalt.size() + RespEnc.size() + EmptyEnc.size());
+            wire.insert(wire.end(), ServerSalt.begin(), ServerSalt.end());
             wire.insert(wire.end(), RespEnc.begin(), RespEnc.end());
             wire.insert(wire.end(), EmptyEnc.begin(), EmptyEnc.end());
             if (co_await SendBytes(wire))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            enc_.emplace(std::move(resp_codec));
-            co_return Error::none;
+            Enc_.emplace(std::move(RespCodec));
+            co_return Error::None;
         }
 
         /**
@@ -675,58 +676,58 @@ namespace Preview::Shadowsocks2022
          * 类型/时间窗校验 → 变长头解密 + 地址解析。接收侧编解码器
          * 保留（Nonce 与数据流衔接）。
          */
-        [[nodiscard]] auto ReadRequest(ss::Message &out) -> net::awaitable<Error>
+        [[nodiscard]] auto ReadRequest(ss::Message &Out) -> net::awaitable<Error>
         {
             // 1. 读取 salt（16 字节）
             std::array<std::uint8_t, 16> salt{};
             if (co_await RecvExact(std::span<std::uint8_t>(salt)))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
 
             // 2. 派生会话密钥
-            std::memcpy(this->client_salt_.data(), salt.data(), 16);
-            const auto key = ss::SessionKey(this->psk_, salt, 16);
+            std::memcpy(this->ClientSalt_.data(), salt.data(), 16);
+            const auto key = ss::SessionKey(this->Psk_, salt, 16);
 
             // 3. 读取并解密裸块固定头（27B：11B 明文 + 16B tag）
             std::array<std::uint8_t, ss::FixedHdrSize> FixedEnc{};
             if (co_await RecvExact(std::span<std::uint8_t>(FixedEnc)))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
             ss::ChunkCodec Codec(key);
             const auto FixedPlain = Codec.OpenRaw(FixedEnc);
             if (FixedPlain.size() != ss::FixedHdrPlain)
             {
-                co_return Error::bad_auth;
+                co_return Error::BadAuth;
             }
             if (FixedPlain[0] != ss::HeaderTypeClient)
             {
-                co_return Error::bad_auth;
+                co_return Error::BadAuth;
             }
 
             // 4. 时间戳校验（容忍窗口）
-            std::uint64_t ts = 0;
-            for (std::size_t i = 0; i < 8; ++i)
+            std::uint64_t Ts = 0;
+            for (std::size_t I = 0; I < 8; ++I)
             {
-                ts = (ts << 8) | FixedPlain[1 + i];
+                Ts = (Ts << 8) | FixedPlain[1 + I];
             }
-            const auto now =
+            const auto Now =
                 static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
                                                std::chrono::system_clock::now().time_since_epoch())
                                                .count());
             std::uint64_t diff;
-            if (now > ts)
+            if (Now > Ts)
             {
-                diff = now - ts;
+                diff = Now - Ts;
             }
             else
             {
-                diff = ts - now;
+                diff = Ts - Now;
             }
-            if (diff > 90)
+            if (diff > TimeWindow_)
             {
-                co_return Error::bad_auth;
+                co_return Error::BadAuth;
             }
             const auto VarLen = static_cast<std::size_t>(FixedPlain[9]) << 8 | FixedPlain[10];
 
@@ -734,27 +735,27 @@ namespace Preview::Shadowsocks2022
             std::vector<std::uint8_t> VarEnc(VarLen + ss::AeadTagLen);
             if (co_await RecvExact(VarEnc))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
             const auto VarPlain = Codec.OpenRaw(VarEnc);
             if (VarPlain.empty())
             {
-                co_return Error::bad_auth;
+                co_return Error::BadAuth;
             }
-            std::span<const std::uint8_t> payload;
-            if (ss::ParseVarHeader(VarPlain, out.dst, payload) != Error::none)
+            std::span<const std::uint8_t> Payload;
+            if (ss::ParseVarHeader(VarPlain, Out.dst, Payload) != Error::None)
             {
-                co_return Error::bad_address;
+                co_return Error::BadAddress;
             }
-            if (!payload.empty())
+            if (!Payload.empty())
             {
-                out.InitialPayload.assign(reinterpret_cast<const char *>(payload.data()), payload.size());
+                Out.InitialPayload.assign(reinterpret_cast<const char *>(Payload.data()), Payload.size());
             }
 
             // 6. 保存会话密钥与接收侧编解码器（Nonce 已推进到数据块起始）
-            std::memcpy(session_key_.data(), key.data(), 16);
-            dec_.emplace(std::move(Codec));
-            co_return Error::none;
+            std::memcpy(SessionKey_.data(), key.data(), 16);
+            Dec_.emplace(std::move(Codec));
+            co_return Error::None;
         }
 
         [[nodiscard]] auto RecvExact(std::span<std::uint8_t> buf) -> net::awaitable<bool>
@@ -763,12 +764,12 @@ namespace Preview::Shadowsocks2022
             while (Done < buf.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(AsBytes(buf.subspan(Done)), ec);
-                if (ec || n == 0)
+                const auto N = co_await NextLayer_->async_read_some(AsBytes(buf.subspan(Done)), ec);
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
@@ -787,32 +788,32 @@ namespace Preview::Shadowsocks2022
             {
                 if (UdpUsed_ > 0)
                 {
-                    const auto n = std::min(buf.size() - Done, UdpUsed_);
-                    std::memcpy(buf.data() + Done, UdpBuf_.data(), n);
-                    if (n < UdpUsed_)
+                    const auto N = std::min(buf.size() - Done, UdpUsed_);
+                    std::memcpy(buf.data() + Done, UdpBuf_.data(), N);
+                    if (N < UdpUsed_)
                     {
-                        std::memmove(UdpBuf_.data(), UdpBuf_.data() + n, UdpUsed_ - n);
-                        UdpUsed_ -= n;
+                        std::memmove(UdpBuf_.data(), UdpBuf_.data() + N, UdpUsed_ - N);
+                        UdpUsed_ -= N;
                     }
                     else
                     {
                         UdpBuf_.clear();
                         UdpUsed_ = 0;
                     }
-                    Done += n;
+                    Done += N;
                     continue;
                 }
                 std::array<std::uint8_t, 512> chunk{};
                 std::error_code ec;
-                const auto n =
-                    co_await next_layer_->AsyncReadSome(AsBytes(std::span<std::uint8_t>(chunk)), ec);
-                if (ec || n == 0)
+                const auto N =
+                    co_await NextLayer_->async_read_some(AsBytes(std::span<std::uint8_t>(chunk)), ec);
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
                 UdpBuf_.insert(UdpBuf_.end(), chunk.begin(),
-                                chunk.begin() + static_cast<std::ptrdiff_t>(n));
-                UdpUsed_ += n;
+                                chunk.begin() + static_cast<std::ptrdiff_t>(N));
+                UdpUsed_ += N;
             }
             co_return false;
         }
@@ -828,33 +829,38 @@ namespace Preview::Shadowsocks2022
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(AsBytes(Data.subspan(Done)), ec);
+                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
                 if (ec)
                 {
                     co_return true;
                 }
-                Done += n;
+                if (N == 0)
+                {
+                    co_return true; // 底层零字节写入，防死循环
+                }
+                Done += N;
             }
             co_return false;
         }
 
-        SharedTransmission next_layer_; ///< 底层传输（独占所有权）
+        SharedTransmission NextLayer_; ///< 底层传输（独占所有权）
 
-        std::array<std::uint8_t, 16> psk_{};         ///< 预派生 PSK
-        std::array<std::uint8_t, 16> session_key_{}; ///< 会话密钥（握手后）
-        std::array<std::uint8_t, 16> client_salt_{}; ///< 服务端：客户端握手盐（响应 requestSalt 回显）
-        ss::Message parsed_{};                       ///< 服务端握手解析结果
-        std::optional<ss::ChunkCodec> enc_;         ///< 发送侧编解码器
-        std::optional<ss::ChunkCodec> dec_;         ///< 接收侧编解码器
-        Memory mem_;                                 ///< 会话内存策略（Arena，热路径零释放分配）
-        typename std::template Buffer<std::uint8_t> PlainRx_{mem_.Arena()}; ///< 解密后明文缓冲
+        std::array<std::uint8_t, 16> Psk_{};         ///< 预派生 PSK
+        std::uint64_t TimeWindow_{90};               ///< 时间戳容忍窗口（秒，服务端校验用）
+        std::array<std::uint8_t, 16> SessionKey_{}; ///< 会话密钥（握手后）
+        std::array<std::uint8_t, 16> ClientSalt_{}; ///< 服务端：客户端握手盐（响应 requestSalt 回显）
+        ss::Message Parsed_{};                       ///< 服务端握手解析结果
+        std::optional<ss::ChunkCodec> Enc_;         ///< 发送侧编解码器
+        std::optional<ss::ChunkCodec> Dec_;         ///< 接收侧编解码器
+        Memory Mem_;                                 ///< 会话内存策略（Arena，热路径零释放分配）
+        typename Memory::template Buffer<std::uint8_t> PlainRx_{Mem_.Arena()}; ///< 解密后明文缓冲
         std::size_t PlainOff_{0};                   ///< 明文缓冲消费偏移
-        typename std::template Buffer<std::uint8_t> UdpRx_{mem_.Arena()};   ///< UDP 数据报暂存缓冲
+        typename Memory::template Buffer<std::uint8_t> UdpRx_{Mem_.Arena()};   ///< UDP 数据报暂存缓冲
         std::uint64_t UdpPktId_{0};                ///< UDP 数据报递增包序号
-        typename std::template Buffer<std::uint8_t> UdpBuf_{mem_.Arena()};  ///< UDP 预读缓冲
+        typename Memory::template Buffer<std::uint8_t> UdpBuf_{Mem_.Arena()};  ///< UDP 预读缓冲
         std::size_t UdpUsed_{0};                    ///< UDP 缓冲有效字节数
-        bool handshaken_{false};                     ///< 握手完成标志
-        bool eof_{false};                            ///< 已读到结束块 / 对端关闭
+        bool Handshaken_{false};                     ///< 握手完成标志
+        bool Eof_{false};                            ///< 已读到结束块 / 对端关闭
     };
 
 

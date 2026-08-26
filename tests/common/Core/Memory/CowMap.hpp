@@ -38,7 +38,7 @@ namespace Preview::Memory
          */
         CowMap()
         {
-            map_.store(std::make_shared<const MapT>());
+            Map_.store(std::make_shared<const MapT>());
         }
 
         /**
@@ -47,7 +47,7 @@ namespace Preview::Memory
          */
         [[nodiscard]] auto Snapshot() const noexcept -> std::shared_ptr<const MapT>
         {
-            return map_.load(std::memory_order_acquire);
+            return Map_.load(std::memory_order_acquire);
         }
 
         /**
@@ -57,13 +57,13 @@ namespace Preview::Memory
          */
         [[nodiscard]] auto Find(const Key &key, Value &out) const -> bool
         {
-            const auto snap = Snapshot();
-            const auto it = snap->find(key);
-            if (it == snap->end())
+            const auto Snap = Snapshot();
+            const auto It = Snap->find(key);
+            if (It == Snap->end())
             {
                 return false;
             }
-            out = it->second;
+            out = It->second;
             return true;
         }
 
@@ -72,9 +72,10 @@ namespace Preview::Memory
          * @param key 键
          * @param value 值
          */
-        void set(const Key &key, Value value)
+        void Set(const Key &key, Value value)
         {
-            Update([&](MapT &m) { m[key] = std::move(value); });
+            // CAS 失败重试会再次执行 UpdateFn，value 必须保持可拷贝语义
+            Update([&](MapT &m) { m[key] = value; });
         }
 
         /**
@@ -84,26 +85,26 @@ namespace Preview::Memory
          */
         auto Remove(const Key &key) -> bool
         {
-            bool removed = false;
-            Update([&](MapT &m) { removed = m.erase(key) > 0; });
-            return removed;
+            bool Removed = false;
+            Update([&](MapT &m) { Removed = m.erase(key) > 0; });
+            return Removed;
         }
 
         /**
          * @brief 写时复制更新
          * @tparam UpdateFn 更新函数（接收可变 MapT&）
-         * @param update_fn 更新操作
+         * @param UpdateFn 更新操作
          * @details 复制当前快照 → 应用更新 → CAS 替换，失败重试
          */
         template <typename UpdateFn>
-        void Update(UpdateFn &&update_fn)
+        void Update(UpdateFn &&Fn)
         {
-            auto current = map_.load(std::memory_order_acquire);
+            auto Current = Map_.load(std::memory_order_acquire);
             while (true)
             {
-                auto next = std::make_shared<MapT>(*current);
-                update_fn(*next);
-                if (map_.compare_exchange_strong(current, next, std::memory_order_release,
+                auto Next = std::make_shared<MapT>(*Current);
+                Fn(*Next);
+                if (Map_.compare_exchange_strong(Current, Next, std::memory_order_release,
                                                  std::memory_order_acquire))
                 {
                     return;
@@ -124,11 +125,11 @@ namespace Preview::Memory
          */
         void Clear()
         {
-            map_.store(std::make_shared<const MapT>(), std::memory_order_release);
+            Map_.store(std::make_shared<const MapT>(), std::memory_order_release);
         }
 
     private:
-        std::atomic<std::shared_ptr<const MapT>> map_; ///< 当前映射快照
+        std::atomic<std::shared_ptr<const MapT>> Map_; ///< 当前映射快照
     };
 
 } // namespace Preview::Memory

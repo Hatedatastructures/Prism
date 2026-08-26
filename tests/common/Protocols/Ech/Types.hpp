@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief ECH 伪装方案类型定义
  * @details 配置为空结构（ECH 密钥由调用方生成并注入 SSL 上下文）。
  */

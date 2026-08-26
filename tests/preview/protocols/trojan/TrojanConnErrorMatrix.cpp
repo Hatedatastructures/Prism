@@ -55,7 +55,7 @@ namespace
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::bad_auth);
+                EXPECT_EQ(err, Error::BadAuth);
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -64,7 +64,7 @@ namespace
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.insert(wire.end(), {'\r', '\n', 0x01, 0x01, 0x00, 0x50});
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
@@ -81,7 +81,7 @@ namespace
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::bad_magic); // 凭据后缺 CRLF
+                EXPECT_EQ(err, Error::BadMagic); // 凭据后缺 CRLF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -90,7 +90,7 @@ namespace
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.push_back(0x01);
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
@@ -107,7 +107,7 @@ namespace
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::bad_message); // 命令 0x99 不在白名单
+                EXPECT_EQ(err, Error::BadMessage); // 命令 0x99 不在白名单
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -115,7 +115,7 @@ namespace
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.insert(wire.end(), {'\r', '\n', 0x99, 0x01, 0x00, 0x50}); // 命令 0x99
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
@@ -132,7 +132,7 @@ namespace
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::bad_message); // ATYP=9 非法
+                EXPECT_EQ(err, Error::BadMessage); // ATYP=9 非法
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -140,7 +140,7 @@ namespace
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.insert(wire.end(), {'\r', '\n', 0x01, 0x09, 0x00, 0x50}); // ATYP=9
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
         });
     }
 
@@ -157,7 +157,7 @@ namespace
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::io_error); // 半包后 EOF
+                EXPECT_EQ(err, Error::IoError); // 半包后 EOF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -165,7 +165,7 @@ namespace
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
             wire.insert(wire.end(), {'\r', '\n', 0x01}); // 截断
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
             a.Close();
         });
     }

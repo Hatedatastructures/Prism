@@ -61,7 +61,7 @@ namespace
         const Preview::Account::DirectoryAuthenticator Auth(&dir);
         auto r = Auth.CheckDirectory("user", "unknown");
         EXPECT_FALSE(r.Ok);
-        EXPECT_EQ(r.reason, Preview::Account::AuthReason::not_found);
+        EXPECT_EQ(r.reason, Preview::Account::AuthReason::NotFound);
     }
 
     TEST(DirectoryAuthenticator, DisabledRejected)
@@ -114,25 +114,25 @@ namespace
         Preview::Middleware::Context ctx;
         ctx.RawIdentity = "user";
         ctx.RawSecret = "cred-a";
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code rc_ok = Preview::Fault::Code::success;
-        Preview::Fault::Code rc_bad = Preview::Fault::Code::success;
+        Preview::Fault::Code rc_ok = Preview::Fault::Code::Success;
+        Preview::Fault::Code rc_bad = Preview::Fault::Code::Success;
         std::exception_ptr ep;
         net::co_spawn(ioc,
                       [&]() -> net::awaitable<void>
                       {
-                          rc_ok = co_await mw.Handle(inbound, ctx);
+                          rc_ok = co_await mw.Handle(Inbound, ctx);
                           // 错误凭据 → auth_failed
                           ctx.RawSecret = "wrong";
-                          rc_bad = co_await mw.Handle(inbound, ctx);
+                          rc_bad = co_await mw.Handle(Inbound, ctx);
                       },
                       [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         ASSERT_FALSE(ep);
-        EXPECT_EQ(rc_ok, Preview::Fault::Code::success);
+        EXPECT_EQ(rc_ok, Preview::Fault::Code::Success);
         EXPECT_EQ(ctx.identity, "cred-a");
-        EXPECT_EQ(rc_bad, Preview::Fault::Code::auth_failed);
+        EXPECT_EQ(rc_bad, Preview::Fault::Code::AuthFailed);
     }
 
 } // namespace

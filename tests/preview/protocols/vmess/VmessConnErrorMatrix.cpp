@@ -62,14 +62,14 @@ namespace
             {
                 auto [err, req, Conn] = co_await Vmess::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Preview::Error::io_error); // 只发 4 字节后 EOF（len_enc 读不满）
+                EXPECT_EQ(err, Preview::Error::IoError); // 只发 4 字节后 EOF（len_enc 读不满）
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             // 只发 4 字节（半包）
             const std::vector<std::uint8_t> wire{0x01, 0x02, 0x03, 0x04};
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
             a.Close();
         });
     }

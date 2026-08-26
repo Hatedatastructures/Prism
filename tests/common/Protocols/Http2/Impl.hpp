@@ -1,5 +1,5 @@
 /**
- * @file impl.hpp
+ * @file Impl.hpp
  * @brief HTTP/2 会话实现（自包含，不依赖 nghttp2）
  * @details 实现 H2Session 接口：
  *          - Feed：字节流 → 帧解析 → 状态机分发（事件回调）
@@ -37,7 +37,7 @@ namespace Preview::Http2
      * @class SessionImpl
      * @brief HTTP/2 会话实现
      * @details 自包含 h2 会话：帧编解码 + 流管理 + HPACK。
-     *          事件经 on_headers/on_data/on_stream_close 回调发布。
+     *          事件经 OnHeaders/OnData/OnStreamClose 回调发布。
      */
     class SessionImpl final : public H2Session
     {
@@ -48,7 +48,7 @@ namespace Preview::Http2
          * @param IsServer 服务端视角（流 ID 奇偶：Server 偶数）
          */
         explicit SessionImpl(net::any_io_executor ex, bool IsServer)
-            : ex_(std::move(ex)), IsServer_(IsServer)
+            : Ex_(std::move(ex)), IsServer_(IsServer)
         {
         }
 
@@ -63,22 +63,22 @@ namespace Preview::Http2
             RxBuffer_.insert(RxBuffer_.end(), Data.begin(), Data.end());
             while (RxBuffer_.size() >= FrameHeaderSize)
             {
-                const auto h = ParseFrameHeader(std::span<const std::byte>(RxBuffer_.data(), RxBuffer_.size()));
-                if (!h)
+                const auto H = ParseFrameHeader(std::span<const std::byte>(RxBuffer_.data(), RxBuffer_.size()));
+                if (!H)
                 {
-                    ec = make_error_code(Error::need_more);
+                    ec = make_error_code(Error::NeedMore);
                     return false;
                 }
-                if (RxBuffer_.size() < FrameHeaderSize + h->length)
+                if (RxBuffer_.size() < FrameHeaderSize + H->length)
                 {
                     break; // 帧未完整
                 }
-                const auto payload = std::span<const std::byte>(
-                    RxBuffer_.data() + FrameHeaderSize, h->length);
-                const auto r = DispatchFrame(*h, payload, ec);
+                const auto Payload = std::span<const std::byte>(
+                    RxBuffer_.data() + FrameHeaderSize, H->length);
+                const auto R = DispatchFrame(*H, Payload, ec);
                 RxBuffer_.erase(RxBuffer_.begin(),
-                                 RxBuffer_.begin() + static_cast<std::ptrdiff_t>(FrameHeaderSize + h->length));
-                if (!r)
+                                 RxBuffer_.begin() + static_cast<std::ptrdiff_t>(FrameHeaderSize + H->length));
+                if (!R)
                 {
                     return false;
                 }
@@ -94,14 +94,14 @@ namespace Preview::Http2
          */
         [[nodiscard]] auto Collect(std::vector<std::byte> &out) -> bool override
         {
-            const auto had = !TxQueue_.empty();
+            const auto Had = !TxQueue_.empty();
             while (!TxQueue_.empty())
             {
                 auto &f = TxQueue_.front();
                 out.insert(out.end(), f.begin(), f.end());
                 TxQueue_.pop_front();
             }
-            return had;
+            return Had;
         }
 
         /**
@@ -110,7 +110,7 @@ namespace Preview::Http2
          * @param EndStream 是否立即结束流
          * @return 流 ID；<0 失败
          */
-        [[nodiscard]] auto OpenStream(const HeaderList &headers, bool EndStream) -> std::int32_t override
+        [[nodiscard]] auto OpenStream(const HeaderList &Headers, bool EndStream) -> std::int32_t override
         {
             if (IsServer_)
             {
@@ -121,7 +121,7 @@ namespace Preview::Http2
             {
                 return -1;
             }
-            SubmitHeadersFrame(Id, headers, EndStream);
+            SubmitHeadersFrame(Id, Headers, EndStream);
             return Id;
         }
 
@@ -132,10 +132,10 @@ namespace Preview::Http2
          * @param EndStream 是否结束流
          * @return 成功返回 0
          */
-        [[nodiscard]] auto SubmitHeaders(std::int32_t StreamId, const HeaderList &headers,
+        [[nodiscard]] auto SubmitHeaders(std::int32_t StreamId, const HeaderList &Headers,
                                           bool EndStream) -> std::int32_t override
         {
-            SubmitHeadersFrame(StreamId, headers, EndStream);
+            SubmitHeadersFrame(StreamId, Headers, EndStream);
             return 0;
         }
 
@@ -149,13 +149,13 @@ namespace Preview::Http2
         [[nodiscard]] auto SubmitData(std::int32_t StreamId, std::span<const std::byte> Data,
                                        bool EndStream) -> std::int32_t override
         {
-            std::vector<std::byte> payload(Data.begin(), Data.end());
+            std::vector<std::byte> Payload(Data.begin(), Data.end());
             std::uint8_t Flags = 0;
             if (EndStream)
             {
-                Flags |= flag_end_stream;
+                Flags |= FlagEndStream;
             }
-            TxQueue_.push_back(BuildFrame(FrameType::Data, Flags, StreamId, payload));
+            TxQueue_.push_back(BuildFrame(FrameType::Data, Flags, StreamId, Payload));
             return 0;
         }
 
@@ -168,9 +168,9 @@ namespace Preview::Http2
         [[nodiscard]] auto ResetStream(std::int32_t StreamId, std::uint32_t ErrorCode)
             -> std::int32_t override
         {
-            auto payload = EncodeRstStream(ErrorCode);
-            TxQueue_.push_back(BuildFrame(FrameType::rst_stream, flag_none, StreamId, payload));
-            streams_.erase(StreamId);
+            auto Payload = EncodeRstStream(ErrorCode);
+            TxQueue_.push_back(BuildFrame(FrameType::RstStream, FlagNone, StreamId, Payload));
+            Streams_.erase(StreamId);
             return 0;
         }
 
@@ -179,17 +179,17 @@ namespace Preview::Http2
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return ex_;
+            return Ex_;
         }
 
         /**
          * @brief 发送 SETTINGS（客户端握手时调用）
          * @param entries 参数列表
          */
-        void SendSettings(std::span<const SettingsEntry> entries = {})
+        void SendSettings(std::span<const SettingsEntry> Entries = {})
         {
-            auto payload = EncodeSettings(entries);
-            TxQueue_.push_back(BuildFrame(FrameType::settings, flag_none, ConnectionStreamId, payload));
+            auto Payload = EncodeSettings(Entries);
+            TxQueue_.push_back(BuildFrame(FrameType::Settings, FlagNone, ConnectionStreamId, Payload));
         }
 
         /**
@@ -198,8 +198,8 @@ namespace Preview::Http2
          */
         void SendPing(std::span<const std::byte, 8> opaque)
         {
-            std::vector<std::byte> payload(opaque.begin(), opaque.end());
-            TxQueue_.push_back(BuildFrame(FrameType::ping, flag_none, ConnectionStreamId, payload));
+            std::vector<std::byte> Payload(opaque.begin(), opaque.end());
+            TxQueue_.push_back(BuildFrame(FrameType::Ping, FlagNone, ConnectionStreamId, Payload));
         }
 
         /**
@@ -212,8 +212,8 @@ namespace Preview::Http2
             GoawayParams params;
             params.LastStreamId = LastStreamId;
             params.ErrorCode = ErrorCode;
-            auto payload = EncodeGoaway(params);
-            TxQueue_.push_back(BuildFrame(FrameType::goaway, flag_none, ConnectionStreamId, payload));
+            auto Payload = EncodeGoaway(params);
+            TxQueue_.push_back(BuildFrame(FrameType::Goaway, FlagNone, ConnectionStreamId, Payload));
         }
 
     private:
@@ -225,13 +225,13 @@ namespace Preview::Http2
             std::vector<std::byte> RxPending; ///< 未交付的接收缓冲（DATA 累积）
         };
 
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
         bool IsServer_{false};
         std::vector<std::byte> RxBuffer_;                       ///< 接收缓冲（跨帧累积）
         std::deque<std::vector<std::byte>> TxQueue_;            ///< 发送队列
-        std::map<std::int32_t, StreamState> streams_;           ///< 流表
-        HpackEncoder encoder_;                                  ///< HPACK 编码器
-        HpackDecoder decoder_;                                  ///< HPACK 解码器
+        std::map<std::int32_t, StreamState> Streams_;           ///< 流表
+        HpackEncoder Encoder_;                                  ///< HPACK 编码器
+        HpackDecoder Decoder_;                                  ///< HPACK 解码器
         std::int32_t NextClientId_{1};                         ///< 客户端流 ID（奇数）
         std::int32_t NextServerId_{2};                         ///< 服务端流 ID（偶数）
         std::uint32_t LastRxStream_{0};                        ///< 最近收到的流 ID
@@ -243,178 +243,183 @@ namespace Preview::Http2
          * @param ec 错误码输出
          * @return 处理成功
          */
-        auto DispatchFrame(const FrameHeader &h, std::span<const std::byte> payload, std::error_code &ec)
+        auto DispatchFrame(const FrameHeader &H, std::span<const std::byte> Payload, std::error_code &ec)
             -> bool
         {
-            switch (h.Type)
+            switch (H.Type)
             {
             case FrameType::Data:
-                return OnDataFrame(h, payload, ec);
-            case FrameType::headers:
-                return OnHeadersFrame(h, payload, ec);
-            case FrameType::settings:
-                return OnSettingsFrame(h, payload, ec);
-            case FrameType::ping:
-                return OnPingFrame(h, payload, ec);
-            case FrameType::goaway:
-                if (on_goaway)
+                return OnDataFrame(H, Payload, ec);
+            case FrameType::Headers:
+                return OnHeadersFrame(H, Payload, ec);
+            case FrameType::Settings:
+                return OnSettingsFrame(H, Payload, ec);
+            case FrameType::Ping:
+                return OnPingFrame(H, Payload, ec);
+            case FrameType::Goaway:
+                if (Payload.size() < 8)
+                {
+                    ec = make_error_code(Error::BadLength);
+                    return false; // RFC 7540 §6.8：GOAWAY 载荷至少 8 字节
+                }
+                if (OnGoaway)
                 {
                     GoawayParams params;
-                    params.LastStreamId = DecodeU31(payload.first<4>());
-                    params.ErrorCode = DecodeU31(payload.last<4>());
-                    on_goaway(params);
+                    params.LastStreamId = DecodeU31(Payload.first<4>());
+                    params.ErrorCode = DecodeU31(Payload.last<4>());
+                    OnGoaway(params);
                 }
                 return true;
-            case FrameType::window_update:
+            case FrameType::WindowUpdate:
                 return true; // 不实现流控，忽略
-            case FrameType::rst_stream:
-                OnStreamCloseIf(h.StreamId, ErrorCancel);
+            case FrameType::RstStream:
+                OnStreamCloseIf(H.StreamId, ErrorCancel);
                 return true;
-            case FrameType::priority:
+            case FrameType::Priority:
                 return true; // 忽略
-            case FrameType::continuation:
-                ec = make_error_code(Error::protocol_error);
+            case FrameType::Continuation:
+                ec = make_error_code(Error::ProtocolError);
                 return false; // 不支持 CONTINUATION
-            case FrameType::push_promise:
-                ec = make_error_code(Error::protocol_error);
+            case FrameType::PushPromise:
+                ec = make_error_code(Error::ProtocolError);
                 return false;
             default:
-                ec = make_error_code(Error::protocol_error);
+                ec = make_error_code(Error::ProtocolError);
                 return false;
             }
         }
 
         /// 收到 DATA
-        auto OnDataFrame(const FrameHeader &h, std::span<const std::byte> payload, std::error_code &ec)
+        auto OnDataFrame(const FrameHeader &H, std::span<const std::byte> Payload, std::error_code &ec)
             -> bool
         {
-            if (h.StreamId == ConnectionStreamId)
+            if (H.StreamId == ConnectionStreamId)
             {
-                ec = make_error_code(Error::protocol_error);
+                ec = make_error_code(Error::ProtocolError);
                 return false;
             }
-            std::size_t offset = 0;
-            std::span<const std::byte> Data = payload;
-            if ((h.Flags & flag_padded) != 0)
+            std::size_t Offset = 0;
+            std::span<const std::byte> Data = Payload;
+            if ((H.Flags & FlagPadded) != 0)
             {
-                if (payload.empty())
+                if (Payload.empty())
                 {
-                    ec = make_error_code(Error::protocol_error);
+                    ec = make_error_code(Error::ProtocolError);
                     return false;
                 }
-                const auto pad = std::to_integer<std::uint8_t>(payload[0]);
-                if (pad + 1 > payload.size())
+                const auto Pad = std::to_integer<std::uint8_t>(Payload[0]);
+                if (Pad + 1 > Payload.size())
                 {
-                    ec = make_error_code(Error::protocol_error);
+                    ec = make_error_code(Error::ProtocolError);
                     return false;
                 }
-                offset = 1;
-                Data = payload.subspan(1, payload.size() - 1 - pad);
+                Offset = 1;
+                Data = Payload.subspan(1, Payload.size() - 1 - Pad);
             }
-            if (on_data)
+            if (OnData)
             {
-                on_data(h.StreamId, Data);
+                OnData(H.StreamId, Data);
             }
-            if ((h.Flags & flag_end_stream) != 0)
+            if ((H.Flags & FlagEndStream) != 0)
             {
-                OnStreamCloseIf(h.StreamId, ErrorNoError);
+                OnStreamCloseIf(H.StreamId, ErrorNoError);
             }
             return true;
         }
 
         /// 收到 HEADERS
-        auto OnHeadersFrame(const FrameHeader &h, std::span<const std::byte> payload, std::error_code &ec)
+        auto OnHeadersFrame(const FrameHeader &H, std::span<const std::byte> Payload, std::error_code &ec)
             -> bool
         {
-            if (h.StreamId == ConnectionStreamId)
+            if (H.StreamId == ConnectionStreamId)
             {
-                ec = make_error_code(Error::protocol_error);
+                ec = make_error_code(Error::ProtocolError);
                 return false;
             }
-            std::size_t offset = 0;
-            if ((h.Flags & flag_padded) != 0)
+            std::size_t Offset = 0;
+            if ((H.Flags & FlagPadded) != 0)
             {
-                if (payload.empty())
+                if (Payload.empty())
                 {
-                    ec = make_error_code(Error::protocol_error);
+                    ec = make_error_code(Error::ProtocolError);
                     return false;
                 }
-                offset = 1 + std::to_integer<std::uint8_t>(payload[0]);
-                if (offset > payload.size())
+                Offset = 1 + std::to_integer<std::uint8_t>(Payload[0]);
+                if (Offset > Payload.size())
                 {
-                    ec = make_error_code(Error::protocol_error);
-                    return false;
-                }
-            }
-            if ((h.Flags & flag_priority) != 0)
-            {
-                offset += 5;
-                if (offset > payload.size())
-                {
-                    ec = make_error_code(Error::protocol_error);
+                    ec = make_error_code(Error::ProtocolError);
                     return false;
                 }
             }
-            auto headers = decoder_.Decode(payload.subspan(offset));
-            if (!headers)
+            if ((H.Flags & FlagPriority) != 0)
             {
-                ec = make_error_code(Error::bad_message);
+                Offset += 5;
+                if (Offset > Payload.size())
+                {
+                    ec = make_error_code(Error::ProtocolError);
+                    return false;
+                }
+            }
+            auto Headers = Decoder_.Decode(Payload.subspan(Offset));
+            if (!Headers)
+            {
+                ec = make_error_code(Error::BadMessage);
                 return false;
             }
-            const auto EndStream = (h.Flags & flag_end_stream) != 0;
-            if (on_headers)
+            const auto EndStream = (H.Flags & FlagEndStream) != 0;
+            if (OnHeaders)
             {
-                on_headers(h.StreamId, *headers, EndStream);
+                OnHeaders(H.StreamId, *Headers, EndStream);
             }
             if (EndStream)
             {
-                OnStreamCloseIf(h.StreamId, ErrorNoError);
+                OnStreamCloseIf(H.StreamId, ErrorNoError);
             }
             return true;
         }
 
         /// 收到 SETTINGS
-        auto OnSettingsFrame(const FrameHeader &h, std::span<const std::byte> payload, std::error_code &ec)
+        auto OnSettingsFrame(const FrameHeader &H, std::span<const std::byte> Payload, std::error_code &ec)
             -> bool
         {
-            if (h.StreamId != ConnectionStreamId)
+            if (H.StreamId != ConnectionStreamId)
             {
-                ec = make_error_code(Error::protocol_error);
+                ec = make_error_code(Error::ProtocolError);
                 return false;
             }
-            if ((h.Flags & flag_ack) != 0)
+            if ((H.Flags & FlagAck) != 0)
             {
                 return true; // ACK 确认，忽略
             }
-            auto entries = DecodeSettings(payload);
-            if (!entries)
+            auto Entries = DecodeSettings(Payload);
+            if (!Entries)
             {
-                ec = make_error_code(Error::bad_message);
+                ec = make_error_code(Error::BadMessage);
                 return false;
             }
-            if (on_settings)
+            if (OnSettings)
             {
-                on_settings(*entries);
+                OnSettings(*Entries);
             }
             // 自动回复 ACK
-            TxQueue_.push_back(BuildFrame(FrameType::settings, flag_ack, ConnectionStreamId, {}));
+            TxQueue_.push_back(BuildFrame(FrameType::Settings, FlagAck, ConnectionStreamId, {}));
             return true;
         }
 
         /// 收到 PING
-        auto OnPingFrame(const FrameHeader &h, std::span<const std::byte> payload, std::error_code &ec)
+        auto OnPingFrame(const FrameHeader &H, std::span<const std::byte> Payload, std::error_code &ec)
             -> bool
         {
-            if (h.StreamId != ConnectionStreamId || payload.size() != 8)
+            if (H.StreamId != ConnectionStreamId || Payload.size() != 8)
             {
-                ec = make_error_code(Error::protocol_error);
+                ec = make_error_code(Error::ProtocolError);
                 return false;
             }
-            if ((h.Flags & flag_ack) == 0)
+            if ((H.Flags & FlagAck) == 0)
             {
                 // 自动回复 ACK
-                std::vector<std::byte> ack(payload.begin(), payload.end());
-                TxQueue_.push_back(BuildFrame(FrameType::ping, flag_ack, ConnectionStreamId, ack));
+                std::vector<std::byte> ack(Payload.begin(), Payload.end());
+                TxQueue_.push_back(BuildFrame(FrameType::Ping, FlagAck, ConnectionStreamId, ack));
             }
             return true;
         }
@@ -422,27 +427,27 @@ namespace Preview::Http2
         /// 流关闭回调（幂等）
         void OnStreamCloseIf(std::int32_t StreamId, std::uint32_t ErrorCode)
         {
-            const auto it = streams_.find(StreamId);
-            if (it != streams_.end())
+            const auto It = Streams_.find(StreamId);
+            if (It != Streams_.end())
             {
-                streams_.erase(it);
+                Streams_.erase(It);
             }
-            if (on_stream_close)
+            if (OnStreamClose)
             {
-                on_stream_close(StreamId, ErrorCode);
+                OnStreamClose(StreamId, ErrorCode);
             }
         }
 
         /// 提交 HEADERS 帧（HPACK 编码）
-        void SubmitHeadersFrame(std::int32_t StreamId, const HeaderList &headers, bool EndStream)
+        void SubmitHeadersFrame(std::int32_t StreamId, const HeaderList &Headers, bool EndStream)
         {
-            auto block = encoder_.Encode(headers);
-            std::uint8_t Flags = flag_end_headers;
+            auto Block = Encoder_.Encode(Headers);
+            std::uint8_t Flags = FlagEndHeaders;
             if (EndStream)
             {
-                Flags |= flag_end_stream;
+                Flags |= FlagEndStream;
             }
-            TxQueue_.push_back(BuildFrame(FrameType::headers, Flags, StreamId, block));
+            TxQueue_.push_back(BuildFrame(FrameType::Headers, Flags, StreamId, Block));
         }
 
         /// 分配客户端流 ID（奇数递增）
@@ -454,15 +459,15 @@ namespace Preview::Http2
             }
             const auto Id = NextClientId_;
             NextClientId_ += 2;
-            streams_[Id] = {};
+            Streams_[Id] = {};
             return Id;
         }
 
     public:
         /// 收到 SETTINGS 回调
-        std::function<void(const std::vector<SettingsEntry> &)> on_settings;
+        std::function<void(const std::vector<SettingsEntry> &)> OnSettings;
         /// 收到 GOAWAY 回调
-        std::function<void(const GoawayParams &)> on_goaway;
+        std::function<void(const GoawayParams &)> OnGoaway;
     };
 
 } // namespace Preview::Http2

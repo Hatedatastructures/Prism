@@ -53,7 +53,7 @@ namespace Preview::Ws
          * @param upstream 底层传输（所有权移交）
          */
         explicit Conn(SharedTransmission upstream)
-            : next_layer_(std::move(upstream))
+            : NextLayer_(std::move(upstream))
         {
         }
 
@@ -62,7 +62,7 @@ namespace Preview::Ws
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -84,30 +84,30 @@ namespace Preview::Ws
             Header += "Sec-WebSocket-Version: 13\r\n";
             Header += "\r\n";
             if (co_await SendBytes(AsU8Span(Header)))
-                co_return Error::io_error;
+                co_return Error::IoError;
 
             // 等待 101 响应并校验 Accept
             std::array<std::uint8_t, 256> chunk{};
             std::string resp;
-            for (int i = 0; i < 16; ++i)
+            for (int I = 0; I < 16; ++I)
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(
+                const auto N = co_await NextLayer_->async_read_some(
                     AsBytes(std::span<std::uint8_t>(chunk)), ec);
-                if (ec || n == 0)
+                if (ec || N == 0)
                     break;
-                resp.append(reinterpret_cast<const char *>(chunk.data()), n);
+                resp.append(reinterpret_cast<const char *>(chunk.data()), N);
                 if (resp.find("\r\n\r\n") != std::string::npos)
                     break;
             }
             if (resp.find("101") == std::string::npos)
-                co_return Error::bad_magic;
-            const auto expected = ComputeAccept(key);
-            if (resp.find("Sec-WebSocket-Accept: " + expected) == std::string::npos)
-                co_return Error::bad_auth;
-            accept_ = expected;
-            handshaken_ = true;
-            co_return Error::none;
+                co_return Error::BadMagic;
+            const auto Expected = ComputeAccept(key);
+            if (resp.find("Sec-WebSocket-Accept: " + Expected) == std::string::npos)
+                co_return Error::BadAuth;
+            Accept_ = Expected;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
@@ -120,23 +120,23 @@ namespace Preview::Ws
         {
             std::array<std::uint8_t, 256> chunk{};
             std::string Header;
-            for (int i = 0; i < 16; ++i)
+            for (int I = 0; I < 16; ++I)
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(
+                const auto N = co_await NextLayer_->async_read_some(
                     AsBytes(std::span<std::uint8_t>(chunk)), ec);
-                if (ec || n == 0)
+                if (ec || N == 0)
                     break;
-                Header.append(reinterpret_cast<const char *>(chunk.data()), n);
+                Header.append(reinterpret_cast<const char *>(chunk.data()), N);
                 if (Header.find("\r\n\r\n") != std::string::npos)
                     break;
             }
             if (Header.find("Upgrade: websocket") == std::string::npos)
-                co_return Error::bad_magic;
+                co_return Error::BadMagic;
 
             const auto KeyPos = Header.find("Sec-WebSocket-Key: ");
             if (KeyPos == std::string::npos)
-                co_return Error::bad_magic;
+                co_return Error::BadMagic;
             const auto KeyStart = KeyPos + 19;
             const auto KeyEnd = Header.find("\r\n", KeyStart);
             key = Header.substr(KeyStart, KeyEnd - KeyStart);
@@ -148,40 +148,40 @@ namespace Preview::Ws
             resp += "Sec-WebSocket-Accept: " + Accept + "\r\n";
             resp += "\r\n";
             if (co_await SendBytes(AsU8Span(resp)))
-                co_return Error::io_error;
-            accept_ = Accept;
-            handshaken_ = true;
-            co_return Error::none;
+                co_return Error::IoError;
+            Accept_ = Accept;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（帧边界恢复后的裸流）
          * @details 简化：直接透传底层数据（帧编解码由上层负责）。
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
         -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer,
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
                                             std::error_code &ec)
         -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -189,7 +189,7 @@ namespace Preview::Ws
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -197,7 +197,7 @@ namespace Preview::Ws
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -205,7 +205,7 @@ namespace Preview::Ws
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -213,7 +213,7 @@ namespace Preview::Ws
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -221,7 +221,7 @@ namespace Preview::Ws
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
         /**
@@ -229,7 +229,7 @@ namespace Preview::Ws
          */
         [[nodiscard]] auto Accept() const -> const std::string &
         {
-            return accept_;
+            return Accept_;
         }
 
     private:
@@ -245,17 +245,17 @@ namespace Preview::Ws
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(AsBytes(Data.subspan(Done)), ec);
+                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
                 if (ec)
                     co_return true;
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
 
-        SharedTransmission next_layer_;  ///< 底层传输（独占所有权）
-        std::string accept_;              ///< Sec-WebSocket-Accept（握手后）
-        bool handshaken_{false};          ///< 握手完成标志
+        SharedTransmission NextLayer_;  ///< 底层传输（独占所有权）
+        std::string Accept_;              ///< Sec-WebSocket-Accept（握手后）
+        bool Handshaken_{false};          ///< 握手完成标志
     };
 
     /// 流连接共享指针（默认内存策略）

@@ -1,5 +1,5 @@
 /**
- * @file log.hpp
+ * @file Log.hpp
  * @brief 轻量日志 stub（测试库用）
  * @details 对齐主库 psm::diagnose 的日志接口签名，但实现为空操作：
  *          测试环境不依赖 spdlog。后续需要日志输出时，可将本文件

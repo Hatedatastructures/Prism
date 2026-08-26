@@ -2,9 +2,9 @@
  * @file RestlsConnSession.cpp
  * @brief Restls Conn 会话层双向测试（Client + Server 视角）
  * @details 覆盖：
- * 1. 客户端 Connect / 服务端 Accept 握手（同一 server_random）→ 双向回显
+ * 1. 客户端 Connect / 服务端 Accept 握手（同一 ServerRandom）→ 双向回显
  * 2. 派生密钥一致性校验（Secret()）
- * 3. 错误分支：bad_length（server_random 长度非法）/ not_open（未握手读写）
+ * 3. 错误分支：bad_length（ServerRandom 长度非法）/ not_open（未握手读写）
  * 4. 装饰器链方法：Executor / Close / Cancel / NextLayer / Release
  * @note 使用 MakeMemoryPair 建立内存传输对，同一进程内双向互操作。
  */
@@ -72,7 +72,7 @@ namespace
                          auto [err, Conn] = co_await Restls::Accept(
                              std::make_shared<MemoryStream>(std::move(b)),
                              Restls::ServerConfig{"pw123456"}, rnd);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
@@ -81,10 +81,10 @@ namespace
                          EXPECT_EQ(Conn->Secret(), Restls::DeriveSecret("pw123456"));
                          std::array<std::byte, 1024> buf{};
                          std::error_code ec;
-                         const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                         const auto n = co_await Conn->async_read_some(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
-                         co_await Conn->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+                         co_await Conn->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
@@ -92,20 +92,20 @@ namespace
 
                      auto [herr, cli] = co_await Restls::Connect(std::make_shared<MemoryStream>(std::move(a)),
                                                                  Restls::ClientConfig{"pw123456"}, rnd);
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
                          co_return;
                      }
                      EXPECT_EQ(cli->Secret(), Restls::DeriveSecret("pw123456"));
                      std::error_code ec;
-                     co_await cli->AsyncWriteSome(
+                     co_await cli->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 1024> buf{};
-                     const auto n = co_await cli->AsyncReadSome(buf, ec);
+                     const auto n = co_await cli->async_read_some(buf, ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
                      cli->Close();
@@ -120,19 +120,19 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // server_random 长度非法（31 字节）→ bad_length
+                     // ServerRandom 长度非法（31 字节）→ bad_length
                      const std::array<std::uint8_t, 31> short_rnd{};
                      auto [herr, cli] = co_await Restls::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Restls::ClientConfig{"pw"},
                          std::span<const std::uint8_t>(short_rnd));
-                     EXPECT_EQ(herr, Error::bad_length);
+                     EXPECT_EQ(herr, Error::BadLength);
                      EXPECT_FALSE(cli);
 
                      auto c = std::make_shared<Restls::Conn<>>(std::make_shared<MemoryStream>(std::move(b)),
                                                               "pw");
                      const std::array<std::uint8_t, 33> long_rnd{};
                      const auto serr = co_await c->ReadHandshake(std::span<const std::uint8_t>(long_rnd));
-                     EXPECT_EQ(serr, Error::bad_length);
+                     EXPECT_EQ(serr, Error::BadLength);
                  });
     }
 
@@ -149,17 +149,17 @@ namespace
                                                               "pw");
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n = co_await c->AsyncReadSome(buf, ec);
+                     const auto n = co_await c->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::NotOpen));
                      ec.clear();
-                     co_await c->AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
-                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
+                     co_await c->async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::NotOpen));
                      c->Close();
                      c->Cancel();
                      EXPECT_TRUE(c->Executor());
                      EXPECT_NE(c->NextLayer(), nullptr);
-                     EXPECT_NE(c->LowestLayer<MemoryStream>(), nullptr);
+                     EXPECT_NE(c->lowest_layer<MemoryStream>(), nullptr);
                      const Restls::Conn<> *const_c = c.get();
                      EXPECT_NE(const_c->NextLayer(), nullptr);
                      auto released = c->Release();

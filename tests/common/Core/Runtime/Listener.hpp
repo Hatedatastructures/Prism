@@ -1,5 +1,5 @@
 /**
- * @file listener.hpp
+ * @file Listener.hpp
  * @brief TCP 监听器骨架（T4-3）
  * @details listener Accept → 亲和性分发（FNV-1a 哈希）→ 会话工厂：
  *          - Accept 循环：async_accept + 分发 + co_spawn 会话
@@ -105,38 +105,38 @@ namespace Preview::Runtime
          * @param WorkerCount worker 数（用于分发）
          */
         TcpListener(net::any_io_executor ex, SessionFactory factory, std::size_t WorkerCount = 1)
-            : ex_(std::move(ex)), factory_(std::move(factory)), balancer_(WorkerCount),
-              acceptor_(ex_)
+            : Ex_(std::move(ex)), Factory_(std::move(factory)), Balancer_(WorkerCount),
+              Acceptor_(Ex_)
         {
         }
 
         /**
          * @brief 绑定并启动监听
-         * @param bind_ep 绑定端点（端口 0 = 随机）
+         * @param BindEp 绑定端点（端口 0 = 随机）
          * @return 成功或 io_error
          */
-        [[nodiscard]] auto Start(const net::ip::tcp::endpoint &bind_ep) -> net::awaitable<Preview::Fault::Code>
+        [[nodiscard]] auto Start(const net::ip::tcp::endpoint &BindEp) -> net::awaitable<Preview::Fault::Code>
         {
             boost::system::error_code ec;
-            acceptor_.open(bind_ep.protocol(), ec);
+            Acceptor_.open(BindEp.protocol(), ec);
             if (!ec)
             {
-                acceptor_.set_option(net::ip::tcp::acceptor::reuse_address(true), ec);
+                Acceptor_.set_option(net::ip::tcp::acceptor::reuse_address(true), ec);
             }
             if (!ec)
             {
-                acceptor_.bind(bind_ep, ec);
+                Acceptor_.bind(BindEp, ec);
             }
             if (!ec)
             {
-                acceptor_.listen(net::socket_base::max_listen_connections, ec);
+                Acceptor_.listen(net::socket_base::max_listen_connections, ec);
             }
             if (ec)
             {
-                co_return Preview::Fault::Code::io_error;
+                co_return Preview::Fault::Code::IoError;
             }
-            net::co_spawn(ex_, AcceptLoop(), net::detached);
-            co_return Preview::Fault::Code::success;
+            net::co_spawn(Ex_, AcceptLoop(), net::detached);
+            co_return Preview::Fault::Code::Success;
         }
 
         /**
@@ -145,7 +145,7 @@ namespace Preview::Runtime
         void Stop()
         {
             boost::system::error_code ec;
-            acceptor_.close(ec);
+            Acceptor_.close(ec);
         }
 
         /**
@@ -153,7 +153,7 @@ namespace Preview::Runtime
          */
         [[nodiscard]] auto LocalEndpoint() const -> net::ip::tcp::endpoint
         {
-            return acceptor_.local_endpoint();
+            return Acceptor_.local_endpoint();
         }
 
     private:
@@ -165,34 +165,36 @@ namespace Preview::Runtime
             while (true)
             {
                 boost::system::error_code ec;
-                auto sock = co_await acceptor_.async_accept(
+                auto Sock = co_await Acceptor_.async_accept(
                     net::redirect_error(net::use_awaitable, ec));
                 if (ec)
                 {
                     co_return; // 停止或错误
                 }
-                const auto peer = sock.remote_endpoint().address().to_string();
-                const auto worker = balancer_.Select(peer);
-                auto transport = Preview::Transport::make_reliable(std::move(sock));
-                if (factory_)
+                boost::system::error_code pec;
+                const auto Remote = Sock.remote_endpoint(pec);
+                const auto Peer = pec ? std::string{"unknown"} : Remote.address().to_string();
+                const auto Worker = Balancer_.Select(Peer);
+                auto Transport = Preview::Transport::MakeReliable(std::move(Sock));
+                if (Factory_)
                 {
-                    auto sess = factory_(transport, worker);
-                    if (sess)
+                    auto Sess = Factory_(Transport, Worker);
+                    if (Sess)
                     {
                         // 按值捕获 shared_ptr 保持会话存活（协程生命周期独立于 Accept 循环）
-                        net::co_spawn(ex_,
-                                      [sess, transport]() -> net::awaitable<void>
-                                      { co_await sess->Run(transport); },
+                        net::co_spawn(Ex_,
+                                      [Sess, Transport]() -> net::awaitable<void>
+                                      { co_await Sess->Run(Transport); },
                                       net::detached);
                     }
                 }
             }
         }
 
-        net::any_io_executor ex_;          ///< 执行器
-        SessionFactory factory_;          ///< 会话工厂
-        AffinityBalancer balancer_;       ///< 亲和性分发
-        net::ip::tcp::acceptor acceptor_;  ///< TCP 接受器
+        net::any_io_executor Ex_;          ///< 执行器
+        SessionFactory Factory_;          ///< 会话工厂
+        AffinityBalancer Balancer_;       ///< 亲和性分发
+        net::ip::tcp::acceptor Acceptor_;  ///< TCP 接受器
     };
 
 } // namespace Preview::Runtime

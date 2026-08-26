@@ -22,19 +22,19 @@ namespace srv
     {
     public:
         server(const config &cfg)
-            : io_context_(static_cast<int>(cfg.threads)), acceptor_(io_context_),
+            : io_context_(static_cast<int>(cfg.threads)), Acceptor_(io_context_),
               response_delay_(cfg.response_delay)
         {
             boost::asio::ip::tcp::endpoint endpoint{boost::asio::ip::tcp::v4(), cfg.port};
-            acceptor_.open(endpoint.protocol());
-            acceptor_.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
-            acceptor_.bind(endpoint);
-            acceptor_.listen();
+            Acceptor_.open(endpoint.protocol());
+            Acceptor_.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+            Acceptor_.bind(endpoint);
+            Acceptor_.listen();
         }
 
         void start()
         {
-            psm::diagnose::debug("[server] 开始监听端口 {}...", acceptor_.local_endpoint().port());
+            psm::diagnose::debug("[server] 开始监听端口 {}...", Acceptor_.local_endpoint().port());
 
             boost::asio::co_spawn(io_context_, AcceptLoop(), boost::asio::detached);
 
@@ -52,7 +52,7 @@ namespace srv
             while (true)
             { // 死循环获取 socket
                 boost::system::error_code ec;
-                auto socket = co_await acceptor_.async_accept(
+                auto socket = co_await Acceptor_.async_accept(
                     boost::asio::redirect_error(boost::asio::use_awaitable, ec));
 
                 if (ec)
@@ -70,7 +70,7 @@ namespace srv
         }
 
         boost::asio::io_context io_context_;
-        boost::asio::ip::tcp::acceptor acceptor_;
+        boost::asio::ip::tcp::acceptor Acceptor_;
         std::chrono::milliseconds response_delay_;
     };
 } // namespace srv

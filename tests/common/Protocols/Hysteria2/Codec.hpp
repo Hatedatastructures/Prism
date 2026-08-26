@@ -38,18 +38,18 @@ namespace Preview::Hysteria2
      *       （原内联实现 ipv4 无校验存在越界写，统一实现修复为非法输入输出 0.0.0.0）
      */
     template <typename Alloc>
-    inline auto EncodeAddress(const Address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
+    inline auto EncodeAddress(const Address &Addr, std::vector<std::uint8_t, Alloc> &out) -> void
     {
-        Preview::Protocol::Common::EncodeAddress(addr, out);
+        Preview::Protocol::Common::EncodeAddress(Addr, out);
     }
 
     /**
      * @brief 编码地址（ATYP + ADDR + PORT 2B BE）
      */
-    [[nodiscard]] inline auto EncodeAddress(const Address &addr) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto EncodeAddress(const Address &Addr) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
-        EncodeAddress(addr, out);
+        EncodeAddress(Addr, out);
         return out;
     }
 
@@ -61,56 +61,56 @@ namespace Preview::Hysteria2
      * @return 错误码
      */
     [[nodiscard]] inline auto ParseAddress(std::span<const std::uint8_t> Data, Address &out,
-                                            std::size_t &consumed) -> Error
+                                            std::size_t &Consumed) -> Error
     {
         if (Data.empty())
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Type = static_cast<AddressType>(Data[0]);
-        std::size_t off = 1;
+        std::size_t Off = 1;
         switch (out.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4 + 2)
+            if (Data.size() < Off + 4 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
             out.Host = buf.data();
-            off += 4;
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16 + 2)
+            if (Data.size() < Off + 16 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain:
         default: {
-            if (off >= Data.size())
+            if (Off >= Data.size())
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len + 2)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
         }
-        out.Port = static_cast<std::uint16_t>(Data[off]) << 8 | Data[off + 1];
-        consumed = off + 2;
-        return Error::none;
+        out.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Consumed = Off + 2;
+        return Error::None;
     }
 
     /**
@@ -121,8 +121,8 @@ namespace Preview::Hysteria2
     {
         std::vector<std::uint8_t> out;
         out.push_back(static_cast<std::uint8_t>(Message::Kind::Tcp));
-        const auto addr = EncodeAddress(dst);
-        out.insert(out.end(), addr.begin(), addr.end());
+        const auto Addr = EncodeAddress(dst);
+        out.insert(out.end(), Addr.begin(), Addr.end());
         out.insert(out.end(), payload.begin(), payload.end());
         return out;
     }
@@ -151,7 +151,7 @@ namespace Preview::Hysteria2
         {
             return;
         }
-        out.push_back(static_cast<std::uint8_t>(Message::Kind::udp));
+        out.push_back(static_cast<std::uint8_t>(Message::Kind::Udp));
         out.push_back(static_cast<std::uint8_t>(in.SessionId & 0xFF));
         out.push_back(static_cast<std::uint8_t>((in.SessionId >> 8) & 0xFF));
         out.push_back(static_cast<std::uint8_t>((in.SessionId >> 16) & 0xFF));
@@ -181,41 +181,41 @@ namespace Preview::Hysteria2
      * @param consumed 输出消耗字节数
      * @return 错误码
      */
-    [[nodiscard]] inline auto Parse(std::span<const std::uint8_t> Data, Message &out, std::size_t &consumed)
+    [[nodiscard]] inline auto Parse(std::span<const std::uint8_t> Data, Message &out, std::size_t &Consumed)
         -> Error
     {
         if (Data.size() < 1)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Type = static_cast<Message::Kind>(Data[0]);
-        std::size_t off = 1;
-        if (out.Type == Message::Kind::udp)
+        std::size_t Off = 1;
+        if (out.Type == Message::Kind::Udp)
         {
-            if (Data.size() < off + 8)
+            if (Data.size() < Off + 8)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.SessionId = static_cast<std::uint32_t>(Data[off]) |
-                             static_cast<std::uint32_t>(Data[off + 1]) << 8 |
-                             static_cast<std::uint32_t>(Data[off + 2]) << 16 |
-                             static_cast<std::uint32_t>(Data[off + 3]) << 24;
-            out.PacketId = static_cast<std::uint32_t>(Data[off + 4]) |
-                            static_cast<std::uint32_t>(Data[off + 5]) << 8 |
-                            static_cast<std::uint32_t>(Data[off + 6]) << 16 |
-                            static_cast<std::uint32_t>(Data[off + 7]) << 24;
-            off += 8;
+            out.SessionId = static_cast<std::uint32_t>(Data[Off]) |
+                             static_cast<std::uint32_t>(Data[Off + 1]) << 8 |
+                             static_cast<std::uint32_t>(Data[Off + 2]) << 16 |
+                             static_cast<std::uint32_t>(Data[Off + 3]) << 24;
+            out.PacketId = static_cast<std::uint32_t>(Data[Off + 4]) |
+                            static_cast<std::uint32_t>(Data[Off + 5]) << 8 |
+                            static_cast<std::uint32_t>(Data[Off + 6]) << 16 |
+                            static_cast<std::uint32_t>(Data[Off + 7]) << 24;
+            Off += 8;
         }
         std::size_t AddrConsumed = 0;
-        const auto ec = ParseAddress(Data.subspan(off), out.dst, AddrConsumed);
-        if (ec != Error::none)
+        const auto Ec = ParseAddress(Data.subspan(Off), out.dst, AddrConsumed);
+        if (Ec != Error::None)
         {
-            return ec;
+            return Ec;
         }
-        off += AddrConsumed;
-        out.payload.assign(reinterpret_cast<const char *>(Data.data() + off), Data.size() - off);
-        consumed = Data.size();
-        return Error::none;
+        Off += AddrConsumed;
+        out.payload.assign(reinterpret_cast<const char *>(Data.data() + Off), Data.size() - Off);
+        Consumed = Data.size();
+        return Error::None;
     }
 
     // ==================== Auth（认证请求）合并 ====================
@@ -253,20 +253,20 @@ namespace Preview::Hysteria2
          */
         auto Reset(const Message &msg) -> void
         {
-            if (msg.Type == Message::Kind::udp)
+            if (msg.Type == Message::Kind::Udp)
             {
-                wire_ = BuildUdp(UdpFrameInput{
+                Wire_ = BuildUdp(UdpFrameInput{
                     msg.SessionId, msg.PacketId, &msg.dst,
                     std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(msg.payload.data()),
                                                   msg.payload.size())});
             }
             else
             {
-                wire_ = BuildTcp(msg.dst, std::span<const std::uint8_t>(
+                Wire_ = BuildTcp(msg.dst, std::span<const std::uint8_t>(
                                                reinterpret_cast<const std::uint8_t *>(msg.payload.data()),
                                                msg.payload.size()));
             }
-            offset_ = 0;
+            Offset_ = 0;
         }
 
         /**
@@ -275,15 +275,15 @@ namespace Preview::Hysteria2
          * @param ec 输出错误码
          * @return 本次写入字节数
          */
-        auto Get(boost::asio::mutable_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Get(boost::asio::mutable_buffer Buffer, std::error_code &Ec) -> std::size_t
         {
-            ec.clear();
-            const auto space = Buffer.size();
-            const auto remain = wire_.size() - offset_;
-            const auto n = std::min(space, remain);
-            std::memcpy(Buffer.data(), wire_.data() + offset_, n);
-            offset_ += n;
-            return n;
+            Ec.clear();
+            const auto Space = Buffer.size();
+            const auto Remain = Wire_.size() - Offset_;
+            const auto N = std::min(Space, Remain);
+            std::memcpy(Buffer.data(), Wire_.data() + Offset_, N);
+            Offset_ += N;
+            return N;
         }
 
         /**
@@ -292,7 +292,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return offset_ >= wire_.size();
+            return Offset_ >= Wire_.size();
         }
 
         /**
@@ -301,12 +301,12 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto Remaining() const -> std::size_t
         {
-            return wire_.size() - offset_;
+            return Wire_.size() - Offset_;
         }
 
     private:
-        std::vector<std::uint8_t> wire_;
-        std::size_t offset_{0};
+        std::vector<std::uint8_t> Wire_;
+        std::size_t Offset_{0};
     };
 
     /**
@@ -321,26 +321,26 @@ namespace Preview::Hysteria2
          * @param ec 输出错误码
          * @return 本次消耗字节数
          */
-        auto Put(boost::asio::const_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Put(boost::asio::const_buffer Buffer, std::error_code &Ec) -> std::size_t
         {
-            ec.clear();
+            Ec.clear();
             const auto Data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(Buffer.data()),
                                                             Buffer.size());
-            buf_.insert(buf_.end(), Data.begin(), Data.end());
-            std::size_t consumed = 0;
-            const auto err = Parse(buf_, msg_, consumed);
-            if (err == Error::need_more)
+            Buf_.insert(Buf_.end(), Data.begin(), Data.end());
+            std::size_t Consumed = 0;
+            const auto Err = Parse(Buf_, Msg_, Consumed);
+            if (Err == Error::NeedMore)
             {
-                ec = make_error_code(Error::need_more);
+                Ec = make_error_code(Error::NeedMore);
                 return 0;
             }
-            if (err != Error::none)
+            if (Err != Error::None)
             {
-                ec = make_error_code(err);
+                Ec = make_error_code(Err);
                 return 0;
             }
-            done_ = true;
-            return consumed;
+            Done_ = true;
+            return Consumed;
         }
 
         /**
@@ -349,7 +349,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return done_;
+            return Done_;
         }
 
         /**
@@ -358,7 +358,7 @@ namespace Preview::Hysteria2
          */
         [[nodiscard]] auto Get() const -> const Message &
         {
-            return msg_;
+            return Msg_;
         }
 
         /**
@@ -366,15 +366,15 @@ namespace Preview::Hysteria2
          */
         auto Reset() -> void
         {
-            buf_.clear();
-            msg_ = Message{};
-            done_ = false;
+            Buf_.clear();
+            Msg_ = Message{};
+            Done_ = false;
         }
 
     private:
-        std::vector<std::uint8_t> buf_;
-        Message msg_{};
-        bool done_{false};
+        std::vector<std::uint8_t> Buf_;
+        Message Msg_{};
+        bool Done_{false};
     };
 
 } // namespace Preview::Hysteria2

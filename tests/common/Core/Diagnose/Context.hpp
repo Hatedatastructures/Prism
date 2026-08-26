@@ -28,9 +28,9 @@ namespace Preview::Diagnose
     {
         Accept = 0,
         Probe = 1,
-        identify = 2,
-        handshake = 3,
-        forward = 4,
+        Identify = 2,
+        Handshake = 3,
+        Forward = 4,
         Close = 5,
     };
 
@@ -46,7 +46,7 @@ namespace Preview::Diagnose
 
         // 字段
         std::chrono::steady_clock::time_point born{};
-        std::uint16_t worker = 0;
+        std::uint16_t Worker = 0;
         std::uint8_t Stage = 0;
         char Target[48] = {};
         char proto[8] = {};
@@ -78,13 +78,13 @@ namespace Preview::Diagnose
         auto Render() const noexcept -> void
         {
             RenderGen = CacheGen;
-            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(born.time_since_epoch()).count();
-            auto sec = ms / 1000;
-            auto hh = static_cast<int>((sec % 86400) / 3600);
-            auto mm = static_cast<int>((sec % 3600) / 60);
-            auto ss = static_cast<int>(sec % 60);
-            std::snprintf(cached, sizeof(cached), "[W%u][S%u][%s][%s %02d:%02d:%02d.%03d]", worker, Stage,
-                          proto, Target, hh, mm, ss, static_cast<int>(ms % 1000));
+            auto Ms = std::chrono::duration_cast<std::chrono::milliseconds>(born.time_since_epoch()).count();
+            auto Sec = Ms / 1000;
+            auto Hh = static_cast<int>((Sec % 86400) / 3600);
+            auto Mm = static_cast<int>((Sec % 3600) / 60);
+            auto Ss = static_cast<int>(Sec % 60);
+            std::snprintf(cached, sizeof(cached), "[W%u][S%u][%s][%s %02d:%02d:%02d.%03d]", Worker, Stage,
+                          proto, Target, Hh, Mm, Ss, static_cast<int>(Ms % 1000));
         }
 
         mutable char cached[80] = {};

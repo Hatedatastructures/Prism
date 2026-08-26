@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief gRPC (gun) 协议基础类型
  * @details gun 是 gRPC-over-HTTP/2 伪装方案（对齐 mihomo transport/gun）：
  *          帧格式（gun-lite 兼容）：

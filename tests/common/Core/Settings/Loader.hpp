@@ -1,5 +1,5 @@
 /**
- * @file loader.hpp
+ * @file Loader.hpp
  * @brief 配置加载与校验（T5-9）
  * @details JSON 配置 → 配置结构：
  *          - 必填字段缺失 → 校验失败
@@ -44,18 +44,18 @@ namespace Preview::Settings
 
     /**
      * @brief 加载并校验配置
-     * @param json_text JSON 文本
+     * @param JsonText JSON 文本
      * @param out 输出配置
      * @return 空 = 成功；否则 ConfigError
      */
-    [[nodiscard]] inline auto LoadConfig(std::string_view json_text, ProxyConfig &out)
+    [[nodiscard]] inline auto LoadConfig(std::string_view JsonText, ProxyConfig &out)
         -> ConfigError
     {
         JsonValue root;
-        const auto jerr = ParseJson(json_text, root);
-        if (!jerr.Message.empty())
+        const auto Jerr = ParseJson(JsonText, root);
+        if (!Jerr.Message.empty())
         {
-            return {"<root>", jerr.Message};
+            return {"<root>", Jerr.Message};
         }
         if (root.Data.index() != 5)
         {
@@ -65,13 +65,13 @@ namespace Preview::Settings
         const auto &obj = std::get<JsonObject>(root.Data).members;
 
         // ListenAddr（可选，字符串）
-        if (const auto it = obj.find("ListenAddr"); it != obj.end())
+        if (const auto It = obj.find("ListenAddr"); It != obj.end())
         {
-            if (it->second.Data.index() != 3)
+            if (It->second.Data.index() != 3)
             {
                 return {"ListenAddr", "expected string"};
             }
-            out.ListenAddr = std::get<std::string>(it->second.Data);
+            out.ListenAddr = std::get<std::string>(It->second.Data);
             if (out.ListenAddr.empty())
             {
                 return {"ListenAddr", "Empty Address"};
@@ -88,21 +88,21 @@ namespace Preview::Settings
         {
             return {"ListenPort", "expected number"};
         }
-        const auto port = std::get<double>(PortIt->second.Data);
-        if (port < 1 || port > 65535)
+        const auto Port = std::get<double>(PortIt->second.Data);
+        if (Port < 1 || Port > 65535)
         {
             return {"ListenPort", "out of range [1, 65535]"};
         }
-        out.ListenPort = static_cast<std::uint16_t>(port);
+        out.ListenPort = static_cast<std::uint16_t>(Port);
 
         // Protocol（可选，字符串，枚举校验）
-        if (const auto it = obj.find("Protocol"); it != obj.end())
+        if (const auto It = obj.find("Protocol"); It != obj.end())
         {
-            if (it->second.Data.index() != 3)
+            if (It->second.Data.index() != 3)
             {
                 return {"Protocol", "expected string"};
             }
-            const auto &proto = std::get<std::string>(it->second.Data);
+            const auto &proto = std::get<std::string>(It->second.Data);
             if (proto != "socks5" && proto != "http" && proto != "trojan")
             {
                 return {"Protocol", "unsupported Protocol"};
@@ -111,43 +111,43 @@ namespace Preview::Settings
         }
 
         // MaxConnections（可选，非负整数）
-        if (const auto it = obj.find("MaxConnections"); it != obj.end())
+        if (const auto It = obj.find("MaxConnections"); It != obj.end())
         {
-            if (it->second.Data.index() != 2)
+            if (It->second.Data.index() != 2)
             {
                 return {"MaxConnections", "expected number"};
             }
-            const auto mc = std::get<double>(it->second.Data);
-            if (mc < 0 || mc > 0xFFFFFFFFULL)
+            const auto Mc = std::get<double>(It->second.Data);
+            if (Mc < 0 || Mc > 0xFFFFFFFFULL)
             {
                 return {"MaxConnections", "out of range"};
             }
-            out.MaxConnections = static_cast<std::uint32_t>(mc);
+            out.MaxConnections = static_cast<std::uint32_t>(Mc);
         }
 
         // AuthRequired（可选，布尔）
-        if (const auto it = obj.find("AuthRequired"); it != obj.end())
+        if (const auto It = obj.find("AuthRequired"); It != obj.end())
         {
-            if (it->second.Data.index() != 1)
+            if (It->second.Data.index() != 1)
             {
                 return {"AuthRequired", "expected bool"};
             }
-            out.AuthRequired = std::get<bool>(it->second.Data);
+            out.AuthRequired = std::get<bool>(It->second.Data);
         }
 
         // IdleTimeoutMs（可选，非负）
-        if (const auto it = obj.find("IdleTimeoutMs"); it != obj.end())
+        if (const auto It = obj.find("IdleTimeoutMs"); It != obj.end())
         {
-            if (it->second.Data.index() != 2)
+            if (It->second.Data.index() != 2)
             {
                 return {"IdleTimeoutMs", "expected number"};
             }
-            const auto to = std::get<double>(it->second.Data);
-            if (to < 0)
+            const auto To = std::get<double>(It->second.Data);
+            if (To < 0)
             {
                 return {"IdleTimeoutMs", "negative"};
             }
-            out.IdleTimeoutMs = static_cast<std::uint64_t>(to);
+            out.IdleTimeoutMs = static_cast<std::uint64_t>(To);
         }
 
         return {};

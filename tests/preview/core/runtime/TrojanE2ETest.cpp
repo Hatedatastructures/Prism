@@ -44,17 +44,17 @@ namespace
     using Preview::Runtime::MakeAcceptTrojan;
 
     // 公共样板（RunCoro/echo 上游/TailReadGuarded 等见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::ChainState;
-    using ConnectResult = psm::testing::ConnectResult;
-    using psm::testing::RunCoro;
-    using psm::testing::AcceptEchoLoop;
-    using psm::testing::TailReadGuarded;
-    using psm::testing::tcp_echo_server;
+    using Preview::Testing::ChainState;
+    using ConnectResult = Preview::Testing::ConnectResult;
+    using Preview::Testing::RunCoro;
+    using Preview::Testing::AcceptEchoLoop;
+    using Preview::Testing::TailReadGuarded;
+    using Preview::Testing::TcpEchoServer;
 
     using namespace boost::asio::experimental::awaitable_operators;
 
-    /// Trojan 纵向测试共享状态（复用公共 psm::testing::ChainState）
-    using trojan_chain_state = psm::testing::ChainState;
+    /// Trojan 纵向测试共享状态（复用公共 Preview::Testing::ChainState）
+    using trojan_chain_state = Preview::Testing::ChainState;
 
     /// 连接 Trojan 纵向测试的回环上游（复用公共 DialUpstream）
     inline auto dial_trojan_upstream(
@@ -62,7 +62,7 @@ namespace
         const Network::Target &Target)
         -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
     {
-        co_return co_await psm::testing::DialUpstream(State, Target);
+        co_return co_await Preview::Testing::DialUpstream(State, Target);
     }
 
     /// 通用 Trojan TCP 真实链路运行器（自建 ioc）
@@ -79,7 +79,7 @@ namespace
             trojan_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -109,9 +109,9 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                if (start_rc != Fault::Code::success)
+                if (start_rc != Fault::Code::Success)
                 {
-                     out.Err = Preview::Error::io_error;
+                     out.Err = Preview::Error::IoError;
                     co_return;
                 }
                 const auto listen_port = listener.LocalEndpoint().port();
@@ -122,7 +122,7 @@ namespace
                     "127.0.0.1", listen_port, ec);
                 if (ec || !raw)
                 {
-                     out.Err = Preview::Error::io_error;
+                     out.Err = Preview::Error::IoError;
                     listener.Stop();
                     co_return;
                 }
@@ -144,7 +144,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->AsyncReadSome(
+                    const auto n = co_await proxy->async_read_some(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0)
                     {
@@ -169,7 +169,7 @@ namespace
             Trojan::Address{Trojan::AddressType::Domain, "example.com", 443},
             Trojan::ClientConfig{"Secret"},
             Trojan::ServerConfig{"Secret"});
-        EXPECT_EQ(r.Err, Preview::Error::none);
+        EXPECT_EQ(r.Err, Preview::Error::None);
         EXPECT_EQ(r.Echo, "trojan runtime payload");
         EXPECT_EQ(r.Host, "example.com");
         EXPECT_EQ(r.Port, "443");
@@ -181,7 +181,7 @@ namespace
             Trojan::Address{Trojan::AddressType::Ipv4, "1.2.3.4", 80},
             Trojan::ClientConfig{"Secret"},
             Trojan::ServerConfig{"Secret"});
-        EXPECT_EQ(r.Err, Preview::Error::none);
+        EXPECT_EQ(r.Err, Preview::Error::None);
         EXPECT_EQ(r.Echo, "trojan runtime payload");
         EXPECT_EQ(r.Host, "1.2.3.4");
         EXPECT_EQ(r.Port, "80");
@@ -193,7 +193,7 @@ namespace
             Trojan::Address{Trojan::AddressType::Ipv6, "::1", 80},
             Trojan::ClientConfig{"Secret"},
             Trojan::ServerConfig{"Secret"});
-        EXPECT_EQ(r.Err, Preview::Error::none);
+        EXPECT_EQ(r.Err, Preview::Error::None);
         EXPECT_EQ(r.Echo, "trojan runtime payload");
         // Trojan 线缆 ipv6 为 16 字节二进制（::1 → 15×0x00 + 0x01）
         EXPECT_EQ(r.Host.size(), 16u);
@@ -209,7 +209,7 @@ namespace
             Trojan::ServerConfig{"right"});
         // Trojan 客户端不读服务端应答，Connect 恒 success；bad Auth 表现为
         // 服务端静默断（Xray 语义）→ 数据面空（无 relay）。
-        EXPECT_EQ(r.Err, Preview::Error::none);
+        EXPECT_EQ(r.Err, Preview::Error::None);
         EXPECT_TRUE(r.Echo.empty());
     }
 
@@ -228,7 +228,7 @@ namespace
                     -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return std::pair{
-                        Fault::Code::connection_refused,
+                        Fault::Code::ConnectionRefused,
                         SharedTransmission{}};
                 };
                 return std::make_shared<Runtime::Session>(std::move(opts));
@@ -241,7 +241,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -261,7 +261,7 @@ namespace
                     co_return;
                 }
                 std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->AsyncReadSome(buf, ec);
+                const auto n = co_await proxy->async_read_some(buf, ec);
                 // 拨号失败 → 会话终止 → 读侧 EOF/错误
                 saw_close = (n == 0 || ec);
                 proxy->Close();
@@ -279,7 +279,7 @@ namespace
         auto StateObj = std::make_shared<trojan_chain_state>(
             trojan_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [upstream_ep](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -311,7 +311,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -340,7 +340,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->AsyncReadSome(
+                    const auto n = co_await proxy->async_read_some(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0)
                     {
@@ -353,9 +353,9 @@ namespace
                 // 半关闭后对端应发送 EOF；与看门狗竞速，超时即收口
                 std::array<std::byte, 8> tail{};
                 std::error_code tail_ec;
-                const auto n = co_await psm::testing::TailReadGuarded(proxy, tail, tail_ec);
-                // 干净 EOF：0 字节 + eof 错误码（Preview::Fault 把 asio::eof 映射为 Code::eof）
-                clean_eof = (n == 0 && tail_ec == Preview::Fault::Code::eof);
+                const auto n = co_await Preview::Testing::TailReadGuarded(proxy, tail, tail_ec);
+                // 干净 EOF：0 字节 + eof 错误码（Preview::Fault 把 asio::eof 映射为 Code::Eof）
+                clean_eof = (n == 0 && tail_ec == Preview::Fault::Code::Eof);
                 proxy->Close();
                 listener.Stop();
                 boost::system::error_code close_ec;
@@ -374,7 +374,7 @@ namespace
         auto StateObj = std::make_shared<trojan_chain_state>(
             trojan_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [upstream_ep](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -407,7 +407,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -431,7 +431,7 @@ namespace
                                         std::chrono::milliseconds(400));
                 co_await timer.async_wait(net::use_awaitable);
                 std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->AsyncReadSome(buf, ec);
+                const auto n = co_await proxy->async_read_some(buf, ec);
                 closed = (n == 0 || ec);
                 proxy->Close();
                 listener.Stop();
@@ -450,10 +450,10 @@ namespace
         auto StateObj = std::make_shared<trojan_chain_state>(
             trojan_chain_state{ioc.get_executor(), echo_port});
 
-        auto recorder = std::make_shared<psm::testing::TrafficRecorder>();
+        auto recorder = std::make_shared<Preview::Testing::TrafficRecorder>();
 
         auto upstream_ep = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [upstream_ep](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -485,7 +485,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -514,7 +514,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->AsyncReadSome(
+                    const auto n = co_await proxy->async_read_some(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0)
                     {
@@ -526,7 +526,7 @@ namespace
                 // 有界轮询等待流量上报落账（替代固定 sleep，避免慢机 flaky）
                 net::steady_timer timer(ioc.get_executor());
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-                while ((recorder->up == 0u || recorder->down == 0u) &&
+                while ((recorder->Up == 0u || recorder->Down == 0u) &&
                        std::chrono::steady_clock::now() < deadline)
                 {
                     timer.expires_after(std::chrono::milliseconds(5));
@@ -536,9 +536,9 @@ namespace
                 boost::system::error_code close_ec;
                 echo_acceptor.close(close_ec);
             });
-        EXPECT_TRUE(recorder->identity.empty());
-        EXPECT_GT(recorder->up, 0u);
-        EXPECT_GT(recorder->down, 0u);
+        EXPECT_TRUE(recorder->Identity.empty());
+        EXPECT_GT(recorder->Up, 0u);
+        EXPECT_GT(recorder->Down, 0u);
     }
 
 } // namespace

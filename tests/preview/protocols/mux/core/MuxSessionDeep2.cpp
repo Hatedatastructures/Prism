@@ -59,7 +59,7 @@ namespace
     auto make_syn_with_payload(std::uint32_t Id, std::string_view payload) -> std::vector<std::uint8_t>
     {
         Smux::FrameHeader hdr{};
-        hdr.cmd = Smux::Command::syn;
+        hdr.cmd = Smux::Command::Syn;
         hdr.length = static_cast<std::uint16_t>(payload.size());
         hdr.StreamId = Id;
         return Smux::Build(hdr, AsU8Span(payload));
@@ -88,13 +88,13 @@ namespace
                      EXPECT_EQ(Session->StreamCount(), 1u);
 
                      // 重复 SYN（同 Id）→ 忽略
-                     const auto w2 = co_await peer->WriteAll(Smux::Build(1));
+                     const auto w2 = co_await peer->WriteAll(Smux::BuildSyn(1));
                      EXPECT_FALSE(w2);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_EQ(Session->StreamCount(), 1u);
 
                      // SYN Id==0 → 忽略
-                     const auto w3 = co_await peer->WriteAll(Smux::Build(0));
+                     const auto w3 = co_await peer->WriteAll(Smux::BuildSyn(0));
                      EXPECT_FALSE(w3);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_EQ(Session->StreamCount(), 1u);
@@ -127,33 +127,33 @@ namespace
                      EXPECT_EQ(Session->StreamCount(), 2u);
 
                      // fin 已知流 → 对端半关
-                     const auto w7 = co_await peer->WriteAll(Smux::Build(1));
+                     const auto w7 = co_await peer->WriteAll(Smux::BuildFin(1));
                      EXPECT_FALSE(w7);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_TRUE(Handle->IsPeerEof());
 
                      // fin 未知流 → 忽略
-                     const auto w8 = co_await peer->WriteAll(Smux::Build(99));
+                     const auto w8 = co_await peer->WriteAll(Smux::BuildFin(99));
                      EXPECT_FALSE(w8);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
 
                      // 控制帧（NOP）→ 忽略
                      Smux::FrameHeader nop_hdr{};
-                     nop_hdr.cmd = Smux::Command::nop;
+                     nop_hdr.cmd = Smux::Command::Nop;
                      const auto w9 = co_await peer->WriteAll(Smux::Build(nop_hdr));
                      EXPECT_FALSE(w9);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_EQ(Session->StreamCount(), 2u);
 
-                     // smux 无独立 RST 帧：FIN 帧即半关（StreamEvent::fin）
-                     const auto w10 = co_await peer->WriteAll(Smux::Build(3));
+                     // smux 无独立 RST 帧：FIN 帧即半关（StreamEvent::Fin）
+                     const auto w10 = co_await peer->WriteAll(Smux::BuildFin(3));
                      EXPECT_FALSE(w10);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_TRUE(implicit->IsPeerEof());
                      EXPECT_EQ(Session->StreamCount(), 2u);
 
                      // fin 未知流 → 无副作用
-                     const auto w11 = co_await peer->WriteAll(Smux::Build(98));
+                     const auto w11 = co_await peer->WriteAll(Smux::BuildFin(98));
                      EXPECT_FALSE(w11);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_EQ(Session->StreamCount(), 2u);
@@ -228,7 +228,7 @@ namespace
                      (void)Session->Executor();
                      // 开流（Data + SYN + 负载）→ Open 分支带负载路径
                      const auto w1 = co_await peer->WriteAll(
-                         Yamux::BuildData(Yamux::Flags::syn, 1, AsU8Span(std::string_view{"Open-payload"})));
+                         Yamux::BuildData(Yamux::Flags::Syn, 1, AsU8Span(std::string_view{"Open-payload"})));
                      EXPECT_FALSE(w1);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      auto Handle = co_await Session->AcceptStream();
@@ -243,27 +243,27 @@ namespace
                      EXPECT_EQ(Session->StreamCount(), 1u);
 
                      // FIN（Data + FIN 标志）→ fin 分支
-                     const auto w2 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::fin, 1, {}));
+                     const auto w2 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::Fin, 1, {}));
                      EXPECT_FALSE(w2);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_TRUE(Handle->IsPeerEof());
                      EXPECT_EQ(Session->StreamCount(), 1u);
 
                      // FIN 未知流 → 无副作用
-                     const auto w3 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::fin, 99, {}));
+                     const auto w3 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::Fin, 99, {}));
                      EXPECT_FALSE(w3);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_EQ(Session->StreamCount(), 1u);
 
                      // RST 已知流 → 流关闭并移除
-                     const auto w4 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::rst, 1, {}));
+                     const auto w4 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::Rst, 1, {}));
                      EXPECT_FALSE(w4);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_TRUE(Handle->IsClosed());
                      EXPECT_EQ(Session->StreamCount(), 0u);
 
                      // RST 未知流 → 无副作用
-                     const auto w5 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::rst, 98, {}));
+                     const auto w5 = co_await peer->WriteAll(Yamux::BuildData(Yamux::Flags::Rst, 98, {}));
                      EXPECT_FALSE(w5);
                      co_await net::post(ioc.get_executor(), net::use_awaitable);
                      EXPECT_EQ(Session->StreamCount(), 0u);
@@ -417,7 +417,7 @@ namespace
                      EXPECT_EQ(accepted, nullptr);
                      const auto perr = co_await Handle->WriteAll(AsU8Span(std::string_view{"x"}));
                      EXPECT_TRUE(perr);
-                     EXPECT_EQ(perr, make_error_code(Error::broken_pipe));
+                     EXPECT_EQ(perr, make_error_code(Error::BrokenPipe));
                  });
     }
 

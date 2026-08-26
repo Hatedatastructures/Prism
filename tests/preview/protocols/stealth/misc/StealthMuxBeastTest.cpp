@@ -64,7 +64,7 @@ namespace
         const auto handshake = std::span<const std::uint8_t>(hello).subspan(Shadowtls::TlsHdrsize);
         EXPECT_EQ(
             Shadowtls::GenerateSessionId(Shadowtls::SessionIdInput{password, handshake, SessionId}),
-            Error::none);
+            Error::None);
         std::memcpy(hello.data() + 5 + Shadowtls::SessionIdStart, SessionId.data(),
                     Shadowtls::TlsSessionIdSz);
 
@@ -85,16 +85,16 @@ namespace
         const auto Secret = Restls::DeriveSecret(password);
         EXPECT_EQ(Secret.size(), 32u);
 
-        std::array<std::uint8_t, 32> server_random{};
+        std::array<std::uint8_t, 32> ServerRandom{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            server_random[i] = static_cast<std::uint8_t>(i);
+            ServerRandom[i] = static_cast<std::uint8_t>(i);
         }
-        const auto mask = Restls::ComputeServerMask(Secret, server_random);
+        const auto mask = Restls::ComputeServerMask(Secret, ServerRandom);
         EXPECT_EQ(mask.size(), Restls::HsMaclen);
 
         // 相同输入 → 相同输出
-        const auto mask2 = Restls::ComputeServerMask(Secret, server_random);
+        const auto mask2 = Restls::ComputeServerMask(Secret, ServerRandom);
         EXPECT_EQ(mask, mask2);
     }
 
@@ -102,17 +102,17 @@ namespace
     {
         const std::string password = "anytls_password";
         std::string Frame;
-        EXPECT_EQ(Anytls::BuildAuthFrame(password, 16, Frame), Error::none);
+        EXPECT_EQ(Anytls::BuildAuthFrame(password, 16, Frame), Error::None);
         EXPECT_EQ(Frame.size(), Anytls::AuthFrameHdrlen + 16);
 
         std::array<std::uint8_t, Anytls::PasswordHashLen> Hash{};
-        std::uint16_t pad_len = 0;
+        std::uint16_t PadLen = 0;
         EXPECT_EQ(
             Anytls::ParseAuthFrame(std::span<const std::uint8_t>(
                                          reinterpret_cast<const std::uint8_t *>(Frame.data()), Frame.size()),
-                                     Hash, pad_len),
-            Error::none);
-        EXPECT_EQ(pad_len, 16u);
+                                     Hash, PadLen),
+            Error::None);
+        EXPECT_EQ(PadLen, 16u);
         EXPECT_TRUE(Anytls::VerifyAuth(password, Hash));
         EXPECT_FALSE(Anytls::VerifyAuth("wrong", Hash));
     }
@@ -141,7 +141,7 @@ namespace
         const std::string payload = "hello websocket";
         std::array<std::byte, 128> out{};
         const auto n = Ws::EncodeFrame(
-            Ws::FrameInput{Ws::Opcode::binary, true,
+            Ws::FrameInput{Ws::Opcode::Binary, true,
                             std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                        payload.size())},
             out);
@@ -149,9 +149,9 @@ namespace
 
         Ws::FrameHeader hdr{};
         EXPECT_TRUE(Ws::ParseFrameHeader(std::span<const std::byte>(out).first(n), hdr));
-        EXPECT_TRUE(hdr.fin);
-        EXPECT_EQ(hdr.Opcode, static_cast<std::uint8_t>(Ws::Opcode::binary));
-        EXPECT_FALSE(hdr.masked);
+        EXPECT_TRUE(hdr.Fin);
+        EXPECT_EQ(hdr.Opcode, static_cast<std::uint8_t>(Ws::Opcode::Binary));
+        EXPECT_FALSE(hdr.Masked);
         EXPECT_EQ(hdr.PayloadLen, payload.size());
         EXPECT_EQ(hdr.HeaderLen, 2u);
     }
@@ -184,7 +184,7 @@ namespace
             Smux::BuildPush(42, std::span<const std::uint8_t>(
                                      reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
         Smux::FrameHeader out{};
-        EXPECT_EQ(Smux::ParseHeader(std::span<const std::uint8_t>(wire), out), Error::none);
+        EXPECT_EQ(Smux::ParseHeader(std::span<const std::uint8_t>(wire), out), Error::None);
         EXPECT_EQ(out.cmd, Smux::Command::Push);
         EXPECT_EQ(out.StreamId, 42u);
         EXPECT_EQ(
@@ -196,13 +196,13 @@ namespace
     {
         const std::string payload = "yamux Data";
         const auto wire =
-            Yamux::BuildData(Yamux::Flags::ack, 7,
+            Yamux::BuildData(Yamux::Flags::Ack, 7,
                               std::span<const std::uint8_t>(
                                   reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
         Yamux::FrameHeader out{};
-        EXPECT_EQ(Yamux::ParseHeader(std::span<const std::uint8_t>(wire), out), Error::none);
+        EXPECT_EQ(Yamux::ParseHeader(std::span<const std::uint8_t>(wire), out), Error::None);
         EXPECT_EQ(out.Type, Yamux::MessageType::Data);
-        EXPECT_TRUE(Yamux::HasFlag(out.flag, Yamux::Flags::ack));
+        EXPECT_TRUE(Yamux::HasFlag(out.flag, Yamux::Flags::Ack));
         EXPECT_EQ(out.StreamId, 7u);
     }
 

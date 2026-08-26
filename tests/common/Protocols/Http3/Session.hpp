@@ -39,7 +39,7 @@ namespace Preview::Http3 {
     struct OutPacket
     {
         std::int64_t StreamId{0};      ///< 目标 QUIC 流
-        std::vector<std::byte> Data; ///< 待发字节
+        Preview::Memory::Vector<std::byte> Data; ///< 待发字节
         explicit OutPacket(Preview::Memory::ResourcePointer mr) : Data(mr)
         {
         }
@@ -70,10 +70,10 @@ namespace Preview::Http3 {
 
         /**
          * @brief 初始化：创建 nghttp3 服务端连接 + 服务器控制流/QPACK 流
-         * @param open_uni_stream QUIC 层开单向流回调（失败返回 -1）
+         * @param OpenUniStream QUIC 层开单向流回调（失败返回 -1）
          * @return 是否成功
          */
-        [[nodiscard]] auto Init(std::function<std::int64_t()> open_uni_stream) -> bool;
+        [[nodiscard]] auto Init(std::function<std::int64_t()> OpenUniStream) -> bool;
 
         /**
          * @brief 喂入流数据（QUIC 流 → nghttp3）
@@ -82,12 +82,13 @@ namespace Preview::Http3 {
          * @param fin 是否为流末尾
          * @return 协议处理是否成功（失败即连接错误，应断开）
          */
-        [[nodiscard]] auto Feed(std::int64_t StreamId, std::span<const std::byte> Data, bool fin)
+        [[nodiscard]] auto Feed(std::int64_t StreamId, std::span<const std::byte> Data, bool Fin)
             -> Fault::Code;
 
         /**
          * @brief 收集待发数据（nghttp3 → QUIC 流）
-         * @param out 输出包集合（写回 QUIC 后调用 AddWriteOffset 告知消费）
+         * @param out 输出包集合（PumpOutput 内部已向 nghttp3 登记写偏移，
+         *        调用方直接写回 QUIC 即可，无需再调 AddWriteOffset）
          * @return 是否成功
          */
         [[nodiscard]] auto PumpOutput(std::vector<OutPacket> &out) -> bool;
@@ -105,9 +106,9 @@ namespace Preview::Http3 {
          */
         [[nodiscard]] auto AuthHeadersComplete() const noexcept -> bool;
 
-        /** @brief 获取认证请求方法（:Method） */
+        /** @brief 获取认证请求方法（:method） */
         [[nodiscard]] auto Method() const noexcept -> std::string_view;
-        /** @brief 获取认证请求路径（:Path） */
+        /** @brief 获取认证请求路径（:path） */
         [[nodiscard]] auto Path() const noexcept -> std::string_view;
         /** @brief 获取认证凭据（Hysteria-Auth 头） */
         [[nodiscard]] auto Auth() const noexcept -> std::string_view;
@@ -137,7 +138,7 @@ namespace Preview::Http3 {
          */
         [[nodiscard]] auto Native() const noexcept -> nghttp3_conn *
         {
-            return conn_;
+            return Conn_;
         }
 
     private:
@@ -149,7 +150,7 @@ namespace Preview::Http3 {
                                    nghttp3_rcbuf *value, uint8_t Flags, void *user_data,
                                    void *stream_user_data) -> int;
         /** @brief nghttp3 回调：头字段接收完毕（end_headers） */
-        static auto CbEndHeaders(nghttp3_conn *Conn, int64_t StreamId, int fin, void *user_data,
+        static auto CbEndHeaders(nghttp3_conn *Conn, int64_t StreamId, int Fin, void *user_data,
                                    void *stream_user_data) -> int;
         /** @brief nghttp3 回调：接收请求体数据 */
         static auto CbRecvData(nghttp3_conn *Conn, int64_t StreamId, const uint8_t *Data, size_t datalen,
@@ -168,17 +169,17 @@ namespace Preview::Http3 {
          */
         [[nodiscard]] static auto NowTstamp() -> std::uint64_t;
 
-        nghttp3_conn *conn_{nullptr};   ///< nghttp3 连接状态
-        Preview::Memory::ResourcePointer mr_{}; ///< 内存资源
+        nghttp3_conn *Conn_{nullptr};   ///< nghttp3 连接状态
+        Preview::Memory::ResourcePointer Mr_{}; ///< 内存资源
         std::int64_t CtrlStream_{-1};  ///< 服务器控制流
         std::int64_t EncStream_{-1};   ///< 服务器 QPACK encoder 流
         std::int64_t DecStream_{-1};   ///< 服务器 QPACK decoder 流
         std::int64_t AuthStream_{-1};  ///< 认证请求流
         bool HeadersDone_{false};      ///< 认证头接收完整
-        std::string method_;         ///< :Method
-        std::string path_;           ///< :Path
-        std::string auth_;           ///< Hysteria-Auth 头
-        std::uint64_t rx_{0};           ///< Hysteria-CC-RX 头
+        Preview::Memory::String Method_;         ///< :method
+        Preview::Memory::String Path_;           ///< :path
+        Preview::Memory::String Auth_;           ///< Hysteria-Auth 头
+        std::uint64_t Rx_{0};           ///< Hysteria-CC-RX 头
     };
 
 
@@ -190,14 +191,14 @@ namespace Preview::Http3 {
          * @param rc nghttp3 接收缓冲区
          * @return 缓冲区字节视图
          */
-        [[nodiscard]] auto RcbufView(nghttp3_rcbuf *rc) -> std::string_view
+        [[nodiscard]] auto RcbufView(nghttp3_rcbuf *Rc) -> std::string_view
         {
-            const auto buf = nghttp3_rcbuf_get_buf(rc);
-            return AsStrView(std::span<const std::uint8_t>(buf.base, buf.len));
+            const auto Buf = nghttp3_rcbuf_get_buf(Rc);
+            return AsStrView(std::span<const std::uint8_t>(Buf.base, Buf.len));
         }
     } // namespace
 
-    inline AuthServer::AuthServer(const Preview::Memory::ResourcePointer mr) : mr_(mr), method_(mr), path_(mr), auth_(mr)
+    inline AuthServer::AuthServer(const Preview::Memory::ResourcePointer mr) : Mr_(mr), Method_(mr), Path_(mr), Auth_(mr)
     {
     }
 
@@ -213,9 +214,9 @@ namespace Preview::Http3 {
                                               .count());
     }
 
-    inline auto AuthServer::Init(std::function<std::int64_t()> open_uni_stream) -> bool
+    inline auto AuthServer::Init(std::function<std::int64_t()> OpenUniStream) -> bool
     {
-        if (conn_)
+        if (Conn_)
         {
             return true;
         }
@@ -232,20 +233,20 @@ namespace Preview::Http3 {
         nghttp3_settings settings{};
         nghttp3_settings_default_versioned(NGHTTP3_SETTINGS_VERSION, &settings);
 
-        const auto rv = nghttp3_conn_server_new_versioned(&conn_, NGHTTP3_CALLBACKS_VERSION, &callbacks,
+        const auto Rv = nghttp3_conn_server_new_versioned(&Conn_, NGHTTP3_CALLBACKS_VERSION, &callbacks,
                                                           NGHTTP3_SETTINGS_VERSION, &settings,
                                                           nghttp3_mem_default(), this);
-        if (rv != 0)
+        if (Rv != 0)
         {
-            conn_ = nullptr;
-            Diagnose::Warn("hysteria2: nghttp3_conn_server_new Failed: {}", nghttp3_strerror(rv));
+            Conn_ = nullptr;
+            Diagnose::Warn("hysteria2: nghttp3_conn_server_new Failed: {}", nghttp3_strerror(Rv));
             return false;
         }
 
         // 服务器控制流（SETTINGS）+ QPACK encoder/decoder 流
-        CtrlStream_ = open_uni_stream();
-        EncStream_ = open_uni_stream();
-        DecStream_ = open_uni_stream();
+        CtrlStream_ = OpenUniStream();
+        EncStream_ = OpenUniStream();
+        DecStream_ = OpenUniStream();
         if (CtrlStream_ < 0 || EncStream_ < 0 || DecStream_ < 0)
         {
             Close();
@@ -253,8 +254,8 @@ namespace Preview::Http3 {
             return false;
         }
 
-        if (nghttp3_conn_bind_control_stream(conn_, CtrlStream_) != 0 ||
-            nghttp3_conn_bind_qpack_streams(conn_, EncStream_, DecStream_) != 0)
+        if (nghttp3_conn_bind_control_stream(Conn_, CtrlStream_) != 0 ||
+            nghttp3_conn_bind_qpack_streams(Conn_, EncStream_, DecStream_) != 0)
         {
             Close();
             Diagnose::Warn("hysteria2: cannot Bind h3 control streams");
@@ -263,34 +264,34 @@ namespace Preview::Http3 {
         return true;
     }
 
-    inline auto AuthServer::Feed(const std::int64_t StreamId, std::span<const std::byte> Data, const bool fin)
+    inline auto AuthServer::Feed(const std::int64_t StreamId, std::span<const std::byte> Data, const bool Fin)
         -> Fault::Code
     {
-        if (!conn_)
+        if (!Conn_)
         {
-            return Fault::Code::protocol_error;
+            return Fault::Code::ProtocolError;
         }
 
         int FinFlag = 0;
-        if (fin)
+        if (Fin)
         {
             FinFlag = 1;
         }
-        const auto rc =
-            nghttp3_conn_read_stream2(conn_, StreamId, AsU8(Data).data(), Data.size(), FinFlag,
+        const auto Rc =
+            nghttp3_conn_read_stream2(Conn_, StreamId, AsU8(Data).data(), Data.size(), FinFlag,
                                       NowTstamp());
-        if (rc < 0)
+        if (Rc < 0)
         {
             Diagnose::Warn("hysteria2: nghttp3 read_stream Failed: {}",
-                           nghttp3_strerror(static_cast<int>(rc)));
-            return Fault::Code::protocol_error;
+                           nghttp3_strerror(static_cast<int>(Rc)));
+            return Fault::Code::ProtocolError;
         }
-        return Fault::Code::success;
+        return Fault::Code::Success;
     }
 
     inline auto AuthServer::PumpOutput(std::vector<OutPacket> &out) -> bool
     {
-        if (!conn_)
+        if (!Conn_)
         {
             return false;
         }
@@ -301,15 +302,15 @@ namespace Preview::Http3 {
         for (;;)
         {
             std::int64_t StreamId = -1;
-            int fin = 0;
-            for (std::size_t i = 0; i < vecs.size(); ++i)
+            int Fin = 0;
+            for (std::size_t I = 0; I < vecs.size(); ++I)
             {
-                vecs[i].base = AsU8(std::span(bufs[i])).data();
-                vecs[i].len = bufs[i].size();
+                vecs[I].base = AsU8(std::span(bufs[I])).data();
+                vecs[I].len = bufs[I].size();
             }
 
             nghttp3_ssize sveccnt =
-                nghttp3_conn_writev_stream(conn_, &StreamId, &fin, vecs.data(), vecs.size());
+                nghttp3_conn_writev_stream(Conn_, &StreamId, &Fin, vecs.data(), vecs.size());
             if (sveccnt < 0)
             {
                 Diagnose::Warn("hysteria2: nghttp3 writev_stream Failed: {}",
@@ -323,20 +324,20 @@ namespace Preview::Http3 {
 
             // 输出字节复制到 out 缓冲（应用保证写回 QUIC），立即告知 nghttp3 消费，
             // 否则下次 writev_stream 返回相同数据导致死循环
-            OutPacket pkt(mr_);
+            OutPacket pkt(Mr_);
             pkt.StreamId = StreamId;
-            for (nghttp3_ssize i = 0; i < sveccnt; ++i)
+            for (nghttp3_ssize I = 0; I < sveccnt; ++I)
             {
-                const auto Bytes = AsBytes(std::span<const std::uint8_t>(vecs[i].base, vecs[i].len));
+                const auto Bytes = AsBytes(std::span<const std::uint8_t>(vecs[I].base, vecs[I].len));
                 pkt.Data.insert(pkt.Data.end(), Bytes.begin(), Bytes.end());
             }
-            const auto nwritten = pkt.Data.size();
+            const auto Nwritten = pkt.Data.size();
             out.push_back(std::move(pkt));
-            nghttp3_conn_add_write_offset(conn_, StreamId, nwritten);
+            nghttp3_conn_add_write_offset(Conn_, StreamId, Nwritten);
 
-            if (fin)
+            if (Fin)
             {
-                nghttp3_conn_shutdown_stream_write(conn_, StreamId);
+                nghttp3_conn_shutdown_stream_write(Conn_, StreamId);
             }
         }
         return true;
@@ -344,9 +345,9 @@ namespace Preview::Http3 {
 
     inline void AuthServer::AddWriteOffset(const std::int64_t StreamId, const std::size_t len)
     {
-        if (conn_ && len > 0)
+        if (Conn_ && len > 0)
         {
-            nghttp3_conn_add_write_offset(conn_, StreamId, len);
+            nghttp3_conn_add_write_offset(Conn_, StreamId, len);
         }
     }
 
@@ -357,22 +358,22 @@ namespace Preview::Http3 {
 
     inline auto AuthServer::Method() const noexcept -> std::string_view
     {
-        return std::string_view(method_.data(), method_.size());
+        return std::string_view(Method_.data(), Method_.size());
     }
 
     inline auto AuthServer::Path() const noexcept -> std::string_view
     {
-        return std::string_view(path_.data(), path_.size());
+        return std::string_view(Path_.data(), Path_.size());
     }
 
     inline auto AuthServer::Auth() const noexcept -> std::string_view
     {
-        return std::string_view(auth_.data(), auth_.size());
+        return std::string_view(Auth_.data(), Auth_.size());
     }
 
     inline auto AuthServer::Rx() const noexcept -> std::uint64_t
     {
-        return rx_;
+        return Rx_;
     }
 
     inline auto AuthServer::AuthStreamId() const noexcept -> std::int64_t
@@ -382,37 +383,37 @@ namespace Preview::Http3 {
 
     inline auto AuthServer::SubmitAuthResponse() -> Fault::Code
     {
-        if (!conn_ || AuthStream_ < 0)
+        if (!Conn_ || AuthStream_ < 0)
         {
-            return Fault::Code::protocol_error;
+            return Fault::Code::ProtocolError;
         }
 
         std::array<nghttp3_nv, 4> nva{};
-        std::size_t n = 0;
-        nva[n++] = nghttp3_nv{reinterpret_cast<const uint8_t *>(":status"),
+        std::size_t N = 0;
+        nva[N++] = nghttp3_nv{reinterpret_cast<const uint8_t *>(":status"),
                               reinterpret_cast<const uint8_t *>("233"), 7, 3, NGHTTP3_NV_FLAG_NONE};
-        nva[n++] = nghttp3_nv{reinterpret_cast<const uint8_t *>("hysteria-udp"),
+        nva[N++] = nghttp3_nv{reinterpret_cast<const uint8_t *>("hysteria-udp"),
                               reinterpret_cast<const uint8_t *>("true"), 12, 4, NGHTTP3_NV_FLAG_NONE};
-        nva[n++] = nghttp3_nv{reinterpret_cast<const uint8_t *>("hysteria-cc-Rx"),
+        nva[N++] = nghttp3_nv{reinterpret_cast<const uint8_t *>("hysteria-cc-rx"),
                               reinterpret_cast<const uint8_t *>("0"), 13, 1, NGHTTP3_NV_FLAG_NONE};
-        nva[n++] = nghttp3_nv{reinterpret_cast<const uint8_t *>("hysteria-padding"),
+        nva[N++] = nghttp3_nv{reinterpret_cast<const uint8_t *>("hysteria-padding"),
                               reinterpret_cast<const uint8_t *>("0"), 15, 1, NGHTTP3_NV_FLAG_NONE};
 
-        const auto rv = nghttp3_conn_submit_response(conn_, AuthStream_, nva.data(), n, nullptr);
-        if (rv != 0)
+        const auto Rv = nghttp3_conn_submit_response(Conn_, AuthStream_, nva.data(), N, nullptr);
+        if (Rv != 0)
         {
-            Diagnose::Warn("hysteria2: nghttp3 submit_response Failed: {}", nghttp3_strerror(rv));
-            return Fault::Code::protocol_error;
+            Diagnose::Warn("hysteria2: nghttp3 submit_response Failed: {}", nghttp3_strerror(Rv));
+            return Fault::Code::ProtocolError;
         }
-        return Fault::Code::success;
+        return Fault::Code::Success;
     }
 
     inline void AuthServer::Close()
     {
-        if (conn_)
+        if (Conn_)
         {
-            nghttp3_conn_del(conn_);
-            conn_ = nullptr;
+            nghttp3_conn_del(Conn_);
+            Conn_ = nullptr;
         }
     }
 
@@ -442,31 +443,31 @@ namespace Preview::Http3 {
             return 0;
         }
 
-        const auto v = RcbufView(value);
+        const auto V = RcbufView(value);
         switch (token)
         {
-        case NGHTTP3_QPACK_TOKEN__METHOD: self->method_.assign(v.data(), v.size()); return 0;
-        case NGHTTP3_QPACK_TOKEN__PATH: self->path_.assign(v.data(), v.size()); return 0;
+        case NGHTTP3_QPACK_TOKEN__METHOD: self->Method_.assign(V.data(), V.size()); return 0;
+        case NGHTTP3_QPACK_TOKEN__PATH: self->Path_.assign(V.data(), V.size()); return 0;
         default: break;
         }
 
-        const auto nm = RcbufView(Name);
-        if (nm == "hysteria-Auth")
+        const auto Nm = RcbufView(Name);
+        if (Nm == "hysteria-auth")
         {
-            self->auth_.assign(v.data(), v.size());
+            self->Auth_.assign(V.data(), V.size());
         }
-        else if (nm == "hysteria-cc-Rx")
+        else if (Nm == "hysteria-cc-rx")
         {
-            std::from_chars(v.data(), v.data() + v.size(), self->rx_);
+            std::from_chars(V.data(), V.data() + V.size(), self->Rx_);
         }
         return 0;
     }
 
-    inline auto AuthServer::CbEndHeaders(nghttp3_conn *Conn, const int64_t StreamId, const int fin, void *user_data,
+    inline auto AuthServer::CbEndHeaders(nghttp3_conn *Conn, const int64_t StreamId, const int Fin, void *user_data,
                                 void *stream_user_data) -> int
     {
         (void)Conn;
-        (void)fin;
+        (void)Fin;
         (void)stream_user_data;
         auto *self = static_cast<AuthServer *>(user_data);
         if (StreamId == self->AuthStream_)
@@ -511,9 +512,9 @@ namespace Preview::Http3 {
 
     inline void AuthServer::CbRand(uint8_t *dest, const size_t destlen)
     {
-        for (std::size_t i = 0; i < destlen; ++i)
+        for (std::size_t I = 0; I < destlen; ++I)
         {
-            dest[i] = static_cast<std::uint8_t>(std::rand());
+            dest[I] = static_cast<std::uint8_t>(std::rand());
         }
     }
 

@@ -29,7 +29,7 @@
 // 包含源文件以获得 gcov 覆盖
 #include "../src/prism/protocol/multiplex/yamux/control.cpp"
 
-using MockTransport = psm::testing::MockTransport;
+using MockTransport = Preview::Testing::MockTransport;
 namespace multiplex = psm::multiplex;
 namespace yamux = psm::multiplex::yamux;
 namespace net = boost::asio;

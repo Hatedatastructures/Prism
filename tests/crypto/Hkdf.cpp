@@ -221,15 +221,15 @@ TEST(Hkdf, HkdfExpandLabel)
         0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f};
 
     constexpr std::string_view label = "key";
-    constexpr std::size_t out_len = 32;
+    constexpr std::size_t OutLen = 32;
 
-    auto [err, output] = psm::crypto::expand_label({secret, label, {}, out_len});
+    auto [err, output] = psm::crypto::expand_label({secret, label, {}, OutLen});
 
     ASSERT_EQ(err, psm::fault::code::success) << "HKDF-Expand-Label returned error";
-    ASSERT_EQ(output.size(), out_len) << "HKDF-Expand-Label output length mismatch";
+    ASSERT_EQ(output.size(), OutLen) << "HKDF-Expand-Label output length mismatch";
 
     // 第二次调用应产生相同结果（确定性）
-    auto [err2, output2] = psm::crypto::expand_label({secret, label, {}, out_len});
+    auto [err2, output2] = psm::crypto::expand_label({secret, label, {}, OutLen});
 
     ASSERT_EQ(err2, psm::fault::code::success) << "HKDF-Expand-Label second call returned error";
     EXPECT_EQ(output, output2) << "HKDF-Expand-Label should be deterministic";

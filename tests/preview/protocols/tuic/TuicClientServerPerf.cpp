@@ -71,7 +71,7 @@ namespace
                          auto [err, req, Conn] =
                              co_await Tuic::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                    Tuic::ServerConfig{make_uuid(), "pw"});
-                         if (err != Error::none)
+                         if (err != Error::None)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
@@ -82,7 +82,7 @@ namespace
                          while (got < kTotal)
                          {
                              std::error_code ec;
-                             const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                             const auto n = co_await Conn->async_read_some(buf, ec);
                              if (ec || n == 0)
                              {
                                  break;
@@ -97,7 +97,7 @@ namespace
                      auto [herr, cli] =
                          co_await Tuic::Connect(std::make_shared<MemoryStream>(std::move(a)),
                                                 Tuic::ClientConfig{make_uuid(), "pw"}, make_dst());
-                     if (herr != Error::none || !cli)
+                     if (herr != Error::None || !cli)
                      {
                          EXPECT_TRUE(false) << "Connect Failed";
                          co_return;
@@ -116,7 +116,7 @@ namespace
                          while (Done < n)
                          {
                              std::error_code ec;
-                             const auto w = co_await cli->AsyncWriteSome(
+                             const auto w = co_await cli->async_write_some(
                                  std::span<const std::byte>(
                                      reinterpret_cast<const std::byte *>(payload.data() + Done), n - Done),
                                  ec);
@@ -151,14 +151,14 @@ namespace
                     auto [err, req, Conn] =
                         co_await Tuic::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                               Tuic::ServerConfig{make_uuid(), "pw"});
-                    if (err != Error::none)
+                    if (err != Error::None)
                     {
                         co_return;
                     }
                     Tuic::Address src;
                     std::vector<std::uint8_t> payload;
                     const auto rerr = co_await Conn->AsyncReceiveDatagram(src, payload);
-                    EXPECT_EQ(rerr, Error::none);
+                    EXPECT_EQ(rerr, Error::None);
                     EXPECT_EQ(std::string(payload.begin(), payload.end()), "hello udp");
                     std::vector<std::uint8_t> back(payload.rbegin(), payload.rend());
                     (void)co_await Conn->AsyncSendDatagram(src, back);
@@ -168,7 +168,7 @@ namespace
 
                 auto [herr, cli] = co_await Tuic::Connect(std::make_shared<MemoryStream>(std::move(a)),
                                                           Tuic::ClientConfig{make_uuid(), "pw"}, make_dst());
-                if (herr != Error::none || !cli)
+                if (herr != Error::None || !cli)
                 {
                     co_return;
                 }
@@ -176,11 +176,11 @@ namespace
                 auto serr = co_await cli->AsyncSendDatagram(
                     make_dst(), std::span<const std::uint8_t>(
                                     reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
-                EXPECT_EQ(serr, Error::none);
+                EXPECT_EQ(serr, Error::None);
                 Tuic::Address src;
                 std::vector<std::uint8_t> back;
                 const auto rerr = co_await cli->AsyncReceiveDatagram(src, back);
-                EXPECT_EQ(rerr, Error::none);
+                EXPECT_EQ(rerr, Error::None);
                 EXPECT_EQ(std::string(back.begin(), back.end()), "pdu olleh");
                 cli->Close();
             });

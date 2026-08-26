@@ -57,7 +57,7 @@ namespace
 
         Trojan::Parser p(password);
         p.Put(net::const_buffer(out.data(), Total), ec);
-        EXPECT_EQ(ec, Error::auth_failed);
+        EXPECT_EQ(ec, Error::AuthFailed);
     }
 
     TEST(TrojanBeast, UdpHeader)
@@ -135,7 +135,7 @@ namespace
 
         Vless::Parser p(good);
         p.Put(net::const_buffer(out.data(), Total), ec);
-        EXPECT_EQ(ec, Error::auth_failed);
+        EXPECT_EQ(ec, Error::AuthFailed);
     }
 
     TEST(VlessBeast, MuxCommand)

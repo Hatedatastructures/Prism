@@ -1,5 +1,5 @@
 /**
- * @file ech.hpp
+ * @file Ech.hpp
  * @brief ECH 伪装方案聚合头
  * @details ECH（Encrypted Client Hello）：服务端注册 SSL_ECH_KEYS，
  *          检测 ClientHello 中的 ECH 扩展（0xfe0d），解密内层 SNI。

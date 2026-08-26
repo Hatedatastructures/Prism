@@ -131,12 +131,12 @@ namespace
         buf[6] = std::byte{0xCC};
         buf[7] = std::byte{0xDD};
         EXPECT_TRUE(Ws::ParseFrameHeader(std::span<const std::byte>(buf.data(), 8), hdr));
-        EXPECT_TRUE(hdr.fin);
+        EXPECT_TRUE(hdr.Fin);
         EXPECT_EQ(hdr.Opcode, 0x02u);
-        EXPECT_TRUE(hdr.masked);
+        EXPECT_TRUE(hdr.Masked);
         EXPECT_EQ(hdr.PayloadLen, 256u);
         EXPECT_EQ(hdr.HeaderLen, 8u);
-        EXPECT_EQ(static_cast<std::uint8_t>(hdr.masked[0]), 0xAA);
+        EXPECT_EQ(static_cast<std::uint8_t>(hdr.MaskKey[0]), 0xAA);
 
         // 16 位长度：数据不足（需 4 字节，只有 3）
         EXPECT_FALSE(Ws::ParseFrameHeader(std::span<const std::byte>(buf.data(), 3), hdr));
@@ -166,7 +166,7 @@ namespace
 
         // 16 位长度（126）
         std::vector<std::byte> p126(300, std::byte{0x11});
-        Ws::FrameInput in126{Ws::Opcode::binary, true, std::span<const std::byte>(p126)};
+        Ws::FrameInput in126{Ws::Opcode::Binary, true, std::span<const std::byte>(p126)};
         const auto n126 = Ws::EncodeFrame(in126, out);
         EXPECT_EQ(n126, 304u);
         EXPECT_EQ(static_cast<std::uint8_t>(out[1]), 126u);
@@ -175,7 +175,7 @@ namespace
 
         // 64 位长度（127）
         std::vector<std::byte> p127(70000, std::byte{0x22});
-        Ws::FrameInput in127{Ws::Opcode::binary, true, std::span<const std::byte>(p127)};
+        Ws::FrameInput in127{Ws::Opcode::Binary, true, std::span<const std::byte>(p127)};
         const auto n127 = Ws::EncodeFrame(in127, out);
         EXPECT_EQ(n127, 70010u);
         EXPECT_EQ(static_cast<std::uint8_t>(out[1]), 127u);
@@ -197,53 +197,53 @@ namespace
         Socks5::MethodReply mr{};
         // need_more
         EXPECT_EQ(Socks5::ParseMethodReply(std::span<const std::uint8_t>(make_bytes({0x05})), mr),
-                  Error::need_more);
+                  Error::NeedMore);
         // bad_magic
         EXPECT_EQ(Socks5::ParseMethodReply(std::span<const std::uint8_t>(make_bytes({0x04, 0x00})), mr),
-                  Error::bad_magic);
+                  Error::BadMagic);
         // 成功
         EXPECT_EQ(Socks5::ParseMethodReply(std::span<const std::uint8_t>(make_bytes({0x05, 0x00})), mr),
-                  Error::none);
+                  Error::None);
         EXPECT_EQ(mr.Ver, 5u);
-        EXPECT_EQ(mr.Method, Socks5::AuthMethod::no_auth);
+        EXPECT_EQ(mr.Method, Socks5::AuthMethod::NoAuth);
 
         Socks5::Address addr{};
         std::size_t consumed = 0;
         // 空输入
-        EXPECT_EQ(Socks5::ParseAddress(std::span<const std::uint8_t>{}, addr, consumed), Error::need_more);
+        EXPECT_EQ(Socks5::ParseAddress(std::span<const std::uint8_t>{}, addr, consumed), Error::NeedMore);
         // ipv4 不足
         EXPECT_EQ(Socks5::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x01, 1, 2})), addr, consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // ipv6 不足
         EXPECT_EQ(Socks5::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x04, 1})), addr, consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // ipv6 成功
         std::vector<std::uint8_t> v6{0x04};
         v6.insert(v6.end(), 16, 0x42);
         v6.push_back(0x1F);
         v6.push_back(0x90);
-        EXPECT_EQ(Socks5::ParseAddress(v6, addr, consumed), Error::none);
+        EXPECT_EQ(Socks5::ParseAddress(v6, addr, consumed), Error::None);
         EXPECT_EQ(addr.Type, Socks5::AddressType::Ipv6);
         EXPECT_EQ(addr.Host, std::string(16, '\x42'));
         EXPECT_EQ(addr.Port, 8080u);
         // domain 缺长度字节
         EXPECT_EQ(Socks5::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x03})), addr, consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // domain 不足
         EXPECT_EQ(Socks5::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x03, 5, 'a'})), addr, consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // domain 成功
         std::vector<std::uint8_t> dom{0x03, 7};
         const std::string_view Name = "example";
         dom.insert(dom.end(), Name.begin(), Name.end());
         dom.push_back(0x00);
         dom.push_back(0x50);
-        EXPECT_EQ(Socks5::ParseAddress(dom, addr, consumed), Error::none);
+        EXPECT_EQ(Socks5::ParseAddress(dom, addr, consumed), Error::None);
         EXPECT_EQ(addr.Host, "example");
         EXPECT_EQ(addr.Port, 80u);
         // 非法类型
         EXPECT_EQ(Socks5::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x7F, 0, 0, 0, 0})), addr, consumed),
-                  Error::bad_message);
+                  Error::BadMessage);
     }
 
     TEST(Socks5Codec, ReplyAndGreeting)
@@ -252,10 +252,10 @@ namespace
         Socks5::Reply rep{};
         std::size_t consumed = 0;
         EXPECT_EQ(Socks5::ParseReply(std::span<const std::uint8_t>(make_bytes({0x05})), rep, consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         std::vector<std::uint8_t> rep_v{0x05, 0x00, 0x00, 0x01, 8, 8, 8, 8, 0x00, 0x35};
-        EXPECT_EQ(Socks5::ParseReply(rep_v, rep, consumed), Error::none);
-        EXPECT_EQ(rep.Code, Socks5::ReplyCode::success);
+        EXPECT_EQ(Socks5::ParseReply(rep_v, rep, consumed), Error::None);
+        EXPECT_EQ(rep.Code, Socks5::ReplyCode::Success);
         EXPECT_EQ(rep.Bind.Host, "8.8.8.8");
         EXPECT_EQ(rep.Bind.Port, 53u);
 
@@ -263,27 +263,27 @@ namespace
         Socks5::Greeting g{};
         EXPECT_EQ(Socks5::ParseGreeting(std::span<const std::uint8_t>(make_bytes({0x04, 0x01, 0x00})), g,
                                          consumed),
-                  Error::version_mismatch);
+                  Error::VersionMismatch);
         // Greeting：方法列表不足
         EXPECT_EQ(Socks5::ParseGreeting(std::span<const std::uint8_t>(make_bytes({0x05, 0x02, 0x00})), g,
                                          consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // Greeting 成功
         EXPECT_EQ(Socks5::ParseGreeting(std::span<const std::uint8_t>(make_bytes({0x05, 0x02, 0x00, 0x02})), g,
                                          consumed),
-                  Error::none);
-        EXPECT_EQ(g.methods.size(), 2u);
+                  Error::None);
+        EXPECT_EQ(g.Methods.size(), 2u);
         EXPECT_EQ(Socks5::BuildGreeting(g).size(), 4u);
 
         // userpass 响应
         EXPECT_EQ(Socks5::ParseUserpassReply(std::span<const std::uint8_t>(make_bytes({0x01}))),
-                  Error::need_more);
+                  Error::NeedMore);
         EXPECT_EQ(Socks5::ParseUserpassReply(std::span<const std::uint8_t>(make_bytes({0x02, 0x00}))),
-                  Error::bad_magic);
+                  Error::BadMagic);
         EXPECT_EQ(Socks5::ParseUserpassReply(std::span<const std::uint8_t>(make_bytes({0x01, 0x00}))),
-                  Error::none);
+                  Error::None);
         EXPECT_EQ(Socks5::ParseUserpassReply(std::span<const std::uint8_t>(make_bytes({0x01, 0x01}))),
-                  Error::bad_auth);
+                  Error::BadAuth);
         const auto up = Socks5::BuildUserpass("user", "pass");
         EXPECT_EQ(up.size(), 11u);
     }
@@ -295,7 +295,7 @@ namespace
 
         Socks5::Message msg;
         msg.Type = Socks5::Message::Kind::Greeting;
-        msg.methods = {0x00, 0x02};
+        msg.Methods = {0x00, 0x02};
         ser.Reset(msg);
         EXPECT_FALSE(ser.IsDone());
         std::error_code ec;
@@ -306,11 +306,11 @@ namespace
         msg.Type = Socks5::Message::Kind::MethodReply;
         msg.Method = 0x00;
         ser.Reset(msg);
-        // 注：生产实现此处 wire_ 赋值存在未定义行为（不同临时对象
+        // 注：生产实现此处 Wire_ 赋值存在未定义行为（不同临时对象
         // begin/end），仅执行路径，不做内容断言
         (void)ser.Get(boost::asio::buffer(buf.data(), buf.size()), ec);
 
-        msg.Type = Socks5::Message::Kind::userpass;
+        msg.Type = Socks5::Message::Kind::Userpass;
         msg.username = "u";
         msg.password = "p";
         ser.Reset(msg);
@@ -325,7 +325,7 @@ namespace
         EXPECT_EQ(ser.Get(boost::asio::buffer(buf.data(), buf.size()), ec), 10u);
 
         msg.Type = Socks5::Message::Kind::Reply;
-        msg.rep = Socks5::ReplyCode::success;
+        msg.rep = Socks5::ReplyCode::Success;
         msg.addr.Type = Socks5::AddressType::Domain;
         msg.addr.Host = "x.com";
         msg.addr.Port = 80;
@@ -352,18 +352,18 @@ namespace
         p.Reset();
         // 错误版本
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x04, 0x00})), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::bad_magic));
+        EXPECT_EQ(ec, make_error_code(Error::BadMagic));
         p.Reset();
 
         // userpass
-        p.Expect(Socks5::Message::Kind::userpass);
+        p.Expect(Socks5::Message::Kind::Userpass);
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x01})), ec), 0u);
         EXPECT_FALSE(ec); // need_more 不设置 ec
         ec.clear();
         // 错误版本
         p.Reset();
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x02, 0x01, 'u'})), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::bad_magic));
+        EXPECT_EQ(ec, make_error_code(Error::BadMagic));
         p.Reset();
         // 用户名长度不足
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x01, 0x05, 'u'})), ec), 0u);
@@ -378,7 +378,7 @@ namespace
         // 成功
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x01, 0x01, 'u', 0x01, 'p'})), ec), 5u);
         EXPECT_TRUE(p.IsDone());
-        EXPECT_EQ(p.Get().Type, Socks5::Message::Kind::userpass);
+        EXPECT_EQ(p.Get().Type, Socks5::Message::Kind::Userpass);
         EXPECT_EQ(p.Get().username, "u");
         EXPECT_EQ(p.Get().password, "p");
         p.Reset();
@@ -389,7 +389,7 @@ namespace
         EXPECT_EQ(p.Put(boost::asio::buffer(rep_v), ec), 10u);
         EXPECT_TRUE(p.IsDone());
         EXPECT_EQ(p.Get().Type, Socks5::Message::Kind::Reply);
-        EXPECT_EQ(p.Get().rep, Socks5::ReplyCode::success);
+        EXPECT_EQ(p.Get().rep, Socks5::ReplyCode::Success);
         EXPECT_EQ(p.Get().addr.Host, "8.8.8.8");
         // Remaining 与 TakeRemaining
         std::vector<std::uint8_t> extra{0x05, 0x01, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50, 0xAA, 0xBB};
@@ -409,31 +409,31 @@ namespace
         std::size_t consumed = 0;
         // ipv4 不足
         EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x01, 1, 2})), addr, consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // ipv6 不足
         EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x04, 1})), addr, consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // ipv6 成功
         std::vector<std::uint8_t> v6{0x04};
         v6.insert(v6.end(), 16, 0x42);
         v6.push_back(0x00);
         v6.push_back(0x50);
-        EXPECT_EQ(Tuic::ParseAddress(v6, addr, consumed), Error::none);
+        EXPECT_EQ(Tuic::ParseAddress(v6, addr, consumed), Error::None);
         EXPECT_EQ(addr.Host, std::string(16, '\x42'));
         EXPECT_EQ(addr.Port, 80u);
         // domain 缺长度
         EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x03})), addr, consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // domain 不足
         EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x03, 3, 'a'})), addr, consumed),
-                  Error::need_more);
+                  Error::NeedMore);
         // domain 成功
         std::vector<std::uint8_t> dom{0x03, 3};
         const std::string_view Name = "abc";
         dom.insert(dom.end(), Name.begin(), Name.end());
         dom.push_back(0x01);
         dom.push_back(0xBB);
-        EXPECT_EQ(Tuic::ParseAddress(dom, addr, consumed), Error::none);
+        EXPECT_EQ(Tuic::ParseAddress(dom, addr, consumed), Error::None);
         EXPECT_EQ(addr.Host, "abc");
         EXPECT_EQ(addr.Port, 443u);
     }
@@ -444,18 +444,18 @@ namespace
         Tuic::Message msg{};
         std::size_t consumed = 0;
         std::vector<std::uint8_t> bad{0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0x0A, 'a', 'b'};
-        EXPECT_EQ(Tuic::Parse(bad, msg, consumed), Error::need_more);
+        EXPECT_EQ(Tuic::Parse(bad, msg, consumed), Error::NeedMore);
 
         // Parser：need_more（设置 ec）/ 错误传播
         Tuic::Parser p;
         std::error_code ec;
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x04})), ec), 0u);
         EXPECT_TRUE(ec);
-        EXPECT_EQ(ec, make_error_code(Error::need_more));
-        EXPECT_EQ(ec, make_error_code(Error::need_more));
+        EXPECT_EQ(ec, make_error_code(Error::NeedMore));
+        EXPECT_EQ(ec, make_error_code(Error::NeedMore));
         p.Reset();
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x03, 0x07, 0, 0, 0, 0, 0, 0, 0, 0})), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::bad_magic));
+        EXPECT_EQ(ec, make_error_code(Error::BadMagic));
         p.Reset();
         // 成功解析
         std::vector<std::uint8_t> Ok{0x04, 0x07, 0, 0, 0, 0, 1, 0, 0, 0, 0x01, 8, 8, 8, 8, 0x00, 0x35, 'x'};
@@ -518,17 +518,17 @@ namespace
         v4.push_back(0x01);
         v4.push_back(8);
         v4.push_back(8);
-        EXPECT_EQ(Vless::ParseRequest(v4, hdr, consumed), Error::need_more);
+        EXPECT_EQ(Vless::ParseRequest(v4, hdr, consumed), Error::NeedMore);
         // ipv6 不足
         std::vector<std::uint8_t> v6 = base;
         v6.push_back(0x03);
         v6.insert(v6.end(), 5, 0x42);
-        EXPECT_EQ(Vless::ParseRequest(v6, hdr, consumed), Error::need_more);
+        EXPECT_EQ(Vless::ParseRequest(v6, hdr, consumed), Error::NeedMore);
         // ipv6 成功
         std::vector<std::uint8_t> v6ok = base;
         v6ok.push_back(0x03);
         v6ok.insert(v6ok.end(), 16, 0x42);
-        EXPECT_EQ(Vless::ParseRequest(v6ok, hdr, consumed), Error::none);
+        EXPECT_EQ(Vless::ParseRequest(v6ok, hdr, consumed), Error::None);
         EXPECT_EQ(hdr.Target.Type, Vless::AddressType::Ipv6);
         EXPECT_EQ(hdr.Target.Host, std::string(16, '\x42'));
         EXPECT_EQ(hdr.Target.Port, 80u);
@@ -543,21 +543,21 @@ namespace
 
         // 数据不足
         EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x00})), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::need_more));
+        EXPECT_EQ(ec, make_error_code(Error::NeedMore));
         p.Reset();
         // 版本错误
         std::vector<std::uint8_t> bad{0x01};
         bad.insert(bad.end(), 16, 0x11);
         bad.insert(bad.end(), 6, 0x00);
         EXPECT_EQ(p.Put(boost::asio::buffer(bad), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::bad_magic));
+        EXPECT_EQ(ec, make_error_code(Error::BadMagic));
         p.Reset();
         // UUID 不匹配
         std::vector<std::uint8_t> wrong = bad;
         wrong[0] = 0x00;
         wrong[1] = 0x22;
         EXPECT_EQ(p.Put(boost::asio::buffer(wrong), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::auth_failed));
+        EXPECT_EQ(ec, make_error_code(Error::AuthFailed));
         p.Reset();
         // 成功（uuid 匹配 + ipv4）
         std::vector<std::uint8_t> Ok{0x00};

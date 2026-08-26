@@ -71,28 +71,28 @@ namespace
          * @brief 构造桩
          * @param ex 执行器
          */
-        explicit scripted_transmission(net::any_io_executor ex) : ex_(std::move(ex))
+        explicit scripted_transmission(net::any_io_executor ex) : Ex_(std::move(ex))
         {
         }
 
         /** @brief 获取执行器 */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return ex_;
+            return Ex_;
         }
 
         /**
          * @brief 读取：注入队列消费，耗尽返回 EOF，可注入错误
          * @details 每次读取前经 post 挂起一次，覆盖协程挂起/恢复分支。
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_await net::post(ex_, net::use_awaitable);
+            co_await net::post(Ex_, net::use_awaitable);
             ++reads_done;
             if (reads_done >= read_fail_at)
             {
-                ec = make_error_code(Error::io_error);
+                ec = make_error_code(Error::IoError);
                 co_return 0;
             }
             if (read_pos >= to_read.size())
@@ -108,7 +108,7 @@ namespace
         /**
          * @brief 写入：捕获数据，超限额返回错误，可注入错误与异常
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (write_throw)
@@ -117,7 +117,7 @@ namespace
             }
             if (write_fail || writes_done >= write_limit)
             {
-                ec = make_error_code(Error::io_error);
+                ec = make_error_code(Error::IoError);
                 co_return 0;
             }
             const auto *src = reinterpret_cast<const std::uint8_t *>(Buffer.data());
@@ -148,7 +148,7 @@ namespace
         bool closed{false};                 ///< 关闭标志
 
     private:
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
         std::size_t read_pos{0};
     };
 
@@ -175,7 +175,7 @@ namespace
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      const auto err = co_await c->WriteHandshake(
                          make_addr(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -217,7 +217,7 @@ namespace
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      const auto err = co_await c->WriteHandshake(
                          make_addr(Hysteria2::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      EXPECT_FALSE(raw->written.empty());
                  });
     }
@@ -233,7 +233,7 @@ namespace
                      auto raw = std::make_shared<scripted_transmission>(ioc.get_executor());
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [err, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      (void)msg;
                  });
     }
@@ -250,7 +250,7 @@ namespace
                      raw->to_read = {0x01, 0x10};
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [err, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      (void)msg;
                  });
     }
@@ -269,7 +269,7 @@ namespace
                      raw->to_read.insert(raw->to_read.end(), {0x01, 0x01, 0xAA});
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [err, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      (void)msg;
                  });
     }
@@ -288,7 +288,7 @@ namespace
                      raw->to_read.insert(raw->to_read.end(), {0x01, 0x99});
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [err, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                      (void)msg;
                  });
     }
@@ -305,14 +305,14 @@ namespace
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto herr = co_await c->WriteHandshake(
                          make_addr(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      raw->write_fail = true;
                      const std::string p = "x";
                      const auto err = co_await c->AsyncSendDatagram(
                          make_addr(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -329,12 +329,12 @@ namespace
                      raw->to_read = make_server_handshake_bytes("pw", Target);
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [herr, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      (void)msg;
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -352,12 +352,12 @@ namespace
                      raw->to_read.insert(raw->to_read.end(), {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x99});
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [herr, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      (void)msg;
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -375,12 +375,12 @@ namespace
                      raw->to_read.insert(raw->to_read.end(), {0x02, 1, 2, 3});
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [herr, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      (void)msg;
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -398,12 +398,12 @@ namespace
                      raw->to_read.insert(raw->to_read.end(), {0x02, 0, 0, 0, 0, 0, 0, 0, 0});
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [herr, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      (void)msg;
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -422,12 +422,12 @@ namespace
                                          {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4});
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [herr, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      (void)msg;
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -446,14 +446,14 @@ namespace
                                          {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50});
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [herr, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      (void)msg;
                      // 第 12 次读取（握手 6 次 + 帧头 5 次后）为载荷读取 → io_error
                      raw->read_fail_at = 12;
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -471,7 +471,7 @@ namespace
                      raw->to_read.insert(raw->to_read.end(), {0x01, 0x02, 0x05, 'a', 'b'});
                      auto c = std::make_shared<Hysteria2::Conn<>>(raw, "pw");
                      auto [err, msg] = co_await c->ReadHandshake();
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      (void)msg;
                  });
     }
@@ -489,14 +489,14 @@ namespace
                          std::make_shared<MemoryStream>(std::move(a)), "pw");
                      auto herr = co_await c->WriteHandshake(
                          make_addr(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      b.Close();
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n = co_await c->AsyncReadSome(buf, ec);
+                     const auto n = co_await c->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_FALSE(ec);
-                     co_await c->AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
+                     co_await c->async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
                      EXPECT_TRUE(ec);
                  });
     }
@@ -516,7 +516,7 @@ namespace
                          make_addr(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -529,12 +529,12 @@ namespace
                  {
                      // 头 + 地址体完整，端口缺失 → unexpected_eof
                      auto raw = std::make_shared<scripted_transmission>(ioc.get_executor());
-                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
+                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -547,12 +547,12 @@ namespace
                  {
                      // 帧头完整，载荷缺失（EOF）→ unexpected_eof
                      auto raw = std::make_shared<scripted_transmission>(ioc.get_executor());
-                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -563,15 +563,15 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 帧头完整，载荷读取注入错误 → io_error（第 4 次读取为载荷）
+                     // 帧头完整，载荷读取注入错误 → io_error（第 5 次读取为载荷：头/ATYP/地址/端口之后）
                      auto raw = std::make_shared<scripted_transmission>(ioc.get_executor());
-                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->read_fail_at = 4;
+                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->read_fail_at = 5;
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -584,12 +584,12 @@ namespace
                  {
                      // 域名地址：长度 5 但仅注入 2 字节 → 地址体截断 io_error
                      auto raw = std::make_shared<scripted_transmission>(ioc.get_executor());
-                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x05, 'a', 'b'};
+                     raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -606,7 +606,7 @@ namespace
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      std::array<std::byte, 8> buf{};
                      std::error_code ec;
-                     const auto n = co_await dg->AsyncWriteSome(
+                     const auto n = co_await dg->async_write_some(
                          std::span<const std::byte>(buf.data(), 4), ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_TRUE(ec);

@@ -1,5 +1,5 @@
 /**
- * @file base64.hpp
+ * @file Base64.hpp
  * @brief Base64 编解码工具
  * @details 提供轻量级 Base64 编解码函数，用于 HTTP Basic 认证等场景。
  * 实现为 Header-only inline 函数，与 Sha224.hpp 风格一致。
@@ -32,19 +32,19 @@ namespace Preview::Crypto
             Table.fill(255);
 
             // A-Z -> 0-25
-            for (std::size_t i = 0; i < 26; ++i)
+            for (std::size_t I = 0; I < 26; ++I)
             {
-                Table[static_cast<std::size_t>('A' + i)] = static_cast<std::uint8_t>(i);
+                Table[static_cast<std::size_t>('A' + I)] = static_cast<std::uint8_t>(I);
             }
             // a-z -> 26-51
-            for (std::size_t i = 0; i < 26; ++i)
+            for (std::size_t I = 0; I < 26; ++I)
             {
-                Table[static_cast<std::size_t>('a' + i)] = static_cast<std::uint8_t>(26 + i);
+                Table[static_cast<std::size_t>('a' + I)] = static_cast<std::uint8_t>(26 + I);
             }
             // 0-9 -> 52-61
-            for (std::size_t i = 0; i < 10; ++i)
+            for (std::size_t I = 0; I < 10; ++I)
             {
-                Table[static_cast<std::size_t>('0' + i)] = static_cast<std::uint8_t>(52 + i);
+                Table[static_cast<std::size_t>('0' + I)] = static_cast<std::uint8_t>(52 + I);
             }
             Table[static_cast<std::size_t>('+')] = 62;
             Table[static_cast<std::size_t>('/')] = 63;
@@ -72,12 +72,12 @@ namespace Preview::Crypto
 
         // 计算有效字符数（跳过空白），并检查长度合法性
         std::size_t ValidCount = 0;
-        std::size_t padding = 0;
+        std::size_t Padding = 0;
         for (const auto c : input)
         {
             if (c == '=')
             {
-                ++padding;
+                ++Padding;
             }
             else if (!std::isspace(static_cast<std::uint8_t>(c)))
             {
@@ -85,19 +85,19 @@ namespace Preview::Crypto
             }
         }
 
-        if (padding > 2)
+        if (Padding > 2)
         {
             return {};
         }
 
         // 有效字符（不含 padding）必须是 4 的倍数
-        const auto Total = ValidCount + padding;
+        const auto Total = ValidCount + Padding;
         if (Total % 4 != 0)
         {
             return {};
         }
 
-        std::string Result{Preview::Memory::CurrentResource()};
+        std::string Result;
         Result.reserve((ValidCount / 4) * 3);
 
         std::uint8_t group[4]{};
@@ -111,7 +111,7 @@ namespace Preview::Crypto
                 if (GroupCount == 4)
                 {
                     // 根据 padding 数量决定输出字节数
-                    switch (padding)
+                    switch (Padding)
                     {
                     case 1:
                         Result.push_back(static_cast<char>((group[0] << 2) | (group[1] >> 4)));
@@ -121,7 +121,7 @@ namespace Preview::Crypto
                     default: break;
                     }
                     GroupCount = 0;
-                    padding = 0;
+                    Padding = 0;
                 }
                 continue;
             }
@@ -132,17 +132,17 @@ namespace Preview::Crypto
             }
 
             // URL-safe 变体转换
-            auto ch = static_cast<std::uint8_t>(c);
-            if (ch == '-')
+            auto Ch = static_cast<std::uint8_t>(c);
+            if (Ch == '-')
             {
-                ch = '+';
+                Ch = '+';
             }
-            else if (ch == '_')
+            else if (Ch == '_')
             {
-                ch = '/';
+                Ch = '/';
             }
 
-            const auto value = detail::DecTable[ch];
+            const auto value = detail::DecTable[Ch];
             if (value == 255)
             {
                 return {};
@@ -169,7 +169,7 @@ namespace Preview::Crypto
         /**
          * @brief Base64 编码查找表
          */
-        constexpr char encode_tbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        constexpr char EncodeTbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                       "abcdefghijklmnopqrstuvwxyz"
                                       "0123456789+/";
     } // namespace detail
@@ -188,43 +188,43 @@ namespace Preview::Crypto
             return {};
         }
 
-        std::string Result{Preview::Memory::CurrentResource()};
+        std::string Result;
         Result.reserve(((input.size() + 2) / 3) * 4);
 
-        std::size_t i = 0;
+        std::size_t I = 0;
         const std::size_t FullGroups = input.size() / 3;
 
         // 处理完整的 3 字节组
-        for (std::size_t g = 0; g < FullGroups; ++g)
+        for (std::size_t G = 0; G < FullGroups; ++G)
         {
-            const auto b0 = input[i];
-            const auto b1 = input[i + 1];
-            const auto b2 = input[i + 2];
-            i += 3;
+            const auto B0 = input[I];
+            const auto B1 = input[I + 1];
+            const auto B2 = input[I + 2];
+            I += 3;
 
-            Result.push_back(detail::encode_tbl[b0 >> 2]);
-            Result.push_back(detail::encode_tbl[((b0 & 0x03) << 4) | (b1 >> 4)]);
-            Result.push_back(detail::encode_tbl[((b1 & 0x0F) << 2) | (b2 >> 6)]);
-            Result.push_back(detail::encode_tbl[b2 & 0x3F]);
+            Result.push_back(detail::EncodeTbl[B0 >> 2]);
+            Result.push_back(detail::EncodeTbl[((B0 & 0x03) << 4) | (B1 >> 4)]);
+            Result.push_back(detail::EncodeTbl[((B1 & 0x0F) << 2) | (B2 >> 6)]);
+            Result.push_back(detail::EncodeTbl[B2 & 0x3F]);
         }
 
         // 处理剩余字节
         const std::size_t Remaining = input.size() % 3;
         if (Remaining == 1)
         {
-            const auto b0 = input[i];
-            Result.push_back(detail::encode_tbl[b0 >> 2]);
-            Result.push_back(detail::encode_tbl[(b0 & 0x03) << 4]);
+            const auto B0 = input[I];
+            Result.push_back(detail::EncodeTbl[B0 >> 2]);
+            Result.push_back(detail::EncodeTbl[(B0 & 0x03) << 4]);
             Result.push_back('=');
             Result.push_back('=');
         }
         else if (Remaining == 2)
         {
-            const auto b0 = input[i];
-            const auto b1 = input[i + 1];
-            Result.push_back(detail::encode_tbl[b0 >> 2]);
-            Result.push_back(detail::encode_tbl[((b0 & 0x03) << 4) | (b1 >> 4)]);
-            Result.push_back(detail::encode_tbl[(b1 & 0x0F) << 2]);
+            const auto B0 = input[I];
+            const auto B1 = input[I + 1];
+            Result.push_back(detail::EncodeTbl[B0 >> 2]);
+            Result.push_back(detail::EncodeTbl[((B0 & 0x03) << 4) | (B1 >> 4)]);
+            Result.push_back(detail::EncodeTbl[(B1 & 0x0F) << 2]);
             Result.push_back('=');
         }
 

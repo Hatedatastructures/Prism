@@ -1,7 +1,7 @@
 /**
- * @file pad.hpp
+ * @file Pad.hpp
  * @brief 填充中间件
- * @details 当配置启用填充且协议不自带帧语义时，将 inbound
+ * @details 当配置启用填充且协议不自带帧语义时，将 Inbound
  * 包装为 PadTransport（流量填充）。对应生产库 forward_pipeline
  * 的 pad 注入分支。
  * @note 完整 PadTransport 实现见 common/Core/Transport/Pad.hpp。
@@ -39,20 +39,20 @@ namespace Preview::Middleware::Builtin
 
         /**
          * @brief 按配置包装填充传输
-         * @param inbound 入站传输（可能被 pad 包装）
+         * @param Inbound 入站传输（可能被 pad 包装）
          * @param ctx 管线上下文（消费 pad 配置）
          * @return success 恒（pad 是可选装饰）
          */
-        auto Handle(Preview::SharedTransmission &inbound, Context &ctx)
+        auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
             -> net::awaitable<Preview::Fault::Code> override
         {
-            if (ctx.pad && ctx.pad->Enabled && inbound)
+            if (ctx.pad && ctx.pad->Enabled && Inbound)
             {
                 Preview::Transport::PadConfig cfg;
                 cfg.PadTargets = "17,30-50,30-50,80-150";
-                inbound = std::make_shared<Preview::Transport::PadTransport>(inbound, cfg);
+                Inbound = std::make_shared<Preview::Transport::PadTransport>(Inbound, cfg);
             }
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         }
     };
 

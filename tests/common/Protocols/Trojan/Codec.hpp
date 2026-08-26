@@ -4,7 +4,7 @@
  * @details 实现：
  *          - Credential()：SHA224(password) 的 56 字符 hex
  *          - BuildRequest() / ParseRequest()：请求头编解码
- *          - parse_crlf()：CRLF 校验
+ *          - ParseCrlf()：CRLF 校验
  * @note 请求头：[SHA224 56B][CRLF][CMD][ATYP][ADDR][PORT 2B][CRLF]
  */
 
@@ -43,8 +43,8 @@ namespace Preview::Trojan
         [[nodiscard]] inline auto Sha224(std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, 28>
         {
             std::array<std::uint8_t, 28> out{};
-            unsigned int len = 0;
-            EVP_Digest(Data.data(), Data.size(), out.data(), &len, EVP_sha224(), nullptr);
+            unsigned int Len = 0;
+            EVP_Digest(Data.data(), Data.size(), out.data(), &Len, EVP_sha224(), nullptr);
             return out;
         }
 
@@ -101,57 +101,57 @@ namespace Preview::Trojan
      * @return 错误码；need_more = 数据不足
      */
     [[nodiscard]] inline auto ParseAddress(std::span<const std::uint8_t> Data, Address &out,
-                                            std::size_t &consumed) -> Error
+                                            std::size_t &Consumed) -> Error
     {
         if (Data.empty())
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.Type = static_cast<AddressType>(Data[0]);
-        std::size_t off = 1;
+        std::size_t Off = 1;
         switch (out.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4 + 2)
+            if (Data.size() < Off + 4 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
             out.Host = buf.data();
-            off += 4;
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16 + 2)
+            if (Data.size() < Off + 16 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain: {
-            if (Data.size() < off + 1)
+            if (Data.size() < Off + 1)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len + 2)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            out.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
-        default: return Error::bad_message;
+        default: return Error::BadMessage;
         }
-        out.Port = static_cast<std::uint16_t>(Data[off]) << 8 | Data[off + 1];
-        off += 2;
-        consumed = off;
-        return Error::none;
+        out.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Off += 2;
+        Consumed = Off;
+        return Error::None;
     }
 
     /**
@@ -202,28 +202,28 @@ namespace Preview::Trojan
     [[nodiscard]] inline auto ParseUdpPkt(std::span<const std::uint8_t> Data, Address &Target,
                                             std::span<const std::uint8_t> &payload) -> Error
     {
-        std::size_t consumed = 0;
-        auto err = ParseAddress(Data, Target, consumed);
-        if (err != Error::none)
+        std::size_t Consumed = 0;
+        auto Err = ParseAddress(Data, Target, Consumed);
+        if (Err != Error::None)
         {
-            return err;
+            return Err;
         }
-        if (Data.size() < consumed + 4)
+        if (Data.size() < Consumed + 4)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        const auto len = static_cast<std::size_t>(Data[consumed]) << 8 | Data[consumed + 1];
-        if (Data[consumed + 2] != '\r' || Data[consumed + 3] != '\n')
+        const auto Len = static_cast<std::size_t>(Data[Consumed]) << 8 | Data[Consumed + 1];
+        if (Data[Consumed + 2] != '\r' || Data[Consumed + 3] != '\n')
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
-        const auto PayloadStart = consumed + 4;
-        if (Data.size() < PayloadStart + len)
+        const auto PayloadStart = Consumed + 4;
+        if (Data.size() < PayloadStart + Len)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        payload = Data.subspan(PayloadStart, len);
-        return Error::none;
+        payload = Data.subspan(PayloadStart, Len);
+        return Error::None;
     }
 
     /**
@@ -271,78 +271,78 @@ namespace Preview::Trojan
      * @return 错误码；need_more = 数据不足
      */
     [[nodiscard]] inline auto ParseRequest(std::span<const std::uint8_t> Data, RequestHeader &out,
-                                            std::size_t &consumed) -> Error
+                                            std::size_t &Consumed) -> Error
     {
         // 凭据 + CRLF = 58 字节
         if (Data.size() < CredentialLen + 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         if (Data[CredentialLen] != '\r' || Data[CredentialLen + 1] != '\n')
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
-        std::size_t off = CredentialLen + 2;
-        if (Data.size() < off + 2)
+        std::size_t Off = CredentialLen + 2;
+        if (Data.size() < Off + 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        out.Cmd = static_cast<Command>(Data[off++]);
-        out.Target.Type = static_cast<AddressType>(Data[off++]);
+        out.Cmd = static_cast<Command>(Data[Off++]);
+        out.Target.Type = static_cast<AddressType>(Data[Off++]);
         switch (out.Target.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4 + 2)
+            if (Data.size() < Off + 4 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
             out.Target.Host = buf.data();
-            off += 4;
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16 + 2)
+            if (Data.size() < Off + 16 + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain: {
-            if (off >= Data.size())
+            if (Off >= Data.size())
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len + 2)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len + 2)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            out.Target.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
         default: {
             // 非法 ATYP：拒绝而非按域名宽松解析（与 ParseAddress 一致）
-            return Error::bad_message;
+            return Error::BadMessage;
         }
         }
-        out.Target.Port = static_cast<std::uint16_t>(Data[off]) << 8 | Data[off + 1];
-        off += 2;
-        if (Data.size() < off + 2)
+        out.Target.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Off += 2;
+        if (Data.size() < Off + 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        if (Data[off] != '\r' || Data[off + 1] != '\n')
+        if (Data[Off] != '\r' || Data[Off + 1] != '\n')
         {
-            return Error::bad_message;
+            return Error::BadMessage;
         }
-        consumed = off + 2;
-        return Error::none;
+        Consumed = Off + 2;
+        return Error::None;
     }
 
     /**
@@ -368,7 +368,7 @@ namespace Preview::Trojan
          * @brief 构造
          * @param password 密码
          */
-        explicit Serializer(std::string_view password) : cred_(Credential(password))
+        explicit Serializer(std::string_view password) : Cred_(Credential(password))
         {
         }
 
@@ -387,8 +387,8 @@ namespace Preview::Trojan
             {
                 cmd = Command::Connect;
             }
-            wire_ = BuildRequest(cred_, cmd, msg.dst);
-            offset_ = 0;
+            Wire_ = BuildRequest(Cred_, cmd, msg.dst);
+            Offset_ = 0;
         }
 
         /**
@@ -397,10 +397,10 @@ namespace Preview::Trojan
         auto Get(boost::asio::mutable_buffer Buffer, std::error_code &ec) -> std::size_t
         {
             ec.clear();
-            const auto n = std::min(Buffer.size(), wire_.size() - offset_);
-            std::memcpy(Buffer.data(), wire_.data() + offset_, n);
-            offset_ += n;
-            return n;
+            const auto N = std::min(Buffer.size(), Wire_.size() - Offset_);
+            std::memcpy(Buffer.data(), Wire_.data() + Offset_, N);
+            Offset_ += N;
+            return N;
         }
 
         /**
@@ -409,13 +409,13 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return offset_ >= wire_.size();
+            return Offset_ >= Wire_.size();
         }
 
     private:
-        std::string cred_;
-        std::vector<std::uint8_t> wire_;
-        std::size_t offset_{0};
+        std::string Cred_;
+        std::vector<std::uint8_t> Wire_;
+        std::size_t Offset_{0};
     };
 
     /**
@@ -428,7 +428,7 @@ namespace Preview::Trojan
          * @brief 构造
          * @param password 密码
          */
-        explicit Parser(std::string_view password) : cred_(Credential(password))
+        explicit Parser(std::string_view password) : Cred_(Credential(password))
         {
         }
 
@@ -440,32 +440,32 @@ namespace Preview::Trojan
             ec.clear();
             const auto Data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(Buffer.data()),
                                                             Buffer.size());
-            buf_.insert(buf_.end(), Data.begin(), Data.end());
-            std::size_t consumed = 0;
+            Buf_.insert(Buf_.end(), Data.begin(), Data.end());
+            std::size_t Consumed = 0;
             RequestHeader req;
-            const auto err = ParseRequest(buf_, req, consumed);
-            if (err == Error::need_more)
+            const auto Err = ParseRequest(Buf_, req, Consumed);
+            if (Err == Error::NeedMore)
             {
-                ec = make_error_code(Error::need_more);
+                ec = make_error_code(Error::NeedMore);
                 return 0;
             }
-            if (err != Error::none)
+            if (Err != Error::None)
             {
-                ec = make_error_code(err);
+                ec = make_error_code(Err);
                 return 0;
             }
             // 凭据校验（前 56 字节）
-            if (buf_.size() < CredentialLen || std::memcmp(buf_.data(), cred_.data(), CredentialLen) != 0)
+            if (Buf_.size() < CredentialLen || std::memcmp(Buf_.data(), Cred_.data(), CredentialLen) != 0)
             {
-                ec = make_error_code(Error::auth_failed);
+                ec = make_error_code(Error::AuthFailed);
                 return 0;
             }
-            msg_.dst = req.Target;
-            msg_.udp = req.Cmd == Command::UdpAssociate;
-            msg_.valid = true;
-            valid_ = true;
-            done_ = true;
-            return consumed;
+            Msg_.dst = req.Target;
+            Msg_.udp = req.Cmd == Command::UdpAssociate;
+            Msg_.valid = true;
+            Valid_ = true;
+            Done_ = true;
+            return Consumed;
         }
 
         /**
@@ -474,7 +474,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return done_;
+            return Done_;
         }
 
         /**
@@ -483,7 +483,7 @@ namespace Preview::Trojan
          */
         [[nodiscard]] auto Get() const -> const Message &
         {
-            return msg_;
+            return Msg_;
         }
 
         /**
@@ -491,17 +491,17 @@ namespace Preview::Trojan
          */
         auto Reset() -> void
         {
-            buf_.clear();
-            msg_ = Message{};
-            valid_ = false;
-            done_ = false;
+            Buf_.clear();
+            Msg_ = Message{};
+            Valid_ = false;
+            Done_ = false;
         }
 
     private:
-        std::string cred_;
-        std::vector<std::uint8_t> buf_;
-        Message msg_{};
-        bool valid_{false};
-        bool done_{false};
+        std::string Cred_;
+        std::vector<std::uint8_t> Buf_;
+        Message Msg_{};
+        bool Valid_{false};
+        bool Done_{false};
     };
 } // namespace Preview::Trojan

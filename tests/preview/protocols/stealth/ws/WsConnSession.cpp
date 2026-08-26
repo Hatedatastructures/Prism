@@ -62,7 +62,7 @@ namespace
                          auto [err, key, Conn] =
                              co_await Ws::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                  Ws::ServerConfig{});
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
@@ -70,10 +70,10 @@ namespace
                          EXPECT_EQ(key, kTestKey);
                          std::array<std::byte, 1024> buf{};
                          std::error_code ec;
-                         const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                         const auto n = co_await Conn->async_read_some(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
-                         co_await Conn->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+                         co_await Conn->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
@@ -83,7 +83,7 @@ namespace
                      cfg.host = "example.com";
                      cfg.key = kTestKey;
                      auto [herr, cli] = co_await Ws::Connect(std::make_shared<MemoryStream>(std::move(a)), cfg);
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
                          co_return;
@@ -91,13 +91,13 @@ namespace
                      // Accept() 返回服务端计算的 Sec-WebSocket-Accept
                      EXPECT_EQ(cli->Accept(), Ws::ComputeAccept(kTestKey));
                      std::error_code ec;
-                     co_await cli->AsyncWriteSome(
+                     co_await cli->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 1024> buf{};
-                     const auto n = co_await cli->AsyncReadSome(buf, ec);
+                     const auto n = co_await cli->async_read_some(buf, ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
                      cli->Close();
@@ -118,7 +118,7 @@ namespace
                          auto [err, key, Conn] =
                              co_await Ws::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                  Ws::ServerConfig{});
-                         EXPECT_EQ(err, Error::bad_magic);
+                         EXPECT_EQ(err, Error::BadMagic);
                          EXPECT_FALSE(Conn);
                          (void)key;
                      };
@@ -126,7 +126,7 @@ namespace
 
                      const std::string plain = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(
+                     co_await a.async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(plain.data()),
                                                     plain.size()),
                          ec);
@@ -148,7 +148,7 @@ namespace
                          auto [err, key, Conn] =
                              co_await Ws::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                  Ws::ServerConfig{});
-                         EXPECT_EQ(err, Error::bad_magic);
+                         EXPECT_EQ(err, Error::BadMagic);
                          EXPECT_FALSE(Conn);
                          (void)key;
                      };
@@ -157,7 +157,7 @@ namespace
                      const std::string req = "GET / HTTP/1.1\r\nHost: example.com\r\n"
                                              "Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n";
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(
+                     co_await a.async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(req.data()),
                                                     req.size()),
                          ec);
@@ -178,10 +178,10 @@ namespace
                      {
                          std::array<std::uint8_t, 512> req{};
                          std::error_code ec;
-                         const auto n = co_await b.AsyncReadSome(AsBytes(std::span<std::uint8_t>(req)), ec);
+                         const auto n = co_await b.async_read_some(AsBytes(std::span<std::uint8_t>(req)), ec);
                          EXPECT_GT(n, 0u);
                          const std::string resp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
-                         co_await b.AsyncWriteSome(
+                         co_await b.async_write_some(
                              std::span<const std::byte>(reinterpret_cast<const std::byte *>(resp.data()),
                                                         resp.size()),
                              ec);
@@ -192,7 +192,7 @@ namespace
                      cfg.host = "example.com";
                      cfg.key = kTestKey;
                      auto [herr, cli] = co_await Ws::Connect(std::make_shared<MemoryStream>(std::move(a)), cfg);
-                     EXPECT_EQ(herr, Error::bad_magic);
+                     EXPECT_EQ(herr, Error::BadMagic);
                      EXPECT_FALSE(cli);
                  });
     }
@@ -210,13 +210,13 @@ namespace
                      {
                          std::array<std::uint8_t, 512> req{};
                          std::error_code ec;
-                         const auto n = co_await b.AsyncReadSome(AsBytes(std::span<std::uint8_t>(req)), ec);
+                         const auto n = co_await b.async_read_some(AsBytes(std::span<std::uint8_t>(req)), ec);
                          EXPECT_GT(n, 0u);
                          const std::string resp = "HTTP/1.1 101 Switching Protocols\r\n"
                                                   "Upgrade: websocket\r\n"
                                                   "Connection: Upgrade\r\n"
                                                   "Sec-WebSocket-Accept: wrong-Accept-value\r\n\r\n";
-                         co_await b.AsyncWriteSome(
+                         co_await b.async_write_some(
                              std::span<const std::byte>(reinterpret_cast<const std::byte *>(resp.data()),
                                                         resp.size()),
                              ec);
@@ -227,7 +227,7 @@ namespace
                      cfg.host = "example.com";
                      cfg.key = kTestKey;
                      auto [herr, cli] = co_await Ws::Connect(std::make_shared<MemoryStream>(std::move(a)), cfg);
-                     EXPECT_EQ(herr, Error::bad_auth);
+                     EXPECT_EQ(herr, Error::BadAuth);
                      EXPECT_FALSE(cli);
                  });
     }
@@ -244,17 +244,17 @@ namespace
                      auto c = std::make_shared<Ws::Conn<>>(std::make_shared<MemoryStream>(std::move(a)));
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n = co_await c->AsyncReadSome(buf, ec);
+                     const auto n = co_await c->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::NotOpen));
                      ec.clear();
-                     co_await c->AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
-                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
+                     co_await c->async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::NotOpen));
                      c->Close();
                      c->Cancel();
                      EXPECT_TRUE(c->Executor());
                      EXPECT_NE(c->NextLayer(), nullptr);
-                     EXPECT_NE(c->LowestLayer<MemoryStream>(), nullptr);
+                     EXPECT_NE(c->lowest_layer<MemoryStream>(), nullptr);
                      const Ws::Conn<> *const_c = c.get();
                      EXPECT_NE(const_c->NextLayer(), nullptr);
                      auto released = c->Release();

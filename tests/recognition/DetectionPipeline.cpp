@@ -24,7 +24,7 @@ namespace
     {
         std::string name_;
         std::uint8_t tier_{2};
-        bool active_{true};
+        bool Active_{true};
         psm::handshake::sniff_result sniff_result_;
         psm::handshake::verify_result verify_result_;
         psm::handshake::verify_result guess_result_;
@@ -48,7 +48,7 @@ namespace
 
         [[nodiscard]] auto active(const psm::settings & /*cfg*/) const noexcept -> bool override
         {
-            return active_;
+            return Active_;
         }
 
         [[nodiscard]] auto sniff(std::uint32_t /*bitmap*/,
@@ -238,7 +238,7 @@ namespace
     {
         auto native = std::make_shared<mock_scheme>("native", 2);
         native->guess_result_ = {.score = 50, .solo_flag = 0, .note = "native fallback"};
-        native->active_ = true;
+        native->Active_ = true;
 
         psm::recognition::layered_detection_pipeline pipeline({native});
         psm::settings cfg;
@@ -254,7 +254,7 @@ namespace
     TEST(DetectionPipeline, Tier2NativeInactive)
     {
         auto native = std::make_shared<mock_scheme>("native", 2);
-        native->active_ = false;
+        native->Active_ = false;
 
         psm::recognition::layered_detection_pipeline pipeline({native});
         psm::settings cfg;
@@ -268,7 +268,7 @@ namespace
     TEST(DetectionPipeline, InactiveSchemeSkipped)
     {
         auto s = std::make_shared<mock_scheme>("reality", 0);
-        s->active_ = false;
+        s->Active_ = false;
         s->sniff_result_ = {.hit = true, .solo = true, .hint = 900, .note = ""};
 
         psm::recognition::layered_detection_pipeline pipeline({s});

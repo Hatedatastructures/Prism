@@ -68,9 +68,9 @@ namespace
             {
                 // 从 Trojan 隧道中异步读取客户端发送的数据
                 std::array<std::byte, 1024> byte_buf{};
-                std::error_code read_ec;
-                std::size_t n = co_await trojan->async_read_some(byte_buf, read_ec);
-                if (read_ec)
+                std::error_code ReadEc;
+                std::size_t n = co_await trojan->async_read_some(byte_buf, ReadEc);
+                if (ReadEc)
                 {
                     co_return;
                 }

@@ -3,10 +3,10 @@
  * @brief Preview 传输抽象测试（core/Transmission.hpp）
  * @details 覆盖 Transmission 虚接口：
  * 1. 叶子实现纯虚方法
- * 2. AsyncReadSome/AsyncWriteSome 协程读写
+ * 2. async_read_some/async_write_some 协程读写
  * 3. AsyncRead/AsyncWrite 组合操作（分块/EOF/错误）
  * 4. TransportType 委托
- * 5. 装饰器链 NextLayer/LowestLayer
+ * 5. 装饰器链 NextLayer/lowest_layer
  * 6. SharedTransmission 生命周期
  * 7. TransmissionLike 概念
  */
@@ -36,19 +36,19 @@ namespace
     class leaf_transmission final : public Preview::Transmission
     {
     public:
-        using Preview::Transmission::AsyncReadSome;
-        using Preview::Transmission::AsyncWriteSome;
+        using Preview::Transmission::async_read_some;
+        using Preview::Transmission::async_write_some;
 
-        explicit leaf_transmission(net::any_io_executor ex) : ex_(std::move(ex))
+        explicit leaf_transmission(net::any_io_executor ex) : Ex_(std::move(ex))
         {
         }
 
         auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
-        auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             std::memset(Buffer.data(), 0, Buffer.size());
@@ -56,7 +56,7 @@ namespace
             co_return Buffer.size();
         }
 
-        auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             (void)Buffer;
@@ -66,85 +66,85 @@ namespace
 
         auto Close() -> void override
         {
-            closed_ = true;
+            Closed_ = true;
         }
 
         auto Cancel() -> void override
         {
-            canceled_ = true;
+            Canceled_ = true;
         }
 
         [[nodiscard]] auto IsOpen() const -> bool override
         {
-            return !closed_;
+            return !Closed_;
         }
 
         [[nodiscard]] auto closed() const -> bool
         {
-            return closed_;
+            return Closed_;
         }
 
         [[nodiscard]] auto canceled() const -> bool
         {
-            return canceled_;
+            return Canceled_;
         }
 
     private:
-        net::any_io_executor ex_;
-        bool closed_{false};
-        bool canceled_{false};
+        net::any_io_executor Ex_;
+        bool Closed_{false};
+        bool Canceled_{false};
     };
 
     /// 装饰器：包装内层传输，委托读写并暴露 NextLayer
     class decorator final : public Preview::Transmission
     {
     public:
-        using Preview::Transmission::AsyncReadSome;
-        using Preview::Transmission::AsyncWriteSome;
+        using Preview::Transmission::async_read_some;
+        using Preview::Transmission::async_write_some;
 
-        explicit decorator(Preview::SharedTransmission Inner) : inner_(std::move(Inner))
+        explicit decorator(Preview::SharedTransmission Inner) : Inner_(std::move(Inner))
         {
         }
 
         auto Executor() const -> ExecutorType override
         {
-            return inner_->Executor();
+            return Inner_->Executor();
         }
 
-        auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await inner_->AsyncReadSome(Buffer, ec);
+            co_return co_await Inner_->async_read_some(Buffer, ec);
         }
 
-        auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await inner_->AsyncWriteSome(Buffer, ec);
+            co_return co_await Inner_->async_write_some(Buffer, ec);
         }
 
         auto Close() -> void override
         {
-            inner_->Close();
+            Inner_->Close();
         }
 
         auto Cancel() -> void override
         {
-            inner_->Cancel();
+            Inner_->Cancel();
         }
 
         [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
         {
-            return inner_.get();
+            return Inner_.get();
         }
 
         [[nodiscard]] auto NextLayer() const noexcept -> const Transmission * override
         {
-            return inner_.get();
+            return Inner_.get();
         }
 
     private:
-        Preview::SharedTransmission inner_;
+        Preview::SharedTransmission Inner_;
     };
 
     /// 运行协程（co_spawn + ioc.Run 模式）
@@ -170,11 +170,11 @@ namespace
                  {
             std::array<std::byte, 16> buf{};
             std::error_code ec;
-            const auto n = co_await leaf->AsyncReadSome(buf, ec);
+            const auto n = co_await leaf->async_read_some(buf, ec);
             EXPECT_FALSE(ec);
             EXPECT_EQ(n, 16U);
 
-            const auto w = co_await leaf->AsyncWriteSome(buf, ec);
+            const auto w = co_await leaf->async_write_some(buf, ec);
             EXPECT_FALSE(ec);
             EXPECT_EQ(w, 16U); });
     }
@@ -228,16 +228,16 @@ namespace
         // NextLayer 导航
         EXPECT_EQ(dec->NextLayer(), leaf.get());
 
-        // LowestLayer 直达链底
-        EXPECT_EQ(dec->LowestLayer<leaf_transmission>(), leaf.get());
-        EXPECT_EQ(dec->LowestLayer<decorator>(), nullptr);
+        // lowest_layer 直达链底
+        EXPECT_EQ(dec->lowest_layer<leaf_transmission>(), leaf.get());
+        EXPECT_EQ(dec->lowest_layer<decorator>(), nullptr);
 
         // 读写经装饰器委托
         run_coro(ioc, [&]() -> net::awaitable<void>
                  {
             std::array<std::byte, 8> buf{};
             std::error_code ec;
-            const auto n = co_await dec->AsyncReadSome(buf, ec);
+            const auto n = co_await dec->async_read_some(buf, ec);
             EXPECT_FALSE(ec);
             EXPECT_EQ(n, 8U); });
     }

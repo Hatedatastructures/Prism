@@ -4,15 +4,17 @@
  * @details 测试 tunnel() 函数的双向转发、write_policy 分支、
  * 空闲超时取消、流量统计刷写等行为。使用 MockTransport 作为
  * 入站/出站传输层。
+ * @note 驱动模式：co_spawn + completion handler + ioc.run()，
+ * 附看门狗定时器防止 tunnel 未返回时测试挂死。
  */
 
 #include <prism/foundation/fault/handling.hpp>
 #include <prism/foundation/foundation.hpp>
-#include <prism/net/connection/Dialer/Dialer.hpp>
+#include <prism/net/connection/dialer/dialer.hpp>
 #include <prism/net/connection/tunnel/tunnel.hpp>
 #include <prism/net/connection/types.hpp>
-#include <prism/net/transport/Transmission.hpp>
-#include <prism/Resource/Session.hpp>
+#include <prism/net/transport/transmission.hpp>
+#include <prism/resource/session.hpp>
 #include <prism/settings/settings.hpp>
 
 #include <boost/asio.hpp>
@@ -31,7 +33,7 @@ namespace
 {
     namespace net = boost::asio;
     using namespace psm::connect;
-    using namespace psm::testing;
+    using namespace Preview::Testing;
     using namespace psm::transport;
 
     // 辅助：创建最小会话资源
@@ -41,10 +43,42 @@ namespace
         auto cfg = std::make_shared<psm::settings>();
         auto proc_opts = psm::resource::process::options{cfg, nullptr, nullptr};
         auto proc = std::make_shared<psm::resource::process>(std::move(proc_opts));
-        auto wrk_opts = psm::resource::worker::options{proc, psm::memory::std::global_pool()};
+        auto wrk_opts = psm::resource::worker::options{proc, psm::memory::system::global_pool()};
         auto wrk = std::make_shared<psm::resource::worker>(std::move(wrk_opts));
         auto ses_opts = psm::resource::session::options{wrk, 1, buffer_size, nullptr, {}, nullptr, nullptr};
         return std::make_shared<psm::resource::session>(std::move(ses_opts));
+    }
+
+    // 辅助：看门狗定时器，超时强制停机防止测试挂死
+    void spawn_watchdog(net::io_context &ioc)
+    {
+        net::co_spawn(
+            ioc,
+            [&]() -> net::awaitable<void>
+            {
+                net::steady_timer t(ioc);
+                t.expires_after(std::chrono::seconds(2));
+                co_await t.async_wait(net::use_awaitable);
+                ioc.stop();
+            },
+            net::detached);
+    }
+
+    // 辅助：延迟关闭两端传输，唤醒挂起读使 tunnel 返回
+    void spawn_closer(net::io_context &ioc, const std::shared_ptr<MockTransport> &Inbound,
+                      const std::shared_ptr<MockTransport> &Outbound)
+    {
+        net::co_spawn(
+            ioc,
+            [&]() -> net::awaitable<void>
+            {
+                net::steady_timer t(ioc);
+                t.expires_after(std::chrono::milliseconds(50));
+                co_await t.async_wait(net::use_awaitable);
+                Inbound->close();
+                Outbound->close();
+            },
+            net::detached);
     }
 } // anonymous namespace
 
@@ -55,44 +89,43 @@ TEST(Tunnel, BasicBidirectionalForward)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     auto Outbound = std::make_shared<MockTransport>();
 
-    // 注入测试数据：inbound→Outbound 和 Outbound→inbound
+    // 注入测试数据：Inbound→Outbound 和 Outbound→Inbound
     const std::vector<std::byte> upload_data(100, std::byte{0xAA});
     const std::vector<std::byte> download_data(200, std::byte{0xBB});
-    inbound->inject_read(upload_data.data(), upload_data.size());
-    Outbound->inject_read(download_data.data(), download_data.size());
+    Inbound->InjectRead(upload_data.data(), upload_data.size());
+    Outbound->InjectRead(download_data.data(), download_data.size());
 
     auto sess = make_minimal_session(ioc, 4096);
 
+    std::exception_ptr Ep;
+    spawn_closer(ioc, Inbound, Outbound);
+    spawn_watchdog(ioc);
     net::co_spawn(
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, Outbound, sess->buffer, write_policy::complete};
+            auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             Done = true;
         },
-        net::detached);
+        [&](std::exception_ptr e)
+        { Ep = e; ioc.stop(); });
+    ioc.run();
 
-    // 驱动：注入数据后关闭触发隧道结束
-    ioc.run_for(std::chrono::milliseconds(200));
-
-    // 关闭触发隧道结束
-    inbound->close();
-    Outbound->close();
-
-    ioc.run_for(std::chrono::milliseconds(200));
+    ASSERT_FALSE(Ep);
+    ASSERT_TRUE(Done);
 
     // 验证双向数据转发
-    const auto &in_written = inbound->WrittenData();
+    const auto &in_written = Inbound->WrittenData();
     const auto &out_written = Outbound->WrittenData();
 
     EXPECT_GE(out_written.size(), upload_data.size());
     EXPECT_GE(in_written.size(), download_data.size());
 
-    EXPECT_TRUE(Outbound->IsClosed() || inbound->IsClosed());
+    EXPECT_TRUE(Outbound->IsClosed() || Inbound->IsClosed());
 }
 
 // ── write_policy::partial 写入策略 ──
@@ -102,32 +135,32 @@ TEST(Tunnel, PartialWritePolicy)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     auto Outbound = std::make_shared<MockTransport>();
 
     const std::vector<std::byte> Data(50, std::byte{0xCC});
-    inbound->inject_read(Data.data(), Data.size());
+    Inbound->InjectRead(Data.data(), Data.size());
     // Outbound 读端空，会挂起
 
     auto sess = make_minimal_session(ioc, 4096);
 
+    std::exception_ptr Ep;
+    spawn_closer(ioc, Inbound, Outbound);
+    spawn_watchdog(ioc);
     net::co_spawn(
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, Outbound, sess->buffer, write_policy::partial};
+            auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::partial};
             co_await tunnel(std::move(opts));
             Done = true;
         },
-        net::detached);
+        [&](std::exception_ptr e)
+        { Ep = e; ioc.stop(); });
+    ioc.run();
 
-    ioc.run_for(std::chrono::milliseconds(200));
-
-    // 关闭触发隧道结束
-    inbound->close();
-    Outbound->close();
-
-    ioc.run_for(std::chrono::milliseconds(200));
+    ASSERT_FALSE(Ep);
+    ASSERT_TRUE(Done);
 
     // 验证 partial Write 也完成了数据转发
     EXPECT_GE(Outbound->WrittenData().size(), Data.size());
@@ -140,26 +173,30 @@ TEST(Tunnel, EmptyDataImmediateClose)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     auto Outbound = std::make_shared<MockTransport>();
 
     // 不注入任何数据，直接关闭
-    inbound->close();
+    Inbound->close();
     Outbound->close();
 
     auto sess = make_minimal_session(ioc, 4096);
 
+    std::exception_ptr Ep;
+    spawn_watchdog(ioc);
     net::co_spawn(
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, Outbound, sess->buffer, write_policy::complete};
+            auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             Done = true;
         },
-        net::detached);
+        [&](std::exception_ptr e)
+        { Ep = e; ioc.stop(); });
+    ioc.run();
 
-    ioc.run_for(std::chrono::milliseconds(500));
+    ASSERT_FALSE(Ep);
     EXPECT_TRUE(Done);
 }
 
@@ -170,25 +207,29 @@ TEST(Tunnel, ReadErrorTerminatesTunnel)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     auto Outbound = std::make_shared<MockTransport>();
 
-    // 设置 inbound 读错误
-    inbound->set_ReadError(std::make_error_code(std::errc::connection_reset));
+    // 设置 Inbound 读错误
+    Inbound->SetReadError(std::make_error_code(std::errc::connection_reset));
 
     auto sess = make_minimal_session(ioc, 4096);
 
+    std::exception_ptr Ep;
+    spawn_watchdog(ioc);
     net::co_spawn(
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, Outbound, sess->buffer, write_policy::complete};
+            auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             Done = true;
         },
-        net::detached);
+        [&](std::exception_ptr e)
+        { Ep = e; ioc.stop(); });
+    ioc.run();
 
-    ioc.run_for(std::chrono::milliseconds(500));
+    ASSERT_FALSE(Ep);
     EXPECT_TRUE(Done);
 }
 
@@ -199,27 +240,31 @@ TEST(Tunnel, WriteErrorTerminatesTunnel)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     auto Outbound = std::make_shared<MockTransport>();
 
-    // 给 inbound 数据可以读，但 Outbound 写会报错
+    // 给 Inbound 数据可以读，但 Outbound 写会报错
     const std::vector<std::byte> Data(100, std::byte{0xDD});
-    inbound->inject_read(Data.data(), Data.size());
-    Outbound->set_WriteError(std::make_error_code(std::errc::broken_pipe));
+    Inbound->InjectRead(Data.data(), Data.size());
+    Outbound->SetWriteError(std::make_error_code(std::errc::broken_pipe));
 
     auto sess = make_minimal_session(ioc, 4096);
 
+    std::exception_ptr Ep;
+    spawn_watchdog(ioc);
     net::co_spawn(
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, Outbound, sess->buffer, write_policy::complete};
+            auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             Done = true;
         },
-        net::detached);
+        [&](std::exception_ptr e)
+        { Ep = e; ioc.stop(); });
+    ioc.run();
 
-    ioc.run_for(std::chrono::milliseconds(500));
+    ASSERT_FALSE(Ep);
     EXPECT_TRUE(Done);
 }
 
@@ -230,32 +275,34 @@ TEST(Tunnel, MinimalBufferSize)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     auto Outbound = std::make_shared<MockTransport>();
 
     // 最小数据
     const std::vector<std::byte> Data{std::byte{0x01}, std::byte{0x02}};
-    inbound->inject_read(Data.data(), Data.size());
+    Inbound->InjectRead(Data.data(), Data.size());
 
     // buffer_size=2 → 每半边 1 字节
     auto sess = make_minimal_session(ioc, 2);
 
+    std::exception_ptr Ep;
+    spawn_closer(ioc, Inbound, Outbound);
+    spawn_watchdog(ioc);
     net::co_spawn(
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, Outbound, sess->buffer, write_policy::complete};
+            auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             Done = true;
         },
-        net::detached);
+        [&](std::exception_ptr e)
+        { Ep = e; ioc.stop(); });
+    ioc.run();
 
-    ioc.run_for(std::chrono::milliseconds(200));
-    inbound->close();
-    Outbound->close();
-    ioc.run_for(std::chrono::milliseconds(200));
+    ASSERT_FALSE(Ep);
+    ASSERT_TRUE(Done);
 
-    EXPECT_TRUE(Done);
     // 2 字节 Buffer，每半 1 字节，数据应该被逐字节转发
     EXPECT_EQ(Outbound->WrittenData().size(), Data.size());
 }
@@ -267,30 +314,39 @@ TEST(Tunnel, CancelPropagation)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<MockTransport>();
     auto Outbound = std::make_shared<MockTransport>();
 
     auto sess = make_minimal_session(ioc, 4096);
 
+    std::exception_ptr Ep;
+    // 触发器：稍候取消并关闭两端，触发退出
     net::co_spawn(
         ioc,
         [&]() -> net::awaitable<void>
         {
-            auto opts = tunnel_options{inbound, Outbound, sess->buffer, write_policy::complete};
+            net::steady_timer t(ioc);
+            t.expires_after(std::chrono::milliseconds(50));
+            co_await t.async_wait(net::use_awaitable);
+            Inbound->cancel();
+            Inbound->close();
+            Outbound->cancel();
+            Outbound->close();
+        },
+        net::detached);
+    spawn_watchdog(ioc);
+    net::co_spawn(
+        ioc,
+        [&]() -> net::awaitable<void>
+        {
+            auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
             Done = true;
         },
-        net::detached);
+        [&](std::exception_ptr e)
+        { Ep = e; ioc.stop(); });
+    ioc.run();
 
-    // 稍等让隧道启动
-    ioc.run_for(std::chrono::milliseconds(100));
-
-    // 取消两端触发退出
-    inbound->cancel();
-    inbound->close();
-    Outbound->cancel();
-    Outbound->close();
-
-    ioc.run_for(std::chrono::milliseconds(200));
+    ASSERT_FALSE(Ep);
     EXPECT_TRUE(Done);
 }

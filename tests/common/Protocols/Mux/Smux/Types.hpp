@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief smux 协议基础类型（兼容 Mihomo/xtaci/smux v1）
  * @details 定义 smux 多路复用协议的常量、命令枚举与帧头结构。
  *          帧头为 8 字节定长：[Version 1B][Cmd 1B][Length 2B LE][StreamID 4B LE]。
@@ -18,13 +18,13 @@ namespace Preview::Mux::Smux
     enum class Command : std::uint8_t
     {
         /// 新建流
-        syn = 0,
+        Syn = 0,
         /// 半关闭流
-        fin = 1,
+        Fin = 1,
         /// 数据推送
         Push = 2,
         /// 心跳（不回复）
-        nop = 3,
+        Nop = 3,
     };
 
     /// 协议版本号

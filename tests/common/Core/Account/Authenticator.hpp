@@ -25,7 +25,7 @@ namespace Preview::Account
      */
     enum class AuthReason : std::uint8_t
     {
-        not_found, ///< 账户不存在
+        NotFound, ///< 账户不存在
         Disabled,  ///< 账户禁用
         Expired,   ///< 账户过期
     };
@@ -38,7 +38,7 @@ namespace Preview::Account
     {
         bool Ok{false};                       ///< 是否通过
         std::string_view identity{};          ///< 通过后的身份（凭据）
-        AuthReason reason{AuthReason::not_found}; ///< 失败原因
+        AuthReason reason{AuthReason::NotFound}; ///< 失败原因
         Preview::Account::Lease Lease{};      ///< 通过后持有租约（占配额）
     };
 
@@ -59,8 +59,8 @@ namespace Preview::Account
          * @param dir 账户目录（调用方持有）
          * @param now 时钟函数（nullptr = 不过期校验）
          */
-        explicit DirectoryAuthenticator(const Directory *dir, NowFn now = nullptr)
-            : dir_(dir), now_(now)
+        explicit DirectoryAuthenticator(const Directory *dir, NowFn Now = nullptr)
+            : Dir_(dir), Now_(Now)
         {
         }
 
@@ -74,45 +74,45 @@ namespace Preview::Account
             -> DirectoryAuthResult
         {
             DirectoryAuthResult Result;
-            if (!dir_)
+            if (!Dir_)
             {
-                Result.reason = AuthReason::not_found;
+                Result.reason = AuthReason::NotFound;
                 return Result;
             }
-            const auto e = dir_->Find(Secret);
-            if (!e)
+            const auto E = Dir_->Find(Secret);
+            if (!E)
             {
-                Result.reason = AuthReason::not_found;
+                Result.reason = AuthReason::NotFound;
                 return Result;
             }
-            if (e->Disabled())
+            if (E->Disabled())
             {
                 Result.reason = AuthReason::Disabled;
                 return Result;
             }
-            if (now_ != nullptr)
+            if (Now_ != nullptr)
             {
-                const auto now = now_();
-                if (e->Expired(now))
+                const auto Now = Now_();
+                if (E->Expired(Now))
                 {
                     Result.reason = AuthReason::Expired;
                     return Result;
                 }
             }
             std::uint64_t NowArg = 0;
-            if (now_ != nullptr)
+            if (Now_ != nullptr)
             {
-                NowArg = now_();
+                NowArg = Now_();
             }
-            auto l = Preview::Account::TryAcquire(*dir_, Secret, NowArg);
-            if (!l)
+            auto L = Preview::Account::TryAcquire(*Dir_, Secret, NowArg);
+            if (!L)
             {
                 Result.reason = AuthReason::Disabled; // 超限视为不可用
                 return Result;
             }
             Result.Ok = true;
             Result.identity = std::string_view(Secret);
-            Result.Lease = std::move(l);
+            Result.Lease = std::move(L);
             return Result;
         }
 
@@ -122,17 +122,17 @@ namespace Preview::Account
         [[nodiscard]] auto Check(std::string_view identity, std::string_view Secret) const
             -> Preview::AuthResult override
         {
-            auto r = CheckDirectory(identity, Secret);
-            if (!r.Ok)
+            auto R = CheckDirectory(identity, Secret);
+            if (!R.Ok)
             {
                 return {false, {}};
             }
-            return {true, std::string(r.identity)};
+            return {true, std::string(R.identity)};
         }
 
     private:
-        const Directory *dir_; ///< 账户目录（非拥有）
-        NowFn now_;           ///< 时钟函数
+        const Directory *Dir_; ///< 账户目录（非拥有）
+        NowFn Now_;           ///< 时钟函数
     };
 
 } // namespace Preview::Account

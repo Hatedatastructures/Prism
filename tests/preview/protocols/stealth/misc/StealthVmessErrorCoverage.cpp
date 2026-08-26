@@ -78,7 +78,7 @@ namespace
     auto write_raw(MemoryStream &Stream, std::string_view Data) -> net::awaitable<void>
     {
         std::error_code ec;
-        co_await Stream.AsyncWriteSome(
+        co_await Stream.async_write_some(
             std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data()), Data.size()), ec);
         co_return;
     }
@@ -92,13 +92,13 @@ namespace
                  {
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                     const auto n = co_await Conn->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_EQ(ec, make_error_code(Error::not_open));
+                     EXPECT_EQ(ec, make_error_code(Error::NotOpen));
                      ec.clear();
-                     const auto w = co_await Conn->AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
+                     const auto w = co_await Conn->async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
                      EXPECT_EQ(w, 0u);
-                     EXPECT_EQ(ec, make_error_code(Error::not_open));
+                     EXPECT_EQ(ec, make_error_code(Error::NotOpen));
                  });
     }
 
@@ -119,7 +119,7 @@ namespace
                          std::make_shared<Anytls::Conn<>>(std::make_shared<MemoryStream>(std::move(b)), "pw");
                      a.Close();
                      const auto err = co_await Server->ReadHandshake();
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -135,14 +135,14 @@ namespace
                          std::make_shared<Anytls::Conn<>>(std::make_shared<MemoryStream>(std::move(b)), "pw");
                      // 只发帧头（Hash + padlen），随后半关 → 读 padding 时 EOF
                      std::string Frame;
-                     EXPECT_EQ(Anytls::BuildAuthFrame("pw", 16, Frame), Error::none);
+                     EXPECT_EQ(Anytls::BuildAuthFrame("pw", 16, Frame), Error::None);
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(
+                     co_await a.async_write_some(
                          AsBytes(AsU8Span(Frame).first(Anytls::AuthFrameHdrlen)), ec);
                      EXPECT_FALSE(ec);
                      a.Shutdown();
                      const auto err = co_await Server->ReadHandshake();
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -158,12 +158,12 @@ namespace
                          std::make_shared<MemoryStream>(std::move(b)), "Expect-pw");
                      // 客户端用错误密码构造认证帧 → 密码哈希不匹配 → bad_auth
                      std::string Frame;
-                     EXPECT_EQ(Anytls::BuildAuthFrame("wrong-pw", 16, Frame), Error::none);
+                     EXPECT_EQ(Anytls::BuildAuthFrame("wrong-pw", 16, Frame), Error::None);
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(AsU8Span(Frame)), ec);
+                     co_await a.async_write_some(AsBytes(AsU8Span(Frame)), ec);
                      EXPECT_FALSE(ec);
                      const auto err = co_await Server->ReadHandshake();
-                     EXPECT_EQ(err, Error::bad_auth);
+                     EXPECT_EQ(err, Error::BadAuth);
                  });
     }
 
@@ -179,7 +179,7 @@ namespace
                          std::make_shared<MemoryStream>(std::move(a)), "pw");
                      b.Close(); // 对端全关 → 发送失败 → io_error
                      const auto err = co_await Client->WriteHandshake();
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -207,7 +207,7 @@ namespace
                          std::make_shared<MemoryStream>(std::move(b)), "pw");
                      a.Close(); // 对端关闭 → 读 ClientHello EOF → unexpected_eof
                      const auto err = co_await Server->ReadHandshake();
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -226,11 +226,11 @@ namespace
                          std::make_shared<MemoryStream>(std::move(a)), "wrong-pw");
                      const auto werr = co_await Client->WriteHandshake(
                          std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd));
-                     EXPECT_EQ(werr, Error::none);
+                     EXPECT_EQ(werr, Error::None);
                      auto Server = std::make_shared<Shadowtls::Conn<>>(
                          std::make_shared<MemoryStream>(std::move(b)), "Expect-pw");
                      const auto err = co_await Server->ReadHandshake();
-                     EXPECT_EQ(err, Error::bad_auth);
+                     EXPECT_EQ(err, Error::BadAuth);
                  });
     }
 
@@ -249,7 +249,7 @@ namespace
                      b.Close(); // 对端全关 → 发送失败 → io_error
                      const auto err = co_await Client->WriteHandshake(
                          std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -276,9 +276,9 @@ namespace
     /// 构造客户端密封的 SessionId（false = 成功）
     auto make_reality_sealed(std::span<const std::uint8_t> priv_cli,
                              std::span<const std::uint8_t> pub_srv,
-                             std::span<const std::uint8_t> client_random,
+                             std::span<const std::uint8_t> ClientRandom,
                              std::span<const std::uint8_t> hello,
-                             std::span<const std::uint8_t, 8> short_id,
+                             std::span<const std::uint8_t, 8> ShortId,
                              std::array<std::uint8_t, Reality::SessionIdAuthLen> &sealed) -> bool
     {
         std::array<std::uint8_t, Reality::KeyLen> shared{};
@@ -287,15 +287,15 @@ namespace
             return true;
         }
         std::array<std::uint8_t, Reality::KeyLen> AuthKey{};
-        if (Reality::DeriveAuthKey(shared, client_random, AuthKey))
+        if (Reality::DeriveAuthKey(shared, ClientRandom, AuthKey))
         {
             return true;
         }
         std::array<std::uint8_t, 16> plain{};
         plain[0] = 0x01; // version = 1
-        std::copy(short_id.begin(), short_id.end(), plain.begin() + 8);
+        std::copy(ShortId.begin(), ShortId.end(), plain.begin() + 8);
         return Reality::SealSessionId(
-            Reality::SessionIdSealInput{AuthKey, client_random, plain, hello}, sealed);
+            Reality::SessionIdSealInput{AuthKey, ClientRandom, plain, hello}, sealed);
     }
 
     TEST(StealthRealityConnError, ReadHandshakeEof)
@@ -305,9 +305,9 @@ namespace
         std::array<std::uint8_t, Reality::KeyLen> priv{};
         std::array<std::uint8_t, Reality::KeyLen> pub{};
         make_keypair(priv, pub);
-        const auto client_random = make_random(0x55, 40);
+        const auto ClientRandom = make_random(0x55, 40);
         const auto hello = make_random(0x66, 96);
-        std::array<std::uint8_t, Reality::MaxShortIdLen> short_id{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        std::array<std::uint8_t, Reality::MaxShortIdLen> ShortId{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -315,11 +315,11 @@ namespace
                      auto Server = std::make_shared<Reality::Conn<>>(
                          std::make_shared<MemoryStream>(std::move(b)), priv);
                      a.Close(); // 对端关闭 → 读 SessionId EOF → unexpected_eof
-                     Reality::HandshakeParams params{std::span<const std::uint8_t>(client_random), hello,
-                                                      short_id};
+                     Reality::HandshakeParams params{std::span<const std::uint8_t>(ClientRandom), hello,
+                                                      ShortId};
                      std::array<std::uint8_t, Reality::MaxShortIdLen> out_sid{};
                      const auto err = co_await Server->ReadHandshake(pub, params, out_sid);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -333,9 +333,9 @@ namespace
         std::array<std::uint8_t, Reality::KeyLen> pub_srv{};
         make_keypair(priv_cli, pub_cli);
         make_keypair(priv_srv, pub_srv);
-        const auto client_random = make_random(0x55, 40);
+        const auto ClientRandom = make_random(0x55, 40);
         const auto hello = make_random(0x66, 96);
-        std::array<std::uint8_t, Reality::MaxShortIdLen> short_id{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        std::array<std::uint8_t, Reality::MaxShortIdLen> ShortId{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -343,20 +343,20 @@ namespace
                      // 构造合法 sealed SessionId 后篡改 1 字节 → GCM tag 校验失败 → bad_auth
                      std::array<std::uint8_t, Reality::SessionIdAuthLen> sealed{};
                      EXPECT_FALSE(make_reality_sealed(priv_cli, pub_srv,
-                                                      std::span<const std::uint8_t>(client_random), hello,
-                                                      short_id, sealed));
+                                                      std::span<const std::uint8_t>(ClientRandom), hello,
+                                                      ShortId, sealed));
                      sealed[0] ^= 0xFF;
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(sealed)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(sealed)), ec);
                      EXPECT_FALSE(ec);
 
                      auto Server = std::make_shared<Reality::Conn<>>(
                          std::make_shared<MemoryStream>(std::move(b)), priv_srv);
-                     Reality::HandshakeParams params{std::span<const std::uint8_t>(client_random), hello,
-                                                      short_id};
+                     Reality::HandshakeParams params{std::span<const std::uint8_t>(ClientRandom), hello,
+                                                      ShortId};
                      std::array<std::uint8_t, Reality::MaxShortIdLen> out_sid{};
                      const auto err = co_await Server->ReadHandshake(pub_cli, params, out_sid);
-                     EXPECT_EQ(err, Error::bad_auth);
+                     EXPECT_EQ(err, Error::BadAuth);
                  });
     }
 
@@ -367,9 +367,9 @@ namespace
         std::array<std::uint8_t, Reality::KeyLen> priv{};
         std::array<std::uint8_t, Reality::KeyLen> pub{};
         make_keypair(priv, pub);
-        const auto client_random = make_random(0x55, 40);
+        const auto ClientRandom = make_random(0x55, 40);
         const auto hello = make_random(0x66, 96);
-        std::array<std::uint8_t, Reality::MaxShortIdLen> short_id{};
+        std::array<std::uint8_t, Reality::MaxShortIdLen> ShortId{};
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -378,17 +378,17 @@ namespace
                      std::array<std::uint8_t, 32> junk{};
                      junk.fill(0xAA);
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(junk)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(junk)), ec);
                      EXPECT_FALSE(ec);
 
                      auto Server = std::make_shared<Reality::Conn<>>(
                          std::make_shared<MemoryStream>(std::move(b)), priv);
                      const std::array<std::uint8_t, 16> bad_pub{};
-                     Reality::HandshakeParams params{std::span<const std::uint8_t>(client_random), hello,
-                                                      short_id};
+                     Reality::HandshakeParams params{std::span<const std::uint8_t>(ClientRandom), hello,
+                                                      ShortId};
                      std::array<std::uint8_t, Reality::MaxShortIdLen> out_sid{};
                      const auto err = co_await Server->ReadHandshake(bad_pub, params, out_sid);
-                     EXPECT_EQ(err, Error::kdf_error);
+                     EXPECT_EQ(err, Error::KdfError);
                  });
     }
 
@@ -399,9 +399,9 @@ namespace
         std::array<std::uint8_t, Reality::KeyLen> priv{};
         std::array<std::uint8_t, Reality::KeyLen> pub{};
         make_keypair(priv, pub);
-        const auto client_random = make_random(0x55, 40);
+        const auto ClientRandom = make_random(0x55, 40);
         const auto hello = make_random(0x66, 96);
-        std::array<std::uint8_t, Reality::MaxShortIdLen> short_id{};
+        std::array<std::uint8_t, Reality::MaxShortIdLen> ShortId{};
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -409,10 +409,10 @@ namespace
                      auto Client = std::make_shared<Reality::Conn<>>(
                          std::make_shared<MemoryStream>(std::move(a)), priv);
                      const std::array<std::uint8_t, 16> bad_pub{};
-                     Reality::HandshakeParams params{std::span<const std::uint8_t>(client_random), hello,
-                                                      short_id};
+                     Reality::HandshakeParams params{std::span<const std::uint8_t>(ClientRandom), hello,
+                                                      ShortId};
                      const auto err = co_await Client->WriteHandshake(bad_pub, params);
-                     EXPECT_EQ(err, Error::kdf_error);
+                     EXPECT_EQ(err, Error::KdfError);
                  });
     }
 
@@ -426,9 +426,9 @@ namespace
         std::array<std::uint8_t, Reality::KeyLen> pub_srv{};
         make_keypair(priv_cli, pub_cli);
         make_keypair(priv_srv, pub_srv);
-        const auto client_random = make_random(0x55, 40);
+        const auto ClientRandom = make_random(0x55, 40);
         const auto hello = make_random(0x66, 96);
-        std::array<std::uint8_t, Reality::MaxShortIdLen> short_id{};
+        std::array<std::uint8_t, Reality::MaxShortIdLen> ShortId{};
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -436,10 +436,10 @@ namespace
                      auto Client = std::make_shared<Reality::Conn<>>(
                          std::make_shared<MemoryStream>(std::move(a)), priv_cli);
                      b.Close(); // 对端全关 → 发送 sealed SessionId 失败 → io_error
-                     Reality::HandshakeParams params{std::span<const std::uint8_t>(client_random), hello,
-                                                      short_id};
+                     Reality::HandshakeParams params{std::span<const std::uint8_t>(ClientRandom), hello,
+                                                      ShortId};
                      const auto err = co_await Client->WriteHandshake(pub_srv, params);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -464,13 +464,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // server_random 长度非法（31 字节）→ bad_length
+                     // ServerRandom 长度非法（31 字节）→ bad_length
                      auto Client = std::make_shared<Restls::Conn<>>(
                          std::make_shared<MemoryStream>(std::move(a)), "pw");
                      const std::array<std::uint8_t, 31> short_rnd{};
                      const auto err =
                          co_await Client->WriteHandshake(std::span<const std::uint8_t>(short_rnd));
-                     EXPECT_EQ(err, Error::bad_length);
+                     EXPECT_EQ(err, Error::BadLength);
                  });
     }
 
@@ -482,13 +482,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // server_random 长度非法（33 字节）→ bad_length
+                     // ServerRandom 长度非法（33 字节）→ bad_length
                      auto Server = std::make_shared<Restls::Conn<>>(
                          std::make_shared<MemoryStream>(std::move(b)), "pw");
                      const std::array<std::uint8_t, 33> long_rnd{};
                      const auto err =
                          co_await Server->ReadHandshake(std::span<const std::uint8_t>(long_rnd));
-                     EXPECT_EQ(err, Error::bad_length);
+                     EXPECT_EQ(err, Error::BadLength);
                  });
     }
 
@@ -517,7 +517,7 @@ namespace
                      a.Close(); // 对端关闭 → 头块不完整 → bad_magic
                      std::string Target;
                      const auto err = co_await Server->ReadHandshake(Target);
-                     EXPECT_EQ(err, Error::bad_magic);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -535,7 +535,7 @@ namespace
                      co_await write_raw(a, "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
                      std::string Target;
                      const auto err = co_await Server->ReadHandshake(Target);
-                     EXPECT_EQ(err, Error::bad_magic);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -553,7 +553,7 @@ namespace
                      co_await write_raw(a, "CONNECT example.com:443 HTTP/2\r\n\r\n");
                      std::string Target;
                      const auto err = co_await Server->ReadHandshake(Target);
-                     EXPECT_EQ(err, Error::bad_auth);
+                     EXPECT_EQ(err, Error::BadAuth);
                  });
     }
 
@@ -575,7 +575,7 @@ namespace
                      co_await write_raw(a, Header);
                      std::string Target;
                      const auto err = co_await Server->ReadHandshake(Target);
-                     EXPECT_EQ(err, Error::bad_auth);
+                     EXPECT_EQ(err, Error::BadAuth);
                  });
     }
 
@@ -591,7 +591,7 @@ namespace
                          std::make_shared<MemoryStream>(std::move(a)), "user", "pass");
                      b.Close(); // 对端全关 → 发送 CONNECT 头失败 → io_error
                      const auto err = co_await Client->WriteHandshake("example.com", 443);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -620,7 +620,7 @@ namespace
                      a.Close(); // 对端关闭 → 无 CONNECT 首行 → bad_magic
                      std::string host;
                      const auto err = co_await Server->ReadHandshake(host);
-                     EXPECT_EQ(err, Error::bad_magic);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -637,7 +637,7 @@ namespace
                      co_await write_raw(a, "GET / HTTP/2\r\n\r\n");
                      std::string host;
                      const auto err = co_await Server->ReadHandshake(host);
-                     EXPECT_EQ(err, Error::bad_magic);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -652,7 +652,7 @@ namespace
                      auto Client = std::make_shared<Gun::Conn<>>(std::make_shared<MemoryStream>(std::move(a)));
                      b.Close(); // 对端全关 → 发送 CONNECT 帧失败 → io_error
                      const auto err = co_await Client->WriteHandshake("example.com");
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -685,10 +685,10 @@ namespace
                          std::array<std::uint8_t, 512> req{};
                          std::error_code ec;
                          const auto n =
-                             co_await b.AsyncReadSome(AsBytes(std::span<std::uint8_t>(req)), ec);
+                             co_await b.async_read_some(AsBytes(std::span<std::uint8_t>(req)), ec);
                          EXPECT_GT(n, 0u);
                          const std::string resp = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n";
-                         co_await b.AsyncWriteSome(
+                         co_await b.async_write_some(
                              std::span<const std::byte>(reinterpret_cast<const std::byte *>(resp.data()),
                                                         resp.size()),
                              ec);
@@ -697,7 +697,7 @@ namespace
 
                      auto Client = std::make_shared<Ws::Conn<>>(std::make_shared<MemoryStream>(std::move(a)));
                      const auto err = co_await Client->WriteHandshake(kTestKey, "example.com");
-                     EXPECT_EQ(err, Error::bad_magic);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -715,13 +715,13 @@ namespace
                          std::array<std::uint8_t, 512> req{};
                          std::error_code ec;
                          const auto n =
-                             co_await b.AsyncReadSome(AsBytes(std::span<std::uint8_t>(req)), ec);
+                             co_await b.async_read_some(AsBytes(std::span<std::uint8_t>(req)), ec);
                          EXPECT_GT(n, 0u);
                          const std::string resp = "HTTP/1.1 101 Switching Protocols\r\n"
                                                   "Upgrade: websocket\r\n"
                                                   "Connection: Upgrade\r\n"
                                                   "Sec-WebSocket-Accept: wrong-Accept-value\r\n\r\n";
-                         co_await b.AsyncWriteSome(
+                         co_await b.async_write_some(
                              std::span<const std::byte>(reinterpret_cast<const std::byte *>(resp.data()),
                                                         resp.size()),
                              ec);
@@ -730,7 +730,7 @@ namespace
 
                      auto Client = std::make_shared<Ws::Conn<>>(std::make_shared<MemoryStream>(std::move(a)));
                      const auto err = co_await Client->WriteHandshake(kTestKey, "example.com");
-                     EXPECT_EQ(err, Error::bad_auth);
+                     EXPECT_EQ(err, Error::BadAuth);
                  });
     }
 
@@ -748,7 +748,7 @@ namespace
                          std::array<std::uint8_t, 512> req{};
                          std::error_code ec;
                          const auto n =
-                             co_await b.AsyncReadSome(AsBytes(std::span<std::uint8_t>(req)), ec);
+                             co_await b.async_read_some(AsBytes(std::span<std::uint8_t>(req)), ec);
                          EXPECT_GT(n, 0u);
                          b.Close();
                      };
@@ -756,7 +756,7 @@ namespace
 
                      auto Client = std::make_shared<Ws::Conn<>>(std::make_shared<MemoryStream>(std::move(a)));
                      const auto err = co_await Client->WriteHandshake(kTestKey, "example.com");
-                     EXPECT_EQ(err, Error::bad_magic);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -773,7 +773,7 @@ namespace
                      co_await write_raw(a, "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n");
                      std::string key;
                      const auto err = co_await Server->ReadHandshake(key);
-                     EXPECT_EQ(err, Error::bad_magic);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -791,7 +791,7 @@ namespace
                                            "Upgrade: websocket\r\nConnection: Upgrade\r\n\r\n");
                      std::string key;
                      const auto err = co_await Server->ReadHandshake(key);
-                     EXPECT_EQ(err, Error::bad_magic);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -814,7 +814,7 @@ namespace
                      a.Close();
                      std::string key;
                      const auto err = co_await Server->ReadHandshake(key);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -862,18 +862,18 @@ namespace
                      auto c = std::make_shared<Vmess::Conn<>>(test_uuid());
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n = co_await c->AsyncReadSome(buf, ec);
+                     const auto n = co_await c->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_EQ(ec, make_error_code(Error::not_open));
+                     EXPECT_EQ(ec, make_error_code(Error::NotOpen));
                      ec.clear();
-                     const auto w = co_await c->AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
+                     const auto w = co_await c->async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
                      EXPECT_EQ(w, 0u);
-                     EXPECT_EQ(ec, make_error_code(Error::not_open));
+                     EXPECT_EQ(ec, make_error_code(Error::NotOpen));
                      std::vector<std::uint8_t> payload;
                      const auto rerr = co_await c->AsyncReceiveDatagram(payload);
-                     EXPECT_EQ(rerr, Error::not_open);
+                     EXPECT_EQ(rerr, Error::NotOpen);
                      const auto serr = co_await c->AsyncSendDatagram(std::span<const std::uint8_t>{});
-                     EXPECT_EQ(serr, Error::not_open);
+                     EXPECT_EQ(serr, Error::NotOpen);
                  });
     }
 
@@ -891,7 +891,7 @@ namespace
                          std::array<std::uint8_t, 18> garbage{};
                          garbage.fill(0xFF);
                          std::error_code ec;
-                         co_await b.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(garbage)), ec);
+                         co_await b.async_write_some(AsBytes(std::span<const std::uint8_t>(garbage)), ec);
                          EXPECT_FALSE(ec);
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -900,7 +900,7 @@ namespace
                      const auto err = co_await cli->WriteHandshake(
                          std::make_shared<MemoryStream>(std::move(a)),
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(err, Error::bad_auth);
+                     EXPECT_EQ(err, Error::BadAuth);
                  });
     }
 
@@ -917,7 +917,7 @@ namespace
                      const auto err = co_await cli->WriteHandshake(
                          std::make_shared<MemoryStream>(std::move(a)),
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -933,13 +933,13 @@ namespace
                      std::array<std::uint8_t, 42> garbage{};
                      garbage.fill(0xFF);
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(garbage)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(garbage)), ec);
                      EXPECT_FALSE(ec);
 
                      auto Server = std::make_shared<Vmess::Conn<>>(test_uuid());
                      auto [err, msg] =
                          co_await Server->ReadHandshake(std::make_shared<MemoryStream>(std::move(b)));
-                     EXPECT_EQ(err, Error::bad_auth);
+                     EXPECT_EQ(err, Error::BadAuth);
                      (void)msg;
                  });
     }
@@ -956,7 +956,7 @@ namespace
                      a.Close(); // 对端关闭 → 读认证头前缀 EOF → io_error
                      auto [err, msg] =
                          co_await Server->ReadHandshake(std::make_shared<MemoryStream>(std::move(b)));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      (void)msg;
                  });
     }
@@ -977,7 +977,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
@@ -985,7 +985,7 @@ namespace
                          std::array<std::byte, 18> garbage{};
                          garbage.fill(std::byte{0xFF});
                          std::error_code ec;
-                         co_await Conn->NextLayer()->AsyncWriteSome(garbage, ec);
+                         co_await Conn->NextLayer()->async_write_some(garbage, ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
@@ -996,21 +996,21 @@ namespace
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
                          co_return;
                      }
                      // 空缓冲写入：直接返回 0 且无错误
                      std::error_code ec;
-                     const auto wn = co_await cli->AsyncWriteSome(std::span<const std::byte>{}, ec);
+                     const auto wn = co_await cli->async_write_some(std::span<const std::byte>{}, ec);
                      EXPECT_EQ(wn, 0u);
                      EXPECT_FALSE(ec);
                      // 垃圾 chunk 头 → 长度字段 tag 校验失败 → bad_auth
                      std::array<std::byte, 64> buf{};
-                     const auto n = co_await cli->AsyncReadSome(buf, ec);
+                     const auto n = co_await cli->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_EQ(ec, make_error_code(Error::bad_auth));
+                     EXPECT_EQ(ec, make_error_code(Error::BadAuth));
                      cli->Close();
                  });
     }
@@ -1031,7 +1031,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         EXPECT_EQ(err, Error::none);
+                         EXPECT_EQ(err, Error::None);
                          if (Conn)
                          {
                              Conn->Close();
@@ -1044,16 +1044,16 @@ namespace
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
                          co_return;
                      }
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n = co_await cli->AsyncReadSome(buf, ec);
+                     const auto n = co_await cli->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_EQ(ec, make_error_code(Error::unexpected_eof));
+                     EXPECT_EQ(ec, make_error_code(Error::UnexpectedEof));
                      cli->Close();
                  });
     }
@@ -1074,21 +1074,21 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
                          }
-                         const auto body_key = Vmess::Kdf(req.request_key, req.request_nonce);
-                         std::array<std::uint8_t, 16> chunk_key{};
-                         std::memcpy(chunk_key.data(), body_key.data(), 16);
-                         std::array<std::uint8_t, 12> chunk_nonce{};
-                         std::memcpy(chunk_nonce.data(), req.request_nonce.data(), 12);
-                         Vmess::ChunkEncryptor enc(chunk_key, chunk_nonce);
+                         const auto body_key = Vmess::Kdf(req.RequestKey, req.RequestNonce);
+                         std::array<std::uint8_t, 16> ChunkKey{};
+                         std::memcpy(ChunkKey.data(), body_key.data(), 16);
+                         std::array<std::uint8_t, 12> ChunkNonce{};
+                         std::memcpy(ChunkNonce.data(), req.RequestNonce.data(), 12);
+                         Vmess::ChunkEncryptor enc(ChunkKey, ChunkNonce);
                          std::array<std::uint8_t, 34> end_block{};
                          const auto end_n = enc.Finish(end_block);
                          std::error_code ec;
-                         co_await Conn->NextLayer()->AsyncWriteSome(
+                         co_await Conn->NextLayer()->async_write_some(
                              AsBytes(std::span<const std::uint8_t>(end_block).first(end_n)), ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
@@ -1100,19 +1100,19 @@ namespace
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
                          co_return;
                      }
-                     // 结束块 → 流结束：0 字节且无错误（ReadChunk 置 eof_ 分支）
+                     // 结束块 → 流结束：0 字节且无错误（ReadChunk 置 Eof_ 分支）
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n1 = co_await cli->AsyncReadSome(buf, ec);
+                     const auto n1 = co_await cli->async_read_some(buf, ec);
                      EXPECT_EQ(n1, 0u);
                      EXPECT_FALSE(ec);
-                     // 再次读取：eof_ 已置位 → 仍返回 0 且无错误（入口 eof_ 分支）
-                     const auto n2 = co_await cli->AsyncReadSome(buf, ec);
+                     // 再次读取：Eof_ 已置位 → 仍返回 0 且无错误（入口 Eof_ 分支）
+                     const auto n2 = co_await cli->async_read_some(buf, ec);
                      EXPECT_EQ(n2, 0u);
                      EXPECT_FALSE(ec);
                      cli->Close();
@@ -1135,21 +1135,21 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
                          }
-                         const auto body_key = Vmess::Kdf(req.request_key, req.request_nonce);
-                         std::array<std::uint8_t, 16> chunk_key{};
-                         std::memcpy(chunk_key.data(), body_key.data(), 16);
-                         std::array<std::uint8_t, 12> chunk_nonce{};
-                         std::memcpy(chunk_nonce.data(), req.request_nonce.data(), 12);
-                         Vmess::ChunkEncryptor enc(chunk_key, chunk_nonce);
+                         const auto body_key = Vmess::Kdf(req.RequestKey, req.RequestNonce);
+                         std::array<std::uint8_t, 16> ChunkKey{};
+                         std::memcpy(ChunkKey.data(), body_key.data(), 16);
+                         std::array<std::uint8_t, 12> ChunkNonce{};
+                         std::memcpy(ChunkNonce.data(), req.RequestNonce.data(), 12);
+                         Vmess::ChunkEncryptor enc(ChunkKey, ChunkNonce);
                          std::array<std::uint8_t, 34> end_block{};
                          const auto end_n = enc.Finish(end_block);
                          std::error_code ec;
-                         co_await Conn->NextLayer()->AsyncWriteSome(
+                         co_await Conn->NextLayer()->async_write_some(
                              AsBytes(std::span<const std::uint8_t>(end_block).first(end_n)), ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
@@ -1161,18 +1161,18 @@ namespace
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 443), static_cast<std::uint8_t>(Vmess::Command::Udp));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
                          co_return;
                      }
-                     // 结束块 → 数据报接收 unexpected_eof（ReadChunk 置 eof_ 分支）
+                     // 结束块 → 数据报接收 unexpected_eof（ReadChunk 置 Eof_ 分支）
                      std::vector<std::uint8_t> payload;
                      const auto derr1 = co_await cli->AsyncReceiveDatagram(payload);
-                     EXPECT_EQ(derr1, Error::unexpected_eof);
-                     // 再次接收：eof_ 已置位 → 直接 unexpected_eof（入口 eof_ 分支）
+                     EXPECT_EQ(derr1, Error::UnexpectedEof);
+                     // 再次接收：Eof_ 已置位 → 直接 unexpected_eof（入口 Eof_ 分支）
                      const auto derr2 = co_await cli->AsyncReceiveDatagram(payload);
-                     EXPECT_EQ(derr2, Error::unexpected_eof);
+                     EXPECT_EQ(derr2, Error::UnexpectedEof);
                      cli->Close();
                  });
     }

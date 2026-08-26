@@ -4,7 +4,7 @@
  * @details 将底层传输包装为 Tuic 连接：
  * 1. WriteHandshake / ReadHandshake：客户端发 Connect 帧
  *    （目标地址）；服务端解析校验（简化：不做 UUID 认证）
- * 2. 隧道：AsyncReadSome / AsyncWriteSome 透传 TCP 帧载荷
+ * 2. 隧道：async_read_some / async_write_some 透传 TCP 帧载荷
  * 3. UDP 数据面：AsyncSendDatagram / AsyncReceiveDatagram
  *    逐帧编解码（Codec.hpp 纯函数，packet 命令）
  * @note 与 tuic.hpp 工厂配对使用（服务端/客户端分离设计）
@@ -53,7 +53,7 @@ namespace Preview::Tuic
          * @param uuid 客户端 UUID（16 字节）
          */
         explicit Conn(SharedTransmission upstream, std::array<std::uint8_t, 16> uuid)
-            : next_layer_(std::move(upstream)), uuid_(uuid)
+            : NextLayer_(std::move(upstream)), Uuid_(uuid)
         {
         }
 
@@ -62,7 +62,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -75,14 +75,14 @@ namespace Preview::Tuic
             Message msg;
             msg.Cmd = CmdConnect;
             msg.dst = Target;
-            const auto wire = Build(msg);
-            if (co_await SendBytes(wire))
+            const auto Wire = Build(msg);
+            if (co_await SendBytes(Wire))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            target_ = Target;
-            handshaken_ = true;
-            co_return Error::none;
+            Target_ = Target;
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
@@ -92,19 +92,19 @@ namespace Preview::Tuic
         [[nodiscard]] auto ReadHandshake() -> net::awaitable<std::pair<Error, Message>>
         {
             Message msg;
-            auto err = co_await ReadFrame(msg);
-            if (err != Error::none)
+            auto Err = co_await ReadFrame(msg);
+            if (Err != Error::None)
             {
-                co_return std::pair{err, Message{}};
+                co_return std::pair{Err, Message{}};
             }
             if (msg.Cmd != CmdConnect)
             {
-                co_return std::pair{Error::bad_message, Message{}};
+                co_return std::pair{Error::BadMessage, Message{}};
             }
-            target_ = msg.dst;
-            parsed_ = msg;
-            handshaken_ = true;
-            co_return std::pair{Error::none, std::move(msg)};
+            Target_ = msg.dst;
+            Parsed_ = msg;
+            Handshaken_ = true;
+            co_return std::pair{Error::None, std::move(msg)};
         }
 
         /**
@@ -112,7 +112,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto Parsed() const -> const Message &
         {
-            return parsed_;
+            return Parsed_;
         }
 
         /**
@@ -124,9 +124,9 @@ namespace Preview::Tuic
         [[nodiscard]] auto AsyncSendDatagram(const Address &Target, std::span<const std::uint8_t> payload)
             -> net::awaitable<Error>
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                co_return Error::not_open;
+                co_return Error::NotOpen;
             }
             Message msg;
             msg.Cmd = CmdPacket;
@@ -134,12 +134,12 @@ namespace Preview::Tuic
             msg.PktId = ++PacketId_;
             msg.dst = Target;
             msg.payload.assign(reinterpret_cast<const char *>(payload.data()), payload.size());
-            const auto wire = Build(msg);
-            if (co_await SendBytes(wire))
+            const auto Wire = Build(msg);
+            if (co_await SendBytes(Wire))
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
@@ -151,51 +151,51 @@ namespace Preview::Tuic
         [[nodiscard]] auto AsyncReceiveDatagram(Address &Target, std::vector<std::uint8_t> &payload)
             -> net::awaitable<Error>
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                co_return Error::not_open;
+                co_return Error::NotOpen;
             }
             Message msg;
-            auto err = co_await ReadFrame(msg);
-            if (err != Error::none)
+            auto Err = co_await ReadFrame(msg);
+            if (Err != Error::None)
             {
-                co_return err;
+                co_return Err;
             }
             if (msg.Cmd != CmdPacket)
             {
-                co_return Error::bad_message;
+                co_return Error::BadMessage;
             }
             Target = msg.dst;
             payload.assign(msg.payload.begin(), msg.payload.end());
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（握手后数据面为裸流）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（握手后数据面为裸流）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -203,7 +203,7 @@ namespace Preview::Tuic
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -211,7 +211,7 @@ namespace Preview::Tuic
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -219,7 +219,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -227,7 +227,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -235,7 +235,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
         /**
          * @brief 会话是否有效（已握手且底层存在）
@@ -243,7 +243,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto IsValid() const noexcept -> bool
         {
-            return next_layer_ != nullptr && handshaken_;
+            return NextLayer_ != nullptr && Handshaken_;
         }
 
         /**
@@ -252,7 +252,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto Underlying() noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
         /**
@@ -262,7 +262,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto Arena() noexcept -> Preview::Memory::ResourcePointer
         {
-            return mem_.Arena();
+            return Mem_.Arena();
         }
 
     private:
@@ -278,11 +278,11 @@ namespace Preview::Tuic
             std::array<std::uint8_t, 2> head{};
             if (co_await ReadExact(std::span<std::uint8_t>(head)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             if (head[0] != ProtocolVersion)
             {
-                co_return Error::bad_magic;
+                co_return Error::BadMagic;
             }
             msg.Cmd = head[1];
             if (msg.Cmd == CmdPacket)
@@ -290,7 +290,7 @@ namespace Preview::Tuic
                 std::array<std::uint8_t, 8> ids{};
                 if (co_await ReadExact(std::span<std::uint8_t>(ids)))
                 {
-                    co_return Error::unexpected_eof;
+                    co_return Error::UnexpectedEof;
                 }
                 msg.AssocId = static_cast<std::uint32_t>(ids[0]) | static_cast<std::uint32_t>(ids[1]) << 8 |
                                static_cast<std::uint32_t>(ids[2]) << 16 |
@@ -305,18 +305,18 @@ namespace Preview::Tuic
                 std::array<std::uint8_t, 1> atyp{};
                 if (co_await ReadExact(std::span<std::uint8_t>(atyp)))
                 {
-                    co_return Error::unexpected_eof;
+                    co_return Error::UnexpectedEof;
                 }
                 msg.dst.Type = static_cast<AddressType>(atyp[0]);
-                auto err = co_await ReadAddressBody(msg.dst);
-                if (err != Error::none)
+                auto Err = co_await ReadAddressBody(msg.dst);
+                if (Err != Error::None)
                 {
-                    co_return err;
+                    co_return Err;
                 }
                 std::array<std::uint8_t, 2> port{};
                 if (co_await ReadExact(std::span<std::uint8_t>(port)))
                 {
-                    co_return Error::unexpected_eof;
+                    co_return Error::UnexpectedEof;
                 }
                 msg.dst.Port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
             }
@@ -325,15 +325,15 @@ namespace Preview::Tuic
                 // 载荷：剩余一次读（帧边界约定）
                 std::array<std::uint8_t, 512> chunk{};
                 std::error_code ec;
-                const auto n =
-                    co_await next_layer_->AsyncReadSome(AsBytes(std::span<std::uint8_t>(chunk)), ec);
+                const auto N =
+                    co_await NextLayer_->async_read_some(AsBytes(std::span<std::uint8_t>(chunk)), ec);
                 if (ec)
                 {
-                    co_return Error::io_error;
+                    co_return Error::IoError;
                 }
-                msg.payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
+                msg.payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
@@ -347,12 +347,12 @@ namespace Preview::Tuic
             while (Done < dst.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(AsBytes(dst.subspan(Done)), ec);
-                if (ec || n == 0)
+                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
@@ -368,12 +368,12 @@ namespace Preview::Tuic
             while (Done < Data.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(AsBytes(Data.subspan(Done)), ec);
-                if (ec)
+                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
@@ -390,14 +390,14 @@ namespace Preview::Tuic
                 addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return ReadExact(dst); });
         }
 
-        SharedTransmission next_layer_;      ///< 底层传输（独占所有权）
-        std::array<std::uint8_t, 16> uuid_{}; ///< 客户端 UUID（凭据）
-        Address target_;                      ///< TCP 目标地址（握手后）
-        Message parsed_{};                    ///< 服务端握手解析结果
+        SharedTransmission NextLayer_;      ///< 底层传输（独占所有权）
+        std::array<std::uint8_t, 16> Uuid_{}; ///< 客户端 UUID（凭据）
+        Address Target_;                      ///< TCP 目标地址（握手后）
+        Message Parsed_{};                    ///< 服务端握手解析结果
         std::uint32_t AssocId_{0};           ///< UDP 关联 ID
         std::uint32_t PacketId_{0};          ///< UDP 包 ID（自增）
-        bool handshaken_{false};              ///< 握手完成标志
-        Memory mem_;     ///< 会话级内存竞技场（热路径零释放分配）
+        bool Handshaken_{false};              ///< 握手完成标志
+        Memory Mem_;     ///< 会话级内存竞技场（热路径零释放分配）
     };
 
 

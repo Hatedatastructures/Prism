@@ -57,7 +57,7 @@ TEST(Http11Connect, ParseRequestOk)
                             "\r\n";
     Preview::Http11::HttpRequest req;
     const auto rc = Preview::Http11::ParseRequest(raw, req);
-    EXPECT_EQ(rc, Preview::Fault::Code::success);
+    EXPECT_EQ(rc, Preview::Fault::Code::Success);
     EXPECT_EQ(req.Method, "CONNECT");
     EXPECT_EQ(req.Target, "example.com:443");
     EXPECT_EQ(req.version, "HTTP/1.1");
@@ -73,7 +73,7 @@ TEST(Http11Connect, ParseCaseInsensitiveHeaders)
                             "\r\n";
     Preview::Http11::HttpRequest req;
     const auto rc = Preview::Http11::ParseRequest(raw, req);
-    EXPECT_EQ(rc, Preview::Fault::Code::success);
+    EXPECT_EQ(rc, Preview::Fault::Code::Success);
     EXPECT_EQ(req.host, "host:80");
     EXPECT_EQ(req.authorization, "Basic abc");
 }
@@ -82,12 +82,12 @@ TEST(Http11Connect, ParseMalformed)
 {
     Preview::Http11::HttpRequest req;
     // 缺请求行
-    EXPECT_EQ(Preview::Http11::ParseRequest("GET\r\n\r\n", req), Preview::Fault::Code::parse_error);
+    EXPECT_EQ(Preview::Http11::ParseRequest("GET\r\n\r\n", req), Preview::Fault::Code::ParseError);
     // 缺头结束
     EXPECT_EQ(Preview::Http11::ParseRequest("CONNECT h:1 HTTP/1.1\r\nHost: h:1\r\n", req),
-              Preview::Fault::Code::parse_error);
+              Preview::Fault::Code::ParseError);
     // 空数据
-    EXPECT_EQ(Preview::Http11::ParseRequest("", req), Preview::Fault::Code::parse_error);
+    EXPECT_EQ(Preview::Http11::ParseRequest("", req), Preview::Fault::Code::ParseError);
 }
 
 TEST(Http11Connect, ParseStatusCode)
@@ -141,13 +141,13 @@ TEST(Http11Connect, HandshakeOkE2E)
                      [&]() -> net::awaitable<void>
                      {
                          auto sock = co_await acceptor.async_accept(net::use_awaitable);
-                         auto transport = Preview::Transport::make_reliable(std::move(sock));
+                         auto transport = Preview::Transport::MakeReliable(std::move(sock));
                          Preview::Http11::ServerConn Server(transport);
                          Preview::Http11::HttpRequest req;
                          const auto rc = co_await Server.ReadRequest(req);
-                         if (rc == Preview::Fault::Code::success && req.Method == "CONNECT")
+                         if (rc == Preview::Fault::Code::Success && req.Method == "CONNECT")
                          {
-                             co_await Server.SendResponse(Preview::Http11::status::Ok);
+                             co_await Server.SendResponse(Preview::Http11::Status::Ok);
                          }
                      },
                      net::detached);
@@ -185,15 +185,15 @@ TEST(Http11Connect, AuthRequired407)
                          for (int round = 0; round < 2; ++round)
                          {
                              auto sock = co_await acceptor.async_accept(net::use_awaitable);
-                             auto transport = Preview::Transport::make_reliable(std::move(sock));
+                             auto transport = Preview::Transport::MakeReliable(std::move(sock));
                              Preview::Http11::ServerConn Server(transport);
                              Preview::Http11::HttpRequest req;
                              const auto rc = co_await Server.ReadRequest(req);
-                             if (rc == Preview::Fault::Code::success)
+                             if (rc == Preview::Fault::Code::Success)
                              {
                                  const auto ar = Preview::Http11::CheckBasic(req.authorization, Auth);
-                                 co_await Server.SendResponse(ar.Ok ? Preview::Http11::status::Ok
-                                                                     : Preview::Http11::status::ProxyAuthRequired);
+                                 co_await Server.SendResponse(ar.Ok ? Preview::Http11::Status::Ok
+                                                                     : Preview::Http11::Status::ProxyAuthRequired);
                              }
                          }
                      },
@@ -237,13 +237,13 @@ TEST(Http11Connect, BadRequest400)
                      [&]() -> net::awaitable<void>
                      {
                          auto sock = co_await acceptor.async_accept(net::use_awaitable);
-                         auto transport = Preview::Transport::make_reliable(std::move(sock));
+                         auto transport = Preview::Transport::MakeReliable(std::move(sock));
                          Preview::Http11::ServerConn Server(transport);
                          Preview::Http11::HttpRequest req;
                          const auto rc = co_await Server.ReadRequest(req);
-                         co_await Server.SendResponse(rc == Preview::Fault::Code::success
-                                                           ? Preview::Http11::status::Ok
-                                                           : Preview::Http11::status::BadRequest);
+                         co_await Server.SendResponse(rc == Preview::Fault::Code::Success
+                                                           ? Preview::Http11::Status::Ok
+                                                           : Preview::Http11::Status::BadRequest);
                      },
                      net::detached);
 
@@ -252,12 +252,12 @@ TEST(Http11Connect, BadRequest400)
                  {
                      // 畸形请求（缺方法名）
                      const std::string bad = "\r\n\r\n";
-                     co_await Client->AsyncWriteSome(
+                     co_await Client->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(bad.data()),
                                                     bad.size()),
                          ec);
                      std::array<std::byte, 64> buf{};
-                     const auto n = co_await Client->AsyncReadSome(buf, ec);
+                     const auto n = co_await Client->async_read_some(buf, ec);
                      Reply.assign(reinterpret_cast<const char *>(buf.data()), n);
                  }
              });
@@ -282,20 +282,20 @@ TEST(Http11Connect, TunnelBidirectional)
                      [&]() -> net::awaitable<void>
                      {
                          auto sock = co_await acceptor.async_accept(net::use_awaitable);
-                         auto transport = Preview::Transport::make_reliable(std::move(sock));
+                         auto transport = Preview::Transport::MakeReliable(std::move(sock));
                          Preview::Http11::ServerConn Server(transport);
                          Preview::Http11::HttpRequest req;
                          const auto rc = co_await Server.ReadRequest(req);
-                         if (rc == Preview::Fault::Code::success)
+                         if (rc == Preview::Fault::Code::Success)
                          {
-                             co_await Server.SendResponse(Preview::Http11::status::Ok);
+                             co_await Server.SendResponse(Preview::Http11::Status::Ok);
                              // 隧道模式：echo 一次（用 transport，sock 已被 move）
                              std::array<std::byte, 128> buf{};
                              std::error_code r_ec;
-                             const auto n = co_await transport->AsyncReadSome(buf, r_ec);
+                             const auto n = co_await transport->async_read_some(buf, r_ec);
                              if (n > 0)
                              {
-                                 co_await transport->AsyncWriteSome(
+                                 co_await transport->async_write_some(
                                      std::span<const std::byte>(buf.data(), n), r_ec);
                              }
                          }
@@ -309,12 +309,12 @@ TEST(Http11Connect, TunnelBidirectional)
                      status = co_await Preview::Http11::ReadResponse(Client, ec);
                      // 隧道数据
                      const std::string msg = "tunnel-echo";
-                     co_await Client->AsyncWriteSome(
+                     co_await Client->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(msg.data()),
                                                     msg.size()),
                          ec);
                      std::array<std::byte, 128> buf{};
-                     const auto n = co_await Client->AsyncReadSome(buf, ec);
+                     const auto n = co_await Client->async_read_some(buf, ec);
                      echo_back.assign(reinterpret_cast<const char *>(buf.data()), n);
                  }
              });

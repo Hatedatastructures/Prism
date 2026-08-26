@@ -1,7 +1,7 @@
 /**
- * @file pad.hpp
+ * @file Pad.hpp
  * @brief Transport 层记录填充装饰器
- * @details 在 AsyncWriteSome 中根据填充策略注入随机填充字节,
+ * @details 在 async_write_some 中根据填充策略注入随机填充字节,
  *          混淆 tunnel relay 的字节流大小特征。使用 BLAKE3 作为
  *          CSPRNG 生成随机填充大小和内容。
  *          前 StopAfter 次 Write 执行填充,之后透传零开销。
@@ -82,7 +82,7 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto TransportType() const noexcept -> Type override
         {
-            return inner_->TransportType();
+            return Inner_->TransportType();
         }
 
         /**
@@ -91,7 +91,7 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
         {
-            return inner_.get();
+            return Inner_.get();
         }
 
         /**
@@ -100,7 +100,7 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Transmission * override
         {
-            return inner_.get();
+            return Inner_.get();
         }
 
         /**
@@ -109,7 +109,7 @@ namespace Preview::Transport {
          */
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            return inner_->Executor();
+            return Inner_->Executor();
         }
 
         /**
@@ -119,7 +119,7 @@ namespace Preview::Transport {
          * @param ec 错误码输出参数
          * @return 异步操作，完成后返回读取的字节数
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -130,7 +130,7 @@ namespace Preview::Transport {
          * @param ec 错误码输出参数
          * @return 异步操作，完成后返回写入的字节数
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override;
 
         /**
@@ -144,16 +144,16 @@ namespace Preview::Transport {
         void Cancel() override;
 
     private:
-        SharedTransmission inner_;                    // 被包装的内层传输
-        PadConfig cfg_;                               // 填充配置
-        std::vector<PadTarget> targets_;           // 解析后的填充目标列表
-        std::vector<std::byte> PadBuf_;            // 填充数据缓冲区
+        SharedTransmission Inner_;                    // 被包装的内层传输
+        PadConfig Cfg_;                               // 填充配置
+        Preview::Memory::vector<PadTarget> Targets_;           // 解析后的填充目标列表
+        Preview::Memory::vector<std::byte> PadBuf_;            // 填充数据缓冲区
         std::uint8_t WriteCount_{0};                  // 已执行填充的写入次数
 
         /// BLAKE3 CSPRNG 状态
-        std::array<std::uint8_t, 32> rng_key_{};       // CSPRNG 密钥
+        std::array<std::uint8_t, 32> RngKey_{};       // CSPRNG 密钥
         std::uint64_t RngCounter_{0};                 // CSPRNG 计数器
-        std::array<std::uint8_t, 32> rng_cache_{};     // CSPRNG 输出缓存
+        std::array<std::uint8_t, 32> RngCache_{};     // CSPRNG 输出缓存
         std::size_t RngCachePos_{32};                // CSPRNG 缓存读取位置
 
         /**
@@ -189,36 +189,36 @@ namespace Preview::Transport {
          * @return 解析后的填充目标列表
          */
         [[nodiscard]] static auto ParseTargets(std::string_view spec, Preview::Memory::ResourcePointer mr)
-            -> std::vector<PadTarget>;
+            -> Preview::Memory::vector<PadTarget>;
     };
 
 
 
 
     inline PadTransport::PadTransport(SharedTransmission Inner, const PadConfig &cfg)
-        : inner_(std::move(Inner)), cfg_(cfg),
-          targets_(ParseTargets(cfg.PadTargets, Preview::Memory::CurrentResource())),
+        : Inner_(std::move(Inner)), Cfg_(cfg),
+          Targets_(ParseTargets(cfg.PadTargets, Preview::Memory::CurrentResource())),
           PadBuf_(16384 + 256, Preview::Memory::CurrentResource())
     {
         /// 从 BoringSSL 获取 CSPRNG 种子
-        RAND_bytes(rng_key_.data(), static_cast<int>(rng_key_.size()));
+        RAND_bytes(RngKey_.data(), static_cast<int>(RngKey_.size()));
     }
 
-    inline auto PadTransport::AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+    inline auto PadTransport::async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
-        co_return co_await inner_->AsyncReadSome(Buffer, ec);
+        co_return co_await Inner_->async_read_some(Buffer, ec);
     }
 
-    inline auto PadTransport::AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+    inline auto PadTransport::async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
         -> net::awaitable<std::size_t>
     {
         ec.clear();
 
         /// 未启用或超过 StopAfter 后直接透传,零开销
-        if (!cfg_.Enabled() || WriteCount_ >= cfg_.StopAfter || Buffer.empty())
+        if (!Cfg_.Enabled() || WriteCount_ >= Cfg_.StopAfter || Buffer.empty())
         {
-            co_return co_await inner_->AsyncWriteSome(Buffer, ec);
+            co_return co_await Inner_->async_write_some(Buffer, ec);
         }
 
         const auto DataLen = Buffer.size();
@@ -228,7 +228,7 @@ namespace Preview::Transport {
         /// 如果 PadBuf_ 不够大,直接透传(极端情况)
         if (Total > PadBuf_.size())
         {
-            co_return co_await inner_->AsyncWriteSome(Buffer, ec);
+            co_return co_await Inner_->async_write_some(Buffer, ec);
         }
 
         std::memcpy(PadBuf_.data(), Buffer.data(), DataLen);
@@ -237,7 +237,7 @@ namespace Preview::Transport {
             RngNextBytes(std::span<std::byte>(PadBuf_.data() + DataLen, PadSize));
         }
 
-        co_await inner_->AsyncWrite(std::span<const std::byte>(PadBuf_.data(), Total), ec);
+        co_await Inner_->AsyncWrite(std::span<const std::byte>(PadBuf_.data(), Total), ec);
 
         ++WriteCount_;
 
@@ -250,23 +250,23 @@ namespace Preview::Transport {
 
     inline void PadTransport::Close()
     {
-        inner_->Close();
+        Inner_->Close();
     }
 
     inline void PadTransport::Cancel()
     {
-        inner_->Cancel();
+        Inner_->Cancel();
     }
 
     inline auto PadTransport::ComputePadding(std::size_t DataLen) -> std::size_t
     {
-        if (targets_.empty())
+        if (Targets_.empty())
         {
-            return RngNextU16(0, cfg_.MaxPadBytes);
+            return RngNextU16(0, Cfg_.MaxPadBytes);
         }
 
         /// 选取当前 WriteCount 对应的 Target(循环使用)
-        const auto &Target = targets_[WriteCount_ % targets_.size()];
+        const auto &Target = Targets_[WriteCount_ % Targets_.size()];
         const auto TargetLen = RngNextU16(Target.MinVal, Target.MaxVal);
 
         if (DataLen < TargetLen)
@@ -274,7 +274,7 @@ namespace Preview::Transport {
             return TargetLen - DataLen;
         }
 
-        return RngNextU16(0, cfg_.MaxPadBytes);
+        return RngNextU16(0, Cfg_.MaxPadBytes);
     }
 
     inline auto PadTransport::RngNextU16(std::uint16_t MinVal, std::uint16_t MaxVal) -> std::uint16_t
@@ -287,30 +287,30 @@ namespace Preview::Transport {
         std::array<std::byte, 2> buf{};
         RngNextBytes(buf);
 
-        const auto raw =
+        const auto Raw =
             static_cast<std::uint16_t>((static_cast<std::uint16_t>(static_cast<std::uint8_t>(buf[0])) << 8) |
                                        static_cast<std::uint16_t>(static_cast<std::uint8_t>(buf[1])));
 
         // 用 uint32 计算区间，避免 MaxVal=65535 时 uint16 溢出为 0
         // 导致取模除零
-        const auto range = static_cast<std::uint32_t>(MaxVal) - MinVal + 1;
-        return static_cast<std::uint16_t>(MinVal + (raw % range));
+        const auto Range = static_cast<std::uint32_t>(MaxVal) - MinVal + 1;
+        return static_cast<std::uint16_t>(MinVal + (Raw % Range));
     }
 
     inline void PadTransport::RngRefill()
     {
         blake3_hasher hasher;
-        blake3_hasher_init_keyed(&hasher, rng_key_.data());
+        blake3_hasher_init_keyed(&hasher, RngKey_.data());
 
-        std::array<std::uint8_t, 8> counter_bytes{};
-        auto ctr = RngCounter_;
-        for (std::size_t i = 0; i < 8; ++i)
+        std::array<std::uint8_t, 8> CounterBytes{};
+        auto Ctr = RngCounter_;
+        for (std::size_t I = 0; I < 8; ++I)
         {
-            counter_bytes[i] = static_cast<std::uint8_t>(ctr & 0xFF);
-            ctr >>= 8;
+            CounterBytes[I] = static_cast<std::uint8_t>(Ctr & 0xFF);
+            Ctr >>= 8;
         }
-        blake3_hasher_update(&hasher, counter_bytes.data(), 8);
-        blake3_hasher_finalize(&hasher, rng_cache_.data(), 32);
+        blake3_hasher_update(&hasher, CounterBytes.data(), 8);
+        blake3_hasher_finalize(&hasher, RngCache_.data(), 32);
 
         RngCachePos_ = 0;
         ++RngCounter_;
@@ -318,33 +318,33 @@ namespace Preview::Transport {
 
     inline void PadTransport::RngNextBytes(std::span<std::byte> out)
     {
-        std::size_t offset = 0;
-        while (offset < out.size())
+        std::size_t Offset = 0;
+        while (Offset < out.size())
         {
             if (RngCachePos_ >= 32)
             {
                 RngRefill();
             }
 
-            std::size_t chunk = 0;
-            if (out.size() - offset < 32 - RngCachePos_)
+            std::size_t Chunk = 0;
+            if (out.size() - Offset < 32 - RngCachePos_)
             {
-                chunk = out.size() - offset;
+                Chunk = out.size() - Offset;
             }
             else
             {
-                chunk = 32 - RngCachePos_;
+                Chunk = 32 - RngCachePos_;
             }
-            std::memcpy(out.data() + offset, rng_cache_.data() + RngCachePos_, chunk);
-            RngCachePos_ += chunk;
-            offset += chunk;
+            std::memcpy(out.data() + Offset, RngCache_.data() + RngCachePos_, Chunk);
+            RngCachePos_ += Chunk;
+            Offset += Chunk;
         }
     }
 
     inline auto PadTransport::ParseTargets(std::string_view spec, Preview::Memory::ResourcePointer mr)
-        -> std::vector<PadTarget>
+        -> Preview::Memory::vector<PadTarget>
     {
-        std::vector<PadTarget> targets(mr);
+        Preview::Memory::vector<PadTarget> targets(mr);
 
         std::size_t Start = 0;
         while (Start <= spec.size())
@@ -355,29 +355,29 @@ namespace Preview::Transport {
                 end = spec.size();
             }
 
-            const auto token = spec.substr(Start, end - Start);
-            if (!token.empty())
+            const auto Token = spec.substr(Start, end - Start);
+            if (!Token.empty())
             {
                 PadTarget t{};
 
-                auto dash = token.find('-');
-                if (dash != std::string_view::npos)
+                auto Dash = Token.find('-');
+                if (Dash != std::string_view::npos)
                 {
-                    auto MinStr = token.substr(0, dash);
-                    auto MaxStr = token.substr(dash + 1);
-                    std::uint16_t mn = 0;
-                    std::uint16_t mx = 0;
-                    std::from_chars(MinStr.data(), MinStr.data() + MinStr.size(), mn);
-                    std::from_chars(MaxStr.data(), MaxStr.data() + MaxStr.size(), mx);
-                    t.MinVal = mn;
-                    t.MaxVal = mx;
+                    auto MinStr = Token.substr(0, Dash);
+                    auto MaxStr = Token.substr(Dash + 1);
+                    std::uint16_t Mn = 0;
+                    std::uint16_t Mx = 0;
+                    std::from_chars(MinStr.data(), MinStr.data() + MinStr.size(), Mn);
+                    std::from_chars(MaxStr.data(), MaxStr.data() + MaxStr.size(), Mx);
+                    t.MinVal = Mn;
+                    t.MaxVal = Mx;
                 }
                 else
                 {
-                    std::uint16_t val = 0;
-                    std::from_chars(token.data(), token.data() + token.size(), val);
-                    t.MinVal = val;
-                    t.MaxVal = val;
+                    std::uint16_t Val = 0;
+                    std::from_chars(Token.data(), Token.data() + Token.size(), Val);
+                    t.MinVal = Val;
+                    t.MaxVal = Val;
                 }
 
                 targets.push_back(t);

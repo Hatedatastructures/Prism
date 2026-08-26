@@ -97,7 +97,7 @@ namespace
                 std::size_t Done = 0;
                 while (Done < Total)
                 {
-                    const auto n = co_await Conn->AsyncReadSome(
+                    const auto n = co_await Conn->async_read_some(
                         std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                     if (ec || n == 0)
                     {
@@ -126,7 +126,7 @@ namespace
             std::error_code ec;
             while (Done < Total)
             {
-                const auto n = co_await Conn->AsyncWriteSome(
+                const auto n = co_await Conn->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), block), ec);
                 if (ec || n == 0)
                 {
@@ -169,13 +169,13 @@ int main()
                                       ss, Preview::Socks5::ClientConfig{},
                                       Preview::Socks5::Address{Preview::Socks5::AddressType::Domain,
                                                                "t.internal", 443});
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               },
                               [&](auto ss) -> net::awaitable<Preview::SharedTransmission>
                               {
                                   auto [err, req, Conn] = co_await Preview::Socks5::Accept(
                                       ss, Preview::Socks5::ServerConfig{});
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               });
         }
         std::sort(s.begin(), s.end());
@@ -198,14 +198,14 @@ int main()
                                   auto [err, Conn] = co_await Preview::Trojan::Connect(
                                       ss, cfg, Preview::Trojan::Address{Preview::Trojan::AddressType::Domain,
                                                                         "t.internal", 443});
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               },
                               [&](auto ss) -> net::awaitable<Preview::SharedTransmission>
                               {
                                   Preview::Trojan::ServerConfig cfg;
                                   cfg.password = "prism";
                                   auto [err, req, Conn] = co_await Preview::Trojan::Accept(ss, cfg);
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               });
         }
         std::sort(s.begin(), s.end());
@@ -228,14 +228,14 @@ int main()
                                   auto [err, Conn] = co_await Preview::Vless::Connect(
                                       ss, cfg, Preview::Vless::Address{Preview::Vless::AddressType::Domain,
                                                                        "t.internal", 443});
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               },
                               [&](auto ss) -> net::awaitable<Preview::SharedTransmission>
                               {
                                   Preview::Vless::ServerConfig cfg;
                                   cfg.uuid = uuid;
                                   auto [err, req, Conn] = co_await Preview::Vless::Accept(ss, cfg);
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               });
         }
         std::sort(s.begin(), s.end());
@@ -258,14 +258,14 @@ int main()
                                   auto [err, Conn] = co_await Preview::Vmess::Connect(
                                       ss, cfg, Preview::Vmess::Address{Preview::Vmess::AddressType::Domain,
                                                                        "t.internal", 443});
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               },
                               [&](auto ss) -> net::awaitable<Preview::SharedTransmission>
                               {
                                   Preview::Vmess::ServerConfig cfg;
                                   cfg.uuid = uuid;
                                   auto [err, req, Conn] = co_await Preview::Vmess::Accept(ss, cfg);
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               });
         }
         std::sort(s.begin(), s.end());
@@ -289,14 +289,14 @@ int main()
                                       ss, cfg, Preview::Shadowsocks2022::Address{
                                                    Preview::Shadowsocks2022::AddressType::Domain,
                                                    "t.internal", 443});
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               },
                               [&](auto ss) -> net::awaitable<Preview::SharedTransmission>
                               {
                                   Preview::Shadowsocks2022::ServerConfig cfg;
                                   cfg.password = "prism";
                                   auto [err, req, Conn] = co_await Preview::Shadowsocks2022::Accept(ss, cfg);
-                                  co_return err == Preview::Error::none ? Conn : nullptr;
+                                  co_return err == Preview::Error::None ? Conn : nullptr;
                               });
         }
         std::sort(s.begin(), s.end());

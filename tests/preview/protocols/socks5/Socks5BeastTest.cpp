@@ -17,7 +17,7 @@ namespace
     {
         Socks5::Message msg;
         msg.Type = Socks5::Message::Kind::Greeting;
-        msg.methods = {Socks5::AuthNone};
+        msg.Methods = {Socks5::AuthNone};
         return msg;
     }
 
@@ -82,8 +82,8 @@ namespace
         EXPECT_EQ(consumed, 3);
         EXPECT_TRUE(p.IsDone());
         EXPECT_EQ(p.Get().Type, Socks5::Message::Kind::Greeting);
-        EXPECT_EQ(p.Get().methods.size(), 1u);
-        EXPECT_EQ(p.Get().methods[0], Socks5::AuthNone);
+        EXPECT_EQ(p.Get().Methods.size(), 1u);
+        EXPECT_EQ(p.Get().Methods[0], Socks5::AuthNone);
     }
 
     TEST(Socks5Beast, ParserIncrementalHalfFrame)
@@ -105,7 +105,7 @@ namespace
         EXPECT_FALSE(ec);
         EXPECT_EQ(n2, 1);
         EXPECT_TRUE(p.IsDone());
-        EXPECT_EQ(p.Get().methods[0], Socks5::AuthNone);
+        EXPECT_EQ(p.Get().Methods[0], Socks5::AuthNone);
     }
 
     TEST(Socks5Beast, ParserPipelinedFrames)
@@ -136,7 +136,7 @@ namespace
         std::error_code ec;
         std::array<std::uint8_t, 3> bad{0x04, 0x01, 0x00};
         p.Put(net::const_buffer(bad.data(), bad.size()), ec);
-        EXPECT_EQ(ec, Error::version_mismatch);
+        EXPECT_EQ(ec, Error::VersionMismatch);
     }
 
     TEST(Socks5Beast, ParserRejectsBadCommand)
@@ -147,7 +147,7 @@ namespace
         // 非法命令 0x09
         std::array<std::uint8_t, 7> bad{0x05, 0x09, 0x00, 0x01, 127, 0, 0};
         p.Put(net::const_buffer(bad.data(), bad.size()), ec);
-        EXPECT_EQ(ec, Error::not_supported);
+        EXPECT_EQ(ec, Error::NotSupported);
     }
 
     TEST(Socks5Beast, ParserRejectsBadAddressType)
@@ -157,7 +157,7 @@ namespace
         std::error_code ec;
         std::array<std::uint8_t, 4> bad{0x05, 0x01, 0x00, 0x09};
         p.Put(net::const_buffer(bad.data(), bad.size()), ec);
-        EXPECT_EQ(ec, Error::bad_message);
+        EXPECT_EQ(ec, Error::BadMessage);
     }
 
     TEST(Socks5Beast, ParserResetReuse)
@@ -173,7 +173,7 @@ namespace
         p.Expect(Socks5::Message::Kind::Greeting);
         p.Put(net::const_buffer(g.data(), g.size()), ec);
         EXPECT_TRUE(p.IsDone());
-        EXPECT_EQ(p.Get().methods.size(), 1u);
+        EXPECT_EQ(p.Get().Methods.size(), 1u);
     }
 
 } // namespace

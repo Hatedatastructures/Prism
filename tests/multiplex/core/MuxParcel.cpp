@@ -22,7 +22,7 @@ namespace
     // ---------- helpers ----------
 
     /**
-     * @brief 模拟 parcel::on_data 的缓冲区累积行为
+     * @brief 模拟 parcel::OnData 的缓冲区累积行为
      * @param accumulated 累积缓冲区（对应 parcel::mux_buffer_）
      * @param incoming 新到达的帧数据
      * @return 累积后缓冲区是否包含可解析的完整数据报
@@ -35,7 +35,7 @@ namespace
     }
 
     /**
-     * @brief 模拟 parcel::on_data 的缓冲区累积行为（length-prefixed 模式）
+     * @brief 模拟 parcel::OnData 的缓冲区累积行为（length-prefixed 模式）
      */
     [[nodiscard]] auto accumulate_and_try_parse_length_prefixed(psm::memory::vector<std::byte> &accumulated,
                                                                 std::span<const std::byte> incoming) -> bool
@@ -348,7 +348,7 @@ namespace
 
     /**
      * @brief 测试缓冲区溢出保护
-     * @details 模拟 parcel::on_data 中的溢出检查逻辑：
+     * @details 模拟 parcel::OnData 中的溢出检查逻辑：
      * if (mux_buffer_.size() > udp_max_datagram_) { close(); }
      * 当累积数据超过最大数据报大小时，parcel 应关闭管道丢弃数据。
      */
@@ -378,7 +378,7 @@ namespace
         bool overflow_before = mux_buffer.size() > udp_max_dg;
         EXPECT_TRUE(!overflow_before) << "overflow: buffer OK after small datagram";
 
-        // 累积超限数据，触发 parcel::on_data 中的溢出检查
+        // 累积超限数据，触发 parcel::OnData 中的溢出检查
         mux_buffer.insert(mux_buffer.end(), enc_large.begin(), enc_large.end());
 
         bool overflow_after = mux_buffer.size() > udp_max_dg;

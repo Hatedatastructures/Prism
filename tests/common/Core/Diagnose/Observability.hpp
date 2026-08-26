@@ -1,5 +1,5 @@
 /**
- * @file observability.hpp
+ * @file Observability.hpp
  * @brief 可观测积木（T5-5 O5 接口 + T5-6 实现）
  * @details 三个核心组件：
  *          - HdrHistogram：指数 bucket 直方图（记录 + 分位数）
@@ -44,13 +44,13 @@ namespace Preview::Diagnose
                 MaxValue_ = MaxValue;
             }
             // bucket 数 = log2(MaxValue) + 1（0 值也占一桶）
-            std::uint64_t v = MaxValue_;
-            while (v > 0)
+            std::uint64_t V = MaxValue_;
+            while (V > 0)
             {
                 ++BucketCount_;
-                v >>= 1;
+                V >>= 1;
             }
-            buckets_ = std::make_unique<std::atomic<std::uint64_t>[]>(BucketCount_);
+            Buckets_ = std::make_unique<std::atomic<std::uint64_t>[]>(BucketCount_);
         }
 
         /**
@@ -59,7 +59,7 @@ namespace Preview::Diagnose
          */
         void Record(std::uint64_t value)
         {
-            buckets_[BucketOf(value)].fetch_add(1, std::memory_order_relaxed);
+            Buckets_[BucketOf(value)].fetch_add(1, std::memory_order_relaxed);
         }
 
         /**
@@ -68,9 +68,9 @@ namespace Preview::Diagnose
         [[nodiscard]] auto Count() const -> std::uint64_t
         {
             std::uint64_t Total = 0;
-            for (std::size_t i = 0; i < BucketCount_; ++i)
+            for (std::size_t I = 0; I < BucketCount_; ++I)
             {
-                Total += buckets_[i].load(std::memory_order_relaxed);
+                Total += Buckets_[I].load(std::memory_order_relaxed);
             }
             return Total;
         }
@@ -92,13 +92,13 @@ namespace Preview::Diagnose
                 return 0;
             }
             const auto Target = static_cast<std::uint64_t>(static_cast<double>(Total) * p / 100.0);
-            std::uint64_t cumulative = 0;
-            for (std::size_t i = 0; i < BucketCount_; ++i)
+            std::uint64_t Cumulative = 0;
+            for (std::size_t I = 0; I < BucketCount_; ++I)
             {
-                cumulative += buckets_[i].load(std::memory_order_relaxed);
-                if (cumulative > Target)
+                Cumulative += Buckets_[I].load(std::memory_order_relaxed);
+                if (Cumulative > Target)
                 {
-                    return BucketValue(i);
+                    return BucketValue(I);
                 }
             }
             return MaxValue_;
@@ -122,34 +122,34 @@ namespace Preview::Diagnose
             {
                 return 0;
             }
-            std::size_t idx = 0;
+            std::size_t Idx = 0;
             while (value > 0)
             {
                 value >>= 1;
-                ++idx;
+                ++Idx;
             }
-            if (idx >= BucketCount_)
+            if (Idx >= BucketCount_)
             {
                 return BucketCount_ - 1;
             }
-            return idx;
+            return Idx;
         }
 
         /**
          * @brief 桶代表值
          */
-        [[nodiscard]] auto BucketValue(std::size_t idx) const -> std::uint64_t
+        [[nodiscard]] auto BucketValue(std::size_t Idx) const -> std::uint64_t
         {
-            if (idx == 0)
+            if (Idx == 0)
             {
                 return 0;
             }
-            return (std::uint64_t{1} << (idx - 1));
+            return (std::uint64_t{1} << (Idx - 1));
         }
 
         std::uint64_t MaxValue_{1};                              ///< 封顶值
         std::size_t BucketCount_{0};                             ///< 桶数
-        std::unique_ptr<std::atomic<std::uint64_t>[]> buckets_;   ///< 原子桶
+        std::unique_ptr<std::atomic<std::uint64_t>[]> Buckets_;   ///< 原子桶
     };
 
     /**
@@ -163,14 +163,14 @@ namespace Preview::Diagnose
     {
     public:
         /// 未初始化哨兵
-        static constexpr std::uint64_t uninit = std::numeric_limits<std::uint64_t>::max();
+        static constexpr std::uint64_t Uninit = std::numeric_limits<std::uint64_t>::max();
 
         /**
          * @brief 构造
          * @param WindowMs 移动平均窗口（毫秒）
          */
         explicit EwmaMeter(std::uint64_t WindowMs = 1000)
-            : WindowMs_(1), LastRead_(uninit)
+            : WindowMs_(1), LastRead_(Uninit)
         {
             if (WindowMs > 0)
             {
@@ -181,9 +181,9 @@ namespace Preview::Diagnose
         /**
          * @brief 标记 n 个事件
          */
-        void Mark(std::uint64_t n)
+        void Mark(std::uint64_t N)
         {
-            sum_.fetch_add(n, std::memory_order_relaxed);
+            Sum_.fetch_add(N, std::memory_order_relaxed);
         }
 
         /**
@@ -192,26 +192,26 @@ namespace Preview::Diagnose
          */
         [[nodiscard]] auto RatePerSecond(std::uint64_t now) const -> double
         {
-            auto last = LastRead_.load(std::memory_order_relaxed);
-            if (last == uninit)
+            auto Last = LastRead_.load(std::memory_order_relaxed);
+            if (Last == Uninit)
             {
                 LastRead_.store(now, std::memory_order_relaxed);
                 return 0.0;
             }
-            const auto sum = sum_.load(std::memory_order_relaxed);
-            std::uint64_t elapsed = 1;
-            if (now > last)
+            const auto Sum = Sum_.load(std::memory_order_relaxed);
+            std::uint64_t Elapsed = 1;
+            if (now > Last)
             {
-                elapsed = now - last;
+                Elapsed = now - Last;
             }
             // 衰减因子：经过窗口数越多，速率越接近平均
-            const auto windows = static_cast<double>(elapsed) / static_cast<double>(WindowMs_);
-            return static_cast<double>(sum) / windows;
+            const auto Windows = static_cast<double>(Elapsed) / static_cast<double>(WindowMs_);
+            return static_cast<double>(Sum) / Windows;
         }
 
     private:
         std::uint64_t WindowMs_{1000};                    ///< 窗口（毫秒）
-        mutable std::atomic<std::uint64_t> sum_{0};        ///< 未衰减计数
+        mutable std::atomic<std::uint64_t> Sum_{0};        ///< 未衰减计数
         mutable std::atomic<std::uint64_t> LastRead_;     ///< 上次读取
     };
 
@@ -231,15 +231,15 @@ namespace Preview::Diagnose
          * @param RingSize 环容量（须 2 的幂）
          */
         explicit SampleTracer(std::uint64_t Ratio = 1, std::size_t RingSize = 256)
-            : ratio_(1), RingSize_(RingSize), ring_(RingSize)
+            : Ratio_(1), RingSize_(RingSize), Ring_(RingSize)
         {
             if (Ratio < 1)
             {
-                ratio_ = 1;
+                Ratio_ = 1;
             }
             else
             {
-                ratio_ = Ratio;
+                Ratio_ = Ratio;
             }
         }
 
@@ -249,14 +249,14 @@ namespace Preview::Diagnose
          */
         void Sample(std::uint64_t value)
         {
-            const auto seq = counter_.fetch_add(1, std::memory_order_relaxed);
-            if (seq % ratio_ != 0)
+            const auto Seq = Counter_.fetch_add(1, std::memory_order_relaxed);
+            if (Seq % Ratio_ != 0)
             {
                 return;
             }
             const auto Slot = WriteIdx_.fetch_add(1, std::memory_order_relaxed) & (RingSize_ - 1);
-            ring_[Slot].store(value, std::memory_order_relaxed);
-            sampled_.fetch_add(1, std::memory_order_relaxed);
+            Ring_[Slot].store(value, std::memory_order_relaxed);
+            Sampled_.fetch_add(1, std::memory_order_relaxed);
         }
 
         /**
@@ -264,7 +264,7 @@ namespace Preview::Diagnose
          */
         [[nodiscard]] auto SampledCount() const -> std::uint64_t
         {
-            return sampled_.load(std::memory_order_relaxed);
+            return Sampled_.load(std::memory_order_relaxed);
         }
 
         /**
@@ -272,7 +272,7 @@ namespace Preview::Diagnose
          */
         [[nodiscard]] auto TotalCount() const -> std::uint64_t
         {
-            return counter_.load(std::memory_order_relaxed);
+            return Counter_.load(std::memory_order_relaxed);
         }
 
         /**
@@ -280,7 +280,7 @@ namespace Preview::Diagnose
          */
         [[nodiscard]] auto Ratio() const -> std::uint64_t
         {
-            return ratio_;
+            return Ratio_;
         }
 
         /**
@@ -290,24 +290,24 @@ namespace Preview::Diagnose
          */
         [[nodiscard]] auto Drain(std::array<std::uint64_t, 8> &out) const -> std::size_t
         {
-            const auto written = WriteIdx_.load(std::memory_order_relaxed);
-            std::size_t n = 0;
-            for (std::size_t i = 0; i < 8 && i < RingSize_; ++i)
+            const auto Written = WriteIdx_.load(std::memory_order_relaxed);
+            std::size_t N = 0;
+            for (std::size_t I = 0; I < 8 && I < RingSize_; ++I)
             {
-                const auto idx = (written + RingSize_ - 1 - i) & (RingSize_ - 1);
-                out[n] = ring_[idx].load(std::memory_order_relaxed);
-                ++n;
+                const auto Idx = (Written + RingSize_ - 1 - I) & (RingSize_ - 1);
+                out[N] = Ring_[Idx].load(std::memory_order_relaxed);
+                ++N;
             }
-            return n;
+            return N;
         }
 
     private:
-        std::uint64_t ratio_{1};                         ///< 采样分母
+        std::uint64_t Ratio_{1};                         ///< 采样分母
         std::size_t RingSize_{256};                     ///< 环容量
-        std::vector<std::atomic<std::uint64_t>> ring_;   ///< 样本环
-        std::atomic<std::uint64_t> counter_{0};          ///< 观测计数
+        std::vector<std::atomic<std::uint64_t>> Ring_;   ///< 样本环
+        std::atomic<std::uint64_t> Counter_{0};          ///< 观测计数
         std::atomic<std::uint64_t> WriteIdx_{0};        ///< 写索引
-        std::atomic<std::uint64_t> sampled_{0};          ///< 已采样数
+        std::atomic<std::uint64_t> Sampled_{0};          ///< 已采样数
     };
 
 } // namespace Preview::Diagnose

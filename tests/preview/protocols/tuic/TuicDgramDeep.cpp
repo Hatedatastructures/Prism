@@ -31,6 +31,8 @@ namespace
     template <typename A>
     auto run_coro(net::io_context &ioc, A coro) -> void
     {
+        // 同一 io_context 可能被多次驱动，restart() 重置 stopped 标志
+        ioc.restart();
         std::exception_ptr ep;
         net::co_spawn(ioc, std::move(coro),
                       [&](std::exception_ptr e)
@@ -64,13 +66,13 @@ namespace
         auto peer = std::make_shared<MemoryStream>(std::move(b));
         auto Dgram = std::make_shared<Tuic::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
 
-        EXPECT_EQ(Dgram->TransportType(), Transmission::Type::udp);
+        EXPECT_EQ(Dgram->TransportType(), Transmission::Type::Udp);
         (void)Dgram->Executor();
         EXPECT_NE(Dgram->NextLayer(), nullptr);
         const auto *cdgram = Dgram.get();
         EXPECT_NE(cdgram->NextLayer(), nullptr);
         EXPECT_NE(Dgram->Stream(), nullptr);
-        EXPECT_EQ(Dgram->LowestLayer<MemoryStream>(), Dgram->Stream().get());
+        EXPECT_EQ(Dgram->lowest_layer<MemoryStream>(), Dgram->Stream().get());
 
         // 透传读写（双向）
         run_coro(ioc,
@@ -78,16 +80,16 @@ namespace
                  {
                      std::error_code ec;
                      std::array<std::byte, 8> wbuf{std::byte{0x11}};
-                     const auto w = co_await Dgram->AsyncWriteSome(std::span<const std::byte>(wbuf), ec);
+                     const auto w = co_await Dgram->async_write_some(std::span<const std::byte>(wbuf), ec);
                      EXPECT_EQ(w, 8u);
                      std::array<std::byte, 8> rbuf{};
-                     const auto r = co_await peer->AsyncReadSome(std::span<std::byte>(rbuf), ec);
+                     const auto r = co_await peer->async_read_some(std::span<std::byte>(rbuf), ec);
                      EXPECT_EQ(r, 8u);
                      EXPECT_EQ(static_cast<std::uint8_t>(rbuf[0]), 0x11);
 
-                     const auto w2 = co_await peer->AsyncWriteSome(std::span<const std::byte>(wbuf), ec);
+                     const auto w2 = co_await peer->async_write_some(std::span<const std::byte>(wbuf), ec);
                      EXPECT_EQ(w2, 8u);
-                     const auto r2 = co_await Dgram->AsyncReadSome(std::span<std::byte>(rbuf), ec);
+                     const auto r2 = co_await Dgram->async_read_some(std::span<std::byte>(rbuf), ec);
                      EXPECT_EQ(r2, 8u);
                      EXPECT_EQ(static_cast<std::uint8_t>(rbuf[0]), 0x11);
                  });
@@ -99,7 +101,7 @@ namespace
                  {
                      std::error_code ec;
                      std::array<std::byte, 8> rbuf{};
-                     const auto r = co_await Dgram->AsyncReadSome(std::span<std::byte>(rbuf), ec);
+                     const auto r = co_await Dgram->async_read_some(std::span<std::byte>(rbuf), ec);
                      EXPECT_EQ(r, 0u);
                  });
         // Release 转移底层所有权
@@ -122,16 +124,16 @@ namespace
                      const std::string payload = "hello Dgram";
                      const auto serr =
                          co_await Dgram->AsyncSendTo(make_dst(), AsU8Span(payload));
-                     EXPECT_EQ(serr, Error::none);
+                     EXPECT_EQ(serr, Error::None);
 
                      // 对端用 Codec 解析帧
                      std::array<std::uint8_t, 512> raw{};
                      std::error_code ec;
-                     const auto n = co_await peer->AsyncReadSome(AsBytes(std::span<std::uint8_t>(raw)), ec);
+                     const auto n = co_await peer->async_read_some(AsBytes(std::span<std::uint8_t>(raw)), ec);
                      Tuic::Message msg;
                      std::size_t consumed = 0;
                      const auto perr = Tuic::Parse(std::span<const std::uint8_t>(raw.data(), n), msg, consumed);
-                     EXPECT_EQ(perr, Error::none);
+                     EXPECT_EQ(perr, Error::None);
                      EXPECT_EQ(msg.Cmd, Tuic::CmdPacket);
                      EXPECT_EQ(msg.AssocId, 0u);
                      EXPECT_EQ(msg.PktId, 1u);
@@ -155,7 +157,7 @@ namespace
                      Tuic::Address src{};
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await Dgram->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(rerr, Error::none);
+                     EXPECT_EQ(rerr, Error::None);
                      EXPECT_EQ(src.Type, Tuic::AddressType::Ipv4);
                  });
     }
@@ -183,7 +185,7 @@ namespace
 
                      Tuic::Address src{};
                      std::vector<std::uint8_t> out;
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::none);
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::None);
                      EXPECT_EQ(src.Type, Tuic::AddressType::Ipv6);
 
                      // domain 地址（pkt_id 高字节 = domain(0x03)）
@@ -197,7 +199,7 @@ namespace
                     const auto wd = co_await peer->WriteAll(Tuic::Build(md));
                     EXPECT_FALSE(wd);
 
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::none);
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::None);
                      EXPECT_EQ(src.Type, Tuic::AddressType::Domain);
                  });
     }
@@ -217,7 +219,7 @@ namespace
 
                      // 底层 EOF → unexpected_eof（头部读失败）
                      peer->Close();
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::unexpected_eof);
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::UnexpectedEof);
 
                      // 非法地址类型 → bad_message（ReadAddressBody default 分支）
                      Tuic::Message badatyp;
@@ -225,13 +227,13 @@ namespace
                      badatyp.dst.Type = static_cast<Tuic::AddressType>(0x7F);
                      const auto wb2 = co_await peer->WriteAll(Tuic::Build(badatyp));
                      EXPECT_FALSE(wb2);
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::bad_message);
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::BadMessage);
 
                      // 头部不足（< 10 字节）→ unexpected_eof
                      const std::array<std::uint8_t, 5> short_head{0x04, 0x07, 0, 0, 0};
                      const auto wb3 = co_await peer->WriteAll(short_head);
                      EXPECT_FALSE(wb3);
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::unexpected_eof);
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::UnexpectedEof);
                  });
     }
 
@@ -249,7 +251,7 @@ namespace
                      peer->Close();
                      const std::string_view one{"x"};
                      const auto err = co_await Dgram->AsyncSendTo(make_dst(), AsU8Span(one));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 

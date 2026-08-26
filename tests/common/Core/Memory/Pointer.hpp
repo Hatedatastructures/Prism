@@ -1,5 +1,5 @@
 /**
- * @file pointer.hpp
+ * @file Pointer.hpp
  * @brief 会话级内存指针体系
  * @details 对齐主项目 Resource::Session 的内存模型：
  * - FrameArena：会话级帧竞技场（栈缓冲 + 线程局部池上游），
@@ -38,17 +38,17 @@ namespace Preview::Memory
     concept Restrict = requires(Memory mem)
     {
         // 容器类型别名
-        typename std::template Buffer<std::uint8_t>;
-        typename std::DynamicString;
+        typename Memory::template Buffer<std::uint8_t>;
+        typename Memory::DynamicString;
 
         // 分配接口（返回类型精确匹配）
         { mem.Arena() } -> std::same_as<ResourcePointer>;
         { mem.template MakeBuffer<std::uint8_t>(std::size_t{0}) }
-            -> std::same_as<typename std::template Buffer<std::uint8_t>>;
+            -> std::same_as<typename Memory::template Buffer<std::uint8_t>>;
         { mem.template MakeVector<std::uint8_t>() }
-            -> std::same_as<typename std::template Buffer<std::uint8_t>>;
+            -> std::same_as<typename Memory::template Buffer<std::uint8_t>>;
         { mem.MakeString(std::string_view{}) }
-            -> std::same_as<typename std::DynamicString>;
+            -> std::same_as<typename Memory::DynamicString>;
     };
 
     /**
@@ -70,7 +70,7 @@ namespace Preview::Memory
          * @details 使用栈缓冲区 + 线程局部池作为上游资源，
          * 实现无锁性能最大化
          */
-        FrameArena() : resource_(buffer_, ArenaSize, System::LocalPool())
+        FrameArena() : Resource_(Buffer_, ArenaSize, System::LocalPool())
         {
         }
 
@@ -84,7 +84,7 @@ namespace Preview::Memory
         [[nodiscard]] auto Get() noexcept
              -> ResourcePointer
         {
-            return &resource_;
+            return &Resource_;
         }
 
         /**
@@ -94,7 +94,7 @@ namespace Preview::Memory
         [[nodiscard]] auto Get() const noexcept 
             -> ResourcePointer
         {
-            return &resource_;
+            return &Resource_;
         }
 
         /**
@@ -104,7 +104,7 @@ namespace Preview::Memory
          */
         void Reset() noexcept
         {
-            resource_.release();
+            Resource_.release();
         }
 
         /**
@@ -119,10 +119,10 @@ namespace Preview::Memory
 
     private:
         /// 栈缓冲：覆盖典型协议帧解析/地址序列化
-        alignas(std::max_align_t) std::byte buffer_[ArenaSize];
+        alignas(std::max_align_t) std::byte Buffer_[ArenaSize];
         /// 单调增长资源（仅分配不释放，随 Reset/析构回收）
         /// mutable：Arena() 为 const 语义（不改变逻辑状态）
-        mutable MonotonicBuffer resource_;
+        mutable MonotonicBuffer Resource_;
     };
 
     /**
@@ -144,10 +144,10 @@ namespace Preview::Memory
          * @tparam Type 元素类型
          */
         template <typename Type>
-        using Buffer = std::vector<Type>;
+        using Buffer = std::pmr::vector<Type>; ///< 容器类型别名（策略契约：PMR 向量，绑定点 Arena）
 
-        /// 字符串类型别名（策略契约）
-        using DynamicString = std::string;
+        /// 字符串类型别名（策略契约：PMR 字符串，绑定点 Arena）
+        using DynamicString = std::pmr::string;
 
         /**
          * @brief 构造内存上下文（持有 Arena）
@@ -164,7 +164,7 @@ namespace Preview::Memory
         [[nodiscard]] auto Arena() noexcept 
             -> ResourcePointer
         {
-            return arena_.Get();
+            return Arena_.Get();
         }
 
         /**
@@ -174,7 +174,7 @@ namespace Preview::Memory
         [[nodiscard]] auto Arena() const noexcept 
             -> ResourcePointer
         {
-            return arena_.Get();
+            return Arena_.Get();
         }
 
         /**
@@ -192,7 +192,7 @@ namespace Preview::Memory
          */
         void Reset() noexcept
         {
-            arena_.Reset();
+            Arena_.Reset();
         }
 
         /**
@@ -200,10 +200,10 @@ namespace Preview::Memory
          * @param str 源字符串
          * @return 竞技场分配的字符串（会话生命周期）
          */
-        [[nodiscard]] auto MakeString(std::string_view str) 
-            -> std::string
+        [[nodiscard]] auto MakeString(std::string_view str)
+            -> DynamicString
         {
-            return std::string(str, arena_.Get());
+            return DynamicString(str, Arena_.Get());
         }
 
         /**
@@ -212,10 +212,10 @@ namespace Preview::Memory
          * @return 竞技场分配的 vector（会话生命周期）
          */
         template <typename Type>
-        [[nodiscard]] auto MakeVector() 
-            -> std::vector<Type>
+        [[nodiscard]] auto MakeVector()
+            -> std::pmr::vector<Type>
         {
-            return std::vector<Type>(arena_.Get());
+            return std::pmr::vector<Type>(Arena_.Get());
         }
 
         /**
@@ -227,24 +227,24 @@ namespace Preview::Memory
          *       vmess/ss2022 加密缓冲（16KB+）走池，帧/地址（<8KB）走竞技场
          */
         template <typename Type>
-        [[nodiscard]] auto MakeBuffer(const std::size_t Count) 
-            -> std::vector<Type>
+        [[nodiscard]] auto MakeBuffer(const std::size_t Count)
+            -> std::pmr::vector<Type>
         {
-            std::vector<Type> buf;
+            std::pmr::vector<Type> buf;
             if (Count * sizeof(Type) <= ArenaSize)
             {
-                buf = std::vector<Type>(arena_.Get());
+                buf = std::pmr::vector<Type>(Arena_.Get());
             }
             else
             {
-                buf = std::vector<Type>(System::LocalPool());
+                buf = std::pmr::vector<Type>(System::LocalPool());
             }
             buf.resize(Count);
             return buf;
         }
 
     private:
-        FrameArena<ArenaSize> arena_; ///< 帧竞技场（会话持有）
+        FrameArena<ArenaSize> Arena_; ///< 帧竞技场（会话持有）
     };
 
     /**

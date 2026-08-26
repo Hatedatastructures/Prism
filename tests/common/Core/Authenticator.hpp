@@ -68,14 +68,14 @@ namespace Preview
          * @param Secret 期望凭据
          */
         explicit StaticAuthenticator(std::string identity, std::string Secret)
-            : identity_(std::move(identity)), secret_(std::move(Secret))
+            : Identity_(std::move(identity)), Secret_(std::move(Secret))
         {
         }
 
         [[nodiscard]] auto Check(std::string_view identity, std::string_view Secret) const
             -> AuthResult override
         {
-            if (identity != identity_ || Secret != secret_)
+            if (identity != Identity_ || Secret != Secret_)
             {
                 return {false, {}};
             }
@@ -83,8 +83,8 @@ namespace Preview
         }
 
     private:
-        std::string identity_; ///< 期望身份
-        std::string secret_;   ///< 期望凭据
+        std::string Identity_; ///< 期望身份
+        std::string Secret_;   ///< 期望凭据
     };
 
     /**

@@ -1,5 +1,5 @@
 /**
- * @file protocol_adapter.hpp
+ * @file ProtocolAdapter.hpp
  * @brief 协议接入缝（唯一桥接层）— 统一适配 ProtocolHandler 到 runtime
  * @details 以 Handler::ProtocolHandler 为唯一协议接口，MakeProtocolAccept
  *          把对象式 handler 适配为 SessionOptions::ProtocolAcceptFn：
@@ -39,8 +39,8 @@ namespace Preview::Runtime
      * @param h 协议处理器（共享所有权，随回调存活）
      * @return Session 协议接入回调
      * @details 成功后把 AcceptResult 装配进 Middleware::Context：
-     *          Target / identity / IsDgram / post_dial，并把数据面传输
-     *          替换到 inbound。失败或无传输时统一走错误映射，不留下半状态。
+     *          Target / identity / IsDgram / PostDial，并把数据面传输
+     *          替换到 Inbound。失败或无传输时统一走错误映射，不留下半状态。
      */
     [[nodiscard]] inline auto MakeProtocolAccept(std::shared_ptr<Handler::ProtocolHandler> h)
         -> SessionOptions::ProtocolAcceptFn
@@ -48,26 +48,29 @@ namespace Preview::Runtime
         return [h = std::move(h)](SharedTransmission &in, Middleware::Context &ctx)
             -> net::awaitable<Fault::Code>
         {
-            auto r = co_await h->Accept(std::move(in));
-            if (!r.Transmission)
+            auto R = co_await h->Accept(std::move(in));
+            if (!R.Transmission)
             {
-                if (r.err != Error::none)
+                if (R.err != Error::None)
                 {
                     // 消费 handler Name()：错误日志标识失败协议，便于定位
                     Preview::Diagnose::Warn("Protocol handler {} Accept Failed", h->Name());
                 }
-                co_return r.err == Error::none ? Fault::Code::io_error
-                                              : Fault::ToCode(make_error_code(r.err));
+                if (R.err == Error::None)
+                {
+                    co_return Fault::Code::IoError;
+                }
+                co_return Fault::ToCode(make_error_code(R.err));
             }
-            ctx.Target = r.Target;
-            ctx.identity = r.identity;
-            ctx.IsDgram = r.IsDgram;
-            if (r.post_dial)
+            ctx.Target = R.Target;
+            ctx.identity = R.identity;
+            ctx.IsDgram = R.IsDgram;
+            if (R.PostDial)
             {
-                ctx.post_dial = std::move(r.post_dial);
+                ctx.PostDial = std::move(R.PostDial);
             }
-            in = std::move(r.Transmission);
-            co_return Fault::Code::success;
+            in = std::move(R.Transmission);
+            co_return Fault::Code::Success;
         };
     }
 

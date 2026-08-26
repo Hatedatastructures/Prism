@@ -62,8 +62,8 @@ namespace
         psm::memory::vector<psm::memory::string> allowed;
         allowed.emplace_back(""); // empty = wildcard
 
-        std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        EXPECT_TRUE(psm::handshake::reality::match_shortid(short_id, allowed))
+        std::array<std::uint8_t, 8> ShortId = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        EXPECT_TRUE(psm::handshake::reality::match_shortid(ShortId, allowed))
             << "match_shortid wildcard (empty string) matches any";
     }
 
@@ -72,8 +72,8 @@ namespace
         psm::memory::vector<psm::memory::string> allowed;
         allowed.emplace_back("0102030405060708");
 
-        std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        EXPECT_TRUE(psm::handshake::reality::match_shortid(short_id, allowed)) << "match_shortid exact match";
+        std::array<std::uint8_t, 8> ShortId = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        EXPECT_TRUE(psm::handshake::reality::match_shortid(ShortId, allowed)) << "match_shortid exact match";
     }
 
     TEST(RealityAuth, MatchShortidNoMatch)
@@ -81,8 +81,8 @@ namespace
         psm::memory::vector<psm::memory::string> allowed;
         allowed.emplace_back("AABBCCDD");
 
-        std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        EXPECT_FALSE(psm::handshake::reality::match_shortid(short_id, allowed)) << "match_shortid no match";
+        std::array<std::uint8_t, 8> ShortId = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        EXPECT_FALSE(psm::handshake::reality::match_shortid(ShortId, allowed)) << "match_shortid no match";
     }
 
     TEST(RealityAuth, MatchShortidOddLength)
@@ -90,16 +90,16 @@ namespace
         psm::memory::vector<psm::memory::string> allowed;
         allowed.emplace_back("AABBC"); // odd length hex
 
-        std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        EXPECT_FALSE(psm::handshake::reality::match_shortid(short_id, allowed))
+        std::array<std::uint8_t, 8> ShortId = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        EXPECT_FALSE(psm::handshake::reality::match_shortid(ShortId, allowed))
             << "match_shortid odd length skipped";
     }
 
     TEST(RealityAuth, MatchShortidEmptyList)
     {
         psm::memory::vector<psm::memory::string> allowed;
-        std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04};
-        EXPECT_FALSE(psm::handshake::reality::match_shortid(short_id, allowed))
+        std::array<std::uint8_t, 8> ShortId = {0x01, 0x02, 0x03, 0x04};
+        EXPECT_FALSE(psm::handshake::reality::match_shortid(ShortId, allowed))
             << "match_shortid empty list returns false";
     }
 
@@ -266,8 +266,8 @@ namespace
         psm::memory::vector<psm::memory::string> allowed;
         allowed.emplace_back("ZZZZ"); // 无效 hex 字符
 
-        std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        EXPECT_FALSE(psm::handshake::reality::match_shortid(short_id, allowed))
+        std::array<std::uint8_t, 8> ShortId = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        EXPECT_FALSE(psm::handshake::reality::match_shortid(ShortId, allowed))
             << "match_shortid invalid hex -> false";
     }
 
@@ -276,18 +276,18 @@ namespace
         psm::memory::vector<psm::memory::string> allowed;
         allowed.emplace_back("0102"); // 仅匹配前 2 字节
 
-        std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        EXPECT_TRUE(psm::handshake::reality::match_shortid(short_id, allowed))
+        std::array<std::uint8_t, 8> ShortId = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        EXPECT_TRUE(psm::handshake::reality::match_shortid(ShortId, allowed))
             << "match_shortid prefix match";
     }
 
     TEST(RealityAuth, MatchShortidLongerAllowed)
     {
         psm::memory::vector<psm::memory::string> allowed;
-        allowed.emplace_back("010203040506070809"); // 9 字节 > short_id 的 8 字节
+        allowed.emplace_back("010203040506070809"); // 9 字节 > ShortId 的 8 字节
 
-        std::array<std::uint8_t, 8> short_id = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-        EXPECT_FALSE(psm::handshake::reality::match_shortid(short_id, allowed))
+        std::array<std::uint8_t, 8> ShortId = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+        EXPECT_FALSE(psm::handshake::reality::match_shortid(ShortId, allowed))
             << "match_shortid longer allowed -> false";
     }
 
@@ -317,17 +317,17 @@ namespace
             std::span<const std::uint8_t>(feat.random.data(), 20),
             std::span<const std::uint8_t>(shared_secret.data(), shared_secret.size()));
 
-        constexpr std::array<std::uint8_t, 7> reality_info{'R', 'E', 'A', 'L', 'I', 'T', 'Y'};
+        constexpr std::array<std::uint8_t, 7> RealityInfo{'R', 'E', 'A', 'L', 'I', 'T', 'Y'};
         const auto [expand_ec, auth_key_vec] = psm::crypto::hkdf_expand(
             std::span<const std::uint8_t>(prk.data(), prk.size()),
-            std::span<const std::uint8_t>(reality_info.data(), reality_info.size()), 32);
+            std::span<const std::uint8_t>(RealityInfo.data(), RealityInfo.size()), 32);
         ASSERT_TRUE(psm::fault::succeeded(expand_ec)) << "authenticate success: HKDF-Expand ok";
 
-        // 5. 构造明文 session_id：version(1) + random(7) + short_id(8) + padding(16) = 32 字节
+        // 5. 构造明文 session_id：version(1) + random(7) + ShortId(8) + padding(16) = 32 字节
         //    但 authenticate() 内部 open() 解密出 16 字节，所以明文实际只有 16 字节
         std::array<std::uint8_t, 16> plaintext_sid{};
         plaintext_sid[0] = 0x01; // version marker
-        // bytes 8-15 = short_id（全 0x42）
+        // bytes 8-15 = ShortId（全 0x42）
         for (std::size_t i = 8; i < 16; ++i)
         {
             plaintext_sid[i] = 0x42;
@@ -359,7 +359,7 @@ namespace
         cfg.dest = psm::memory::string("www.example.com:443");
         cfg.server_names.emplace_back("www.example.com");
         cfg.private_key = psm::memory::string("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
-        cfg.short_ids.emplace_back(""); // 通配符，接受任意 short_id
+        cfg.short_ids.emplace_back(""); // 通配符，接受任意 ShortId
 
         // 9. 调用 authenticate
         auto [auth_ec, auth_result] = psm::handshake::reality::authenticate(

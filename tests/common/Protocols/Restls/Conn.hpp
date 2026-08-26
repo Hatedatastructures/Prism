@@ -3,7 +3,7 @@
  * @brief Restls 会话连接对象（Transmission 装饰器）
  * @details 将底层传输包装为 Restls 连接：
  * 1. WriteHandshake / ReadHandshake：认证握手（测试库简化：
- *    交换 server_random，客户端派生 Secret 校验服务端 mask）
+ *    交换 ServerRandom，客户端派生 Secret 校验服务端 mask）
  * 2. 数据面：应用数据记录带 auth_mac + XOR mask 编解码
  * @note 与 restls.hpp 工厂配对使用（服务端/客户端分离设计）
  * @note 实例非线程安全，应在同一协程或线程内使用
@@ -53,7 +53,7 @@ namespace Preview::Restls
          * @param password 认证密码
          */
         explicit Conn(SharedTransmission upstream, std::string password)
-            : next_layer_(std::move(upstream)), password_(std::move(password))
+            : NextLayer_(std::move(upstream)), Password_(std::move(password))
         {
         }
 
@@ -62,71 +62,71 @@ namespace Preview::Restls
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
-         * @brief 客户端握手：派生 Secret 并交换 server_random
-         * @param server_random 服务端随机数（32 字节）
+         * @brief 客户端握手：派生 Secret 并交换 ServerRandom
+         * @param ServerRandom 服务端随机数（32 字节）
          * @return 错误码
          * @details 客户端由密码派生 RestlsSecret，后续认证均以其为密钥。
          */
-        [[nodiscard]] auto WriteHandshake(std::span<const std::uint8_t> server_random)
+        [[nodiscard]] auto WriteHandshake(std::span<const std::uint8_t> ServerRandom)
         -> net::awaitable<Error>
         {
-            if (server_random.size() != 32)
-                co_return Error::bad_length;
-            secret_ = DeriveSecret(password_);
-            std::copy(server_random.begin(), server_random.end(), server_random_.begin());
-            handshaken_ = true;
-            co_return Error::none;
+            if (ServerRandom.size() != 32)
+                co_return Error::BadLength;
+            Secret_ = DeriveSecret(Password_);
+            std::copy(ServerRandom.begin(), ServerRandom.end(), ServerRandom_.begin());
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
          * @brief 服务端握手：派生 Secret 并校验客户端身份
-         * @param server_random 服务端随机数（32 字节）
+         * @param ServerRandom 服务端随机数（32 字节）
          * @return 错误码
-         * @details 服务端同样派生 Secret，并以 server_mask 加密
+         * @details 服务端同样派生 Secret，并以 ServerMask 加密
          * 首个 TLS 记录实现服务端身份验证（测试库简化直接派生）。
          */
-        [[nodiscard]] auto ReadHandshake(std::span<const std::uint8_t> server_random)
+        [[nodiscard]] auto ReadHandshake(std::span<const std::uint8_t> ServerRandom)
         -> net::awaitable<Error>
         {
-            if (server_random.size() != 32)
-                co_return Error::bad_length;
-            secret_ = DeriveSecret(password_);
-            std::copy(server_random.begin(), server_random.end(), server_random_.begin());
-            handshaken_ = true;
-            co_return Error::none;
+            if (ServerRandom.size() != 32)
+                co_return Error::BadLength;
+            Secret_ = DeriveSecret(Password_);
+            std::copy(ServerRandom.begin(), ServerRandom.end(), ServerRandom_.begin());
+            Handshaken_ = true;
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（数据面原样，mask 编解码由上层记录层负责）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
         -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（数据面原样）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer,
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
                                             std::error_code &ec)
         -> net::awaitable<std::size_t> override
         {
-            if (!handshaken_)
+            if (!Handshaken_)
             {
-                ec = make_error_code(Error::not_open);
+                ec = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -134,7 +134,7 @@ namespace Preview::Restls
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -142,7 +142,7 @@ namespace Preview::Restls
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -150,7 +150,7 @@ namespace Preview::Restls
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -158,7 +158,7 @@ namespace Preview::Restls
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -166,7 +166,7 @@ namespace Preview::Restls
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
         /**
@@ -174,15 +174,15 @@ namespace Preview::Restls
          */
         [[nodiscard]] auto Secret() const -> const std::array<std::uint8_t, 32> &
         {
-            return secret_;
+            return Secret_;
         }
 
     private:
-        SharedTransmission next_layer_;                ///< 底层传输（独占所有权）
-        std::string password_;                          ///< 认证密码
-        std::array<std::uint8_t, 32> secret_{};         ///< RestlsSecret（派生）
-        std::array<std::uint8_t, 32> server_random_{};  ///< 服务端随机数
-        bool handshaken_{false};                        ///< 握手完成标志
+        SharedTransmission NextLayer_;                ///< 底层传输（独占所有权）
+        std::string Password_;                          ///< 认证密码
+        std::array<std::uint8_t, 32> Secret_{};         ///< RestlsSecret（派生）
+        std::array<std::uint8_t, 32> ServerRandom_{};  ///< 服务端随机数
+        bool Handshaken_{false};                        ///< 握手完成标志
     };
 
     /// 流连接共享指针（默认内存策略）

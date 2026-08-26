@@ -199,11 +199,11 @@ namespace
 
         // 通过 reliable 读取回显
         std::array<std::byte, 128> read_buf{};
-        std::error_code read_ec;
+        std::error_code ReadEc;
         const auto n = co_await psm::transport::async_read(
-            *transport, std::span<std::byte>{read_buf.data(), test_message.size()}, read_ec);
+            *transport, std::span<std::byte>{read_buf.data(), test_message.size()}, ReadEc);
 
-        EXPECT_TRUE(!read_ec) << "ReliableReadWrite: read no error";
+        EXPECT_TRUE(!ReadEc) << "ReliableReadWrite: read no error";
         EXPECT_EQ(n, test_message.size()) << "ReliableReadWrite: read size matches";
 
         const auto received = std::string_view(reinterpret_cast<const char *>(read_buf.data()), n);
@@ -423,11 +423,11 @@ namespace
 
         // 读取回显
         std::array<std::byte, 128> read_buf{};
-        std::error_code read_ec;
+        std::error_code ReadEc;
         const auto n = co_await psm::transport::async_read(
-            *prev, std::span<std::byte>{read_buf.data(), test_msg.size()}, read_ec);
+            *prev, std::span<std::byte>{read_buf.data(), test_msg.size()}, ReadEc);
 
-        EXPECT_TRUE(!read_ec) << "PreviewWritePassthrough: read no error";
+        EXPECT_TRUE(!ReadEc) << "PreviewWritePassthrough: read no error";
         EXPECT_EQ(n, test_msg.size()) << "PreviewWritePassthrough: read size matches";
 
         const auto received = std::string_view(reinterpret_cast<const char *>(read_buf.data()), n);
@@ -463,10 +463,10 @@ namespace
         auto conn = psm::transport::connector(reliable_transport);
 
         // 创建 SSL 上下文
-        ssl::context ssl_ctx(ssl::context::tlsv12);
+        ssl::context SslCtx(ssl::context::tlsv12);
 
         // 创建 TLS 流
-        auto ssl_stream = std::make_shared<psm::transport::encrypted::stream_type>(std::move(conn), ssl_ctx);
+        auto ssl_stream = std::make_shared<psm::transport::encrypted::stream_type>(std::move(conn), SslCtx);
 
         // 创建 encrypted 传输层
         auto enc = std::make_shared<psm::transport::encrypted>(ssl_stream);
@@ -486,7 +486,7 @@ namespace
 
         // make_encrypted 工厂函数
         auto ssl_stream2 = std::make_shared<psm::transport::encrypted::stream_type>(
-            psm::transport::connector(reliable_transport), ssl_ctx);
+            psm::transport::connector(reliable_transport), SslCtx);
         auto enc2 = psm::transport::make_encrypted(ssl_stream2);
         EXPECT_NE(enc2, nullptr) << "EncryptedConstructor: make_encrypted non-null";
     }

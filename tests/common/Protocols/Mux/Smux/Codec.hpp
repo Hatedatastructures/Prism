@@ -51,9 +51,9 @@ namespace Preview::Mux::Smux
      * @param StreamId 流标识符
      * @return 8 字节帧
      */
-    [[nodiscard]] inline auto Build(std::uint32_t StreamId) -> std::array<std::uint8_t, FrameHdrsize>
+    [[nodiscard]] inline auto BuildSyn(std::uint32_t StreamId) -> std::array<std::uint8_t, FrameHdrsize>
     {
-        const FrameHeader hdr{.cmd = Command::syn, .StreamId = StreamId};
+        const FrameHeader hdr{.cmd = Command::Syn, .StreamId = StreamId};
         const auto Frame = Build(hdr);
         std::array<std::uint8_t, FrameHdrsize> out{};
         std::memcpy(out.data(), Frame.data(), FrameHdrsize);
@@ -65,9 +65,9 @@ namespace Preview::Mux::Smux
      * @param StreamId 流标识符
      * @return 8 字节帧
      */
-    [[nodiscard]] inline auto Build(std::uint32_t StreamId) -> std::array<std::uint8_t, FrameHdrsize>
+    [[nodiscard]] inline auto BuildFin(std::uint32_t StreamId) -> std::array<std::uint8_t, FrameHdrsize>
     {
-        const FrameHeader hdr{.cmd = Command::fin, .StreamId = StreamId};
+        const FrameHeader hdr{.cmd = Command::Fin, .StreamId = StreamId};
         const auto Frame = Build(hdr);
         std::array<std::uint8_t, FrameHdrsize> out{};
         std::memcpy(out.data(), Frame.data(), FrameHdrsize);
@@ -101,39 +101,39 @@ namespace Preview::Mux::Smux
     {
         if (Data.size() < FrameHdrsize)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
         out.version = Data[0];
         if (out.version != ProtocolVersion)
         {
-            return Error::bad_magic;
+            return Error::BadMagic;
         }
         out.cmd = static_cast<Command>(Data[1]);
         switch (out.cmd)
         {
-        case Command::syn:
-        case Command::fin:
+        case Command::Syn:
+        case Command::Fin:
         case Command::Push:
-        case Command::nop: break;
-        default: return Error::bad_message;
+        case Command::Nop: break;
+        default: return Error::BadMessage;
         }
         out.length = static_cast<std::uint16_t>(Data[2]) | static_cast<std::uint16_t>(Data[3]) << 8;
         if (out.length > MaxFrameLength)
         {
-            return Error::bad_length;
+            return Error::BadLength;
         }
         out.StreamId = static_cast<std::uint32_t>(Data[4]) | static_cast<std::uint32_t>(Data[5]) << 8 |
                         static_cast<std::uint32_t>(Data[6]) << 16 | static_cast<std::uint32_t>(Data[7]) << 24;
-        return Error::none;
+        return Error::None;
     }
 
     /**
      * @brief 校验负载（smux 无额外校验，直接返回 none）
-     * @return 恒为 Error::none
+     * @return 恒为 Error::None
      */
     [[nodiscard]] inline auto ParsePayload(FrameHeader &, std::span<const std::uint8_t>) -> Error
     {
-        return Error::none;
+        return Error::None;
     }
 
     /**
@@ -194,10 +194,10 @@ namespace Preview::Mux::Smux
         {
             switch (Frame.cmd)
             {
-            case Command::syn: return Mux::StreamEvent::Open;
-            case Command::fin: return Mux::StreamEvent::fin;
+            case Command::Syn: return Mux::StreamEvent::Open;
+            case Command::Fin: return Mux::StreamEvent::Fin;
             case Command::Push: return Mux::StreamEvent::Data;
-            default: return Mux::StreamEvent::rst; // nop 忽略
+            default: return Mux::StreamEvent::Rst; // nop 忽略
             }
         }
 
@@ -208,7 +208,7 @@ namespace Preview::Mux::Smux
          */
         [[nodiscard]] static auto IsControl(const FrameType &Frame) noexcept -> bool
         {
-            return Frame.cmd == Command::nop;
+            return Frame.cmd == Command::Nop;
         }
 
         /**
@@ -228,7 +228,7 @@ namespace Preview::Mux::Smux
          */
         [[nodiscard]] static auto BuildOpen(std::uint32_t Id) -> std::vector<std::uint8_t>
         {
-            const auto Frame = Smux::Build(Id);
+            const auto Frame = Smux::BuildSyn(Id);
             return {Frame.begin(), Frame.end()};
         }
 
@@ -249,9 +249,9 @@ namespace Preview::Mux::Smux
          * @param Id 流标识符
          * @return 完整帧
          */
-        [[nodiscard]] static auto Build(std::uint32_t Id) -> std::vector<std::uint8_t>
+        [[nodiscard]] static auto BuildFin(std::uint32_t Id) -> std::vector<std::uint8_t>
         {
-            const auto Frame = Smux::Build(Id);
+            const auto Frame = Smux::BuildFin(Id);
             return {Frame.begin(), Frame.end()};
         }
 
@@ -266,7 +266,7 @@ namespace Preview::Mux::Smux
          */
         [[nodiscard]] static auto BuildRst(std::uint32_t Id) -> std::vector<std::uint8_t>
         {
-            return Build(Id);
+            return BuildFin(Id);
         }
     };
 

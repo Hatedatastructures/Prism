@@ -62,35 +62,35 @@ namespace
                          auto [err, Target, dg] =
                              co_await Trusttunnel::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
                                                                  cfg);
-                         if (err != Error::none || !dg)
+                         if (err != Error::None || !dg)
                          {
                              EXPECT_TRUE(false) << "AcceptPacket Failed";
                              co_return;
                          }
                          EXPECT_EQ(Target, "example.com");
-                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::udp);
+                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::Udp);
                          std::string host;
                          std::uint16_t port = 0;
                          std::vector<std::uint8_t> payload;
                          const auto rerr = co_await dg->AsyncReceiveFrom(host, port, payload);
-                         EXPECT_EQ(rerr, Error::none);
+                         EXPECT_EQ(rerr, Error::None);
                          EXPECT_EQ(host, "dns.google");
                          EXPECT_EQ(port, 53u);
                          EXPECT_EQ(std::string(payload.begin(), payload.end()), "Dgram hello");
                          // 回发
                          const auto serr = co_await dg->AsyncSendTo(host, port, payload);
-                         EXPECT_EQ(serr, Error::none);
+                         EXPECT_EQ(serr, Error::None);
                          // 透传读写（passthrough）
                          std::array<std::byte, 8> raw{};
                          std::error_code ec;
-                         const auto w = co_await dg->AsyncWriteSome(
+                         const auto w = co_await dg->async_write_some(
                              std::span<const std::byte>(raw.data(), 4), ec);
                          EXPECT_EQ(w, 4u);
-                         const auto r = co_await dg->AsyncReadSome(raw, ec);
+                         const auto r = co_await dg->async_read_some(raw, ec);
                          EXPECT_GT(r, 0u); // 客户端透传写的数据
                          EXPECT_TRUE(dg->Stream());
                          EXPECT_NE(dg->NextLayer(), nullptr);
-                         EXPECT_NE(dg->LowestLayer<MemoryStream>(), nullptr);
+                         EXPECT_NE(dg->lowest_layer<MemoryStream>(), nullptr);
                          const Trusttunnel::Dgram *const_dg = dg.get();
                          EXPECT_NE(const_dg->NextLayer(), nullptr);
                          // 底层 Conn 的 const 装饰器导航
@@ -110,7 +110,7 @@ namespace
                      cfg.password = "Secret";
                      auto [herr, dg] = co_await Trusttunnel::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), cfg, "example.com", 443);
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!dg)
                      {
                          co_return;
@@ -121,20 +121,20 @@ namespace
                          "dns.google", 53,
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(serr, Error::none);
+                     EXPECT_EQ(serr, Error::None);
                      // 读取回发帧（1B hostlen + host + 2B port + payload）
                      std::string host;
                      std::uint16_t port = 0;
                      std::vector<std::uint8_t> back;
                      const auto rerr = co_await dg->AsyncReceiveFrom(host, port, back);
-                     EXPECT_EQ(rerr, Error::none);
+                     EXPECT_EQ(rerr, Error::None);
                      EXPECT_EQ(host, "dns.google");
                      EXPECT_EQ(port, 53u);
                      EXPECT_EQ(std::string(back.begin(), back.end()), "Dgram hello");
                      // 透传写（服务端透传读的数据）
                      const std::array<std::byte, 8> raw{};
                      std::error_code ec;
-                     const auto w = co_await dg->AsyncWriteSome(
+                     const auto w = co_await dg->async_write_some(
                          std::span<const std::byte>(raw.data(), 4), ec);
                      EXPECT_EQ(w, 4u);
                      dg->Close();
@@ -162,7 +162,7 @@ namespace
                          auto [err, Target, dg] =
                              co_await Trusttunnel::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
                                                                  cfg);
-                         EXPECT_EQ(err, Error::bad_auth);
+                         EXPECT_EQ(err, Error::BadAuth);
                          EXPECT_FALSE(dg);
                          (void)Target;
                      };
@@ -173,7 +173,7 @@ namespace
                      cfg.password = "wrong";
                      auto [herr, dg] = co_await Trusttunnel::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), cfg, "example.com", 443);
-                     EXPECT_EQ(herr, Error::none); // 客户端只发送 CONNECT，不感知认证结果
+                     EXPECT_EQ(herr, Error::None); // 客户端只发送 CONNECT，不感知认证结果
                      if (dg)
                      {
                          dg->Close();
@@ -197,7 +197,7 @@ namespace
                          "example.com", 80,
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      dg->Close();
                  });
     }
@@ -217,7 +217,7 @@ namespace
                      std::uint16_t port = 0;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(host, port, payload);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                      dg->Close();
                  });
     }

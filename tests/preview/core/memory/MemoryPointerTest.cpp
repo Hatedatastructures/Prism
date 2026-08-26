@@ -19,7 +19,7 @@
 #include <common/Core/Memory/Pointer.hpp>
 #include <common/Core/Memory/Pool.hpp>
 #include <common/Protocols/Socks5/Codec.hpp>
-#include <common/Protocols/Socks5/types.hpp>
+#include <common/Protocols/Socks5/Types.hpp>
 
 namespace
 {

@@ -1,5 +1,5 @@
 /**
- * @file block.hpp
+ * @file Block.hpp
  * @brief AES-ECB 单块加解密
  * @details 提供 AES-ECB 单块（16 字节）加密和解密功能。
  * 用于 SS2022 (SIP022) UDP 的 SeparateHeader 加密。

@@ -230,7 +230,7 @@ namespace
             Socks5::Address Parsed;
             std::size_t consumed = 0;
             const auto err = Socks5::ParseAddress(wire, Parsed, consumed);
-            if (err == Preview::Error::none)
+            if (err == Preview::Error::None)
             {
                 EXPECT_EQ(Parsed.Port, addr.Port);
             }

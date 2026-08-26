@@ -50,11 +50,11 @@ namespace
         Preview::Middleware::Context ctx;
         ctx.RawIdentity = "alice";
         ctx.RawSecret = "s3cret";
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
-        EXPECT_EQ(rc, Preview::Fault::Code::success);
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(Inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::Success);
         EXPECT_EQ(ctx.identity, "alice");
     }
 
@@ -67,11 +67,11 @@ namespace
         Preview::Middleware::Context ctx;
         ctx.RawIdentity = "alice";
         ctx.RawSecret = "wrong";
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
-        EXPECT_EQ(rc, Preview::Fault::Code::auth_failed);
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(Inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::AuthFailed);
         EXPECT_TRUE(ctx.identity.empty());
     }
 
@@ -82,11 +82,11 @@ namespace
         Preview::Middleware::Builtin::AuthMiddleware mw(Auth);
 
         Preview::Middleware::Context ctx; // 无凭据
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
-        EXPECT_EQ(rc, Preview::Fault::Code::auth_failed);
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(Inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::AuthFailed);
     }
 
     TEST(AuthMiddleware, RejectAuthenticatorFails)
@@ -98,11 +98,11 @@ namespace
         Preview::Middleware::Context ctx;
         ctx.RawIdentity = "any";
         ctx.RawSecret = "any";
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
-        EXPECT_EQ(rc, Preview::Fault::Code::auth_failed);
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(Inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::AuthFailed);
     }
 
     TEST(AuthMiddleware, MissingAuthInstanceNotSupported)
@@ -110,11 +110,11 @@ namespace
         net::io_context ioc;
         Preview::Middleware::Builtin::AuthMiddleware mw(nullptr);
         Preview::Middleware::Context ctx;
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
-        EXPECT_EQ(rc, Preview::Fault::Code::not_supported);
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(Inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::NotSupported);
     }
 
     TEST(AuthMiddleware, CustomCredentialExtraction)
@@ -136,11 +136,11 @@ namespace
 
         Preview::Middleware::Context ctx;
         ctx.RawIdentity = "Basic Ym9iOnB3";
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
-        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(inbound, ctx); });
-        EXPECT_EQ(rc, Preview::Fault::Code::success);
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
+        run_coro(ioc, [&]() -> net::awaitable<void> { rc = co_await mw.Handle(Inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::Success);
         EXPECT_EQ(ctx.identity, "bob");
     }
 
@@ -155,7 +155,7 @@ namespace
                 std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
             {
                 ++dial_calls;
-                co_return std::pair{Preview::Fault::Code::success, nullptr};
+                co_return std::pair{Preview::Fault::Code::Success, nullptr};
             });
 
         Preview::Middleware::Pipeline pipe;
@@ -165,12 +165,12 @@ namespace
         Preview::Middleware::Context ctx;
         ctx.RawIdentity = "alice";
         ctx.RawSecret = "wrong"; // 认证失败
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
         run_coro(ioc,
-                 [&]() -> net::awaitable<void> { rc = co_await pipe.Run(inbound, ctx); });
-        EXPECT_EQ(rc, Preview::Fault::Code::auth_failed);
+                 [&]() -> net::awaitable<void> { rc = co_await pipe.Run(Inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::AuthFailed);
         EXPECT_EQ(dial_calls, 0); // 后续中间件未执行
     }
 
@@ -182,15 +182,15 @@ namespace
         Preview::Middleware::Context ctx;
         ctx.RawIdentity = "alice";
         ctx.RawSecret = "s3cret";
-        Preview::SharedTransmission inbound;
+        Preview::SharedTransmission Inbound;
 
         Preview::Middleware::Pipeline pipe;
         pipe.Add(std::make_shared<Preview::Middleware::Builtin::AuthMiddleware>(Auth));
 
-        Preview::Fault::Code rc = Preview::Fault::Code::success;
+        Preview::Fault::Code rc = Preview::Fault::Code::Success;
         run_coro(ioc,
-                 [&]() -> net::awaitable<void> { rc = co_await pipe.Run(inbound, ctx); });
-        EXPECT_EQ(rc, Preview::Fault::Code::success);
+                 [&]() -> net::awaitable<void> { rc = co_await pipe.Run(Inbound, ctx); });
+        EXPECT_EQ(rc, Preview::Fault::Code::Success);
         EXPECT_EQ(ctx.identity, "alice");
     }
 

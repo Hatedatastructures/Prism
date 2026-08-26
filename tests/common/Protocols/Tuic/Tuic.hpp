@@ -1,5 +1,5 @@
 /**
- * @file tuic.hpp
+ * @file Tuic.hpp
  * @brief Tuic 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / ConnectPacket（客户端）、
@@ -76,18 +76,18 @@ namespace Preview::Tuic
     [[nodiscard]] inline auto Connect(SharedTransmission upstream, const ClientConfig &cfg,
                                       const Address &Target) -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.uuid);
-        const auto err = co_await c->WriteHandshake(Target);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.uuid);
+        const auto Err = co_await C->WriteHandshake(Target);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -102,12 +102,12 @@ namespace Preview::Tuic
     [[nodiscard]] inline auto ConnectPacket(net::any_io_executor ex, const std::string &remote,
                                              const ClientConfig &cfg) -> SharedDgram
     {
-        auto udp = std::make_shared<Preview::Transport::Unreliable>(ex);
-        if (!udp->Connect(remote))
+        auto Udp = std::make_shared<Preview::Transport::Unreliable>(ex);
+        if (!Udp->Connect(remote))
         {
             return nullptr;
         }
-        return std::make_shared<Dgram<>>(std::move(udp));
+        return std::make_shared<Dgram<>>(std::move(Udp));
     }
 
     /**
@@ -119,18 +119,18 @@ namespace Preview::Tuic
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, Message, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.uuid);
-        auto [err, req] = co_await c->ReadHandshake();
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.uuid);
+        auto [Err, req] = co_await C->ReadHandshake();
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{err, std::move(req), std::move(Conn)};
+        co_return std::tuple{Err, std::move(req), std::move(Conn)};
     }
 
     /**
@@ -144,12 +144,12 @@ namespace Preview::Tuic
     [[nodiscard]] inline auto AcceptPacket(net::any_io_executor ex, unsigned short port,
                                             const ServerConfig &cfg) -> SharedDgram
     {
-        auto udp = std::make_shared<Preview::Transport::Unreliable>(ex);
-        if (!udp->Bind(port))
+        auto Udp = std::make_shared<Preview::Transport::Unreliable>(ex);
+        if (!Udp->Bind(port))
         {
             return nullptr;
         }
-        return std::make_shared<Dgram<>>(std::move(udp));
+        return std::make_shared<Dgram<>>(std::move(Udp));
     }
 
 } // namespace Preview::Tuic

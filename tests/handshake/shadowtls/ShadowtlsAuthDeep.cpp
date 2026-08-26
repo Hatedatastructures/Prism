@@ -105,20 +105,20 @@ namespace
         // 计算 HMAC 并填充到 SessionID 最后 4 字节
         // data = ClientHello[5:]，SessionID HMAC 部分（偏移 40..43 相对 data）置零
         const std::size_t data_size = buf.size() - tls_hdrsize;
-        psm::memory::vector<std::uint8_t> hmac_data(data_size, psm::memory::current_resource());
+        psm::memory::vector<std::uint8_t> HmacData(data_size, psm::memory::current_resource());
         for (std::size_t i = 0; i < data_size; ++i)
         {
-            hmac_data[i] = static_cast<std::uint8_t>(buf[tls_hdrsize + i]);
+            HmacData[i] = static_cast<std::uint8_t>(buf[tls_hdrsize + i]);
         }
 
         // hmac_offset_in_data = session_id_len_idx + 1 + tls_session_id_sz - hmac_size - tls_hdrsize
         // = 43 + 1 + 32 - 4 - 5 = 67
         constexpr std::size_t hmac_offset_in_data =
             session_id_len_idx + 1 + tls_session_id_sz - hmac_size - tls_hdrsize;
-        std::memset(hmac_data.data() + hmac_offset_in_data, 0, hmac_size);
+        std::memset(HmacData.data() + hmac_offset_in_data, 0, hmac_size);
 
         auto expected =
-            compute_hmac(password, reinterpret_cast<const std::byte *>(hmac_data.data()), hmac_data.size());
+            compute_hmac(password, reinterpret_cast<const std::byte *>(HmacData.data()), HmacData.size());
 
         // 写入 HMAC 到 SessionID 最后 4 字节
         constexpr std::size_t client_hmac_offset = session_id_len_idx + 1 + tls_session_id_sz - hmac_size;
@@ -186,10 +186,10 @@ namespace
     TEST(ShadowtlsAuthDeep, VerifyFrameHmacValid)
     {
         const char *password = "password";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            server_random[i] = std::byte{i};
+            ServerRandom[i] = std::byte{i};
         }
 
         std::array<std::byte, 16> payload{};
@@ -201,7 +201,7 @@ namespace
         // 计算 HMAC-SHA1(password, serverRandom + "C" + payload)[:4]
         HMAC_CTX *ctx = HMAC_CTX_new();
         HMAC_Init_ex(ctx, password, static_cast<int>(std::strlen(password)), EVP_sha1(), nullptr);
-        HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(server_random.data()), server_random.size());
+        HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(ServerRandom.data()), ServerRandom.size());
         constexpr std::uint8_t tag_c = 'C';
         HMAC_Update(ctx, &tag_c, 1);
         HMAC_Update(ctx, reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size());
@@ -213,13 +213,13 @@ namespace
         std::array<std::uint8_t, 4> client_hmac{};
         std::memcpy(client_hmac.data(), md.data(), hmac_size);
 
-        verify_input in{password, server_random, payload, client_hmac};
+        verify_input in{password, ServerRandom, payload, client_hmac};
         EXPECT_TRUE(verify_frame_hmac(in)) << "verify_frame_hmac: valid -> true";
 
         // 篡改一个字节应失败
         std::array<std::uint8_t, 4> bad_hmac = client_hmac;
         bad_hmac[0] ^= 0xFF;
-        verify_input in_bad{password, server_random, payload, bad_hmac};
+        verify_input in_bad{password, ServerRandom, payload, bad_hmac};
         EXPECT_TRUE(!verify_frame_hmac(in_bad)) << "verify_frame_hmac: tampered -> false";
     }
 
@@ -228,26 +228,26 @@ namespace
     TEST(ShadowtlsAuthDeep, ComputeWriteHmacBasic)
     {
         const char *password = "password";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         std::array<std::byte, 16> payload{};
 
-        auto result = compute_write_hmac(password, server_random, payload);
+        auto result = compute_write_hmac(password, ServerRandom, payload);
         EXPECT_EQ(result.size(), 4) << "compute_write_hmac: size=4";
 
         // 确定性
-        auto result2 = compute_write_hmac(password, server_random, payload);
+        auto result2 = compute_write_hmac(password, ServerRandom, payload);
         EXPECT_EQ(result, result2) << "compute_write_hmac: deterministic";
     }
 
     TEST(ShadowtlsAuthDeep, ComputeWriteHmacDifferentPayload)
     {
         const char *password = "password";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         std::array<std::byte, 4> p1{std::byte{0x01}};
         std::array<std::byte, 4> p2{std::byte{0x02}};
 
-        auto r1 = compute_write_hmac(password, server_random, p1);
-        auto r2 = compute_write_hmac(password, server_random, p2);
+        auto r1 = compute_write_hmac(password, ServerRandom, p1);
+        auto r2 = compute_write_hmac(password, ServerRandom, p2);
         EXPECT_NE(r1, r2) << "compute_write_hmac: different payload -> different";
     }
 
@@ -256,23 +256,23 @@ namespace
     TEST(ShadowtlsAuthDeep, ComputeWriteKeyBasic)
     {
         const char *password = "password";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         for (std::size_t i = 0; i < 32; ++i)
         {
-            server_random[i] = std::byte{i};
+            ServerRandom[i] = std::byte{i};
         }
 
-        auto key = compute_write_key(password, server_random);
+        auto key = compute_write_key(password, ServerRandom);
         EXPECT_EQ(key.size(), SHA256_DIGEST_LENGTH) << "compute_write_key: size=32";
     }
 
     TEST(ShadowtlsAuthDeep, ComputeWriteKeyDeterministic)
     {
         const char *password = "password";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
 
-        auto k1 = compute_write_key(password, server_random);
-        auto k2 = compute_write_key(password, server_random);
+        auto k1 = compute_write_key(password, ServerRandom);
+        auto k2 = compute_write_key(password, ServerRandom);
         EXPECT_EQ(k1, k2) << "compute_write_key: deterministic";
     }
 

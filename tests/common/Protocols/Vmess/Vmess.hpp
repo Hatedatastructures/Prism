@@ -1,5 +1,5 @@
 /**
- * @file vmess.hpp
+ * @file Vmess.hpp
  * @brief VMess 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / ConnectPacket（客户端）、
@@ -69,21 +69,21 @@ namespace Preview::Vmess
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Connect(SharedTransmission upstream, const ClientConfig &cfg,
-                                      const Address &Target, std::uint8_t cmd = static_cast<std::uint8_t>(Command::Tcp))
+                                      const Address &Target, std::uint8_t Cmd = static_cast<std::uint8_t>(Command::Tcp))
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(cfg.uuid);
-        const auto err = co_await c->WriteHandshake(std::move(upstream), Target, cmd);
+        auto C = std::make_shared<Conn<>>(cfg.uuid);
+        const auto Err = co_await C->WriteHandshake(std::move(upstream), Target, Cmd);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -97,12 +97,12 @@ namespace Preview::Vmess
                                              const Address &Target)
         -> net::awaitable<std::pair<Error, SharedDgram>>
     {
-        auto [err, Conn] = co_await Connect(std::move(upstream), cfg, Target, static_cast<std::uint8_t>(Command::Udp));
-        if (err != Error::none)
+        auto [Err, Conn] = co_await Connect(std::move(upstream), cfg, Target, static_cast<std::uint8_t>(Command::Udp));
+        if (Err != Error::None)
         {
-            co_return std::pair{err, SharedDgram{}};
+            co_return std::pair{Err, SharedDgram{}};
         }
-        co_return std::pair{Error::none, std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::pair{Error::None, std::make_shared<Dgram<>>(std::move(Conn))};
     }
 
     /**
@@ -114,18 +114,18 @@ namespace Preview::Vmess
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, Message, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(cfg.uuid);
-        auto [err, req] = co_await c->ReadHandshake(std::move(upstream));
+        auto C = std::make_shared<Conn<>>(cfg.uuid);
+        auto [Err, req] = co_await C->ReadHandshake(std::move(upstream));
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{err, std::move(req), std::move(Conn)};
+        co_return std::tuple{Err, std::move(req), std::move(Conn)};
     }
 
     /**
@@ -137,12 +137,12 @@ namespace Preview::Vmess
     [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, Message, SharedDgram>>
     {
-        auto [err, req, Conn] = co_await Accept(std::move(upstream), cfg);
-        if (err != Error::none)
+        auto [Err, req, Conn] = co_await Accept(std::move(upstream), cfg);
+        if (Err != Error::None)
         {
-            co_return std::tuple{err, std::move(req), SharedDgram{}};
+            co_return std::tuple{Err, std::move(req), SharedDgram{}};
         }
-        co_return std::tuple{Error::none, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::tuple{Error::None, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
     }
 
 } // namespace Preview::Vmess

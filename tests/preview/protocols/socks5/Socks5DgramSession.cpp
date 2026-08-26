@@ -73,20 +73,20 @@ namespace
                          auto [err, req, dg] =
                              co_await Socks5::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
                                                             cfg);
-                         if (err != Error::none || !dg)
+                         if (err != Error::None || !dg)
                          {
                              EXPECT_TRUE(false) << "AcceptPacket Failed";
                              co_return;
                          }
                          EXPECT_EQ(req.Cmd, Socks5::Command::UdpAssociate);
-                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::udp);
+                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::Udp);
                          // 接收两个包（域名 + IPv4）
                          for (int i = 0; i < 2; ++i)
                          {
                              Socks5::Address src;
                              std::vector<std::uint8_t> payload;
                              const auto rerr = co_await dg->AsyncReceiveFrom(src, payload);
-                             EXPECT_EQ(rerr, Error::none);
+                             EXPECT_EQ(rerr, Error::None);
                              if (i == 0)
                              {
                                  EXPECT_EQ(src.Type, Socks5::AddressType::Domain);
@@ -104,14 +104,14 @@ namespace
                          }
                          EXPECT_TRUE(dg->Stream());
                          EXPECT_NE(dg->NextLayer(), nullptr);
-                         EXPECT_NE(dg->LowestLayer<MemoryStream>(), nullptr);
+                         EXPECT_NE(dg->lowest_layer<MemoryStream>(), nullptr);
                          const Socks5::Dgram<> *const_dg = dg.get();
                          EXPECT_NE(const_dg->NextLayer(), nullptr);
                          EXPECT_TRUE(dg->Executor());
                          // 透传读（客户端透传写的数据）
                          std::array<std::byte, 8> raw{};
                          std::error_code ec;
-                         const auto r = co_await dg->AsyncReadSome(raw, ec);
+                         const auto r = co_await dg->async_read_some(raw, ec);
                          EXPECT_EQ(r, 4u);
                          dg->Close();
                          dg->Cancel();
@@ -123,7 +123,7 @@ namespace
                      auto [herr, dg] = co_await Socks5::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{},
                          make_addr(Socks5::AddressType::Domain, "example.com", 53));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!dg)
                      {
                          co_return;
@@ -133,17 +133,17 @@ namespace
                          make_addr(Socks5::AddressType::Domain, "example.com", 53),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p1.data()),
                                                        p1.size()));
-                     EXPECT_EQ(serr, Error::none);
+                     EXPECT_EQ(serr, Error::None);
                      const std::string p2 = "second pkt";
                      serr = co_await dg->AsyncSendTo(
                          make_addr(Socks5::AddressType::Ipv4, "8.8.8.8", 443),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p2.data()),
                                                        p2.size()));
-                     EXPECT_EQ(serr, Error::none);
+                     EXPECT_EQ(serr, Error::None);
                      // 透传写（服务端读端无消费，仅覆盖 passthrough）
                      const std::array<std::byte, 4> raw{};
                      std::error_code ec;
-                     const auto w = co_await dg->AsyncWriteSome(
+                     const auto w = co_await dg->async_write_some(
                          std::span<const std::byte>(raw.data(), 4), ec);
                      EXPECT_EQ(w, 4u);
                  });
@@ -165,14 +165,14 @@ namespace
                          auto [err, req, dg] =
                              co_await Socks5::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
                                                             cfg);
-                         if (err != Error::none || !dg)
+                         if (err != Error::None || !dg)
                          {
                              co_return;
                          }
                          Socks5::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto rerr = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(rerr, Error::none);
+                         EXPECT_EQ(rerr, Error::None);
                          EXPECT_EQ(src.Type, Socks5::AddressType::Ipv6);
                          EXPECT_EQ(src.Host, std::string(16, '\x21'));
                          EXPECT_EQ(src.Port, 8080u);
@@ -184,7 +184,7 @@ namespace
                      auto [herr, dg] = co_await Socks5::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{},
                          make_addr(Socks5::AddressType::Domain, "example.com", 53));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!dg)
                      {
                          co_return;
@@ -194,7 +194,7 @@ namespace
                          make_addr(Socks5::AddressType::Ipv6, std::string(16, '\x21'), 8080),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(serr, Error::none);
+                     EXPECT_EQ(serr, Error::None);
                  });
     }
 
@@ -214,14 +214,14 @@ namespace
                          Socks5::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::bad_message);
+                         EXPECT_EQ(err, Error::BadMessage);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
                      const std::array<std::uint8_t, 3> wire{0x00, 0x00, 0x01}; // FRAG 非零
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -242,14 +242,14 @@ namespace
                          Socks5::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::bad_message);
+                         EXPECT_EQ(err, Error::BadMessage);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
                      const std::array<std::uint8_t, 4> wire{0x00, 0x00, 0x00, 0x99}; // ATYP 非法
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -270,7 +270,7 @@ namespace
                          Socks5::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::unexpected_eof);
+                         EXPECT_EQ(err, Error::UnexpectedEof);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -278,7 +278,7 @@ namespace
                      // [RSV 3B][ATYP=1][IPv4 4B][Port 2B] 无载荷，随后关闭
                      const std::array<std::uint8_t, 10> wire{0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -296,7 +296,7 @@ namespace
                      Socks5::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      dg->Close();
                      dg->Cancel();
                      EXPECT_NE(dg->NextLayer(), nullptr);
@@ -320,7 +320,7 @@ namespace
                          make_addr(Socks5::AddressType::Domain, "example.com", 53),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      dg->Close();
                  });
     }

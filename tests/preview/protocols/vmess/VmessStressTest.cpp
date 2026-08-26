@@ -12,10 +12,12 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -80,7 +82,7 @@ namespace
                           cfg.uuid = test_uuid();
                           auto [err, req, Conn] =
                               co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                          if (err != Error::none || !Conn)
+                          if (err != Error::None || !Conn)
                           {
                               co_return;
                           }
@@ -88,12 +90,12 @@ namespace
                           std::error_code ec;
                           while (true)
                           {
-                              const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                              const auto n = co_await Conn->async_read_some(buf, ec);
                               if (ec || n == 0)
                               {
                                   break;
                               }
-                              co_await Conn->AsyncWriteSome(
+                              co_await Conn->async_write_some(
                                   std::span<const std::byte>(buf.data(), n), ec);
                           }
                           Conn->Close();
@@ -113,12 +115,12 @@ namespace
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     if (herr != Error::none || !cli)
+                     if (herr != Error::None || !cli)
                      {
                          co_return;
                      }
                      std::error_code ec;
-                     co_await cli->AsyncWriteSome(
+                     co_await cli->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
@@ -126,7 +128,7 @@ namespace
                      std::size_t got = 0;
                      while (got < payload.size())
                      {
-                         const auto n = co_await cli->AsyncReadSome(
+                         const auto n = co_await cli->async_read_some(
                              std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
                          if (ec || n == 0)
                          {
@@ -178,14 +180,14 @@ namespace
                     cfg.uuid = test_uuid();
                     auto [err, req, Conn] =
                         co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                    if (err == Error::none && Conn)
+                    if (err == Error::None && Conn)
                     {
                         std::array<std::byte, 128> buf{};
                         std::error_code ec;
-                        const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                        const auto n = co_await Conn->async_read_some(buf, ec);
                         if (!ec && n > 0)
                         {
-                            co_await Conn->AsyncWriteSome(
+                            co_await Conn->async_write_some(
                                 std::span<const std::byte>(buf.data(), n), ec);
                         }
                         Conn->Close();
@@ -201,10 +203,10 @@ namespace
                     auto [herr, cli] = co_await Vmess::Connect(
                         std::make_shared<MemoryStream>(std::move(a)), cfg,
                         make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                    if (herr == Error::none && cli)
+                    if (herr == Error::None && cli)
                     {
                         std::error_code ec;
-                        co_await cli->AsyncWriteSome(
+                        co_await cli->async_write_some(
                             std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                        payload.size()),
                             ec);
@@ -212,7 +214,7 @@ namespace
                         std::size_t got = 0;
                         while (got < payload.size())
                         {
-                            const auto n = co_await cli->AsyncReadSome(
+                            const auto n = co_await cli->async_read_some(
                                 std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
                             if (ec || n == 0)
                             {
@@ -232,9 +234,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     while (success.load() < 16)
+                     // 超时守卫：客户端失败时避免无限自旋
+                     net::steady_timer t(ioc);
+                     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                     while (success.load() < 16 && std::chrono::steady_clock::now() < deadline)
                      {
-                         co_await net::post(ioc.get_executor(), net::use_awaitable);
+                         t.expires_after(std::chrono::milliseconds(1));
+                         co_await t.async_wait(net::use_awaitable);
                      }
                  });
         EXPECT_EQ(success.load(), 16);
@@ -259,7 +265,7 @@ namespace
                 cfg.uuid = test_uuid();
                 auto [err, req, Conn] =
                     co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                if (err != Error::none || !Conn)
+                if (err != Error::None || !Conn)
                 {
                     co_return;
                 }
@@ -268,7 +274,7 @@ namespace
                 std::size_t Total = 0;
                 while (Total < kTotal)
                 {
-                    const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                    const auto n = co_await Conn->async_read_some(buf, ec);
                     if (ec || n == 0)
                     {
                         break;
@@ -289,7 +295,7 @@ namespace
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vmess::AddressType::Domain, "example.com", 443));
-                     if (herr != Error::none || !cli)
+                     if (herr != Error::None || !cli)
                      {
                          co_return;
                      }
@@ -297,7 +303,7 @@ namespace
                      std::error_code ec;
                      for (std::size_t sent = 0; sent < kTotal; sent += kChunk)
                      {
-                         co_await cli->AsyncWriteSome(std::span<const std::byte>(chunk), ec);
+                         co_await cli->async_write_some(std::span<const std::byte>(chunk), ec);
                          if (ec)
                          {
                              break;

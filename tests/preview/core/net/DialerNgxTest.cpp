@@ -171,12 +171,12 @@ TEST(Dialer, ConnectEchoTransfer)
              {
                  const std::string msg = "Dialer-echo";
                  std::error_code w_ec;
-                 co_await Conn->AsyncWriteSome(
+                 co_await Conn->async_write_some(
                      std::span<const std::byte>(reinterpret_cast<const std::byte *>(msg.data()), msg.size()),
                      w_ec);
                  std::array<std::byte, 64> buf{};
                  std::error_code r_ec;
-                 const auto n = co_await Conn->AsyncReadSome(buf, r_ec);
+                 const auto n = co_await Conn->async_read_some(buf, r_ec);
                  EXPECT_EQ(n, msg.size());
                  EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n), msg);
              });

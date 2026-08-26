@@ -59,7 +59,7 @@ namespace Preview::Shadowsocks2022
          * @param key 16 字节 UDP 密钥（PSK 派生）
          */
         explicit Dgram(SharedTransmission upstream, std::array<std::uint8_t, 16> key)
-            : next_layer_(std::move(upstream)), key_(key)
+            : NextLayer_(std::move(upstream)), Key_(key)
         {
         }
 
@@ -68,7 +68,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -76,7 +76,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto TransportType() const noexcept -> Type override
         {
-            return Type::udp;
+            return Type::Udp;
         }
 
         /**
@@ -88,18 +88,18 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] auto AsyncSendTo(const ss::Address &dest, std::span<const std::uint8_t> payload)
             -> net::awaitable<Error>
         {
-            if (!ss::BuildUdpPacket(ss::UdpBuildInput{key_, ++PacketId_, &dest, payload}, TxWire_))
+            if (!ss::BuildUdpPacket(ss::UdpBuildInput{Key_, ++PacketId_, &dest, payload}, TxWire_))
             {
-                co_return Error::bad_length;
+                co_return Error::BadLength;
             }
             std::error_code ec;
-            const auto n = co_await next_layer_->AsyncWriteSome(
+            const auto N = co_await NextLayer_->async_write_some(
                 AsBytes(std::span<const std::uint8_t>(TxWire_)), ec);
-            if (ec || n != TxWire_.size())
+            if (ec || N != TxWire_.size())
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
@@ -113,35 +113,35 @@ namespace Preview::Shadowsocks2022
         {
             std::array<std::uint8_t, 64 * 1024> buf{};
             std::error_code ec;
-            const auto n = co_await next_layer_->AsyncReadSome(AsBytes(std::span<std::uint8_t>(buf)), ec);
+            const auto N = co_await NextLayer_->async_read_some(AsBytes(std::span<std::uint8_t>(buf)), ec);
             if (ec)
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            if (n == 0)
+            if (N == 0)
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             co_return ss::ParseUdpPacket(
-                ss::UdpParseInput{key_, std::span<const std::uint8_t>(buf.data(), n), &src, &payload});
+                ss::UdpParseInput{Key_, std::span<const std::uint8_t>(buf.data(), N), &src, &payload});
         }
 
         /**
          * @brief 透传读取（底层数据报原样）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（底层数据报原样）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -149,7 +149,7 @@ namespace Preview::Shadowsocks2022
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -157,7 +157,7 @@ namespace Preview::Shadowsocks2022
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -165,7 +165,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -173,7 +173,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -181,7 +181,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
         /**
@@ -189,15 +189,15 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Stream() const noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
     private:
-        SharedTransmission next_layer_;   ///< 底层数据报传输（独占所有权）
-        std::array<std::uint8_t, 16> key_; ///< UDP 会话密钥（PSK 派生）
+        SharedTransmission NextLayer_;   ///< 底层数据报传输（独占所有权）
+        std::array<std::uint8_t, 16> Key_; ///< UDP 会话密钥（PSK 派生）
         std::uint64_t PacketId_{0};       ///< 包序号（自增，Nonce 派生）
-        Memory mem_;                       ///< 会话内存策略（Arena，热路径零释放分配）
-        typename std::template Buffer<std::uint8_t> TxWire_{mem_.Arena()}; ///< 发送缓冲（Arena 复用，热路径零分配）
+        Memory Mem_;                       ///< 会话内存策略（Arena，热路径零释放分配）
+        typename Memory::template Buffer<std::uint8_t> TxWire_{Mem_.Arena()}; ///< 发送缓冲（Arena 复用，热路径零分配）
     };
 
     /// 包连接共享指针

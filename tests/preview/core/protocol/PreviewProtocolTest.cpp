@@ -30,7 +30,7 @@ namespace
     {
         const std::array<std::uint8_t, 4> raw{192, 168, 1, 10};
         const auto [ec, addr] = Preview::Protocol::Common::Framing::ParseIpv4(raw);
-        EXPECT_EQ(ec, Preview::Fault::Code::success);
+        EXPECT_EQ(ec, Preview::Fault::Code::Success);
         EXPECT_EQ(addr.Bytes[0], 192U);
         EXPECT_EQ(addr.Bytes[3], 10U);
     }
@@ -39,7 +39,7 @@ namespace
     {
         const std::array<std::uint8_t, 3> raw{192, 168, 1};
         const auto [ec, addr] = Preview::Protocol::Common::Framing::ParseIpv4(raw);
-        EXPECT_EQ(ec, Preview::Fault::Code::bad_message);
+        EXPECT_EQ(ec, Preview::Fault::Code::BadMessage);
         (void)addr;
     }
 
@@ -51,7 +51,7 @@ namespace
             raw[i] = static_cast<std::uint8_t>(i);
         }
         const auto [ec, addr] = Preview::Protocol::Common::Framing::ParseIpv6(raw);
-        EXPECT_EQ(ec, Preview::Fault::Code::success);
+        EXPECT_EQ(ec, Preview::Fault::Code::Success);
         EXPECT_EQ(addr.Bytes[0], 0U);
         EXPECT_EQ(addr.Bytes[15], 15U);
     }
@@ -60,7 +60,7 @@ namespace
     {
         std::array<std::uint8_t, 15> raw{};
         const auto [ec, addr] = Preview::Protocol::Common::Framing::ParseIpv6(raw);
-        EXPECT_EQ(ec, Preview::Fault::Code::bad_message);
+        EXPECT_EQ(ec, Preview::Fault::Code::BadMessage);
         (void)addr;
     }
 
@@ -68,7 +68,7 @@ namespace
     {
         const std::array<std::uint8_t, 12> raw{11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm'};
         const auto [ec, addr] = Preview::Protocol::Common::Framing::ParseDomain(raw);
-        EXPECT_EQ(ec, Preview::Fault::Code::success);
+        EXPECT_EQ(ec, Preview::Fault::Code::Success);
         EXPECT_EQ(addr.length, 11U);
         EXPECT_EQ(std::string(addr.value.data(), addr.length), "example.com");
     }
@@ -77,23 +77,23 @@ namespace
     {
         // 空缓冲
         const std::span<const std::uint8_t> Empty;
-        EXPECT_EQ(Preview::Protocol::Common::Framing::ParseDomain(Empty).first, Preview::Fault::Code::bad_message);
+        EXPECT_EQ(Preview::Protocol::Common::Framing::ParseDomain(Empty).first, Preview::Fault::Code::BadMessage);
 
         // 长度字段超界（声明 10 字节但只有 3 字节数据）
         const std::array<std::uint8_t, 4> short_raw{10, 'a', 'b', 'c'};
-        EXPECT_EQ(Preview::Protocol::Common::Framing::ParseDomain(short_raw).first, Preview::Fault::Code::bad_message);
+        EXPECT_EQ(Preview::Protocol::Common::Framing::ParseDomain(short_raw).first, Preview::Fault::Code::BadMessage);
 
         // 长度字段 255（域名上限，合法）
         std::array<std::uint8_t, 260> long_raw{};
         long_raw[0] = 255;
-        EXPECT_EQ(Preview::Protocol::Common::Framing::ParseDomain(long_raw).first, Preview::Fault::Code::success);
+        EXPECT_EQ(Preview::Protocol::Common::Framing::ParseDomain(long_raw).first, Preview::Fault::Code::Success);
     }
 
     TEST(PreviewFraming, ParsePort)
     {
         const std::array<std::uint8_t, 2> raw{0x1F, 0x90}; // 8080 BE
         const auto [ec, port] = Preview::Protocol::Common::Framing::ParsePort(raw);
-        EXPECT_EQ(ec, Preview::Fault::Code::success);
+        EXPECT_EQ(ec, Preview::Fault::Code::Success);
         EXPECT_EQ(port, 8080U);
     }
 
@@ -110,7 +110,7 @@ namespace
     {
         const std::array<std::uint8_t, 1> raw{0x1F};
         const auto [ec, port] = Preview::Protocol::Common::Framing::ParsePort(raw);
-        EXPECT_EQ(ec, Preview::Fault::Code::bad_message);
+        EXPECT_EQ(ec, Preview::Fault::Code::BadMessage);
         EXPECT_EQ(port, 0U);
     }
 

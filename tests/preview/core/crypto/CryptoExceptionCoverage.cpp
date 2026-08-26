@@ -73,13 +73,13 @@ namespace
      */
     auto ToHex(const std::span<const std::uint8_t> Data) -> std::string
     {
-        constexpr char hex_chars[] = "0123456789abcdef";
+        constexpr char HexChars[] = "0123456789abcdef";
         std::string out;
         out.reserve(Data.size() * 2);
         for (const auto byte : Data)
         {
-            out.push_back(hex_chars[(byte >> 4) & 0x0F]);
-            out.push_back(hex_chars[byte & 0x0F]);
+            out.push_back(HexChars[(byte >> 4) & 0x0F]);
+            out.push_back(HexChars[byte & 0x0F]);
         }
         return out;
     }
@@ -100,10 +100,10 @@ namespace
     TEST(AeadCoverage, EmptyKeyConstruct)
     {
         // 0 字节密钥：EVP_AEAD_CTX_init 失败 → ctx 为 null
-        crypto::AeadContext ctx(crypto::AeadCipher::aes_128_gcm, std::span<const std::uint8_t>{});
+        crypto::AeadContext ctx(crypto::AeadCipher::Aes128Gcm, std::span<const std::uint8_t>{});
         std::array<std::uint8_t, 32> out{};
-        EXPECT_EQ(ctx.Seal(out, std::span<const std::uint8_t>{}), fault::Code::crypto_error);
-        EXPECT_EQ(ctx.Open(out, out), fault::Code::crypto_error);
+        EXPECT_EQ(ctx.Seal(out, std::span<const std::uint8_t>{}), fault::Code::CryptoError);
+        EXPECT_EQ(ctx.Open(out, out), fault::Code::CryptoError);
         EXPECT_EQ(ctx.NonceLength(), 12);
     }
 
@@ -111,9 +111,9 @@ namespace
     {
         // 空明文 Seal：输出仅 16 字节 tag，且内部 Nonce 正常递增
         const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
-        crypto::AeadContext ctx(crypto::AeadCipher::aes_256_gcm, key);
+        crypto::AeadContext ctx(crypto::AeadCipher::Aes256Gcm, key);
         std::array<std::uint8_t, 16> out{};
-        EXPECT_EQ(ctx.Seal(out, std::span<const std::uint8_t>{}), fault::Code::success);
+        EXPECT_EQ(ctx.Seal(out, std::span<const std::uint8_t>{}), fault::Code::Success);
         EXPECT_EQ(ctx.Nonce()[0], 1) << "Nonce should advance after Empty Seal";
     }
 
@@ -121,30 +121,30 @@ namespace
     {
         // 空密文 Open：密文长度 < tag 长度 → 认证失败
         const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f");
-        crypto::AeadContext ctx(crypto::AeadCipher::aes_128_gcm, key);
+        crypto::AeadContext ctx(crypto::AeadCipher::Aes128Gcm, key);
         std::array<std::uint8_t, 16> out{};
-        EXPECT_EQ(ctx.Open(out, std::span<const std::uint8_t>{}), fault::Code::crypto_error);
+        EXPECT_EQ(ctx.Open(out, std::span<const std::uint8_t>{}), fault::Code::CryptoError);
     }
 
     TEST(AeadCoverage, OpenCiphertextShorterThanTag)
     {
         // 密文长度 8 字节（不足 16 字节 tag）→ 解密失败
         const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f");
-        crypto::AeadContext ctx(crypto::AeadCipher::aes_128_gcm, key);
+        crypto::AeadContext ctx(crypto::AeadCipher::Aes128Gcm, key);
         const std::array<std::uint8_t, 8> short_ct{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
         std::array<std::uint8_t, 8> out{};
-        EXPECT_EQ(ctx.Open(out, short_ct), fault::Code::crypto_error);
+        EXPECT_EQ(ctx.Open(out, short_ct), fault::Code::CryptoError);
     }
 
     TEST(AeadCoverage, OpenEmptyCiphertextExplicitNonce)
     {
         // 显式 Nonce 重载：空密文同样失败，且不修改内部状态
         const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f");
-        crypto::AeadContext ctx(crypto::AeadCipher::aes_128_gcm, key);
+        crypto::AeadContext ctx(crypto::AeadCipher::Aes128Gcm, key);
         const std::array<std::uint8_t, 12> Nonce{};
         std::array<std::uint8_t, 16> out{};
         crypto::OpenInput input{out, std::span<const std::uint8_t>{}, Nonce, {}};
-        EXPECT_EQ(ctx.Open(input), fault::Code::crypto_error);
+        EXPECT_EQ(ctx.Open(input), fault::Code::CryptoError);
         EXPECT_EQ(ctx.Nonce()[0], 0) << "Failed explicit Open must not advance Nonce";
     }
 
@@ -402,8 +402,8 @@ namespace
     {
         // 空盐等价于 32 字节全零盐（RFC 5869 规则）
         const std::vector<std::uint8_t> ikm(22, 0x0B);
-        const std::array<std::uint8_t, crypto::Sha256Len> zero_salt{};
-        EXPECT_EQ(crypto::HkdfExtract({}, ikm), crypto::HkdfExtract(zero_salt, ikm));
+        const std::array<std::uint8_t, crypto::Sha256Len> ZeroSalt{};
+        EXPECT_EQ(crypto::HkdfExtract({}, ikm), crypto::HkdfExtract(ZeroSalt, ikm));
     }
 
     TEST(HkdfCoverage, ExtractEmptyIkm)
@@ -419,7 +419,7 @@ namespace
         const auto prk = hex_to_bytes("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
         const auto Info = hex_to_bytes("f0f1f2f3f4f5f6f7f8f9");
         const auto [ec, okm] = crypto::HkdfExpand(prk, Info, 42);
-        EXPECT_EQ(ec, fault::Code::success);
+        EXPECT_EQ(ec, fault::Code::Success);
         EXPECT_EQ(ToHex(okm), "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf"
                                "34007208d5b887185865");
     }
@@ -429,13 +429,13 @@ namespace
         // 非法参数：长度超限 / PRK 过短 / Info 过长
         const auto prk = hex_to_bytes("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
         EXPECT_EQ(crypto::HkdfExpand(prk, {}, 255 * crypto::Sha256Len + 1).first,
-                  fault::Code::invalid_argument);
+                  fault::Code::InvalidArgument);
 
         const std::vector<std::uint8_t> short_prk(31, 0x11);
-        EXPECT_EQ(crypto::HkdfExpand(short_prk, {}, 32).first, fault::Code::invalid_argument);
+        EXPECT_EQ(crypto::HkdfExpand(short_prk, {}, 32).first, fault::Code::InvalidArgument);
 
         std::vector<std::uint8_t> big_info(515, 0x22);
-        EXPECT_EQ(crypto::HkdfExpand(prk, big_info, 32).first, fault::Code::invalid_argument);
+        EXPECT_EQ(crypto::HkdfExpand(prk, big_info, 32).first, fault::Code::InvalidArgument);
     }
 
     TEST(HkdfCoverage, ExpandZeroAndMaxLength)
@@ -443,11 +443,11 @@ namespace
         // 边界：length=0 成功且为空；length=8160（255×32）成功
         const auto prk = hex_to_bytes("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
         const auto [ec_zero, out_zero] = crypto::HkdfExpand(prk, {}, 0);
-        EXPECT_EQ(ec_zero, fault::Code::success);
+        EXPECT_EQ(ec_zero, fault::Code::Success);
         EXPECT_TRUE(out_zero.empty());
 
         const auto [ec_max, out_max] = crypto::HkdfExpand(prk, {}, 255 * crypto::Sha256Len);
-        EXPECT_EQ(ec_max, fault::Code::success);
+        EXPECT_EQ(ec_max, fault::Code::Success);
         EXPECT_EQ(out_max.size(), 255 * crypto::Sha256Len);
     }
 
@@ -459,33 +459,33 @@ namespace
 
         const auto [ec, out] = crypto::ExpandLabel(
             crypto::ExpandParams{Secret, "key", Context, 32});
-        ASSERT_EQ(ec, fault::Code::success);
+        ASSERT_EQ(ec, fault::Code::Success);
         EXPECT_EQ(out.size(), 32);
 
-        // 手工构造 HkdfLabel = Length(2) || label_len(1) || "tls13 " + Label || ctx_len(1) || Context
-        std::vector<std::uint8_t> label_buf;
-        label_buf.push_back(static_cast<std::uint8_t>(32 >> 8));
-        label_buf.push_back(static_cast<std::uint8_t>(32 & 0xFF));
+        // 手工构造 HkdfLabel = Length(2) || LabelLen(1) || "tls13 " + Label || ctx_len(1) || Context
+        std::vector<std::uint8_t> LabelBuf;
+        LabelBuf.push_back(static_cast<std::uint8_t>(32 >> 8));
+        LabelBuf.push_back(static_cast<std::uint8_t>(32 & 0xFF));
         const std::string_view full_label = "tls13 key";
-        label_buf.push_back(static_cast<std::uint8_t>(full_label.size()));
+        LabelBuf.push_back(static_cast<std::uint8_t>(full_label.size()));
         for (const auto c : full_label)
         {
-            label_buf.push_back(static_cast<std::uint8_t>(c));
+            LabelBuf.push_back(static_cast<std::uint8_t>(c));
         }
-        label_buf.push_back(static_cast<std::uint8_t>(Context.size()));
-        label_buf.insert(label_buf.end(), Context.begin(), Context.end());
+        LabelBuf.push_back(static_cast<std::uint8_t>(Context.size()));
+        LabelBuf.insert(LabelBuf.end(), Context.begin(), Context.end());
 
-        const auto [ec_manual, manual] = crypto::HkdfExpand(Secret, label_buf, 32);
-        ASSERT_EQ(ec_manual, fault::Code::success);
+        const auto [ec_manual, manual] = crypto::HkdfExpand(Secret, LabelBuf, 32);
+        ASSERT_EQ(ec_manual, fault::Code::Success);
         EXPECT_EQ(out, manual) << "ExpandLabel must match manual HkdfLabel construction";
 
         // 非法：Label 过长（>249 字节）与 Context 过长（>255 字节）
         const std::string long_label(250, 'x');
         EXPECT_EQ(crypto::ExpandLabel(crypto::ExpandParams{Secret, long_label, {}, 32}).first,
-                  fault::Code::invalid_argument);
+                  fault::Code::InvalidArgument);
         std::vector<std::uint8_t> big_context(256, 0x33);
         EXPECT_EQ(crypto::ExpandLabel(crypto::ExpandParams{Secret, "key", big_context, 32}).first,
-                  fault::Code::invalid_argument);
+                  fault::Code::InvalidArgument);
     }
 
     TEST(HkdfCoverage, Sha256KnownVectors)
@@ -612,8 +612,8 @@ namespace
 
         const auto [ec1, s1] = crypto::X25519(alice.private_key, bob.PublicKey);
         const auto [ec2, s2] = crypto::X25519(bob.private_key, alice.PublicKey);
-        EXPECT_EQ(ec1, fault::Code::success);
-        EXPECT_EQ(ec2, fault::Code::success);
+        EXPECT_EQ(ec1, fault::Code::Success);
+        EXPECT_EQ(ec2, fault::Code::Success);
         EXPECT_EQ(s1, s2);
         const std::array<std::uint8_t, crypto::X25519Slen> zero{};
         EXPECT_NE(s1, zero);
@@ -625,7 +625,7 @@ namespace
         const auto alice_priv = hex_to_bytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
         const auto bob_pub = hex_to_bytes("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
         const auto [ec, shared] = crypto::X25519(alice_priv, bob_pub);
-        EXPECT_EQ(ec, fault::Code::success);
+        EXPECT_EQ(ec, fault::Code::Success);
         EXPECT_EQ(ToHex(shared), "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
     }
 
@@ -634,18 +634,18 @@ namespace
         // 非法长度 → invalid_argument
         const auto short_priv = hex_to_bytes("000102030405060708090a0b0c0d0e0f1011121314151617");
         const auto pub = hex_to_bytes("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
-        EXPECT_EQ(crypto::X25519(short_priv, pub).first, fault::Code::invalid_argument);
+        EXPECT_EQ(crypto::X25519(short_priv, pub).first, fault::Code::InvalidArgument);
         const std::vector<std::uint8_t> long_pub(33, 0x11);
-        EXPECT_EQ(crypto::X25519(short_priv, long_pub).first, fault::Code::invalid_argument);
+        EXPECT_EQ(crypto::X25519(short_priv, long_pub).first, fault::Code::InvalidArgument);
 
         // 低阶点（全零对端公钥）：共享密钥全零 → kexfail
         const std::array<std::uint8_t, crypto::X25519Klen> zero_key{};
         const auto kp = crypto::GenerateKeypair();
-        EXPECT_EQ(crypto::X25519(kp.private_key, zero_key).first, fault::Code::kexfail);
+        EXPECT_EQ(crypto::X25519(kp.private_key, zero_key).first, fault::Code::Kexfail);
 
         // 全零私钥经 RFC 7748 钳制（e[31]|=64）后是有效标量 → 成功且共享密钥非零
         const auto [ec, shared] = crypto::X25519(zero_key, kp.PublicKey);
-        EXPECT_EQ(ec, fault::Code::success);
+        EXPECT_EQ(ec, fault::Code::Success);
         EXPECT_NE(shared, zero_key);
     }
 
@@ -692,21 +692,21 @@ namespace
     {
         // Deviant 为抽象基类：必须实现 TypeName() 才能实例化
         static_assert(std::is_abstract_v<exc::Deviant>);
-        const exposed_deviant ex(fault::make_error_code(fault::Code::eof));
+        const exposed_deviant ex(fault::make_error_code(fault::Code::Eof));
         EXPECT_EQ(ex.TypeName(), "EXPOSED");
     }
 
     TEST(ExceptionDeviant, ConstructWithCodeAndDesc)
     {
         // 错误码 + 描述：What() = "Message: desc"
-        const exposed_deviant ex(fault::make_error_code(fault::Code::eof), "Stream ended");
+        const exposed_deviant ex(fault::make_error_code(fault::Code::Eof), "Stream ended");
         EXPECT_EQ(std::string(ex.what()), "eof: Stream ended");
     }
 
     TEST(ExceptionDeviant, ConstructWithCodeNoDesc)
     {
         // 仅错误码：What() = 错误码消息本身
-        const exposed_deviant ex(fault::make_error_code(fault::Code::timeout));
+        const exposed_deviant ex(fault::make_error_code(fault::Code::Timeout));
         EXPECT_EQ(std::string(ex.what()), "timeout");
     }
 
@@ -714,7 +714,7 @@ namespace
     {
         // 字符串构造：回退到 generic_error 错误码
         const exposed_deviant ex(std::string("legacy Message"));
-        EXPECT_EQ(ex.ErrorCode().value(), static_cast<int>(fault::Code::generic_error));
+        EXPECT_EQ(ex.ErrorCode().value(), static_cast<int>(fault::Code::GenericError));
         EXPECT_EQ(std::string(ex.what()), "generic_error: legacy Message");
     }
 
@@ -728,9 +728,9 @@ namespace
     TEST(ExceptionDeviant, ErrorCodeAccessors)
     {
         // ErrorCode() 保留值与分类
-        const exposed_deviant ex(fault::make_error_code(fault::Code::parse_error), "bad");
+        const exposed_deviant ex(fault::make_error_code(fault::Code::ParseError), "bad");
         const auto &ec = ex.ErrorCode();
-        EXPECT_EQ(ec.value(), static_cast<int>(fault::Code::parse_error));
+        EXPECT_EQ(ec.value(), static_cast<int>(fault::Code::ParseError));
         EXPECT_EQ(std::string_view(ec.category().name()), "Preview::fault");
         EXPECT_EQ(ec.message(), "parse_error");
     }
@@ -738,7 +738,7 @@ namespace
     TEST(ExceptionDeviant, LocationAndFilename)
     {
         // 位置捕获：文件名、行号有效；Filename() 仅纯文件名
-        const exposed_deviant ex(fault::make_error_code(fault::Code::eof));
+        const exposed_deviant ex(fault::make_error_code(fault::Code::Eof));
         const auto &loc = ex.Location();
         ASSERT_TRUE(loc.file_name());
         EXPECT_TRUE(Contains(std::string(loc.file_name()), "CryptoExceptionCoverage"));
@@ -753,7 +753,7 @@ namespace
     TEST(ExceptionDeviant, DumpExactFormat)
     {
         // Dump() 完整格式：[Filename:line] [TYPE:value] Message
-        const exposed_deviant ex(fault::make_error_code(fault::Code::eof), "Stream ended");
+        const exposed_deviant ex(fault::make_error_code(fault::Code::Eof), "Stream ended");
         const std::string expected = std::format("[{}:{}] [EXPOSED:{}] {}", ex.Filename(),
                                                  ex.Location().line(), ex.ErrorCode().value(),
                                                  ex.what());
@@ -763,7 +763,7 @@ namespace
     TEST(ExceptionDeviant, CopySemantics)
     {
         // 拷贝：错误码、消息与 Dump 完全一致
-        const exposed_deviant src(fault::make_error_code(fault::Code::connection_reset), "peer Reset");
+        const exposed_deviant src(fault::make_error_code(fault::Code::ConnectionReset), "peer Reset");
         const exposed_deviant copied(src);
         EXPECT_EQ(copied.ErrorCode().value(), src.ErrorCode().value());
         EXPECT_STREQ(copied.what(), src.what());
@@ -773,7 +773,7 @@ namespace
     TEST(ExceptionDeviant, TypeNameOverride)
     {
         // 子类实现 TypeName()，Dump() 中体现
-        const exposed_deviant ex(fault::make_error_code(fault::Code::eof), "x");
+        const exposed_deviant ex(fault::make_error_code(fault::Code::Eof), "x");
         EXPECT_TRUE(Contains(ex.Dump(), "[EXPOSED:3]"));
     }
 
@@ -803,14 +803,14 @@ namespace
     TEST(ExceptionNetwork, ConstructAllForms)
     {
         // 四种构造形态：错误码 / 错误码+描述 / 字符串 / 格式化
-        const exc::Network by_code(fault::Code::eof);
+        const exc::Network by_code(fault::Code::Eof);
         EXPECT_EQ(std::string(by_code.what()), "eof");
 
-        const exc::Network with_desc(fault::Code::timeout, "handshake stalled");
+        const exc::Network with_desc(fault::Code::Timeout, "handshake stalled");
         EXPECT_EQ(std::string(with_desc.what()), "timeout: handshake stalled");
 
         const exc::Network by_string(std::string("legacy net"));
-        EXPECT_EQ(by_string.ErrorCode().value(), static_cast<int>(fault::Code::generic_error));
+        EXPECT_EQ(by_string.ErrorCode().value(), static_cast<int>(fault::Code::GenericError));
         EXPECT_EQ(std::string(by_string.what()), "generic_error: legacy net");
 
         const exc::Network formatted("net Fail {}", 7);
@@ -822,14 +822,14 @@ namespace
 
     TEST(ExceptionNetwork, TypeName)
     {
-        const exposed_network ex(fault::Code::dns_failed, "resolve Fail");
+        const exposed_network ex(fault::Code::DnsFailed, "resolve Fail");
         EXPECT_EQ(ex.TypeName(), "NETWORK");
         EXPECT_TRUE(Contains(ex.Dump(), "NETWORK"));
     }
 
     TEST(ExceptionNetwork, DumpFormat)
     {
-        const exc::Network ex(fault::Code::connection_refused, "refused");
+        const exc::Network ex(fault::Code::ConnectionRefused, "refused");
         const std::string expected = std::format("[{}:{}] [NETWORK:{}] {}", ex.Filename(),
                                                  ex.Location().line(), ex.ErrorCode().value(),
                                                  ex.what());
@@ -861,11 +861,11 @@ namespace
 
     TEST(ExceptionProtocol, ConstructCodeAndDesc)
     {
-        const exc::Protocol by_code(fault::Code::parse_error);
+        const exc::Protocol by_code(fault::Code::ParseError);
         EXPECT_EQ(std::string(by_code.what()), "parse_error");
-        EXPECT_EQ(by_code.ErrorCode().value(), static_cast<int>(fault::Code::parse_error));
+        EXPECT_EQ(by_code.ErrorCode().value(), static_cast<int>(fault::Code::ParseError));
 
-        const exc::Protocol with_desc(fault::Code::bad_message, "malformed Header");
+        const exc::Protocol with_desc(fault::Code::BadMessage, "malformed Header");
         EXPECT_EQ(std::string(with_desc.what()), "bad_message: malformed Header");
 
         const exc::Protocol formatted("proto Fail {}", 3);
@@ -874,14 +874,14 @@ namespace
 
     TEST(ExceptionProtocol, TypeName)
     {
-        const exposed_protocol ex(fault::Code::protocol_error, "State Error");
+        const exposed_protocol ex(fault::Code::ProtocolError, "State Error");
         EXPECT_EQ(ex.TypeName(), "PROTOCOL");
         EXPECT_TRUE(Contains(ex.Dump(), "PROTOCOL"));
     }
 
     TEST(ExceptionProtocol, DumpFormat)
     {
-        const exc::Protocol ex(fault::Code::parse_error, "bad Frame");
+        const exc::Protocol ex(fault::Code::ParseError, "bad Frame");
         const std::string expected = std::format("[{}:{}] [PROTOCOL:{}] {}", ex.Filename(),
                                                  ex.Location().line(), ex.ErrorCode().value(),
                                                  ex.what());
@@ -914,7 +914,7 @@ namespace
     TEST(ExceptionSecurity, WhatGenericForSecurityCode)
     {
         // 认证失败异常：What() 仅含通用错误文本，不泄露任何凭据细节
-        const exc::Security ex(fault::Code::auth_failed);
+        const exc::Security ex(fault::Code::AuthFailed);
         EXPECT_EQ(std::string(ex.what()), "auth_failed");
         EXPECT_EQ(ex.ErrorCode().message(), "auth_failed");
     }
@@ -922,7 +922,7 @@ namespace
     TEST(ExceptionSecurity, ErrorCodeMessageNotContainingDesc)
     {
         // 描述包含敏感内容时，ErrorCode() 消息保持通用（描述仅出现在 What()）
-        const exc::Security ex(fault::Code::auth_failed, "user 'admin' rejected");
+        const exc::Security ex(fault::Code::AuthFailed, "user 'admin' rejected");
         EXPECT_EQ(ex.ErrorCode().message(), "auth_failed")
             << "Error Code Message must not carry user-provided details";
         EXPECT_TRUE(Contains(std::string(ex.what()), "user 'admin' rejected"));
@@ -931,7 +931,7 @@ namespace
     TEST(ExceptionSecurity, DumpNoPathLeak)
     {
         // Dump() 仅含纯文件名，不泄露构建路径等内部信息
-        const exc::Security ex(fault::Code::auth_failed, "rejected");
+        const exc::Security ex(fault::Code::AuthFailed, "rejected");
         const std::string Dump = ex.Dump();
         EXPECT_EQ(Dump.find('/'), std::string::npos);
         EXPECT_EQ(Dump.find('\\'), std::string::npos);
@@ -940,14 +940,14 @@ namespace
 
     TEST(ExceptionSecurity, TypeName)
     {
-        const exposed_security ex(fault::Code::verifyfail, "cert invalid");
+        const exposed_security ex(fault::Code::Verifyfail, "cert invalid");
         EXPECT_EQ(ex.TypeName(), "SECURITY");
         EXPECT_TRUE(Contains(ex.Dump(), "SECURITY"));
     }
 
     TEST(ExceptionSecurity, DumpFormat)
     {
-        const exc::Security ex(fault::Code::auth_failed, "login denied");
+        const exc::Security ex(fault::Code::AuthFailed, "login denied");
         const std::string expected = std::format("[{}:{}] [SECURITY:{}] {}", ex.Filename(),
                                                  ex.Location().line(), ex.ErrorCode().value(),
                                                  ex.what());

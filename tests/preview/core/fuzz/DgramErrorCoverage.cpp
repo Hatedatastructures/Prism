@@ -156,7 +156,7 @@ namespace
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      const std::string p = "x";
                      const auto err = co_await dg->AsyncSendTo(make_s5_addr(), AsU8Span(p));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -172,7 +172,7 @@ namespace
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -189,7 +189,7 @@ namespace
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -206,7 +206,7 @@ namespace
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -224,7 +224,7 @@ namespace
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -242,7 +242,7 @@ namespace
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -261,7 +261,7 @@ namespace
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -279,7 +279,7 @@ namespace
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -299,7 +299,7 @@ namespace
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -315,11 +315,11 @@ namespace
                      dg->Close();
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(make_s5_addr(), AsU8Span(p));
-                     EXPECT_EQ(serr, Error::io_error);
+                     EXPECT_EQ(serr, Error::IoError);
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(rerr, Error::io_error);
+                     EXPECT_EQ(rerr, Error::IoError);
                  });
     }
 
@@ -337,7 +337,7 @@ namespace
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      const std::string p = "x";
                      const auto err = co_await dg->AsyncSendTo(make_trojan_addr(), AsU8Span(p));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -353,7 +353,7 @@ namespace
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -370,7 +370,7 @@ namespace
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -387,7 +387,7 @@ namespace
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -404,7 +404,7 @@ namespace
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -422,7 +422,7 @@ namespace
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -440,7 +440,7 @@ namespace
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_magic);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -458,7 +458,7 @@ namespace
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -476,7 +476,7 @@ namespace
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -492,11 +492,11 @@ namespace
                      dg->Close();
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(make_trojan_addr(), AsU8Span(p));
-                     EXPECT_EQ(serr, Error::io_error);
+                     EXPECT_EQ(serr, Error::IoError);
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(rerr, Error::io_error);
+                     EXPECT_EQ(rerr, Error::IoError);
                  });
     }
 
@@ -514,7 +514,7 @@ namespace
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      const std::string p = "x";
                      const auto err = co_await dg->AsyncSendTo(make_vless_addr(), AsU8Span(p));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -530,7 +530,7 @@ namespace
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -547,7 +547,7 @@ namespace
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -564,7 +564,7 @@ namespace
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -581,7 +581,7 @@ namespace
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -599,7 +599,7 @@ namespace
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -616,7 +616,7 @@ namespace
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -635,7 +635,7 @@ namespace
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -651,20 +651,21 @@ namespace
                      dg->Close();
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(make_vless_addr(), AsU8Span(p));
-                     EXPECT_EQ(serr, Error::io_error);
+                     EXPECT_EQ(serr, Error::IoError);
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(rerr, Error::io_error);
+                     EXPECT_EQ(rerr, Error::IoError);
                  });
     }
 
     // ──────────────────────────── TUIC ────────────────────────────
 
-    /// tuic 帧头：Ver(0x04) Cmd(0x07) AssocID(4 LE) PktID(4 LE)（10 字节，head[9] = ATYP）
-    auto make_tuic_head(std::uint8_t atyp) -> std::array<std::uint8_t, 10>
+    /// tuic 帧：Ver(0x04) Cmd(0x07) AssocID(4 LE) PktID(4 LE) 10 字节头 + ATYP 单独一字节
+    auto make_tuic_head(std::uint8_t atyp) -> std::vector<std::uint8_t>
     {
-        std::array<std::uint8_t, 10> head{0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, atyp};
+        std::vector<std::uint8_t> head{0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0};
+        head.push_back(atyp);
         return head;
     }
 
@@ -680,7 +681,7 @@ namespace
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      const std::string p = "x";
                      const auto err = co_await dg->AsyncSendTo(make_tuic_addr(), AsU8Span(p));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -696,7 +697,7 @@ namespace
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -713,7 +714,7 @@ namespace
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -730,7 +731,7 @@ namespace
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -747,7 +748,7 @@ namespace
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -765,7 +766,7 @@ namespace
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -777,12 +778,12 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x03, 0x05, 'a', 'b'};
+                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -794,12 +795,12 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
+                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -811,13 +812,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->ReadFailAt = 4; // 第 4 次读取 = 载荷读取
+                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取（头/ATYP/地址/端口之后）
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -829,12 +830,12 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -854,7 +855,7 @@ namespace
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -870,20 +871,21 @@ namespace
                      dg->Close();
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(make_tuic_addr(), AsU8Span(p));
-                     EXPECT_EQ(serr, Error::io_error);
+                     EXPECT_EQ(serr, Error::IoError);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(rerr, Error::unexpected_eof);
+                     EXPECT_EQ(rerr, Error::UnexpectedEof);
                  });
     }
 
     // ──────────────────────────── Hysteria2 ────────────────────────────
 
-    /// hysteria2 帧头：Kind(0x02) SessionID(4 LE) PacketID(4 LE)（9 字节，head[8] = ATYP）
-    auto make_hy2_head(std::uint8_t atyp) -> std::array<std::uint8_t, 9>
+    /// hysteria2 帧：Kind(0x02) SessionID(4 LE) PacketID(4 LE) 9 字节头 + ATYP 单独一字节
+    auto make_hy2_head(std::uint8_t atyp) -> std::vector<std::uint8_t>
     {
-        std::array<std::uint8_t, 9> head{0x02, 0, 0, 0, 0, 0, 0, 0, atyp};
+        std::vector<std::uint8_t> head{0x02, 0, 0, 0, 0, 0, 0, 0, 0};
+        head.push_back(atyp);
         return head;
     }
 
@@ -899,7 +901,7 @@ namespace
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      const std::string p = "x";
                      const auto err = co_await dg->AsyncSendTo(make_hy2_addr(), AsU8Span(p));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -915,7 +917,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -932,7 +934,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -949,7 +951,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -967,7 +969,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -979,12 +981,12 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x05, 'a', 'b'};
+                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -996,12 +998,12 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
+                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -1013,13 +1015,13 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->ReadFailAt = 4; // 第 4 次读取 = 载荷读取
+                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取（头/ATYP/地址/端口之后）
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -1031,12 +1033,12 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -1056,7 +1058,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -1072,11 +1074,11 @@ namespace
                      dg->Close();
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(make_hy2_addr(), AsU8Span(p));
-                     EXPECT_EQ(serr, Error::io_error);
+                     EXPECT_EQ(serr, Error::IoError);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(rerr, Error::unexpected_eof);
+                     EXPECT_EQ(rerr, Error::UnexpectedEof);
                  });
     }
 
@@ -1118,7 +1120,7 @@ namespace
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      const std::string p = "x";
                      const auto err = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -1135,7 +1137,7 @@ namespace
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      const std::string p = "x";
                      const auto err = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -1152,7 +1154,7 @@ namespace
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                  });
     }
 
@@ -1168,7 +1170,7 @@ namespace
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::unexpected_eof);
+                     EXPECT_EQ(err, Error::UnexpectedEof);
                  });
     }
 
@@ -1186,7 +1188,7 @@ namespace
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_length);
+                     EXPECT_EQ(err, Error::BadLength);
                  });
     }
 
@@ -1206,7 +1208,7 @@ namespace
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_auth);
+                     EXPECT_EQ(err, Error::BadAuth);
                  });
     }
 
@@ -1224,7 +1226,7 @@ namespace
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::bad_message);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -1245,7 +1247,7 @@ namespace
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::need_more);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -1261,11 +1263,11 @@ namespace
                      dg->Close();
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
-                     EXPECT_EQ(serr, Error::io_error);
+                     EXPECT_EQ(serr, Error::IoError);
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(rerr, Error::unexpected_eof);
+                     EXPECT_EQ(rerr, Error::UnexpectedEof);
                  });
     }
 
@@ -1283,10 +1285,10 @@ namespace
                      auto dg = std::make_shared<Vmess::Dgram<>>(c);
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(AsU8Span(p));
-                     EXPECT_EQ(serr, Error::not_open);
+                     EXPECT_EQ(serr, Error::NotOpen);
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(out);
-                     EXPECT_EQ(rerr, Error::not_open);
+                     EXPECT_EQ(rerr, Error::NotOpen);
                  });
     }
 
@@ -1309,7 +1311,7 @@ namespace
                                        cfg.uuid = uuid;
                                        auto [err, req, dg] = co_await Vmess::AcceptPacket(
                                            std::make_shared<MemoryStream>(std::move(b)), cfg);
-                                       EXPECT_EQ(err, Error::none);
+                                       EXPECT_EQ(err, Error::None);
                                        (void)req;
                                        dg->Close();
                                        server_closed.try_send(boost::system::error_code{});
@@ -1320,15 +1322,15 @@ namespace
                      cfg.uuid = uuid;
                      auto [herr, dg] = co_await Vmess::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), cfg, make_vmess_addr());
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      co_await server_closed.async_receive(net::use_awaitable);
 
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(AsU8Span(p));
-                     EXPECT_EQ(serr, Error::io_error);
+                     EXPECT_EQ(serr, Error::IoError);
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(out);
-                     EXPECT_EQ(rerr, Error::unexpected_eof);
+                     EXPECT_EQ(rerr, Error::UnexpectedEof);
                  });
     }
 

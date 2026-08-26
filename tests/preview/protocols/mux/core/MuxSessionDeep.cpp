@@ -72,7 +72,7 @@ namespace
                              }
                              std::array<std::byte, 128> buf{};
                              std::error_code ec;
-                             const auto n = co_await s->AsyncReadSome(std::span<std::byte>(buf), ec);
+                             const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
                              EXPECT_GT(n, 0U);
                              s->Close();
                          }
@@ -89,7 +89,7 @@ namespace
                          }
                          const std::string payload = "Stream-" + std::to_string(i) + "-payload";
                          std::error_code ec;
-                         const auto n = co_await s->AsyncWriteSome(
+                         const auto n = co_await s->async_write_some(
                              std::span<const std::byte>(
                                  reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
                              ec);
@@ -155,7 +155,7 @@ namespace
         const std::array<std::uint8_t, 2> payload{0xAA, 0xBB};
         auto Frame = Smux::Build(hdr, payload);
         Smux::FrameHeader out;
-        EXPECT_EQ(Smux::ParseHeader(Frame, out), Error::none);
+        EXPECT_EQ(Smux::ParseHeader(Frame, out), Error::None);
         EXPECT_EQ(out.cmd, Smux::Command::Push);
         EXPECT_EQ(out.StreamId, 7U);
     }
@@ -167,12 +167,12 @@ namespace
         Yamux::FrameHeader hdr;
         hdr.version = 0;
         hdr.Type = Yamux::MessageType::Data;
-        hdr.flag = Yamux::Flags::none;
+        hdr.flag = Yamux::Flags::None;
         hdr.StreamId = 9;
         const std::array<std::uint8_t, 3> payload{1, 2, 3};
         auto Frame = Yamux::Build(hdr, payload);
         Yamux::FrameHeader out;
-        EXPECT_EQ(Yamux::ParseHeader(Frame, out), Error::none);
+        EXPECT_EQ(Yamux::ParseHeader(Frame, out), Error::None);
         EXPECT_EQ(out.Type, Yamux::MessageType::Data);
         EXPECT_EQ(out.StreamId, 9U);
     }
@@ -185,7 +185,7 @@ namespace
         auto Frame = H2Mux::Build(H2Mux::FrameType::Data, 3, payload);
         EXPECT_EQ(Frame.size(), 9U + 2U);
         H2Mux::FrameHeader out;
-        EXPECT_EQ(H2Mux::ParseHeader(Frame, out), Error::none);
+        EXPECT_EQ(H2Mux::ParseHeader(Frame, out), Error::None);
         EXPECT_EQ(out.Type, H2Mux::FrameType::Data);
         EXPECT_EQ(out.StreamId, 3U);
     }

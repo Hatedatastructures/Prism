@@ -1,5 +1,5 @@
 /**
- * @file smux.hpp
+ * @file Smux.hpp
  * @brief smux 协议聚合头（re-export 子头）
  * @details 统一引入 smux 族全部子头并导出工厂函数：
  * - types.hpp：常量与帧头结构

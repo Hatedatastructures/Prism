@@ -23,28 +23,28 @@ namespace
 
     struct fake_tx final : Transmission
     {
-        explicit fake_tx(net::any_io_executor ex) : ex_(ex) {}
-        [[nodiscard]] auto Executor() const -> ExecutorType override { return ex_; }
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
+        explicit fake_tx(net::any_io_executor ex) : Ex_(ex) {}
+        [[nodiscard]] auto Executor() const -> ExecutorType override { return Ex_; }
+        [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
+        [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec) -> net::awaitable<std::size_t> override { ec.clear(); co_return 0; }
         void Close() override {}
         void Cancel() override {}
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
     };
 
     class decorator final : public Transmission
     {
     public:
-        explicit decorator(SharedTransmission Inner) : inner_(std::move(Inner)) {}
-        [[nodiscard]] auto Executor() const -> ExecutorType override { return inner_->Executor(); }
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override { co_return co_await inner_->AsyncReadSome(b, ec); }
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override { co_return co_await inner_->AsyncWriteSome(b, ec); }
-        void Close() override { inner_->Close(); }
-        void Cancel() override { inner_->Cancel(); }
-        [[nodiscard]] auto NextLayer() noexcept -> Transmission* override { return inner_.get(); }
+        explicit decorator(SharedTransmission Inner) : Inner_(std::move(Inner)) {}
+        [[nodiscard]] auto Executor() const -> ExecutorType override { return Inner_->Executor(); }
+        [[nodiscard]] auto async_read_some(std::span<std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override { co_return co_await Inner_->async_read_some(b, ec); }
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> b, std::error_code &ec) -> net::awaitable<std::size_t> override { co_return co_await Inner_->async_write_some(b, ec); }
+        void Close() override { Inner_->Close(); }
+        void Cancel() override { Inner_->Cancel(); }
+        [[nodiscard]] auto NextLayer() noexcept -> Transmission* override { return Inner_.get(); }
         bool wrapped{true};
     private:
-        SharedTransmission inner_;
+        SharedTransmission Inner_;
     };
 
     auto run_coro(net::io_context &ioc, auto coro)
@@ -60,10 +60,10 @@ namespace
         net::io_context ioc;
         SchemeExecutor exec;
         bool called = false;
-        exec.RegisterScheme("anytls", [&](SharedTransmission inbound) -> net::awaitable<SharedTransmission>
+        exec.RegisterScheme("anytls", [&](SharedTransmission Inbound) -> net::awaitable<SharedTransmission>
         {
             called = true;
-            co_return std::make_shared<decorator>(std::move(inbound));
+            co_return std::make_shared<decorator>(std::move(Inbound));
         });
         EXPECT_TRUE(exec.Has("anytls"));
         EXPECT_EQ(exec.Size(), 1u);

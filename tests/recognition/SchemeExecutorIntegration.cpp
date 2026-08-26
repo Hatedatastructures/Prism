@@ -14,14 +14,14 @@ TEST(RecognitionPipeline, DeterministicHit)
 {
     // 单一 VLESS 结构化特征应确定命中
     std::vector<std::uint8_t> vless = {0x00,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16, 0x00, 0x01, 0x00,0x50, 0x01};
-    EXPECT_EQ(Preview::Recognition::Detect(vless), Preview::Recognition::ProtocolType::vless);
+    EXPECT_EQ(Preview::Recognition::Detect(vless), Preview::Recognition::ProtocolType::Vless);
 }
 
 TEST(RecognitionPipeline, MultiCandidateFallback)
 {
     // 未知数据应回落 unknown，且 pipeline 能正确回注
     std::vector<std::uint8_t> unknown = {0xFF,0xFF,0xFF};
-    EXPECT_EQ(Preview::Recognition::Detect(unknown), Preview::Recognition::ProtocolType::unknown);
+    EXPECT_EQ(Preview::Recognition::Detect(unknown), Preview::Recognition::ProtocolType::Unknown);
 }
 
 TEST(RecognitionPipeline, PreviewRewind)
@@ -37,7 +37,7 @@ TEST(RecognitionPipeline, PreviewRewind)
             std::make_shared<Preview::MemoryStream>(std::move(b)), preread);
         std::array<std::byte,64> buf{};
         std::error_code ec;
-        const auto n = co_await wrapped->AsyncReadSome(buf, ec);
+        const auto n = co_await wrapped->async_read_some(buf, ec);
         EXPECT_EQ(n, payload.size());
         EXPECT_FALSE(ec);
         done = true;

@@ -142,11 +142,11 @@ public:
         psm::diagnose::info("  重连延迟: {}毫秒", config_.reconnect_delay_ms);
         psm::diagnose::info("  调试输出: {}", config_.debug_output ? "开启" : "关闭");
 
-        net::co_spawn(ioc_, PrintStats(), net::detached);
+        net::co_spawn(Ioc_, PrintStats(), net::detached);
 
         for (std::size_t i = 0; i < config_.concurrency; ++i)
         {
-            net::co_spawn(ioc_, worker(i), net::detached);
+            net::co_spawn(Ioc_, worker(i), net::detached);
         }
 
         std::vector<std::jthread> threads;
@@ -156,7 +156,7 @@ public:
         threads.reserve(thread_count);
         for (int i = 0; i < thread_count; ++i)
         {
-            auto func = [this] { ioc_.run(); };
+            auto func = [this] { Ioc_.run(); };
             threads.emplace_back(func);
         }
 
@@ -170,7 +170,7 @@ public:
     }
 
 private:
-    net::io_context ioc_;  ///< IO 上下文
+    net::io_context Ioc_;  ///< IO 上下文
     stress_config config_; ///< 测试配置
     stress_stats stats_;   ///< 统计数据
 
@@ -223,7 +223,7 @@ private:
 
             if (total >= config_.total_requests)
             {
-                ioc_.stop();
+                Ioc_.stop();
                 break;
             }
         }

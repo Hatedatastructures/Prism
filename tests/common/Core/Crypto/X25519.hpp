@@ -79,17 +79,17 @@ namespace Preview::Crypto
 
     /**
      * @brief X25519 密钥交换
-     * @details 计算 SharedSecret = X25519(private_key, peer_pubkey)。
-     * 成功时返回 Fault::Code::success 和共享密钥。
+     * @details 计算 SharedSecret = X25519(private_key, PeerPubkey)。
+     * 成功时返回 Fault::Code::Success 和共享密钥。
      * 失败可能原因：无效的公钥（低阶点）或 EVP API 错误。
      * @param private_key 本方 32 字节 X25519 私钥
-     * @param peer_pubkey 对方 32 字节 X25519 公钥
+     * @param PeerPubkey 对方 32 字节 X25519 公钥
      * @return 错误码和 32 字节共享密钥的配对
      * @note 即使对方公钥是低阶点，X25519 也会成功计算（输出全零），
      * 调用者应检查共享密钥是否为全零以检测此类攻击。
      */
     [[nodiscard]] auto X25519(std::span<const std::uint8_t> private_key,
-                              std::span<const std::uint8_t> peer_pubkey)
+                              std::span<const std::uint8_t> PeerPubkey)
         -> std::pair<Fault::Code, std::array<std::uint8_t, X25519Slen>>;
 
     /**
@@ -135,25 +135,25 @@ namespace Preview::Crypto
     }
 
     inline auto X25519(std::span<const std::uint8_t> private_key,
-                       const std::span<const std::uint8_t> peer_pubkey)
+                       const std::span<const std::uint8_t> PeerPubkey)
         -> std::pair<Fault::Code, std::array<std::uint8_t, X25519Slen>>
     {
         std::array<std::uint8_t, X25519Slen> SharedSecret{};
 
         if (private_key.size() != X25519Klen)
         {
-            return {Fault::Code::invalid_argument, SharedSecret};
+            return {Fault::Code::InvalidArgument, SharedSecret};
         }
 
-        if (peer_pubkey.size() != X25519Klen)
+        if (PeerPubkey.size() != X25519Klen)
         {
-            return {Fault::Code::invalid_argument, SharedSecret};
+            return {Fault::Code::InvalidArgument, SharedSecret};
         }
 
-        if (::X25519(SharedSecret.data(), private_key.data(), peer_pubkey.data()) != 1)
+        if (::X25519(SharedSecret.data(), private_key.data(), PeerPubkey.data()) != 1)
         {
             SharedSecret.fill(0);
-            return {Fault::Code::kexfail, SharedSecret};
+            return {Fault::Code::Kexfail, SharedSecret};
         }
 
         // 检查全零共享密钥（低阶点攻击）
@@ -169,10 +169,10 @@ namespace Preview::Crypto
         if (AllZero)
         {
             SharedSecret.fill(0);
-            return {Fault::Code::kexfail, SharedSecret};
+            return {Fault::Code::Kexfail, SharedSecret};
         }
 
-        return {Fault::Code::success, SharedSecret};
+        return {Fault::Code::Success, SharedSecret};
     }
 
 

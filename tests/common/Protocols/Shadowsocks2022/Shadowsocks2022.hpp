@@ -1,5 +1,5 @@
 /**
- * @file shadowsocks2022.hpp
+ * @file Shadowsocks2022.hpp
  * @brief Shadowsocks 2022 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / ConnectPacket（客户端）、
@@ -48,7 +48,7 @@ namespace Preview::Shadowsocks2022
         std::string password;
         /// 直接指定 16 字节 PSK（标准配置：base64 psk 解码后原始字节，优先于 password）
         bool UsePsk{false};
-        std::array<std::uint8_t, 16> psk{};
+        std::array<std::uint8_t, 16> Psk{};
     };
 
     /**
@@ -77,11 +77,11 @@ namespace Preview::Shadowsocks2022
     [[nodiscard]] inline auto DerivePsk(std::string_view password) -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 32> Hash{};
-        unsigned int len = 0;
-        EVP_Digest(password.data(), password.size(), Hash.data(), &len, EVP_sha256(), nullptr);
-        std::array<std::uint8_t, 16> psk{};
-        std::memcpy(psk.data(), Hash.data(), 16);
-        return psk;
+        unsigned int Len = 0;
+        EVP_Digest(password.data(), password.size(), Hash.data(), &Len, EVP_sha256(), nullptr);
+        std::array<std::uint8_t, 16> Psk{};
+        std::memcpy(Psk.data(), Hash.data(), 16);
+        return Psk;
     }
 
     // =========================================================================
@@ -99,19 +99,19 @@ namespace Preview::Shadowsocks2022
                                       const ss::Address &Target)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = cfg.UsePsk ? std::make_shared<Conn<>>(cfg.psk)
+        auto C = cfg.UsePsk ? std::make_shared<Conn<>>(cfg.Psk)
                                   : std::make_shared<Conn<>>(cfg.password);
-        const auto err = co_await c->WriteHandshake(std::move(upstream), Target);
+        const auto Err = co_await C->WriteHandshake(std::move(upstream), Target);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -126,13 +126,13 @@ namespace Preview::Shadowsocks2022
     [[nodiscard]] inline auto ConnectPacket(net::any_io_executor ex, const std::string &remote,
                                              const ClientConfig &cfg) -> SharedDgram
     {
-        auto udp = std::make_shared<Preview::Transport::Unreliable>(ex);
-        if (!udp->Connect(remote))
+        auto Udp = std::make_shared<Preview::Transport::Unreliable>(ex);
+        if (!Udp->Connect(remote))
         {
             return nullptr;
         }
-        const auto psk = cfg.UsePsk ? cfg.psk : DerivePsk(cfg.password);
-        return std::make_shared<Dgram<>>(std::move(udp), psk);
+        const auto Psk = cfg.UsePsk ? cfg.Psk : DerivePsk(cfg.password);
+        return std::make_shared<Dgram<>>(std::move(Udp), Psk);
     }
 
     /**
@@ -144,18 +144,18 @@ namespace Preview::Shadowsocks2022
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, ss::Message, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(cfg.password);
-        auto [err, req] = co_await c->ReadHandshake(std::move(upstream));
+        auto C = std::make_shared<Conn<>>(cfg.password, cfg.TimeWindow);
+        auto [Err, req] = co_await C->ReadHandshake(std::move(upstream));
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{err, std::move(req), std::move(Conn)};
+        co_return std::tuple{Err, std::move(req), std::move(Conn)};
     }
 
     /**
@@ -172,19 +172,19 @@ namespace Preview::Shadowsocks2022
                                             net::ip::udp::endpoint *bound = nullptr)
         -> SharedDgram
     {
-        auto udp = std::make_shared<Preview::Transport::Unreliable>(ex);
-        if (!udp->Bind(port))
+        auto Udp = std::make_shared<Preview::Transport::Unreliable>(ex);
+        if (!Udp->Bind(port))
         {
             return nullptr;
         }
         if (bound)
         {
-            *bound = udp->LocalEndpoint();
+            *bound = Udp->LocalEndpoint();
         }
-        return std::make_shared<Dgram<>>(std::move(udp), DerivePsk(cfg.password));
+        return std::make_shared<Dgram<>>(std::move(Udp), DerivePsk(cfg.password));
     }
 
-    // 编解码类型 re-export（ss2022 命名空间 → shadowsocks2022）
+    // 编解码类型 re-export（Codec.hpp 定义，供外部以本命名空间直接引用）
     using Preview::Shadowsocks2022::Address;
     using Preview::Shadowsocks2022::AddressType;
     using Preview::Shadowsocks2022::Message;

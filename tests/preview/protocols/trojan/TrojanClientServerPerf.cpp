@@ -64,7 +64,7 @@ namespace
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                      Trojan::ServerConfig{"pw123456"});
-                         if (err != Error::none)
+                         if (err != Error::None)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
@@ -75,7 +75,7 @@ namespace
                          while (got < kTotal)
                          {
                              std::error_code ec;
-                             const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                             const auto n = co_await Conn->async_read_some(buf, ec);
                              if (ec || n == 0)
                              {
                                  break;
@@ -90,7 +90,7 @@ namespace
                      auto [herr, cli] =
                          co_await Trojan::Connect(std::make_shared<MemoryStream>(std::move(a)),
                                                   Trojan::ClientConfig{"pw123456"}, make_dst());
-                     if (herr != Error::none || !cli)
+                     if (herr != Error::None || !cli)
                      {
                          EXPECT_TRUE(false) << "Connect Failed";
                          co_return;
@@ -109,7 +109,7 @@ namespace
                          while (Done < n)
                          {
                              std::error_code ec;
-                             const auto w = co_await cli->AsyncWriteSome(
+                             const auto w = co_await cli->async_write_some(
                                  std::span<const std::byte>(
                                      reinterpret_cast<const std::byte *>(payload.data() + Done), n - Done),
                                  ec);
@@ -145,7 +145,7 @@ namespace
                 {
                     auto [err, req, Conn] = co_await Trojan::Accept(
                         std::make_shared<MemoryStream>(std::move(b)), Trojan::ServerConfig{"pw123456"});
-                    if (err != Error::none)
+                    if (err != Error::None)
                     {
                         co_return;
                     }
@@ -153,12 +153,12 @@ namespace
                     while (true)
                     {
                         std::error_code ec;
-                        const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                        const auto n = co_await Conn->async_read_some(buf, ec);
                         if (ec || n == 0)
                         {
                             break;
                         }
-                        co_await Conn->AsyncWriteSome(std::span(buf.data(), n), ec);
+                        co_await Conn->async_write_some(std::span(buf.data(), n), ec);
                     }
                     Conn->Close();
                 };
@@ -166,13 +166,13 @@ namespace
 
                 auto [herr, cli] = co_await Trojan::Connect(std::make_shared<MemoryStream>(std::move(a)),
                                                             Trojan::ClientConfig{"pw123456"}, make_dst());
-                if (herr != Error::none || !cli)
+                if (herr != Error::None || !cli)
                 {
                     co_return;
                 }
                 BenchOptions opt;
                 opt.Total = 64 * 1024 * 1024;
-                opt.block = 64 * 1024;
+                opt.Block = 64 * 1024;
                 tp = co_await BenchThroughputTx(*cli, *cli, opt);
                 // 延迟用新连接（回环小包 RTT）
                 auto [a2, b2] = MakeMemoryPair(ioc.get_executor());
@@ -180,7 +180,7 @@ namespace
                 {
                     auto [err, req, Conn] = co_await Trojan::Accept(
                         std::make_shared<MemoryStream>(std::move(b2)), Trojan::ServerConfig{"pw123456"});
-                    if (err != Error::none)
+                    if (err != Error::None)
                     {
                         co_return;
                     }
@@ -188,33 +188,33 @@ namespace
                     while (true)
                     {
                         std::error_code ec;
-                        const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                        const auto n = co_await Conn->async_read_some(buf, ec);
                         if (ec || n == 0)
                         {
                             break;
                         }
-                        co_await Conn->AsyncWriteSome(std::span(buf.data(), n), ec);
+                        co_await Conn->async_write_some(std::span(buf.data(), n), ec);
                     }
                     Conn->Close();
                 };
                 net::co_spawn(ioc.get_executor(), server_coro2(), net::detached);
                 auto [herr2, cli2] = co_await Trojan::Connect(std::make_shared<MemoryStream>(std::move(a2)),
                                                               Trojan::ClientConfig{"pw123456"}, make_dst());
-                if (herr2 != Error::none || !cli2)
+                if (herr2 != Error::None || !cli2)
                 {
                     co_return;
                 }
                 BenchOptions lopt;
                 lopt.Total = 1000 * 4 * 1024;
-                lopt.block = 4 * 1024;
+                lopt.Block = 4 * 1024;
                 lat = co_await BenchThroughputTx(*cli2, *cli2, lopt);
                 cli2->Close();
             });
 
         std::printf("trojan throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min "
                     "%.3f max %.3f) samples=%zu\n",
-                    tp.mbps, lat.LatencyAvg, lat.LatencyP50, lat.LatencyP95, lat.LatencyP99,
-                    lat.LatencyMin, lat.LatencyMax, lat.samples);
+                    tp.Mbps, lat.LatencyAvg, lat.LatencyP50, lat.LatencyP95, lat.LatencyP99,
+                    lat.LatencyMin, lat.LatencyMax, lat.Samples);
     }
 
 } // namespace

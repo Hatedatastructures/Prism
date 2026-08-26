@@ -125,9 +125,9 @@ namespace
         {
             co_return;
         }
-        auto inbound = psm::transport::make_reliable(std::move(socket));
+        auto Inbound = psm::transport::make_reliable(std::move(socket));
 
-        psm::runtime::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
+        psm::runtime::session::session_params params{server_ctx, worker_ctx, std::move(Inbound)};
         auto session_ptr = psm::runtime::session::make_session(std::move(params));
 
         session_ptr->start();
@@ -147,8 +147,8 @@ namespace
                 co_return;
             }
 
-            auto inbound = psm::transport::make_reliable(std::move(socket));
-            psm::runtime::session::session_params params{server_ctx, worker_ctx, std::move(inbound)};
+            auto Inbound = psm::transport::make_reliable(std::move(socket));
+            psm::runtime::session::session_params params{server_ctx, worker_ctx, std::move(Inbound)};
             auto session_ptr = psm::runtime::session::make_session(std::move(params));
             session_ptr->start();
         }
@@ -682,15 +682,15 @@ namespace
         auto dist = std::make_unique<psm::connect::dialer>(
             psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
-        auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
-        ssl_ctx->set_verify_mode(ssl::verify_none);
+        auto SslCtx = std::make_shared<ssl::context>(ssl::context::tlsv12);
+        SslCtx->set_verify_mode(ssl::verify_none);
 
         psm::settings no_auth_cfg;
 
         psm::resource::process no_auth_server_ctx{
             std::atomic<std::shared_ptr<const psm::settings>>{
                 std::make_shared<const psm::settings>(no_auth_cfg)},
-            ssl_ctx, std::make_shared<psm::user::directory>(psm::memory::system::global_pool())};
+            SslCtx, std::make_shared<psm::user::directory>(psm::memory::system::global_pool())};
 
         auto mr = psm::memory::system::local_pool();
         psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
@@ -722,15 +722,15 @@ namespace
         auto dist = std::make_unique<psm::connect::dialer>(
             psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
-        auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
-        ssl_ctx->set_verify_mode(ssl::verify_none);
+        auto SslCtx = std::make_shared<ssl::context>(ssl::context::tlsv12);
+        SslCtx->set_verify_mode(ssl::verify_none);
 
         psm::settings no_auth_cfg;
 
         psm::resource::process no_auth_server_ctx{
             std::atomic<std::shared_ptr<const psm::settings>>{
                 std::make_shared<const psm::settings>(no_auth_cfg)},
-            ssl_ctx, std::make_shared<psm::user::directory>(psm::memory::system::global_pool())};
+            SslCtx, std::make_shared<psm::user::directory>(psm::memory::system::global_pool())};
 
         auto mr = psm::memory::system::local_pool();
         psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
@@ -762,8 +762,8 @@ namespace
         auto dist = std::make_unique<psm::connect::dialer>(
             psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
-        auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
-        ssl_ctx->set_verify_mode(ssl::verify_none);
+        auto SslCtx = std::make_shared<ssl::context>(ssl::context::tlsv12);
+        SslCtx->set_verify_mode(ssl::verify_none);
 
         // 认证配置: password="test_password", credential=sha224("test_password")
         psm::settings auth_cfg;
@@ -779,7 +779,7 @@ namespace
 
         psm::resource::process auth_server_ctx{std::atomic<std::shared_ptr<const psm::settings>>{
                                                    std::make_shared<const psm::settings>(auth_cfg)},
-                                               ssl_ctx, account_dir};
+                                               SslCtx, account_dir};
 
         auto mr = psm::memory::system::local_pool();
         psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
@@ -811,8 +811,8 @@ namespace
         auto dist = std::make_unique<psm::connect::dialer>(
             psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
-        auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
-        ssl_ctx->set_verify_mode(ssl::verify_none);
+        auto SslCtx = std::make_shared<ssl::context>(ssl::context::tlsv12);
+        SslCtx->set_verify_mode(ssl::verify_none);
 
         psm::settings auth_cfg;
         auth_cfg.protocol.socks5.enable_auth = true;
@@ -827,7 +827,7 @@ namespace
 
         psm::resource::process auth_server_ctx{std::atomic<std::shared_ptr<const psm::settings>>{
                                                    std::make_shared<const psm::settings>(auth_cfg)},
-                                               ssl_ctx, account_dir};
+                                               SslCtx, account_dir};
 
         auto mr = psm::memory::system::local_pool();
         psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};
@@ -859,15 +859,15 @@ namespace
         auto dist = std::make_unique<psm::connect::dialer>(
             psm::connect::dialer_options{*pool, ioc, std::move(dns_cfg)});
 
-        auto ssl_ctx = std::make_shared<ssl::context>(ssl::context::tlsv12);
-        ssl_ctx->set_verify_mode(ssl::verify_none);
+        auto SslCtx = std::make_shared<ssl::context>(ssl::context::tlsv12);
+        SslCtx->set_verify_mode(ssl::verify_none);
 
         psm::settings no_auth_cfg;
 
         psm::resource::process no_auth_server_ctx{
             std::atomic<std::shared_ptr<const psm::settings>>{
                 std::make_shared<const psm::settings>(no_auth_cfg)},
-            ssl_ctx, std::make_shared<psm::user::directory>(psm::memory::system::global_pool())};
+            SslCtx, std::make_shared<psm::user::directory>(psm::memory::system::global_pool())};
 
         auto mr = psm::memory::system::local_pool();
         psm::resource::worker worker_ctx{ioc, std::weak_ptr<psm::resource::worker>{}, mr};

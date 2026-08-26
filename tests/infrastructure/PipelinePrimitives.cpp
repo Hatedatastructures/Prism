@@ -84,7 +84,7 @@ namespace
     class mock_transmission final : public psm::transport::transmission
     {
     public:
-        explicit mock_transmission(net::io_context &ioc) : ioc_(ioc)
+        explicit mock_transmission(net::io_context &ioc) : Ioc_(ioc)
         {
         }
 
@@ -95,7 +95,7 @@ namespace
 
         [[nodiscard]] executor_type executor() const override
         {
-            return ioc_.get_executor();
+            return Ioc_.get_executor();
         }
 
         auto async_read_some(std::span<std::byte>, std::error_code &ec)
@@ -120,7 +120,7 @@ namespace
         }
 
     private:
-        net::io_context &ioc_;
+        net::io_context &Ioc_;
     };
 
     TEST(PipelinePrimitives, PreviewConstruction)

@@ -28,14 +28,14 @@ namespace
     using tcp = net::ip::tcp;
     using namespace psm::handshake::shadowtls;
 
-    auto make_hmac_ctx(std::string_view password, std::span<const std::byte> server_random, char direction)
+    auto make_hmac_ctx(std::string_view password, std::span<const std::byte> ServerRandom, char direction)
         -> std::shared_ptr<HMAC_CTX>
     {
         auto ctx = std::shared_ptr<HMAC_CTX>(HMAC_CTX_new(), HMAC_CTX_free);
         HMAC_Init_ex(ctx.get(), password.data(), static_cast<int>(password.size()), EVP_sha1(), nullptr);
         // safe: SSL HMAC API requires uint8_t*, byte span data is read-only
-        HMAC_Update(ctx.get(), reinterpret_cast<const std::uint8_t *>(server_random.data()),
-                    server_random.size());
+        HMAC_Update(ctx.get(), reinterpret_cast<const std::uint8_t *>(ServerRandom.data()),
+                    ServerRandom.size());
         unsigned char d = static_cast<unsigned char>(direction);
         HMAC_Update(ctx.get(), &d, 1);
         return ctx;
@@ -47,16 +47,16 @@ namespace
         tcp::socket sock(ioc);
 
         const char *password = "test_password";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         for (int i = 0; i < 32; ++i)
         {
-            server_random[i] = std::byte{static_cast<uint8_t>(i)};
+            ServerRandom[i] = std::byte{static_cast<uint8_t>(i)};
         }
 
-        auto write_ctx = make_hmac_ctx(password, server_random, 'S');
-        auto read_ctx = make_hmac_ctx(password, server_random, 'C');
+        auto write_ctx = make_hmac_ctx(password, ServerRandom, 'S');
+        auto read_ctx = make_hmac_ctx(password, ServerRandom, 'C');
 
-        shadowtls_handover handover{password, server_random, {}, write_ctx, read_ctx};
+        shadowtls_handover handover{password, ServerRandom, {}, write_ctx, read_ctx};
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
         shadowtls_transport transport(std::move(reliable), std::move(handover));
@@ -69,8 +69,8 @@ namespace
         EXPECT_EQ(transport.initial_offset_, 0) << "hmac: init_off=0";
         EXPECT_TRUE(transport.pending_buffer_.empty()) << "hmac: pending empty";
 
-        EXPECT_TRUE(std::memcmp(transport.server_random_.data(), server_random.data(), 32) == 0)
-            << "hmac: server_random copied";
+        EXPECT_TRUE(std::memcmp(transport.server_random_.data(), ServerRandom.data(), 32) == 0)
+            << "hmac: ServerRandom copied";
     }
 
     TEST(ShadowtlsTransportDeep, ConstructWithInitialData)
@@ -79,12 +79,12 @@ namespace
         tcp::socket sock(ioc);
 
         const char *password = "pwd";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
         std::byte init_data[] = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
 
-        auto write_ctx = make_hmac_ctx(password, server_random, 'S');
+        auto write_ctx = make_hmac_ctx(password, ServerRandom, 'S');
 
-        shadowtls_handover handover{password, server_random, init_data, write_ctx, nullptr};
+        shadowtls_handover handover{password, ServerRandom, init_data, write_ctx, nullptr};
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
         shadowtls_transport transport(std::move(reliable), std::move(handover));
@@ -100,9 +100,9 @@ namespace
         tcp::socket sock(ioc);
 
         const char *password = "pwd";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
 
-        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
+        shadowtls_handover handover{password, ServerRandom, {}, nullptr, nullptr};
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
         shadowtls_transport transport(std::move(reliable), std::move(handover));
@@ -117,9 +117,9 @@ namespace
         tcp::socket sock(ioc);
 
         const char *password = "pwd";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
 
-        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
+        shadowtls_handover handover{password, ServerRandom, {}, nullptr, nullptr};
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
         shadowtls_transport transport(std::move(reliable), std::move(handover));
@@ -134,9 +134,9 @@ namespace
         tcp::socket sock(ioc);
 
         const char *password = "pwd";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
 
-        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
+        shadowtls_handover handover{password, ServerRandom, {}, nullptr, nullptr};
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
         shadowtls_transport transport(std::move(reliable), std::move(handover));
@@ -151,9 +151,9 @@ namespace
         tcp::socket sock(ioc);
 
         const char *password = "pwd";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
 
-        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
+        shadowtls_handover handover{password, ServerRandom, {}, nullptr, nullptr};
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
         shadowtls_transport transport(std::move(reliable), std::move(handover));
@@ -174,9 +174,9 @@ namespace
         tcp::socket sock(ioc);
 
         const char *password = "pwd";
-        std::array<std::byte, 32> server_random{};
+        std::array<std::byte, 32> ServerRandom{};
 
-        shadowtls_handover handover{password, server_random, {}, nullptr, nullptr};
+        shadowtls_handover handover{password, ServerRandom, {}, nullptr, nullptr};
 
         auto reliable = std::make_shared<psm::transport::reliable>(std::move(sock));
         shadowtls_transport transport(std::move(reliable), std::move(handover));

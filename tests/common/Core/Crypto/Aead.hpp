@@ -1,5 +1,5 @@
 /**
- * @file aead.hpp
+ * @file Aead.hpp
  * @brief AEAD 加密解密工具
  * @details 包装 BoringSSL 的 EVP_AEAD API，提供类型安全的加解密接口。
  * 支持 AES-128-GCM、AES-256-GCM、ChaCha20-Poly1305、XChaCha20-Poly1305。
@@ -23,8 +23,8 @@
 #include <memory>
 #include <span>
 
-// 前向声明，避免暴露 OpenSSL 头文件
-struct EvpAeadCtxSt;
+// 前向声明，避免暴露 OpenSSL 头文件（BoringSSL 真实类型名，C 结构体保持生态命名）
+struct evp_aead_ctx_st;
 
 namespace Preview::Crypto
 {
@@ -38,13 +38,13 @@ namespace Preview::Crypto
     enum class AeadCipher : std::uint8_t
     {
         /** @brief AES-128-GCM，16 字节密钥，12 字节 Nonce */
-        aes_128_gcm,
+        Aes128Gcm,
         /** @brief AES-256-GCM，32 字节密钥，12 字节 Nonce */
-        aes_256_gcm,
+        Aes256Gcm,
         /** @brief ChaCha20-Poly1305，32 字节密钥，12 字节 Nonce */
-        chacha20_poly1305,
+        Chacha20Poly1305,
         /** @brief XChaCha20-Poly1305，32 字节密钥，24 字节 Nonce */
-        xchacha20_poly1305
+        Xchacha20Poly1305
     };
 
     /**
@@ -117,7 +117,7 @@ namespace Preview::Crypto
         /**
          * @brief 移动构造函数
          * @details 转移 BoringSSL 上下文和 Nonce 状态的所有权。
-         * 移动后源对象处于无效状态，ctx_ 为 nullptr。
+         * 移动后源对象处于无效状态，Ctx_ 为 nullptr。
          * @param other 源对象
          */
         AeadContext(AeadContext &&other) noexcept;
@@ -125,7 +125,7 @@ namespace Preview::Crypto
         /**
          * @brief 移动赋值运算符
          * @details 释放当前资源后转移源对象的所有权。
-         * 移动后源对象处于无效状态，ctx_ 为 nullptr。
+         * 移动后源对象处于无效状态，Ctx_ 为 nullptr。
          * @param other 源对象
          * @return 当前对象的引用
          */
@@ -138,7 +138,7 @@ namespace Preview::Crypto
          * @param out 输出缓冲区（密文 + tag），大小 = plaintext.size() + TagLength()
          * @param plaintext 明文
          * @param ad 附加数据（可选）
-         * @return 成功返回 Fault::Code::success，失败返回 crypto_error
+         * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
          */
         [[nodiscard]] auto Seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext,
                                 std::span<const std::uint8_t> ad = {}) -> Fault::Code;
@@ -150,7 +150,7 @@ namespace Preview::Crypto
          * @param out 输出缓冲区（明文），大小 = ciphertext.size() - TagLength()
          * @param ciphertext 密文 + tag
          * @param ad 附加数据（可选）
-         * @return 成功返回 Fault::Code::success，失败返回 crypto_error
+         * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
          */
         [[nodiscard]] auto Open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext,
                                 std::span<const std::uint8_t> ad = {}) -> Fault::Code;
@@ -160,7 +160,7 @@ namespace Preview::Crypto
          * @details 使用显式 Nonce 加密明文，不修改内部 Nonce 状态。
          * 适用于 UDP 逐包加密等无状态场景。
          * @param input 加密参数（输出缓冲区、明文、Nonce、附加数据）
-         * @return 成功返回 Fault::Code::success，失败返回 crypto_error
+         * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
          */
         [[nodiscard]] auto Seal(SealInput input) -> Fault::Code;
 
@@ -169,7 +169,7 @@ namespace Preview::Crypto
          * @details 使用显式 Nonce 解密密文，不修改内部 Nonce 状态。
          * 适用于 UDP 逐包解密等无状态场景。
          * @param input 解密参数（输出缓冲区、密文、Nonce、附加数据）
-         * @return 成功返回 Fault::Code::success，失败返回 crypto_error
+         * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
          */
         [[nodiscard]] auto Open(OpenInput input) -> Fault::Code;
 
@@ -201,31 +201,31 @@ namespace Preview::Crypto
          */
         [[nodiscard]] auto Nonce() const noexcept -> const std::array<std::uint8_t, 24> &
         {
-            return nonce_;
+            return Nonce_;
         }
 
         /**
          * @brief 计算 Seal 输出缓冲区所需大小
          * @details 明文加密后输出长度 = 明文长度 + tag 长度。
-         * @param plaintext_len 明文长度
+         * @param PlaintextLen 明文长度
          * @return std::size_t 输出缓冲区所需大小
          */
-        [[nodiscard]] static constexpr auto SealSize(std::size_t plaintext_len) noexcept -> std::size_t
+        [[nodiscard]] static constexpr auto SealSize(std::size_t PlaintextLen) noexcept -> std::size_t
         {
-            return plaintext_len + TagLength();
+            return PlaintextLen + TagLength();
         }
 
         /**
          * @brief 计算 Open 输出缓冲区所需大小
          * @details 密文解密后输出长度 = 密文长度 - tag 长度。
-         * @param ciphertext_len 密文长度（含 tag）
+         * @param CiphertextLen 密文长度（含 tag）
          * @return std::size_t 输出缓冲区所需大小
          */
-        [[nodiscard]] static constexpr auto OpenSize(std::size_t ciphertext_len) noexcept -> std::size_t
+        [[nodiscard]] static constexpr auto OpenSize(std::size_t CiphertextLen) noexcept -> std::size_t
         {
-            if (ciphertext_len >= TagLength())
+            if (CiphertextLen >= TagLength())
             {
-                return ciphertext_len - TagLength();
+                return CiphertextLen - TagLength();
             }
             return 0;
         }
@@ -246,17 +246,17 @@ namespace Preview::Crypto
          */
         [[nodiscard]] auto IsNonceExhausted() const noexcept -> bool;
 
-        static void ReleaseCtx(EvpAeadCtxSt *ctx) noexcept;
+        static void ReleaseCtx(evp_aead_ctx_st *ctx) noexcept;
 
-        std::unique_ptr<EvpAeadCtxSt, void (*)(EvpAeadCtxSt *) noexcept> ctx_; // BoringSSL AEAD 上下文
-        std::array<std::uint8_t, 24> nonce_{}; // 当前 Nonce 值（最大 24 字节）
+        std::unique_ptr<evp_aead_ctx_st, void (*)(evp_aead_ctx_st *) noexcept> Ctx_; // BoringSSL AEAD 上下文
+        std::array<std::uint8_t, 24> Nonce_{}; // 当前 Nonce 值（最大 24 字节）
         std::size_t KeyLength_{0};            // 密钥长度
         std::size_t NonceLen_{12};            // Nonce 长度（12 或 24 字节）
     };
 
 
 
-    inline void AeadContext::ReleaseCtx(EvpAeadCtxSt *ctx) noexcept
+    inline void AeadContext::ReleaseCtx(evp_aead_ctx_st *ctx) noexcept
     {
         if (ctx)
         {
@@ -266,24 +266,24 @@ namespace Preview::Crypto
     }
 
     inline AeadContext::AeadContext(const AeadCipher cipher, std::span<const std::uint8_t> key)
-        : ctx_(nullptr, &ReleaseCtx), KeyLength_(key.size())
+        : Ctx_(nullptr, &ReleaseCtx), KeyLength_(key.size())
     {
         const EVP_AEAD *aead = nullptr;
         switch (cipher)
         {
-        case AeadCipher::aes_128_gcm:
+        case AeadCipher::Aes128Gcm:
             aead = EVP_aead_aes_128_gcm();
             NonceLen_ = 12;
             break;
-        case AeadCipher::aes_256_gcm:
+        case AeadCipher::Aes256Gcm:
             aead = EVP_aead_aes_256_gcm();
             NonceLen_ = 12;
             break;
-        case AeadCipher::chacha20_poly1305:
+        case AeadCipher::Chacha20Poly1305:
             aead = EVP_aead_chacha20_poly1305();
             NonceLen_ = 12;
             break;
-        case AeadCipher::xchacha20_poly1305:
+        case AeadCipher::Xchacha20Poly1305:
             aead = EVP_aead_xchacha20_poly1305();
             NonceLen_ = 24;
             break;
@@ -303,27 +303,27 @@ namespace Preview::Crypto
             delete RawCtx;
             return;
         }
-        ctx_.reset(RawCtx);
+        Ctx_.reset(RawCtx);
     }
 
     inline AeadContext::~AeadContext() = default;
 
     inline AeadContext::AeadContext(AeadContext &&other) noexcept
-        : ctx_(std::move(other.ctx_)), nonce_(other.nonce_), KeyLength_(other.KeyLength_),
+        : Ctx_(std::move(other.Ctx_)), Nonce_(other.Nonce_), KeyLength_(other.KeyLength_),
           NonceLen_(other.NonceLen_)
     {
-        other.nonce_.fill(0);
+        other.Nonce_.fill(0);
     }
 
     inline auto AeadContext::operator=(AeadContext &&other) noexcept -> AeadContext &
     {
         if (this != &other)
         {
-            ctx_ = std::move(other.ctx_);
-            nonce_ = other.nonce_;
+            Ctx_ = std::move(other.Ctx_);
+            Nonce_ = other.Nonce_;
             KeyLength_ = other.KeyLength_;
             NonceLen_ = other.NonceLen_;
-            other.nonce_.fill(0);
+            other.Nonce_.fill(0);
         }
         return *this;
     }
@@ -331,103 +331,103 @@ namespace Preview::Crypto
     inline auto AeadContext::Seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext,
                             const std::span<const std::uint8_t> ad) -> Fault::Code
     {
-        if (!ctx_)
+        if (!Ctx_)
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
         if (IsNonceExhausted())
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
         std::size_t OutLen = 0;
         const auto Result =
-            EVP_AEAD_CTX_seal(ctx_.get(), out.data(), &OutLen, out.size(), nonce_.data(), NonceLen_,
+            EVP_AEAD_CTX_seal(Ctx_.get(), out.data(), &OutLen, out.size(), Nonce_.data(), NonceLen_,
                               plaintext.data(), plaintext.size(), ad.data(), ad.size());
 
         if (!Result)
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
         IncrementNonce();
-        return Fault::Code::success;
+        return Fault::Code::Success;
     }
 
     inline auto AeadContext::Open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext,
                             const std::span<const std::uint8_t> ad) -> Fault::Code
     {
-        if (!ctx_)
+        if (!Ctx_)
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
         if (IsNonceExhausted())
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
         std::size_t OutLen = 0;
         const auto Result =
-            EVP_AEAD_CTX_open(ctx_.get(), out.data(), &OutLen, out.size(), nonce_.data(), NonceLen_,
+            EVP_AEAD_CTX_open(Ctx_.get(), out.data(), &OutLen, out.size(), Nonce_.data(), NonceLen_,
                               ciphertext.data(), ciphertext.size(), ad.data(), ad.size());
 
         if (!Result)
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
         IncrementNonce();
-        return Fault::Code::success;
+        return Fault::Code::Success;
     }
 
     inline auto AeadContext::Seal(SealInput input) -> Fault::Code
     {
-        if (!ctx_)
+        if (!Ctx_)
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
         std::size_t OutLen = 0;
-        const auto Result = EVP_AEAD_CTX_seal(ctx_.get(), input.out.data(), &OutLen, input.out.size(),
+        const auto Result = EVP_AEAD_CTX_seal(Ctx_.get(), input.out.data(), &OutLen, input.out.size(),
                                               input.Nonce.data(), input.Nonce.size(), input.plaintext.data(),
                                               input.plaintext.size(), input.ad.data(), input.ad.size());
 
         if (!Result)
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
-        return Fault::Code::success;
+        return Fault::Code::Success;
     }
 
     inline auto AeadContext::Open(OpenInput input) -> Fault::Code
     {
-        if (!ctx_)
+        if (!Ctx_)
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
         std::size_t OutLen = 0;
-        const auto Result = EVP_AEAD_CTX_open(ctx_.get(), input.out.data(), &OutLen, input.out.size(),
+        const auto Result = EVP_AEAD_CTX_open(Ctx_.get(), input.out.data(), &OutLen, input.out.size(),
                                               input.Nonce.data(), input.Nonce.size(), input.ciphertext.data(),
                                               input.ciphertext.size(), input.ad.data(), input.ad.size());
 
         if (!Result)
         {
-            return Fault::Code::crypto_error;
+            return Fault::Code::CryptoError;
         }
 
-        return Fault::Code::success;
+        return Fault::Code::Success;
     }
 
     inline void AeadContext::IncrementNonce() noexcept
     {
-        for (std::size_t i = 0; i < NonceLen_; ++i)
+        for (std::size_t I = 0; I < NonceLen_; ++I)
         {
-            nonce_[i]++;
-            if (nonce_[i] != 0)
+            Nonce_[I]++;
+            if (Nonce_[I] != 0)
             {
                 return;
             }
@@ -436,9 +436,9 @@ namespace Preview::Crypto
 
     inline auto AeadContext::IsNonceExhausted() const noexcept -> bool
     {
-        for (std::size_t i = 0; i < NonceLen_; ++i)
+        for (std::size_t I = 0; I < NonceLen_; ++I)
         {
-            if (nonce_[i] != 0xFF)
+            if (Nonce_[I] != 0xFF)
             {
                 return false;
             }

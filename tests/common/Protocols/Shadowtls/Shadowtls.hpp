@@ -1,5 +1,5 @@
 /**
- * @file shadowtls.hpp
+ * @file Shadowtls.hpp
  * @brief ShadowTLS v3 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / Accept ——认证握手在工厂内部完成
@@ -62,27 +62,27 @@ namespace Preview::Shadowtls
      * @brief 创建客户端流连接并完成 SessionId 认证握手
      * @param upstream 上游传输（所有权移交）
      * @param cfg 客户端配置
-     * @param server_random 服务端随机数（32 字节）
-     * @param client_random 客户端随机数（32 字节）
+     * @param ServerRandom 服务端随机数（32 字节）
+     * @param ClientRandom 客户端随机数（32 字节）
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Connect(SharedTransmission upstream, const ClientConfig &cfg,
-                                      std::span<const std::uint8_t> server_random,
-                                      std::span<const std::uint8_t> client_random)
+                                      std::span<const std::uint8_t> ServerRandom,
+                                      std::span<const std::uint8_t> ClientRandom)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto err = co_await c->WriteHandshake(server_random, client_random);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
+        const auto Err = co_await C->WriteHandshake(ServerRandom, ClientRandom);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -94,18 +94,18 @@ namespace Preview::Shadowtls
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto err = co_await c->ReadHandshake();
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
+        const auto Err = co_await C->ReadHandshake();
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
 } // namespace Preview::Shadowtls

@@ -1,5 +1,5 @@
 /**
- * @file keygen.hpp
+ * @file Keygen.hpp
  * @brief ECH 密钥生成与 SSL_ECH_KEYS 构造（移植自主项目 handshake/ech/util/keygen）
  * @details 基于 BoringSSL EVP_HPKE_KEY + SSL_marshal_ech_config：
  *          - GenerateKeypair：随机 X25519 密钥 + ECHConfig 序列化
@@ -39,24 +39,24 @@ namespace Preview::Ech
 
     /**
      * @brief 生成新的 ECH 密钥对
-     * @param public_name 公开伪装域名
-     * @param max_name_len 最大域名长度（影响客户端填充）
+     * @param PublicName 公开伪装域名
+     * @param MaxNameLen 最大域名长度（影响客户端填充）
      * @param out 输出密钥对
      * @return 错误码
      */
-    [[nodiscard]] auto GenerateKeypair(std::string_view public_name, std::size_t max_name_len,
+    [[nodiscard]] auto GenerateKeypair(std::string_view PublicName, std::size_t MaxNameLen,
                                         EchKeypair &out) -> Preview::Fault::Code;
 
     /**
      * @brief 由私钥恢复 ECHConfig
      * @param private_key 32 字节 X25519 私钥
-     * @param public_name 公开伪装域名
-     * @param max_name_len 最大域名长度
+     * @param PublicName 公开伪装域名
+     * @param MaxNameLen 最大域名长度
      * @param out 输出密钥对（含 ECHConfig）
      * @return 错误码
      */
     [[nodiscard]] auto KeypairFromPrivate(std::span<const std::uint8_t, PrivateKeyLen> private_key,
-                                            std::string_view public_name, std::size_t max_name_len,
+                                            std::string_view PublicName, std::size_t MaxNameLen,
                                             EchKeypair &out) -> Preview::Fault::Code;
 
     /**
@@ -109,9 +109,9 @@ namespace
     }
 
     inline auto BuildConfigList(std::span<const std::uint8_t> EchConfig)
-        -> Preview::Memory::vector<std::uint8_t>
+        -> std::vector<std::uint8_t>
     {
-        Preview::Memory::vector<std::uint8_t> List;
+        std::vector<std::uint8_t> List;
         List.reserve(2 + EchConfig.size());
         List.push_back(static_cast<std::uint8_t>(EchConfig.size() >> 8));
         List.push_back(static_cast<std::uint8_t>(EchConfig.size() & 0xFF));
@@ -123,18 +123,18 @@ namespace
 namespace Preview::Ech
 {
 
-    inline auto GenerateKeypair(std::string_view public_name, std::size_t max_name_len,
+    inline auto GenerateKeypair(std::string_view PublicName, std::size_t MaxNameLen,
                                  EchKeypair &out) -> Preview::Fault::Code
     {
         auto *raw = EVP_HPKE_KEY_new();
         if (!raw)
         {
-            return Preview::Fault::Code::crypto_error;
+            return Preview::Fault::Code::CryptoError;
         }
         if (!EVP_HPKE_KEY_generate(raw, EVP_hpke_x25519_hkdf_sha256()))
         {
             EVP_HPKE_KEY_free(raw);
-            return Preview::Fault::Code::crypto_error;
+            return Preview::Fault::Code::CryptoError;
         }
         HpkeKeyPtr key(raw, &HpkeKeyFree);
 
@@ -142,52 +142,52 @@ namespace Preview::Ech
         std::size_t PrivateLen = 0;
         if (!EVP_HPKE_KEY_private_key(key.get(), private_key.data(), &PrivateLen, private_key.size()))
         {
-            return Preview::Fault::Code::crypto_error;
+            return Preview::Fault::Code::CryptoError;
         }
 
         std::uint8_t ConfigId = 0;
         if (RAND_bytes(&ConfigId, 1) != 1)
         {
-            return Preview::Fault::Code::crypto_error;
+            return Preview::Fault::Code::CryptoError;
         }
-        std::uint8_t *config_out = nullptr;
+        std::uint8_t *ConfigOut = nullptr;
         std::size_t ConfigLen = 0;
-        if (!SSL_marshal_ech_config(&config_out, &ConfigLen, ConfigId, key.get(),
-                                    std::string(public_name).c_str(), max_name_len))
+        if (!SSL_marshal_ech_config(&ConfigOut, &ConfigLen, ConfigId, key.get(),
+                                    std::string(PublicName).c_str(), MaxNameLen))
         {
-            return Preview::Fault::Code::crypto_error;
+            return Preview::Fault::Code::CryptoError;
         }
 
         std::copy(private_key.begin(), private_key.end(), out.private_key.begin());
-        out.EchConfig.assign(config_out, config_out + ConfigLen);
-        OPENSSL_free(config_out);
+        out.EchConfig.assign(ConfigOut, ConfigOut + ConfigLen);
+        OPENSSL_free(ConfigOut);
         out.EchConfigList = BuildConfigList(out.EchConfig);
-        return Preview::Fault::Code::success;
+        return Preview::Fault::Code::Success;
     }
 
     inline auto KeypairFromPrivate(std::span<const std::uint8_t, PrivateKeyLen> private_key,
-                                     std::string_view public_name, std::size_t max_name_len,
+                                     std::string_view PublicName, std::size_t MaxNameLen,
                                      EchKeypair &out) -> Preview::Fault::Code
     {
         auto key = MakeHpkeKey(private_key);
         if (!key)
         {
-            return Preview::Fault::Code::crypto_error;
+            return Preview::Fault::Code::CryptoError;
         }
 
-        std::uint8_t *config_out = nullptr;
+        std::uint8_t *ConfigOut = nullptr;
         std::size_t ConfigLen = 0;
-        if (!SSL_marshal_ech_config(&config_out, &ConfigLen, 0, key.get(), std::string(public_name).c_str(),
-                                    max_name_len))
+        if (!SSL_marshal_ech_config(&ConfigOut, &ConfigLen, 0, key.get(), std::string(PublicName).c_str(),
+                                    MaxNameLen))
         {
-            return Preview::Fault::Code::crypto_error;
+            return Preview::Fault::Code::CryptoError;
         }
 
         std::copy(private_key.begin(), private_key.end(), out.private_key.begin());
-        out.EchConfig.assign(config_out, config_out + ConfigLen);
-        OPENSSL_free(config_out);
+        out.EchConfig.assign(ConfigOut, ConfigOut + ConfigLen);
+        OPENSSL_free(ConfigOut);
         out.EchConfigList = BuildConfigList(out.EchConfig);
-        return Preview::Fault::Code::success;
+        return Preview::Fault::Code::Success;
     }
 
     inline auto MakeEchKeys(std::span<const std::uint8_t, PrivateKeyLen> private_key,

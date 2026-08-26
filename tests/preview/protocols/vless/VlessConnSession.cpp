@@ -130,7 +130,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
@@ -141,10 +141,10 @@ namespace
                          EXPECT_EQ(Conn->Parsed().Target.Host, "example.com");
                          std::array<std::byte, 1024> buf{};
                          std::error_code ec;
-                         const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                         const auto n = co_await Conn->async_read_some(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
-                         co_await Conn->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+                         co_await Conn->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
@@ -156,13 +156,13 @@ namespace
                                                              443));
                      wire.insert(wire.end(), payload.begin(), payload.end());
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      // 读取 2 字节响应 [Version][Addons Len]
                      std::array<std::uint8_t, 2> resp{};
                      std::size_t got = 0;
                      while (got < resp.size())
                      {
-                         const auto n = co_await a.AsyncReadSome(
+                         const auto n = co_await a.async_read_some(
                              AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
                          if (ec || n == 0)
                          {
@@ -177,7 +177,7 @@ namespace
                      got = 0;
                      while (got < payload.size())
                      {
-                         const auto n = co_await a.AsyncReadSome(
+                         const auto n = co_await a.async_read_some(
                              std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
                          if (ec || n == 0)
                          {
@@ -205,7 +205,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              co_return;
                          }
@@ -222,7 +222,7 @@ namespace
                      auto [herr, cli] = co_await Vless::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vless::AddressType::Ipv4, "1.2.3.4", 80));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (cli)
                      {
                          cli->Close();
@@ -247,17 +247,17 @@ namespace
                          auto [err, req, dg] =
                              co_await Vless::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
                                                            cfg);
-                         if (err != Error::none || !dg)
+                         if (err != Error::None || !dg)
                          {
                              EXPECT_TRUE(false) << "AcceptPacket Failed";
                              co_return;
                          }
                          EXPECT_EQ(req.Cmd, Vless::Command::Udp);
-                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::udp);
+                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::Udp);
                          Vless::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto rerr = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(rerr, Error::none);
+                         EXPECT_EQ(rerr, Error::None);
                          EXPECT_EQ(src.Type, Vless::AddressType::Domain);
                          EXPECT_EQ(src.Host, "example.com");
                          EXPECT_EQ(src.Port, 53u);
@@ -272,7 +272,7 @@ namespace
                      auto [herr, dg] = co_await Vless::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vless::AddressType::Domain, "example.com", 53));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!dg)
                      {
                          co_return;
@@ -282,7 +282,7 @@ namespace
                          make_addr(Vless::AddressType::Domain, "example.com", 53),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(serr, Error::none);
+                     EXPECT_EQ(serr, Error::None);
                      dg->Close();
                  });
     }
@@ -303,7 +303,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         EXPECT_EQ(err, Error::bad_magic);
+                         EXPECT_EQ(err, Error::BadMagic);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -314,7 +314,7 @@ namespace
                                                              443));
                      wire[0] = 0x01; // 版本错误
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -328,14 +328,14 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 服务端：addnl_len 非 0 → bad_message
+                     // 服务端：AddnlLen 非 0 → bad_message
                      auto server_coro = [&]() -> net::awaitable<void>
                      {
                          Vless::ServerConfig cfg;
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         EXPECT_EQ(err, Error::bad_message);
+                         EXPECT_EQ(err, Error::BadMessage);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -346,7 +346,7 @@ namespace
                                                              443));
                      wire[17] = 0x02; // addnl len = 2
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -367,7 +367,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         EXPECT_EQ(err, Error::bad_message);
+                         EXPECT_EQ(err, Error::BadMessage);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -377,7 +377,7 @@ namespace
                                                    make_addr(Vless::AddressType::Domain, "example.com",
                                                              443));
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -391,13 +391,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 服务端：enable_tcp=false → not_supported（不发送响应）
+                     // 服务端：EnableTcp=false → not_supported（不发送响应）
                      auto server_coro = [&]() -> net::awaitable<void>
                      {
                          auto c = std::make_shared<Vless::Conn<>>(
                              std::make_shared<MemoryStream>(std::move(b)), uuid);
                          auto [err, req] = co_await c->ReadHandshake(false, true, true);
-                         EXPECT_EQ(err, Error::not_supported);
+                         EXPECT_EQ(err, Error::NotSupported);
                          (void)req;
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -407,10 +407,10 @@ namespace
                                                    make_addr(Vless::AddressType::Domain, "example.com",
                                                              443));
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                      std::array<std::uint8_t, 2> resp{};
-                     const auto n = co_await a.AsyncReadSome(AsBytes(std::span<std::uint8_t>(resp)), ec);
+                     const auto n = co_await a.async_read_some(AsBytes(std::span<std::uint8_t>(resp)), ec);
                      EXPECT_EQ(n, 0u); // 无响应，EOF
                  });
     }
@@ -431,7 +431,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         EXPECT_EQ(err, Error::bad_message);
+                         EXPECT_EQ(err, Error::BadMessage);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -442,7 +442,7 @@ namespace
                                                              443));
                      wire[21] = 0x99; // atyp 非法（offset: ver+uuid+addnl+cmd+port = 21）
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -463,7 +463,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         EXPECT_EQ(err, Error::bad_auth);
+                         EXPECT_EQ(err, Error::BadAuth);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -475,7 +475,7 @@ namespace
                                                    make_addr(Vless::AddressType::Domain, "example.com",
                                                              443));
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -495,7 +495,7 @@ namespace
                      auto [err, cli] = co_await Vless::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vless::AddressType::Ipv4, "1.1.1.1", 80));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      EXPECT_FALSE(cli);
                  });
     }
@@ -513,20 +513,20 @@ namespace
                                                             uuid);
                      EXPECT_TRUE(c->Executor());
                      EXPECT_NE(c->NextLayer(), nullptr);
-                     EXPECT_NE(c->LowestLayer<MemoryStream>(), nullptr);
+                     EXPECT_NE(c->lowest_layer<MemoryStream>(), nullptr);
                      const Vless::Conn<> *const_c = c.get();
                      EXPECT_NE(const_c->NextLayer(), nullptr);
                      const std::string p = "passthrough";
                      std::error_code ec;
-                     co_await c->AsyncWriteSome(
+                     co_await c->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(p.data()),
                                                     p.size()),
                          ec);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 64> buf{};
-                     const auto n = co_await b.AsyncReadSome(buf, ec);
+                     const auto n = co_await b.async_read_some(buf, ec);
                      EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), p);
-                     co_await b.AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
+                     co_await b.async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
                      std::array<std::uint8_t, 4> dst{};
                      const auto Ok = co_await c->ReadExact(std::span<std::uint8_t>(dst));
                      EXPECT_FALSE(Ok);
@@ -553,7 +553,7 @@ namespace
                          make_addr(Vless::AddressType::Domain, "example.com", 53),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      dg->Close();
                  });
     }
@@ -574,14 +574,14 @@ namespace
                          Vless::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::bad_message);
+                         EXPECT_EQ(err, Error::BadMessage);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
                      const std::array<std::uint8_t, 1> atyp{0x99};
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(atyp)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(atyp)), ec);
                      a.Close();
                  });
     }
@@ -602,7 +602,7 @@ namespace
                          Vless::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::unexpected_eof);
+                         EXPECT_EQ(err, Error::UnexpectedEof);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -610,7 +610,7 @@ namespace
                      // [ATYP=1][IPv4 4B][Port 2B] 无载荷，随后关闭
                      const std::array<std::uint8_t, 7> wire{0x01, 1, 2, 3, 4, 0x00, 0x50};
                      std::error_code ec;
-                     co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
                      a.Close();
                  });
     }
@@ -628,16 +628,16 @@ namespace
                      // 透传读写（passthrough）
                      std::array<std::byte, 8> buf{};
                      std::error_code ec;
-                     const auto w = co_await dg->AsyncWriteSome(
+                     const auto w = co_await dg->async_write_some(
                          std::span<const std::byte>(buf.data(), 4), ec);
                      EXPECT_EQ(w, 4u);
                      a.Close(); // 对端关闭 → 读 EOF → io_error
-                     const auto n = co_await dg->AsyncReadSome(buf, ec);
+                     const auto n = co_await dg->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
                      Vless::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::io_error);
+                     EXPECT_EQ(err, Error::IoError);
                      dg->Close();
                      dg->Cancel();
                      EXPECT_NE(dg->NextLayer(), nullptr);

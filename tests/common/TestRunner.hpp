@@ -13,7 +13,7 @@
 #include <format>
 #include <string_view>
 
-namespace psm::testing
+namespace Preview::Testing
 {
     /**
      * @brief 轻量级测试运行器
@@ -27,20 +27,20 @@ namespace psm::testing
          * @brief 构造测试运行器
          * @param tag 日志标签，用于区分不同测试模块（如 "Session", "Crypto" 等）
          */
-        explicit TestRunner(std::string_view tag) noexcept : tag_(tag)
+        explicit TestRunner(std::string_view tag) noexcept : Tag_(tag)
         {
         }
 
         /** @brief 获取通过计数 */
         [[nodiscard]] auto PassedCount() const noexcept -> int
         {
-            return passed_;
+            return Passed_;
         }
 
         /** @brief 获取失败计数 */
         [[nodiscard]] auto FailedCount() const noexcept -> int
         {
-            return failed_;
+            return Failed_;
         }
 
         /**
@@ -49,7 +49,7 @@ namespace psm::testing
          */
         void LogInfo(std::string_view msg) const
         {
-            psm::diagnose::info("[{}] {}", tag_, msg);
+            psm::diagnose::info("[{}] {}", Tag_, msg);
         }
 
         /**
@@ -58,8 +58,8 @@ namespace psm::testing
          */
         void LogPass(std::string_view msg)
         {
-            ++passed_;
-            psm::diagnose::info("[{}] PASS: {}", tag_, msg);
+            ++Passed_;
+            psm::diagnose::info("[{}] PASS: {}", Tag_, msg);
         }
 
         /**
@@ -68,8 +68,8 @@ namespace psm::testing
          */
         void LogFail(std::string_view msg)
         {
-            ++failed_;
-            psm::diagnose::error("[{}] FAIL: {}", tag_, msg);
+            ++Failed_;
+            psm::diagnose::error("[{}] FAIL: {}", Tag_, msg);
         }
 
         /**
@@ -96,9 +96,9 @@ namespace psm::testing
          */
         [[nodiscard]] auto Summary() -> int
         {
-            psm::diagnose::info("[{}] Results: {} passed, {} failed", tag_, passed_, failed_);
+            psm::diagnose::info("[{}] Results: {} passed, {} failed", Tag_, Passed_, Failed_);
             psm::diagnose::shutdown();
-            if (failed_ > 0)
+            if (Failed_ > 0)
             {
                 return 1;
             }
@@ -106,8 +106,8 @@ namespace psm::testing
         }
 
     private:
-        std::string_view tag_;
-        int passed_ = 0;
-        int failed_ = 0;
+        std::string_view Tag_;
+        int Passed_ = 0;
+        int Failed_ = 0;
     };
-} // namespace psm::testing
+} // namespace Preview::Testing

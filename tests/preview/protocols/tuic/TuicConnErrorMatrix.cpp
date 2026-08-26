@@ -73,14 +73,14 @@ namespace
             {
                 auto [err, req, Conn] =
                     co_await Tuic::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::unexpected_eof); // 半包后 EOF
+                EXPECT_EQ(err, Error::UnexpectedEof); // 半包后 EOF
             };
             net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
             // 只发 Ver + Cmd（缺地址体）后关闭
             const std::vector<std::uint8_t> wire{Tuic::ProtocolVersion, Tuic::CmdConnect};
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(wire)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
             a.Close();
         });
     }
@@ -99,7 +99,7 @@ namespace
                 auto [err, req, Conn] = co_await Tuic::Accept(
                     std::make_shared<MemoryStream>(std::move(b)),
                     Tuic::ServerConfig{make_uuid(), "pw"});
-                EXPECT_EQ(err, Error::none);
+                EXPECT_EQ(err, Error::None);
                 EXPECT_EQ(req.Cmd, Tuic::CmdConnect);
                 EXPECT_EQ(req.dst.Host, "t.internal");
                 EXPECT_EQ(req.dst.Port, 443u);
@@ -113,7 +113,7 @@ namespace
             auto [err, Conn] = co_await Tuic::Connect(
                 std::make_shared<MemoryStream>(std::move(a)), cfg,
                 Tuic::Address{Tuic::AddressType::Domain, "t.internal", 443});
-            EXPECT_EQ(err, Error::none);
+            EXPECT_EQ(err, Error::None);
             EXPECT_NE(Conn, nullptr);
             co_await Done.async_receive(net::use_awaitable);
         });

@@ -44,7 +44,7 @@ namespace Preview::Transport
      * 设计特性包括可靠传输，TCP 保证数据有序送达不丢失不重复；
      * 流式语义，提供流式读写接口支持部分读写；原生访问，
      * 提供 NativeSocket 方法直接访问底层 socket；
-     * 工厂函数，提供 make_reliable 工厂函数简化创建。
+     * 工厂函数，提供 MakeReliable 工厂函数简化创建。
      * @note 该类是传输层的核心实现，所有基于 TCP 的协议都应使用此类。
      *       同步可靠封装：无连接池语义，Close() 直接关闭底层 socket。
      * @warning 关闭后传输层对象不再可用，不应再调用其任何方法。
@@ -61,7 +61,7 @@ namespace Preview::Transport
          * 不打开，需要在后续调用 Open 或 Accept 后才能使用。
          * @param Executor 执行器，用于初始化 socket
          */
-        explicit Reliable(net::any_io_executor Executor) : socket_(Executor)
+        explicit Reliable(net::any_io_executor Executor) : Socket_(Executor)
         {
         }
 
@@ -71,7 +71,7 @@ namespace Preview::Transport
          * Socket 必须已打开并连接。
          * @param socket 已构造的 TCP socket
          */
-        explicit Reliable(SocketType socket) : socket_(std::move(socket))
+        explicit Reliable(SocketType socket) : Socket_(std::move(socket))
         {
         }
 
@@ -89,20 +89,20 @@ namespace Preview::Transport
 
             if (timeout.count() > 0)
             {
-                net::steady_timer timer(socket_->get_executor());
+                net::steady_timer timer(Socket_->get_executor());
                 timer.expires_after(timeout);
-                auto Result = co_await (socket_->async_connect(ep, net::use_awaitable) ||
+                auto Result = co_await (Socket_->async_connect(ep, net::use_awaitable) ||
                                         timer.async_wait(net::use_awaitable));
                 if (Result.index() == 1)
                 {
                     boost::system::error_code ec;
-                    socket_->close(ec);
+                    Socket_->close(ec);
                     co_return boost::system::errc::make_error_code(boost::system::errc::timed_out);
                 }
             }
             else
             {
-                co_await socket_->async_connect(ep, net::use_awaitable);
+                co_await Socket_->async_connect(ep, net::use_awaitable);
             }
             co_return boost::system::error_code{};
         }
@@ -146,32 +146,32 @@ namespace Preview::Transport
 
         /**
          * @brief 异步读取数据
-         * @details 调用底层 socket 的 AsyncReadSome 实现异步读取。
+         * @details 调用底层 socket 的 async_read_some 实现异步读取。
          * 返回实际读取的字节数，错误通过 ec 返回。
          * 如果操作成功，ec 为默认值；否则包含错误信息。
          * @param Buffer 接收缓冲区
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code SysEc;
-            auto token = net::redirect_error(net::use_awaitable, SysEc);
-            const auto n =
-                co_await NativeSocket().async_read_some(net::buffer(Buffer.data(), Buffer.size()), token);
+            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            const auto N =
+                co_await NativeSocket().async_read_some(net::buffer(Buffer.data(), Buffer.size()), Token);
             ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
-            co_return n;
+            co_return N;
         }
 
         /**
          * @brief Completion-handler 风格异步读取（零协程路径）
-         * @details 直接委托给底层 TCP socket 的 AsyncReadSome，
+         * @details 直接委托给底层 TCP socket 的 async_read_some，
          * 消除所有中间协程帧和 Executor 队列投递开销。
          * @param Buffer 目标缓冲区
          * @param handler 完成处理器
          */
-        void AsyncReadSome(
+        void async_read_some(
             std::span<std::byte> Buffer,
             net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
         {
@@ -180,12 +180,12 @@ namespace Preview::Transport
 
         /**
          * @brief Completion-handler 风格异步写入（零协程路径）
-         * @details 直接委托给底层 TCP socket 的 AsyncWriteSome，
+         * @details 直接委托给底层 TCP socket 的 async_write_some，
          * 消除所有中间协程帧和 Executor 队列投递开销。
          * @param Buffer 源数据缓冲区
          * @param handler 完成处理器
          */
-        void AsyncWriteSome(
+        void async_write_some(
             std::span<const std::byte> Buffer,
             net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
         {
@@ -194,22 +194,22 @@ namespace Preview::Transport
 
         /**
          * @brief 异步写入数据
-         * @details 调用底层 socket 的 AsyncWriteSome 实现异步写入。
+         * @details 调用底层 socket 的 async_write_some 实现异步写入。
          * 返回实际写入的字节数，错误通过 ec 返回。
          * 如果操作成功，ec 为默认值；否则包含错误信息。
          * @param Buffer 发送缓冲区
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             boost::system::error_code SysEc;
-            auto token = net::redirect_error(net::use_awaitable, SysEc);
-            const auto n =
-                co_await NativeSocket().async_write_some(net::buffer(Buffer.data(), Buffer.size()), token);
+            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            const auto N =
+                co_await NativeSocket().async_write_some(net::buffer(Buffer.data(), Buffer.size()), Token);
             ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
-            co_return n;
+            co_return N;
         }
 
         /**
@@ -220,10 +220,10 @@ namespace Preview::Transport
          */
         void Close() override
         {
-            if (socket_)
+            if (Socket_)
             {
                 boost::system::error_code ec;
-                socket_->close(ec);
+                Socket_->close(ec);
             }
         }
 
@@ -233,7 +233,7 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto IsOpen() const -> bool override
         {
-            return socket_ && socket_->is_open();
+            return Socket_ && Socket_->is_open();
         }
 
         /**
@@ -244,7 +244,7 @@ namespace Preview::Transport
          */
         void ShutdownWrite()
         {
-            if (socket_)
+            if (Socket_)
             {
                 boost::system::error_code ec;
                 NativeSocket().shutdown(SocketType::shutdown_send, ec);
@@ -281,8 +281,8 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto NativeSocket() noexcept -> SocketType &
         {
-            assert(socket_.has_value());
-            return *socket_;
+            assert(Socket_.has_value());
+            return *Socket_;
         }
 
         /**
@@ -292,8 +292,8 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto NativeSocket() const noexcept -> const SocketType &
         {
-            assert(socket_.has_value());
-            return *socket_;
+            assert(Socket_.has_value());
+            return *Socket_;
         }
 
         /**
@@ -305,18 +305,18 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto ReleaseSocket() noexcept -> std::optional<SocketType>
         {
-            if (socket_)
+            if (Socket_)
             {
-                auto s = std::move(*socket_);
-                socket_.reset();
-                return s;
+                auto S = std::move(*Socket_);
+                Socket_.reset();
+                return S;
             }
             // 没有 socket
             return std::nullopt;
         }
 
     private:
-        std::optional<SocketType> socket_; // socket 存储
+        std::optional<SocketType> Socket_; // socket 存储
     };
 
     /**
@@ -326,7 +326,7 @@ namespace Preview::Transport
      * @param Executor 执行器
      * @return SharedTransmission 创建的 Reliable 实例
      */
-    [[nodiscard]] inline SharedTransmission make_reliable(const net::any_io_executor &Executor)
+    [[nodiscard]] inline SharedTransmission MakeReliable(const net::any_io_executor &Executor)
     {
         return std::make_shared<Reliable>(Executor);
     }
@@ -338,7 +338,7 @@ namespace Preview::Transport
      * @param socket TCP socket
      * @return SharedTransmission 创建的 Reliable 实例
      */
-    [[nodiscard]] inline SharedTransmission make_reliable(net::ip::tcp::socket socket)
+    [[nodiscard]] inline SharedTransmission MakeReliable(net::ip::tcp::socket socket)
     {
         return std::make_shared<Reliable>(std::move(socket));
     }

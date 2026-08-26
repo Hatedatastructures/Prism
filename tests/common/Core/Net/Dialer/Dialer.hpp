@@ -58,7 +58,7 @@ namespace Preview::Network::Dialer
          * @param opts 拨号选项
          */
         explicit Dialer(net::any_io_executor ex, DialOptions opts = {})
-            : ex_(std::move(ex)), opts_(opts)
+            : Ex_(std::move(ex)), Opts_(opts)
         {
         }
 
@@ -74,25 +74,25 @@ namespace Preview::Network::Dialer
         {
             using boost::asio::experimental::awaitable_operators::operator||;
 
-            auto socket = std::make_shared<Tcp::socket>(ex_);
-            net::steady_timer timer(ex_);
-            timer.expires_after(opts_.timeout);
+            auto Socket = std::make_shared<Tcp::socket>(Ex_);
+            net::steady_timer timer(Ex_);
+            timer.expires_after(Opts_.timeout);
 
             // 尝试 IP 字面量直连，否则解析
             boost::system::error_code AddrEc;
-            const auto addr = net::ip::make_address(host, AddrEc);
+            const auto Addr = net::ip::make_address(host, AddrEc);
             if (!AddrEc)
             {
-                if (addr.is_v6() && !opts_.EnableIpv6)
+                if (Addr.is_v6() && !Opts_.EnableIpv6)
                 {
-                    ec = make_error_code(Error::not_supported);
+                    ec = make_error_code(Error::NotSupported);
                     co_return nullptr;
                 }
-                const net::ip::tcp::endpoint ep(addr, port);
+                const net::ip::tcp::endpoint Ep(Addr, port);
                 auto DoConnect = [&]() -> net::awaitable<bool>
                 {
                     boost::system::error_code CEc;
-                    co_await socket->async_connect(ep, net::redirect_error(net::use_awaitable, CEc));
+                    co_await Socket->async_connect(Ep, net::redirect_error(net::use_awaitable, CEc));
                     co_return !CEc;
                 };
                 const auto Result = co_await (DoConnect() || timer.async_wait(net::use_awaitable));
@@ -106,36 +106,36 @@ namespace Preview::Network::Dialer
                     ec = std::make_error_code(std::errc::connection_refused);
                     co_return nullptr;
                 }
-                co_return std::make_shared<Preview::Transport::Reliable>(std::move(*socket));
+                co_return std::make_shared<Preview::Transport::Reliable>(std::move(*Socket));
             }
 
             // 域名解析
-            Tcp::resolver resolver(ex_);
+            Tcp::resolver resolver(Ex_);
             boost::system::error_code REc;
-            auto results = co_await resolver.async_resolve(host, std::to_string(port),
+            auto Results = co_await resolver.async_resolve(host, std::to_string(port),
                                                            net::redirect_error(net::use_awaitable, REc));
             if (REc)
             {
                 ec = std::make_error_code(std::errc::no_such_file_or_directory);
                 co_return nullptr;
             }
-            for (const auto &res : results)
+            for (const auto &res : Results)
             {
-                if (res.endpoint().address().is_v6() && !opts_.EnableIpv6)
+                if (res.endpoint().address().is_v6() && !Opts_.EnableIpv6)
                 {
                     continue;
                 }
-                timer.expires_after(opts_.timeout);
+                timer.expires_after(Opts_.timeout);
                 auto DoConnect = [&]() -> net::awaitable<bool>
                 {
                     boost::system::error_code CEc;
-                    co_await socket->async_connect(res.endpoint(), net::redirect_error(net::use_awaitable, CEc));
+                    co_await Socket->async_connect(res.endpoint(), net::redirect_error(net::use_awaitable, CEc));
                     co_return !CEc;
                 };
                 const auto Result = co_await (DoConnect() || timer.async_wait(net::use_awaitable));
                 if (Result.index() == 0 && std::get<0>(Result))
                 {
-                    co_return std::make_shared<Preview::Transport::Reliable>(std::move(*socket));
+                    co_return std::make_shared<Preview::Transport::Reliable>(std::move(*Socket));
                 }
             }
             ec = std::make_error_code(std::errc::connection_refused);
@@ -143,8 +143,8 @@ namespace Preview::Network::Dialer
         }
 
     private:
-        net::any_io_executor ex_;
-        DialOptions opts_;
+        net::any_io_executor Ex_;
+        DialOptions Opts_;
     };
 
 } // namespace Preview::Network::Dialer

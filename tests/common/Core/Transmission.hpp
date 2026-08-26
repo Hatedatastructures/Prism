@@ -79,7 +79,7 @@ namespace Preview
             /// 可靠流式传输（TCP）
             Tcp,
             /// 不可靠数据报传输（UDP）
-            udp,
+            Udp,
         };
 
         virtual ~Transmission() noexcept = default;
@@ -92,10 +92,10 @@ namespace Preview
          */
         [[nodiscard]] virtual auto TransportType() const noexcept -> Type
         {
-            auto *n = NextLayer();
-            if (n)
+            auto *N = NextLayer();
+            if (N)
             {
-                return n->TransportType();
+                return N->TransportType();
             }
             return Type::Tcp;
         }
@@ -111,7 +111,7 @@ namespace Preview
          * @brief 获取执行器（Asio Executor 概念兼容）
          * @return ExecutorType 执行器
          */
-        [[nodiscard]] auto GetExecutor() const -> ExecutorType
+        [[nodiscard]] auto get_executor() const -> ExecutorType
         {
             return Executor();
         }
@@ -123,7 +123,7 @@ namespace Preview
          * @param ec 错误码输出参数
          * @return 实际读取的字节数
          */
-        [[nodiscard]] virtual auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] virtual auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> = 0;
 
         /**
@@ -133,7 +133,7 @@ namespace Preview
          * @param ec 错误码输出参数
          * @return 实际写入的字节数
          */
-        [[nodiscard]] virtual auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] virtual auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> = 0;
 
         /**
@@ -144,17 +144,17 @@ namespace Preview
          * @param handler 完成处理器
          */
         virtual void
-        AsyncReadSome(std::span<std::byte> Buffer,
+        async_read_some(std::span<std::byte> Buffer,
                         net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
         {
-            auto ex = Executor();
+            auto Ex = Executor();
             net::co_spawn(
-                ex,
+                Ex,
                 [this, Buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
                 {
                     std::error_code ec;
-                    const auto n = co_await AsyncReadSome(Buffer, ec);
-                    std::move(h)(detail::ToEc(ec), n);
+                    const auto N = co_await async_read_some(Buffer, ec);
+                    std::move(h)(detail::ToEc(ec), N);
                 },
                 net::detached);
         }
@@ -165,17 +165,17 @@ namespace Preview
          * @param handler 完成处理器
          */
         virtual void
-        AsyncWriteSome(std::span<const std::byte> Buffer,
+        async_write_some(std::span<const std::byte> Buffer,
                          net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
         {
-            auto ex = Executor();
+            auto Ex = Executor();
             net::co_spawn(
-                ex,
+                Ex,
                 [this, Buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
                 {
                     std::error_code ec;
-                    const auto n = co_await AsyncWriteSome(Buffer, ec);
-                    std::move(h)(detail::ToEc(ec), n);
+                    const auto N = co_await async_write_some(Buffer, ec);
+                    std::move(h)(detail::ToEc(ec), N);
                 },
                 net::detached);
         }
@@ -185,7 +185,7 @@ namespace Preview
          * @param Buffer 接收缓冲区
          * @param ec 错误码输出参数
          * @return 实际读取字节数（满 = Buffer.size()；EOF 提前返回）
-         * @details 循环调用 AsyncReadSome 直至读满或 EOF/错误。
+         * @details 循环调用 async_read_some 直至读满或 EOF/错误。
          * 默认实现基于虚接口组合，派生类可按需覆写优化。
          */
         [[nodiscard]] auto AsyncRead(std::span<std::byte> Buffer, std::error_code &ec)
@@ -194,16 +194,16 @@ namespace Preview
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
-                const auto n = co_await AsyncReadSome(Buffer.subspan(Done), ec);
+                const auto N = co_await async_read_some(Buffer.subspan(Done), ec);
                 if (ec)
                 {
                     co_return Done;
                 }
-                if (n == 0)
+                if (N == 0)
                 {
                     co_return Done; // EOF / 半关 / 取消
                 }
-                Done += n;
+                Done += N;
             }
             co_return Done;
         }
@@ -213,7 +213,7 @@ namespace Preview
          * @param Buffer 发送缓冲区
          * @param ec 错误码输出参数
          * @return 实际写入字节数（满 = Buffer.size()）
-         * @details 循环调用 AsyncWriteSome 直至写满或错误。
+         * @details 循环调用 async_write_some 直至写满或错误。
          * 默认实现基于虚接口组合，派生类可按需覆写优化。
          */
         [[nodiscard]] auto AsyncWrite(std::span<const std::byte> Buffer, std::error_code &ec)
@@ -222,17 +222,17 @@ namespace Preview
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
-                const auto n = co_await AsyncWriteSome(Buffer.subspan(Done), ec);
+                const auto N = co_await async_write_some(Buffer.subspan(Done), ec);
                 if (ec)
                 {
                     co_return Done;
                 }
-                if (n == 0)
+                if (N == 0)
                 {
-                    ec = make_error_code(Error::broken_pipe);
+                    ec = make_error_code(Error::BrokenPipe);
                     co_return Done;
                 }
-                Done += n;
+                Done += N;
             }
             co_return Done;
         }
@@ -256,9 +256,9 @@ namespace Preview
          */
         virtual void Shutdown()
         {
-            if (auto *n = NextLayer())
+            if (auto *N = NextLayer())
             {
-                n->Shutdown();
+                N->Shutdown();
             }
         }
 
@@ -270,9 +270,9 @@ namespace Preview
          */
         virtual void SetTimeout(std::chrono::milliseconds ms)
         {
-            if (auto *n = NextLayer())
+            if (auto *N = NextLayer())
             {
-                n->SetTimeout(ms);
+                N->SetTimeout(ms);
             }
         }
 
@@ -283,9 +283,9 @@ namespace Preview
          */
         [[nodiscard]] virtual auto IsOpen() const -> bool
         {
-            if (auto *n = NextLayer())
+            if (auto *N = NextLayer())
             {
-                return n->IsOpen();
+                return N->IsOpen();
             }
             return false;
         }
@@ -317,12 +317,12 @@ namespace Preview
          * @return 目标类型指针，找不到返回 nullptr
          */
         template <typename T>
-        [[nodiscard]] auto LowestLayer() noexcept -> T *
+        [[nodiscard]] auto lowest_layer() noexcept -> T *
         {
             auto *current = this;
-            while (auto *n = current->NextLayer())
+            while (auto *N = current->NextLayer())
             {
-                current = n;
+                current = N;
             }
             return dynamic_cast<T *>(current);
         }
@@ -333,12 +333,12 @@ namespace Preview
          * @return 目标类型指针，找不到返回 nullptr
          */
         template <typename T>
-        [[nodiscard]] auto LowestLayer() const noexcept -> const T *
+        [[nodiscard]] auto lowest_layer() const noexcept -> const T *
         {
             auto *current = this;
-            while (auto *n = current->NextLayer())
+            while (auto *N = current->NextLayer())
             {
-                current = n;
+                current = N;
             }
             return dynamic_cast<const T *>(current);
         }
@@ -349,22 +349,6 @@ namespace Preview
          * 其他组件管理。转移后不应再调用读写方法。
          * @return 底层传输共享指针
          */
-        // ── Asio 概念兼容层（规范 v2 例外）──
-        // Boost.Asio 组件（ssl::stream 等）以精确小写名调用下一层对象，
-        // 以下转发使任意 Transmission 派生类可直接充当 Asio 下一层。
-        [[nodiscard]] auto get_executor() const -> ExecutorType { return GetExecutor(); }
-
-        auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
-        {
-            return AsyncReadSome(Buffer, ec);
-        }
-
-        auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
-        {
-            return AsyncWriteSome(Buffer, ec);
-        }
         [[nodiscard]] virtual auto Release() -> std::shared_ptr<Transmission>
         {
             return {};
@@ -383,8 +367,8 @@ namespace Preview
     template <typename T>
     concept TransmissionLike =
         requires(T &t, std::span<std::byte> buf, std::span<const std::byte> wbuf, std::error_code &ec) {
-            { t.AsyncReadSome(buf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
-            { t.AsyncWriteSome(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            { t.async_read_some(buf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            { t.async_write_some(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
             { t.Close() } -> std::same_as<void>;
             { t.Cancel() } -> std::same_as<void>;
             { t.Shutdown() } -> std::same_as<void>;

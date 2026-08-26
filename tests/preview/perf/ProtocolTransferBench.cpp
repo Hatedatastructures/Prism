@@ -98,7 +98,7 @@ namespace
                 co_await acceptor.async_accept(sock, net::use_awaitable);
                 auto ss = std::make_shared<Transport::Reliable>(std::move(sock));
                 auto [err, req, Conn] = co_await Socks5::Accept(ss, Socks5::ServerConfig{});
-                if (err != Error::none || !Conn)
+                if (err != Error::None || !Conn)
                 {
                     co_return;
                 }
@@ -107,7 +107,7 @@ namespace
                 std::size_t Done = 0;
                 while (Done < Total)
                 {
-                    const auto n = co_await Conn->AsyncReadSome(
+                    const auto n = co_await Conn->async_read_some(
                         std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                     if (ec || n == 0)
                     {
@@ -130,7 +130,7 @@ namespace
             auto [err, Conn] = co_await Socks5::Connect(
                 ss, Socks5::ClientConfig{},
                 Socks5::Address{Socks5::AddressType::Domain, "Target.internal", 443});
-            if (err != Error::none || !Conn)
+            if (err != Error::None || !Conn)
             {
                 ioc.stop();
                 co_return;
@@ -139,7 +139,7 @@ namespace
             std::error_code ec;
             while (Done < Total)
             {
-                const auto n = co_await Conn->AsyncWriteSome(
+                const auto n = co_await Conn->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
                 if (ec || n == 0)
                 {
@@ -185,7 +185,7 @@ namespace
                 Vmess::ServerConfig scfg;
                 scfg.uuid = uuid;
                 auto [err, req, Conn] = co_await Vmess::Accept(ss, scfg);
-                if (err != Error::none || !Conn)
+                if (err != Error::None || !Conn)
                 {
                     co_return;
                 }
@@ -194,7 +194,7 @@ namespace
                 std::size_t Done = 0;
                 while (Done < Total)
                 {
-                    const auto n = co_await Conn->AsyncReadSome(
+                    const auto n = co_await Conn->async_read_some(
                         std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
                     if (ec || n == 0)
                     {
@@ -217,7 +217,7 @@ namespace
             ccfg.uuid = uuid;
             auto [err, Conn] = co_await Vmess::Connect(
                 ss, ccfg, Vmess::Address{Vmess::AddressType::Domain, "Target.internal", 443});
-            if (err != Error::none || !Conn)
+            if (err != Error::None || !Conn)
             {
                 ioc.stop();
                 co_return;
@@ -226,7 +226,7 @@ namespace
             std::error_code ec;
             while (Done < Total)
             {
-                const auto n = co_await Conn->AsyncWriteSome(
+                const auto n = co_await Conn->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
                 if (ec || n == 0)
                 {
@@ -268,7 +268,7 @@ namespace
         {
             // 资源指针：Arena 缓冲复用（vmess Conn 实际路径）
             Preview::Memory::SessionResource<> mem;
-            auto out = mem.MakeBuffer<std::uint8_t>(kChunk + ChunkEncryptor::overhead);
+            auto out = mem.MakeBuffer<std::uint8_t>(kChunk + ChunkEncryptor::Overhead);
             volatile std::size_t sink = 0;
             for (int i = 0; i < kIters; ++i)
             {
@@ -281,7 +281,7 @@ namespace
             volatile std::size_t sink = 0;
             for (int i = 0; i < kIters; ++i)
             {
-                std::vector<std::uint8_t> out(kChunk + ChunkEncryptor::overhead);
+                std::vector<std::uint8_t> out(kChunk + ChunkEncryptor::Overhead);
                 sink += enc.Seal(plain, out);
             }
         }

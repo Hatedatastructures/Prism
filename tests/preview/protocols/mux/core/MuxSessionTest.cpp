@@ -68,14 +68,14 @@ namespace
                          while (true)
                          {
                              std::error_code ec;
-                             const auto n = co_await s->AsyncReadSome(std::span<std::byte>(buf), ec);
+                             const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
                              if (ec || n == 0)
                              {
                                  break;
                              }
                              received += n;
                              ec.clear();
-                             (void)co_await s->AsyncWriteSome(std::span<const std::byte>(buf.data(), n),
+                             (void)co_await s->async_write_some(std::span<const std::byte>(buf.data(), n),
                                                                 ec);
                          }
                          s->Close();
@@ -90,7 +90,7 @@ namespace
                      }
                      std::string payload(payload_size, 'M');
                      std::error_code ec;
-                     (void)co_await s->AsyncWriteSome(
+                     (void)co_await s->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
@@ -99,7 +99,7 @@ namespace
                      while (echoed.size() < payload.size())
                      {
                          ec.clear();
-                         const auto n = co_await s->AsyncReadSome(std::span<std::byte>(buf), ec);
+                         const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
                          if (ec || n == 0)
                          {
                              break;
@@ -166,7 +166,7 @@ namespace
                              while (got < kPayload)
                              {
                                  std::error_code ec;
-                                 const auto n = co_await s->AsyncReadSome(std::span<std::byte>(buf), ec);
+                                 const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
                                  if (ec || n == 0)
                                  {
                                      break;
@@ -188,7 +188,7 @@ namespace
                              continue;
                          }
                          std::error_code ec;
-                         (void)co_await s->AsyncWriteSome(
+                         (void)co_await s->async_write_some(
                              std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                         payload.size()),
                              ec);
@@ -223,7 +223,7 @@ namespace
                          while (true)
                          {
                              std::error_code ec;
-                             const auto n = co_await s->AsyncReadSome(std::span<std::byte>(buf), ec);
+                             const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
                              if (ec || n == 0)
                              {
                                  break;
@@ -239,7 +239,7 @@ namespace
                      }
                      const std::string payload = "factory smux";
                      std::error_code ec;
-                     (void)co_await s->AsyncWriteSome(
+                     (void)co_await s->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);

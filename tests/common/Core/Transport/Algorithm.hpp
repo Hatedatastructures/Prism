@@ -1,5 +1,5 @@
 /**
- * @file algorithm.hpp
+ * @file Algorithm.hpp
  * @brief 组合操作（Composed Operations，借鉴 Boost.Beast/Asio 精髓）
  * @details 提供基于 Stream concept 的高层组合算法：
  *          - AsyncReadExact()：读满指定字节（内部循环补读）
@@ -38,12 +38,12 @@ namespace Preview
         std::size_t Done = 0;
         while (Done < buf.size())
         {
-            const auto n = co_await s.ReadSome(buf.subspan(Done));
-            if (n == 0)
+            const auto N = co_await s.ReadSome(buf.subspan(Done));
+            if (N == 0)
             {
-                co_return make_error_code(Error::unexpected_eof);
+                co_return make_error_code(Error::UnexpectedEof);
             }
-            Done += n;
+            Done += N;
         }
         co_return {};
     }

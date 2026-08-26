@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief 多路复用框架共享基础类型
  * @details 会话级控制帧分类与流事件枚举，
  *          供共享会话框架（Session.hpp）与帧策略（Codec.hpp）使用。
@@ -20,9 +20,9 @@ namespace Preview::Mux
         /// 数据到达
         Data,
         /// 半关（FIN）
-        fin,
+        Fin,
         /// 重置（RST）
-        rst,
+        Rst,
     };
 
 } // namespace Preview::Mux

@@ -44,9 +44,9 @@ namespace
     using Preview::Runtime::MakeAcceptVmess;
 
     // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::MakeUuid;
-    using psm::testing::RunCoro;
-    using psm::testing::UdpEchoServer;
+    using Preview::Testing::MakeUuid;
+    using Preview::Testing::RunCoro;
+    using Preview::Testing::UdpEchoServer;
 
     /// 测试 UUID 兼容别名
     inline auto test_uuid() -> std::array<std::uint8_t, 16>
@@ -73,13 +73,13 @@ namespace
         sock.bind(udp::endpoint(udp::v4(), 0), ec);
         if (ec)
         {
-            co_return Preview::Fault::Code::io_error;
+            co_return Preview::Fault::Code::IoError;
         }
         while (true)
         {
             std::vector<std::uint8_t> payload;
             const auto rerr = co_await Dgram->AsyncReceiveFrom(payload);
-            if (rerr != Preview::Error::none)
+            if (rerr != Preview::Error::None)
             {
                 break;
             }
@@ -102,7 +102,7 @@ namespace
                 std::span<const std::uint8_t>(
                     reinterpret_cast<const std::uint8_t *>(Rx.data()), n));
         }
-        co_return Preview::Fault::Code::success;
+        co_return Preview::Fault::Code::Success;
     }
 
     /// 构造 VMess UDP 数据面服务（Dgram ↔ 真实 UDP 中继到 echo）
@@ -113,10 +113,10 @@ namespace
         return [st, idle_timeout](Preview::Middleware::Context &ctx)
             -> net::awaitable<Preview::Fault::Code>
         {
-            auto Dgram = std::dynamic_pointer_cast<Preview::Vmess::Dgram<>>(ctx.inbound);
+            auto Dgram = std::dynamic_pointer_cast<Preview::Vmess::Dgram<>>(ctx.Inbound);
             if (!Dgram)
             {
-                co_return Preview::Fault::Code::protocol_error;
+                co_return Preview::Fault::Code::ProtocolError;
             }
             auto relay = [&]() -> net::awaitable<Preview::Fault::Code>
             {
@@ -127,12 +127,12 @@ namespace
                 net::steady_timer timer(Dgram->Executor(), idle_timeout);
                 co_await timer.async_wait(net::use_awaitable);
                 Dgram->Close();
-                co_return Preview::Fault::Code::success;
+                co_return Preview::Fault::Code::Success;
             };
             using net::experimental::awaitable_operators::operator||;
             co_await (relay() || idle());
             ++(*st->relay_exits); // 数据面退出证据（TCP 断开或空闲超时）
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         };
     }
 
@@ -143,7 +143,7 @@ namespace
         udp::socket echo_sock(ioc.get_executor(), echo_ep);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto echo_ep_ptr = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [echo_ep_ptr](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -174,7 +174,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -188,7 +188,7 @@ namespace
                 auto [err, Dgram] = co_await Vmess::ConnectPacket(
                     std::move(raw), Vmess::ClientConfig{test_uuid()},
                     Vmess::Address{Vmess::AddressType::Domain, "example.com", 443});
-                if (err != Error::none || !Dgram)
+                if (err != Error::None || !Dgram)
                 {
                     co_return;
                 }
@@ -203,9 +203,9 @@ namespace
                 using net::experimental::awaitable_operators::operator||;
                 auto Result =
                     co_await (Dgram->AsyncReceiveFrom(Rx) || wd.async_wait(net::use_awaitable));
-                const auto rerr = Result.index() == 1 ? Error::timeout
+                const auto rerr = Result.index() == 1 ? Error::Timeout
                                                       : std::get<0>(std::move(Result));
-                if (rerr == Error::none)
+                if (rerr == Error::None)
                 {
                     const std::string echo(reinterpret_cast<const char *>(Rx.data()), Rx.size());
                     Ok = (echo == payload);
@@ -223,7 +223,7 @@ namespace
         udp::endpoint echo_ep(udp::v4(), 0);
         udp::socket echo_sock(ioc.get_executor(), echo_ep);
         const auto echo_port = echo_sock.local_endpoint().port();
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [](const std::exception_ptr &) {});
 
         auto State = std::make_shared<vmess_udp_state>(
@@ -248,7 +248,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -261,7 +261,7 @@ namespace
                 auto [err, Dgram] = co_await Vmess::ConnectPacket(
                     std::move(raw), Vmess::ClientConfig{test_uuid()},
                     Vmess::Address{Vmess::AddressType::Domain, "example.com", 443});
-                if (err != Error::none || !Dgram)
+                if (err != Error::None || !Dgram)
                 {
                     co_return;
                 }
@@ -269,7 +269,7 @@ namespace
                 co_await timer.async_wait(net::use_awaitable);
                 std::vector<std::uint8_t> Rx;
                 const auto rerr = co_await Dgram->AsyncReceiveFrom(Rx);
-                closed = (rerr != Error::none);
+                closed = (rerr != Error::None);
                 Dgram->Close();
                 listener.Stop();
             });
@@ -282,7 +282,7 @@ namespace
         udp::endpoint echo_ep(udp::v4(), 0);
         udp::socket echo_sock(ioc.get_executor(), echo_ep);
         const auto echo_port = echo_sock.local_endpoint().port();
-        net::co_spawn(ioc.get_executor(), psm::testing::UdpEchoServer(std::move(echo_sock)),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [](const std::exception_ptr &) {});
 
         auto State = std::make_shared<vmess_udp_state>(
@@ -307,7 +307,7 @@ namespace
             {
                 const auto start_rc = co_await listener.Start(
                     net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                EXPECT_EQ(start_rc, Fault::Code::success);
+                EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -320,7 +320,7 @@ namespace
                 auto [err, Dgram] = co_await Vmess::ConnectPacket(
                     std::move(raw), Vmess::ClientConfig{test_uuid()},
                     Vmess::Address{Vmess::AddressType::Domain, "example.com", 443});
-                if (err != Error::none || !Dgram)
+                if (err != Error::None || !Dgram)
                 {
                     co_return;
                 }
@@ -331,7 +331,7 @@ namespace
                         reinterpret_cast<const std::uint8_t *>(Probe.data()), Probe.size()));
                 std::vector<std::uint8_t> prx;
                 const auto perr = co_await Dgram->AsyncReceiveFrom(prx);
-                if (perr != Error::none)
+                if (perr != Error::None)
                 {
                     ADD_FAILURE() << "Probe roundtrip Failed: " << (int)perr;
                     listener.Stop();

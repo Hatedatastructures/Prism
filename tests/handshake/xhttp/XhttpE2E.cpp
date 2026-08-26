@@ -34,14 +34,14 @@ namespace
 
     void configure_self_signed(net::ssl::context &ctx)
     {
-        auto *pkey_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        auto *PkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
         EVP_PKEY *pkey = nullptr;
-        if (pkey_ctx && EVP_PKEY_keygen_init(pkey_ctx) > 0 &&
-            EVP_PKEY_CTX_set_rsa_keygen_bits(pkey_ctx, 2048) > 0)
+        if (PkeyCtx && EVP_PKEY_keygen_init(PkeyCtx) > 0 &&
+            EVP_PKEY_CTX_set_rsa_keygen_bits(PkeyCtx, 2048) > 0)
         {
-            EVP_PKEY_keygen(pkey_ctx, &pkey);
+            EVP_PKEY_keygen(PkeyCtx, &pkey);
         }
-        EVP_PKEY_CTX_free(pkey_ctx);
+        EVP_PKEY_CTX_free(PkeyCtx);
         ASSERT_NE(pkey, nullptr);
 
         auto *x509 = X509_new();
@@ -243,11 +243,11 @@ namespace
     }
 
     net::awaitable<void> DoXhttpServer(psm::transport::shared_transmission raw_trans,
-                                       net::ssl::context &ssl_ctx, const std::string &payload,
+                                       net::ssl::context &SslCtx, const std::string &payload,
                                        std::shared_ptr<bool> server_ok)
     {
         auto [ssl_ec, ssl_stream, recovered] =
-            co_await psm::transport::encrypted::ssl_handshake(std::move(raw_trans), ssl_ctx);
+            co_await psm::transport::encrypted::ssl_handshake(std::move(raw_trans), SslCtx);
         if (psm::fault::failed(ssl_ec) || !ssl_stream)
         {
             *server_ok = false;
@@ -291,9 +291,9 @@ TEST(XhttpE2E, StreamOneEcho)
 {
     net::io_context ioc;
 
-    net::ssl::context ssl_ctx(net::ssl::context::tlsv13);
-    ssl_ctx.set_options(net::ssl::context::default_workarounds);
-    configure_self_signed(ssl_ctx);
+    net::ssl::context SslCtx(net::ssl::context::tlsv13);
+    SslCtx.set_options(net::ssl::context::default_workarounds);
+    configure_self_signed(SslCtx);
 
     net::ssl::context client_ctx(net::ssl::context::tlsv13);
     client_ctx.set_verify_mode(net::ssl::verify_none);
@@ -340,7 +340,7 @@ TEST(XhttpE2E, StreamOneEcho)
                 co_await t.async_wait(net::use_awaitable);
             }
             net::co_spawn(ioc, DoXhttpClient(client_ssl, payload, client_ok), net::detached);
-            net::co_spawn(ioc, DoXhttpServer(server_raw, ssl_ctx, payload, server_ok), net::detached);
+            net::co_spawn(ioc, DoXhttpServer(server_raw, SslCtx, payload, server_ok), net::detached);
 
             net::steady_timer done(ioc);
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);

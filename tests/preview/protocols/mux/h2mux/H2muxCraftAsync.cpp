@@ -23,7 +23,7 @@
 
 #include <nghttp2/nghttp2.h>
 
-using MockTransport = psm::testing::MockTransport;
+using MockTransport = Preview::Testing::MockTransport;
 namespace multiplex = psm::multiplex;
 namespace h2mux = psm::multiplex::h2mux;
 namespace net = boost::asio;
@@ -242,7 +242,7 @@ namespace
     TEST(H2muxCraftAsync, FrameLoopReadError)
     {
         AsyncFixture fx;
-        fx.transport->set_ReadError(std::make_error_code(std::errc::connection_reset));
+        fx.transport->SetReadError(std::make_error_code(std::errc::connection_reset));
 
         std::exception_ptr ep;
         bool closed_ok = false;

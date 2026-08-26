@@ -37,14 +37,14 @@ namespace
     using Preview::Runtime::MakeAcceptSs2022;
 
     // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
-    using psm::testing::AcceptEchoLoop;
-    using psm::testing::ChainState;
-    using ConnectResult = psm::testing::ConnectResult;
-    using psm::testing::RunCoro;
-    using psm::testing::tcp_echo_server;
+    using Preview::Testing::AcceptEchoLoop;
+    using Preview::Testing::ChainState;
+    using ConnectResult = Preview::Testing::ConnectResult;
+    using Preview::Testing::RunCoro;
+    using Preview::Testing::TcpEchoServer;
 
-    /// SS2022 纵向测试共享状态（复用公共 psm::testing::ChainState）
-    using ss2022_chain_state = psm::testing::ChainState;
+    /// SS2022 纵向测试共享状态（复用公共 Preview::Testing::ChainState）
+    using ss2022_chain_state = Preview::Testing::ChainState;
 
     /// 连接 SS2022 纵向测试的回环上游（复用公共 DialUpstream）
     auto dial_ss2022_upstream(
@@ -52,7 +52,7 @@ namespace
         const Network::Target &Target)
         -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
     {
-        co_return co_await psm::testing::DialUpstream(State, Target);
+        co_return co_await Preview::Testing::DialUpstream(State, Target);
     }
 
     auto run_ss2022_connect(const Shadowsocks2022::Address &Target,
@@ -66,7 +66,7 @@ namespace
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto StateObj = std::make_shared<ss2022_chain_state>(
             ss2022_chain_state{ioc.get_executor(), echo_port});
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [](const std::exception_ptr &) {});
 
         Runtime::TcpListener listener(
@@ -89,9 +89,9 @@ namespace
             [&]() -> net::awaitable<void>
             {
                 const auto start_rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                if (start_rc != Fault::Code::success)
+                if (start_rc != Fault::Code::Success)
                 {
-                     out.Err = Error::io_error;
+                     out.Err = Error::IoError;
                     co_return;
                 }
                 const auto listen_port = listener.LocalEndpoint().port();
@@ -100,7 +100,7 @@ namespace
                 auto raw = co_await Dialer.Connect("127.0.0.1", listen_port, ec);
                 if (ec || !raw)
                 {
-                     out.Err = Error::io_error;
+                     out.Err = Error::IoError;
                     listener.Stop();
                     co_return;
                 }
@@ -120,7 +120,7 @@ namespace
                 std::size_t got = 0;
                 while (!ec && got < payload.size())
                 {
-                    const auto n = co_await proxy->AsyncReadSome(
+                    const auto n = co_await proxy->async_read_some(
                         std::span<std::byte>(buf).subspan(got), ec);
                     if (n == 0) break;
                     got += n;
@@ -142,7 +142,7 @@ namespace
             Shadowsocks2022::Address{Shadowsocks2022::AddressType::Domain, "example.com", 443},
             Shadowsocks2022::ClientConfig{"Secret"},
             Shadowsocks2022::ServerConfig{"Secret"});
-        EXPECT_EQ(r.Err, Error::none);
+        EXPECT_EQ(r.Err, Error::None);
         EXPECT_EQ(r.Echo, "ss2022 runtime payload");
         EXPECT_EQ(r.Host, "example.com");
         EXPECT_EQ(r.Port, "443");
@@ -154,7 +154,7 @@ namespace
             Shadowsocks2022::Address{Shadowsocks2022::AddressType::Ipv4, "1.2.3.4", 80},
             Shadowsocks2022::ClientConfig{"Secret"},
             Shadowsocks2022::ServerConfig{"Secret"});
-        EXPECT_EQ(r.Err, Error::none);
+        EXPECT_EQ(r.Err, Error::None);
         EXPECT_EQ(r.Echo, "ss2022 runtime payload");
         EXPECT_EQ(r.Host, "1.2.3.4");
         EXPECT_EQ(r.Port, "80");
@@ -166,7 +166,7 @@ namespace
             Shadowsocks2022::Address{Shadowsocks2022::AddressType::Domain, "example.net", 22},
             Shadowsocks2022::ClientConfig{"wrong"},
             Shadowsocks2022::ServerConfig{"right"});
-        EXPECT_NE(r.Err, Error::none);
+        EXPECT_NE(r.Err, Error::None);
         EXPECT_TRUE(r.Echo.empty());
     }
 
@@ -182,7 +182,7 @@ namespace
                 opts.Dial = [](const Network::Target &)
                     -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
-                    co_return std::pair{Fault::Code::connection_refused, SharedTransmission{}};
+                    co_return std::pair{Fault::Code::ConnectionRefused, SharedTransmission{}};
                 };
                 return std::make_shared<Runtime::Session>(std::move(opts));
             });
@@ -190,7 +190,7 @@ namespace
         RunCoro(ioc, [&]() -> net::awaitable<void>
         {
             const auto start_rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-            EXPECT_EQ(start_rc, Fault::Code::success);
+            EXPECT_EQ(start_rc, Fault::Code::Success);
             const auto listen_port = listener.LocalEndpoint().port();
             std::error_code ec;
             Network::Dialer::Dialer Dialer(ioc.get_executor());
@@ -201,7 +201,7 @@ namespace
                 Shadowsocks2022::Address{Shadowsocks2022::AddressType::Domain, "example.com", 80});
             if (!proxy) { listener.Stop(); co_return; }
             std::array<std::byte, 8> buf{};
-            const auto n = co_await proxy->AsyncReadSome(buf, ec);
+            const auto n = co_await proxy->async_read_some(buf, ec);
             saw_close = (n == 0 || ec);
             proxy->Close();
             listener.Stop();
@@ -215,8 +215,8 @@ namespace
         Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto StateObj = std::make_shared<ss2022_chain_state>(ss2022_chain_state{ioc.get_executor(), echo_port});
-        auto recorder = std::make_shared<psm::testing::TrafficRecorder>();
-        net::co_spawn(ioc.get_executor(), psm::testing::AcceptEchoLoop(echo_acceptor),
+        auto recorder = std::make_shared<Preview::Testing::TrafficRecorder>();
+        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [](const std::exception_ptr &) {});
         Runtime::TcpListener listener(
             ioc.get_executor(),
@@ -235,7 +235,7 @@ namespace
         RunCoro(ioc, [&]() -> net::awaitable<void>
         {
             const auto start_rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-            EXPECT_EQ(start_rc, Fault::Code::success);
+            EXPECT_EQ(start_rc, Fault::Code::Success);
             const auto listen_port = listener.LocalEndpoint().port();
             std::error_code ec;
             Network::Dialer::Dialer Dialer(ioc.get_executor());
@@ -252,7 +252,7 @@ namespace
             std::size_t got = 0;
             while (!ec && got < payload.size())
             {
-                const auto n = co_await proxy->AsyncReadSome(std::span<std::byte>(buf).subspan(got), ec);
+                const auto n = co_await proxy->async_read_some(std::span<std::byte>(buf).subspan(got), ec);
                 if (n == 0) break;
                 got += n;
             }
@@ -260,7 +260,7 @@ namespace
             // 有界轮询等待流量上报落账（替代固定 sleep，避免慢机 flaky）
             net::steady_timer timer(ioc.get_executor());
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-            while ((recorder->up == 0u || recorder->down == 0u) &&
+            while ((recorder->Up == 0u || recorder->Down == 0u) &&
                    std::chrono::steady_clock::now() < deadline)
             {
                 timer.expires_after(std::chrono::milliseconds(5));
@@ -270,9 +270,9 @@ namespace
             boost::system::error_code ce;
             echo_acceptor.close(ce);
         });
-        EXPECT_TRUE(recorder->identity.empty());
-        EXPECT_GT(recorder->up, 0u);
-        EXPECT_GT(recorder->down, 0u);
+        EXPECT_TRUE(recorder->Identity.empty());
+        EXPECT_GT(recorder->Up, 0u);
+        EXPECT_GT(recorder->Down, 0u);
     }
 
 } // namespace

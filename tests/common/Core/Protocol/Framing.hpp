@@ -1,5 +1,5 @@
 /**
- * @file framing.hpp
+ * @file Framing.hpp
  * @brief 共享协议帧解析函数
  * @details 提供跨协议通用的地址和端口线级解析函数，包括 IPv4、IPv6、
  * 域名地址和大端序端口。各协议 (SOCKS5/Trojan/VLESS/Shadowsocks)
@@ -30,11 +30,11 @@ namespace Preview::Protocol::Common::Framing
     {
         if (Buffer.size() < 4)
         {
-            return {Fault::Code::bad_message, {}};
+            return {Fault::Code::BadMessage, {}};
         }
         Ipv4Address addr{};
         std::memcpy(addr.Bytes.data(), Buffer.data(), 4);
-        return {Fault::Code::success, addr};
+        return {Fault::Code::Success, addr};
     }
 
     /**
@@ -47,11 +47,11 @@ namespace Preview::Protocol::Common::Framing
     {
         if (Buffer.size() < 16)
         {
-            return {Fault::Code::bad_message, {}};
+            return {Fault::Code::BadMessage, {}};
         }
         Ipv6Address addr{};
         std::memcpy(addr.Bytes.data(), Buffer.data(), 16);
-        return {Fault::Code::success, addr};
+        return {Fault::Code::Success, addr};
     }
 
     /**
@@ -64,21 +64,21 @@ namespace Preview::Protocol::Common::Framing
     {
         if (Buffer.empty())
         {
-            return {Fault::Code::bad_message, {}};
+            return {Fault::Code::BadMessage, {}};
         }
-        const std::uint8_t len = Buffer[0];
-        if (Buffer.size() < static_cast<std::size_t>(1 + len))
+        const std::uint8_t Len = Buffer[0];
+        if (Buffer.size() < static_cast<std::size_t>(1 + Len))
         {
-            return {Fault::Code::bad_message, {}};
+            return {Fault::Code::BadMessage, {}};
         }
         DomainAddress addr{};
-        if (len > addr.value.size())
+        if (Len > addr.value.size())
         {
-            return {Fault::Code::bad_message, {}};
+            return {Fault::Code::BadMessage, {}};
         }
-        addr.length = len;
-        std::memcpy(addr.value.data(), Buffer.data() + 1, len);
-        return {Fault::Code::success, addr};
+        addr.length = Len;
+        std::memcpy(addr.value.data(), Buffer.data() + 1, Len);
+        return {Fault::Code::Success, addr};
     }
 
     /**
@@ -91,10 +91,10 @@ namespace Preview::Protocol::Common::Framing
     {
         if (Buffer.size() < 2)
         {
-            return {Fault::Code::bad_message, 0};
+            return {Fault::Code::BadMessage, 0};
         }
-        std::uint16_t port =
+        std::uint16_t Port =
             static_cast<std::uint16_t>(Buffer[0]) << 8 | static_cast<std::uint16_t>(Buffer[1]);
-        return {Fault::Code::success, port};
+        return {Fault::Code::Success, Port};
     }
 } // namespace Preview::Protocol::Common::Framing

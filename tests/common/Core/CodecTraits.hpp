@@ -1,5 +1,5 @@
 /**
- * @file codec_traits.hpp
+ * @file CodecTraits.hpp
  * @brief 帧编解码器 trait（FrameCodec concept）
  * @details 定义跨协议帧编解码器的统一契约：
  *          - Parse：增量解析字节流 → ParseResult（错误码 + 消费字节数 + 事件）
@@ -30,10 +30,10 @@ namespace Preview::Codec
      */
     enum class CodecError : std::uint8_t
     {
-        none = 0,     ///< 无错误
-        need_more,    ///< 数据不足，需继续投喂（增量解析）
-        malformed,    ///< 帧格式非法（长度/魔数/字段越界）
-        unsupported,  ///< 不支持的帧类型 / 版本 / 特性
+        None = 0,     ///< 无错误
+        NeedMore,    ///< 数据不足，需继续投喂（增量解析）
+        Malformed,    ///< 帧格式非法（长度/魔数/字段越界）
+        Unsupported,  ///< 不支持的帧类型 / 版本 / 特性
     };
 
     /**
@@ -62,7 +62,7 @@ namespace Preview::Codec
      */
     struct ParseResult
     {
-        CodecError Error{CodecError::none};       ///< 解析错误码
+        CodecError Error{CodecError::None};       ///< 解析错误码
         std::size_t consumed{0};                    ///< 已消费字节数
         std::optional<FrameEvent> event;           ///< 解码事件（Error == none 时有效）
 
@@ -72,9 +72,9 @@ namespace Preview::Codec
          * @param n 消费字节数
          * @return 成功解析结果
          */
-        [[nodiscard]] static auto Ok(FrameEvent ev, std::size_t n) noexcept -> ParseResult
+        [[nodiscard]] static auto Ok(FrameEvent ev, std::size_t N) noexcept -> ParseResult
         {
-            return ParseResult{CodecError::none, n, std::move(ev)};
+            return ParseResult{CodecError::None, N, std::move(ev)};
         }
 
         /**
@@ -83,9 +83,9 @@ namespace Preview::Codec
          * @param n 消费字节数（解析失败时通常为 0）
          * @return 失败解析结果
          */
-        [[nodiscard]] static auto Fail(CodecError ec, std::size_t n = 0) noexcept -> ParseResult
+        [[nodiscard]] static auto Fail(CodecError ec, std::size_t N = 0) noexcept -> ParseResult
         {
-            return ParseResult{ec, n, std::nullopt};
+            return ParseResult{ec, N, std::nullopt};
         }
 
         /**
@@ -94,7 +94,7 @@ namespace Preview::Codec
          */
         [[nodiscard]] auto HasEvent() const noexcept -> bool
         {
-            return Error == CodecError::none && event.has_value();
+            return Error == CodecError::None && event.has_value();
         }
     };
 
@@ -121,12 +121,12 @@ namespace Preview::Codec
      * @param input 输入字节流
      * @return Error == none 返回 true
      * @details 供上层循环在投喂前快速判断，等价于
-     * c.Parse(input).Error == CodecError::none。
+     * c.Parse(input).Error == CodecError::None。
      */
     template <FrameCodec C>
     [[nodiscard]] inline auto CanParse(C &c, std::span<const std::uint8_t> input) -> bool
     {
-        return c.Parse(input).Error == CodecError::none;
+        return c.Parse(input).Error == CodecError::None;
     }
 
 } // namespace Preview::Codec

@@ -255,7 +255,7 @@ static void BM_VlessParseRequest_IPv4(benchmark::State &state)
     std::array<std::uint8_t, 26> buf{};
     buf[0] = 0x00;                    // version
     // UUID 全零 (16 bytes, already zero)
-    buf[17] = 0x00;                   // addnl_len
+    buf[17] = 0x00;                   // AddnlLen
     buf[18] = 0x01;                   // cmd = TCP
     buf[19] = 0x00; buf[20] = 0x50;   // port = 80
     buf[21] = 0x01;                   // atyp = IPv4
@@ -275,10 +275,10 @@ static void BM_VlessParseRequest_IPv4(benchmark::State &state)
  */
 static void BM_VlessParseRequest_Domain(benchmark::State &state)
 {
-    // VLESS 域名请求: version(1) + UUID(16) + addnl_len(1) + cmd(1) + port(2) + atyp(1) + len(1) + domain(11)
+    // VLESS 域名请求: version(1) + UUID(16) + AddnlLen(1) + cmd(1) + port(2) + atyp(1) + len(1) + domain(11)
     std::vector<std::uint8_t> buf(31);
     buf[0] = 0x00;                    // version
-    buf[17] = 0x00;                   // addnl_len
+    buf[17] = 0x00;                   // AddnlLen
     buf[18] = 0x01;                   // cmd = TCP
     buf[19] = 0x01; buf[20] = 0xBB;   // port = 443
     buf[21] = 0x02;                   // atyp = domain

@@ -2,11 +2,11 @@
  * @file CoreTransmission.cpp
  * @brief tests/common/Core/Transmission.hpp 单元测试
  * @details 覆盖 Preview::Transmission 传输抽象接口：
- * 1. 内存 mock（可配置读/写行为）验证全部纯虚方法：AsyncReadSome、
- *    AsyncWriteSome、Close、Cancel、Executor
+ * 1. 内存 mock（可配置读/写行为）验证全部纯虚方法：async_read_some、
+ *    async_write_some、Close、Cancel、Executor
  * 2. 组合操作 AsyncRead/AsyncWrite 的正常、分块、EOF、错误分支
  * 3. completion-handler 桥接路径（co_spawn + ToEc 错误映射三分支）
- * 4. 装饰器链：TransportType 委托、NextLayer 默认、LowestLayer 转型
+ * 4. 装饰器链：TransportType 委托、NextLayer 默认、lowest_layer 转型
  * 5. Release() 默认与覆写、TransmissionLike 概念
  */
 
@@ -38,19 +38,19 @@ namespace
     class leaf_transmission final : public Preview::Transmission
     {
     public:
-        using Preview::Transmission::AsyncReadSome;
-        using Preview::Transmission::AsyncWriteSome;
+        using Preview::Transmission::async_read_some;
+        using Preview::Transmission::async_write_some;
 
-        explicit leaf_transmission(net::any_io_executor ex) : ex_(std::move(ex))
+        explicit leaf_transmission(net::any_io_executor ex) : Ex_(std::move(ex))
         {
         }
 
         auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
-        auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             std::memset(Buffer.data(), 0, Buffer.size());
@@ -58,7 +58,7 @@ namespace
             co_return Buffer.size();
         }
 
-        auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             (void)Buffer;
@@ -68,39 +68,39 @@ namespace
 
         auto Close() -> void override
         {
-            closed_ = true;
+            Closed_ = true;
         }
 
         auto Cancel() -> void override
         {
-            canceled_ = true;
+            Canceled_ = true;
         }
 
-        bool closed_{false};
-        bool canceled_{false};
+        bool Closed_{false};
+        bool Canceled_{false};
 
     private:
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
     };
 
     /// 装饰器 mock：可配置读/写行为，支持 Inner 链与 Release 所有权转移
     class mock_transmission : public Preview::Transmission
     {
     public:
-        using Preview::Transmission::AsyncReadSome;
-        using Preview::Transmission::AsyncWriteSome;
+        using Preview::Transmission::async_read_some;
+        using Preview::Transmission::async_write_some;
 
         explicit mock_transmission(net::any_io_executor ex, Preview::Transmission *Inner = nullptr)
-            : ex_(std::move(ex)), inner_(Inner)
+            : Ex_(std::move(ex)), Inner_(Inner)
         {
         }
 
         auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
-        auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (read_err_)
@@ -120,7 +120,7 @@ namespace
             co_return n;
         }
 
-        auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             if (write_err_)
@@ -141,28 +141,28 @@ namespace
 
         auto Close() -> void override
         {
-            closed_ = true;
+            Closed_ = true;
         }
 
         auto Cancel() -> void override
         {
-            canceled_ = true;
+            Canceled_ = true;
         }
 
         auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return inner_;
+            return Inner_;
         }
 
         auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return inner_;
+            return Inner_;
         }
 
         auto Release() -> std::shared_ptr<Preview::Transmission> override
         {
-            auto r = std::move(released_);
-            released_.reset();
+            auto r = std::move(Released_);
+            Released_.reset();
             return r;
         }
 
@@ -205,23 +205,23 @@ namespace
         /// 配置：设置 Release() 转移的底层传输
         auto set_release(std::shared_ptr<Preview::Transmission> t) -> void
         {
-            released_ = std::move(t);
+            Released_ = std::move(t);
         }
 
         std::size_t written_{0};
-        bool closed_{false};
-        bool canceled_{false};
+        bool Closed_{false};
+        bool Canceled_{false};
 
     private:
-        net::any_io_executor ex_;
-        Preview::Transmission *inner_{nullptr};
+        net::any_io_executor Ex_;
+        Preview::Transmission *Inner_{nullptr};
         std::vector<std::byte> read_buf_;
         std::optional<std::error_code> read_err_;
         std::size_t read_max_{SIZE_MAX};
         std::size_t write_max_{SIZE_MAX};
         bool write_zero_{false};
         std::optional<std::error_code> write_err_;
-        std::shared_ptr<Preview::Transmission> released_;
+        std::shared_ptr<Preview::Transmission> Released_;
     };
 
     /// UDP 装饰器：覆写 TransportType 返回 udp
@@ -232,7 +232,7 @@ namespace
 
         auto TransportType() const noexcept -> Type override
         {
-            return Type::udp;
+            return Type::Udp;
         }
     };
 
@@ -240,16 +240,16 @@ namespace
     class intermediate_transmission : public Preview::Transmission
     {
     public:
-        explicit intermediate_transmission(net::any_io_executor ex) : ex_(std::move(ex))
+        explicit intermediate_transmission(net::any_io_executor ex) : Ex_(std::move(ex))
         {
         }
 
         auto Executor() const -> ExecutorType override
         {
-            return ex_;
+            return Ex_;
         }
 
-        auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             std::memset(Buffer.data(), 0, Buffer.size());
@@ -257,7 +257,7 @@ namespace
             co_return Buffer.size();
         }
 
-        auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
             (void)Buffer;
@@ -274,7 +274,7 @@ namespace
         }
 
     private:
-        net::any_io_executor ex_;
+        net::any_io_executor Ex_;
     };
 
     TEST(CoreTransmission, ConceptSatisfied)
@@ -301,17 +301,17 @@ namespace
         mock_transmission mid(ioc.get_executor(), &leaf);
         mock_transmission top(ioc.get_executor(), &mid);
 
-        EXPECT_EQ(leaf.TransportType(), Preview::Transmission::Type::udp);
-        EXPECT_EQ(mid.TransportType(), Preview::Transmission::Type::udp);
-        EXPECT_EQ(top.TransportType(), Preview::Transmission::Type::udp);
+        EXPECT_EQ(leaf.TransportType(), Preview::Transmission::Type::Udp);
+        EXPECT_EQ(mid.TransportType(), Preview::Transmission::Type::Udp);
+        EXPECT_EQ(top.TransportType(), Preview::Transmission::Type::Udp);
     }
 
-    TEST(CoreTransmission, GetExecutor)
+    TEST(CoreTransmission, get_executor)
     {
         net::io_context ioc;
         leaf_transmission t(ioc.get_executor());
-        // GetExecutor() 兼容 Asio Executor 概念，委托 Executor()
-        EXPECT_EQ(t.GetExecutor(), ioc.get_executor());
+        // get_executor() 兼容 Asio Executor 概念，委托 Executor()
+        EXPECT_EQ(t.get_executor(), ioc.get_executor());
     }
 
     TEST(CoreTransmission, NextLayerDefault)
@@ -332,13 +332,13 @@ namespace
         auto b = std::make_unique<mock_transmission>(ioc.get_executor(), c.get());
         auto a = std::make_unique<mock_transmission>(ioc.get_executor(), b.get());
 
-        EXPECT_EQ(a->LowestLayer<mock_transmission>(), c.get());
-        EXPECT_EQ(a->LowestLayer<Preview::Transmission>(), c.get());
+        EXPECT_EQ(a->lowest_layer<mock_transmission>(), c.get());
+        EXPECT_EQ(a->lowest_layer<Preview::Transmission>(), c.get());
 
         // const 版本
         const auto *ca = a.get();
-        EXPECT_EQ(ca->LowestLayer<mock_transmission>(), c.get());
-        EXPECT_EQ(ca->LowestLayer<Preview::Transmission>(), c.get());
+        EXPECT_EQ(ca->lowest_layer<mock_transmission>(), c.get());
+        EXPECT_EQ(ca->lowest_layer<Preview::Transmission>(), c.get());
     }
 
     TEST(CoreTransmission, LowestLayerTypeMiss)
@@ -348,9 +348,9 @@ namespace
         auto c = std::make_unique<mock_transmission>(ioc.get_executor());
         auto a = std::make_unique<mock_transmission>(ioc.get_executor(), c.get());
 
-        EXPECT_EQ(a->LowestLayer<udp_decorator>(), nullptr);
+        EXPECT_EQ(a->lowest_layer<udp_decorator>(), nullptr);
         const auto *ca = a.get();
-        EXPECT_EQ(ca->LowestLayer<udp_decorator>(), nullptr);
+        EXPECT_EQ(ca->lowest_layer<udp_decorator>(), nullptr);
     }
 
     TEST(CoreTransmission, ReleaseDefault)
@@ -383,9 +383,9 @@ namespace
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
         t.Close();
-        EXPECT_TRUE(t.closed_);
+        EXPECT_TRUE(t.Closed_);
         t.Cancel();
-        EXPECT_TRUE(t.canceled_);
+        EXPECT_TRUE(t.Canceled_);
     }
 
     TEST(CoreTransmission, AsyncReadFull)
@@ -418,7 +418,7 @@ namespace
 
     TEST(CoreTransmission, AsyncReadChunked)
     {
-        // 分块读取：多次 AsyncReadSome 直至读满
+        // 分块读取：多次 async_read_some 直至读满
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
         t.set_read_data({std::byte{1}, std::byte{2}, std::byte{3}, std::byte{4},
@@ -513,7 +513,7 @@ namespace
 
     TEST(CoreTransmission, AsyncWriteChunked)
     {
-        // 分块写入：多次 AsyncWriteSome 直至写满
+        // 分块写入：多次 async_write_some 直至写满
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
         t.set_write_max(3);
@@ -580,7 +580,7 @@ namespace
 
         EXPECT_EQ(Done, 0);
         EXPECT_TRUE(ec);
-        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::broken_pipe));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::BrokenPipe));
     }
 
     TEST(CoreTransmission, HandlerReadSuccess)
@@ -593,7 +593,7 @@ namespace
         boost::system::error_code got_ec{static_cast<int>(boost::system::errc::invalid_argument), boost::system::generic_category()};
         std::size_t got_n = 0;
 
-        t.AsyncReadSome(buf, [&](boost::system::error_code ec, std::size_t n)
+        t.async_read_some(buf, [&](boost::system::error_code ec, std::size_t n)
                            {
                                got_ec = ec;
                                got_n = n;
@@ -613,7 +613,7 @@ namespace
         boost::system::error_code got_ec{static_cast<int>(boost::system::errc::invalid_argument), boost::system::generic_category()};
         std::size_t got_n = 0;
 
-        t.AsyncWriteSome(buf, [&](boost::system::error_code ec, std::size_t n)
+        t.async_write_some(buf, [&](boost::system::error_code ec, std::size_t n)
                             {
                                 got_ec = ec;
                                 got_n = n;
@@ -631,12 +631,12 @@ namespace
         net::io_context ioc;
         mock_transmission t(ioc.get_executor());
         t.SetReadError(
-            static_cast<std::error_code>(Preview::make_error_code(Preview::Error::need_more)));
+            static_cast<std::error_code>(Preview::make_error_code(Preview::Error::NeedMore)));
         std::byte buf[8]{};
         boost::system::error_code got_ec;
         std::size_t got_n = 999;
 
-        t.AsyncReadSome(buf, [&](boost::system::error_code ec, std::size_t n)
+        t.async_read_some(buf, [&](boost::system::error_code ec, std::size_t n)
                            {
                                got_ec = ec;
                                got_n = n;
@@ -646,7 +646,7 @@ namespace
         EXPECT_EQ(got_n, 0);
         EXPECT_TRUE(got_ec);
         EXPECT_EQ(std::string_view(got_ec.category().name()), "preview.protocol");
-        EXPECT_EQ(got_ec.value(), static_cast<int>(Preview::Error::need_more));
+        EXPECT_EQ(got_ec.value(), static_cast<int>(Preview::Error::NeedMore));
     }
 
     TEST(CoreTransmission, HandlerWriteErrorGeneric)
@@ -659,7 +659,7 @@ namespace
         boost::system::error_code got_ec;
         std::size_t got_n = 999;
 
-        t.AsyncWriteSome(buf, [&](boost::system::error_code ec, std::size_t n)
+        t.async_write_some(buf, [&](boost::system::error_code ec, std::size_t n)
                             {
                                 got_ec = ec;
                                 got_n = n;

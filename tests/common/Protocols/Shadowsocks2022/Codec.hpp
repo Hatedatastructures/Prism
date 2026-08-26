@@ -46,15 +46,15 @@ namespace Preview::Shadowsocks2022
                                                  std::uint16_t VarLen)
         -> std::array<std::uint8_t, FixedHdrPlain>
     {
-        std::array<std::uint8_t, FixedHdrPlain> out{};
-        out[0] = Type;
-        for (std::size_t i = 0; i < 8; ++i)
+        std::array<std::uint8_t, FixedHdrPlain> Out{};
+        Out[0] = Type;
+        for (std::size_t I = 0; I < 8; ++I)
         {
-            out[1 + i] = static_cast<std::uint8_t>((TimeSec >> (56 - i * 8)) & 0xFF);
+            Out[1 + I] = static_cast<std::uint8_t>((TimeSec >> (56 - I * 8)) & 0xFF);
         }
-        out[9] = static_cast<std::uint8_t>((VarLen >> 8) & 0xFF);
-        out[10] = static_cast<std::uint8_t>(VarLen & 0xFF);
-        return out;
+        Out[9] = static_cast<std::uint8_t>((VarLen >> 8) & 0xFF);
+        Out[10] = static_cast<std::uint8_t>(VarLen & 0xFF);
+        return Out;
     }
 
     /**
@@ -73,21 +73,21 @@ namespace Preview::Shadowsocks2022
      * @param out 输出固定头字段
      * @return 错误码
      */
-    [[nodiscard]] inline auto ParseFixedHeader(std::span<const std::uint8_t> Data, FixedHeader &out)
+    [[nodiscard]] inline auto ParseFixedHeader(std::span<const std::uint8_t> Data, FixedHeader &Out)
         -> Error
     {
         if (Data.size() < FixedHdrPlain)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        out.Type = Data[0];
-        out.TimeSec = 0;
-        for (std::size_t i = 0; i < 8; ++i)
+        Out.Type = Data[0];
+        Out.TimeSec = 0;
+        for (std::size_t I = 0; I < 8; ++I)
         {
-            out.TimeSec = (out.TimeSec << 8) | Data[1 + i];
+            Out.TimeSec = (Out.TimeSec << 8) | Data[1 + I];
         }
-        out.VarLen = static_cast<std::uint16_t>(Data[9]) << 8 | Data[10];
-        return Error::none;
+        Out.VarLen = static_cast<std::uint16_t>(Data[9]) << 8 | Data[10];
+        return Error::None;
     }
 
     /**
@@ -98,19 +98,19 @@ namespace Preview::Shadowsocks2022
      *       （原内联实现 ipv4 无校验存在越界写，统一实现修复为非法输入输出 0.0.0.0）
      */
     template <typename Alloc>
-    inline auto EncodeAddress(const Address &addr, std::vector<std::uint8_t, Alloc> &out) -> void
+    inline auto EncodeAddress(const Address &Addr, std::vector<std::uint8_t, Alloc> &Out) -> void
     {
-        Preview::Protocol::Common::EncodeAddress(addr, out);
+        Preview::Protocol::Common::EncodeAddress(Addr, Out);
     }
 
     /**
      * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE）
      */
-    [[nodiscard]] inline auto EncodeAddress(const Address &addr) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto EncodeAddress(const Address &Addr) -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> out;
-        EncodeAddress(addr, out);
-        return out;
+        std::vector<std::uint8_t> Out;
+        EncodeAddress(Addr, Out);
+        return Out;
     }
 
     /**
@@ -120,60 +120,60 @@ namespace Preview::Shadowsocks2022
      * @param off 输入起始偏移，输出结束偏移
      * @return 错误码
      */
-    [[nodiscard]] inline auto ParseAddress(std::span<const std::uint8_t> Data, Address &addr,
-                                            std::size_t &off) -> Error
+    [[nodiscard]] inline auto ParseAddress(std::span<const std::uint8_t> Data, Address &Addr,
+                                            std::size_t &Off) -> Error
     {
-        if (off >= Data.size())
+        if (Off >= Data.size())
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        addr.Type = static_cast<AddressType>(Data[off++]);
-        switch (addr.Type)
+        Addr.Type = static_cast<AddressType>(Data[Off++]);
+        switch (Addr.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4)
+            if (Data.size() < Off + 4)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
-            addr.Host = buf.data();
-            off += 4;
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
+            Addr.Host = buf.data();
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16)
+            if (Data.size() < Off + 16)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            addr.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            Addr.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain:
         default: {
-            if (off >= Data.size())
+            if (Off >= Data.size())
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            addr.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            Addr.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
         }
-        if (Data.size() < off + 2)
+        if (Data.size() < Off + 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        addr.Port = static_cast<std::uint16_t>(Data[off]) << 8 | Data[off + 1];
-        off += 2;
-        return Error::none;
+        Addr.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Off += 2;
+        return Error::None;
     }
 
     /**
@@ -183,19 +183,19 @@ namespace Preview::Shadowsocks2022
      * @param payload 初始载荷（可空）
      * @return 变长头明文
      */
-    [[nodiscard]] inline auto BuildVarHeader(const Address &addr, std::uint16_t PadLen,
+    [[nodiscard]] inline auto BuildVarHeader(const Address &Addr, std::uint16_t PadLen,
                                                std::span<const std::uint8_t> payload = {})
         -> std::vector<std::uint8_t>
     {
-        auto out = EncodeAddress(addr);
-        out.push_back(static_cast<std::uint8_t>((PadLen >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(PadLen & 0xFF));
-        for (std::uint16_t i = 0; i < PadLen; ++i)
+        auto Out = EncodeAddress(Addr);
+        Out.push_back(static_cast<std::uint8_t>((PadLen >> 8) & 0xFF));
+        Out.push_back(static_cast<std::uint8_t>(PadLen & 0xFF));
+        for (std::uint16_t I = 0; I < PadLen; ++I)
         {
-            out.push_back(0);
+            Out.push_back(0);
         }
-        out.insert(out.end(), payload.begin(), payload.end());
-        return out;
+        Out.insert(Out.end(), payload.begin(), payload.end());
+        return Out;
     }
 
     /**
@@ -205,73 +205,73 @@ namespace Preview::Shadowsocks2022
      * @param payload 输出剩余载荷
      * @return 错误码
      */
-    [[nodiscard]] inline auto ParseVarHeader(std::span<const std::uint8_t> Data, Address &addr,
+    [[nodiscard]] inline auto ParseVarHeader(std::span<const std::uint8_t> Data, Address &Addr,
                                                std::span<const std::uint8_t> &payload) -> Error
     {
         if (Data.size() < 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        addr.Type = static_cast<AddressType>(Data[0]);
-        std::size_t off = 1;
-        switch (addr.Type)
+        Addr.Type = static_cast<AddressType>(Data[0]);
+        std::size_t Off = 1;
+        switch (Addr.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < off + 4)
+            if (Data.size() < Off + 4)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
             std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[off], Data[off + 1], Data[off + 2],
-                          Data[off + 3]);
-            addr.Host = buf.data();
-            off += 4;
+            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
+                          Data[Off + 3]);
+            Addr.Host = buf.data();
+            Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < off + 16)
+            if (Data.size() < Off + 16)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            addr.Host.assign(reinterpret_cast<const char *>(Data.data() + off), 16);
-            off += 16;
+            Addr.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Off += 16;
             break;
         }
         case AddressType::Domain:
         default: {
-            if (off >= Data.size())
+            if (Off >= Data.size())
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            const auto len = Data[off++];
-            if (Data.size() < off + len)
+            const auto Len = Data[Off++];
+            if (Data.size() < Off + Len)
             {
-                return Error::need_more;
+                return Error::NeedMore;
             }
-            addr.Host.assign(reinterpret_cast<const char *>(Data.data() + off), len);
-            off += len;
+            Addr.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
+            Off += Len;
             break;
         }
         }
-        if (Data.size() < off + 2)
+        if (Data.size() < Off + 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        addr.Port = static_cast<std::uint16_t>(Data[off]) << 8 | Data[off + 1];
-        off += 2;
-        if (Data.size() < off + 2)
+        Addr.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Off += 2;
+        if (Data.size() < Off + 2)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        const auto PadLen = static_cast<std::size_t>(Data[off]) << 8 | Data[off + 1];
-        off += 2;
-        if (Data.size() < off + PadLen)
+        const auto PadLen = static_cast<std::size_t>(Data[Off]) << 8 | Data[Off + 1];
+        Off += 2;
+        if (Data.size() < Off + PadLen)
         {
-            return Error::need_more;
+            return Error::NeedMore;
         }
-        off += PadLen;
-        payload = Data.subspan(off);
-        return Error::none;
+        Off += PadLen;
+        payload = Data.subspan(Off);
+        return Error::None;
     }
 
     // ==================== chunk.hpp（分块 AEAD）合并 ====================
@@ -306,25 +306,25 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] inline auto AeadSeal(std::span<const std::uint8_t> key,
                                             std::span<const std::uint8_t> nonce12,
                                             std::span<const std::uint8_t> plain,
-                                            std::vector<std::uint8_t, Alloc> &out) -> std::size_t
+                                            std::vector<std::uint8_t, Alloc> &Out) -> std::size_t
         {
-            out.clear();
-            out.resize(plain.size() + AeadTagLen);
+            Out.clear();
+            Out.resize(plain.size() + AeadTagLen);
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
             {
                 return 0;
             }
-            int len = 0;
+            int Len = 0;
             EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), nonce12.data());
-            EVP_EncryptUpdate(ctx, out.data(), &len, plain.data(), static_cast<int>(plain.size()));
-            int OutLen = len;
-            EVP_EncryptFinal_ex(ctx, out.data() + OutLen, &len);
-            OutLen += len;
-            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + OutLen);
-            out.resize(static_cast<std::size_t>(OutLen) + AeadTagLen);
+            EVP_EncryptUpdate(ctx, Out.data(), &Len, plain.data(), static_cast<int>(plain.size()));
+            int OutLen = Len;
+            EVP_EncryptFinal_ex(ctx, Out.data() + OutLen, &Len);
+            OutLen += Len;
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, Out.data() + OutLen);
+            Out.resize(static_cast<std::size_t>(OutLen) + AeadTagLen);
             EVP_CIPHER_CTX_free(ctx);
-            return out.size();
+            return Out.size();
         }
 
         /**
@@ -340,25 +340,25 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] inline auto AeadSeal(std::span<const std::uint8_t> key,
                                             std::span<const std::uint8_t> nonce12,
                                             std::span<const std::uint8_t> plain,
-                                            std::vector<std::uint8_t, Alloc> &out,
+                                            std::vector<std::uint8_t, Alloc> &Out,
                                             const std::size_t offset) -> std::size_t
         {
-            if (out.size() < offset + plain.size() + AeadTagLen)
+            if (Out.size() < offset + plain.size() + AeadTagLen)
             {
-                out.resize(offset + plain.size() + AeadTagLen);
+                Out.resize(offset + plain.size() + AeadTagLen);
             }
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
             {
                 return 0;
             }
-            int len = 0;
+            int Len = 0;
             EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), nonce12.data());
-            EVP_EncryptUpdate(ctx, out.data() + offset, &len, plain.data(), static_cast<int>(plain.size()));
-            int OutLen = len;
-            EVP_EncryptFinal_ex(ctx, out.data() + offset + OutLen, &len);
-            OutLen += len;
-            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + offset + OutLen);
+            EVP_EncryptUpdate(ctx, Out.data() + offset, &Len, plain.data(), static_cast<int>(plain.size()));
+            int OutLen = Len;
+            EVP_EncryptFinal_ex(ctx, Out.data() + offset + OutLen, &Len);
+            OutLen += Len;
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, Out.data() + offset + OutLen);
             EVP_CIPHER_CTX_free(ctx);
             return OutLen + AeadTagLen;
         }
@@ -367,9 +367,9 @@ namespace Preview::Shadowsocks2022
                                             std::span<const std::uint8_t> nonce12,
                                             std::span<const std::uint8_t> plain) -> std::vector<std::uint8_t>
         {
-            std::vector<std::uint8_t> out;
-            AeadSeal(key, nonce12, plain, out);
-            return out;
+            std::vector<std::uint8_t> Out;
+            AeadSeal(key, nonce12, plain, Out);
+            return Out;
         }
 
         /**
@@ -387,28 +387,28 @@ namespace Preview::Shadowsocks2022
             {
                 return {};
             }
-            std::vector<std::uint8_t> out(cipher.size() - AeadTagLen);
+            std::vector<std::uint8_t> Out(cipher.size() - AeadTagLen);
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
             {
                 return {};
             }
-            int len = 0;
+            int Len = 0;
             EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), nonce12.data());
-            EVP_DecryptUpdate(ctx, out.data(), &len, cipher.data(),
+            EVP_DecryptUpdate(ctx, Out.data(), &Len, cipher.data(),
                               static_cast<int>(cipher.size() - AeadTagLen));
-            int OutLen = len;
+            int OutLen = Len;
             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
                                 const_cast<std::uint8_t *>(cipher.data()) + cipher.size() - AeadTagLen);
-            const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + OutLen, &len);
-            OutLen += len;
+            const auto Ok = EVP_DecryptFinal_ex(ctx, Out.data() + OutLen, &Len);
+            OutLen += Len;
             EVP_CIPHER_CTX_free(ctx);
             if (Ok != 1)
             {
                 return {};
             }
-            out.resize(static_cast<std::size_t>(OutLen));
-            return out;
+            Out.resize(static_cast<std::size_t>(OutLen));
+            return Out;
         }
 
         /**
@@ -423,35 +423,35 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] inline auto AeadOpen(std::span<const std::uint8_t> key,
                                             std::span<const std::uint8_t> nonce12,
                                             std::span<const std::uint8_t> cipher,
-                                            std::vector<std::uint8_t, Alloc> &out) -> bool
+                                            std::vector<std::uint8_t, Alloc> &Out) -> bool
         {
-            out.clear();
+            Out.clear();
             if (cipher.size() < AeadTagLen)
             {
                 return false;
             }
-            out.resize(cipher.size() - AeadTagLen);
+            Out.resize(cipher.size() - AeadTagLen);
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
             {
                 return false;
             }
-            int len = 0;
+            int Len = 0;
             EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, key.data(), nonce12.data());
-            EVP_DecryptUpdate(ctx, out.data(), &len, cipher.data(),
+            EVP_DecryptUpdate(ctx, Out.data(), &Len, cipher.data(),
                               static_cast<int>(cipher.size() - AeadTagLen));
-            int OutLen = len;
+            int OutLen = Len;
             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
                                 const_cast<std::uint8_t *>(cipher.data()) + cipher.size() - AeadTagLen);
-            const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + OutLen, &len);
-            OutLen += len;
+            const auto Ok = EVP_DecryptFinal_ex(ctx, Out.data() + OutLen, &Len);
+            OutLen += Len;
             EVP_CIPHER_CTX_free(ctx);
             if (Ok != 1)
             {
-                out.clear();
+                Out.clear();
                 return false;
             }
-            out.resize(static_cast<std::size_t>(OutLen));
+            Out.resize(static_cast<std::size_t>(OutLen));
             return true;
         }
 
@@ -466,15 +466,15 @@ namespace Preview::Shadowsocks2022
         /**
          * @brief 构造
          * @param key 会话密钥（16 字节 aes-128-gcm）
-         * @param start_nonce 起始 Nonce（默认 0；握手消耗 2 个 Nonce
+         * @param StartNonce 起始 Nonce（默认 0；握手消耗 2 个 Nonce
          *                    后数据面从 2 开始，供互操作测试指定）
          */
-        explicit ChunkCodec(std::span<const std::uint8_t> key, std::size_t start_nonce = 0)
-            : key_(key.begin(), key.end())
+        explicit ChunkCodec(std::span<const std::uint8_t> key, std::size_t StartNonce = 0)
+            : Key_(key.begin(), key.end())
         {
-            for (std::size_t i = 0; i < start_nonce; ++i)
+            for (std::size_t I = 0; I < StartNonce; ++I)
             {
-                detail::IncNonce(nonce_);
+                detail::IncNonce(Nonce_);
             }
         }
 
@@ -486,18 +486,18 @@ namespace Preview::Shadowsocks2022
          */
         template <typename Alloc>
         [[nodiscard]] auto Seal(std::span<const std::uint8_t> plain,
-                                std::vector<std::uint8_t, Alloc> &out) -> std::size_t
+                                std::vector<std::uint8_t, Alloc> &Out) -> std::size_t
         {
-            out.clear();
+            Out.clear();
             std::array<std::uint8_t, 2> LenPlain{static_cast<std::uint8_t>((plain.size() >> 8) & 0xFF),
                                                   static_cast<std::uint8_t>(plain.size() & 0xFF)};
             // 直接写 out：头 18B（len 密文）+ 尾部（body 密文），零中间分配
-            const auto LenN = detail::AeadSeal(key_, nonce_, LenPlain, out);
-            detail::IncNonce(nonce_);
-            out.resize(LenN + plain.size() + AeadTagLen);
-            (void)detail::AeadSeal(key_, nonce_, plain, out, LenN);
-            detail::IncNonce(nonce_);
-            return out.size();
+            const auto LenN = detail::AeadSeal(Key_, Nonce_, LenPlain, Out);
+            detail::IncNonce(Nonce_);
+            Out.resize(LenN + plain.size() + AeadTagLen);
+            (void)detail::AeadSeal(Key_, Nonce_, plain, Out, LenN);
+            detail::IncNonce(Nonce_);
+            return Out.size();
         }
 
         /**
@@ -507,9 +507,9 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Seal(std::span<const std::uint8_t> plain) -> std::vector<std::uint8_t>
         {
-            std::vector<std::uint8_t> out;
-            Seal(plain, out);
-            return out;
+            std::vector<std::uint8_t> Out;
+            Seal(plain, Out);
+            return Out;
         }
 
         /**
@@ -523,18 +523,18 @@ namespace Preview::Shadowsocks2022
             {
                 return std::nullopt;
             }
-            const auto LenPlain = detail::AeadOpen(key_, nonce_, head.first(LenBlockSize));
+            const auto LenPlain = detail::AeadOpen(Key_, Nonce_, head.first(LenBlockSize));
             if (LenPlain.size() != 2)
             {
                 return std::nullopt;
             }
-            detail::IncNonce(nonce_);
-            const auto n = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
-            if (n > MaxChunkSize)
+            detail::IncNonce(Nonce_);
+            const auto N = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
+            if (N > MaxChunkSize)
             {
                 return std::nullopt;
             }
-            return n;
+            return N;
         }
 
         /**
@@ -545,20 +545,20 @@ namespace Preview::Shadowsocks2022
          */
         template <typename Alloc>
         [[nodiscard]] auto OpenPayload(std::span<const std::uint8_t> Data,
-                                        std::vector<std::uint8_t, Alloc> &out) -> std::size_t
+                                        std::vector<std::uint8_t, Alloc> &Out) -> std::size_t
         {
-            out.clear();
+            Out.clear();
             if (Data.size() < AeadTagLen)
             {
                 return 0;
             }
-            if (!detail::AeadOpen(key_, nonce_, Data, out))
+            if (!detail::AeadOpen(Key_, Nonce_, Data, Out))
             {
-                out.clear();
+                Out.clear();
                 return 0;
             }
-            detail::IncNonce(nonce_);
-            return out.size();
+            detail::IncNonce(Nonce_);
+            return Out.size();
         }
 
         /**
@@ -568,9 +568,9 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto OpenPayload(std::span<const std::uint8_t> Data) -> std::vector<std::uint8_t>
         {
-            std::vector<std::uint8_t> out;
-            OpenPayload(Data, out);
-            return out;
+            std::vector<std::uint8_t> Out;
+            OpenPayload(Data, Out);
+            return Out;
         }
 
         /**
@@ -579,30 +579,30 @@ namespace Preview::Shadowsocks2022
          * @param consumed 输出消耗字节数
          * @return 明文；空 = 失败或空块（len=0）
          */
-        [[nodiscard]] auto Open(std::span<const std::uint8_t> Data, std::size_t &consumed)
+        [[nodiscard]] auto Open(std::span<const std::uint8_t> Data, std::size_t &Consumed)
             -> std::vector<std::uint8_t>
         {
-            auto len = OpenLen(Data);
-            if (!len)
+            auto Len = OpenLen(Data);
+            if (!Len)
             {
                 return {};
             }
-            if (*len == 0)
+            if (*Len == 0)
             {
-                consumed = LenBlockSize;
+                Consumed = LenBlockSize;
                 return {};
             }
-            if (Data.size() < LenBlockSize + *len + AeadTagLen)
-            {
-                return {};
-            }
-            const auto body = OpenPayload(Data.subspan(LenBlockSize, *len + AeadTagLen));
-            if (body.empty())
+            if (Data.size() < LenBlockSize + *Len + AeadTagLen)
             {
                 return {};
             }
-            consumed = LenBlockSize + *len + AeadTagLen;
-            return body;
+            const auto Body = OpenPayload(Data.subspan(LenBlockSize, *Len + AeadTagLen));
+            if (Body.empty())
+            {
+                return {};
+            }
+            Consumed = LenBlockSize + *Len + AeadTagLen;
+            return Body;
         }
 
         /**
@@ -615,10 +615,10 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] auto SealRaw(std::span<const std::uint8_t> plain)
             -> std::vector<std::uint8_t>
         {
-            std::vector<std::uint8_t> out;
-            detail::AeadSeal(key_, nonce_, plain, out);
-            detail::IncNonce(nonce_);
-            return out;
+            std::vector<std::uint8_t> Out;
+            detail::AeadSeal(Key_, Nonce_, plain, Out);
+            detail::IncNonce(Nonce_);
+            return Out;
         }
 
         /**
@@ -630,13 +630,13 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] auto OpenRaw(std::span<const std::uint8_t> Data)
             -> std::vector<std::uint8_t>
         {
-            auto out = detail::AeadOpen(key_, nonce_, Data);
-            if (out.empty())
+            auto Out = detail::AeadOpen(Key_, Nonce_, Data);
+            if (Out.empty())
             {
                 return {};
             }
-            detail::IncNonce(nonce_);
-            return out;
+            detail::IncNonce(Nonce_);
+            return Out;
         }
 
         /**
@@ -649,13 +649,13 @@ namespace Preview::Shadowsocks2022
          */
         template <typename Alloc>
         [[nodiscard]] auto OpenRaw(std::span<const std::uint8_t> Data,
-                                    std::vector<std::uint8_t, Alloc> &out) -> bool
+                                    std::vector<std::uint8_t, Alloc> &Out) -> bool
         {
-            if (!detail::AeadOpen(key_, nonce_, Data, out))
+            if (!detail::AeadOpen(Key_, Nonce_, Data, Out))
             {
                 return false;
             }
-            detail::IncNonce(nonce_);
+            detail::IncNonce(Nonce_);
             return true;
         }
 
@@ -669,8 +669,8 @@ namespace Preview::Shadowsocks2022
         }
 
     private:
-        std::vector<std::uint8_t> key_;
-        std::array<std::uint8_t, 12> nonce_{};
+        std::vector<std::uint8_t> Key_;
+        std::array<std::uint8_t, 12> Nonce_{};
     };
 
     /**
@@ -681,19 +681,19 @@ namespace Preview::Shadowsocks2022
      * @return 会话子密钥
      */
     [[nodiscard]] inline auto SessionKey(std::span<const std::uint8_t> psk,
-                                          std::span<const std::uint8_t> salt, std::size_t OutLen = 16)
+                                          std::span<const std::uint8_t> Salt, std::size_t OutLen = 16)
         -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> material;
-        material.reserve(psk.size() + salt.size());
+        material.reserve(psk.size() + Salt.size());
         material.insert(material.end(), psk.begin(), psk.end());
-        material.insert(material.end(), salt.begin(), salt.end());
-        std::vector<std::uint8_t> out(OutLen);
+        material.insert(material.end(), Salt.begin(), Salt.end());
+        std::vector<std::uint8_t> Out(OutLen);
         blake3_hasher hasher;
         blake3_hasher_init_derive_key(&hasher, KdfContext.data());
         blake3_hasher_update(&hasher, material.data(), material.size());
-        blake3_hasher_finalize(&hasher, out.data(), OutLen);
-        return out;
+        blake3_hasher_finalize(&hasher, Out.data(), OutLen);
+        return Out;
     }
 
     // ==================== Kdf.hpp（密钥派生）合并 ====================
@@ -719,7 +719,7 @@ namespace Preview::Shadowsocks2022
          * @brief 构造
          * @param psk 预共享密钥（16 字节）
          */
-        explicit Serializer(const std::array<std::uint8_t, 16> &psk) : psk_(psk)
+        explicit Serializer(const std::array<std::uint8_t, 16> &psk) : Psk_(psk)
         {
         }
 
@@ -732,36 +732,36 @@ namespace Preview::Shadowsocks2022
         {
             // @note 盐必须 CSPRNG：MinGW 的 std::random_device 存在确定性序列风险，
             //       盐重复 = 跨会话 keystream 重用（与生产 RAND_bytes 口径一致）
-            std::array<std::uint8_t, 16> salt{};
-            RAND_bytes(salt.data(), static_cast<int>(salt.size()));
-            const auto key = SessionKey(psk_, salt, 16);
+            std::array<std::uint8_t, 16> Salt{};
+            RAND_bytes(Salt.data(), static_cast<int>(Salt.size()));
+            const auto key = SessionKey(Psk_, Salt, 16);
 
             std::random_device rd; // padding 长度非密码学用途，random_device 足够
             const auto PadLen = static_cast<std::uint16_t>(1 + rd() % 16);
             std::vector<std::uint8_t> var;
-            const auto addr = EncodeAddress(msg.dst);
-            var.insert(var.end(), addr.begin(), addr.end());
+            const auto Addr = EncodeAddress(msg.dst);
+            var.insert(var.end(), Addr.begin(), Addr.end());
             var.push_back(static_cast<std::uint8_t>((PadLen >> 8) & 0xFF));
             var.push_back(static_cast<std::uint8_t>(PadLen & 0xFF));
-            for (std::uint16_t i = 0; i < PadLen; ++i)
+            for (std::uint16_t I = 0; I < PadLen; ++I)
             {
                 var.push_back(static_cast<std::uint8_t>(rd() & 0xFF));
             }
             var.insert(var.end(), msg.InitialPayload.begin(), msg.InitialPayload.end());
 
-            const auto fixed =
+            const auto Fixed =
                 ParseFixedHeader(HeaderTypeClient, TimeSec, static_cast<std::uint16_t>(var.size()));
 
             ChunkCodec Codec(key);
-            const auto FixedEnc = Codec.SealRaw(fixed);
+            const auto FixedEnc = Codec.SealRaw(Fixed);
             const auto VarEnc = Codec.SealRaw(var);
 
-            wire_.clear();
-            wire_.reserve(salt.size() + FixedEnc.size() + VarEnc.size());
-            wire_.insert(wire_.end(), salt.begin(), salt.end());
-            wire_.insert(wire_.end(), FixedEnc.begin(), FixedEnc.end());
-            wire_.insert(wire_.end(), VarEnc.begin(), VarEnc.end());
-            offset_ = 0;
+            Wire_.clear();
+            Wire_.reserve(Salt.size() + FixedEnc.size() + VarEnc.size());
+            Wire_.insert(Wire_.end(), Salt.begin(), Salt.end());
+            Wire_.insert(Wire_.end(), FixedEnc.begin(), FixedEnc.end());
+            Wire_.insert(Wire_.end(), VarEnc.begin(), VarEnc.end());
+            Offset_ = 0;
         }
 
         /**
@@ -770,10 +770,10 @@ namespace Preview::Shadowsocks2022
         auto Get(boost::asio::mutable_buffer Buffer, std::error_code &ec) -> std::size_t
         {
             ec.clear();
-            const auto n = std::min(Buffer.size(), wire_.size() - offset_);
-            std::memcpy(Buffer.data(), wire_.data() + offset_, n);
-            offset_ += n;
-            return n;
+            const auto N = std::min(Buffer.size(), Wire_.size() - Offset_);
+            std::memcpy(Buffer.data(), Wire_.data() + Offset_, N);
+            Offset_ += N;
+            return N;
         }
 
         /**
@@ -782,13 +782,13 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return offset_ >= wire_.size();
+            return Offset_ >= Wire_.size();
         }
 
     private:
-        std::array<std::uint8_t, 16> psk_;
-        std::vector<std::uint8_t> wire_;
-        std::size_t offset_{0};
+        std::array<std::uint8_t, 16> Psk_;
+        std::vector<std::uint8_t> Wire_;
+        std::size_t Offset_{0};
     };
 
     /**
@@ -801,7 +801,7 @@ namespace Preview::Shadowsocks2022
          * @brief 构造
          * @param psk 预共享密钥（16 字节）
          */
-        explicit Parser(const std::array<std::uint8_t, 16> &psk) : psk_(psk)
+        explicit Parser(const std::array<std::uint8_t, 16> &psk) : Psk_(psk)
         {
         }
 
@@ -813,63 +813,63 @@ namespace Preview::Shadowsocks2022
             ec.clear();
             const auto Data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(Buffer.data()),
                                                             Buffer.size());
-            buf_.insert(buf_.end(), Data.begin(), Data.end());
-            if (buf_.size() < 16 + FixedHdrPlain + AeadTagLen)
+            Buf_.insert(Buf_.end(), Data.begin(), Data.end());
+            if (Buf_.size() < 16 + FixedHdrPlain + AeadTagLen)
             {
-                ec = make_error_code(Error::need_more);
+                ec = make_error_code(Error::NeedMore);
                 return 0;
             }
 
-            const auto salt = std::span<const std::uint8_t>(buf_).first(16);
-            const auto key = SessionKey(psk_, salt, 16);
+            const auto Salt = std::span<const std::uint8_t>(Buf_).first(16);
+            const auto key = SessionKey(Psk_, Salt, 16);
             ChunkCodec Codec(key);
 
-            auto FixedPlain = Codec.OpenRaw(std::span<const std::uint8_t>(buf_).subspan(
+            auto FixedPlain = Codec.OpenRaw(std::span<const std::uint8_t>(Buf_).subspan(
                                                   16, FixedHdrPlain + AeadTagLen));
             if (FixedPlain.size() != FixedHdrPlain || FixedPlain[0] != HeaderTypeClient)
             {
-                ec = make_error_code(Error::auth_failed);
+                ec = make_error_code(Error::AuthFailed);
                 return 0;
             }
             const auto VarLen = static_cast<std::size_t>(FixedPlain[9]) << 8 | FixedPlain[10];
-            if (buf_.size() < 16 + FixedHdrPlain + AeadTagLen + VarLen + AeadTagLen)
+            if (Buf_.size() < 16 + FixedHdrPlain + AeadTagLen + VarLen + AeadTagLen)
             {
-                ec = make_error_code(Error::need_more);
+                ec = make_error_code(Error::NeedMore);
                 return 0;
             }
-            auto VarPlain = Codec.OpenRaw(std::span<const std::uint8_t>(buf_).subspan(
+            auto VarPlain = Codec.OpenRaw(std::span<const std::uint8_t>(Buf_).subspan(
                                                 16 + FixedHdrPlain + AeadTagLen,
                                                 VarLen + AeadTagLen));
             if (VarPlain.empty())
             {
-                ec = make_error_code(Error::auth_failed);
+                ec = make_error_code(Error::AuthFailed);
                 return 0;
             }
 
-            std::size_t off = 0;
-            auto err = ParseAddress(std::span<const std::uint8_t>(VarPlain).subspan(off), msg_.dst, off);
-            if (err != Error::none)
+            std::size_t Off = 0;
+            auto Err = ParseAddress(std::span<const std::uint8_t>(VarPlain).subspan(Off), Msg_.dst, Off);
+            if (Err != Error::None)
             {
-                ec = make_error_code(err);
+                ec = make_error_code(Err);
                 return 0;
             }
-            if (VarPlain.size() < off + 2)
+            if (VarPlain.size() < Off + 2)
             {
-                ec = make_error_code(Error::bad_message);
+                ec = make_error_code(Error::BadMessage);
                 return 0;
             }
-            const auto PadLen = static_cast<std::size_t>(VarPlain[off]) << 8 | VarPlain[off + 1];
-            off += 2;
-            if (VarPlain.size() < off + PadLen)
+            const auto PadLen = static_cast<std::size_t>(VarPlain[Off]) << 8 | VarPlain[Off + 1];
+            Off += 2;
+            if (VarPlain.size() < Off + PadLen)
             {
-                ec = make_error_code(Error::bad_message);
+                ec = make_error_code(Error::BadMessage);
                 return 0;
             }
-            off += PadLen;
-            msg_.InitialPayload.assign(reinterpret_cast<const char *>(VarPlain.data() + off),
-                                        VarPlain.size() - off);
-            done_ = true;
-            return buf_.size();
+            Off += PadLen;
+            Msg_.InitialPayload.assign(reinterpret_cast<const char *>(VarPlain.data() + Off),
+                                        VarPlain.size() - Off);
+            Done_ = true;
+            return Buf_.size();
         }
 
         /**
@@ -878,7 +878,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return done_;
+            return Done_;
         }
 
         /**
@@ -887,7 +887,7 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto Get() const -> const Message &
         {
-            return msg_;
+            return Msg_;
         }
 
         /**
@@ -895,16 +895,16 @@ namespace Preview::Shadowsocks2022
          */
         auto Reset() -> void
         {
-            buf_.clear();
-            msg_ = Message{};
-            done_ = false;
+            Buf_.clear();
+            Msg_ = Message{};
+            Done_ = false;
         }
 
     private:
-        std::array<std::uint8_t, 16> psk_;
-        std::vector<std::uint8_t> buf_;
-        Message msg_{};
-        bool done_{false};
+        std::array<std::uint8_t, 16> Psk_;
+        std::vector<std::uint8_t> Buf_;
+        Message Msg_{};
+        bool Done_{false};
     };
 
     // ==================== datagram.hpp（UDP 数据报编解码）合并 ====================
@@ -960,26 +960,26 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] inline auto UdpSeal(const UdpSealInput &in) -> std::vector<std::uint8_t>
         {
-            std::vector<std::uint8_t> out(in.plain.size() + AeadTagLen);
+            std::vector<std::uint8_t> Out(in.plain.size() + AeadTagLen);
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
             {
                 return {};
             }
-            int len = 0;
+            int Len = 0;
             EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, in.key.data(), in.Nonce.data());
             if (!in.aad.empty())
             {
-                EVP_EncryptUpdate(ctx, nullptr, &len, in.aad.data(), static_cast<int>(in.aad.size()));
+                EVP_EncryptUpdate(ctx, nullptr, &Len, in.aad.data(), static_cast<int>(in.aad.size()));
             }
-            EVP_EncryptUpdate(ctx, out.data(), &len, in.plain.data(), static_cast<int>(in.plain.size()));
-            int OutLen = len;
-            EVP_EncryptFinal_ex(ctx, out.data() + OutLen, &len);
-            OutLen += len;
-            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + OutLen);
-            out.resize(static_cast<std::size_t>(OutLen) + AeadTagLen);
+            EVP_EncryptUpdate(ctx, Out.data(), &Len, in.plain.data(), static_cast<int>(in.plain.size()));
+            int OutLen = Len;
+            EVP_EncryptFinal_ex(ctx, Out.data() + OutLen, &Len);
+            OutLen += Len;
+            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, Out.data() + OutLen);
+            Out.resize(static_cast<std::size_t>(OutLen) + AeadTagLen);
             EVP_CIPHER_CTX_free(ctx);
-            return out;
+            return Out;
         }
 
         /**
@@ -995,33 +995,33 @@ namespace Preview::Shadowsocks2022
             {
                 return {};
             }
-            std::vector<std::uint8_t> out(in.cipher.size() - AeadTagLen);
+            std::vector<std::uint8_t> Out(in.cipher.size() - AeadTagLen);
             EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
             if (!ctx)
             {
                 return {};
             }
-            int len = 0;
+            int Len = 0;
             EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, in.key.data(), in.Nonce.data());
             if (!in.aad.empty())
             {
-                EVP_DecryptUpdate(ctx, nullptr, &len, in.aad.data(), static_cast<int>(in.aad.size()));
+                EVP_DecryptUpdate(ctx, nullptr, &Len, in.aad.data(), static_cast<int>(in.aad.size()));
             }
-            EVP_DecryptUpdate(ctx, out.data(), &len, in.cipher.data(),
+            EVP_DecryptUpdate(ctx, Out.data(), &Len, in.cipher.data(),
                               static_cast<int>(in.cipher.size() - AeadTagLen));
-            int OutLen = len;
+            int OutLen = Len;
             EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
                                 const_cast<std::uint8_t *>(in.cipher.data()) + in.cipher.size() -
                                     AeadTagLen);
-            const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + OutLen, &len);
-            OutLen += len;
+            const auto Ok = EVP_DecryptFinal_ex(ctx, Out.data() + OutLen, &Len);
+            OutLen += Len;
             EVP_CIPHER_CTX_free(ctx);
             if (Ok != 1)
             {
                 return {};
             }
-            out.resize(static_cast<std::size_t>(OutLen));
-            return out;
+            Out.resize(static_cast<std::size_t>(OutLen));
+            return Out;
         }
 
     } // namespace detail
@@ -1056,51 +1056,51 @@ namespace Preview::Shadowsocks2022
      */
     template <typename Alloc>
     [[nodiscard]] inline auto BuildUdpPacket(const UdpBuildInput &in,
-                                               std::vector<std::uint8_t, Alloc> &out) -> bool
+                                               std::vector<std::uint8_t, Alloc> &Out) -> bool
     {
-        out.clear();
+        Out.clear();
         if (!in.Target || in.SessionKey.size() < SessionIdLen + PacketIdLen)
         {
             return false;
         }
 
         // 1. SeparateHeader（明文）：SessionID(8) + PacketID(8 BE)
-        std::array<std::uint8_t, SeparateHdrLen> separate{};
-        std::memcpy(separate.data(), in.SessionKey.data(), SessionIdLen);
-        for (std::size_t i = 0; i < PacketIdLen; ++i)
+        std::array<std::uint8_t, SeparateHdrLen> Separate{};
+        std::memcpy(Separate.data(), in.SessionKey.data(), SessionIdLen);
+        for (std::size_t I = 0; I < PacketIdLen; ++I)
         {
-            separate[SessionIdLen + i] = static_cast<std::uint8_t>((in.PacketId >> (56 - i * 8)) & 0xFF);
+            Separate[SessionIdLen + I] = static_cast<std::uint8_t>((in.PacketId >> (56 - I * 8)) & 0xFF);
         }
 
         // 2. 明文头部：Type(1) + Timestamp(8 BE) + 地址（ATYP + ADDR + PORT 2B）
         std::vector<std::uint8_t> head;
         head.reserve(1 + UdpTsLen + 24);
         head.push_back(UdpType);
-        const auto ts = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+        const auto Ts = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
                                                        std::chrono::system_clock::now().time_since_epoch())
                                                        .count());
-        for (std::size_t i = 0; i < UdpTsLen; ++i)
+        for (std::size_t I = 0; I < UdpTsLen; ++I)
         {
-            head.push_back(static_cast<std::uint8_t>((ts >> (56 - i * 8)) & 0xFF));
+            head.push_back(static_cast<std::uint8_t>((Ts >> (56 - I * 8)) & 0xFF));
         }
         EncodeAddress(*in.Target, head);
 
         // 3. Nonce = SessionID[4..8] + PacketID[0..8]（12 字节）
         std::array<std::uint8_t, 12> Nonce{};
-        std::memcpy(Nonce.data(), separate.data() + SessionIdLen / 2, SessionIdLen / 2);
-        std::memcpy(Nonce.data() + SessionIdLen / 2, separate.data() + SessionIdLen, PacketIdLen);
+        std::memcpy(Nonce.data(), Separate.data() + SessionIdLen / 2, SessionIdLen / 2);
+        std::memcpy(Nonce.data() + SessionIdLen / 2, Separate.data() + SessionIdLen, PacketIdLen);
 
         // 4. 加密载荷（AAD = SeparateHeader）并组装
         const auto BodyEnc =
-            detail::UdpSeal(detail::UdpSealInput{in.SessionKey, Nonce, in.payload, separate});
+            detail::UdpSeal(detail::UdpSealInput{in.SessionKey, Nonce, in.payload, Separate});
         if (BodyEnc.empty())
         {
             return false;
         }
-        out.reserve(separate.size() + head.size() + BodyEnc.size());
-        out.insert(out.end(), separate.begin(), separate.end());
-        out.insert(out.end(), head.begin(), head.end());
-        out.insert(out.end(), BodyEnc.begin(), BodyEnc.end());
+        Out.reserve(Separate.size() + head.size() + BodyEnc.size());
+        Out.insert(Out.end(), Separate.begin(), Separate.end());
+        Out.insert(Out.end(), head.begin(), head.end());
+        Out.insert(Out.end(), BodyEnc.begin(), BodyEnc.end());
         return true;
     }
 
@@ -1113,9 +1113,9 @@ namespace Preview::Shadowsocks2022
      */
     [[nodiscard]] inline auto BuildUdpPacket(const UdpBuildInput &in) -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> out;
-        BuildUdpPacket(in, out);
-        return out;
+        std::vector<std::uint8_t> Out;
+        BuildUdpPacket(in, Out);
+        return Out;
     }
 
     /**
@@ -1130,56 +1130,56 @@ namespace Preview::Shadowsocks2022
     {
         if (!in.Target || !in.payload)
         {
-            return Error::bad_length;
+            return Error::BadLength;
         }
-        const auto &session_key16 = in.SessionKey;
+        const auto &SessionKey16 = in.SessionKey;
         const auto &packet = in.packet;
         auto &Target = *in.Target;
         auto &payload = *in.payload;
         // 最小长度：SeparateHeader(16) + Type(1) + TS(8) + ATYP(1) + PORT(2) + tag(16)
-        if (session_key16.size() < SessionIdLen ||
+        if (SessionKey16.size() < SessionIdLen ||
             packet.size() < SeparateHdrLen + 1 + UdpTsLen + 1 + 2 + AeadTagLen)
         {
-            return Error::bad_length;
+            return Error::BadLength;
         }
-        const auto separate = packet.first(SeparateHdrLen);
+        const auto Separate = packet.first(SeparateHdrLen);
 
         // SessionID 校验（前 8 字节须与会话密钥一致）
-        if (std::memcmp(separate.data(), session_key16.data(), SessionIdLen) != 0)
+        if (std::memcmp(Separate.data(), SessionKey16.data(), SessionIdLen) != 0)
         {
-            return Error::bad_auth;
+            return Error::BadAuth;
         }
 
         // 类型字节校验
         if (packet[SeparateHdrLen] != UdpType)
         {
-            return Error::bad_message;
+            return Error::BadMessage;
         }
 
         // 解析明文头部中的目标地址（ATYP + ADDR + PORT 2B BE）
-        std::size_t off = SeparateHdrLen + 1 + UdpTsLen;
-        std::size_t consumed = 0;
-        auto err = ParseAddress(packet.subspan(off), Target, consumed);
-        if (err != Error::none)
+        std::size_t Off = SeparateHdrLen + 1 + UdpTsLen;
+        std::size_t Consumed = 0;
+        auto Err = ParseAddress(packet.subspan(Off), Target, Consumed);
+        if (Err != Error::None)
         {
-            return err;
+            return Err;
         }
-        off += consumed;
+        Off += Consumed;
 
         // Nonce = SessionID[4..8] + PacketID[0..8]（12 字节）
         std::array<std::uint8_t, 12> Nonce{};
-        std::memcpy(Nonce.data(), separate.data() + SessionIdLen / 2, SessionIdLen / 2);
-        std::memcpy(Nonce.data() + SessionIdLen / 2, separate.data() + SessionIdLen, PacketIdLen);
+        std::memcpy(Nonce.data(), Separate.data() + SessionIdLen / 2, SessionIdLen / 2);
+        std::memcpy(Nonce.data() + SessionIdLen / 2, Separate.data() + SessionIdLen, PacketIdLen);
 
         // 解密载荷（AAD = SeparateHeader）；cipher 恰为 tag 时允许空载荷
-        const auto BodyEnc = packet.subspan(off);
-        const auto body = detail::UdpOpen(detail::UdpOpenInput{session_key16, Nonce, BodyEnc, separate});
-        if (body.empty() && BodyEnc.size() > AeadTagLen)
+        const auto BodyEnc = packet.subspan(Off);
+        const auto Body = detail::UdpOpen(detail::UdpOpenInput{SessionKey16, Nonce, BodyEnc, Separate});
+        if (Body.empty() && BodyEnc.size() > AeadTagLen)
         {
-            return Error::bad_auth;
+            return Error::BadAuth;
         }
-        payload = body;
-        return Error::none;
+        payload = Body;
+        return Error::None;
     }
 
 } // namespace Preview::Shadowsocks2022

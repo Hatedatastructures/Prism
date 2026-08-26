@@ -38,14 +38,14 @@ namespace
     /// 生成自签名 RSA 证书并配置 SSL_CTX
     void configure_self_signed(net::ssl::context &ctx)
     {
-        auto *pkey_ctx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        auto *PkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
         EVP_PKEY *pkey = nullptr;
-        if (pkey_ctx && EVP_PKEY_keygen_init(pkey_ctx) > 0 &&
-            EVP_PKEY_CTX_set_rsa_keygen_bits(pkey_ctx, 2048) > 0)
+        if (PkeyCtx && EVP_PKEY_keygen_init(PkeyCtx) > 0 &&
+            EVP_PKEY_CTX_set_rsa_keygen_bits(PkeyCtx, 2048) > 0)
         {
-            EVP_PKEY_keygen(pkey_ctx, &pkey);
+            EVP_PKEY_keygen(PkeyCtx, &pkey);
         }
-        EVP_PKEY_CTX_free(pkey_ctx);
+        EVP_PKEY_CTX_free(PkeyCtx);
         ASSERT_NE(pkey, nullptr);
 
         auto *x509 = X509_new();
@@ -312,11 +312,11 @@ namespace
 
     /// 服务端协程：TLS 握手（服务端）+ gun 会话 + echo
     net::awaitable<void> DoGunServer(psm::transport::shared_transmission raw_trans,
-                                     net::ssl::context &ssl_ctx, const std::string &payload,
+                                     net::ssl::context &SslCtx, const std::string &payload,
                                      std::shared_ptr<bool> server_ok)
     {
         auto [ssl_ec, ssl_stream, recovered] =
-            co_await psm::transport::encrypted::ssl_handshake(std::move(raw_trans), ssl_ctx);
+            co_await psm::transport::encrypted::ssl_handshake(std::move(raw_trans), SslCtx);
         if (psm::fault::failed(ssl_ec) || !ssl_stream)
         {
             *server_ok = false;
@@ -368,9 +368,9 @@ TEST(GunE2E, GrpcTransportEcho)
     net::io_context ioc;
 
     // 服务端 SSL 上下文（自签名）
-    net::ssl::context ssl_ctx(net::ssl::context::tlsv13);
-    ssl_ctx.set_options(net::ssl::context::default_workarounds);
-    configure_self_signed(ssl_ctx);
+    net::ssl::context SslCtx(net::ssl::context::tlsv13);
+    SslCtx.set_options(net::ssl::context::default_workarounds);
+    configure_self_signed(SslCtx);
 
     // 客户端 SSL 上下文（不校验证书）
     net::ssl::context client_ctx(net::ssl::context::tlsv13);
@@ -421,7 +421,7 @@ TEST(GunE2E, GrpcTransportEcho)
                 co_await t.async_wait(net::use_awaitable);
             }
             net::co_spawn(ioc, DoGunClient(client_ssl, vless_head, payload, client_ok), net::detached);
-            net::co_spawn(ioc, DoGunServer(server_raw, ssl_ctx, payload, server_ok), net::detached);
+            net::co_spawn(ioc, DoGunServer(server_raw, SslCtx, payload, server_ok), net::detached);
 
             // 等待双方完成（8 秒上限）
             net::steady_timer done(ioc);

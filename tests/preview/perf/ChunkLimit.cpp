@@ -44,7 +44,7 @@ namespace
         const auto Nonce = std::array<std::uint8_t, 12>{};
         Vmess::ChunkEncryptor enc(key, Nonce);
         std::vector<std::uint8_t> plain(chunk_size, 0x5A);
-        std::vector<std::uint8_t> out(chunk_size + Vmess::ChunkEncryptor::overhead);
+        std::vector<std::uint8_t> out(chunk_size + Vmess::ChunkEncryptor::Overhead);
         std::vector<std::uint8_t> Rx(262144);
 
         const std::int64_t t0 = now_ns();

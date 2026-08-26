@@ -1,5 +1,5 @@
 /**
- * @file json.hpp
+ * @file Json.hpp
  * @brief 最小 JSON 解析器（T5-9）
  * @details 自包含 JSON 子集（settings/loader 用）：
  *          - object / array / string / number / bool / null
@@ -123,22 +123,22 @@ namespace Preview::Settings
                         {
                             return Fail(c, "bad \\u escape");
                         }
-                        std::uint32_t cp = 0;
-                        for (int i = 1; i <= 4; ++i)
+                        std::uint32_t Cp = 0;
+                        for (int I = 1; I <= 4; ++I)
                         {
-                            const char h = c.text[c.pos + i];
-                            cp <<= 4;
+                            const char h = c.text[c.pos + I];
+                            Cp <<= 4;
                             if (h >= '0' && h <= '9')
                             {
-                                cp |= static_cast<std::uint32_t>(h - '0');
+                                Cp |= static_cast<std::uint32_t>(h - '0');
                             }
                             else if (h >= 'a' && h <= 'f')
                             {
-                                cp |= static_cast<std::uint32_t>(h - 'a' + 10);
+                                Cp |= static_cast<std::uint32_t>(h - 'a' + 10);
                             }
                             else if (h >= 'A' && h <= 'F')
                             {
-                                cp |= static_cast<std::uint32_t>(h - 'A' + 10);
+                                Cp |= static_cast<std::uint32_t>(h - 'A' + 10);
                             }
                             else
                             {
@@ -146,20 +146,20 @@ namespace Preview::Settings
                             }
                         }
                         c.pos += 4;
-                        if (cp < 0x80)
+                        if (Cp < 0x80)
                         {
-                            out.push_back(static_cast<char>(cp));
+                            out.push_back(static_cast<char>(Cp));
                         }
-                        else if (cp < 0x800)
+                        else if (Cp < 0x800)
                         {
-                            out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
-                            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                            out.push_back(static_cast<char>(0xC0 | (Cp >> 6)));
+                            out.push_back(static_cast<char>(0x80 | (Cp & 0x3F)));
                         }
                         else
                         {
-                            out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
-                            out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
-                            out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+                            out.push_back(static_cast<char>(0xE0 | (Cp >> 12)));
+                            out.push_back(static_cast<char>(0x80 | ((Cp >> 6) & 0x3F)));
+                            out.push_back(static_cast<char>(0x80 | (Cp & 0x3F)));
                         }
                         break;
                     }
@@ -191,14 +191,14 @@ namespace Preview::Settings
                     break;
                 }
             }
-            const auto token = c.text.substr(Start, c.pos - Start);
-            if (token.empty())
+            const auto Token = c.text.substr(Start, c.pos - Start);
+            if (Token.empty())
             {
                 return Fail(c, "expected number");
             }
             try
             {
-                out = std::stod(std::string(token));
+                out = std::stod(std::string(Token));
             }
             catch (...)
             {
@@ -224,10 +224,10 @@ namespace Preview::Settings
             while (c.pos < c.text.size())
             {
                 JsonValue elem;
-                auto err = ParseValue(c, elem, depth);
-                if (!err.Message.empty())
+                auto Err = ParseValue(c, elem, depth);
+                if (!Err.Message.empty())
                 {
-                    return err;
+                    return Err;
                 }
                 arr.push_back(std::move(elem));
                 SkipWs(c);
@@ -265,10 +265,10 @@ namespace Preview::Settings
             {
                 SkipWs(c);
                 std::string key;
-                auto err = ParseString(c, key);
-                if (!err.Message.empty())
+                auto Err = ParseString(c, key);
+                if (!Err.Message.empty())
                 {
-                    return err;
+                    return Err;
                 }
                 SkipWs(c);
                 if (c.pos >= c.text.size() || c.text[c.pos] != ':')
@@ -278,10 +278,10 @@ namespace Preview::Settings
                 ++c.pos;
                 SkipWs(c);
                 JsonValue val;
-                err = ParseValue(c, val, depth);
-                if (!err.Message.empty())
+                Err = ParseValue(c, val, depth);
+                if (!Err.Message.empty())
                 {
-                    return err;
+                    return Err;
                 }
                 obj.emplace(std::move(key), std::move(val));
                 SkipWs(c);
@@ -324,9 +324,9 @@ namespace Preview::Settings
             case '"':
             {
                 std::string s;
-                auto err = ParseString(c, s);
+                auto Err = ParseString(c, s);
                 out.Data = std::move(s);
-                return err;
+                return Err;
             }
             case 't':
                 if (c.text.substr(c.pos, 4) == "true")
@@ -354,10 +354,10 @@ namespace Preview::Settings
                 return Fail(c, "bad literal");
             default:
             {
-                double num = 0;
-                auto err = ParseNumber(c, num);
-                out.Data = num;
-                return err;
+                double Num = 0;
+                auto Err = ParseNumber(c, Num);
+                out.Data = Num;
+                return Err;
             }
             }
         }
@@ -372,10 +372,10 @@ namespace Preview::Settings
     [[nodiscard]] inline auto ParseJson(std::string_view text, JsonValue &out) -> JsonError
     {
         detail::Cursor c{text, 0};
-        auto err = detail::ParseValue(c, out, 0);
-        if (!err.Message.empty())
+        auto Err = detail::ParseValue(c, out, 0);
+        if (!Err.Message.empty())
         {
-            return err;
+            return Err;
         }
         detail::SkipWs(c);
         if (c.pos != text.size())
@@ -393,42 +393,42 @@ namespace Preview::Settings
         std::size_t Start = 0;
         while (Start <= Path.size())
         {
-            const auto dot = Path.find('.', Start);
+            const auto Dot = Path.find('.', Start);
             std::size_t SegLen = std::string_view::npos;
-            if (dot != std::string_view::npos)
+            if (Dot != std::string_view::npos)
             {
-                SegLen = dot - Start;
+                SegLen = Dot - Start;
             }
-            const auto seg = Path.substr(Start, SegLen);
+            const auto Seg = Path.substr(Start, SegLen);
             if (cur->Data.index() == 4) // JsonArray
             {
                 const auto &arr = std::get<JsonArray>(cur->Data).items;
-                const auto idx = std::strtoul(std::string(seg).c_str(), nullptr, 10);
-                if (idx >= arr.size())
+                const auto Idx = std::strtoul(std::string(Seg).c_str(), nullptr, 10);
+                if (Idx >= arr.size())
                 {
                     return nullptr;
                 }
-                cur = &arr[idx];
+                cur = &arr[Idx];
             }
             else if (cur->Data.index() == 5) // JsonObject
             {
                 const auto &obj = std::get<JsonObject>(cur->Data).members;
-                const auto it = obj.find(std::string(seg));
-                if (it == obj.end())
+                const auto It = obj.find(std::string(Seg));
+                if (It == obj.end())
                 {
                     return nullptr;
                 }
-                cur = &it->second;
+                cur = &It->second;
             }
             else
             {
                 return nullptr;
             }
-            if (dot == std::string_view::npos)
+            if (Dot == std::string_view::npos)
             {
                 break;
             }
-            Start = dot + 1;
+            Start = Dot + 1;
         }
         return cur;
     }

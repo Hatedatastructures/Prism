@@ -50,7 +50,7 @@ namespace
     {
         std::array<std::uint8_t, 30> buf{};
         buf[0] = psm::protocol::vless::version;
-        // addnl_len at buf[17] = 0 (default)
+        // AddnlLen at buf[17] = 0 (default)
         buf[18] = 0x99; // bad command
         auto result = parse_request(buf);
         EXPECT_TRUE(!result.has_value()) << "parse_request: bad cmd -> nullopt";
@@ -62,7 +62,7 @@ namespace
         std::array<std::uint8_t, 26> buf{};
         buf[0] = psm::protocol::vless::version;
         // UUID: all zeros
-        buf[17] = 0; // addnl_len
+        buf[17] = 0; // AddnlLen
         buf[18] = static_cast<std::uint8_t>(command::tcp);
         buf[19] = 0x00;
         buf[20] = 0x50; // port 80

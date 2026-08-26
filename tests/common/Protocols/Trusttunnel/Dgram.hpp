@@ -46,7 +46,7 @@ namespace Preview::Trusttunnel
          * @param upstream 底层传输（已握手，所有权移交）
          */
         explicit Dgram(SharedTransmission upstream)
-            : next_layer_(std::move(upstream))
+            : NextLayer_(std::move(upstream))
         {
         }
 
@@ -55,7 +55,7 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -63,7 +63,7 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto TransportType() const noexcept -> Type override
         {
-            return Type::udp;
+            return Type::Udp;
         }
 
         /**
@@ -89,13 +89,13 @@ namespace Preview::Trusttunnel
             while (Done < wire.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(
+                const auto N = co_await NextLayer_->async_write_some(
                     AsBytes(std::span<const std::uint8_t>(wire)).subspan(Done), ec);
-                if (ec)
-                    co_return Error::io_error;
-                Done += n;
+                if (ec || N == 0)
+                    co_return Error::IoError;
+                Done += N;
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
@@ -114,63 +114,63 @@ namespace Preview::Trusttunnel
             while (Done < hlen.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(
+                const auto N = co_await NextLayer_->async_read_some(
                     AsBytes(std::span<std::uint8_t>(hlen).subspan(Done)), ec);
-                if (ec || n == 0)
-                    co_return Error::unexpected_eof;
-                Done += n;
+                if (ec || N == 0)
+                    co_return Error::UnexpectedEof;
+                Done += N;
             }
-            std::vector<std::uint8_t> host_buf(hlen[0]);
+            std::vector<std::uint8_t> HostBuf(hlen[0]);
             Done = 0;
-            while (Done < host_buf.size())
+            while (Done < HostBuf.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(
-                    AsBytes(std::span<std::uint8_t>(host_buf).subspan(Done)), ec);
-                if (ec || n == 0)
-                    co_return Error::unexpected_eof;
-                Done += n;
+                const auto N = co_await NextLayer_->async_read_some(
+                    AsBytes(std::span<std::uint8_t>(HostBuf).subspan(Done)), ec);
+                if (ec || N == 0)
+                    co_return Error::UnexpectedEof;
+                Done += N;
             }
-            host.assign(reinterpret_cast<const char *>(host_buf.data()), host_buf.size());
-            std::array<std::uint8_t, 2> port_buf{};
+            host.assign(reinterpret_cast<const char *>(HostBuf.data()), HostBuf.size());
+            std::array<std::uint8_t, 2> PortBuf{};
             Done = 0;
-            while (Done < port_buf.size())
+            while (Done < PortBuf.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(
-                    AsBytes(std::span<std::uint8_t>(port_buf).subspan(Done)), ec);
-                if (ec || n == 0)
-                    co_return Error::unexpected_eof;
-                Done += n;
+                const auto N = co_await NextLayer_->async_read_some(
+                    AsBytes(std::span<std::uint8_t>(PortBuf).subspan(Done)), ec);
+                if (ec || N == 0)
+                    co_return Error::UnexpectedEof;
+                Done += N;
             }
-            port = static_cast<std::uint16_t>(port_buf[0]) << 8 | port_buf[1];
+            port = static_cast<std::uint16_t>(PortBuf[0]) << 8 | PortBuf[1];
             std::array<std::uint8_t, 512> chunk{};
             std::error_code ec;
-            const auto n = co_await next_layer_->AsyncReadSome(
+            const auto N = co_await NextLayer_->async_read_some(
                 AsBytes(std::span<std::uint8_t>(chunk)), ec);
             if (ec)
-                co_return Error::io_error;
-            payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
-            co_return Error::none;
+                co_return Error::IoError;
+            payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（底层原样）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
         -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（底层原样）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer,
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
                                             std::error_code &ec)
         -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -178,7 +178,7 @@ namespace Preview::Trusttunnel
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -186,7 +186,7 @@ namespace Preview::Trusttunnel
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -194,7 +194,7 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -202,7 +202,7 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -210,7 +210,7 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
         /**
@@ -218,11 +218,11 @@ namespace Preview::Trusttunnel
          */
         [[nodiscard]] auto Stream() const noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
     private:
-        SharedTransmission next_layer_; ///< 底层传输（独占所有权）
+        SharedTransmission NextLayer_; ///< 底层传输（独占所有权）
     };
 
     /// 包连接共享指针

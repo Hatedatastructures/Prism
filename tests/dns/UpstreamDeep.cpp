@@ -277,10 +277,10 @@ namespace
         srv.skip_cert_check = false;
 
         auto ctx1 = ups.get_ssl_ctx(srv);
-        EXPECT_NE(ctx1, nullptr) << "ssl_ctx: first call not null";
+        EXPECT_NE(ctx1, nullptr) << "SslCtx: first call not null";
         auto ctx2 = ups.get_ssl_ctx(srv);
-        EXPECT_EQ(ctx1.get(), ctx2.get()) << "ssl_ctx: cache hit same ptr";
-        EXPECT_EQ(ups.ssl_cache_.size(), 1) << "ssl_ctx: cache size=1";
+        EXPECT_EQ(ctx1.get(), ctx2.get()) << "SslCtx: cache hit same ptr";
+        EXPECT_EQ(ups.ssl_cache_.size(), 1) << "SslCtx: cache size=1";
     }
 
     // ─── get_ssl_ctx: 空 hostname 用 address ──────
@@ -296,8 +296,8 @@ namespace
         srv.skip_cert_check = false;
 
         auto ctx = ups.get_ssl_ctx(srv);
-        EXPECT_NE(ctx, nullptr) << "ssl_ctx no host: not null";
-        EXPECT_EQ(ups.ssl_cache_.size(), 1) << "ssl_ctx no host: cached";
+        EXPECT_NE(ctx, nullptr) << "SslCtx no host: not null";
+        EXPECT_EQ(ups.ssl_cache_.size(), 1) << "SslCtx no host: cached";
     }
 
     // ─── get_ssl_ctx: 不同配置不同缓存 ──────────────
@@ -319,8 +319,8 @@ namespace
 
         auto ctx1 = ups.get_ssl_ctx(srv1);
         auto ctx2 = ups.get_ssl_ctx(srv2);
-        EXPECT_NE(ctx1.get(), ctx2.get()) << "ssl_ctx: diff config diff ctx";
-        EXPECT_EQ(ups.ssl_cache_.size(), 2) << "ssl_ctx: cache size=2";
+        EXPECT_NE(ctx1.get(), ctx2.get()) << "SslCtx: diff config diff ctx";
+        EXPECT_EQ(ups.ssl_cache_.size(), 2) << "SslCtx: cache size=2";
     }
 
     // ─── server 默认值 ──────────────────────────

@@ -35,7 +35,7 @@ namespace
     namespace net = boost::asio;
     using namespace Preview;
 
-    using psm::testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
+    using Preview::Testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
 
     /// 回显上游
     auto echo_upstream(SharedTransmission client_side) -> net::awaitable<void>
@@ -44,12 +44,12 @@ namespace
         std::error_code ec;
         while (true)
         {
-            const auto n = co_await client_side->AsyncReadSome(std::span<std::byte>(buf), ec);
+            const auto n = co_await client_side->async_read_some(std::span<std::byte>(buf), ec);
             if (ec || n == 0)
             {
                 break;
             }
-            co_await client_side->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+            co_await client_side->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
             if (ec)
             {
                 break;
@@ -79,24 +79,24 @@ namespace
         counter.Report("bob", 100, 1);
 
         auto a = counter.Total("alice");
-        EXPECT_EQ(a.up, 15);
-        EXPECT_EQ(a.down, 27);
+        EXPECT_EQ(a.Up, 15);
+        EXPECT_EQ(a.Down, 27);
         auto b = counter.Total("bob");
-        EXPECT_EQ(b.up, 100);
-        EXPECT_EQ(b.down, 1);
+        EXPECT_EQ(b.Up, 100);
+        EXPECT_EQ(b.Down, 1);
         EXPECT_EQ(counter.IdentityCount(), 2);
 
         auto g = counter.GrandTotal();
-        EXPECT_EQ(g.up, 115);
-        EXPECT_EQ(g.down, 28);
+        EXPECT_EQ(g.Up, 115);
+        EXPECT_EQ(g.Down, 28);
     }
 
     TEST(TrafficCounter, UnknownIdentityZero)
     {
         Preview::Runtime::TrafficCounter counter;
         auto e = counter.Total("nobody");
-        EXPECT_EQ(e.up, 0);
-        EXPECT_EQ(e.down, 0);
+        EXPECT_EQ(e.Up, 0);
+        EXPECT_EQ(e.Down, 0);
         EXPECT_EQ(counter.IdentityCount(), 0);
     }
 
@@ -106,8 +106,8 @@ namespace
         counter.Report("", 3, 4);
         counter.Report("", 2, 1);
         auto e = counter.Total("");
-        EXPECT_EQ(e.up, 5);
-        EXPECT_EQ(e.down, 5);
+        EXPECT_EQ(e.Up, 5);
+        EXPECT_EQ(e.Down, 5);
         EXPECT_EQ(counter.IdentityCount(), 1);
     }
 
@@ -128,12 +128,12 @@ namespace
             ctx.Target.positive = true;
             ctx.RawIdentity = "alice";
             ctx.RawSecret = "pw";
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         };
         opts.Dial = [outbound_s](const Preview::Network::Target &) -> net::awaitable<
             std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
         {
-            co_return std::pair{Preview::Fault::Code::success, outbound_s};
+            co_return std::pair{Preview::Fault::Code::Success, outbound_s};
         };
         Preview::Runtime::Session Session(opts);
 
@@ -151,13 +151,13 @@ namespace
 
                      std::error_code wec;
                      const auto payload = socks5_greeting();
-                     co_await client_s->AsyncWriteSome(
+                     co_await client_s->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          wec);
                      std::array<std::byte, 64> buf{};
                      std::error_code sec;
-                     const auto n = co_await client_s->AsyncReadSome(std::span<std::byte>(buf), sec);
+                     const auto n = co_await client_s->async_read_some(std::span<std::byte>(buf), sec);
                      EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n), payload);
 
                      // 空闲超时 → relay 结束 → 上报
@@ -168,8 +168,8 @@ namespace
                  });
 
         auto a = counter.Total("alice");
-        EXPECT_GE(a.up, socks5_greeting().size()); // 上行：首包
-        EXPECT_GE(a.down, socks5_greeting().size()); // 下行：回显
+        EXPECT_GE(a.Up, socks5_greeting().size()); // 上行：首包
+        EXPECT_GE(a.Down, socks5_greeting().size()); // 下行：回显
         EXPECT_EQ(counter.IdentityCount(), 1);
     }
 

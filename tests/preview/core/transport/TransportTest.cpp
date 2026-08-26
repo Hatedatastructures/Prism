@@ -84,11 +84,11 @@ namespace
                  {
                      BenchOptions opt;
                      opt.Total = 16 * 1024 * 1024; // 16MB
-                     opt.block = 64 * 1024;
+                     opt.Block = 64 * 1024;
                      r = co_await BenchThroughput(a, b, opt);
                  });
         EXPECT_EQ(r.Bytes, 16u * 1024u * 1024u);
-        EXPECT_GT(r.mbps, 0.0);
+        EXPECT_GT(r.Mbps, 0.0);
     }
 
     TEST(Transport, ReadTimeout)
@@ -246,7 +246,7 @@ namespace
                      {
                          std::array<std::byte, 8> Buffer{};
                          std::error_code ec;
-                         const auto n = co_await a->AsyncReadSome(Buffer, ec);
+                         const auto n = co_await a->async_read_some(Buffer, ec);
                          EXPECT_EQ(n, 0U);
                          EXPECT_EQ(ec, std::make_error_code(std::errc::timed_out));
                          *read_done = true;
@@ -270,7 +270,7 @@ namespace
 
     TEST(Transport, AsyncReadTimeoutError)
     {
-        // AsyncReadSome 超时 → operation_timed_out 错误
+        // async_read_some 超时 → operation_timed_out 错误
         net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         run_coro(ioc,
@@ -279,7 +279,7 @@ namespace
                      a.SetTimeout(std::chrono::milliseconds(30));
                      std::array<std::byte, 16> buf{};
                      std::error_code ec;
-                     const auto n = co_await a.AsyncReadSome(buf, ec);
+                     const auto n = co_await a.async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_EQ(ec, std::make_error_code(std::errc::timed_out));
                  });
@@ -300,12 +300,12 @@ namespace
                          co_await net::post(a.Executor(), net::use_awaitable);
                          co_await net::post(a.Executor(), net::use_awaitable);
                          std::error_code wec;
-                         co_await b.AsyncWriteSome(Data, wec);
+                         co_await b.async_write_some(Data, wec);
                      };
                      net::co_spawn(a.Executor(), writer(), net::detached);
                      std::array<std::byte, 16> buf{};
                      std::error_code ec;
-                     const auto n = co_await a.AsyncReadSome(buf, ec);
+                     const auto n = co_await a.async_read_some(buf, ec);
                      EXPECT_EQ(n, 4u);
                      EXPECT_FALSE(ec);
                  });
@@ -355,7 +355,7 @@ namespace
                  {
                      std::array<std::byte, 8> buf{};
                      std::error_code ec;
-                     const auto n = co_await a.AsyncReadSome(buf, ec);
+                     const auto n = co_await a.async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
                      EXPECT_EQ(ec, std::make_error_code(std::errc::timed_out));
                  });

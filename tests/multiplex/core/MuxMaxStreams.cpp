@@ -472,9 +472,9 @@ namespace
 
             // 读取服务端响应
             std::array<std::byte, 4096> read_buf{};
-            boost::system::error_code read_ec;
+            boost::system::error_code ReadEc;
             auto n = co_await net::async_read(client_sock, net::buffer(read_buf), net::transfer_at_least(1),
-                                              net::redirect_error(net::use_awaitable, read_ec));
+                                              net::redirect_error(net::use_awaitable, ReadEc));
 
             session_active = session->is_active();
             found_rst = find_rst_for_stream(read_buf, n, 3);
@@ -544,9 +544,9 @@ namespace
 
             // 读取响应
             std::array<std::byte, 4096> read_buf{};
-            boost::system::error_code read_ec;
+            boost::system::error_code ReadEc;
             auto n = co_await net::async_read(client_sock, net::buffer(read_buf), net::transfer_at_least(1),
-                                              net::redirect_error(net::use_awaitable, read_ec));
+                                              net::redirect_error(net::use_awaitable, ReadEc));
 
             session_active = session->is_active();
             found_rst = find_rst_for_stream(read_buf, n, 3);
@@ -616,9 +616,9 @@ namespace
 
             // 读取服务端响应
             std::array<std::byte, 4096> read_buf{};
-            boost::system::error_code read_ec;
+            boost::system::error_code ReadEc;
             auto n = co_await net::async_read(client_sock, net::buffer(read_buf), net::transfer_at_least(1),
-                                              net::redirect_error(net::use_awaitable, read_ec));
+                                              net::redirect_error(net::use_awaitable, ReadEc));
 
             session_active = session->is_active();
             found_any_rst_frame = find_any_rst(read_buf, n);

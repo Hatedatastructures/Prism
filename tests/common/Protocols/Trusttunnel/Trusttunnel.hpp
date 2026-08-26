@@ -1,5 +1,5 @@
 /**
- * @file trusttunnel.hpp
+ * @file Trusttunnel.hpp
  * @brief TrustTunnel 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / ConnectPacket（客户端）、
@@ -77,18 +77,18 @@ namespace Preview::Trusttunnel
                                       std::string_view Target, std::uint16_t port)
         -> net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.username, cfg.password);
-        const auto err = co_await c->WriteHandshake(Target, port);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.username, cfg.password);
+        const auto Err = co_await C->WriteHandshake(Target, port);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::pair{err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Conn)};
     }
 
     /**
@@ -103,12 +103,12 @@ namespace Preview::Trusttunnel
                                              std::string_view Target, std::uint16_t port)
         -> net::awaitable<std::pair<Error, SharedDgram>>
     {
-        auto [err, Conn] = co_await Connect(std::move(upstream), cfg, Target, port);
-        if (err != Error::none)
+        auto [Err, Conn] = co_await Connect(std::move(upstream), cfg, Target, port);
+        if (Err != Error::None)
         {
-            co_return std::pair{err, SharedDgram{}};
+            co_return std::pair{Err, SharedDgram{}};
         }
-        co_return std::pair{Error::none, std::make_shared<Dgram>(std::move(Conn))};
+        co_return std::pair{Error::None, std::make_shared<Dgram>(std::move(Conn))};
     }
 
     /**
@@ -120,19 +120,19 @@ namespace Preview::Trusttunnel
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, std::string, SharedConn>>
     {
-        auto c = std::make_shared<Conn<>>(std::move(upstream), cfg.username, cfg.password);
+        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.username, cfg.password);
         std::string Target;
-        const auto err = co_await c->ReadHandshake(Target);
+        const auto Err = co_await C->ReadHandshake(Target);
         SharedConn Conn;
-        if (err == Error::none)
+        if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(c));
+            Conn = SharedConn(std::move(C));
         }
         else
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{err, std::move(Target), std::move(Conn)};
+        co_return std::tuple{Err, std::move(Target), std::move(Conn)};
     }
 
     /**
@@ -144,12 +144,12 @@ namespace Preview::Trusttunnel
     [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, std::string, SharedDgram>>
     {
-        auto [err, Target, Conn] = co_await Accept(std::move(upstream), cfg);
-        if (err != Error::none)
+        auto [Err, Target, Conn] = co_await Accept(std::move(upstream), cfg);
+        if (Err != Error::None)
         {
-            co_return std::tuple{err, std::move(Target), SharedDgram{}};
+            co_return std::tuple{Err, std::move(Target), SharedDgram{}};
         }
-        co_return std::tuple{Error::none, std::move(Target), std::make_shared<Dgram>(std::move(Conn))};
+        co_return std::tuple{Error::None, std::move(Target), std::make_shared<Dgram>(std::move(Conn))};
     }
 
 } // namespace Preview::Trusttunnel

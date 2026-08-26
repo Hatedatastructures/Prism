@@ -30,14 +30,14 @@ namespace
     {
         psm::diagnose::init(make_test_log_config());
         std::fprintf(stderr, "[dbg] recorder null=%d\n", psm::diagnose::recorder() == nullptr);
-        psm::testing::TestRunner runner("Initial");
+        Preview::Testing::TestRunner runner("Initial");
         EXPECT_EQ(runner.PassedCount(), 0);
         EXPECT_EQ(runner.FailedCount(), 0);
     }
 
     TEST(TestRunnerDeep, LogPassIncrementsPassed)
     {
-        psm::testing::TestRunner runner("PassOnly");
+        Preview::Testing::TestRunner runner("PassOnly");
         runner.LogPass("first");
         runner.LogPass("second");
         EXPECT_EQ(runner.PassedCount(), 2);
@@ -46,7 +46,7 @@ namespace
 
     TEST(TestRunnerDeep, LogFailIncrementsFailed)
     {
-        psm::testing::TestRunner runner("FailOnly");
+        Preview::Testing::TestRunner runner("FailOnly");
         runner.LogFail("boom");
         EXPECT_EQ(runner.PassedCount(), 0);
         EXPECT_EQ(runner.FailedCount(), 1);
@@ -55,7 +55,7 @@ namespace
     TEST(TestRunnerDeep, LogInfoNoThrow)
     {
         // 日志系统未初始化时 LogInfo 应静默成功（recorder 为空）
-        psm::testing::TestRunner runner("InfoOnly");
+        Preview::Testing::TestRunner runner("InfoOnly");
         EXPECT_NO_THROW(runner.LogInfo("hello world"));
         EXPECT_EQ(runner.PassedCount(), 0);
         EXPECT_EQ(runner.FailedCount(), 0);
@@ -63,7 +63,7 @@ namespace
 
     TEST(TestRunnerDeep, CheckTrueLogsPass)
     {
-        psm::testing::TestRunner runner("CheckTrue");
+        Preview::Testing::TestRunner runner("CheckTrue");
         runner.Check(true, "condition holds");
         EXPECT_EQ(runner.PassedCount(), 1);
         EXPECT_EQ(runner.FailedCount(), 0);
@@ -71,7 +71,7 @@ namespace
 
     TEST(TestRunnerDeep, CheckFalseLogsFail)
     {
-        psm::testing::TestRunner runner("CheckFalse");
+        Preview::Testing::TestRunner runner("CheckFalse");
         runner.Check(false, "condition broken");
         EXPECT_EQ(runner.PassedCount(), 0);
         EXPECT_EQ(runner.FailedCount(), 1);
@@ -79,7 +79,7 @@ namespace
 
     TEST(TestRunnerDeep, CheckMixedCounts)
     {
-        psm::testing::TestRunner runner("CheckMixed");
+        Preview::Testing::TestRunner runner("CheckMixed");
         runner.Check(true, "Ok one");
         runner.Check(false, "bad one");
         runner.Check(true, "Ok two");
@@ -89,7 +89,7 @@ namespace
 
     TEST(TestRunnerDeep, SummaryAllPassReturnsZero)
     {
-        psm::testing::TestRunner runner("SummaryPass");
+        Preview::Testing::TestRunner runner("SummaryPass");
         runner.LogPass("a");
         runner.LogPass("b");
         EXPECT_EQ(runner.Summary(), 0);
@@ -99,14 +99,14 @@ namespace
 
     TEST(TestRunnerDeep, SummaryWithFailureReturnsOne)
     {
-        psm::testing::TestRunner runner("SummaryFail");
+        Preview::Testing::TestRunner runner("SummaryFail");
         runner.LogFail("a");
         EXPECT_EQ(runner.Summary(), 1);
     }
 
     TEST(TestRunnerDeep, SummaryMixedReturnsOne)
     {
-        psm::testing::TestRunner runner("SummaryMixed");
+        Preview::Testing::TestRunner runner("SummaryMixed");
         runner.LogPass("pass");
         runner.LogFail("Fail");
         EXPECT_EQ(runner.Summary(), 1);
@@ -114,7 +114,7 @@ namespace
 
     TEST(TestRunnerDeep, SummaryTwiceIdempotent)
     {
-        psm::testing::TestRunner runner("SummaryTwice");
+        Preview::Testing::TestRunner runner("SummaryTwice");
         EXPECT_EQ(runner.Summary(), 0);
         EXPECT_EQ(runner.Summary(), 0);
     }

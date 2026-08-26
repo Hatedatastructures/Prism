@@ -32,15 +32,15 @@ namespace
         tcp::socket sock(ioc);
 
         std::array<std::uint8_t, 32> secret{};
-        std::array<std::uint8_t, 32> server_random{};
+        std::array<std::uint8_t, 32> ServerRandom{};
         for (int i = 0; i < 32; ++i)
         {
             secret[i] = static_cast<std::uint8_t>(i);
-            server_random[i] = static_cast<std::uint8_t>(32 - i);
+            ServerRandom[i] = static_cast<std::uint8_t>(32 - i);
         }
 
         restls_handover handover{std::span<const std::uint8_t, 32>(secret),
-                                 std::span<const std::uint8_t, 32>(server_random),
+                                 std::span<const std::uint8_t, 32>(ServerRandom),
                                  {},
                                  script_engine("300"),
                                  {},
@@ -67,11 +67,11 @@ namespace
         tcp::socket sock(ioc);
 
         std::array<std::uint8_t, 32> secret{};
-        std::array<std::uint8_t, 32> server_random{};
+        std::array<std::uint8_t, 32> ServerRandom{};
         std::vector<std::uint8_t> cf = {0x10, 0x20, 0x30, 0x40, 0x50};
 
         restls_handover handover{std::span<const std::uint8_t, 32>(secret),
-                                 std::span<const std::uint8_t, 32>(server_random),
+                                 std::span<const std::uint8_t, 32>(ServerRandom),
                                  std::span<const std::uint8_t>(cf),
                                  script_engine("300"),
                                  {},
@@ -91,11 +91,11 @@ namespace
         tcp::socket sock(ioc);
 
         std::array<std::uint8_t, 32> secret{};
-        std::array<std::uint8_t, 32> server_random{};
+        std::array<std::uint8_t, 32> ServerRandom{};
         std::byte init_bytes[] = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
 
         restls_handover handover{std::span<const std::uint8_t, 32>(secret),
-                                 std::span<const std::uint8_t, 32>(server_random),
+                                 std::span<const std::uint8_t, 32>(ServerRandom),
                                  {},
                                  script_engine("300"),
                                  std::span<const std::byte>(init_bytes),
@@ -114,10 +114,10 @@ namespace
         tcp::socket sock(ioc);
 
         std::array<std::uint8_t, 32> secret{};
-        std::array<std::uint8_t, 32> server_random{};
+        std::array<std::uint8_t, 32> ServerRandom{};
 
         restls_handover handover{std::span<const std::uint8_t, 32>(secret),
-                                 std::span<const std::uint8_t, 32>(server_random),
+                                 std::span<const std::uint8_t, 32>(ServerRandom),
                                  {},
                                  script_engine("300"),
                                  {},
@@ -135,10 +135,10 @@ namespace
         tcp::socket sock(ioc);
 
         std::array<std::uint8_t, 32> secret{};
-        std::array<std::uint8_t, 32> server_random{};
+        std::array<std::uint8_t, 32> ServerRandom{};
 
         restls_handover handover{std::span<const std::uint8_t, 32>(secret),
-                                 std::span<const std::uint8_t, 32>(server_random),
+                                 std::span<const std::uint8_t, 32>(ServerRandom),
                                  {},
                                  script_engine("300"),
                                  {},
@@ -157,10 +157,10 @@ namespace
         tcp::socket sock(ioc);
 
         std::array<std::uint8_t, 32> secret{};
-        std::array<std::uint8_t, 32> server_random{};
+        std::array<std::uint8_t, 32> ServerRandom{};
 
         restls_handover handover{std::span<const std::uint8_t, 32>(secret),
-                                 std::span<const std::uint8_t, 32>(server_random),
+                                 std::span<const std::uint8_t, 32>(ServerRandom),
                                  {},
                                  script_engine("300"),
                                  {},

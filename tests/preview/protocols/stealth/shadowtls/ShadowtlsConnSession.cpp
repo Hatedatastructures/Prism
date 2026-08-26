@@ -72,17 +72,17 @@ namespace
                          auto [err, Conn] =
                              co_await Shadowtls::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                          Shadowtls::ServerConfig{"pw123456"});
-                         if (err != Error::none || !Conn)
+                         if (err != Error::None || !Conn)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
                              co_return;
                          }
                          std::array<std::byte, 1024> buf{};
                          std::error_code ec;
-                         const auto n = co_await Conn->AsyncReadSome(buf, ec);
+                         const auto n = co_await Conn->async_read_some(buf, ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
-                         co_await Conn->AsyncWriteSome(std::span<const std::byte>(buf.data(), n), ec);
+                         co_await Conn->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
@@ -91,19 +91,19 @@ namespace
                      auto [herr, cli] = co_await Shadowtls::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Shadowtls::ClientConfig{"pw123456"},
                          std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd));
-                     EXPECT_EQ(herr, Error::none);
+                     EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
                          co_return;
                      }
                      std::error_code ec;
-                     co_await cli->AsyncWriteSome(
+                     co_await cli->async_write_some(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
                                                     payload.size()),
                          ec);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 1024> buf{};
-                     const auto n = co_await cli->AsyncReadSome(buf, ec);
+                     const auto n = co_await cli->async_read_some(buf, ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
                      cli->Close();
@@ -124,7 +124,7 @@ namespace
                          auto [err, Conn] =
                              co_await Shadowtls::Accept(std::make_shared<MemoryStream>(std::move(b)),
                                                          Shadowtls::ServerConfig{"Expect-pw"});
-                         EXPECT_EQ(err, Error::bad_auth);
+                         EXPECT_EQ(err, Error::BadAuth);
                          EXPECT_FALSE(Conn);
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -134,7 +134,7 @@ namespace
                      auto [herr, cli] = co_await Shadowtls::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Shadowtls::ClientConfig{"wrong-pw"},
                          std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd));
-                     EXPECT_EQ(herr, Error::none); // 客户端只发送，不感知认证结果
+                     EXPECT_EQ(herr, Error::None); // 客户端只发送，不感知认证结果
                      if (cli)
                      {
                          cli->Close();
@@ -155,17 +155,17 @@ namespace
                          std::make_shared<MemoryStream>(std::move(a)), "pw");
                      std::array<std::byte, 64> buf{};
                      std::error_code ec;
-                     const auto n = co_await c->AsyncReadSome(buf, ec);
+                     const auto n = co_await c->async_read_some(buf, ec);
                      EXPECT_EQ(n, 0u);
-                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::NotOpen));
                      ec.clear();
-                     co_await c->AsyncWriteSome(std::span<const std::byte>(buf.data(), 4), ec);
-                     EXPECT_EQ(ec.value(), static_cast<int>(Error::not_open));
+                     co_await c->async_write_some(std::span<const std::byte>(buf.data(), 4), ec);
+                     EXPECT_EQ(ec.value(), static_cast<int>(Error::NotOpen));
                      c->Close();
                      c->Cancel();
                      EXPECT_TRUE(c->Executor());
                      EXPECT_NE(c->NextLayer(), nullptr);
-                     EXPECT_NE(c->LowestLayer<MemoryStream>(), nullptr);
+                     EXPECT_NE(c->lowest_layer<MemoryStream>(), nullptr);
                      const Shadowtls::Conn<> *const_c = c.get();
                      EXPECT_NE(const_c->NextLayer(), nullptr);
                      auto released = c->Release();

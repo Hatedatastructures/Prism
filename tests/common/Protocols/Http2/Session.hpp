@@ -50,7 +50,7 @@ namespace Preview::Http2
      * - 帧收发（Feed/Collect）
      * - 流管理（OpenStream/ResetStream）
      * - 头/数据提交（SubmitHeaders/SubmitData）
-     * - 事件回调（on_headers/on_data/on_stream_close）
+     * - 事件回调（OnHeaders/OnData/OnStreamClose）
      */
     class H2Session
     {
@@ -75,30 +75,30 @@ namespace Preview::Http2
         /**
          * @brief 打开新流
          * @param headers 初始头（伪头 + 普通头）
-         * @param end_stream 是否立即结束流
+         * @param EndStream 是否立即结束流
          * @return 流 ID；<0 失败
          */
-        [[nodiscard]] virtual auto OpenStream(const HeaderList &headers, bool end_stream) -> std::int32_t = 0;
+        [[nodiscard]] virtual auto OpenStream(const HeaderList &headers, bool EndStream) -> std::int32_t = 0;
 
         /**
          * @brief 提交头到已开流
          * @param StreamId 流 ID
          * @param headers 头列表
-         * @param end_stream 是否结束流
+         * @param EndStream 是否结束流
          * @return 成功返回 0
          */
         [[nodiscard]] virtual auto SubmitHeaders(std::int32_t StreamId, const HeaderList &headers,
-                                                  bool end_stream) -> std::int32_t = 0;
+                                                  bool EndStream) -> std::int32_t = 0;
 
         /**
          * @brief 提交数据到流
          * @param StreamId 流 ID
          * @param Data 数据载荷
-         * @param end_stream 是否结束流
+         * @param EndStream 是否结束流
          * @return 成功返回 0
          */
         [[nodiscard]] virtual auto SubmitData(std::int32_t StreamId, std::span<const std::byte> Data,
-                                               bool end_stream) -> std::int32_t = 0;
+                                               bool EndStream) -> std::int32_t = 0;
 
         /**
          * @brief 重置流（RST_STREAM）
@@ -116,12 +116,12 @@ namespace Preview::Http2
 
         // ── 事件回调（协议层订阅） ──
 
-        /// 收到流头（on_headers）
-        std::function<void(std::int32_t StreamId, const HeaderList &headers, bool end_stream)> on_headers;
-        /// 收到流数据（on_data）
-        std::function<void(std::int32_t StreamId, std::span<const std::byte> Data)> on_data;
-        /// 流关闭（on_stream_close）
-        std::function<void(std::int32_t StreamId, std::uint32_t ErrorCode)> on_stream_close;
+        /// 收到流头（OnHeaders）
+        std::function<void(std::int32_t StreamId, const HeaderList &headers, bool EndStream)> OnHeaders;
+        /// 收到流数据（OnData）
+        std::function<void(std::int32_t StreamId, std::span<const std::byte> Data)> OnData;
+        /// 流关闭（OnStreamClose）
+        std::function<void(std::int32_t StreamId, std::uint32_t ErrorCode)> OnStreamClose;
     };
 
     /// 会话共享指针

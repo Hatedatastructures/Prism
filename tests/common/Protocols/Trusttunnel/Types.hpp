@@ -1,5 +1,5 @@
 /**
- * @file types.hpp
+ * @file Types.hpp
  * @brief TrustTunnel 协议基础类型
  * @details TrustTunnel 是 HTTP/2 CONNECT 伪装方案（对齐 mihomo
  * transport/trusttunnel）：
@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace Preview::Trusttunnel
 {

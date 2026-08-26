@@ -1,5 +1,5 @@
 /**
- * @file bench.hpp
+ * @file Bench.hpp
  * @brief 性能基准工具（吞吐量 / 延迟统计）
  * @details 提供协议性能测试的统一测量原语：
  *          - BenchOptions：测试参数（总字节数 / 块大小 / 队列深度）
@@ -7,7 +7,7 @@
  *          - BenchThroughput() / BenchThroughputTx()：单连接吞吐 + 延迟测量
  * @note 配合 MemoryStream（内存）或真实 socket 使用。
  * @note 测量循环与分位数统计统一在 detail::RunBench，旧（ReadSome/WriteAll）
- *       与新（AsyncReadSome/AsyncWriteSome）接口差异由薄包装收敛。
+ *       与新（async_read_some/async_write_some）接口差异由薄包装收敛。
  */
 
 #pragma once
@@ -35,9 +35,9 @@ namespace Preview
         /// 总传输字节数
         std::size_t Total{64 * 1024 * 1024};
         /// 数据块大小
-        std::size_t block{64 * 1024};
+        std::size_t Block{64 * 1024};
         /// 并发队列深度（多块并发写）
-        std::size_t depth{8};
+        std::size_t Depth{8};
     };
 
     /// 基准测试报告
@@ -46,7 +46,7 @@ namespace Preview
         /// 实际传输字节数
         std::size_t Bytes{0};
         /// 吞吐量（MB/s）
-        double mbps{0.0};
+        double Mbps{0.0};
         /// 延迟统计（单块 RTT，毫秒）
         double LatencyAvg{0.0};
         double LatencyP50{0.0};
@@ -55,7 +55,7 @@ namespace Preview
         double LatencyMin{0.0};
         double LatencyMax{0.0};
         /// 采样数
-        std::size_t samples{0};
+        std::size_t Samples{0};
     };
 
     /// 旧接口传输概念（ReadSome/WriteAll，供 bench 消费）
@@ -66,13 +66,13 @@ namespace Preview
         { s.WriteAll(wbuf) } -> std::same_as<net::awaitable<boost::system::error_code>>;
     };
 
-    /// 新接口传输概念（AsyncReadSome/AsyncWriteSome，供 bench 消费）
+    /// 新接口传输概念（async_read_some/async_write_some，供 bench 消费）
     /// @tparam T 传输类型（协议 Server/Client / MemoryStream 均满足）
     template <typename T>
     concept BenchTx =
-        requires(T &s, std::span<std::byte> buf, std::span<const std::byte> wbuf, std::error_code &ec) {
-            { s.AsyncReadSome(buf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
-            { s.AsyncWriteSome(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+        requires(T &s, std::span<std::byte> buf, std::span<const std::byte> wbuf, std::error_code &Ec) {
+            { s.async_read_some(buf, Ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            { s.async_write_some(wbuf, Ec) } -> std::same_as<net::awaitable<std::size_t>>;
         };
 
     namespace detail
@@ -82,71 +82,71 @@ namespace Preview
          * @brief 吞吐与延迟测量公共实现
          * @tparam WriteBlock 写一块回调：返回 true = 写满成功
          * @tparam ReadBlock 读一块回调：返回实际读回字节数（< 块长 = 提前结束）
-         * @param write_block 写块协程
-         * @param read_block 读块协程
+         * @param Write 写块协程
+         * @param Read 读块协程
          * @param opt 测试选项
          * @return 测量报告
          * @details 循环执行「写一块 + 读回一块」直至完成、写失败或读不足，
          *          记录每块往返延迟。p50/p95/p99 分位数经排序取插值。
          */
         template <typename WriteBlock, typename ReadBlock>
-        auto RunBench(WriteBlock write_block, ReadBlock read_block, const BenchOptions &opt)
+        auto RunBench(WriteBlock Write, ReadBlock Read, const BenchOptions &opt)
             -> net::awaitable<BenchReport>
         {
             BenchReport rep;
-            const auto t0 = std::chrono::steady_clock::now();
+            const auto T0 = std::chrono::steady_clock::now();
 
-            std::vector<std::uint8_t> block(opt.block, 0x5a);
-            std::vector<std::uint8_t> echo(opt.block);
+            std::vector<std::uint8_t> block(opt.Block, 0x5a);
+            std::vector<std::uint8_t> echo(opt.Block);
             std::vector<double> latencies;
-            latencies.reserve(opt.Total / opt.block);
+            latencies.reserve(opt.Total / opt.Block);
 
-            std::size_t sent = 0;
-            while (sent < opt.Total)
+            std::size_t Sent = 0;
+            while (Sent < opt.Total)
             {
-                const auto chunk = std::min(opt.block, opt.Total - sent);
-                const auto t1 = std::chrono::steady_clock::now();
-                const bool wok = co_await write_block(std::span<const std::uint8_t>(block.data(), chunk));
-                if (!wok)
+                const auto Chunk = std::min(opt.Block, opt.Total - Sent);
+                const auto T1 = std::chrono::steady_clock::now();
+                const bool Wok = co_await Write(std::span<const std::uint8_t>(block.data(), Chunk));
+                if (!Wok)
                 {
                     break;
                 }
-                const auto got = co_await read_block(std::span<std::uint8_t>(echo.data(), chunk));
-                if (got < chunk)
+                const auto Got = co_await Read(std::span<std::uint8_t>(echo.data(), Chunk));
+                if (Got < Chunk)
                 {
                     break;
                 }
-                const auto t2 = std::chrono::steady_clock::now();
-                const double ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
-                latencies.push_back(ms);
-                sent += chunk;
+                const auto T2 = std::chrono::steady_clock::now();
+                const double Ms = std::chrono::duration<double, std::milli>(T2 - T1).count();
+                latencies.push_back(Ms);
+                Sent += Chunk;
             }
 
-            const auto t3 = std::chrono::steady_clock::now();
-            rep.Bytes = sent;
-            rep.samples = latencies.size();
+            const auto T3 = std::chrono::steady_clock::now();
+            rep.Bytes = Sent;
+            rep.Samples = latencies.size();
             if (!latencies.empty())
             {
-                const double sec = std::chrono::duration<double>(t3 - t0).count();
-                if (sec > 0)
+                const double Sec = std::chrono::duration<double>(T3 - T0).count();
+                if (Sec > 0)
                 {
-                    rep.mbps = static_cast<double>(sent) / (1024.0 * 1024.0) / sec;
+                    rep.Mbps = static_cast<double>(Sent) / (1024.0 * 1024.0) / Sec;
                 }
                 else
                 {
-                    rep.mbps = static_cast<double>(sent) / (1024.0 * 1024.0) / 1e-9;
+                    rep.Mbps = static_cast<double>(Sent) / (1024.0 * 1024.0) / 1e-9;
                 }
                 std::sort(latencies.begin(), latencies.end());
-                const auto q = [&](double p) -> double
+                const auto Q = [&](double p) -> double
                 {
-                    const auto idx = static_cast<std::size_t>(p * static_cast<double>(latencies.size() - 1));
-                    return latencies[idx];
+                    const auto Idx = static_cast<std::size_t>(p * static_cast<double>(latencies.size() - 1));
+                    return latencies[Idx];
                 };
                 rep.LatencyAvg = std::accumulate(latencies.begin(), latencies.end(), 0.0) /
                                   static_cast<double>(latencies.size());
-                rep.LatencyP50 = q(0.50);
-                rep.LatencyP95 = q(0.95);
-                rep.LatencyP99 = q(0.99);
+                rep.LatencyP50 = Q(0.50);
+                rep.LatencyP95 = Q(0.95);
+                rep.LatencyP99 = Q(0.99);
                 rep.LatencyMin = latencies.front();
                 rep.LatencyMax = latencies.back();
             }
@@ -170,22 +170,22 @@ namespace Preview
         return detail::RunBench(
             [&w](std::span<const std::uint8_t> Data) -> net::awaitable<bool>
             {
-                const auto ec = co_await w.WriteAll(Data);
-                co_return !ec;
+                const auto Ec = co_await w.WriteAll(Data);
+                co_return !Ec;
             },
             [&r](std::span<std::uint8_t> Data) -> net::awaitable<std::size_t>
             {
-                std::size_t got = 0;
-                while (got < Data.size())
+                std::size_t Got = 0;
+                while (Got < Data.size())
                 {
-                    const auto n = co_await r.ReadSome(Data.subspan(got));
-                    if (n == 0)
+                    const auto N = co_await r.ReadSome(Data.subspan(Got));
+                    if (N == 0)
                     {
                         break;
                     }
-                    got += n;
+                    Got += N;
                 }
-                co_return got;
+                co_return Got;
             },
             opt);
     }
@@ -209,31 +209,31 @@ namespace Preview
                 std::size_t Done = 0;
                 while (Done < Data.size())
                 {
-                    std::error_code ec;
-                    const auto n = co_await w.AsyncWriteSome(
-                        AsBytes(std::span<const std::uint8_t>(Data.data() + Done, Data.size() - Done)), ec);
-                    if (ec || n == 0)
+                    std::error_code Ec;
+                    const auto N = co_await w.async_write_some(
+                        AsBytes(std::span<const std::uint8_t>(Data.data() + Done, Data.size() - Done)), Ec);
+                    if (Ec || N == 0)
                     {
                         co_return false;
                     }
-                    Done += n;
+                    Done += N;
                 }
                 co_return true;
             },
             [&r](std::span<std::uint8_t> Data) -> net::awaitable<std::size_t>
             {
-                std::size_t got = 0;
-                while (got < Data.size())
+                std::size_t Got = 0;
+                while (Got < Data.size())
                 {
-                    std::error_code ec;
-                    const auto n = co_await r.AsyncReadSome(AsBytes(Data.subspan(got)), ec);
-                    if (ec || n == 0)
+                    std::error_code Ec;
+                    const auto N = co_await r.async_read_some(AsBytes(Data.subspan(Got)), Ec);
+                    if (Ec || N == 0)
                     {
                         break;
                     }
-                    got += n;
+                    Got += N;
                 }
-                co_return got;
+                co_return Got;
             },
             opt);
     }

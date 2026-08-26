@@ -1,8 +1,8 @@
 /**
- * @file relay.hpp
+ * @file Relay.hpp
  * @brief 双向转发中间件
- * @details 在 inbound 与 Outbound 之间建立双向隧道：
- * inbound → Outbound（上行）+ Outbound → inbound（下行）并发执行。
+ * @details 在 Inbound 与 Outbound 之间建立双向隧道：
+ * Inbound → Outbound（上行）+ Outbound → Inbound（下行）并发执行。
  * 空闲超时自动关闭，结束时上报流量统计。
  * 对应生产库 net/connection/tunnel/tunnel_relay 的中间件化。
  */
@@ -52,12 +52,12 @@ namespace Preview::Middleware::Builtin
         {
             RelayState(Preview::SharedTransmission in, Preview::SharedTransmission out,
                         std::size_t BufferSize, std::chrono::milliseconds idle)
-                : inbound(std::move(in)), Outbound(std::move(out)), UpBuffer(BufferSize),
-                  DownBuffer(BufferSize), IdleTimer(inbound->Executor()), IdleTimeout(idle)
+                : Inbound(std::move(in)), Outbound(std::move(out)), UpBuffer(BufferSize),
+                  DownBuffer(BufferSize), IdleTimer(Inbound->Executor()), IdleTimeout(idle)
             {
             }
 
-            Preview::SharedTransmission inbound;
+            Preview::SharedTransmission Inbound;
             Preview::SharedTransmission Outbound;
             std::vector<std::byte> UpBuffer;
             std::vector<std::byte> DownBuffer;
@@ -79,7 +79,7 @@ namespace Preview::Middleware::Builtin
             {
                 return;
             }
-            State->inbound->Close();
+            State->Inbound->Close();
             State->Outbound->Close();
             State->IdleTimer.cancel();
         }
@@ -107,7 +107,7 @@ namespace Preview::Middleware::Builtin
 
         /**
          * @brief 执行单向转发（src → dst）
-         * @tparam Idx 方向索引（0 = 上行 inbound→Outbound，1 = 下行 Outbound→inbound）
+         * @tparam Idx 方向索引（0 = 上行 Inbound→Outbound，1 = 下行 Outbound→Inbound）
          * @param State relay 共享状态
          * @param Name 方向名（异常日志）
          * @details 上下行唯一差异为方向索引与日志文案，统一实现消除镜像重复。
@@ -116,17 +116,17 @@ namespace Preview::Middleware::Builtin
         auto RelayDirection(std::shared_ptr<RelayState> State, std::string_view Name)
             -> net::awaitable<void>
         {
-            auto &src = Idx == 0 ? State->inbound : State->Outbound;
-            auto &dst = Idx == 0 ? State->Outbound : State->inbound;
+            auto &src = Idx == 0 ? State->Inbound : State->Outbound;
+            auto &dst = Idx == 0 ? State->Outbound : State->Inbound;
             auto &buf = Idx == 0 ? State->UpBuffer : State->DownBuffer;
             try
             {
                 while (true)
                 {
                     std::error_code ReadEc;
-                    const auto n = co_await src->AsyncReadSome(
+                    const auto N = co_await src->async_read_some(
                         std::span<std::byte>(buf), ReadEc);
-                    if (n == 0)
+                    if (N == 0)
                     {
                         if (ReadEc)
                         {
@@ -143,11 +143,11 @@ namespace Preview::Middleware::Builtin
 
                     std::error_code WriteEc;
                     co_await dst->AsyncWrite(
-                        std::span<const std::byte>(buf.data(), n), WriteEc);
+                        std::span<const std::byte>(buf.data(), N), WriteEc);
                     // 流量按实际写入计：写失败不计入，避免错误路径虚增统计
                     if (!WriteEc)
                     {
-                        State->Total[Idx] += n;
+                        State->Total[Idx] += N;
                     }
                     if (WriteEc)
                     {
@@ -182,7 +182,7 @@ namespace Preview::Middleware::Builtin
         }
 
         /**
-         * @brief 执行上行转发（inbound → Outbound）
+         * @brief 执行上行转发（Inbound → Outbound）
          * @param State relay 共享状态
          * @note 转发层：统一实现见 RelayDirection
          */
@@ -193,7 +193,7 @@ namespace Preview::Middleware::Builtin
         }
 
         /**
-         * @brief 执行下行转发（Outbound → inbound）
+         * @brief 执行下行转发（Outbound → Inbound）
          * @param State relay 共享状态
          * @note 转发层：统一实现见 RelayDirection
          */
@@ -212,7 +212,7 @@ namespace Preview::Middleware::Builtin
         {
             if (State->IdleTimeout <= std::chrono::milliseconds::zero())
             {
-                net::steady_timer hold(State->inbound->Executor());
+                net::steady_timer hold(State->Inbound->Executor());
                 hold.expires_after(std::chrono::hours(24));
                 boost::system::error_code HoldEc;
                 co_await hold.async_wait(net::redirect_error(net::use_awaitable, HoldEc));
@@ -243,7 +243,7 @@ namespace Preview::Middleware::Builtin
     /**
      * @class RelayMiddleware
      * @brief 双向转发中间件
-     * @details 消费 ctx.inbound（客户端侧）并拨号 Outbound（上游侧），
+     * @details 消费 ctx.Inbound（客户端侧）并拨号 Outbound（上游侧），
      * 建立双向隧道。Outbound 由 DialMiddleware 或调用方预置。
      * @note 本中间件为管线终点（Handle 后隧道运行至关闭）。
      */
@@ -257,7 +257,7 @@ namespace Preview::Middleware::Builtin
          */
         explicit RelayMiddleware(Preview::SharedTransmission Outbound,
                                   std::chrono::milliseconds IdleTimeout = std::chrono::seconds(300))
-            : outbound_(std::move(Outbound)), IdleTimeout_(IdleTimeout)
+            : Outbound_(std::move(Outbound)), IdleTimeout_(IdleTimeout)
         {
         }
 
@@ -280,22 +280,22 @@ namespace Preview::Middleware::Builtin
 
         /**
          * @brief 建立双向隧道并运行至关闭
-         * @param inbound 入站传输
+         * @param Inbound 入站传输
          * @param ctx 管线上下文
          * @return 隧道结束码（success = 正常关闭）
          */
-        auto Handle(Preview::SharedTransmission &inbound, Context &ctx)
+        auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
             -> net::awaitable<Preview::Fault::Code> override
         {
             // 优先使用管线上下文注入的 Outbound（Dial 中间件产出）
-            auto Outbound = outbound_;
+            auto Outbound = Outbound_;
             if (ctx.Outbound)
             {
                 Outbound = ctx.Outbound;
             }
-            if (!inbound || !Outbound)
+            if (!Inbound || !Outbound)
             {
-                co_return Preview::Fault::Code::bad_gateway;
+                co_return Preview::Fault::Code::BadGateway;
             }
 
             const auto BufferSize = (std::max)(ctx.BufferSize, std::size_t{2});
@@ -307,7 +307,7 @@ namespace Preview::Middleware::Builtin
                 EffectiveTimeout = ctx.timeout;
             }
 
-            auto State = std::make_shared<detail::RelayState>(inbound, Outbound, BufferSize,
+            auto State = std::make_shared<detail::RelayState>(Inbound, Outbound, BufferSize,
                                                                EffectiveTimeout);
             detail::ResetIdleTimer(State);
 
@@ -326,11 +326,11 @@ namespace Preview::Middleware::Builtin
             {
                 ctx.traffic->Report(ctx.identity, State->Total[0], State->Total[1]);
             }
-            co_return Preview::Fault::Code::success;
+            co_return Preview::Fault::Code::Success;
         }
 
     private:
-        Preview::SharedTransmission outbound_; ///< 上游传输
+        Preview::SharedTransmission Outbound_; ///< 上游传输
         std::chrono::milliseconds IdleTimeout_;       ///< 空闲超时
         std::exception_ptr LastDirectionError_{};    ///< 最近一次方向协程异常（诊断用）
     };

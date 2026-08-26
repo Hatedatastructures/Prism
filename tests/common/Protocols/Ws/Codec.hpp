@@ -53,17 +53,17 @@ namespace Preview::Ws
     struct FrameHeader
     {
         /// FIN 标志
-        bool fin{false};
+        bool Fin{false};
         /// 帧类型
         std::uint8_t Opcode{0};
         /// 是否掩码
-        bool masked{false};
+        bool Masked{false};
         /// 载荷长度
         std::uint64_t PayloadLen{0};
         /// 帧头总长度（含 masked key）
         std::size_t HeaderLen{0};
         /// 掩码键（masked 时有效）
-        std::array<std::uint8_t, MaskLen> masked{};
+        std::array<std::uint8_t, MaskLen> MaskKey{};
     };
 
     /**
@@ -78,49 +78,49 @@ namespace Preview::Ws
         {
             return false;
         }
-        const auto b0 = static_cast<std::uint8_t>(in[0]);
-        const auto b1 = static_cast<std::uint8_t>(in[1]);
-        Header.fin = (b0 & 0x80) != 0;
-        Header.Opcode = static_cast<std::uint8_t>(b0 & 0x0F);
-        Header.masked = (b1 & 0x80) != 0;
+        const auto B0 = static_cast<std::uint8_t>(in[0]);
+        const auto B1 = static_cast<std::uint8_t>(in[1]);
+        Header.Fin = (B0 & 0x80) != 0;
+        Header.Opcode = static_cast<std::uint8_t>(B0 & 0x0F);
+        Header.Masked = (B1 & 0x80) != 0;
 
-        std::size_t offset = 2;
-        std::uint64_t len = static_cast<std::uint64_t>(b1 & 0x7F);
-        if (len == 126)
+        std::size_t Offset = 2;
+        std::uint64_t Len = static_cast<std::uint64_t>(B1 & 0x7F);
+        if (Len == 126)
         {
-            if (in.size() < offset + 2)
+            if (in.size() < Offset + 2)
             {
                 return false;
             }
-            len = (static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[offset])) << 8) |
-                  static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[offset + 1]));
-            offset += 2;
+            Len = (static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[Offset])) << 8) |
+                  static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[Offset + 1]));
+            Offset += 2;
         }
-        else if (len == 127)
+        else if (Len == 127)
         {
-            if (in.size() < offset + 8)
+            if (in.size() < Offset + 8)
             {
                 return false;
             }
-            len = 0;
-            for (std::size_t i = 0; i < 8; ++i)
+            Len = 0;
+            for (std::size_t I = 0; I < 8; ++I)
             {
-                len = (len << 8) | static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[offset + i]));
+                Len = (Len << 8) | static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[Offset + I]));
             }
-            offset += 8;
+            Offset += 8;
         }
-        Header.PayloadLen = len;
+        Header.PayloadLen = Len;
 
-        if (Header.masked)
+        if (Header.Masked)
         {
-            if (in.size() < offset + 4)
+            if (in.size() < Offset + 4)
             {
                 return false;
             }
-            std::memcpy(Header.masked.data(), in.data() + offset, 4);
-            offset += 4;
+            std::memcpy(Header.MaskKey.data(), in.data() + Offset, 4);
+            Offset += 4;
         }
-        Header.HeaderLen = offset;
+        Header.HeaderLen = Offset;
         return true;
     }
 
@@ -129,19 +129,19 @@ namespace Preview::Ws
      * @param Data 载荷（原地）
      * @param masked 4 字节掩码键
      */
-    inline auto ApplyMask(std::span<std::byte> Data, std::span<const std::uint8_t, MaskLen> masked) -> void
+    inline auto ApplyMask(std::span<std::byte> Data, std::span<const std::uint8_t, MaskLen> Key) -> void
     {
-        for (std::size_t i = 0; i < Data.size(); ++i)
+        for (std::size_t I = 0; I < Data.size(); ++I)
         {
-            Data[i] = static_cast<std::byte>(static_cast<std::uint8_t>(Data[i]) ^ masked[i % 4]);
+            Data[I] = static_cast<std::byte>(static_cast<std::uint8_t>(Data[I]) ^ Key[I % 4]);
         }
     }
 
     /// 帧编码输入（op + fin + payload）
     struct FrameInput
     {
-        Opcode op{Opcode::binary};          ///< 帧类型
-        bool fin{true};                     ///< 是否 FIN
+        Opcode op{Opcode::Binary};          ///< 帧类型
+        bool Fin{true};                     ///< 是否 FIN
         std::span<const std::byte> payload; ///< 载荷
     };
 
@@ -153,23 +153,23 @@ namespace Preview::Ws
      */
     [[nodiscard]] inline auto EncodeFrame(const FrameInput &in, std::span<std::byte> out) -> std::size_t
     {
-        const auto len = in.payload.size();
+        const auto Len = in.payload.size();
         std::size_t HeaderLen = 2;
-        if (len >= 126 && len <= 0xFFFF)
+        if (Len >= 126 && Len <= 0xFFFF)
         {
             HeaderLen += 2;
         }
-        else if (len > 0xFFFF)
+        else if (Len > 0xFFFF)
         {
             HeaderLen += 8;
         }
-        if (out.size() < HeaderLen + len)
+        if (out.size() < HeaderLen + Len)
         {
             return 0;
         }
 
         std::uint8_t FinBit;
-        if (in.fin)
+        if (in.Fin)
         {
             FinBit = 0x80;
         }
@@ -177,29 +177,29 @@ namespace Preview::Ws
         {
             FinBit = 0x00;
         }
-        const auto b0 = static_cast<std::uint8_t>(static_cast<std::uint8_t>(in.op)) | FinBit;
-        out[0] = static_cast<std::byte>(b0);
-        std::size_t offset = 2;
-        if (len < 126)
+        const auto B0 = static_cast<std::uint8_t>(static_cast<std::uint8_t>(in.op)) | FinBit;
+        out[0] = static_cast<std::byte>(B0);
+        std::size_t Offset = 2;
+        if (Len < 126)
         {
-            out[1] = static_cast<std::byte>(len);
+            out[1] = static_cast<std::byte>(Len);
         }
-        else if (len <= 0xFFFF)
+        else if (Len <= 0xFFFF)
         {
             out[1] = std::byte{126};
-            out[offset++] = static_cast<std::byte>((len >> 8) & 0xFF);
-            out[offset++] = static_cast<std::byte>(len & 0xFF);
+            out[Offset++] = static_cast<std::byte>((Len >> 8) & 0xFF);
+            out[Offset++] = static_cast<std::byte>(Len & 0xFF);
         }
         else
         {
             out[1] = std::byte{127};
-            for (int i = 7; i >= 0; --i)
+            for (int I = 7; I >= 0; --I)
             {
-                out[offset++] = static_cast<std::byte>((len >> (8 * i)) & 0xFF);
+                out[Offset++] = static_cast<std::byte>((Len >> (8 * I)) & 0xFF);
             }
         }
-        std::memcpy(out.data() + offset, in.payload.data(), len);
-        return HeaderLen + len;
+        std::memcpy(out.data() + Offset, in.payload.data(), Len);
+        return HeaderLen + Len;
     }
 
 } // namespace Preview::Ws

@@ -81,17 +81,17 @@ namespace
                              auto [aerr, msg, sconn] = co_await Tuic::Accept(
                                  std::make_shared<Transport::Reliable>(std::move(sock)), scfg);
                              (void)msg;
-                             if (aerr != Error::none || !sconn)
+                             if (aerr != Error::None || !sconn)
                              {
                                  co_return;
                              }
                              // 回显一次
                              std::array<std::byte, 64> buf{};
                              std::error_code ec;
-                             const auto n = co_await sconn->AsyncReadSome(std::span<std::byte>(buf), ec);
+                             const auto n = co_await sconn->async_read_some(std::span<std::byte>(buf), ec);
                              if (n > 0)
                              {
-                                 co_await sconn->AsyncWriteSome(
+                                 co_await sconn->async_write_some(
                                      std::span<const std::byte>(buf.data(), n), ec);
                              }
                          },
@@ -103,7 +103,7 @@ namespace
                                                  net::use_awaitable);
                      auto [err, Conn] = co_await Tuic::Connect(
                          std::make_shared<Transport::Reliable>(std::move(sock)), ccfg, Target);
-                     if (err != Error::none || !Conn)
+                     if (err != Error::None || !Conn)
                      {
                          co_return;
                      }
@@ -111,10 +111,10 @@ namespace
                      // 数据往返（客户端写 → 服务端读 → 回显 → 客户端读）
                      const std::string msg = "tuic-Stream";
                      std::error_code ec;
-                     co_await Conn->AsyncWriteSome(AsBytesSpan(msg), ec);
+                     co_await Conn->async_write_some(AsBytesSpan(msg), ec);
                      EXPECT_FALSE(ec);
                      std::array<std::byte, 64> buf{};
-                     const auto n = co_await Conn->AsyncReadSome(std::span<std::byte>(buf), ec);
+                     const auto n = co_await Conn->async_read_some(std::span<std::byte>(buf), ec);
                      echo_back.assign(reinterpret_cast<const char *>(buf.data()), n);
                  });
         EXPECT_EQ(echo_back, "tuic-Stream");
@@ -143,7 +143,7 @@ namespace
                                  std::make_shared<Transport::Reliable>(std::move(sock)), scfg);
                              (void)msg2;
                              (void)sconn2;
-                             accept_rejected = (aerr2 != Error::none);
+                             accept_rejected = (aerr2 != Error::None);
                          },
                          net::detached);
 

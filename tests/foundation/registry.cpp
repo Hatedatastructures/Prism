@@ -113,7 +113,7 @@ TEST(TaskRegistry, CancelClearsTokensAndCounts)
 }
 
 /**
- * @brief cancel 后再 release_internal 应是 no-op（cancelling_ 标志保护）
+ * @brief cancel 后再 release_internal 应是 no-op（Cancelling_ 标志保护）
  */
 TEST(TaskRegistry, ReleaseAfterCancelIsNoop)
 {
@@ -130,7 +130,7 @@ TEST(TaskRegistry, ReleaseAfterCancelIsNoop)
     EXPECT_TRUE(cleared);
     EXPECT_EQ(registry.stats().active, std::size_t{0});
 
-    // cancelling_ 标志保护：再次调用 cancel 不会重复累加 cancelled 计数。
+    // Cancelling_ 标志保护：再次调用 cancel 不会重复累加 cancelled 计数。
     // 同时不调 ioc.run()，模拟 worker 析构时 ioc 已 stop 的真实场景。
     const auto cleared_again = registry.cancel_and_wait();
     EXPECT_TRUE(cleared_again);

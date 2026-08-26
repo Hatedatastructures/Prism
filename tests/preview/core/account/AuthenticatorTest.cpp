@@ -12,10 +12,15 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <common/Core/Authenticator.hpp>
 #include <common/Core/Transport/MemoryStream.hpp>
@@ -54,14 +59,16 @@ namespace
             Socks5::ServerConfig cfg;
             cfg.EnableAuth = true;
             cfg.Authenticator = &Auth;
+            bool server_done = false;
 
             auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Socks5::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
                 // 注入认证器：正确凭据应通过
-                EXPECT_EQ(err, Error::none);
+                EXPECT_EQ(err, Error::None);
                 EXPECT_TRUE(Conn != nullptr);
+                server_done = true;
             };
             Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
@@ -72,10 +79,19 @@ namespace
             auto [err, Conn] = co_await Socks5::Connect(
                 std::make_shared<MemoryStream>(std::move(a)), ccfg,
                 Socks5::Address{Socks5::AddressType::Domain, "t.internal", 443});
-            EXPECT_EQ(err, Error::none);
+            EXPECT_EQ(err, Error::None);
             if (Conn)
             {
                 Conn->Close();
+            }
+
+            // 等待服务端协程结束，保证栈上 Auth/cfg 存活至 detached 协程退出
+            Net::steady_timer wait(ioc.get_executor());
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!server_done && std::chrono::steady_clock::now() < deadline)
+            {
+                wait.expires_after(std::chrono::milliseconds(1));
+                co_await wait.async_wait(Net::use_awaitable);
             }
         }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
@@ -97,12 +113,15 @@ namespace
             Socks5::ServerConfig cfg;
             cfg.EnableAuth = true;
             cfg.Authenticator = &Auth;
+            bool server_done = false;
 
             auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Socks5::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                // 拒绝认证器：正确凭据也失败
+                // 拒绝认证器：正确凭据也必须失败
+                EXPECT_EQ(err, Error::BadAuth);
+                server_done = true;
             };
             Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
@@ -113,6 +132,16 @@ namespace
             auto [err, Conn] = co_await Socks5::Connect(
                 std::make_shared<MemoryStream>(std::move(a)), ccfg,
                 Socks5::Address{Socks5::AddressType::Domain, "t.internal", 443});
+            EXPECT_NE(err, Error::None);
+
+            // 等待服务端协程结束，保证栈上 Auth/cfg 存活至 detached 协程退出
+            Net::steady_timer wait(ioc.get_executor());
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!server_done && std::chrono::steady_clock::now() < deadline)
+            {
+                wait.expires_after(std::chrono::milliseconds(1));
+                co_await wait.async_wait(Net::use_awaitable);
+            }
         }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         if (ep)
@@ -136,12 +165,14 @@ namespace
             Trojan::ServerConfig cfg;
             cfg.password = "prism";
             cfg.Authenticator = &Auth;
+            bool server_done = false;
 
             auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::none);
+                EXPECT_EQ(err, Error::None);
+                server_done = true;
             };
             Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
@@ -150,7 +181,16 @@ namespace
             auto [err, Conn] = co_await Trojan::Connect(
                 std::make_shared<MemoryStream>(std::move(a)), ccfg,
                 Trojan::Address{Trojan::AddressType::Domain, "t.internal", 443});
-            EXPECT_EQ(err, Error::none);
+            EXPECT_EQ(err, Error::None);
+
+            // 等待服务端协程结束，保证栈上 Auth/cfg 存活至 detached 协程退出
+            Net::steady_timer wait(ioc.get_executor());
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!server_done && std::chrono::steady_clock::now() < deadline)
+            {
+                wait.expires_after(std::chrono::milliseconds(1));
+                co_await wait.async_wait(Net::use_awaitable);
+            }
         }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         if (ep)
@@ -174,12 +214,14 @@ namespace
             Vless::ServerConfig cfg;
             cfg.uuid = uuid;
             cfg.Authenticator = &Auth;
+            bool server_done = false;
 
             auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Vless::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::none);
+                EXPECT_EQ(err, Error::None);
+                server_done = true;
             };
             Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
@@ -188,7 +230,16 @@ namespace
             auto [err, Conn] = co_await Vless::Connect(
                 std::make_shared<MemoryStream>(std::move(a)), ccfg,
                 Vless::Address{Vless::AddressType::Domain, "t.internal", 443});
-            EXPECT_EQ(err, Error::none);
+            EXPECT_EQ(err, Error::None);
+
+            // 等待服务端协程结束，保证栈上 Auth/cfg 存活至 detached 协程退出
+            Net::steady_timer wait(ioc.get_executor());
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!server_done && std::chrono::steady_clock::now() < deadline)
+            {
+                wait.expires_after(std::chrono::milliseconds(1));
+                co_await wait.async_wait(Net::use_awaitable);
+            }
         }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         if (ep)
@@ -196,8 +247,6 @@ namespace
             std::rethrow_exception(ep);
         }
     }
-
-} // namespace
 
     TEST(Authenticator, Hysteria2InjectedAuth)
     {
@@ -211,12 +260,14 @@ namespace
             Hysteria2::ServerConfig cfg;
             cfg.password = "h2pass";
             cfg.Authenticator = &Auth;
+            bool server_done = false;
 
             auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Hysteria2::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::none);
+                EXPECT_EQ(err, Error::None);
+                server_done = true;
             };
             Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
@@ -225,7 +276,16 @@ namespace
             auto [err, Conn] = co_await Hysteria2::Connect(
                 std::make_shared<MemoryStream>(std::move(a)), ccfg,
                 Hysteria2::Address{Hysteria2::AddressType::Domain, "t.internal", 443});
-            EXPECT_EQ(err, Error::none);
+            EXPECT_EQ(err, Error::None);
+
+            // 等待服务端协程结束，保证栈上 Auth/cfg 存活至 detached 协程退出
+            Net::steady_timer wait(ioc.get_executor());
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!server_done && std::chrono::steady_clock::now() < deadline)
+            {
+                wait.expires_after(std::chrono::milliseconds(1));
+                co_await wait.async_wait(Net::use_awaitable);
+            }
         }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         if (ep)
@@ -246,19 +306,32 @@ namespace
             Hysteria2::ServerConfig cfg;
             cfg.password = "h2pass";
             cfg.Authenticator = &Auth;
+            bool server_done = false;
 
             auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Hysteria2::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
+                // 非法字节流：服务端必须拒绝
+                EXPECT_NE(err, Error::None);
+                server_done = true;
             };
             Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
             // 客户端：发送无效字节后关闭（服务端应拒绝并返回错误）
             const std::vector<std::uint8_t> junk{0x01, 0x02, 0x03};
             std::error_code ec;
-            co_await a.AsyncWriteSome(AsBytes(std::span<const std::uint8_t>(junk)), ec);
+            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(junk)), ec);
             a.Close();
+
+            // 等待服务端协程结束，保证栈上 Auth/cfg 存活至 detached 协程退出
+            Net::steady_timer wait(ioc.get_executor());
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!server_done && std::chrono::steady_clock::now() < deadline)
+            {
+                wait.expires_after(std::chrono::milliseconds(1));
+                co_await wait.async_wait(Net::use_awaitable);
+            }
         }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         if (ep)
@@ -266,3 +339,5 @@ namespace
             std::rethrow_exception(ep);
         }
     }
+
+} // namespace

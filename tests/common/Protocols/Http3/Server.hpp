@@ -8,7 +8,7 @@
  * 实现 nghttp3 接线逻辑（Session.hpp 已字节级兼容 quic-go）。
  * @note 认证数据路径：Feed() 喂入 nghttp3 → AuthHeadersComplete()
  *       就绪 → CheckAuth() 走认证回调 → SubmitAuthResponse()。
- *       on_data 回调为预留接口，当前后端丢弃 DATA 载荷
+ *       OnData 回调为预留接口，当前后端丢弃 DATA 载荷
  *       （仅认证场景），接入完整数据路径后触发。
  * @note 所有 nghttp3 调用必须在同一 io_context 线程串行执行。
  */
@@ -54,7 +54,7 @@ namespace Preview::Http3
          * @param Data 载荷
          * @param fin 流是否结束
          */
-        std::function<void(std::int64_t StreamId, std::span<const std::byte> Data, bool fin)> on_data;
+        std::function<void(std::int64_t StreamId, std::span<const std::byte> Data, bool fin)> OnData;
     };
 
     /// nghttp3 输出包（目标 QUIC 流 + 待发字节，对齐后端类型）
@@ -76,11 +76,11 @@ namespace Preview::Http3
          * @param Options 构造选项（内部补齐 mr 默认值）
          */
         explicit Server(ServerOptions Options)
-            : options_(std::move(Options)),
-              inner_([&]() -> Preview::Memory::ResourcePointer {
-                  if (options_.mr)
+            : Options_(std::move(Options)),
+              Inner_([&]() -> Preview::Memory::ResourcePointer {
+                  if (Options_.mr)
                   {
-                      return options_.mr;
+                      return Options_.mr;
                   }
                   return Preview::Memory::CurrentResource();
               }())
@@ -92,12 +92,12 @@ namespace Preview::Http3
 
         /**
          * @brief 初始化：创建 nghttp3 服务端连接 + 控制流/QPACK 流
-         * @param open_uni_stream QUIC 层开单向流回调（失败返回 -1）
+         * @param OpenUniStream QUIC 层开单向流回调（失败返回 -1）
          * @return 是否成功
          */
-        [[nodiscard]] auto Init(std::function<std::int64_t()> open_uni_stream) -> bool
+        [[nodiscard]] auto Init(std::function<std::int64_t()> OpenUniStream) -> bool
         {
-            return inner_.Init(std::move(open_uni_stream));
+            return Inner_.Init(std::move(OpenUniStream));
         }
 
         /**
@@ -110,17 +110,17 @@ namespace Preview::Http3
         [[nodiscard]] auto Feed(std::int64_t StreamId, std::span<const std::byte> Data, bool fin)
             -> Fault::Code
         {
-            return inner_.Feed(StreamId, Data, fin);
+            return Inner_.Feed(StreamId, Data, fin);
         }
 
         /**
          * @brief 收集待发数据（nghttp3 → QUIC 流）
-         * @param out 输出包集合（写回 QUIC 后调用 AddWriteOffset 告知消费）
+         * @param out 输出包集合（PumpOutput 内部已消费写偏移，直接写回 QUIC）
          * @return 是否成功
          */
         [[nodiscard]] auto PumpOutput(std::vector<OutPacket> &out) -> bool
         {
-            return inner_.PumpOutput(out);
+            return Inner_.PumpOutput(out);
         }
 
         /**
@@ -130,7 +130,7 @@ namespace Preview::Http3
          */
         void AddWriteOffset(std::int64_t StreamId, std::size_t len)
         {
-            inner_.AddWriteOffset(StreamId, len);
+            Inner_.AddWriteOffset(StreamId, len);
         }
 
         /**
@@ -139,31 +139,31 @@ namespace Preview::Http3
          */
         [[nodiscard]] auto AuthHeadersComplete() const noexcept -> bool
         {
-            return inner_.AuthHeadersComplete();
+            return Inner_.AuthHeadersComplete();
         }
 
         /** @brief 获取认证请求方法（:Method） */
         [[nodiscard]] auto Method() const noexcept -> std::string_view
         {
-            return inner_.Method();
+            return Inner_.Method();
         }
 
         /** @brief 获取认证请求路径（:Path） */
         [[nodiscard]] auto Path() const noexcept -> std::string_view
         {
-            return inner_.Path();
+            return Inner_.Path();
         }
 
         /** @brief 获取认证凭据（Hysteria-Auth 头） */
         [[nodiscard]] auto Auth() const noexcept -> std::string_view
         {
-            return inner_.Auth();
+            return Inner_.Auth();
         }
 
         /** @brief 获取客户端声明的接收速率（Hysteria-CC-RX 头） */
         [[nodiscard]] auto Rx() const noexcept -> std::uint64_t
         {
-            return inner_.Rx();
+            return Inner_.Rx();
         }
 
         /**
@@ -172,7 +172,7 @@ namespace Preview::Http3
          */
         [[nodiscard]] auto AuthStreamId() const noexcept -> std::int64_t
         {
-            return inner_.AuthStreamId();
+            return Inner_.AuthStreamId();
         }
 
         /**
@@ -182,11 +182,11 @@ namespace Preview::Http3
          */
         [[nodiscard]] auto CheckAuth() const -> bool
         {
-            if (!options_.authenticate)
+            if (!Options_.authenticate)
             {
                 return true;
             }
-            return options_.authenticate(Method(), Path(), Auth());
+            return Options_.authenticate(Method(), Path(), Auth());
         }
 
         /**
@@ -195,7 +195,7 @@ namespace Preview::Http3
          */
         [[nodiscard]] auto SubmitAuthResponse() -> Fault::Code
         {
-            return inner_.SubmitAuthResponse();
+            return Inner_.SubmitAuthResponse();
         }
 
         /**
@@ -203,7 +203,7 @@ namespace Preview::Http3
          */
         void Close()
         {
-            inner_.Close();
+            Inner_.Close();
         }
 
         /**
@@ -212,7 +212,7 @@ namespace Preview::Http3
          */
         [[nodiscard]] auto Options() const noexcept -> const ServerOptions &
         {
-            return options_;
+            return Options_;
         }
 
         /**
@@ -221,12 +221,12 @@ namespace Preview::Http3
          */
         [[nodiscard]] auto Native() const noexcept -> nghttp3_conn *
         {
-            return inner_.Native();
+            return Inner_.Native();
         }
 
     private:
-        ServerOptions options_; ///< 构造选项
-        Preview::Http3::AuthServer inner_; ///< 后端实现（nghttp3 接线）
+        ServerOptions Options_; ///< 构造选项
+        Preview::Http3::AuthServer Inner_; ///< 后端实现（nghttp3 接线）
     };
 
     /// 服务端共享指针

@@ -41,7 +41,7 @@ namespace
     TEST(Hysteria2Beast, UdpFrameRoundtrip)
     {
         Hysteria2::Message msg;
-        msg.Type = Hysteria2::Message::Kind::udp;
+        msg.Type = Hysteria2::Message::Kind::Udp;
         msg.SessionId = 0x11223344;
         msg.PacketId = 7;
         msg.dst.Type = Hysteria2::AddressType::Domain;
@@ -59,7 +59,7 @@ namespace
         p.Put(net::const_buffer(wire.data(), Total), ec);
         EXPECT_FALSE(ec);
         EXPECT_TRUE(p.IsDone());
-        EXPECT_EQ(p.Get().Type, Hysteria2::Message::Kind::udp);
+        EXPECT_EQ(p.Get().Type, Hysteria2::Message::Kind::Udp);
         EXPECT_EQ(p.Get().SessionId, 0x11223344U);
         EXPECT_EQ(p.Get().dst.Host, "example.com");
         EXPECT_EQ(p.Get().payload, "dns");

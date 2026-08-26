@@ -27,7 +27,7 @@ namespace Preview::Http2
 {
 
     /// HPACK 静态表（RFC 7541 Appendix A，61 项）
-    inline const std::vector<std::pair<std::string_view, std::string_view>> &static_table()
+    inline const std::vector<std::pair<std::string_view, std::string_view>> &StaticTable()
     {
         static const std::vector<std::pair<std::string_view, std::string_view>> Table = {
             {":authority", ""},
@@ -98,14 +98,14 @@ namespace Preview::Http2
     /**
      * @brief 编码整数（Prefix N 位）
      * @param value 整数值
-     * @param prefix_bits 前缀位数（1-8）
+     * @param PrefixBits 前缀位数（1-8）
      * @param first 首字节高位（已含前缀标记位）
      * @param out 输出缓冲区
      */
-    inline void EncodeInt(std::uint64_t value, std::uint8_t prefix_bits, std::uint8_t first,
+    inline void EncodeInt(std::uint64_t value, std::uint8_t PrefixBits, std::uint8_t first,
                            std::vector<std::byte> &out)
     {
-        const auto PrefixMask = static_cast<std::uint8_t>((1U << prefix_bits) - 1U);
+        const auto PrefixMask = static_cast<std::uint8_t>((1U << PrefixBits) - 1U);
         if (value < PrefixMask)
         {
             out.push_back(static_cast<std::byte>(first | static_cast<std::uint8_t>(value)));
@@ -124,35 +124,35 @@ namespace Preview::Http2
     /**
      * @brief 解码整数（Prefix N 位）
      * @param Data 输入缓冲区
-     * @param prefix_bits 前缀位数
+     * @param PrefixBits 前缀位数
      * @param offset 解析偏移（输入输出）
      * @return 整数值
      */
-    [[nodiscard]] inline auto DecodeInt(std::span<const std::byte> Data, std::uint8_t prefix_bits,
-                                         std::size_t &offset) -> std::uint64_t
+    [[nodiscard]] inline auto DecodeInt(std::span<const std::byte> Data, std::uint8_t PrefixBits,
+                                         std::size_t &Offset) -> std::uint64_t
     {
-        const auto PrefixMask = static_cast<std::uint8_t>((1U << prefix_bits) - 1U);
-        if (offset >= Data.size())
+        const auto PrefixMask = static_cast<std::uint8_t>((1U << PrefixBits) - 1U);
+        if (Offset >= Data.size())
         {
             return 0;
         }
-        auto value = static_cast<std::uint64_t>(std::to_integer<std::uint8_t>(Data[offset]) & PrefixMask);
-        ++offset;
+        auto value = static_cast<std::uint64_t>(std::to_integer<std::uint8_t>(Data[Offset]) & PrefixMask);
+        ++Offset;
         if (value < PrefixMask)
         {
             return value;
         }
-        std::uint64_t shift = 0;
-        while (offset < Data.size())
+        std::uint64_t Shift = 0;
+        while (Offset < Data.size())
         {
-            const auto b = std::to_integer<std::uint8_t>(Data[offset]);
-            ++offset;
-            value += static_cast<std::uint64_t>(b & 0x7F) << shift;
-            if ((b & 0x80) == 0)
+            const auto B = std::to_integer<std::uint8_t>(Data[Offset]);
+            ++Offset;
+            value += static_cast<std::uint64_t>(B & 0x7F) << Shift;
+            if ((B & 0x80) == 0)
             {
                 break;
             }
-            shift += 7;
+            Shift += 7;
         }
         return value;
     }
@@ -178,30 +178,30 @@ namespace Preview::Http2
      * @param offset 解析偏移（输入输出）
      * @return 解码字符串；失败返回 std::nullopt
      */
-    [[nodiscard]] inline auto DecodeString(std::span<const std::byte> Data, std::size_t &offset)
+    [[nodiscard]] inline auto DecodeString(std::span<const std::byte> Data, std::size_t &Offset)
         -> std::optional<std::string>
     {
-        if (offset >= Data.size())
+        if (Offset >= Data.size())
         {
             return std::nullopt;
         }
-        const auto huffman = (std::to_integer<std::uint8_t>(Data[offset]) & 0x80) != 0;
-        const auto len = DecodeInt(Data, 7, offset);
-        if (huffman)
+        const auto Huffman = (std::to_integer<std::uint8_t>(Data[Offset]) & 0x80) != 0;
+        const auto Len = DecodeInt(Data, 7, Offset);
+        if (Huffman)
         {
             // Huffman 未实现：按 plain 读（等价误判；h2mux 互操作走 plain）
         }
-        if (offset + len > Data.size())
+        if (Offset + Len > Data.size())
         {
             return std::nullopt;
         }
         std::string out;
-        out.reserve(len);
-        for (std::size_t i = 0; i < len; ++i)
+        out.reserve(Len);
+        for (std::size_t I = 0; I < Len; ++I)
         {
-            out.push_back(std::to_integer<char>(Data[offset + i]));
+            out.push_back(std::to_integer<char>(Data[Offset + I]));
         }
-        offset += len;
+        Offset += Len;
         return out;
     }
 
@@ -213,12 +213,12 @@ namespace Preview::Http2
      */
     [[nodiscard]] inline auto LookupStatic(std::string_view Name, std::string_view value) -> std::size_t
     {
-        const auto &Table = static_table();
-        for (std::size_t i = 0; i < Table.size(); ++i)
+        const auto &Table = StaticTable();
+        for (std::size_t I = 0; I < Table.size(); ++I)
         {
-            if (Table[i].first == Name && Table[i].second == value)
+            if (Table[I].first == Name && Table[I].second == value)
             {
-                return i + 1;
+                return I + 1;
             }
         }
         return 0;
@@ -231,12 +231,12 @@ namespace Preview::Http2
      */
     [[nodiscard]] inline auto LookupStaticName(std::string_view Name) -> std::size_t
     {
-        const auto &Table = static_table();
-        for (std::size_t i = 0; i < Table.size(); ++i)
+        const auto &Table = StaticTable();
+        for (std::size_t I = 0; I < Table.size(); ++I)
         {
-            if (Table[i].first == Name)
+            if (Table[I].first == Name)
             {
-                return i + 1;
+                return I + 1;
             }
         }
         return 0;
@@ -258,9 +258,9 @@ namespace Preview::Http2
         [[nodiscard]] auto Encode(const HeaderList &headers) -> std::vector<std::byte>
         {
             std::vector<std::byte> out;
-            for (const auto &h : headers)
+            for (const auto &H : headers)
             {
-                EncodeHeader(h.Name, h.value, out);
+                EncodeHeader(H.Name, H.value, out);
             }
             return out;
         }
@@ -305,82 +305,85 @@ namespace Preview::Http2
         [[nodiscard]] auto Decode(std::span<const std::byte> Data) -> std::optional<HeaderList>
         {
             HeaderList headers;
-            std::size_t offset = 0;
-            while (offset < Data.size())
+            std::size_t Offset = 0;
+            while (Offset < Data.size())
             {
-                const auto b = std::to_integer<std::uint8_t>(Data[offset]);
-                if ((b & 0x80) != 0)
+                const auto B = std::to_integer<std::uint8_t>(Data[Offset]);
+                if ((B & 0x80) != 0)
                 {
                     // 索引头字段（§6.1）
-                    const auto idx = DecodeInt(Data, 7, offset);
-                    auto h = LookupIndex(idx);
-                    if (!h)
+                    const auto Idx = DecodeInt(Data, 7, Offset);
+                    auto H = LookupIndex(Idx);
+                    if (!H)
                     {
                         return std::nullopt;
                     }
-                    headers.push_back(*h);
+                    headers.push_back(*H);
                 }
-                else if ((b & 0x40) != 0)
+                else if ((B & 0x40) != 0)
                 {
                     // 增量索引字面量头字段（§6.2.1）
-                    const auto idx = DecodeInt(Data, 6, offset);
+                    const auto Idx = DecodeInt(Data, 6, Offset);
                     std::string Name;
-                    if (idx != 0)
+                    if (Idx != 0)
                     {
                         // Name 引用索引（静态/动态表）
-                        auto h = LookupIndex(idx);
-                        if (!h)
+                        auto H = LookupIndex(Idx);
+                        if (!H)
                         {
                             return std::nullopt;
                         }
-                        Name = h->Name;
+                        Name = H->Name;
                     }
                     else
                     {
                         // Name 字面量
-                        auto NameOpt = DecodeString(Data, offset);
+                        auto NameOpt = DecodeString(Data, Offset);
                         if (!NameOpt)
                         {
                             return std::nullopt;
                         }
                         Name = std::move(*NameOpt);
                     }
-                    auto ValueOpt = DecodeString(Data, offset);
+                    auto ValueOpt = DecodeString(Data, Offset);
                     if (!ValueOpt)
                     {
                         return std::nullopt;
                     }
-                    headers.push_back({std::move(Name), std::move(*ValueOpt)});
+                    Header H{std::move(Name), std::move(*ValueOpt)};
+                    InsertDynamic(H);
+                    headers.push_back(std::move(H));
                 }
-                else if ((b & 0x20) != 0)
+                else if ((B & 0x20) != 0)
                 {
-                    // 动态表大小更新（§6.3）：跳过
-                    (void)DecodeInt(Data, 5, offset);
+                    // 动态表大小更新（§6.3）：按新上限驱逐超限条目
+                    const auto NewCap = DecodeInt(Data, 5, Offset);
+                    EvictDynamic(NewCap);
                 }
-                else if ((b & 0x10) != 0)
+                else if ((B & 0x10) != 0)
                 {
                     // 永不索引字面量（§6.2.3）：仅解析
-                    const auto idx = DecodeInt(Data, 4, offset);
+                    const auto Idx = DecodeInt(Data, 4, Offset);
                     std::string Name;
-                    if (idx != 0)
+                    if (Idx != 0)
                     {
-                        auto h = LookupIndex(idx);
-                        if (!h)
+                        auto H = LookupIndex(Idx);
+                        if (!H)
                         {
                             return std::nullopt;
                         }
-                        Name = h->Name;
+                        Name = H->Name;
                     }
                     else
                     {
-                        auto NameOpt = DecodeString(Data, offset);
+                        auto NameOpt = DecodeString(Data, Offset);
                         if (!NameOpt)
                         {
                             return std::nullopt;
                         }
                         Name = std::move(*NameOpt);
                     }
-                    auto ValueOpt = DecodeString(Data, offset);
+                    auto ValueOpt = DecodeString(Data, Offset);
                     if (!ValueOpt)
                     {
                         return std::nullopt;
@@ -390,27 +393,27 @@ namespace Preview::Http2
                 else
                 {
                     // 无索引字面量（§6.2.2）
-                    const auto idx = DecodeInt(Data, 4, offset);
+                    const auto Idx = DecodeInt(Data, 4, Offset);
                     std::string Name;
-                    if (idx != 0)
+                    if (Idx != 0)
                     {
-                        auto h = LookupIndex(idx);
-                        if (!h)
+                        auto H = LookupIndex(Idx);
+                        if (!H)
                         {
                             return std::nullopt;
                         }
-                        Name = h->Name;
+                        Name = H->Name;
                     }
                     else
                     {
-                        auto NameOpt = DecodeString(Data, offset);
+                        auto NameOpt = DecodeString(Data, Offset);
                         if (!NameOpt)
                         {
                             return std::nullopt;
                         }
                         Name = std::move(*NameOpt);
                     }
-                    auto ValueOpt = DecodeString(Data, offset);
+                    auto ValueOpt = DecodeString(Data, Offset);
                     if (!ValueOpt)
                     {
                         return std::nullopt;
@@ -422,25 +425,76 @@ namespace Preview::Http2
         }
 
     private:
-        /// 动态表（容量上限 4096，简单 FIFO）
-        std::vector<Header> dynamic_;
+        /// 动态表容量上限（RFC 7541 §4.2 默认 4096 字节）
+        static constexpr std::size_t DynCapacity = 4096;
+        /// HPACK 条目开销（RFC 7541 §4.1：name + value + 32）
+        static constexpr std::size_t EntryOverhead = 32;
+
+        /// 动态表（Dynamic_[0] = 最新条目 = 索引 62，尾部为最旧）
+        std::vector<Header> Dynamic_;
+        /// 动态表当前字节数（含每条目 32 开销）
+        std::size_t DynUsed_{0};
+
+        /// 计算一个头的动态表占用
+        [[nodiscard]] static auto EntrySizeOf(const Header &H) -> std::size_t
+        {
+            return H.Name.size() + H.value.size() + EntryOverhead;
+        }
+
+        /**
+         * @brief 插入动态表（§6.2.1 增量索引）：最新条目置于头部，
+         *        插入前从尾部（最旧）驱逐直至不超容量；单条超容量则清空
+         */
+        void InsertDynamic(const Header &H)
+        {
+            const auto Sz = EntrySizeOf(H);
+            if (Sz > DynCapacity)
+            {
+                Dynamic_.clear();
+                DynUsed_ = 0;
+                return;
+            }
+            while (!Dynamic_.empty() && DynUsed_ + Sz > DynCapacity)
+            {
+                DynUsed_ -= EntrySizeOf(Dynamic_.back());
+                Dynamic_.pop_back();
+            }
+            Dynamic_.insert(Dynamic_.begin(), H);
+            DynUsed_ += Sz;
+        }
+
+        /**
+         * @brief 按新容量上限驱逐最旧条目（§6.3 大小更新指令）
+         */
+        void EvictDynamic(std::size_t NewCap)
+        {
+            if (NewCap >= DynCapacity)
+            {
+                return;
+            }
+            while (!Dynamic_.empty() && DynUsed_ > NewCap)
+            {
+                DynUsed_ -= EntrySizeOf(Dynamic_.back());
+                Dynamic_.pop_back();
+            }
+        }
 
         /**
          * @brief 按索引查表（静态 1-61 + 动态 62+）
          * @param idx 索引
          * @return 头；越界返回 std::nullopt
          */
-        [[nodiscard]] auto LookupIndex(std::size_t idx) -> std::optional<Header>
+        [[nodiscard]] auto LookupIndex(std::size_t Idx) -> std::optional<Header>
         {
-            const auto &Table = static_table();
-            if (idx >= 1 && idx <= Table.size())
+            const auto &Table = StaticTable();
+            if (Idx >= 1 && Idx <= Table.size())
             {
-                return Header{std::string(Table[idx - 1].first), std::string(Table[idx - 1].second)};
+                return Header{std::string(Table[Idx - 1].first), std::string(Table[Idx - 1].second)};
             }
-            const auto DynIdx = idx - Table.size() - 1;
-            if (DynIdx < dynamic_.size())
+            const auto DynIdx = Idx - Table.size() - 1;
+            if (DynIdx < Dynamic_.size())
             {
-                return dynamic_[DynIdx];
+                return Dynamic_[DynIdx];
             }
             return std::nullopt;
         }

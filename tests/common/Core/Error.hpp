@@ -25,43 +25,43 @@ namespace Preview
     enum class Error
     {
         /// 无错误
-        none = 0,
+        None = 0,
         /// 缓冲区不足，需要更多数据（增量解析）
-        need_more,
+        NeedMore,
         /// 数据不足但流已关闭（对端提前断开）
-        unexpected_eof,
+        UnexpectedEof,
         /// 数据长度非法（超长 / 超短）
-        bad_length,
+        BadLength,
         /// 协议魔数 / 版本不匹配
-        bad_magic,
+        BadMagic,
         /// 认证失败（口令 / UUID / 握手校验）
-        bad_auth,
+        BadAuth,
         /// 认证失败（BeastTest 兼容别名）
-        auth_failed,
+        AuthFailed,
         /// 版本不匹配（BeastTest 兼容别名）
-        version_mismatch,
+        VersionMismatch,
         /// 不支持的特性（BeastTest 兼容别名）
-        not_supported,
+        NotSupported,
         /// 消息语义非法（枚举值越界 / 标志位冲突）
-        bad_message,
+        BadMessage,
         /// 目标地址非法（地址族 / 解析失败）
-        bad_address,
+        BadAddress,
         /// 流未打开即执行读写
-        not_open,
+        NotOpen,
         /// 操作被取消（Cancel() / 对端关闭）
-        canceled,
+        Canceled,
         /// 读写超时
-        timeout,
+        Timeout,
         /// 对端已关闭写入侧（broken pipe）
-        broken_pipe,
+        BrokenPipe,
         /// 协议内部状态机错误
-        protocol_error,
+        ProtocolError,
         /// 密钥派生失败（KDF 参数非法）
-        kdf_error,
+        KdfError,
         /// 不支持的特性（加密套件 / 命令类型）
-        unsupported,
+        Unsupported,
         /// I/O 错误（底层传输失败）
-        io_error,
+        IoError,
     };
 
     namespace detail
@@ -79,25 +79,25 @@ namespace Preview
             {
                 switch (static_cast<Error>(ev))
                 {
-                case Error::none: return "no Error";
-                case Error::need_more: return "need more Data";
-                case Error::unexpected_eof: return "unexpected end of Stream";
-                case Error::bad_length: return "bad Message length";
-                case Error::bad_magic: return "bad magic or version";
-                case Error::bad_auth: return "authentication Failed";
-                case Error::auth_failed: return "authentication Failed";
-                case Error::version_mismatch: return "version mismatch";
-                case Error::not_supported: return "not supported";
-                case Error::bad_message: return "malformed Message";
-                case Error::bad_address: return "invalid Target Address";
-                case Error::not_open: return "Stream not Open";
-                case Error::canceled: return "operation canceled";
-                case Error::timeout: return "operation timed out";
-                case Error::broken_pipe: return "broken pipe";
-                case Error::protocol_error: return "Protocol State Error";
-                case Error::kdf_error: return "key derivation Failed";
-                case Error::unsupported: return "unsupported feature";
-                case Error::io_error: return "io Error";
+                case Error::None: return "no Error";
+                case Error::NeedMore: return "need more Data";
+                case Error::UnexpectedEof: return "unexpected end of Stream";
+                case Error::BadLength: return "bad Message length";
+                case Error::BadMagic: return "bad magic or version";
+                case Error::BadAuth: return "authentication Failed";
+                case Error::AuthFailed: return "authentication Failed";
+                case Error::VersionMismatch: return "version mismatch";
+                case Error::NotSupported: return "not supported";
+                case Error::BadMessage: return "malformed Message";
+                case Error::BadAddress: return "invalid Target Address";
+                case Error::NotOpen: return "Stream not Open";
+                case Error::Canceled: return "operation canceled";
+                case Error::Timeout: return "operation timed out";
+                case Error::BrokenPipe: return "broken pipe";
+                case Error::ProtocolError: return "Protocol State Error";
+                case Error::KdfError: return "key derivation Failed";
+                case Error::Unsupported: return "unsupported feature";
+                case Error::IoError: return "io Error";
                 }
                 return "unknown Protocol Error";
             }

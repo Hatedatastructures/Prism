@@ -1,5 +1,5 @@
 /**
- * @file pool.hpp
+ * @file Pool.hpp
  * @brief 内存池系统定义
  * @details 提供全局和线程局部的内存池管理，以及基于
  * 内存池的对象分配基类和帧分配器。遵循热路径无分配、
@@ -25,7 +25,7 @@ namespace Preview::Memory
     struct Policy
     {
         // 每个 Chunk 包含的最大块数，降低此值可减少内存峰值
-        static constexpr std::size_t max_blocks = 256;
+        static constexpr std::size_t MaxBlocks = 256;
 
         // 最大池化阈值，16KB 足以覆盖 HTTP Header 等典型对象
         static constexpr std::size_t MaxSize = 16384;
@@ -55,7 +55,7 @@ namespace Preview::Memory
             {
                 std::pmr::pool_options opts;
                 opts.largest_required_pool_block = Policy::MaxSize;
-                opts.max_blocks_per_chunk = Policy::max_blocks;
+                opts.max_blocks_per_chunk = Policy::MaxBlocks;
 
                 // new 出来的资源随进程销毁，避免静态析构顺序问题
                 return new SynchronizedPool(opts, std::pmr::new_delete_resource());
@@ -78,7 +78,7 @@ namespace Preview::Memory
             {
                 std::pmr::pool_options opts;
                 opts.largest_required_pool_block = Policy::MaxSize;
-                opts.max_blocks_per_chunk = Policy::max_blocks;
+                opts.max_blocks_per_chunk = Policy::MaxBlocks;
 
                 return new UnsynchronizedPool(opts, std::pmr::new_delete_resource());
             }();
@@ -117,22 +117,22 @@ namespace Preview::Memory
      */
     enum class PoolType : std::uint8_t
     {
-        global, ///< 全局线程安全池，适用于跨线程传递对象
-        local   ///< 线程局部无锁池，适用于单线程热路径对象
+        Global, ///< 全局线程安全池，适用于跨线程传递对象
+        Local   ///< 线程局部无锁池，适用于单线程热路径对象
     }; // enum class PoolType
 
     /**
      * @class PooledObject
      * @brief 对象池基类模板
      * @tparam T 子类类型，使用 CRTP 惯用法
-     * @tparam Type 池类型，默认 local（热路径优化）
+     * @tparam Type 池类型，默认 Local（热路径优化）
      * @details 通过重载 operator new/delete 使继承类
      * 自动使用内存池分配。小对象使用指定池，
      * 大对象直通系统堆。
      * @note 默认改用 LocalPool 以消除多线程竞争，
-     * 若对象需跨线程传递请显式指定 PoolType::global
+     * 若对象需跨线程传递请显式指定 PoolType::Global
      */
-    template <typename T, PoolType Type = PoolType::local>
+    template <typename T, PoolType Type = PoolType::Local>
     class PooledObject
     {
     public:
@@ -143,7 +143,7 @@ namespace Preview::Memory
         [[nodiscard]] static auto TargetPool()
              -> ResourcePointer
         {
-            if (Type == PoolType::global)
+            if (Type == PoolType::Global)
             {
                 return System::GlobalPool();
             }

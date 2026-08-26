@@ -69,11 +69,11 @@ TEST(GoldenVector, Socks5GreetingParse)
     std::size_t consumed = 0;
     const auto err = Socks5::ParseGreeting(
         std::span<const std::uint8_t>(socks5_greeting), g, consumed);
-    ASSERT_EQ(err, Error::none);
+    ASSERT_EQ(err, Error::None);
     EXPECT_EQ(g.Ver, 5);
     EXPECT_EQ(consumed, socks5_greeting.size());
-    ASSERT_EQ(g.methods.size(), 1u);
-    EXPECT_EQ(g.methods[0], static_cast<std::uint8_t>(Socks5::AuthMethod::no_auth));
+    ASSERT_EQ(g.Methods.size(), 1u);
+    EXPECT_EQ(g.Methods[0], static_cast<std::uint8_t>(Socks5::AuthMethod::NoAuth));
 }
 
 TEST(GoldenVector, Socks5ConnectReqParse)
@@ -82,7 +82,7 @@ TEST(GoldenVector, Socks5ConnectReqParse)
     Socks5::Request req;
     const auto err = Socks5::ParseRequest(
         std::span<const std::uint8_t>(socks5_connect_req), req, consumed);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(req.Cmd, Socks5::Command::Connect);
     EXPECT_EQ(req.Target.Type, Socks5::AddressType::Ipv4);
     EXPECT_EQ(req.Target.Host, "127.0.0.1");
@@ -95,7 +95,7 @@ TEST(GoldenVector, Socks5ConnectDomainParse)
     Socks5::Request req;
     const auto err = Socks5::ParseRequest(
         std::span<const std::uint8_t>(socks5_connect_domain), req, consumed);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(req.Cmd, Socks5::Command::Connect);
     EXPECT_EQ(req.Target.Type, Socks5::AddressType::Domain);
     EXPECT_EQ(req.Target.Host, "example.com");
@@ -106,7 +106,7 @@ TEST(GoldenVector, Socks5SuccessReplyBuild)
 {
     Socks5::Reply rep;
     rep.Ver = Socks5::Version;
-    rep.Code = Socks5::ReplyCode::success;
+    rep.Code = Socks5::ReplyCode::Success;
     rep.Bind.Type = Socks5::AddressType::Ipv4;
     rep.Bind.Host = "0.0.0.0";
     rep.Bind.Port = 0;
@@ -130,7 +130,7 @@ TEST(GoldenVector, Socks5ConnectRoundtrip)
     Socks5::Request Parsed;
     const auto err = Socks5::ParseRequest(
         std::span<const std::uint8_t>(wire), Parsed, consumed);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(Parsed.Cmd, Socks5::Command::Connect);
     EXPECT_EQ(Parsed.Target.Host, "example.com");
     EXPECT_EQ(Parsed.Target.Port, 443u);
@@ -151,7 +151,7 @@ TEST(GoldenVector, VlessTcpRequestParse)
     Vless::RequestHeader hdr;
     const auto err = Vless::ParseRequest(
         std::span<const std::uint8_t>(vless_tcp_request), hdr, consumed);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(hdr.Version, 0x00);
     EXPECT_EQ(hdr.Cmd, Vless::Command::Tcp);
     EXPECT_EQ(hdr.Target.Host, "example.com");
@@ -176,7 +176,7 @@ TEST(GoldenVector, VlessTcpRoundtrip)
     Vless::RequestHeader Parsed;
     const auto err = Vless::ParseRequest(
         std::span<const std::uint8_t>(wire), Parsed, consumed);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(Parsed.Target.Host, "example.com");
     EXPECT_EQ(Parsed.Target.Port, 443u);
     EXPECT_EQ(Parsed.Uuid, uuid);
@@ -196,7 +196,7 @@ TEST(GoldenVector, Socks5UdpDatagramRoundtrip)
     std::span<const std::uint8_t> parsed_payload;
     const auto err = Socks5::ParseUdpDatagram(
         std::span<const std::uint8_t>(wire), parsed_target, parsed_payload);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(parsed_target.Host, "8.8.8.8");
     EXPECT_EQ(parsed_target.Port, 53u);
     ASSERT_EQ(parsed_payload.size(), payload.size());
@@ -217,7 +217,7 @@ TEST(GoldenVector, VlessUdpPacketRoundtrip)
     std::span<const std::uint8_t> parsed_payload;
     const auto err = Vless::ParseUdpPkt(
         std::span<const std::uint8_t>(wire), parsed_target, parsed_payload);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(parsed_target.Host, "example.com");
     EXPECT_EQ(parsed_target.Port, 53u);
     ASSERT_EQ(parsed_payload.size(), payload.size());
@@ -233,7 +233,7 @@ TEST(GoldenVector, TrojanConnectRoundtrip)
     Trojan::RequestHeader Parsed;
     std::size_t consumed = 0;
     const auto err = Trojan::ParseRequest(std::span<const std::uint8_t>(wire), Parsed, consumed);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(Parsed.Cmd, Trojan::Command::Connect);
     EXPECT_EQ(Parsed.Target.Host, "example.com");
     EXPECT_EQ(Parsed.Target.Port, 443u);
@@ -248,7 +248,7 @@ TEST(GoldenVector, TrojanUdpPacketRoundtrip)
     Trojan::Address parsed_target;
     std::span<const std::uint8_t> parsed_payload;
     const auto err = Trojan::ParseUdpPkt(std::span<const std::uint8_t>(wire), parsed_target, parsed_payload);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(parsed_target.Host, "8.8.8.8");
     EXPECT_EQ(parsed_target.Port, 53u);
     ASSERT_EQ(parsed_payload.size(), payload.size());
@@ -278,7 +278,7 @@ TEST(GoldenVector, VmessRequestHeaderRoundtrip)
     Vmess::RequestHeader Parsed;
     Vmess::RequestMetaOut meta;
     const auto err = Vmess::ParseRequestHeader(std::span<const std::uint8_t>(wire), Parsed, meta);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(Parsed.Target.Host, "example.com");
     EXPECT_EQ(Parsed.Target.Port, 443u);
     EXPECT_EQ(Parsed.Cmd, static_cast<std::uint8_t>(Vmess::Command::Tcp));
@@ -293,13 +293,13 @@ TEST(GoldenVector, VmessChunkRoundtrip)
     Vmess::ChunkEncryptor enc{std::span<const std::uint8_t,16>(key), std::span<const std::uint8_t,12>(Nonce)};
     Vmess::ChunkDecryptor dec{std::span<const std::uint8_t,16>(key), std::span<const std::uint8_t,12>(Nonce)};
     const std::vector<std::uint8_t> plain = {0x01,0x02,0x03,0x04};
-    std::vector<std::uint8_t> enc_buf(plain.size() + Vmess::ChunkEncryptor::overhead);
+    std::vector<std::uint8_t> enc_buf(plain.size() + Vmess::ChunkEncryptor::Overhead);
     const auto n = enc.Seal(plain, enc_buf);
     ASSERT_GT(n, 0u);
     std::vector<std::uint8_t> dec_buf(n);
     std::size_t consumed=0;
     const auto err = dec.Open(std::span<const std::uint8_t>(enc_buf.data(), n), dec_buf, consumed);
-    EXPECT_EQ(err, Error::none);
+    EXPECT_EQ(err, Error::None);
     EXPECT_EQ(consumed, n);
     // Open() 写入定长 span（不 resize），比对解密出的明文内容
     ASSERT_GE(dec_buf.size(), plain.size());
@@ -312,7 +312,7 @@ TEST(GoldenVector, SS2022FixedHeaderRoundtrip)
         Shadowsocks2022::HeaderTypeClient, 1700000000ULL, 32u);
     ASSERT_EQ(wire.size(), 11u);
     Shadowsocks2022::FixedHeader h{};
-    EXPECT_EQ(Shadowsocks2022::ParseFixedHeader(wire, h), Error::none);
+    EXPECT_EQ(Shadowsocks2022::ParseFixedHeader(wire, h), Error::None);
     EXPECT_EQ(h.Type, Shadowsocks2022::HeaderTypeClient);
     EXPECT_EQ(h.TimeSec, 1700000000ULL);
     EXPECT_EQ(h.VarLen, 32u);
@@ -326,7 +326,7 @@ TEST(GoldenVector, SS2022AddressRoundtrip)
     ASSERT_FALSE(wire.empty());
     Shadowsocks2022::Address Parsed;
     std::size_t off = 0;
-    EXPECT_EQ(Shadowsocks2022::ParseAddress(wire, Parsed, off), Error::none);
+    EXPECT_EQ(Shadowsocks2022::ParseAddress(wire, Parsed, off), Error::None);
     EXPECT_EQ(Parsed.Type, Shadowsocks2022::AddressType::Domain);
     EXPECT_EQ(Parsed.Host, "example.com");
     EXPECT_EQ(Parsed.Port, 443u);
@@ -350,7 +350,7 @@ TEST(GoldenVector, SS2022UdpPacketRoundtrip)
     Shadowsocks2022::Address parsed_dst;
     std::vector<std::uint8_t> Parsed;
     EXPECT_EQ(Shadowsocks2022::ParseUdpPacket({key, packet, &parsed_dst, &Parsed}),
-              Error::none);
+              Error::None);
     EXPECT_EQ(parsed_dst.Type, Shadowsocks2022::AddressType::Ipv4);
     EXPECT_EQ(parsed_dst.Host, "8.8.8.8");
     EXPECT_EQ(parsed_dst.Port, 53u);

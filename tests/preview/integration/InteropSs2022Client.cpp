@@ -20,7 +20,7 @@
 
 #include <common/Protocols/Shadowsocks2022/Codec.hpp>
 
-namespace ParseFixedHeader = Preview::Shadowsocks2022;
+namespace ss = Preview::Shadowsocks2022;
 
 namespace net = boost::asio;
 
@@ -60,18 +60,18 @@ int main(const int argc, char *argv[])
         {
             b = static_cast<std::uint8_t>(rd() & 0xFF);
         }
-        const auto key = ParseFixedHeader::SessionKey(psk, salt, 16);
+        const auto key = ss::SessionKey(psk, salt, 16);
 
-        ParseFixedHeader::Address dst;
-        dst.Type = ParseFixedHeader::AddressType::Ipv4;
+        ss::Address dst;
+        dst.Type = ss::AddressType::Ipv4;
         dst.Host = "127.0.0.1";
         dst.Port = static_cast<std::uint16_t>(std::stoi(echo_addr.substr(echo_addr.find_last_of(':') + 1)));
         const auto now = static_cast<std::uint64_t>(std::time(nullptr));
-        const auto var = ParseFixedHeader::BuildVarHeader(dst, 1);
+        const auto var = ss::BuildVarHeader(dst, 1);
         const auto fixed =
-            ParseFixedHeader::BuildFixedHeader(ParseFixedHeader::header_type_client, now, static_cast<std::uint16_t>(var.size()));
+            ss::ParseFixedHeader(ss::HeaderTypeClient, now, static_cast<std::uint16_t>(var.size()));
 
-        ParseFixedHeader::ChunkCodec Codec(key);
+        ss::ChunkCodec Codec(key);
         const auto fixed_enc = Codec.SealRaw(fixed);
         const auto var_enc = Codec.SealRaw(var);
 
@@ -84,7 +84,7 @@ int main(const int argc, char *argv[])
 
         // 加密 echo 载荷并发送（chunk，Nonce 从 2 起）
         const std::string payload = "hello interop ss2022";
-        ParseFixedHeader::ChunkCodec data_codec(key, 2);
+        ss::ChunkCodec data_codec(key, 2);
         const auto enc = data_codec.Seal(std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
         net::write(sock, net::buffer(enc));
@@ -93,11 +93,11 @@ int main(const int argc, char *argv[])
         // v0.2.12 服务端 writeResponse = [salt][固定头][payloadLen>0: payload 块]
         std::array<std::uint8_t, 16 + 43> resp_head{};
         net::read(sock, net::buffer(resp_head), net::transfer_exactly(resp_head.size()));
-        const auto resp_key = ParseFixedHeader::SessionKey(psk, std::span<const std::uint8_t>(resp_head).first(16), 16);
-        ParseFixedHeader::ChunkCodec resp_codec(resp_key);
+        const auto resp_key = ss::SessionKey(psk, std::span<const std::uint8_t>(resp_head).first(16), 16);
+        ss::ChunkCodec RespCodec(resp_key);
         const auto fixed_plain =
-            resp_codec.OpenRaw(std::span<const std::uint8_t>(resp_head).subspan(16, 43));
-        if (fixed_plain.size() != ParseFixedHeader::resp_fixed_hdr_plain || fixed_plain[0] != ParseFixedHeader::header_type_server)
+            RespCodec.OpenRaw(std::span<const std::uint8_t>(resp_head).subspan(16, 43));
+        if (fixed_plain.size() != ss::RespFixedHdrPlain || fixed_plain[0] != ss::HeaderTypeServer)
         {
             std::fprintf(stderr, "FAIL: Server response fixed Header\n");
             return 1;
@@ -111,7 +111,7 @@ int main(const int argc, char *argv[])
         }
         std::vector<std::uint8_t> payload_enc(PayloadLen + 16);
         net::read(sock, net::buffer(payload_enc), net::transfer_exactly(payload_enc.size()));
-        const auto plain = resp_codec.OpenRaw(payload_enc);
+        const auto plain = RespCodec.OpenRaw(payload_enc);
         if (plain.empty())
         {
             std::fprintf(stderr, "FAIL: Decrypt Server response payload\n");

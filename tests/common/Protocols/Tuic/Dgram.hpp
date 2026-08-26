@@ -52,7 +52,7 @@ namespace Preview::Tuic
          * @brief 构造函数（工厂调用）
          * @param upstream 底层数据报传输（已 Connect/Bind，所有权移交）
          */
-        explicit Dgram(SharedTransmission upstream) : next_layer_(std::move(upstream))
+        explicit Dgram(SharedTransmission upstream) : NextLayer_(std::move(upstream))
         {
         }
 
@@ -61,7 +61,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
-            return next_layer_->Executor();
+            return NextLayer_->Executor();
         }
 
         /**
@@ -69,7 +69,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto TransportType() const noexcept -> Type override
         {
-            return Type::udp;
+            return Type::Udp;
         }
 
         /**
@@ -92,15 +92,15 @@ namespace Preview::Tuic
             while (Done < TxWire_.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncWriteSome(
+                const auto N = co_await NextLayer_->async_write_some(
                     AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done), ec);
-                if (ec)
+                if (ec || N == 0)
                 {
-                    co_return Error::io_error;
+                    co_return Error::IoError;
                 }
-                Done += n;
+                Done += N;
             }
-            co_return Error::none;
+            co_return Error::None;
         }
 
         /**
@@ -116,60 +116,65 @@ namespace Preview::Tuic
             std::array<std::uint8_t, 10> head{};
             if (co_await ReadExact(std::span<std::uint8_t>(head)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             if (head[0] != ProtocolVersion || head[1] != CmdPacket)
             {
-                co_return Error::bad_message;
+                co_return Error::BadMessage;
             }
 
-            // 2. ATYP + ADDR + PORT
-            src.Type = static_cast<AddressType>(head[9]);
-            auto err = co_await ReadAddressBody(src);
-            if (err != Error::none)
+            // 2. ATYP + ADDR + PORT（ATYP 独立于 10 字节头之后）
+            std::array<std::uint8_t, 1> atyp{};
+            if (co_await ReadExact(std::span<std::uint8_t>(atyp)))
             {
-                co_return err;
+                co_return Error::UnexpectedEof;
+            }
+            src.Type = static_cast<AddressType>(atyp[0]);
+            auto Err = co_await ReadAddressBody(src);
+            if (Err != Error::None)
+            {
+                co_return Err;
             }
             std::array<std::uint8_t, 2> port{};
             if (co_await ReadExact(std::span<std::uint8_t>(port)))
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
             src.Port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
 
             // 3. 剩余为 payload（单次读取，帧边界约定）
             std::array<std::uint8_t, 512> chunk{};
             std::error_code ec;
-            const auto n =
-                co_await next_layer_->AsyncReadSome(AsBytes(std::span<std::uint8_t>(chunk)), ec);
+            const auto N =
+                co_await NextLayer_->async_read_some(AsBytes(std::span<std::uint8_t>(chunk)), ec);
             if (ec)
             {
-                co_return Error::io_error;
+                co_return Error::IoError;
             }
-            if (n == 0)
+            if (N == 0)
             {
-                co_return Error::unexpected_eof;
+                co_return Error::UnexpectedEof;
             }
-            payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(n));
-            co_return Error::none;
+            payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
+            co_return Error::None;
         }
 
         /**
          * @brief 透传读取（底层数据报原样）
          */
-        [[nodiscard]] auto AsyncReadSome(std::span<std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncReadSome(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
 
         /**
          * @brief 透传写入（底层数据报原样）
          */
-        [[nodiscard]] auto AsyncWriteSome(std::span<const std::byte> Buffer, std::error_code &ec)
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
-            co_return co_await next_layer_->AsyncWriteSome(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
 
         /**
@@ -177,7 +182,7 @@ namespace Preview::Tuic
          */
         void Close() override
         {
-            next_layer_->Close();
+            NextLayer_->Close();
         }
 
         /**
@@ -185,7 +190,7 @@ namespace Preview::Tuic
          */
         void Cancel() override
         {
-            next_layer_->Cancel();
+            NextLayer_->Cancel();
         }
 
         /**
@@ -193,7 +198,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -201,7 +206,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
-            return next_layer_.get();
+            return NextLayer_.get();
         }
 
         /**
@@ -209,7 +214,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
-            return std::move(next_layer_);
+            return std::move(NextLayer_);
         }
 
         /**
@@ -217,7 +222,7 @@ namespace Preview::Tuic
          */
         [[nodiscard]] auto Stream() const noexcept -> SharedTransmission
         {
-            return next_layer_;
+            return NextLayer_;
         }
 
     private:
@@ -232,12 +237,12 @@ namespace Preview::Tuic
             while (Done < dst.size())
             {
                 std::error_code ec;
-                const auto n = co_await next_layer_->AsyncReadSome(AsBytes(dst.subspan(Done)), ec);
-                if (ec || n == 0)
+                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
+                if (ec || N == 0)
                 {
                     co_return true;
                 }
-                Done += n;
+                Done += N;
             }
             co_return false;
         }
@@ -254,11 +259,11 @@ namespace Preview::Tuic
                 addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return ReadExact(dst); });
         }
 
-        SharedTransmission next_layer_; ///< 底层数据报传输（独占所有权）
+        SharedTransmission NextLayer_; ///< 底层数据报传输（独占所有权）
         std::uint32_t AssocId_{0};      ///< UDP 关联 ID
         std::uint32_t PacketId_{0};     ///< UDP 包 ID（自增）
-        Memory mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
-        typename std::template Buffer<std::uint8_t> TxWire_{mem_.Arena()}; ///< 发送缓冲（Arena 复用，热路径零分配）
+        Memory Mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
+        typename Memory::template Buffer<std::uint8_t> TxWire_{Mem_.Arena()}; ///< 发送缓冲（Arena 复用，热路径零分配）
     };
 
     /// 包连接共享指针
