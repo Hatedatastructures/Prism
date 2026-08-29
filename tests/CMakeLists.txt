@@ -28,18 +28,24 @@ function(prism_add_test source_file)
     endif()
     # gtest_discover_tests 在构建后扫描可执行文件注册 GTest 用例，
     # 使用 PRE_TEST 模式延迟发现，避免 configure 阶段运行未构建的二进制
-    # ucrt64 编译的测试需要 ucrt64/bin 在 PATH 中才能加载 DLL。
-    # 不用 CROSSCOMPILING_EMULATOR 的 -E env（其 PATH 覆盖且无法包含
-    # System32，导致 socket 网络测试偶发访问冲突），改用 ENVIRONMENT
-    # 属性直接注入完整 PATH。
+    # MinGW 动态链接的测试需要运行时 DLL（libstdc++-6 等）在 PATH 中。
+    # 不得硬编码开发者本机 MSYS2 路径（CI 的 MinGW 位于 C:/mingw64/bin，
+    # 硬编码会使测试进程 PATH 无法解析 DLL → 0xc0000135），
+    # 从编译器位置推导运行时 DLL 目录
     if(MINGW)
-        set_target_properties(${test_name} PROPERTIES
-            CROSSCOMPILING_EMULATOR "")
+        set_target_properties(${test_name} PROPERTIES CROSSCOMPILING_EMULATOR "")
+        get_filename_component(_test_runtime_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+        gtest_discover_tests(${test_name}
+            PROPERTIES TIMEOUT 30
+                       ENVIRONMENT "PATH=${_test_runtime_bin};C:/Windows/System32;C:/Windows"
+            DISCOVERY_MODE PRE_TEST)
+    else()
+        # 非 MinGW：继承执行环境 PATH（注入 Windows 风格 PATH 会毁掉
+        # Linux 测试进程的共享库解析）
+        gtest_discover_tests(${test_name}
+            PROPERTIES TIMEOUT 30
+            DISCOVERY_MODE PRE_TEST)
     endif()
-    gtest_discover_tests(${test_name}
-        PROPERTIES TIMEOUT 30
-                   ENVIRONMENT "PATH=C:/msys64/ucrt64/bin;C:/Windows/System32;C:/Windows"
-        DISCOVERY_MODE PRE_TEST)
 endfunction()
 
 add_subdirectory(crypto)

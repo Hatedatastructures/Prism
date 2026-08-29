@@ -90,8 +90,12 @@ target_link_libraries(${PROJECT_NAME}
 )
 
 # boost 1.89 header-only 的 wrapexcept thunk 被 --gc-sections 裁剪，禁用裁剪
+# （--image-base 为 PE/COFF 专属选项，Linux ELF ld 无法识别，仅 WIN32 传入）
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    target_link_options(${PROJECT_NAME} PRIVATE -Wl,--no-gc-sections -Wl,--image-base,0x140000000)
+    target_link_options(${PROJECT_NAME} PRIVATE -Wl,--no-gc-sections)
+    if(WIN32)
+        target_link_options(${PROJECT_NAME} PRIVATE -Wl,--image-base,0x140000000)
+    endif()
 endif()
 
 # Prism 可执行文件不参与覆盖率（GoCompat 需要干净的链接；--coverage 破坏 boost thunk）
