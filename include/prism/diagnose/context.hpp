@@ -87,7 +87,9 @@ namespace psm::diagnose
                           proto, target, hh, mm, ss, static_cast<int>(ms % 1000));
         }
 
-        mutable char cached[80] = {};
+        // 前缀最长约 90 字节（proto/target 为裸 char 缓冲）：80 会截断，
+        // 128 同时消除 glibc fortify 的 -Wformat-truncation 告警刷屏
+        mutable char cached[128] = {};
         mutable std::uint8_t cache_gen = 0;
         mutable std::uint8_t render_gen = 0;
     };

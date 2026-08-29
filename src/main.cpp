@@ -18,6 +18,7 @@ namespace
 }
 
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <exception>
 #include <filesystem>
@@ -287,7 +288,11 @@ int main(int argc, char *argv[])
 
         // 跳过局部变量析构（worker_resources 析构时 Asio channel 竞态）
         std::fflush(stderr);
+#ifdef _WIN32
         ExitProcess(0);
+#else
+        std::_Exit(0); // 与 ExitProcess 语义对齐：立即终止、不执行局部析构
+#endif
     }
     catch (const psm::exception::security &e)
     {
