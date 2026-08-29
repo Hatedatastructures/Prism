@@ -335,20 +335,47 @@ set(ENABLE_BORINGSSL ON CACHE BOOL "" FORCE)
 set(BORINGSSL_INCLUDE_DIR "${CMAKE_BINARY_DIR}/_deps/boringssl-src/include" CACHE PATH "" FORCE)
 set(BORINGSSL_LIBRARIES "${CMAKE_BINARY_DIR}/_deps/boringssl-build/libssl.a;${CMAKE_BINARY_DIR}/_deps/boringssl-build/libcrypto.a" CACHE STRING "" FORCE)
 set(ENABLE_SHARED_LIB OFF CACHE BOOL "" FORCE)
-set(ENABLE_STATIC_LIB ON CACHE BOOL "" FORCE)
+set(ENABLE_STATIC_LIB ON  CACHE BOOL "" FORCE)
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(ENABLE_ASAN OFF CACHE BOOL "" FORCE)
+
+# ngtcp2 在配置期对 BORINGSSL_LIBRARIES 做 check_symbol_exists 编译探针，
+# 而库文件在构建期才产生：全新构建树（CI）上先放置合法的空归档占位，
+# 真实库由 MakeAvailable 之后的 add_dependencies 保证先于 ngtcp2 目标完成
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/_deps/boringssl-build")
+foreach(_bs_lib IN LISTS BORINGSSL_LIBRARIES)
+    if(NOT EXISTS "${_bs_lib}")
+        execute_process(COMMAND ${CMAKE_AR} rcs "${_bs_lib}"
+                        RESULT_VARIABLE _bs_stub_rv OUTPUT_QUIET ERROR_QUIET)
+        if(NOT _bs_stub_rv EQUAL 0)
+            message(FATAL_ERROR "Failed to create BoringSSL stub archive: ${_bs_lib}")
+        endif()
+        message(STATUS "BoringSSL stub archive (pre-configure): ${_bs_lib}")
+    endif()
+endforeach()
+
 FetchContent_Declare(
     ngtcp2
     URL https://github.com/ngtcp2/ngtcp2/releases/download/v1.25.0/ngtcp2-1.25.0.tar.gz
     URL_HASH SHA256=1C0843076528A87B65E9A9D455100941F4CB65D44F96C5DA6AE56DF146043955
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    PATCH_COMMAND ${CMAKE_COMMAND} -P
+        ${CMAKE_CURRENT_SOURCE_DIR}/scripts/patch-ngtcp2.cmake <SOURCE_DIR>
 )
 FetchContent_MakeAvailable(ngtcp2)# ngtcp2 Release 下禁用 assert（避免 Windows 断言弹窗阻塞）
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     target_compile_options(ngtcp2_static PRIVATE -DNDEBUG)
     target_compile_options(ngtcp2_crypto_boringssl_static PRIVATE -DNDEBUG)
 endif()
+
+# ngtcp2 以文件路径引用 BoringSSL（非 CMake 目标依赖），显式保证构建顺序：
+# 真实 libssl.a/libcrypto.a 必须先于任何链接它们的 ngtcp2 目标完成，
+# 否则全新构建树（CI）上会把配置期放置的空占位归档链接进去
+foreach(_ngt_target ngtcp2_static ngtcp2_crypto_boringssl_static)
+    if(TARGET ${_ngt_target})
+        add_dependencies(${_ngt_target} ssl crypto)
+    endif()
+endforeach()
 
 # --- nghttp3 v1.18.0 (HTTP/3 帧层 + QPACK) ---
 # Hysteria2 认证需要完整 HTTP/3 客户端兼容（mihomo 用 quic-go http3 栈：
