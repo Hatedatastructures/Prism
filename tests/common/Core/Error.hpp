@@ -174,4 +174,33 @@ namespace Preview
     {
         return !(e == code);
     }
+
+    // g++-13 的 std::operator==(const expected<_Tp,_Er>&, const _Up&) 约束过松，
+    // 会与上方模板重载共同入围导致歧义（GCC 16 的约束已修复不受影响）。
+    // 非模板精确重载在重载决议中必胜模板，跨编译器确定性地消除歧义。
+    // 当前测试断言使用的值类型均为 std::size_t（Parse*/Decode*/Read* 的已消费字节数）；
+    // 若未来引入其他 T 值，需照此追加对应实例。
+    [[nodiscard]] inline auto operator==(const std::expected<std::size_t, Error>& e,
+                                         Error code) noexcept -> bool
+    {
+        return !e.has_value() && e.error() == code;
+    }
+
+    [[nodiscard]] inline auto operator!=(const std::expected<std::size_t, Error>& e,
+                                         Error code) noexcept -> bool
+    {
+        return !(!e.has_value() && e.error() == code);
+    }
+
+    [[nodiscard]] inline auto operator==(Error code,
+                                         const std::expected<std::size_t, Error>& e) noexcept -> bool
+    {
+        return !e.has_value() && e.error() == code;
+    }
+
+    [[nodiscard]] inline auto operator!=(Error code,
+                                         const std::expected<std::size_t, Error>& e) noexcept -> bool
+    {
+        return !(!e.has_value() && e.error() == code);
+    }
 } // namespace Preview
