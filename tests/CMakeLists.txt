@@ -94,12 +94,30 @@ if(GO_EXECUTABLE AND MINGW)
             VERBATIM)
         list(APPEND _go_test_targets go_test_${_proto})
     endforeach()
-    add_custom_target(go_test_vmess ALL
-        COMMAND ${GO_EXECUTABLE} build -o ${_go_bin_dir}/vmess_client.exe ./vmess_client
-        WORKING_DIRECTORY ${_go_src_dir}
-        COMMENT "Building Go vmess compatibility test"
-        VERBATIM)
-    list(APPEND _go_test_targets go_test_vmess)
+    # vmess_client 依赖 go.mod 中 mihomo 的 replace 指向的本机源码目录；
+    # 该目录不存在（如 CI 干净环境）时跳过注册，避免 ALL 构建失败
+    set(_vmess_available OFF)
+    if(EXISTS ${_go_src_dir}/go.mod)
+        file(READ ${_go_src_dir}/go.mod _vmess_gomod)
+        if(_vmess_gomod MATCHES "replace[ \t]+github.com/metacubex/mihomo[ \t]*=>[ \t]*([^\r\n]+)")
+            set(_vmess_replace_dir "${CMAKE_MATCH_1}")
+            string(STRIP "${_vmess_replace_dir}" _vmess_replace_dir)
+            if(EXISTS "${_vmess_replace_dir}")
+                set(_vmess_available ON)
+            endif()
+        endif()
+    endif()
+
+    if(_vmess_available)
+        add_custom_target(go_test_vmess ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_go_bin_dir}/vmess_client.exe ./vmess_client
+            WORKING_DIRECTORY ${_go_src_dir}
+            COMMENT "Building Go vmess compatibility test"
+            VERBATIM)
+        list(APPEND _go_test_targets go_test_vmess)
+    else()
+        message(STATUS "Go vmess_client skipped: mihomo replace dir not available")
+    endif()
     add_custom_target(go_test_singvmess ALL
         COMMAND ${GO_EXECUTABLE} build -o ${_go_bin_dir}/singvmess.exe ./singvmess
         WORKING_DIRECTORY ${_go_src_dir}
@@ -118,12 +136,14 @@ if(GO_EXECUTABLE AND MINGW)
                     -Config ${_go_prism_cfg})
         set_tests_properties(GoCompat_${_proto} PROPERTIES TIMEOUT 60)
     endforeach()
-    add_test(NAME GoCompat_vmess
-        COMMAND powershell -ExecutionPolicy Bypass -File ${_go_runner}
-                -GoExe ${_go_bin_dir}/vmess_client.exe
-                -PrismExe ${_go_prism_exe}
-                -Config ${_go_prism_cfg})
-    set_tests_properties(GoCompat_vmess PROPERTIES TIMEOUT 60)
+    if(_vmess_available)
+        add_test(NAME GoCompat_vmess
+            COMMAND powershell -ExecutionPolicy Bypass -File ${_go_runner}
+                    -GoExe ${_go_bin_dir}/vmess_client.exe
+                    -PrismExe ${_go_prism_exe}
+                    -Config ${_go_prism_cfg})
+        set_tests_properties(GoCompat_vmess PROPERTIES TIMEOUT 60)
+    endif()
     add_test(NAME GoCompat_singvmess
         COMMAND powershell -ExecutionPolicy Bypass -File ${_go_runner}
                 -GoExe ${_go_bin_dir}/singvmess.exe

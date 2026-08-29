@@ -12,8 +12,13 @@ namespace psm::connect
 
     auto route_table::remove_route(std::string_view host) -> std::size_t
     {
-        const auto erased = reverse_.erase(host);
-        return erased;
+        // 异构 erase（P2077）g++-13 尚未实现：以透明 find 定位后按迭代器删除
+        if (const auto it = reverse_.find(host); it != reverse_.end())
+        {
+            reverse_.erase(it);
+            return 1;
+        }
+        return 0;
     }
 
     auto route_table::set_forward_endpoint(std::string_view host, std::uint16_t port) -> void
