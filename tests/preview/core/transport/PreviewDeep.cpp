@@ -9,7 +9,7 @@
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
-#include "../../src/prism/net/transport/Preview.cpp"
+#include "../../src/prism/net/transport/preview.cpp"
 #include "common/MockTransport.hpp"
 #include <gtest/gtest.h>
 

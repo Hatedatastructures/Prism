@@ -580,14 +580,7 @@ TEST(SmuxCraftDeep2, ActivateStreamValidUdpAddress)
     entry.buffer.push_back(std::byte{0x35});
 
     bool activate_done = false;
-    net::co_spawn(
-        fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            co_await fx.craft_obj->activate_stream(20);
-            activate_done = true;
-        },
-        net::detached);
+    std::exception_ptr ep;
 
     // activate_udp: send(1帧, success) + 可能的 parcel 创建
     net::co_spawn(
@@ -603,8 +596,33 @@ TEST(SmuxCraftDeep2, ActivateStreamValidUdpAddress)
         },
         net::detached);
 
-    fx.poll();
+    // AGENTS.md 强制模式：co_spawn + 完整 ioc.run() 调度。
+    // 原 poll_one 循环不提供调度保障（CI 时序下 activate 协程未跑完即退出）
+    net::co_spawn(
+        fx.ioc(),
+        [&]() -> net::awaitable<void>
+        {
+            co_await fx.craft_obj->activate_stream(20);
+            activate_done = true;
+            fx.ioc().stop();
+        },
+        [&](std::exception_ptr e)
+        {
+            if (e)
+            {
+                ep = e;
+            }
+            activate_done = true;
+            fx.ioc().stop();
+        });
 
+    fx.ioc().run();
+    fx.ioc().restart();
+
+    if (ep)
+    {
+        std::rethrow_exception(ep);
+    }
     EXPECT_TRUE(activate_done) << "activate_stream: UDP address -> completed";
 }
 
