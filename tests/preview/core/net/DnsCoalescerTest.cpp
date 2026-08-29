@@ -140,3 +140,58 @@ TEST(DnsCoalescer, TestActiveWaiterBlocksCleanup)
     c.FlushCleanup();
     EXPECT_EQ(c.Size(), 0u);
 }
+
+TEST(DnsCoalescer, TestConcurrentWaitersSingleFlight)
+{
+    // 多等待者并发挂在同一 flight：leader 完成一次即全部唤醒，
+    // 每位等待者都读到同一结果（single-flight 语义）
+    net::io_context ioc;
+    Coalescer<TestResult> c(ioc.get_executor());
+
+    auto [flight, isNew] = c.FindCreate("burst.com", 1);
+    ASSERT_TRUE(isNew);
+
+    constexpr int WaiterCount = 8;
+    int woke = 0;
+    std::vector<TestResult> seen(WaiterCount);
+
+    auto waiter = [&](const int id) -> net::awaitable<void>
+    {
+        flight->AddWaiter(+1);
+        boost::system::error_code waitEc;
+        co_await flight->Timer().async_wait(
+            net::redirect_error(net::use_awaitable, waitEc));
+        flight->AddWaiter(-1);
+        if (const auto *res = c.GetResult(*flight))
+        {
+            seen[static_cast<std::size_t>(id)] = *res;
+            ++woke;
+        }
+    };
+    for (int i = 0; i < WaiterCount; ++i)
+    {
+        net::co_spawn(ioc, waiter(i), net::detached);
+    }
+
+    // leader 延迟完成后一次性唤醒所有等待者
+    auto leader = [&]() -> net::awaitable<void>
+    {
+        net::steady_timer delay(ioc.get_executor());
+        delay.expires_after(std::chrono::milliseconds(20));
+        co_await delay.async_wait(net::use_awaitable);
+        c.SetResult(flight, TestResult{net::ip::make_address("7.7.7.7")});
+        c.CleanupFlight(flight);
+    };
+    net::co_spawn(ioc, leader, net::detached);
+
+    ioc.run();
+
+    EXPECT_EQ(woke, WaiterCount);
+    for (int i = 1; i < WaiterCount; ++i)
+    {
+        ASSERT_EQ(seen[static_cast<std::size_t>(i)].size(), 1u);
+        EXPECT_EQ(seen[static_cast<std::size_t>(i)][0], seen[0][0]);
+    }
+    EXPECT_EQ(flight->Waiters(), 0u);
+    EXPECT_TRUE(flight->Ready());
+}

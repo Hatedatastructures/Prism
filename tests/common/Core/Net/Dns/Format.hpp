@@ -507,6 +507,10 @@ namespace Preview::Network::Dns
             {
                 for (const auto &r : records)
                 {
+                    if (r.Type == QType::Opt)
+                    {
+                        continue; // OPT 的 TTL 字段是扩展标志位，非生存时间
+                    }
                     best = has ? std::min(best, r.Ttl) : r.Ttl;
                     has = true;
                 }

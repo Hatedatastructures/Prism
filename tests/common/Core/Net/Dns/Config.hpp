@@ -14,16 +14,67 @@
 #pragma once
 
 #include <boost/asio/ip/address.hpp>
+#include <boost/asio/ip/network_v4.hpp>
+#include <boost/asio/ip/network_v6.hpp>
 
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace Preview::Network::Dns
 {
+
+    /**
+     * @struct TransparentStringHash
+     * @brief 透明字符串哈希（FNV-1a）
+     * @details is_transparent 启用 unordered_map 异构查找：可用 string_view
+     *          直接查找而无需构造临时 string 键
+     */
+    struct TransparentStringHash
+    {
+        using is_transparent = void;
+
+        [[nodiscard]] auto operator()(const std::string_view value) const noexcept -> std::size_t
+        {
+            std::size_t Hash = 14695981039346656037ull;
+            for (const auto ch : value)
+            {
+                Hash ^= static_cast<std::uint8_t>(ch);
+                Hash *= 1099511628211ull;
+            }
+            return Hash;
+        }
+    };
+
+    /**
+     * @struct TransparentStringEqual
+     * @brief 透明字符串相等比较（配合 TransparentStringHash）
+     */
+    struct TransparentStringEqual
+    {
+        using is_transparent = void;
+
+        [[nodiscard]] auto operator()(const std::string_view left,
+                                      const std::string_view right) const noexcept -> bool
+        {
+            return left == right;
+        }
+    };
+
+    /**
+     * @enum StalePolicy
+     * @brief 缓存过期条目处理策略
+     */
+    enum class StalePolicy : std::uint8_t
+    {
+        Discard, ///< 过期即丢弃（返回未命中并擦除条目）
+        Serve,   ///< 过期仍返回旧数据（serve-stale 兜底）
+    };
 
     /**
      * @enum Protocol
@@ -54,6 +105,7 @@ namespace Preview::Network::Dns
         std::uint32_t TimeoutMs{5000};       ///< 单次查询超时（毫秒）
         std::string HttpPath{"/dns-query"};  ///< DoH 查询路径
         bool SkipCertCheck{false};           ///< 跳过 TLS 证书验证
+        bool KeepAlive{true};                ///< 连接复用（false = 每查询新建，不入池）
     };
 
     /**
@@ -105,17 +157,22 @@ namespace Preview::Network::Dns
         Mode QueryMode{Mode::Fastest};                 ///< 多上游调度策略
         std::vector<AddressRule> AddressRules;         ///< 地址映射规则
         std::vector<CnameRule> CnameRules;             ///< CNAME 重定向规则
-        std::vector<boost::asio::ip::address> AddressBlacklist; ///< IP 黑名单
+        std::vector<boost::asio::ip::address> AddressBlacklist; ///< IP 黑名单（精确地址）
+        std::vector<boost::asio::ip::network_v4> BlacklistV4;   ///< IPv4 黑名单网段（CIDR）
+        std::vector<boost::asio::ip::network_v6> BlacklistV6;   ///< IPv6 黑名单网段（CIDR）
 
         bool CacheEnabled{true};                       ///< 是否启用结果缓存
         bool DisableIpv6{false};                       ///< 禁用 IPv6（AAAA）查询
+        bool NegativeOnTimeout{true};                  ///< 查询超时是否进负缓存（false = 超时可立即重试）
         std::size_t MaxCacheEntries{10000};            ///< 缓存最大条目数（0 = 禁用淘汰上限）
 
         std::chrono::seconds CacheTtl{120};            ///< 默认缓存 TTL（上游未给出时）
         std::chrono::seconds NegativeTtl{30};          ///< 负缓存 TTL
+        StalePolicy CachePolicy{StalePolicy::Discard}; ///< 过期缓存策略（serve-stale 开关）
         std::uint32_t TtlMin{0};                       ///< 缓存 TTL 下限钳制（秒）
         std::uint32_t TtlMax{86400};                   ///< 缓存 TTL 上限钳制（秒）
         std::uint32_t TimeoutMs{4000};                 ///< 默认查询超时（毫秒）
+        std::size_t MaxConnsPerServer{4};              ///< 每服务器最大闲置连接数（0 = 禁用池）
     };
 
     /**
@@ -161,17 +218,20 @@ namespace Preview::Network::Dns
         s.Hostname = std::string(input);
 
         // host:port 形式拆分显式端口（仅处理最后一个冒号，兼容 IPv6 字面量需方括号，
-        // Preview 测试场景以 IPv4 为主）
+        // Preview 测试场景以 IPv4 为主）；from_chars 零分配、不抛异常，
+        // 端口须为 1-5 位纯数字且 ≤65535 才生效，否则按无端口处理
         if (const auto Colon = input.rfind(':');
             Colon != std::string_view::npos && input.find(']') == std::string_view::npos)
         {
             const auto PortStr = input.substr(Colon + 1);
-            if (!PortStr.empty() && PortStr.find_first_not_of("0123456789") == std::string_view::npos)
+            std::uint32_t PortValue = 0;
+            const auto Parsed = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), PortValue);
+            if (!PortStr.empty() && PortStr.size() <= 5 &&
+                Parsed.ec == std::errc{} && PortValue <= 65535)
             {
-                const auto PortNum = static_cast<std::uint16_t>(std::stoul(std::string(PortStr)));
                 s.Address = std::string(input.substr(0, Colon));
                 s.Hostname = s.Address;
-                s.Port = PortNum;
+                s.Port = static_cast<std::uint16_t>(PortValue);
             }
         }
         return s;

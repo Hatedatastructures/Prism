@@ -108,7 +108,11 @@ target_link_libraries(TrustTunnelBench PRIVATE ${PROJECT_NAME}_static_library be
 add_executable(DnsMessageBench DnsMessageBench.cpp)
 target_link_libraries(DnsMessageBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
 
-foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench IOBench MuxConnBench SessionBench RealityBench ScaleBench ResourceBench LatencyBench RecognitionBench StealthBench InfraBench H2MuxBench RegressionBench RealityAuthBench ResolveBench AnyTLSFrameBench StealthExtBench SsAntiReplayBench TlsFrameBench Socks5FrameBench CryptoMiscBench RecognitionPipeBench TrustTunnelBench DnsMessageBench)
+add_executable(DnsCacheBench DnsCacheBench.cpp)
+target_link_libraries(DnsCacheBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_include_directories(DnsCacheBench PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+
+foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench IOBench MuxConnBench SessionBench RealityBench ScaleBench ResourceBench LatencyBench RecognitionBench StealthBench InfraBench H2MuxBench RegressionBench RealityAuthBench ResolveBench AnyTLSFrameBench StealthExtBench SsAntiReplayBench TlsFrameBench Socks5FrameBench CryptoMiscBench RecognitionPipeBench TrustTunnelBench DnsMessageBench DnsCacheBench)
     if(MINGW)
         if(TARGET ${target_name})
             target_compile_options(${target_name} PRIVATE -Wa,-mbig-obj)

@@ -84,12 +84,12 @@ TEST(DnsRules, TestExactWinsOverWildcard)
     auto special = engine.Match("special.example.com");
     ASSERT_TRUE(special.has_value());
     ASSERT_EQ(special->Addresses.size(), 1u);
-    EXPECT_EQ(special->Addresses[0], "8.8.8.8");
+    EXPECT_EQ(special->Addresses[0], net::ip::make_address("8.8.8.8"));
 
     auto normal = engine.Match("other.example.com");
     ASSERT_TRUE(normal.has_value());
     ASSERT_EQ(normal->Addresses.size(), 1u);
-    EXPECT_EQ(normal->Addresses[0], "9.9.9.9");
+    EXPECT_EQ(normal->Addresses[0], net::ip::make_address("9.9.9.9"));
 }
 
 TEST(DnsRules, TestDeeperWildcardWins)
@@ -100,7 +100,7 @@ TEST(DnsRules, TestDeeperWildcardWins)
         {}, {});
     auto hit = engine.Match("cdn.www.example.com");
     ASSERT_TRUE(hit.has_value());
-    EXPECT_EQ(hit->Addresses[0], "2.2.2.2");
+    EXPECT_EQ(hit->Addresses[0], net::ip::make_address("2.2.2.2"));
 }
 
 TEST(DnsRules, TestEmptyAddressesMeansBlock)

@@ -84,6 +84,7 @@ namespace psm::dns::detail
         {
             memory::unordered_map<memory::string, std::unique_ptr<node>> children; // 子标签映射
             std::any value;                                                        // 规则关联值
+            std::any wild_value;                                                   // 通配符规则关联值（仅经通配符路径可达）
             bool is_end{false};                                                    // 是否为规则终点
             bool wildcard{false};                                                  // 是否为通配符标记
 

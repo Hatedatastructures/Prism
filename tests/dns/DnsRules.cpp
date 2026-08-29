@@ -6,7 +6,9 @@
  * 2. rules_engine：规则引擎的地址规则、否定规则、CNAME 规则及优先级合并
  * 3. parse_port：端口号解析工具函数的边界值和异常输入处理
  * 4. string_hash / string_equal：透明哈希与跨类型相等比较器的确定性
- * @note 当前 wildcard 断言以仓库现实现行为准：`*.example.com` 也会命中 `example.com`。
+ * @note 通配符语义（2026-08-29 与 preview 库统一）："*.example.com" 至少
+ *       消耗一级子域——匹配 www.example.com / sub.example.com，不匹配裸域
+ *       example.com 本身；同域通配与精确规则共存互不覆盖（wild_value 槽位）。
  */
 
 #include <prism/diagnose/log.hpp>
@@ -65,11 +67,8 @@ namespace
 
         {
             auto result = trie.search("example.com");
-            ASSERT_TRUE(result.has_value())
-                << "search(\"example.com\") should match *.example.com under current trie semantics";
-
-            auto val = std::any_cast<int>(result.value());
-            EXPECT_EQ(val, 100) << "search(\"example.com\") should return 100";
+            EXPECT_TRUE(!result.has_value())
+                << "search(\"example.com\") should NOT match *.example.com (wildcard consumes at least one label)";
         }
 
         {

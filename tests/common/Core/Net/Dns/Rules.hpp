@@ -13,11 +13,16 @@
 
 #pragma once
 
-#include <any>
+#include <boost/asio/ip/address.hpp>
+#include <boost/asio/ip/network_v4.hpp>
+#include <boost/asio/ip/network_v6.hpp>
+
+#include <array>
 #include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -44,9 +49,9 @@ namespace Preview::Network::Dns
      */
     struct RuleResult
     {
-        RuleAction Action{RuleAction::Pass};    ///< 命中的动作
-        std::vector<std::string> Addresses;     ///< Rewrite 动作的固定地址
-        std::optional<std::string> CnameTarget; ///< CNAME 静态映射目标
+        RuleAction Action{RuleAction::Pass};             ///< 命中的动作
+        std::vector<boost::asio::ip::address> Addresses; ///< Rewrite 固定地址（装载时预解析）
+        std::optional<std::string> CnameTarget;          ///< CNAME 静态映射目标
     };
 
     /**
@@ -67,9 +72,9 @@ namespace Preview::Network::Dns
         {
             std::map<std::string, std::unique_ptr<Node>, std::less<>> Children; ///< 子标签
             bool Wildcard{false};   ///< 是否存在通配符子域（*.本节点域名）
-            std::any Value;         ///< 精确终结节点携带的数据
-            bool HasValue{false};   ///< Value 是否有效
-            std::any WildValue;     ///< 通配符规则挂在本节点的数据（仅经通配符路径可达）
+            std::shared_ptr<RuleResult> Value_; ///< 精确终结节点数据（可空）
+            bool HasValue{false};   ///< Value_ 是否有效（插入精确规则后置位）
+            std::shared_ptr<RuleResult> WildValue_; ///< 通配符数据（可空，仅经通配符路径可达）
         };
 
         /**
@@ -127,9 +132,23 @@ namespace Preview::Network::Dns
 
         [[nodiscard]] auto Search(std::string_view domain) const -> Hit
         {
-            std::vector<std::string_view> labels;
-            SplitForEach(domain, [&labels](std::string_view label)
-                         { labels.push_back(label); });
+            // 栈上固定 labels 数组（>16 级标签的罕见域名退化为堆）
+            std::array<std::string_view, 16> buf{};
+            std::size_t count = 0;
+            std::vector<std::string_view> overflow;
+            SplitForEach(domain, [&](std::string_view label)
+                         {
+                             if (count < buf.size())
+                             {
+                                 buf[count++] = label;
+                             }
+                             else
+                             {
+                                 overflow.push_back(label);
+                             } });
+            const std::span<const std::string_view> labels =
+                overflow.empty() ? std::span<const std::string_view>(buf.data(), count)
+                                 : std::span<const std::string_view>(overflow);
 
             Hit hit;
             const Node *cur = &Root_;
@@ -149,7 +168,7 @@ namespace Preview::Network::Dns
                         hit.Exact = cur;
                     }
                 }
-                else if (cur->WildValue.has_value())
+                else if (cur->WildValue_ != nullptr)
                 {
                     hit.Wild = cur;
                 }
@@ -224,12 +243,18 @@ namespace Preview::Network::Dns
          * @brief 构造规则引擎并装载规则
          * @param addressRules 地址规则（Addresses 为空视为 Block，否则 Rewrite）
          * @param cnameRules CNAME 静态映射（可与地址规则同域合并）
-         * @param blacklist IP 字面量黑名单
+         * @param blacklist IP 字面量黑名单（字符串形式，装载期解析）
+         * @param blacklistAddrs IP 字面量黑名单（地址形式）
+         * @param netsV4 IPv4 CIDR 黑名单网段
+         * @param netsV6 IPv6 CIDR 黑名单网段
          */
         explicit RulesEngine(const std::vector<AddressRule> &addressRules = {},
                              const std::vector<CnameRule> &cnameRules = {},
-                             std::vector<std::string> blacklist = {})
-            : Blacklist_(std::move(blacklist))
+                             std::vector<std::string> blacklist = {},
+                             std::vector<boost::asio::ip::address> blacklistAddrs = {},
+                             std::vector<boost::asio::ip::network_v4> netsV4 = {},
+                             std::vector<boost::asio::ip::network_v6> netsV6 = {})
+            : NetsV4_(std::move(netsV4)), NetsV6_(std::move(netsV6))
         {
             for (const auto &rule : addressRules)
             {
@@ -243,18 +268,28 @@ namespace Preview::Network::Dns
                     result->Action =
                         rule.Addresses.empty() ? RuleAction::Block : RuleAction::Rewrite;
                 }
-                if (!rule.Addresses.empty())
+                // AddressRule.Addresses 装载期已是 address：直接持有，查询期零解析
+                for (const auto &addr : rule.Addresses)
                 {
-                    for (const auto &addr : rule.Addresses)
-                    {
-                        result->Addresses.push_back(addr.to_string());
-                    }
+                    result->Addresses.push_back(addr);
                 }
             }
             for (const auto &rule : cnameRules)
             {
                 LocateSlot(rule.Domain)->CnameTarget = rule.Target;
             }
+            // 字符串黑名单装载期解析为地址（无效字面量忽略）
+            for (const auto &item : blacklist)
+            {
+                boost::system::error_code ec;
+                if (auto addr = boost::asio::ip::make_address(item, ec); !ec)
+                {
+                    Blacklist_.push_back(addr);
+                }
+            }
+            Blacklist_.insert(Blacklist_.end(),
+                              std::make_move_iterator(blacklistAddrs.begin()),
+                              std::make_move_iterator(blacklistAddrs.end()));
         }
 
         /**
@@ -265,44 +300,103 @@ namespace Preview::Network::Dns
         [[nodiscard]] auto Match(const std::string &qname) const -> std::optional<RuleResult>
         {
             const auto hit = Trie_.Search(qname);
-            if (hit.Exact != nullptr && hit.Exact->Value.has_value())
+            if (hit.Exact != nullptr && hit.Exact->Value_ != nullptr)
             {
-                return *std::any_cast<std::shared_ptr<RuleResult>>(hit.Exact->Value);
+                return *hit.Exact->Value_;
             }
-            if (hit.Wild != nullptr && hit.Wild->WildValue.has_value())
+            if (hit.Wild != nullptr && hit.Wild->WildValue_ != nullptr)
             {
-                return *std::any_cast<std::shared_ptr<RuleResult>>(hit.Wild->WildValue);
+                return *hit.Wild->WildValue_;
             }
             return std::nullopt;
         }
 
         /**
-         * @brief IP 字面量黑名单检查
-         * @param addr 待检查地址字符串
+         * @brief IP 黑名单检查（精确地址 + CIDR 网段，纯整数比较无字符串分配）
+         * @param addr 待检查地址
          * @return 命中黑名单返回 true
          */
-        [[nodiscard]] auto IsBlacklisted(std::string_view addr) const -> bool
+        [[nodiscard]] auto IsBlacklisted(const boost::asio::ip::address &addr) const -> bool
         {
-            for (const auto &item : Blacklist_)
+            if (addr.is_v4())
             {
-                if (item == addr)
+                const auto Raw = addr.to_v4().to_uint();
+                for (const auto &item : Blacklist_)
                 {
-                    return true;
+                    if (item.is_v4() && item.to_v4().to_uint() == Raw)
+                    {
+                        return true;
+                    }
+                }
+                for (const auto &net : NetsV4_)
+                {
+                    if ((Raw & net.netmask().to_uint()) == net.address().to_uint())
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            if (addr.is_v6())
+            {
+                const auto Bytes = addr.to_v6().to_bytes();
+                for (const auto &item : Blacklist_)
+                {
+                    if (item.is_v6() && item.to_v6().to_bytes() == Bytes)
+                    {
+                        return true;
+                    }
+                }
+                for (const auto &net : NetsV6_)
+                {
+                    if (MatchesV6(net, Bytes))
+                    {
+                        return true;
+                    }
                 }
             }
             return false;
         }
 
         /**
-         * @brief 黑名单条目数
+         * @brief IP 黑名单检查（字符串字面量便捷重载，装载后解析路径）
+         * @param addr 待检查地址字符串（IP 字面量）
+         * @return 命中黑名单返回 true；非法字面量返回 false
+         */
+        [[nodiscard]] auto IsBlacklisted(std::string_view addr) const -> bool
+        {
+            boost::system::error_code ec;
+            const auto parsed = boost::asio::ip::make_address(addr, ec);
+            return !ec && IsBlacklisted(parsed);
+        }
+
+        /**
+         * @brief 黑名单条目数（精确地址 + CIDR 网段合计）
          * @return 条目数
          */
         [[nodiscard]] auto BlacklistSize() const -> std::size_t
         {
-            return Blacklist_.size();
+            return Blacklist_.size() + NetsV4_.size() + NetsV6_.size();
         }
 
     private:
+        /// IPv6 CIDR 前缀匹配（按字节掩码比较）
+        [[nodiscard]] static auto MatchesV6(const boost::asio::ip::network_v6 &net,
+                                            const std::array<unsigned char, 16> &bytes) -> bool
+        {
+            const auto NetBytes = net.address().to_bytes();
+            const auto Prefix = net.prefix_length();
+            for (std::size_t i = 0; i < 16 && i * 8 < Prefix; ++i)
+            {
+                const auto Bits = static_cast<unsigned char>(
+                    i * 8 + 8 <= Prefix ? 0xFF : 0xFF << (8 - (Prefix - i * 8)));
+                if ((bytes[i] & Bits) != (NetBytes[i] & Bits))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
         /// 按域名定位规则槽位：通配符域挂 WildValue，精确域挂 Value
         [[nodiscard]] auto LocateSlot(const std::string &domain) -> std::shared_ptr<RuleResult>
         {
@@ -317,12 +411,12 @@ namespace Preview::Network::Dns
         [[nodiscard]] static auto GetOrCreate(DomainTrie::Node &node)
             -> std::shared_ptr<RuleResult>
         {
-            if (node.Value.has_value())
+            if (node.Value_ != nullptr)
             {
-                return std::any_cast<std::shared_ptr<RuleResult>>(node.Value);
+                return node.Value_;
             }
             auto result = std::make_shared<RuleResult>();
-            node.Value = result;
+            node.Value_ = result;
             node.HasValue = true;
             return result;
         }
@@ -331,17 +425,19 @@ namespace Preview::Network::Dns
         [[nodiscard]] static auto GetOrCreateWild(DomainTrie::Node &node)
             -> std::shared_ptr<RuleResult>
         {
-            if (node.WildValue.has_value())
+            if (node.WildValue_ != nullptr)
             {
-                return std::any_cast<std::shared_ptr<RuleResult>>(node.WildValue);
+                return node.WildValue_;
             }
             auto result = std::make_shared<RuleResult>();
-            node.WildValue = result;
+            node.WildValue_ = result;
             return result;
         }
 
         DomainTrie Trie_;
-        std::vector<std::string> Blacklist_;
+        std::vector<boost::asio::ip::address> Blacklist_; ///< 精确地址黑名单（装载期解析）
+        std::vector<boost::asio::ip::network_v4> NetsV4_; ///< IPv4 网段黑名单
+        std::vector<boost::asio::ip::network_v6> NetsV6_; ///< IPv6 网段黑名单
     };
 
 } // namespace Preview::Network::Dns

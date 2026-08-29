@@ -63,3 +63,10 @@ target_compile_options(VmessMultiThread PRIVATE -g1 -Os)
 target_link_libraries(VmessMultiThread PRIVATE vmtest_common)
 add_test(NAME Perf_VmessMultiThread COMMAND VmessMultiThread)
 set_tests_properties(Perf_VmessMultiThread PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
+# DNS 解析子系统对标基准（对标 benchmarks/ DnsCacheBench/DnsMessageBench/ResolveBench）
+add_executable(DnsPerf DnsPerf.cpp)
+target_compile_options(DnsPerf PRIVATE -g1 -Os)
+target_link_libraries(DnsPerf PRIVATE vmtest_common)
+add_test(NAME Perf_Dns COMMAND DnsPerf)
+set_tests_properties(Perf_Dns PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})

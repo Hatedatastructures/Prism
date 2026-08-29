@@ -35,19 +35,21 @@ $cmakeEntries = Get-Content $cmakeFile -Encoding UTF8 |
 
 $problems = @()
 
-$missing = $diskFiles | Where-Object { $cmakeEntries -notcontains $_ }
+# 大小写敏感比较：Windows 文件系统不区分大小写，纯大小写改名本地可见但
+# Linux CI（case-sensitive）会在 CMake 阶段失败——门禁必须与 CI 同口径
+$missing = $diskFiles | Where-Object { $cmakeEntries -cnotcontains $_ }
 if ($missing) {
     $problems += "MISSING (on disk but not registered):"
     $problems += $missing | ForEach-Object { "  $_" }
 }
 
-$stale = $cmakeEntries | Sort-Object -Unique | Where-Object { $diskFiles -notcontains $_ }
+$stale = $cmakeEntries | Sort-Object -Unique | Where-Object { $diskFiles -cnotcontains $_ }
 if ($stale) {
     $problems += "STALE (registered but missing on disk):"
     $problems += $stale | ForEach-Object { "  $_" }
 }
 
-$dups = $cmakeEntries | Group-Object | Where-Object Count -gt 1
+$dups = $cmakeEntries | Group-Object -CaseSensitive | Where-Object Count -gt 1
 if ($dups) {
     $problems += "DUPLICATE (registered more than once):"
     $problems += $dups | ForEach-Object { "  $($_.Count)x $($_.Name)" }
@@ -70,11 +72,13 @@ if ($CheckMirror) {
         "Core/Crypto/Sha224.hpp",
         "Core/Crypto/X25519.hpp"
     )
+    # PascalCase（2026-08-22 规范 v2）：旧小写路径在 Linux case-sensitive
+    # 文件系统上 Test-Path 失败 → 镜像检查被静默跳过
     $mirrorPairs = @(
-        @{ src = "core/fault";       dst = "include/prism/foundation/fault" },
-        @{ src = "core/exception";   dst = "include/prism/foundation/exception" },
-        @{ src = "core/memory";      dst = "include/prism/foundation/memory" },
-        @{ src = "core/crypto";      dst = "include/prism/crypto" }
+        @{ src = "Core/Fault";       dst = "include/prism/foundation/fault" },
+        @{ src = "Core/Exception";   dst = "include/prism/foundation/exception" },
+        @{ src = "Core/Memory";      dst = "include/prism/foundation/memory" },
+        @{ src = "Core/Crypto";      dst = "include/prism/crypto" }
     )
     foreach ($pair in $mirrorPairs) {
         $srcDir = Join-Path $commonDir $pair.src
@@ -101,12 +105,14 @@ if ($problems.Count -gt 0) {
     exit 1
 }
 
-if ($mirrorWarnings.Count -gt 0) {
-    Write-Host "Mirror drift warnings ($($mirrorWarnings.Count)):" -ForegroundColor Yellow
-    $mirrorWarnings | ForEach-Object { Write-Host $_ }
-    Write-Host "Note: whitelisted files are exempt; forks must be registered in SPEC.md 镜像清单"
-} else {
-    Write-Host "Mirror check passed"
+if ($CheckMirror) {
+    if ($mirrorWarnings.Count -gt 0) {
+        Write-Host "Mirror drift warnings ($($mirrorWarnings.Count)):" -ForegroundColor Yellow
+        $mirrorWarnings | ForEach-Object { Write-Host $_ }
+        Write-Host "Note: whitelisted files are exempt; forks must be registered in SPEC.md 镜像清单"
+    } else {
+        Write-Host "Mirror check passed"
+    }
 }
 
 Write-Host "G7 gate passed: $($diskFiles.Count) headers, $((($cmakeEntries | Sort-Object -Unique)).Count) registered entries"

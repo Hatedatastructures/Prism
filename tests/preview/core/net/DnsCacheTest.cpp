@@ -149,3 +149,62 @@ TEST(DnsCache, TestClearAndSize)
     EXPECT_EQ(c.Size(), 0u);
     EXPECT_FALSE(c.Get("x.com", QtA).has_value());
 }
+
+TEST(DnsCache, TestMaxEntriesZeroUnlimited)
+{
+    // MaxEntries==0 视为无限：永不淘汰，所有写入均可命中
+    CacheOptions opts;
+    opts.MaxEntries = 0;
+    Cache c(opts);
+
+    for (char i = 'a'; i <= 'z'; ++i)
+    {
+        c.Put(MakePut(std::string(1, i) + ".com", "9.9.9.9", std::chrono::seconds(60)));
+    }
+    EXPECT_EQ(c.Size(), 26u);
+    for (char i = 'a'; i <= 'z'; ++i)
+    {
+        EXPECT_TRUE(c.Get(std::string(1, i) + ".com", QtA).has_value());
+    }
+}
+
+TEST(DnsCache, TestFifoEvictionOldestOrder)
+{
+    // 纯插入顺序 FIFO：超额时淘汰最旧（Inserted 最早）者
+    CacheOptions opts;
+    opts.MaxEntries = 3;
+    Cache c(opts);
+
+    c.Put(MakePut("a.com", "1.0.0.1", std::chrono::seconds(60)));
+    c.Put(MakePut("b.com", "1.0.0.2", std::chrono::seconds(60)));
+    c.Put(MakePut("c.com", "1.0.0.3", std::chrono::seconds(60)));
+    // 第 4 条触发淘汰：a.com（最旧）出局
+    c.Put(MakePut("d.com", "1.0.0.4", std::chrono::seconds(60)));
+
+    EXPECT_FALSE(c.Get("a.com", QtA).has_value());
+    EXPECT_TRUE(c.Get("b.com", QtA).has_value());
+    EXPECT_TRUE(c.Get("c.com", QtA).has_value());
+    EXPECT_TRUE(c.Get("d.com", QtA).has_value());
+    EXPECT_EQ(c.Size(), 3u);
+}
+
+TEST(DnsCache, TestOverwriteKeepsFifoPosition)
+{
+    // 覆盖已有键视为刷新为最新（FIFO 顺序更新），仅更新值
+    CacheOptions opts;
+    opts.MaxEntries = 2;
+    Cache c(opts);
+
+    c.Put(MakePut("keep.com", "1.0.0.1", std::chrono::seconds(60)));
+    c.Put(MakePut("old.com", "1.0.0.2", std::chrono::seconds(60)));
+    // 覆盖 keep.com（位置不变），再插入新键触发淘汰
+    c.Put(MakePut("keep.com", "1.0.0.9", std::chrono::seconds(60)));
+    c.Put(MakePut("new.com", "1.0.0.3", std::chrono::seconds(60)));
+
+    // old.com 是最旧且未被覆盖 → 被淘汰；keep.com 因覆盖保留
+    EXPECT_FALSE(c.Get("old.com", QtA).has_value());
+    auto keep = c.Get("keep.com", QtA);
+    ASSERT_TRUE(keep.has_value());
+    EXPECT_EQ((*keep)[0], V4("1.0.0.9"));
+    EXPECT_TRUE(c.Get("new.com", QtA).has_value());
+}

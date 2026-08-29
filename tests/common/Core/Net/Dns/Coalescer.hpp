@@ -5,32 +5,45 @@
  *          键的并发查询只发起一次上游请求，其余协程挂起等待首个 flight 完成。
  *
  *          等待机制与主项目一致：flight 持有一个 expires_at(max) 的
- *          steady_timer，等待者 co_await 该定时器；leader 完成后设置结果并
- *          cancel 定时器唤醒全部等待者，等待者醒来后从 flight 读取结果。
+ *          steady_timer，等待者 co_await 该定时器；leader 完成后写入结果并
+ *          cancel 定时器唤醒全部等待者，等待者醒来后从 flight 内部结果槽
+ *          读取（结果与 flight 同生命周期，无独立结果表的悬空窗口）。
  *
- *          清理采用两阶段（PendingCleanup 标记 + FlushCleanup 延迟删除），
- *          避免遍历 map 时迭代器失效。
+ *          索引用透明哈希 unordered_map（键 string_view 指向 flight 内部
+ *          Key_，O(1) 定位、零键拷贝）；清理采用两阶段（PendingCleanup
+ *          标记 + FlushCleanup 延迟删除），避免遍历 map 时迭代器失效。
+ * @note 非线程安全，单 io_context 内使用
  */
 
 #pragma once
+
+#include "Config.hpp"
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/steady_timer.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
-#include <map>
+#include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace Preview::Network::Dns
 {
 
+    template <typename Result>
+    class Coalescer; // 前置声明：Flight 的友元授权
+
     /**
      * @class Flight
-     * @brief 单次在途查询（leader + waiters 共享）
+     * @brief 单次在途查询（leader + waiters 共享，内嵌结果槽）
+     * @tparam Result 各查询共享的结果类型（如 Upstream::QueryResult）
      */
+    template <typename Result>
     class Flight
     {
     public:
@@ -73,15 +86,6 @@ namespace Preview::Network::Dns
         }
 
         /**
-         * @brief 标记结果就绪并唤醒全部等待者
-         */
-        void Complete()
-        {
-            Ready_ = true;
-            Timer_.cancel();
-        }
-
-        /**
          * @brief 当前等待者数量
          * @return waiter 计数
          */
@@ -117,8 +121,31 @@ namespace Preview::Network::Dns
         }
 
     private:
+        friend class Coalescer<Result>;
+
+        /// 写入结果并唤醒全部等待者（仅 leader / Coalescer 调用）
+        void Complete(Result result)
+        {
+            Result_.emplace(std::move(result));
+            Ready_ = true;
+            Timer_.cancel();
+        }
+
+        /// 读取结果槽；leader 尚未完成时为 nullptr
+        [[nodiscard]] auto PeekResult() const -> const Result *
+        {
+            return Result_ ? &*Result_ : nullptr;
+        }
+
+        /// 清空结果槽（FlushCleanup 删除 flight 时调用，防悬空引用）
+        void ClearResult()
+        {
+            Result_.reset();
+        }
+
         std::string Key_;
         boost::asio::steady_timer Timer_;
+        std::optional<Result> Result_; ///< 结果内嵌槽（与 flight 同生命周期）
         bool Ready_{false};
         std::size_t Waiters_{0};
         bool PendingCleanup_{false};
@@ -133,7 +160,10 @@ namespace Preview::Network::Dns
     class Coalescer
     {
     public:
-        using FlightMap = std::map<std::string, std::shared_ptr<Flight>, std::less<>>;
+        using FlightType = Flight<Result>;
+        using FlightPtr = std::shared_ptr<FlightType>;
+        using FlightMap = std::unordered_map<std::string_view, FlightPtr,
+                                             TransparentStringHash, TransparentStringEqual>;
 
         /**
          * @brief 构造合并器
@@ -152,46 +182,30 @@ namespace Preview::Network::Dns
          *         调用方应作为 waiter 挂起而非重复打上游
          */
         auto FindCreate(std::string_view domain, const std::uint16_t qtype)
-            -> std::pair<std::shared_ptr<Flight>, bool>
+            -> std::pair<FlightPtr, bool>
         {
             std::string key(domain);
             key += ':';
             key += std::to_string(qtype);
 
-            if (auto it = Flights_.find(key); it != Flights_.end())
+            if (auto it = Flights_.find(std::string_view(key)); it != Flights_.end())
             {
                 return {it->second, false};
             }
-            auto flight = std::make_shared<Flight>(Executor_, std::move(key));
-            // map 键与 flight 内部 Key_ 各持一份拷贝，保证 string_view 引用稳定
-            const auto [it, ok] =
-                Flights_.emplace(flight->Key(), flight);
-            return {it->second, ok};
+            auto flight = std::make_shared<FlightType>(Executor_, std::move(key));
+            // 索引键 string_view 指向 flight 内部 Key_（flight 存活期间地址稳定）
+            Flights_.emplace(flight->Key(), flight);
+            return {std::move(flight), true};
         }
 
         /**
-         * @brief 按 flight 键查找
-         * @param key "domain:qtype"
-         * @return 对应 flight；不存在返回 nullptr
-         */
-        [[nodiscard]] auto Find(std::string_view key) const -> std::shared_ptr<Flight>
-        {
-            if (const auto it = Flights_.find(key); it != Flights_.end())
-            {
-                return it->second;
-            }
-            return nullptr;
-        }
-
-        /**
-         * @brief 写入结果并唤醒等待者
+         * @brief 写入结果并唤醒等待者（结果进入 flight 内部槽）
          * @param flight 目标 flight
-         * @param result 查询结果（拷贝进共享槽）
+         * @param result 查询结果
          */
-        void SetResult(const std::shared_ptr<Flight> &flight, Result result)
+        void SetResult(const FlightPtr &flight, Result result)
         {
-            Results_[flight->Key()] = std::move(result);
-            flight->Complete();
+            flight->Complete(std::move(result));
         }
 
         /**
@@ -199,26 +213,16 @@ namespace Preview::Network::Dns
          * @param flight 目标 flight
          * @return 结果指针；尚未写入返回 nullptr
          */
-        [[nodiscard]] auto GetResult(const Flight &flight) const -> const Result *
+        [[nodiscard]] auto GetResult(const FlightType &flight) const -> const Result *
         {
-            const auto it = Results_.find(flight.Key());
-            return it == Results_.end() ? nullptr : &it->second;
-        }
-
-        /**
-         * @brief 清除某 flight 的结果槽
-         * @param flight 目标 flight
-         */
-        void DropResult(const Flight &flight)
-        {
-            Results_.erase(flight.Key());
+            return flight.PeekResult();
         }
 
         /**
          * @brief 标记可清理的 flight（仅 ready 且无等待者）
          * @param flight 目标 flight
          */
-        void CleanupFlight(const std::shared_ptr<Flight> &flight)
+        void CleanupFlight(const FlightPtr &flight)
         {
             if (flight->Ready() && flight->Waiters() == 0)
             {
@@ -227,7 +231,7 @@ namespace Preview::Network::Dns
         }
 
         /**
-         * @brief 两阶段清理：删除所有已标记的 flight 及其结果槽
+         * @brief 两阶段清理：删除所有已标记的 flight（连同结果槽）
          * @note 必须在持有 flight shared_ptr 的调用栈之外周期性调用，
          *       避免遍历中 erase 导致迭代器失效
          */
@@ -237,7 +241,7 @@ namespace Preview::Network::Dns
             {
                 if (it->second->PendingCleanup())
                 {
-                    Results_.erase(it->first);
+                    it->second->ClearResult();
                     it = Flights_.erase(it);
                 }
                 else
@@ -258,8 +262,7 @@ namespace Preview::Network::Dns
 
     private:
         boost::asio::any_io_executor Executor_;
-        FlightMap Flights_;
-        std::map<std::string, Result> Results_;
+        FlightMap Flights_; ///< 索引：键 view 指向 flight 内部 Key_
     };
 
 } // namespace Preview::Network::Dns

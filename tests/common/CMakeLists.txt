@@ -113,6 +113,10 @@ target_sources(prism_ngx INTERFACE
         # ── core/net/dns ──
         Core/Net/Dns/Config.hpp
         Core/Net/Dns/Format.hpp
+        Core/Net/Dns/Answer.hpp
+        Core/Net/Dns/Transport.hpp
+        Core/Net/Dns/ConnPool.hpp
+        Core/Net/Dns/Doh.hpp
         Core/Net/Dns/Cache.hpp
         Core/Net/Dns/Coalescer.hpp
         Core/Net/Dns/Rules.hpp

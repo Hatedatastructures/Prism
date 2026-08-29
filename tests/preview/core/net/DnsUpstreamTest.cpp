@@ -9,6 +9,7 @@
 
 #include <common/Core/Net/Dns/Format.hpp>
 #include <common/Core/Net/Dns/Upstream.hpp>
+#include <common/MockTlsServer.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
@@ -19,7 +20,10 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/write.hpp>
 
+#include <array>
 #include <chrono>
+#include <cstddef>
+#include <functional>
 #include <span>
 #include <cstdint>
 #include <memory>
@@ -60,6 +64,7 @@ namespace
             EmptyAnswer, ///< 返回合法但零应答报文（模拟无记录）
             Truncate,  ///< UDP 回 TC=1，TCP 回完整应答
             Silent,    ///< 收到查询不应答（触发客户端超时）
+            NxDomain,  ///< 返回 NXDOMAIN（Rcode=3，零应答）
         };
 
         FakeDnsServer(net::io_context &ioc, const Behavior behavior,
@@ -142,10 +147,11 @@ namespace
                 return {};
             }
             std::vector<std::uint8_t> out;
-            const bool Full = !truncate && Behavior_ != Behavior::EmptyAnswer;
+            const bool Nx = Behavior_ == Behavior::NxDomain;
+            const bool Full = !truncate && Behavior_ != Behavior::EmptyAnswer && !Nx;
             PutU16(out, static_cast<std::uint16_t>((query[0] << 8) | query[1]));
-            // QR|RD|RA (+TC)
-            PutU16(out, 0x8180u | (truncate ? 0x0200u : 0u));
+            // QR|RD|RA (+TC / Rcode=3)
+            PutU16(out, 0x8180u | (truncate ? 0x0200u : 0u) | (Nx ? 0x0003u : 0u));
             PutU16(out, 1);              // qdcount
             PutU16(out, Full ? 1u : 0u); // ancount
             PutU16(out, 0);
@@ -309,7 +315,7 @@ TEST(DnsUpstream, TestUdpQuerySuccess)
     ASSERT_EQ(result.Ips.size(), 1u);
     EXPECT_EQ(result.Ips[0], net::ip::make_address_v4("1.2.3.4"));
     EXPECT_EQ(result.ServerAddr, server->Addr());
-    EXPECT_EQ(result.Response.MinTtl(), 60u);
+    EXPECT_EQ(result.Response.MinTtl, 60u);
 }
 
 TEST(DnsUpstream, TestTruncatedFallsBackToTcp)
@@ -454,5 +460,118 @@ TEST(DnsUpstream, TestAllServersFail)
             });
 
     EXPECT_TRUE(result.Error);
+    EXPECT_TRUE(result.Ips.empty());
+}
+
+TEST(DnsUpstream, TestNxDomainReturnsSuccessEmpty)
+{
+    // NXDOMAIN 是"成功+空"：无错误码、空 IP（由上层负缓存），而非错误
+    net::io_context ioc;
+    auto server = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::NxDomain);
+    server->Start();
+
+    Upstream up(ioc.get_executor(), {server->MakeConfig()});
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> net::awaitable<void>
+            {
+                result = co_await up.Resolve("nx.example.com", QType::A);
+                server->Close();
+            });
+
+    EXPECT_FALSE(result.Error);
+    EXPECT_TRUE(result.Ips.empty());
+    EXPECT_EQ(result.Response.Rcode, 3u);
+}
+
+TEST(DnsUpstream, TestFallbackNxDomainStopsAtFirst)
+{
+    // 1.3 修复验证：首个上游回 NXDOMAIN 即终态，不再重试第二个上游
+    net::io_context ioc;
+    auto nx = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::NxDomain);
+    auto good = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    nx->Start();
+    good->Start();
+
+    Upstream up(ioc.get_executor(),
+                {nx->MakeConfig(), good->MakeConfig()},
+                Preview::Network::Dns::Mode::Fallback);
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> net::awaitable<void>
+            {
+                result = co_await up.Resolve("nx.example.com", QType::A);
+                nx->Close();
+                good->Close();
+            });
+
+    // 应答来源是首个（NXDOMAIN）服务器而非被"跳过"到第二个
+    EXPECT_FALSE(result.Error);
+    EXPECT_TRUE(result.Ips.empty());
+    EXPECT_EQ(result.ServerAddr, nx->Addr());
+}
+
+TEST(DnsUpstream, TestDotHandshakeAndFrameRead)
+{
+    // DoT 路径覆盖（此前零覆盖）：TLS 握手 HandshakeTls + 帧读取 ReadTcpFrame。
+    // MockTlsServer 是 echo 服务器，回声即查询帧本身（QR=0、零应答），
+    // 因此断言"无错误 + 空 IP"：能完成 TLS 往返且应答被成功解析为报文，
+    // 而非握手失败/超时/非法报文
+    net::io_context ioc;
+    tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+    const auto Port = acceptor.local_endpoint().port();
+    net::co_spawn(ioc, Preview::Testing::MockTlsServer::Run(acceptor, 1), net::detached);
+
+    Preview::Network::Dns::Server cfg;
+    cfg.Address = "127.0.0.1";
+    cfg.Port = Port;
+    cfg.Proto = Preview::Network::Dns::Protocol::Tls;
+    cfg.Hostname = "127.0.0.1";
+    cfg.SkipCertCheck = true;
+
+    Upstream up(ioc.get_executor(), {cfg});
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> net::awaitable<void>
+            {
+                result = co_await up.Resolve("dot.example.com", QType::A);
+                acceptor.close();
+            });
+
+    EXPECT_EQ(result.Error, boost::system::error_code{});
+    EXPECT_TRUE(result.Ips.empty());
+}
+
+TEST(DnsUpstream, TestDohHandshakeAndHttpRead)
+{
+    // DoH 路径覆盖（此前零覆盖）：TLS 握手 + HTTP 响应解析
+    // （状态码校验、Content-Length 头区解析、\r\n\r\n 扫描、报文体收满）。
+    // 应答体为查询回显：Unpack 成功、Id 匹配、零应答记录 → 成功 + 空 IP
+    net::io_context ioc;
+    tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+    const auto Port = acceptor.local_endpoint().port();
+    net::co_spawn(ioc,
+                  Preview::Testing::MockTlsServer::Run(
+                      acceptor, 1, Preview::Testing::MakeDohResponder("HTTP/1.1 200 OK")),
+                  net::detached);
+
+    Preview::Network::Dns::Server cfg;
+    cfg.Address = "127.0.0.1";
+    cfg.Port = Port;
+    cfg.Proto = Preview::Network::Dns::Protocol::Https;
+    cfg.Hostname = "127.0.0.1";
+    cfg.SkipCertCheck = true;
+    cfg.HttpPath = "/dns-query";
+
+    Upstream up(ioc.get_executor(), {cfg});
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> net::awaitable<void>
+            {
+                result = co_await up.Resolve("doh.example.com", QType::A);
+                acceptor.close();
+            });
+
+    EXPECT_EQ(result.Error, boost::system::error_code{});
     EXPECT_TRUE(result.Ips.empty());
 }

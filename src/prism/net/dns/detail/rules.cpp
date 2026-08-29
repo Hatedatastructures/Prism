@@ -102,6 +102,7 @@ namespace psm::dns::detail
             wildcard_depth = labels.size() - 1;
         }
 
+        node *wildcard_anchor = nullptr;
         node *current = root_.get();
         for (std::size_t i = 0; i < labels.size(); ++i)
         {
@@ -120,7 +121,20 @@ namespace psm::dns::detail
             if (is_wildcard && i == wildcard_depth)
             {
                 current->wildcard = true;
+                wildcard_anchor = current;
             }
+        }
+
+        if (is_wildcard)
+        {
+            // 通配符规则值挂在锚点节点的 wild_value，不置 is_end/value：
+            // 裸域（如 "*.example.com" 的 example.com 本身）不再经精确
+            // 路径泄漏命中，且同域通配与精确规则可共存互不覆盖
+            if (wildcard_anchor != nullptr)
+            {
+                wildcard_anchor->wild_value = value;
+            }
+            return;
         }
 
         // 最终节点设置值和结束标记
@@ -173,16 +187,17 @@ namespace psm::dns::detail
 
         // 回溯检查 wildcard: 从路径末端向前查找第一个 wildcard 节点
         // 通配符要求查询域名至少比通配符域名多一级标签
+        // （ "*.example.com" 匹配 www.example.com，不匹配裸域 example.com ）
         for (auto idx = static_cast<std::ptrdiff_t>(path.size()) - 1; idx >= 0; --idx)
         {
             const node *candidate = path[static_cast<std::size_t>(idx)];
-            if (candidate->wildcard && candidate->is_end)
+            if (candidate->wildcard && candidate->wild_value.has_value())
             {
                 // path.size() 是实际遍历深度，idx+1 是 wildcard 节点的深度
                 // 查询域名至少要比通配符域名多一级
                 if (labels.size() > static_cast<std::size_t>(idx + 1))
                 {
-                    return candidate->value;
+                    return candidate->wild_value;
                 }
             }
         }

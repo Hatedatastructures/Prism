@@ -261,3 +261,41 @@ Diagnose/Observability（HDR 指数桶 + EWMA + 1/N 采样 SPSC ring；O5）
 > 镜像文件头注 `@note 镜像自 include/prism/...，同步策略：锁定/分叉`。
 > `scripts/check_common_headers.ps1 -CheckMirror` 按上表输出分叉警告；
 > 白名单（`$mirrorWhitelist`）中的文件允许差异，新增白名单条目必须同步更新本表。
+
+## 26. DNS 解析子系统（2026-08-29 重构定稿，A-30）
+
+`Core/Net/Dns/` 分层扩至 **11 头**：Config / Format / **Answer**（热路径扫描）/
+**Transport**（概念+Udp/Tcp/Tls）/**ConnPool**（连接池）/**Doh** / Cache /
+Coalescer / Rules / Upstream / Resolver。依赖单向：Resolver → 编排层 → 传输层 →
+字节层；Transport 之上的层"知道 DNS"，之下只知道"字节帧"（`TransportLink` /
+`PoolableTransport` 分层 concept）；单文件 ≤400 行红线。
+
+关键决策：
+
+- **热路径零物化**：应答解析走 `Answer::ScanAnswers` 单遍扫描（owner name 只
+  推进偏移不构造字符串，地址内联 small_vector<8>），实测比 `Message::Unpack`
+  快 4.6×（50 vs 234 ns/op）；Unpack 保留给测试/golden 路径。
+- **缓存**：槽位式 LRU（世代号惰性重排，Get 命中 O(1) 提升），查找键 260 字节
+  栈缓冲 + 透明哈希异构查找（命中路径零堆分配，实测 105 ns/op）；
+  `MaxEntries=0` = 无限；`EvictExpired` 由 Resolver 的 30s MaintenanceLoop 周期调用。
+- **连接池**：`ConnPool<Link>` per-server 空闲复用（上限/懒过期），TCP/DoT/DoH
+  收益为省 1-2 RTT 建连握手；复用连接首次失败自动新建重试一次；
+  UDP 不入池；`Server.KeepAlive=false` 退回每查询新建。
+- **RCODE 语义**（与主项目一致）：0=成功、3=NXDOMAIN（成功+空 IP → 上层负缓存）；
+  其余 RCODE = 上游拒绝（Fallback 继续下一上游）。
+- **超时负缓存**：默认所有失败均负缓存，`Config.NegativeOnTimeout=false` 时
+  超时可立即重试（2026-08-29 项目所有者拍板）。
+- **通配符语义**（2026-08-29 与生产统一，项目所有者拍板）："至少消耗一级子域"，
+  `*.example.com` 不匹配裸域 `example.com`；生产 `domain_trie` 已同步修正为
+  wild_value 槽位（同域通配与精确规则共存互不覆盖），生产测试
+  `DnsRules.TrieWildcardMatch` / `DnsRulesDeep3.SearchWildcardNotMatchExact` 断言已翻转。
+- **维护循环**：Resolver 30s 周期 EvictExpired + flight FlushCleanup + 连接池
+  清扫（`alive_` 存活标记模式）；flight 清理仍保留查询入口执行（生产
+  query_pipeline 同款，防顺序解析加入陈旧 flight 永久挂起）。
+- **性能基准**（`tests/preview/perf/DnsPerf.cpp`，perf 标签）：Cache 命中
+  105 ns/op、Scan 50 ns/op（Unpack 234）、回环 E2E 9111 QPS（并发 500，
+  2026-08-29 实测，跨机器噪声大仅作对标记录）。
+- **EDNS0**：查询 Additional 段宣告接收缓冲 4096（RFC 6891，无 DO 位）；
+  响应 OPT（type 41）的 TTL 字段为扩展标志位，不参与最小 TTL（ScanAnswers 与
+  Message::MinTtl 双路径一致，见 `DnsAnswer.TestOptRecordExcludedFromMinTtl`）；
+  完整 EDNS 选项（ECS 等）解析仍未覆盖，为遗留缺口。

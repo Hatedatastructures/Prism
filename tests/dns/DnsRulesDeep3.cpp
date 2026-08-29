@@ -184,16 +184,13 @@ namespace
     TEST(DnsRulesDeep3, SearchWildcardNotMatchExact)
     {
         dns::domain_trie trie;
-        // "*.example.com" → labels=["com","example"], wildcard at "example" (idx=1)
-        // search("example.com") → labels=["com","example"], path=["com","example"]
-        // path.size()==labels.size()==2, is_end=true → 精确匹配
-        // 但当前实现 is_end 在 wildcard_depth 处不设置，只有最终节点设置
-        // 实际上 *.example.com 的最终节点也是 "example" (只有 2 个标签)
-        // 所以 is_end=true 且 wildcard=true
+        // "*.example.com" → labels=["com","example"]，锚点 "example" 仅挂
+        // wild_value、不置 is_end：裸域 example.com 不经精确路径泄漏命中
+        // （通配符至少消耗一级子域）
         trie.insert("*.example.com", 10);
         auto r = trie.search("example.com");
-        // 精确匹配路径：path.size()==labels.size()==2, current->is_end==true
-        EXPECT_TRUE(r.has_value()) << "search: *.example.com matches example.com (exact path)";
+        EXPECT_TRUE(!r.has_value())
+            << "search: bare example.com should NOT match *.example.com";
     }
 
     TEST(DnsRulesDeep3, SearchWildcardDeepSubdomain)
