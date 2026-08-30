@@ -128,7 +128,10 @@ namespace Preview::Middleware::Builtin
                         std::span<std::byte>(buf), ReadEc);
                     if (N == 0)
                     {
-                        if (ReadEc)
+                        // 真实 TCP 将 FIN 映射为 Fault::Code::Eof；它和内存传输的
+                        // 空错误码都表示干净半关闭，不能因此关闭反向数据流。
+                        const bool CleanEof = ReadEc == Preview::Fault::Code::Eof;
+                        if (ReadEc && !CleanEof)
                         {
                             CloseRelay(State);
                         }

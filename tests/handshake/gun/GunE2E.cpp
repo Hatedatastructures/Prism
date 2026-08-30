@@ -258,7 +258,16 @@ namespace
         // 读取响应（200 + echo 帧）
         std::array<std::byte, 8192> buf{};
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (ctx.received.size() < payload.size() + 64 && std::chrono::steady_clock::now() < deadline)
+        const auto has_complete_frame = [&ctx]
+        {
+            gun::codec::frame_header header;
+            const auto received = std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t *>(ctx.received.data()), ctx.received.size());
+            return received.size() >= gun::codec::header_fixed_len &&
+                   gun::codec::parse_frame_header(received, header) &&
+                   received.size() >= header.header_len + header.payload_len;
+        };
+        while (!has_complete_frame() && std::chrono::steady_clock::now() < deadline)
         {
             std::error_code r_ec;
             const auto n = co_await ssl_stream->async_read_some(
@@ -313,7 +322,7 @@ namespace
     /// 服务端协程：TLS 握手（服务端）+ gun 会话 + echo
     net::awaitable<void> DoGunServer(psm::transport::shared_transmission raw_trans,
                                      net::ssl::context &SslCtx, const std::string &payload,
-                                     std::shared_ptr<bool> server_ok)
+                                     std::shared_ptr<bool> server_ok, std::shared_ptr<bool> client_ok)
     {
         auto [ssl_ec, ssl_stream, recovered] =
             co_await psm::transport::encrypted::ssl_handshake(std::move(raw_trans), SslCtx);
@@ -352,6 +361,14 @@ namespace
         co_await gun_transport->async_write_some(std::span<const std::byte>(buf.data(), n), w_ec);
         *server_ok = !w_ec;
 
+        // 等客户端消费完整响应后再关闭 TLS 会话，避免平台相关的关闭竞态。
+        net::steady_timer done(gun_transport->executor());
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!*client_ok && std::chrono::steady_clock::now() < deadline)
+        {
+            done.expires_after(std::chrono::milliseconds(10));
+            co_await done.async_wait(net::use_awaitable);
+        }
         gun_session->close();
         co_return;
     }
@@ -421,7 +438,8 @@ TEST(GunE2E, GrpcTransportEcho)
                 co_await t.async_wait(net::use_awaitable);
             }
             net::co_spawn(ioc, DoGunClient(client_ssl, vless_head, payload, client_ok), net::detached);
-            net::co_spawn(ioc, DoGunServer(server_raw, SslCtx, payload, server_ok), net::detached);
+            net::co_spawn(ioc, DoGunServer(server_raw, SslCtx, payload, server_ok, client_ok),
+                          net::detached);
 
             // 等待双方完成（8 秒上限）
             net::steady_timer done(ioc);

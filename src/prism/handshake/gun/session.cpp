@@ -20,7 +20,8 @@ namespace psm::handshake::gun
     session::session(psm::transport::shared_transmission transport, const config &cfg,
                      const memory::resource_pointer mr, std::shared_ptr<diagnose::context> prefix)
         : transport_(std::move(transport)), config_(cfg), mr_(mr), prefix_(std::move(prefix)),
-          request_path_(mr_), frame_buf_(mr_), wait_timer_(transport_->executor())
+          strand_(transport_->executor()), request_path_(mr_), frame_buf_(mr_),
+          wait_timer_(transport_->executor())
     {
         // 流匹配超时 15 秒：防非匹配客户端长期占用会话（DoS）
         wait_timer_.expires_after(std::chrono::seconds(15));
@@ -40,7 +41,7 @@ namespace psm::handshake::gun
         active_.store(true, std::memory_order_release);
         auto self = shared_from_this();
         auto task = [self]() -> net::awaitable<void> { co_await self->frame_loop(); };
-        net::co_spawn(transport_->executor(), std::move(task),
+        net::co_spawn(strand_, std::move(task),
                       [self](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -397,6 +398,12 @@ namespace psm::handshake::gun
     auto session::submit_data_frame(const std::int32_t stream_id, memory::vector<std::byte> frame)
         -> net::awaitable<void>
     {
+        co_await net::dispatch(strand_, net::use_awaitable);
+        if (!is_active())
+        {
+            co_return;
+        }
+
         // 数据源存会话映射：nghttp2 在后续 mem_send 中延迟读取，须防悬垂
         auto src = std::make_unique<data_source>();
         src->buf = std::make_shared<memory::vector<std::byte>>(std::move(frame));

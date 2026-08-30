@@ -63,10 +63,10 @@ TEST(DnsCoalescer, TestLeaderWakesWaiter)
 
     auto waiter = [&]() -> net::awaitable<void>
     {
-        flight->AddWaiter(+1);
+        flight->AcquireWaiter();
         co_await flight->Timer().async_wait(
             net::redirect_error(net::use_awaitable, waitEc));
-        flight->AddWaiter(-1);
+        flight->ReleaseWaiter();
         if (const auto *res = c.GetResult(*flight))
         {
             waiterGotResult = true;
@@ -126,7 +126,7 @@ TEST(DnsCoalescer, TestActiveWaiterBlocksCleanup)
     auto [flight, isNew] = c.FindCreate("busy.com", 1);
     ASSERT_TRUE(isNew);
 
-    flight->AddWaiter(+1);
+    flight->AcquireWaiter();
     c.SetResult(flight, TestResult{});
     c.CleanupFlight(flight);
     // 有等待者 → 不标记待清理，Flush 不删除
@@ -135,7 +135,7 @@ TEST(DnsCoalescer, TestActiveWaiterBlocksCleanup)
     EXPECT_EQ(c.Size(), 1u);
 
     // 等待者离开后可正常清理
-    flight->AddWaiter(-1);
+    flight->ReleaseWaiter();
     c.CleanupFlight(flight);
     c.FlushCleanup();
     EXPECT_EQ(c.Size(), 0u);
@@ -157,11 +157,11 @@ TEST(DnsCoalescer, TestConcurrentWaitersSingleFlight)
 
     auto waiter = [&](const int id) -> net::awaitable<void>
     {
-        flight->AddWaiter(+1);
+        flight->AcquireWaiter();
         boost::system::error_code waitEc;
         co_await flight->Timer().async_wait(
             net::redirect_error(net::use_awaitable, waitEc));
-        flight->AddWaiter(-1);
+        flight->ReleaseWaiter();
         if (const auto *res = c.GetResult(*flight))
         {
             seen[static_cast<std::size_t>(id)] = *res;

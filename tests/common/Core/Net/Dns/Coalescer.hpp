@@ -95,12 +95,23 @@ namespace Preview::Network::Dns
         }
 
         /**
-         * @brief 等待者计数增减
-         * @param delta 通常为 +1（进入等待）或 -1（离开）
+         * @brief 注册一个等待者
          */
-        void AddWaiter(const std::ptrdiff_t delta)
+        void AcquireWaiter()
         {
-            Waiters_ = static_cast<std::size_t>(static_cast<std::ptrdiff_t>(Waiters_) + delta);
+            ++Waiters_;
+        }
+
+        /**
+         * @brief 注销一个等待者
+         * @details 计数已经为零时保持不变，避免无符号下溢。
+         */
+        void ReleaseWaiter()
+        {
+            if (Waiters_ > 0)
+            {
+                --Waiters_;
+            }
         }
 
         /**

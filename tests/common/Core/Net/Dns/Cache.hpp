@@ -66,7 +66,7 @@ namespace Preview::Network::Dns
         std::uint16_t QType{}; ///< 查询类型数值
         boost::container::small_vector<boost::asio::ip::address, 4> Ips; ///< 解析结果（空 = 负缓存语义）
         std::chrono::seconds Ttl{0}; ///< 记录 TTL（会被 TtlMin/TtlMax 钳制）
-        bool Failed{false};          ///< 是否为失败结果（负缓存）
+        bool Failed{false};          ///< true 表示负缓存结果
     };
 
     /// 缓存条目的地址容器（4 个内联覆盖绝大多数应答）
@@ -141,8 +141,8 @@ namespace Preview::Network::Dns
         }
 
         /**
-         * @brief 写入正缓存（自动按 TtlMin/TtlMax 钳制 TTL）
-         * @param in 写入参数（Ips 非空）
+         * @brief 写入缓存（自动按 TtlMin/TtlMax 钳制 TTL）
+         * @param in 写入参数；Failed=true 时写入负缓存语义
          */
         void Put(const PutInput &in)
         {
@@ -152,7 +152,7 @@ namespace Preview::Network::Dns
                 Ttl = std::min(Ttl, Options_.TtlMax);
             }
             Ttl = std::max(Ttl, Options_.TtlMin);
-            Store(in.Domain, in.QType, in.Ips, Ttl, false);
+            Store(in, Ttl);
         }
 
         /**
@@ -162,7 +162,12 @@ namespace Preview::Network::Dns
          */
         void PutNegative(const std::string &domain, const std::uint16_t qtype)
         {
-            Store(domain, qtype, {}, Options_.NegativeTtl, true);
+            PutInput in;
+            in.Domain = domain;
+            in.QType = qtype;
+            in.Ttl = Options_.NegativeTtl;
+            in.Failed = true;
+            Store(in, Options_.NegativeTtl);
         }
 
         /**
@@ -316,10 +321,9 @@ namespace Preview::Network::Dns
         }
 
         /// 统一写入入口（插入 / 覆盖刷新 / 淘汰，均摊 O(1)）
-        void Store(const std::string &domain, const std::uint16_t qtype, const IpList &ips,
-                   const std::chrono::seconds ttl, const bool failed)
+        void Store(const PutInput &in, const std::chrono::seconds ttl)
         {
-            const auto Key = MakeKey(domain, qtype);
+            const auto Key = MakeKey(in.Domain, in.QType);
             const auto Now = std::chrono::steady_clock::now();
 
             // 覆盖已有键：旧槽失效并交还回收站（新项入队尾 = 刷新到最新）
@@ -351,10 +355,10 @@ namespace Preview::Network::Dns
 
             Entry fresh;
             fresh.Key = Key;
-            fresh.Ips = ips;
+            fresh.Ips = in.Ips;
             fresh.Expire = Now + ttl;
             fresh.Inserted = Now;
-            fresh.Failed = failed;
+            fresh.Failed = in.Failed;
             fresh.Dead = false;
             fresh.Gen = ++GenCounter_;
             Slots_[Slot] = std::move(fresh);

@@ -6,10 +6,8 @@
  *          规范化 → IP 字面量快速路径 → 规则检查（Block/Negative/Rewrite/
  *          CNAME 改写）→ 缓存查询（正/负）→ single-flight 合并（等待者挂起
  *          定时器，醒来后重查缓存）→ 上游查询（Servers 为空回退 OS resolver）
- *          → 结果过滤（黑名单 + 地址族匹配）→ 写缓存（TTL 钳制）
- *
- *          兼容旧 API：构造 (ex, CacheSize, Ttl, NegativeTtl)、
- *          AsyncResolve(host, ec)、HitCount/Size/Clear。
+ *          → 结果过滤（黑名单 + 地址族匹配）→ 写缓存（TTL 钳制）。
+ *          查询资源由共享状态管理，后台维护协程不依赖 Resolver 裸指针。
  * @note 负缓存命中与正命中同样递增 HitCount；IP 字面量同样入缓存
  */
 
@@ -30,8 +28,10 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -48,6 +48,32 @@ namespace Preview::Network::Dns
      */
     class Resolver
     {
+    private:
+        /**
+         * @struct State
+         * @brief Resolver 后台任务共享状态
+         * @details 维护定时器和其使用的资源由状态对象共同持有，
+         *          使 detached 维护协程不依赖 Resolver 对象存活。
+         */
+        struct State
+        {
+            State(net::any_io_executor ex, CacheOptions cacheOptions,
+                  std::shared_ptr<Upstream> upstream)
+                : Cache_(std::move(cacheOptions)), Coalescer_(ex),
+                  Upstream_(std::move(upstream)), MaintenanceTimer_(std::move(ex)),
+                  Alive_(std::make_shared<std::atomic<bool>>(true))
+            {
+            }
+
+            Cache Cache_;
+            Coalescer<QueryResult> Coalescer_;
+            std::shared_ptr<Upstream> Upstream_;
+            net::steady_timer MaintenanceTimer_;
+            std::shared_ptr<std::atomic<bool>> Alive_;
+        };
+
+        using FlightPtr = Coalescer<QueryResult>::FlightPtr;
+
     public:
         /**
          * @brief 构造（默认配置）
@@ -59,45 +85,27 @@ namespace Preview::Network::Dns
         }
 
         /**
-         * @brief 构造（兼容旧签名：容量 + TTL）
-         * @param ex 执行器
-         * @param CacheSize 缓存容量（0 = 禁用缓存）
-         * @param ttl 正缓存 TTL
-         * @param NegativeTtl 负缓存 TTL
-         */
-        explicit Resolver(net::any_io_executor ex, const std::size_t CacheSize,
-                          std::chrono::seconds ttl = std::chrono::seconds(60),
-                          std::chrono::seconds NegativeTtl = std::chrono::seconds(5))
-            : Resolver(std::move(ex), MakeCompatConfig(CacheSize, ttl, NegativeTtl))
-        {
-        }
-
-        /**
          * @brief 构造（完整配置）
          * @param ex 执行器
          * @param cfg 配置（上游列表 / 策略 / 规则 / 缓存参数）
          */
         explicit Resolver(net::any_io_executor ex, const Config &cfg)
-            : Ex_(std::move(ex)), Config_(cfg),
-              Rules_(cfg.AddressRules, cfg.CnameRules, {}, cfg.AddressBlacklist,
-                     cfg.BlacklistV4, cfg.BlacklistV6),
-              Cache_(MakeCacheOptions(cfg)),
-              Coalescer_(Ex_),
-              Upstream_(std::make_shared<Upstream>(Ex_, cfg.Servers, cfg.QueryMode,
-                        std::chrono::milliseconds(cfg.TimeoutMs), cfg.MaxConnsPerServer)),
-              MaintenanceTimer_(Ex_), Alive_(std::make_shared<std::atomic<bool>>(true))
+            : Ex_(std::move(ex)), Config_(cfg), Rules_(MakeRulesOptions(cfg)),
+              State_(std::make_shared<State>(
+                  Ex_, MakeCacheOptions(cfg),
+                  std::make_shared<Upstream>(Ex_, MakeUpstreamOptions(cfg))))
         {
-            net::co_spawn(Ex_, MaintenanceLoop(), net::detached);
+            net::co_spawn(Ex_, MaintenanceLoop(State_), net::detached);
         }
 
         /// 停止维护循环（缓存驱逐 / flight 清理 / 池清扫）
         ~Resolver()
         {
-            if (Alive_)
+            if (State_ && State_->Alive_)
             {
-                Alive_->store(false);
+                State_->Alive_->store(false, std::memory_order_release);
+                State_->MaintenanceTimer_.cancel();
             }
-            MaintenanceTimer_.cancel();
         }
 
         Resolver(const Resolver &) = delete;
@@ -112,29 +120,26 @@ namespace Preview::Network::Dns
         [[nodiscard]] auto AsyncResolve(std::string_view host, std::error_code &ec)
             -> net::awaitable<std::vector<net::ip::address>>
         {
-            // 清理上一轮标记待删的 flight（生产 query_pipeline 同款）：
-            // 防止顺序解析加入已完成的陈旧 flight（其唤醒 cancel 已被
-            // 消费，等待将永久挂起），同时保证 flight 表不增长
-            Coalescer_.FlushCleanup();
+            State_->Coalescer_.FlushCleanup();
 
             auto name = Message::NormalizeName(host);
 
-            // ── 1. IP 字面量快速路径（仍入缓存，保持旧版行为）──
+            // IP 字面量快速路径。
             boost::system::error_code litEc;
             auto literal = net::ip::make_address(name, litEc);
             if (!litEc)
             {
-                if (Rules_.IsBlacklisted(literal))
+                if ((Config_.DisableIpv6 && literal.is_v6()) || Rules_.IsBlacklisted(literal))
                 {
                     ec = make_error_code(Error::BadAddress);
                     co_return std::vector<net::ip::address>{};
                 }
                 ec.clear();
-                StorePositive(name, QTypeNum(QType::A), {literal}, DefaultTtl());
+                StorePositive(name, std::vector<net::ip::address>{literal}, DefaultTtl());
                 co_return std::vector<net::ip::address>{literal};
             }
 
-            // ── 2. 规则检查（CNAME 改写只跳转一跳防循环）──
+            // 规则检查，CNAME 改写只跳转一跳以防循环。
             if (const auto rule = Rules_.Match(name))
             {
                 switch (rule->Action)
@@ -146,10 +151,17 @@ namespace Preview::Network::Dns
                     ec.clear();
                     co_return std::vector<net::ip::address>{};
                 case RuleAction::Rewrite:
-                    // 规则地址装载期已预解析，直接返回
-                    StorePositive(name, QTypeNum(QType::A), rule->Addresses, DefaultTtl());
+                {
+                    auto ips = FilterIps(rule->Addresses);
+                    if (ips.empty())
+                    {
+                        ec = make_error_code(Error::BadAddress);
+                        co_return std::vector<net::ip::address>{};
+                    }
+                    StorePositive(name, ips, DefaultTtl());
                     ec.clear();
-                    co_return rule->Addresses;
+                    co_return ips;
+                }
                 case RuleAction::Pass:
                     break;
                 }
@@ -159,57 +171,22 @@ namespace Preview::Network::Dns
                 }
             }
 
-            // ── 3. 缓存查询 ──
-            if (Config_.CacheEnabled)
+            if (auto cached = ReadCache(name, ec))
             {
-                auto cached = Cache_.Get(name, QTypeNum(QType::A));
-                if (cached.has_value())
-                {
-                    ++Hits_;
-                    if (cached->empty())
-                    {
-                        ec = make_error_code(Error::BadAddress);
-                        co_return std::vector<net::ip::address>{};
-                    }
-                    ec.clear();
-                    co_return std::vector<net::ip::address>(cached->begin(), cached->end());
-                }
+                co_return std::move(*cached);
             }
 
-            // ── 4. single-flight 合并 ──
-            auto [flight, isNew] = Coalescer_.FindCreate(name, QTypeNum(QType::A));
+            auto [flight, isNew] = State_->Coalescer_.FindCreate(name, QTypeNum(QType::A));
             QueryResult result;
             if (!isNew)
             {
-                flight->AddWaiter(+1);
-                if (!flight->Ready())
-                {
-                    // leader 仍在途才挂起等待；已完成（陈旧 flight）的
-                    // 唤醒 cancel 已被消费，再等定时器将永久阻塞
-                    boost::system::error_code waitEc;
-                    co_await flight->Timer().async_wait(
-                        net::redirect_error(net::use_awaitable, waitEc));
-                }
-                flight->AddWaiter(-1);
-                Coalescer_.CleanupFlight(flight);
+                co_await WaitForFlight(flight);
 
-                // leader 可能已写入缓存，优先重查
-                if (Config_.CacheEnabled)
+                if (auto cached = ReadCache(name, ec))
                 {
-                    auto cached = Cache_.Get(name, QTypeNum(QType::A));
-                    if (cached.has_value())
-                    {
-                        ++Hits_;
-                        if (cached->empty())
-                        {
-                            ec = make_error_code(Error::BadAddress);
-                            co_return std::vector<net::ip::address>{};
-                        }
-                        ec.clear();
-                        co_return std::vector<net::ip::address>(cached->begin(), cached->end());
-                    }
+                    co_return std::move(*cached);
                 }
-                if (const auto *shared = Coalescer_.GetResult(*flight))
+                if (const auto *shared = State_->Coalescer_.GetResult(*flight))
                 {
                     result = *shared;
                 }
@@ -221,35 +198,10 @@ namespace Preview::Network::Dns
             }
             else
             {
-                // ── 5. leader：上游查询或 OS 回退（异常兜底折算为失败结果，
-                //         保证等待者一定被唤醒而非永久挂起）──
-                try
-                {
-                    result = co_await QueryBothFamilies(name);
-                }
-                catch (...)
-                {
-                    QueryResult failed;
-                    failed.Error = make_error_code(Error::IoError);
-                    result = std::move(failed);
-                }
-                Coalescer_.SetResult(flight, result);
-                Coalescer_.CleanupFlight(flight);
+                result = co_await RunLeader(flight, name);
             }
 
-            // ── 6. 过滤 + 写缓存 ──
-            auto ips = FilterIps(result.Ips);
-            if (!result.Error && !ips.empty())
-            {
-                StorePositive(name, QTypeNum(QType::A), ips, ResultTtl(result));
-                ec.clear();
-                co_return ips;
-            }
-
-            // 上游失败或全部被过滤 → 负缓存（超时可配置豁免）
-            StoreNegative(name, result.Error);
-            ec = make_error_code(Error::BadAddress);
-            co_return std::vector<net::ip::address>{};
+            co_return FinalizeResult(name, result, ec);
         }
 
         /**
@@ -287,7 +239,7 @@ namespace Preview::Network::Dns
          */
         [[nodiscard]] auto Size() const noexcept -> std::size_t
         {
-            return Cache_.Size();
+            return State_->Cache_.Size();
         }
 
         /**
@@ -295,27 +247,10 @@ namespace Preview::Network::Dns
          */
         void Clear()
         {
-            Cache_.Clear();
+            State_->Cache_.Clear();
         }
 
     private:
-        /// 由旧式三参数构造映射出配置
-        [[nodiscard]] static auto MakeCompatConfig(const std::size_t CacheSize,
-                                                   const std::chrono::seconds ttl,
-                                                   const std::chrono::seconds NegativeTtl)
-            -> Config
-        {
-            Config cfg;
-            cfg.CacheEnabled = CacheSize > 0;
-            cfg.MaxCacheEntries = CacheSize == 0 ? 1 : CacheSize;
-            cfg.CacheTtl = ttl;
-            cfg.NegativeTtl = NegativeTtl;
-            // 显式传入的小 TTL 不被默认下限抬高（兼容旧版 1s 过期测试语义）
-            cfg.TtlMin = std::min<std::uint32_t>(cfg.TtlMin,
-                                                 static_cast<std::uint32_t>(ttl.count()));
-            return cfg;
-        }
-
         /// 由配置生成缓存选项
         [[nodiscard]] static auto MakeCacheOptions(const Config &cfg) -> CacheOptions
         {
@@ -326,6 +261,29 @@ namespace Preview::Network::Dns
             opts.NegativeTtl = std::chrono::seconds(cfg.NegativeTtl);
             opts.Policy = cfg.CachePolicy;
             return opts;
+        }
+
+        /// 由 Resolver 配置生成规则引擎选项
+        [[nodiscard]] static auto MakeRulesOptions(const Config &cfg) -> RulesOptions
+        {
+            RulesOptions options;
+            options.AddressRules = cfg.AddressRules;
+            options.CnameRules = cfg.CnameRules;
+            options.BlacklistAddrs = cfg.AddressBlacklist;
+            options.BlacklistV4 = cfg.BlacklistV4;
+            options.BlacklistV6 = cfg.BlacklistV6;
+            return options;
+        }
+
+        /// 由 Resolver 配置生成上游查询选项
+        [[nodiscard]] static auto MakeUpstreamOptions(const Config &cfg) -> UpstreamOptions
+        {
+            UpstreamOptions options;
+            options.Servers = cfg.Servers;
+            options.QueryMode = cfg.QueryMode;
+            options.DefaultTimeout = std::chrono::milliseconds(cfg.TimeoutMs);
+            options.MaxConnsPerServer = cfg.MaxConnsPerServer;
+            return options;
         }
 
         /// A 记录类型数值
@@ -347,9 +305,38 @@ namespace Preview::Network::Dns
             return MinTtl > 0 ? std::chrono::seconds(MinTtl) : DefaultTtl();
         }
 
+        /**
+         * @brief 查询缓存并转换为 Resolver 返回值
+         * @param name 已规范化域名
+         * @param ec 错误码输出
+         * @return 命中返回地址列表；未命中返回空值
+         */
+        [[nodiscard]] auto ReadCache(const std::string &name, std::error_code &ec)
+            -> std::optional<std::vector<net::ip::address>>
+        {
+            if (!Config_.CacheEnabled)
+            {
+                return std::nullopt;
+            }
+            auto cached = State_->Cache_.Get(name, QTypeNum(QType::A));
+            if (!cached)
+            {
+                return std::nullopt;
+            }
+            ++Hits_;
+            if (cached->empty())
+            {
+                ec = make_error_code(Error::BadAddress);
+            }
+            else
+            {
+                ec.clear();
+            }
+            return std::vector<net::ip::address>(cached->begin(), cached->end());
+        }
+
         /// 写入正缓存
-        void StorePositive(const std::string &name, const std::uint16_t qtype,
-                           const std::vector<net::ip::address> &ips,
+        void StorePositive(const std::string &name, const std::vector<net::ip::address> &ips,
                            const std::chrono::seconds ttl)
         {
             if (!Config_.CacheEnabled)
@@ -358,11 +345,11 @@ namespace Preview::Network::Dns
             }
             PutInput in;
             in.Domain = name;
-            in.QType = qtype;
+            in.QType = QTypeNum(QType::A);
             in.Ips.assign(ips.begin(), ips.end());
             in.Ttl = ttl;
             in.Failed = false;
-            Cache_.Put(in);
+            State_->Cache_.Put(in);
         }
 
         /// 写入负缓存（NegativeOnTimeout=false 时超时不入负缓存，可立即重试）
@@ -376,7 +363,70 @@ namespace Preview::Network::Dns
             {
                 return;
             }
-            Cache_.PutNegative(name, QTypeNum(QType::A));
+            State_->Cache_.PutNegative(name, QTypeNum(QType::A));
+        }
+
+        /**
+         * @brief 等待 single-flight leader 完成
+         * @param flight 共享查询记录
+         */
+        auto WaitForFlight(FlightPtr flight) -> net::awaitable<void>
+        {
+            flight->AcquireWaiter();
+            if (!flight->Ready())
+            {
+                boost::system::error_code waitEc;
+                co_await flight->Timer().async_wait(
+                    net::redirect_error(net::use_awaitable, waitEc));
+            }
+            flight->ReleaseWaiter();
+            State_->Coalescer_.CleanupFlight(flight);
+        }
+
+        /**
+         * @brief 执行 single-flight leader 查询并发布结果
+         * @param flight 共享查询记录
+         * @param name 已规范化域名
+         * @return 上游或操作系统解析结果
+         */
+        auto RunLeader(FlightPtr flight, const std::string &name)
+            -> net::awaitable<QueryResult>
+        {
+            QueryResult result;
+            try
+            {
+                result = co_await QueryBothFamilies(name);
+            }
+            catch (...)
+            {
+                result.Error = make_error_code(Error::IoError);
+            }
+            State_->Coalescer_.SetResult(flight, result);
+            State_->Coalescer_.CleanupFlight(flight);
+            co_return result;
+        }
+
+        /**
+         * @brief 过滤、缓存并转换最终解析结果
+         * @param name 已规范化域名
+         * @param result 上游查询结果
+         * @param ec 错误码输出
+         * @return 最终允许返回的地址列表
+         */
+        [[nodiscard]] auto FinalizeResult(const std::string &name, const QueryResult &result,
+                                          std::error_code &ec)
+            -> std::vector<net::ip::address>
+        {
+            auto ips = FilterIps(result.Ips);
+            if (!result.Error && !ips.empty())
+            {
+                StorePositive(name, ips, ResultTtl(result));
+                ec.clear();
+                return ips;
+            }
+            StoreNegative(name, result.Error);
+            ec = make_error_code(Error::BadAddress);
+            return {};
         }
 
         /**
@@ -410,6 +460,12 @@ namespace Preview::Network::Dns
             merged.Ips.erase(std::unique(merged.Ips.begin(), merged.Ips.end()),
                              merged.Ips.end());
             merged.Response = primary.Response;
+            if (secondary.Response.MinTtl > 0 &&
+                (merged.Response.MinTtl == 0 ||
+                 secondary.Response.MinTtl < merged.Response.MinTtl))
+            {
+                merged.Response.MinTtl = secondary.Response.MinTtl;
+            }
             merged.ServerAddr =
                 !primary.ServerAddr.empty() ? primary.ServerAddr : secondary.ServerAddr;
             merged.RttMs = std::max(primary.RttMs, secondary.RttMs);
@@ -433,7 +489,7 @@ namespace Preview::Network::Dns
         {
             if (!Config_.Servers.empty())
             {
-                co_return co_await Upstream_->Resolve(name, qt);
+                co_return co_await State_->Upstream_->Resolve(name, qt);
             }
             co_return co_await OsResolve(name, qt);
         }
@@ -507,7 +563,7 @@ namespace Preview::Network::Dns
             out.reserve(ips.size());
             for (const auto &ip : ips)
             {
-                if (!Rules_.IsBlacklisted(ip))
+                if (!Rules_.IsBlacklisted(ip) && !(Config_.DisableIpv6 && ip.is_v6()))
                 {
                     out.push_back(ip);
                 }
@@ -520,32 +576,29 @@ namespace Preview::Network::Dns
          * @details 取代逐查询入口的 FlushCleanup：热路径零额外开销，
          *          内存水位全部有界（LRU 上限 / 池上限 / flight 两阶段清理）
          */
-        auto MaintenanceLoop() -> net::awaitable<void>
+        static auto MaintenanceLoop(std::shared_ptr<State> state) -> net::awaitable<void>
         {
-            while (Alive_->load())
+            while (state->Alive_->load(std::memory_order_acquire))
             {
-                MaintenanceTimer_.expires_after(std::chrono::seconds(30));
+                state->MaintenanceTimer_.expires_after(std::chrono::seconds(30));
                 boost::system::error_code ec;
-                co_await MaintenanceTimer_.async_wait(
+                co_await state->MaintenanceTimer_.async_wait(
                     net::redirect_error(net::use_awaitable, ec));
-                if (ec == net::error::operation_aborted || !Alive_->load())
+                if (ec == net::error::operation_aborted ||
+                    !state->Alive_->load(std::memory_order_acquire))
                 {
                     co_return;
                 }
-                Cache_.EvictExpired();
-                Coalescer_.FlushCleanup();
-                Upstream_->ClearIdleConns();
+                state->Cache_.EvictExpired();
+                state->Coalescer_.FlushCleanup();
+                state->Upstream_->ClearIdleConns();
             }
         }
 
         net::any_io_executor Ex_;
         Config Config_;
         RulesEngine Rules_;                          ///< 规则引擎（地址/CNAME/黑名单）
-        Cache Cache_;                                ///< 响应缓存
-        Coalescer<QueryResult> Coalescer_;           ///< single-flight 合并器
-        std::shared_ptr<Upstream> Upstream_;         ///< 上游查询客户端（共享所有权，保障 detached 任务生命周期）
-        net::steady_timer MaintenanceTimer_;         ///< 维护循环定时器（30s 周期）
-        std::shared_ptr<std::atomic<bool>> Alive_;   ///< 维护循环存活标记
+        std::shared_ptr<State> State_;               ///< 查询资源与维护协程共享状态
         std::uint64_t Hits_{0};                      ///< 缓存命中计数
     };
 

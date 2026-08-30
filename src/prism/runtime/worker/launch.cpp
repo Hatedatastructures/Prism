@@ -29,6 +29,11 @@ namespace psm::runtime::worker::launch
     [[nodiscard]] auto migrate_executor(tcp::socket &sock, net::io_context &target_ioc) noexcept
         -> std::optional<tcp::socket>
     {
+        if (!sock.is_open())
+        {
+            return std::nullopt;
+        }
+
         boost::system::error_code ec;
         auto local_ep = sock.local_endpoint(ec);
         auto protocol = tcp::v4();

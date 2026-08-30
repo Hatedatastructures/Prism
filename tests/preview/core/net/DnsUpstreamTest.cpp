@@ -365,10 +365,10 @@ TEST(DnsUpstream, TestFallbackSkipsFailedServer)
     EXPECT_EQ(result.ServerAddr, good->Addr());
 }
 
-TEST(DnsUpstream, TestFirstReturnsInServerOrder)
+TEST(DnsUpstream, TestFirstReturnsFirstSuccessfulServer)
 {
     net::io_context ioc;
-    // 首个上游故意延迟：First 策略仍按服务器顺序取首个成功者
+    // 首个上游故意延迟：First 策略返回先完成的成功响应
     auto slow = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer,
                                                 std::chrono::milliseconds(50));
     auto fast = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
@@ -388,7 +388,7 @@ TEST(DnsUpstream, TestFirstReturnsInServerOrder)
             });
 
     EXPECT_FALSE(result.Error);
-    EXPECT_EQ(result.ServerAddr, slow->Addr());
+    EXPECT_EQ(result.ServerAddr, fast->Addr());
 }
 
 TEST(DnsUpstream, TestFastestPicksLowerRtt)

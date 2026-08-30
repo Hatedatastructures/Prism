@@ -159,6 +159,7 @@ namespace
         auto result = launch::migrate_executor(sock, ioc2);
         // 关闭的 socket release 返回的 handle 可能在 assign 时失败
         // 行为取决于平台，但不应崩溃
+        EXPECT_FALSE(result.has_value()) << "migrate: closed socket returns no socket";
         EXPECT_TRUE(!sock.is_open()) << "migrate: closed socket stays closed";
     }
 

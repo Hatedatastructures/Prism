@@ -11,7 +11,9 @@
 int main(int argc, char **argv)
 {
     psm::memory::system::enable_pooling();
-    psm::diagnose::init({});
+    psm::diagnose::config test_trace{};
+    test_trace.enable_file = false;
+    psm::diagnose::init(test_trace);
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

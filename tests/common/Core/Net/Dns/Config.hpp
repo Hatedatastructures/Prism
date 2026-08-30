@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -102,7 +103,7 @@ namespace Preview::Network::Dns
         Protocol Proto{Protocol::Udp};       ///< 通信协议
         std::string Hostname;                ///< TLS SNI / HTTP Host 头
         std::uint16_t Port{53};              ///< 服务端口
-        std::uint32_t TimeoutMs{5000};       ///< 单次查询超时（毫秒）
+        std::uint32_t TimeoutMs{0};          ///< 单次查询超时（0 = 使用 Config.TimeoutMs）
         std::string HttpPath{"/dns-query"};  ///< DoH 查询路径
         bool SkipCertCheck{false};           ///< 跳过 TLS 证书验证
         bool KeepAlive{true};                ///< 连接复用（false = 每查询新建，不入池）
@@ -175,6 +176,76 @@ namespace Preview::Network::Dns
         std::size_t MaxConnsPerServer{4};              ///< 每服务器最大闲置连接数（0 = 禁用池）
     };
 
+    namespace Detail
+    {
+        /// 上游地址拆分结果
+        struct ServerAddressParts
+        {
+            std::string_view Host;
+            std::uint16_t Port{0};
+            bool HasPort{false};
+        };
+
+        /**
+         * @brief 解析十进制端口
+         * @param value 端口文本
+         * @return 合法端口；非法或零端口返回空值
+         */
+        [[nodiscard]] inline auto ParsePortValue(const std::string_view value)
+            -> std::optional<std::uint16_t>
+        {
+            if (value.empty() || value.size() > 5)
+            {
+                return std::nullopt;
+            }
+            std::uint32_t number = 0;
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
+            if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
+                number == 0 || number > 65535)
+            {
+                return std::nullopt;
+            }
+            return static_cast<std::uint16_t>(number);
+        }
+
+        /**
+         * @brief 拆分上游主机和显式端口
+         * @param authority 不含 scheme 与 URL 路径的地址
+         * @return 主机、端口及端口存在标志
+         */
+        [[nodiscard]] inline auto SplitServerAuthority(const std::string_view authority)
+            -> ServerAddressParts
+        {
+            if (authority.starts_with('['))
+            {
+                const auto close = authority.find(']');
+                if (close == std::string_view::npos)
+                {
+                    return {authority, 0, false};
+                }
+                const auto host = authority.substr(1, close - 1);
+                if (close + 1 < authority.size() && authority[close + 1] == ':')
+                {
+                    if (const auto port = ParsePortValue(authority.substr(close + 2)))
+                    {
+                        return {host, *port, true};
+                    }
+                }
+                return {host, 0, false};
+            }
+
+            const auto colon = authority.rfind(':');
+            if (colon != std::string_view::npos && authority.find(':') == colon)
+            {
+                if (const auto port = ParsePortValue(authority.substr(colon + 1)))
+                {
+                    return {authority.substr(0, colon), *port, true};
+                }
+            }
+            return {authority, 0, false};
+        }
+    } // namespace Detail
+
     /**
      * @brief 解析上游服务器地址字符串
      * @details 按 scheme 前缀识别协议并填充默认端口：
@@ -182,14 +253,14 @@ namespace Preview::Network::Dns
      *          - tcp:// → Tcp，端口 53
      *          - tls:// → Tls (DoT)，端口 853
      *          - https:// → Https (DoH)，端口 443
-     *          支持 "host:port" 显式指定端口覆盖默认值。
+     *          支持 "host:port" 和 "[ipv6]:port" 显式指定端口；
+     *          HTTPS 地址还可携带 DoH 路径。
      * @param input 原始地址字符串
      * @return 解析后的 Server 配置；无法识别的输入 Proto 保持 Udp
      */
     [[nodiscard]] inline auto ParseServer(std::string_view input) -> Server
     {
         Server s;
-        s.Address = std::string(input);
 
         struct SchemeMapping
         {
@@ -214,25 +285,22 @@ namespace Preview::Network::Dns
             break;
         }
 
-        // Hostname 默认与地址一致（IP 直连场景）；域名上游由调用方按需覆写 SNI
-        s.Hostname = std::string(input);
-
-        // host:port 形式拆分显式端口（仅处理最后一个冒号，兼容 IPv6 字面量需方括号，
-        // Preview 测试场景以 IPv4 为主）；from_chars 零分配、不抛异常，
-        // 端口须为 1-5 位纯数字且 ≤65535 才生效，否则按无端口处理
-        if (const auto Colon = input.rfind(':');
-            Colon != std::string_view::npos && input.find(']') == std::string_view::npos)
+        // DoH 地址可携带 URL 路径，其余协议只接受 authority。
+        if (s.Proto == Protocol::Https)
         {
-            const auto PortStr = input.substr(Colon + 1);
-            std::uint32_t PortValue = 0;
-            const auto Parsed = std::from_chars(PortStr.data(), PortStr.data() + PortStr.size(), PortValue);
-            if (!PortStr.empty() && PortStr.size() <= 5 &&
-                Parsed.ec == std::errc{} && PortValue <= 65535)
+            if (const auto Slash = input.find('/'); Slash != std::string_view::npos)
             {
-                s.Address = std::string(input.substr(0, Colon));
-                s.Hostname = s.Address;
-                s.Port = static_cast<std::uint16_t>(PortValue);
+                s.HttpPath = std::string(input.substr(Slash));
+                input = input.substr(0, Slash);
             }
+        }
+
+        const auto Parts = Detail::SplitServerAuthority(input);
+        s.Address = std::string(Parts.Host);
+        s.Hostname = s.Address;
+        if (Parts.HasPort)
+        {
+            s.Port = Parts.Port;
         }
         return s;
     }

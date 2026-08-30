@@ -14,6 +14,8 @@
 
 #include <gtest/gtest.h>
 
+#include <utility>
+
 namespace
 {
     namespace net = boost::asio;
@@ -22,6 +24,7 @@ namespace
     using Preview::Network::Dns::CnameRule;
     using Preview::Network::Dns::Config;
     using Preview::Network::Dns::RulesEngine;
+    using Preview::Network::Dns::RulesOptions;
 
     template <typename A>
     void RunCoro(net::io_context &ioc, A coro)
@@ -44,11 +47,22 @@ namespace
         r.Negative = negative;
         return r;
     }
+
+    auto MakeRules(std::vector<AddressRule> addressRules = {},
+                   std::vector<CnameRule> cnameRules = {},
+                   std::vector<std::string> blacklist = {}) -> RulesOptions
+    {
+        RulesOptions options;
+        options.AddressRules = std::move(addressRules);
+        options.CnameRules = std::move(cnameRules);
+        options.Blacklist = std::move(blacklist);
+        return options;
+    }
 } // namespace
 
 TEST(DnsRules, TestExactMatch)
 {
-    RulesEngine engine({MakeRule("ads.example.com", {})}, {}, {});
+    RulesEngine engine(MakeRules({MakeRule("ads.example.com", {})}, {}, {}));
     EXPECT_TRUE(engine.Match("ads.example.com").has_value());
     EXPECT_FALSE(engine.Match("example.com").has_value());
     EXPECT_FALSE(engine.Match("nope.com").has_value());
@@ -56,7 +70,7 @@ TEST(DnsRules, TestExactMatch)
 
 TEST(DnsRules, TestWildcardConsumesAtLeastOneLabel)
 {
-    RulesEngine engine({MakeRule("*.example.com", {})}, {}, {});
+    RulesEngine engine(MakeRules({MakeRule("*.example.com", {})}, {}, {}));
     // 通配符匹配任意深度子域
     EXPECT_TRUE(engine.Match("www.example.com").has_value());
     EXPECT_TRUE(engine.Match("a.b.example.com").has_value());
@@ -68,7 +82,7 @@ TEST(DnsRules, TestWildcardConsumesAtLeastOneLabel)
 
 TEST(DnsRules, TestRootWildcard)
 {
-    RulesEngine engine({MakeRule("*.com", {})}, {}, {});
+    RulesEngine engine(MakeRules({MakeRule("*.com", {})}, {}, {}));
     EXPECT_TRUE(engine.Match("anything.com").has_value());
     EXPECT_TRUE(engine.Match("a.b.com").has_value());
     EXPECT_FALSE(engine.Match("com").has_value());
@@ -77,10 +91,10 @@ TEST(DnsRules, TestRootWildcard)
 
 TEST(DnsRules, TestExactWinsOverWildcard)
 {
-    RulesEngine engine(
+    RulesEngine engine(MakeRules(
         {MakeRule("*.example.com", {net::ip::make_address("9.9.9.9")}),
          MakeRule("special.example.com", {net::ip::make_address("8.8.8.8")})},
-        {}, {});
+        {}, {}));
     auto special = engine.Match("special.example.com");
     ASSERT_TRUE(special.has_value());
     ASSERT_EQ(special->Addresses.size(), 1u);
@@ -94,10 +108,10 @@ TEST(DnsRules, TestExactWinsOverWildcard)
 
 TEST(DnsRules, TestDeeperWildcardWins)
 {
-    RulesEngine engine(
+    RulesEngine engine(MakeRules(
         {MakeRule("*.example.com", {net::ip::make_address("1.1.1.1")}),
          MakeRule("*.www.example.com", {net::ip::make_address("2.2.2.2")})},
-        {}, {});
+        {}, {}));
     auto hit = engine.Match("cdn.www.example.com");
     ASSERT_TRUE(hit.has_value());
     EXPECT_EQ(hit->Addresses[0], net::ip::make_address("2.2.2.2"));
@@ -105,7 +119,7 @@ TEST(DnsRules, TestDeeperWildcardWins)
 
 TEST(DnsRules, TestEmptyAddressesMeansBlock)
 {
-    RulesEngine engine({MakeRule("blocked.com", {})}, {}, {});
+    RulesEngine engine(MakeRules({MakeRule("blocked.com", {})}, {}, {}));
     auto hit = engine.Match("blocked.com");
     ASSERT_TRUE(hit.has_value());
     EXPECT_EQ(hit->Action, Preview::Network::Dns::RuleAction::Block);
@@ -114,8 +128,8 @@ TEST(DnsRules, TestEmptyAddressesMeansBlock)
 TEST(DnsRules, TestCnameMergeWithAddressRule)
 {
     // 同域地址规则与 CNAME 规则合并为一条 RuleResult
-    RulesEngine engine({MakeRule("dual.com", {net::ip::make_address("7.7.7.7")})},
-                       {CnameRule{"dual.com", "real.com"}}, {});
+    RulesEngine engine(MakeRules({MakeRule("dual.com", {net::ip::make_address("7.7.7.7")})},
+                                 {CnameRule{"dual.com", "real.com"}}, {}));
     auto hit = engine.Match("dual.com");
     ASSERT_TRUE(hit.has_value());
     EXPECT_EQ(hit->Action, Preview::Network::Dns::RuleAction::Rewrite);
@@ -125,7 +139,7 @@ TEST(DnsRules, TestCnameMergeWithAddressRule)
 
 TEST(DnsRules, TestBlacklist)
 {
-    RulesEngine engine({}, {}, {"6.6.6.6", "2606:4700::1111"});
+    RulesEngine engine(MakeRules({}, {}, {"6.6.6.6", "2606:4700::1111"}));
     EXPECT_TRUE(engine.IsBlacklisted("6.6.6.6"));
     EXPECT_TRUE(engine.IsBlacklisted("2606:4700::1111"));
     EXPECT_FALSE(engine.IsBlacklisted("8.8.8.8"));
@@ -209,6 +223,30 @@ TEST(DnsRules, TestResolverLiteralBlacklist)
     EXPECT_TRUE(ec);
     // 黑名单字面量不入缓存
     EXPECT_EQ(r.Size(), 0u);
+}
+
+TEST(DnsRules, TestResolverDisableIpv6FiltersStaticResults)
+{
+    net::io_context ioc;
+    Config cfg;
+    cfg.DisableIpv6 = true;
+    cfg.AddressRules.push_back(
+        MakeRule("v6-only.test", {net::ip::make_address("::1")}));
+    Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
+
+    std::error_code literalEc;
+    std::error_code ruleEc;
+    std::vector<net::ip::address> ruleAddrs;
+    RunCoro(ioc,
+            [&]() -> net::awaitable<void>
+            {
+                (void)co_await r.AsyncResolve("::1", literalEc);
+                ruleAddrs = co_await r.AsyncResolve("v6-only.test", ruleEc);
+            });
+
+    EXPECT_TRUE(literalEc);
+    EXPECT_TRUE(ruleEc);
+    EXPECT_TRUE(ruleAddrs.empty());
 }
 
 TEST(DnsRules, TestResolverCnameRedirect)

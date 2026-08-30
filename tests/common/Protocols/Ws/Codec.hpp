@@ -78,14 +78,14 @@ namespace Preview::Ws
         {
             return false;
         }
-        const auto B0 = static_cast<std::uint8_t>(in[0]);
-        const auto B1 = static_cast<std::uint8_t>(in[1]);
-        Header.Fin = (B0 & 0x80) != 0;
-        Header.Opcode = static_cast<std::uint8_t>(B0 & 0x0F);
-        Header.Masked = (B1 & 0x80) != 0;
+        const auto Head0 = static_cast<std::uint8_t>(in[0]);
+        const auto Head1 = static_cast<std::uint8_t>(in[1]);
+        Header.Fin = (Head0 & 0x80) != 0;
+        Header.Opcode = static_cast<std::uint8_t>(Head0 & 0x0F);
+        Header.Masked = (Head1 & 0x80) != 0;
 
         std::size_t Offset = 2;
-        std::uint64_t Len = static_cast<std::uint64_t>(B1 & 0x7F);
+        std::uint64_t Len = static_cast<std::uint64_t>(Head1 & 0x7F);
         if (Len == 126)
         {
             if (in.size() < Offset + 2)
@@ -177,8 +177,8 @@ namespace Preview::Ws
         {
             FinBit = 0x00;
         }
-        const auto B0 = static_cast<std::uint8_t>(static_cast<std::uint8_t>(in.op)) | FinBit;
-        out[0] = static_cast<std::byte>(B0);
+        const auto Head0 = static_cast<std::uint8_t>(static_cast<std::uint8_t>(in.op)) | FinBit;
+        out[0] = static_cast<std::byte>(Head0);
         std::size_t Offset = 2;
         if (Len < 126)
         {

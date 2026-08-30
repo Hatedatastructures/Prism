@@ -15,12 +15,14 @@
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/asio/steady_timer.hpp>
 
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
 #include <array>
+#include <chrono>
 #include <memory>
 
 #include <gtest/gtest.h>
@@ -224,8 +226,16 @@ TEST(XhttpNgxE2E, StreamOneEcho)
     {
         net::co_spawn(ioc.get_executor(), DoH2Client(sa, client_ctx, payload, client_ok), net::detached);
         co_await DoXhttpServer(sb, server_ctx, payload, server_ok);
+        net::steady_timer deadline(ioc);
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!*client_ok && std::chrono::steady_clock::now() < end)
+        {
+            deadline.expires_after(std::chrono::milliseconds(10));
+            co_await deadline.async_wait(net::use_awaitable);
+        }
+        ioc.stop();
     };
-    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
+    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; });
     ioc.run();
     if (ep)
     {

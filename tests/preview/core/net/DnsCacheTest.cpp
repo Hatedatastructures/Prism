@@ -60,6 +60,17 @@ TEST(DnsCache, TestThreeStateGet)
     ASSERT_TRUE(neg.has_value());
     EXPECT_TRUE(neg->empty());
 
+    // PutInput.Failed=true 也必须保持负缓存语义
+    PutInput failed;
+    failed.Domain = "failed.com";
+    failed.QType = QtA;
+    failed.Ttl = std::chrono::seconds(60);
+    failed.Failed = true;
+    c.Put(failed);
+    auto failedHit = c.Get("failed.com", QtA);
+    ASSERT_TRUE(failedHit.has_value());
+    EXPECT_TRUE(failedHit->empty());
+
     // 键按 qtype 区分
     EXPECT_FALSE(c.Get("hit.com", 28).has_value());
 }

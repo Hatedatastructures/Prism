@@ -55,6 +55,22 @@ namespace Preview::Network::Dns
     };
 
     /**
+     * @struct RulesOptions
+     * @brief 规则引擎装载选项
+     * @details 将地址规则、CNAME 规则和三类黑名单收敛为一个
+     *          配置对象，避免构造函数参数过多。
+     */
+    struct RulesOptions
+    {
+        std::vector<AddressRule> AddressRules; ///< 地址映射与屏蔽规则
+        std::vector<CnameRule> CnameRules;     ///< CNAME 重定向规则
+        std::vector<std::string> Blacklist;   ///< 字符串形式的精确黑名单
+        std::vector<boost::asio::ip::address> BlacklistAddrs; ///< 地址形式的精确黑名单
+        std::vector<boost::asio::ip::network_v4> BlacklistV4; ///< IPv4 黑名单网段
+        std::vector<boost::asio::ip::network_v6> BlacklistV6; ///< IPv6 黑名单网段
+    };
+
+    /**
      * @class DomainTrie
      * @brief 反转标签域名前缀树
      * @details "www.example.com" 存储为 com → example → www 三级节点；
@@ -241,24 +257,15 @@ namespace Preview::Network::Dns
     public:
         /**
          * @brief 构造规则引擎并装载规则
-         * @param addressRules 地址规则（Addresses 为空视为 Block，否则 Rewrite）
-         * @param cnameRules CNAME 静态映射（可与地址规则同域合并）
-         * @param blacklist IP 字面量黑名单（字符串形式，装载期解析）
-         * @param blacklistAddrs IP 字面量黑名单（地址形式）
-         * @param netsV4 IPv4 CIDR 黑名单网段
-         * @param netsV6 IPv6 CIDR 黑名单网段
+         * @param options 地址、CNAME 与黑名单配置
          */
-        explicit RulesEngine(const std::vector<AddressRule> &addressRules = {},
-                             const std::vector<CnameRule> &cnameRules = {},
-                             std::vector<std::string> blacklist = {},
-                             std::vector<boost::asio::ip::address> blacklistAddrs = {},
-                             std::vector<boost::asio::ip::network_v4> netsV4 = {},
-                             std::vector<boost::asio::ip::network_v6> netsV6 = {})
-            : NetsV4_(std::move(netsV4)), NetsV6_(std::move(netsV6))
+        explicit RulesEngine(RulesOptions options = {})
+            : NetsV4_(std::move(options.BlacklistV4)),
+              NetsV6_(std::move(options.BlacklistV6))
         {
-            for (const auto &rule : addressRules)
+            for (const auto &rule : options.AddressRules)
             {
-                auto result = LocateSlot(rule.Domain);
+                auto result = LocateSlot(NormalizeDomain(rule.Domain));
                 if (rule.Negative)
                 {
                     result->Action = RuleAction::Negative;
@@ -274,12 +281,12 @@ namespace Preview::Network::Dns
                     result->Addresses.push_back(addr);
                 }
             }
-            for (const auto &rule : cnameRules)
+            for (const auto &rule : options.CnameRules)
             {
-                LocateSlot(rule.Domain)->CnameTarget = rule.Target;
+                LocateSlot(NormalizeDomain(rule.Domain))->CnameTarget = NormalizeDomain(rule.Target);
             }
             // 字符串黑名单装载期解析为地址（无效字面量忽略）
-            for (const auto &item : blacklist)
+            for (const auto &item : options.Blacklist)
             {
                 boost::system::error_code ec;
                 if (auto addr = boost::asio::ip::make_address(item, ec); !ec)
@@ -288,8 +295,8 @@ namespace Preview::Network::Dns
                 }
             }
             Blacklist_.insert(Blacklist_.end(),
-                              std::make_move_iterator(blacklistAddrs.begin()),
-                              std::make_move_iterator(blacklistAddrs.end()));
+                              std::make_move_iterator(options.BlacklistAddrs.begin()),
+                              std::make_move_iterator(options.BlacklistAddrs.end()));
         }
 
         /**
@@ -297,7 +304,7 @@ namespace Preview::Network::Dns
          * @param qname 已规范化查询域名
          * @return 命中返回 RuleResult；未命中返回 nullopt（默认放行）
          */
-        [[nodiscard]] auto Match(const std::string &qname) const -> std::optional<RuleResult>
+        [[nodiscard]] auto Match(std::string_view qname) const -> std::optional<RuleResult>
         {
             const auto hit = Trie_.Search(qname);
             if (hit.Exact != nullptr && hit.Exact->Value_ != nullptr)
@@ -380,6 +387,24 @@ namespace Preview::Network::Dns
         }
 
     private:
+        /// 规则装载期统一域名大小写并去除末尾点号
+        [[nodiscard]] static auto NormalizeDomain(const std::string &domain) -> std::string
+        {
+            std::string normalized = domain;
+            while (normalized.size() > 1 && normalized.back() == '.')
+            {
+                normalized.pop_back();
+            }
+            for (auto &ch : normalized)
+            {
+                if (ch >= 'A' && ch <= 'Z')
+                {
+                    ch = static_cast<char>(ch - 'A' + 'a');
+                }
+            }
+            return normalized;
+        }
+
         /// IPv6 CIDR 前缀匹配（按字节掩码比较）
         [[nodiscard]] static auto MatchesV6(const boost::asio::ip::network_v6 &net,
                                             const std::array<unsigned char, 16> &bytes) -> bool

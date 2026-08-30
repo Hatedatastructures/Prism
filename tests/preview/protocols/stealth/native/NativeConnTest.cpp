@@ -17,11 +17,13 @@
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/asio/steady_timer.hpp>
 
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#include <chrono>
 #include <memory>
 
 #include <gtest/gtest.h>
@@ -70,7 +72,8 @@ namespace
 
     /// 客户端：TLS 握手 + 数据 echo 验证
     net::awaitable<void> DoTlsClient(SharedTransmission raw, ssl::context &client_ctx,
-                                     const std::string &payload, std::shared_ptr<bool> Ok)
+                                     const std::string &payload, std::shared_ptr<bool> Ok,
+                                     std::shared_ptr<bool> Done)
     {
         Preview::Transport::Connector Conn(raw);
         auto Stream = std::make_shared<ssl::stream<Preview::Transport::Connector>>(
@@ -81,6 +84,7 @@ namespace
         if (ec)
         {
             *Ok = false;
+            *Done = true;
             co_return;
         }
         // 发送 payload（经 TLS）
@@ -89,6 +93,7 @@ namespace
         if (ec)
         {
             *Ok = false;
+            *Done = true;
             co_return;
         }
         // 读 echo
@@ -96,6 +101,7 @@ namespace
         const auto n = co_await Stream->async_read_some(
             net::buffer(buf.data(), buf.size()), net::redirect_error(net::use_awaitable, ec));
         *Ok = !ec && n == payload.size() && std::string_view(buf.data(), n) == payload;
+        *Done = true;
         co_return;
     }
 
@@ -140,15 +146,25 @@ TEST(NativeConn, TlsHandshakeAndPassthrough)
 
     const std::string payload = "Native-tls-passthrough";
     auto client_ok = std::make_shared<bool>(false);
+    auto client_done = std::make_shared<bool>(false);
     auto server_ok = std::make_shared<bool>(false);
 
     std::exception_ptr ep;
     auto coro = [&]() -> net::awaitable<void>
     {
-        net::co_spawn(ioc.get_executor(), DoTlsClient(sa, client_ctx, payload, client_ok), net::detached);
+        net::co_spawn(ioc.get_executor(),
+                      DoTlsClient(sa, client_ctx, payload, client_ok, client_done), net::detached);
         co_await DoNativeServer(sb, server_ctx, payload, server_ok);
+        net::steady_timer deadline(ioc);
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!*client_done && std::chrono::steady_clock::now() < end)
+        {
+            deadline.expires_after(std::chrono::milliseconds(10));
+            co_await deadline.async_wait(net::use_awaitable);
+        }
+        ioc.stop();
     };
-    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
+    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; });
     ioc.run();
     if (ep)
     {
@@ -230,15 +246,25 @@ TEST(NativeConn, FragmentedClientHello)
 
     const std::string payload = "fragmented-hello";
     auto client_ok = std::make_shared<bool>(false);
+    auto client_done = std::make_shared<bool>(false);
     auto server_ok = std::make_shared<bool>(false);
 
     std::exception_ptr ep;
     auto coro = [&]() -> net::awaitable<void>
     {
-        net::co_spawn(ioc.get_executor(), DoTlsClient(sa, client_ctx, payload, client_ok), net::detached);
+        net::co_spawn(ioc.get_executor(),
+                      DoTlsClient(sa, client_ctx, payload, client_ok, client_done), net::detached);
         co_await DoNativeServer(sb, server_ctx, payload, server_ok);
+        net::steady_timer deadline(ioc);
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!*client_done && std::chrono::steady_clock::now() < end)
+        {
+            deadline.expires_after(std::chrono::milliseconds(10));
+            co_await deadline.async_wait(net::use_awaitable);
+        }
+        ioc.stop();
     };
-    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
+    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; });
     ioc.run();
     if (ep)
     {

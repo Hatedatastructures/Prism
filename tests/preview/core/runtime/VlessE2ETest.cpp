@@ -13,6 +13,7 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
@@ -446,6 +447,7 @@ namespace
                         payload.size()),
                     ec);
                 // 半关闭客户端写方向（底层 Reliable），下行仍可读
+                co_await net::post(ioc, net::use_awaitable);
                 if (auto rel = std::dynamic_pointer_cast<Transport::Reliable>(
                         proxy->Underlying()))
                 {

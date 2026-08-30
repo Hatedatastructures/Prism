@@ -158,6 +158,7 @@ namespace psm::handshake::xhttp
         config config_;                                 // xhttp 配置
         memory::resource_pointer mr_;                   // 内存资源
         std::shared_ptr<diagnose::context> prefix_;     // 日志前缀上下文
+        net::strand<net::any_io_executor> strand_;      // 串行化 nghttp2 状态与输出
         std::atomic<bool> active_{false};               // 会话是否活跃
 
         nghttp2_session *session_{nullptr};             // nghttp2 会话指针

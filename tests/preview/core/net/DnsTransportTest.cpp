@@ -31,6 +31,7 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -46,6 +47,7 @@ namespace
     using Preview::Network::Dns::QueryResult;
     using Preview::Network::Dns::Server;
     using Preview::Network::Dns::Upstream;
+    using Preview::Network::Dns::UpstreamOptions;
 
     using net::ip::tcp;
     using net::ip::udp;
@@ -347,8 +349,12 @@ TEST(DnsTransport, TestPoolCapacityEviction)
     auto server = std::make_shared<FrameTcpServer>(ioc, FrameTcpServer::Mode::Loop);
     server->Start();
 
-    Upstream up(ioc.get_executor(), {server->MakeConfig()}, Mode::Fastest,
-                std::chrono::milliseconds{4000}, 1);
+    UpstreamOptions options;
+    options.Servers = {server->MakeConfig()};
+    options.QueryMode = Mode::Fastest;
+    options.DefaultTimeout = std::chrono::milliseconds{4000};
+    options.MaxConnsPerServer = 1;
+    Upstream up(ioc.get_executor(), std::move(options));
     std::exception_ptr ep;
     int done = 0;
     net::co_spawn(ioc,

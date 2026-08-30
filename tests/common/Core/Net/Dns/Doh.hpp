@@ -33,6 +33,21 @@ namespace Preview::Network::Dns
 {
 
     /**
+     * @struct DohOptions
+     * @brief DoH 传输构造选项
+     * @details 将执行器、超时、TLS 上下文和 HTTP 参数收敛为
+     *          一个配置对象，避免构造函数参数过多。
+     */
+    struct DohOptions
+    {
+        net::any_io_executor Executor;
+        std::chrono::milliseconds Timeout;
+        std::shared_ptr<ssl::context> Context;
+        std::string HttpPath;
+        std::string HostHeader;
+    };
+
+    /**
      * @class DohTransport
      * @brief DoH 传输（满足 TransportLink / PoolableTransport）
      */
@@ -41,17 +56,11 @@ namespace Preview::Network::Dns
     public:
         /**
          * @brief 构造 DoH 传输
-         * @param ex 执行器
-         * @param timeout 每操作超时
-         * @param ctx TLS 上下文（上层按服务器配置缓存）
-         * @param httpPath 查询路径（默认 /dns-query）
-         * @param hostHeader Host 头值（优先 Hostname，回退 Address）
+         * @param options 执行器、超时、TLS 上下文和 HTTP 参数
          */
-        DohTransport(net::any_io_executor ex, const std::chrono::milliseconds timeout,
-                     std::shared_ptr<ssl::context> ctx, std::string httpPath,
-                     std::string hostHeader)
-            : Tls_(std::move(ex), timeout, std::move(ctx)), HttpPath_(std::move(httpPath)),
-              HostHeader_(std::move(hostHeader))
+        explicit DohTransport(DohOptions options)
+            : Tls_(std::move(options.Executor), options.Timeout, std::move(options.Context)),
+              HttpPath_(std::move(options.HttpPath)), HostHeader_(std::move(options.HostHeader))
         {
         }
 

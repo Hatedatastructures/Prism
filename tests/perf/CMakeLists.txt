@@ -1,3 +1,9 @@
+# 主项目性能工具只在显式开启 benchmark 时构建。
+if(NOT PRISM_ENABLE_BENCHMARK)
+    message(STATUS "Main performance tools disabled (PRISM_ENABLE_BENCHMARK=OFF)")
+    return()
+endif()
+
 # 主项目性能基准（prism 静态库）
 add_executable(BlackholeServer BlackholeServer.cpp)
 target_compile_options(BlackholeServer PRIVATE -g1 -Os)

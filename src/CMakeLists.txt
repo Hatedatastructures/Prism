@@ -73,7 +73,7 @@ if(MINGW)
         "<CMAKE_CXX_COMPILER> <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> <LINK_LIBRARIES>")
 endif()
 
-if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+if(CMAKE_BUILD_TYPE STREQUAL "Debug" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(${PROJECT_NAME} PRIVATE
             -g1
             -Os
@@ -91,7 +91,7 @@ target_link_libraries(${PROJECT_NAME}
 
 # boost 1.89 header-only 的 wrapexcept thunk 被 --gc-sections 裁剪，禁用裁剪
 # （--image-base 为 PE/COFF 专属选项，Linux ELF ld 无法识别，仅 WIN32 传入）
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
+if(CMAKE_BUILD_TYPE STREQUAL "Release" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_link_options(${PROJECT_NAME} PRIVATE -Wl,--no-gc-sections)
     if(WIN32)
         target_link_options(${PROJECT_NAME} PRIVATE -Wl,--image-base,0x140000000)
@@ -101,6 +101,6 @@ endif()
 # Prism 可执行文件不参与覆盖率（GoCompat 需要干净的链接；--coverage 破坏 boost thunk）
 # Prism 链接 coverage 库时需与库一致（避免 relocation 溢出）；wrapexcept thunk 由专用 TU 提供
 # main.cpp 单独移除 coverage 插桩（避免 .xdata relocation 溢出）；库仍插桩
-if(PRISM_ENABLE_COVERAGE)
+if(PRISM_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set_source_files_properties(main.cpp PROPERTIES COMPILE_OPTIONS "-fno-profile-arcs;-fno-test-coverage")
 endif()

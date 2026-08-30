@@ -10,13 +10,15 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# 全局编译选项：允许成员变量名与类型名相同（Linux GCC 严格要求）
+# GCC/Clang 编译选项：允许成员变量名与类型名相同（Linux GCC 严格要求）
 # -Wno-error=changes-meaning: 确保即使被依赖库强制启用也不会作为错误
-add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-Wno-error=changes-meaning>)
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-Wno-error=changes-meaning>)
+endif()
 
 # Release 模式优化：-O3 最大优化，-ffunction-sections/-fdata-sections 配合链接器 --gc-sections 裁剪未使用符号
 # 仅对 C/CXX 生效，避免传给 NASM 汇编器导致编译失败
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
+if(CMAKE_BUILD_TYPE STREQUAL "Release" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(
         $<$<COMPILE_LANGUAGE:C,CXX>:-O3>
         $<$<COMPILE_LANGUAGE:C,CXX>:-ffunction-sections>
@@ -30,7 +32,9 @@ include(FetchContent)
 
 # 依赖缓存：复用已有构建的 _deps 目录，避免重复下载
 # 必须在 FetchContent_MakeAvailable 之前设置，否则缓存变量不生效
-option(PRISM_DEPS_CACHE "Reuse dependencies from another build's _deps directory" "")
+if(NOT DEFINED PRISM_DEPS_CACHE)
+    set(PRISM_DEPS_CACHE "" CACHE PATH "Reuse dependencies from another build's _deps directory")
+endif()
 message(STATUS "PRISM_DEPS_CACHE=${PRISM_DEPS_CACHE}")
 
 if(PRISM_DEPS_CACHE)
@@ -260,11 +264,15 @@ add_library(blake3_c STATIC
     ${BLAKE3_C_DIR}/blake3_avx512.c
 )
 target_include_directories(blake3_c PUBLIC ${BLAKE3_C_DIR})
-# BLAKE3 各 SIMD 源文件需要对应的指令集编译选项（per-file）
-set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse2.c PROPERTIES COMPILE_FLAGS "-msse2")
-set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse41.c PROPERTIES COMPILE_FLAGS "-msse4.1")
-set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
-set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx512.c PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512vl")
+# BLAKE3 各 SIMD 源文件需要对应的指令集编译选项（per-file）。
+# 非 x86 架构不传递 GCC x86 专用参数，交由 BLAKE3 的可移植实现处理。
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|x86|i[3-6]86)$" AND
+   CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse2.c PROPERTIES COMPILE_FLAGS "-msse2")
+    set_source_files_properties(${BLAKE3_C_DIR}/blake3_sse41.c PROPERTIES COMPILE_FLAGS "-msse4.1")
+    set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx2.c PROPERTIES COMPILE_FLAGS "-mavx2")
+    set_source_files_properties(${BLAKE3_C_DIR}/blake3_avx512.c PROPERTIES COMPILE_FLAGS "-mavx512f -mavx512vl")
+endif()
 
 # --- nghttp2 ---
 # HTTP/2 C 库，用于 TrustTunnel 的 HTTP/2 CONNECT 代理。
@@ -317,12 +325,12 @@ option(PRISM_ENABLE_ASAN "Enable AddressSanitizer for memory leak detection" OFF
 message(STATUS "PRISM_ENABLE_ASAN=${PRISM_ENABLE_ASAN}")
 
 
-if(PRISM_ENABLE_COVERAGE)
+if(PRISM_ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(--coverage -O0 -g)
     add_link_options(--coverage)
 endif()
 
-if(PRISM_ENABLE_ASAN)
+if(PRISM_ENABLE_ASAN AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
     add_link_options(-fsanitize=address)
 endif()

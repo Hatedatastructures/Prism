@@ -28,6 +28,8 @@
 #if defined(_WIN32)
 #include <windows.h>
 #include <psapi.h>
+#else
+#include <sys/resource.h>
 #endif
 
 using namespace psm;
@@ -40,6 +42,28 @@ using namespace psm::stress;
 namespace
 {
     namespace net = boost::asio;
+
+    /**
+     * @brief 当前进程内存占用（MB）
+     * @return Windows 取 PagefileUsage（提交内存）；Linux 取 ru_maxrss（峰值驻留，
+     *         单位 KB 换算 MB）。语义略有差异，用于压测曲线的相对趋势足够
+     */
+    auto process_memory_mb() -> double
+    {
+#if defined(_WIN32)
+        PROCESS_MEMORY_COUNTERS pmc{};
+        pmc.cb = sizeof(pmc);
+        if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
+        {
+            return static_cast<double>(pmc.PagefileUsage) / (1024.0 * 1024.0);
+        }
+        return 0;
+#else
+        struct rusage usage{};
+        getrusage(RUSAGE_SELF, &usage);
+        return static_cast<double>(usage.ru_maxrss) / 1024.0;
+#endif
+    }
 
     /**
      * @brief 结果
@@ -77,13 +101,7 @@ namespace
 
         curve_result result{};
         result.connections = connections;
-        PROCESS_MEMORY_COUNTERS base_pmc{};
-        base_pmc.cb = sizeof(base_pmc);
-        double base_mb = 0;
-        if (GetProcessMemoryInfo(GetCurrentProcess(), &base_pmc, sizeof(base_pmc)))
-        {
-            base_mb = static_cast<double>(base_pmc.PagefileUsage) / (1024.0 * 1024.0);
-        }
+        const double base_mb = process_memory_mb();
 
         std::exception_ptr ep;
         std::vector<transport::shared_transmission> keep;
@@ -117,13 +135,7 @@ namespace
             result.build_sec = std::chrono::duration<double>(build_end - build_start).count();
             // 驻留采样（close 前，反映真实驻留内存）
             co_await async_wait(ex, std::chrono::milliseconds(500));
-            PROCESS_MEMORY_COUNTERS pmc{};
-            pmc.cb = sizeof(pmc);
-            if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
-            {
-                result.mem_mb = static_cast<double>(pmc.PagefileUsage) / (1024.0 * 1024.0) - base_mb;
-
-            }
+            result.mem_mb = process_memory_mb() - base_mb;
             result.per_conn_kb = (connections > 0) ? result.mem_mb * 1024.0 / static_cast<double>(connections) : 0.0;
             // 关闭全部连接（Windows IOCP 挂起操作阻止 run 返回）
             for (auto &tx : keep)

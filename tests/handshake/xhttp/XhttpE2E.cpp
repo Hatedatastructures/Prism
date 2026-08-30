@@ -244,7 +244,7 @@ namespace
 
     net::awaitable<void> DoXhttpServer(psm::transport::shared_transmission raw_trans,
                                        net::ssl::context &SslCtx, const std::string &payload,
-                                       std::shared_ptr<bool> server_ok)
+                                       std::shared_ptr<bool> server_ok, std::shared_ptr<bool> client_ok)
     {
         auto [ssl_ec, ssl_stream, recovered] =
             co_await psm::transport::encrypted::ssl_handshake(std::move(raw_trans), SslCtx);
@@ -282,6 +282,14 @@ namespace
         co_await matched->async_write_some(std::span<const std::byte>(buf.data(), n), w_ec);
         *server_ok = !w_ec;
 
+        // 等客户端消费响应后再关闭 TLS 会话，避免平台相关的关闭竞态。
+        net::steady_timer done(matched->executor());
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (!*client_ok && std::chrono::steady_clock::now() < deadline)
+        {
+            done.expires_after(std::chrono::milliseconds(10));
+            co_await done.async_wait(net::use_awaitable);
+        }
         xh_session->close();
         co_return;
     }
@@ -340,7 +348,8 @@ TEST(XhttpE2E, StreamOneEcho)
                 co_await t.async_wait(net::use_awaitable);
             }
             net::co_spawn(ioc, DoXhttpClient(client_ssl, payload, client_ok), net::detached);
-            net::co_spawn(ioc, DoXhttpServer(server_raw, SslCtx, payload, server_ok), net::detached);
+            net::co_spawn(ioc, DoXhttpServer(server_raw, SslCtx, payload, server_ok, client_ok),
+                          net::detached);
 
             net::steady_timer done(ioc);
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);

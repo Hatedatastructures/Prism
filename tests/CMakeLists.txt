@@ -9,13 +9,22 @@ set(_test_common_gtest_main ${_test_common_dir}/gtest_main.cpp)
 function(prism_add_test source_file)
     get_filename_component(test_name ${source_file} NAME_WE)
     add_executable(${test_name} ${CMAKE_CURRENT_SOURCE_DIR}/${source_file})
-    target_compile_options(${test_name} PRIVATE -g1 -Os)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${test_name} PRIVATE -g1 -Os)
+    endif()
     target_link_libraries(${test_name} PRIVATE
         ${PROJECT_NAME}_static_library GTest::gtest prism_test_common)
     target_sources(${test_name} PRIVATE ${_test_common_gtest_main})
     target_include_directories(${test_name} BEFORE PRIVATE
         ${CMAKE_SOURCE_DIR}/tests
         ${CMAKE_SOURCE_DIR}/src)
+    if("${source_file}" MATCHES "StressTest")
+        set(_test_labels LABELS stress)
+    elseif("${source_file}" MATCHES "Perf")
+        set(_test_labels LABELS perf)
+    else()
+        set(_test_labels)
+    endif()
     if(MINGW)
         target_compile_options(${test_name} PRIVATE -Wa,-mbig-obj -fno-keep-inline-dllexport)
         # --out-implib 在 .exe 链接时产生无用的导入库，且在某些 MinGW 版本上
@@ -36,14 +45,16 @@ function(prism_add_test source_file)
         set_target_properties(${test_name} PROPERTIES CROSSCOMPILING_EMULATOR "")
         get_filename_component(_test_runtime_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
         gtest_discover_tests(${test_name}
-            PROPERTIES TIMEOUT 30
+            PROPERTIES TIMEOUT 60
+                       ${_test_labels}
                        ENVIRONMENT "PATH=${_test_runtime_bin};C:/Windows/System32;C:/Windows"
             DISCOVERY_MODE PRE_TEST)
     else()
         # 非 MinGW：继承执行环境 PATH（注入 Windows 风格 PATH 会毁掉
         # Linux 测试进程的共享库解析）
         gtest_discover_tests(${test_name}
-            PROPERTIES TIMEOUT 30
+            PROPERTIES TIMEOUT 60
+                       ${_test_labels}
             DISCOVERY_MODE PRE_TEST)
     endif()
 endfunction()

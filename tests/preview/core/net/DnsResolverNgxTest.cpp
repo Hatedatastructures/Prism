@@ -30,6 +30,7 @@ namespace
 {
     namespace net = boost::asio;
     using namespace Preview;
+    using Preview::Network::Dns::Config;
 
     template <typename A>
     void run_coro(net::io_context &ioc, A coro)
@@ -66,14 +67,20 @@ TEST(DnsResolver, CacheHit)
 {
     net::io_context ioc;
     Preview::Network::Dns::Resolver r(ioc.get_executor());
-    std::error_code ec;
+    std::error_code firstEc;
+    std::error_code secondEc;
+    std::vector<net::ip::address> first;
+    std::vector<net::ip::address> second;
     run_coro(ioc,
              [&]() -> net::awaitable<void>
              {
-                 (void)co_await r.AsyncResolve("localhost", ec);
-                 (void)co_await r.AsyncResolve("localhost", ec);
+                 first = co_await r.AsyncResolve("localhost", firstEc);
+                 second = co_await r.AsyncResolve("localhost", secondEc);
              });
-    // 二次解析命中缓存
+    ASSERT_FALSE(firstEc);
+    ASSERT_FALSE(first.empty());
+    ASSERT_FALSE(secondEc);
+    EXPECT_EQ(second, first);
     EXPECT_EQ(r.HitCount(), 1u);
     EXPECT_EQ(r.Size(), 1u);
 }
@@ -81,7 +88,11 @@ TEST(DnsResolver, CacheHit)
 TEST(DnsResolver, NegativeCache)
 {
     net::io_context ioc;
-    Preview::Network::Dns::Resolver r(ioc.get_executor(), 64, std::chrono::seconds(60), std::chrono::seconds(10));
+    Config cfg;
+    cfg.MaxCacheEntries = 64;
+    cfg.CacheTtl = std::chrono::seconds(60);
+    cfg.NegativeTtl = std::chrono::seconds(10);
+    Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
     std::error_code ec;
     run_coro(ioc,
              [&]() -> net::awaitable<void>
@@ -97,13 +108,17 @@ TEST(DnsResolver, CacheExpiry)
 {
     net::io_context ioc;
     // 极短 TTL（1 秒）
-    Preview::Network::Dns::Resolver r(ioc.get_executor(), 64, std::chrono::seconds(1));
+    Config cfg;
+    cfg.MaxCacheEntries = 64;
+    cfg.CacheTtl = std::chrono::seconds(1);
+    Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
     std::error_code ec;
     run_coro(ioc,
              [&]() -> net::awaitable<void>
              {
                  (void)co_await r.AsyncResolve("localhost", ec);
              });
+    ASSERT_FALSE(ec);
     EXPECT_EQ(r.Size(), 1u);
 
     // 等待过期
@@ -114,23 +129,27 @@ TEST(DnsResolver, CacheExpiry)
                  (void)co_await r.AsyncResolve("localhost", ec);
              });
     // 过期后未命中缓存 → 重新解析，缓存条目被替换
+    ASSERT_FALSE(ec);
+    EXPECT_EQ(r.HitCount(), 0u);
     EXPECT_EQ(r.Size(), 1u);
 }
 
-TEST(DnsResolver, FifoEviction)
+TEST(DnsResolver, CacheCapacityBounded)
 {
     net::io_context ioc;
     // 容量 2
-    Preview::Network::Dns::Resolver r(ioc.get_executor(), 2);
+    Config cfg;
+    cfg.MaxCacheEntries = 2;
+    Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
     std::error_code ec;
     run_coro(ioc,
              [&]() -> net::awaitable<void>
              {
                  (void)co_await r.AsyncResolve("localhost", ec);
                  (void)co_await r.AsyncResolve("127.0.0.1", ec);
-                 (void)co_await r.AsyncResolve("localhost", ec);
+                 (void)co_await r.AsyncResolve("127.0.0.2", ec);
              });
-    // 3 次解析（2 个唯一键），容量 2 → 淘汰最旧
+    // 三个唯一 key 写入容量为 2 的缓存后，条目数必须有界。
     EXPECT_EQ(r.Size(), 2u);
 }
 
@@ -149,7 +168,6 @@ TEST(DnsResolver, ClearCache)
     EXPECT_EQ(r.Size(), 0u);
 }
 
-using Preview::Network::Dns::Config;
 using Preview::Network::Dns::Resolver;
 using Preview::Network::Dns::Server;
 using Preview::Network::Dns::StalePolicy;
@@ -160,9 +178,10 @@ class MiniDnsServer : public std::enable_shared_from_this<MiniDnsServer>
 public:
     enum class Behavior
     {
-        Answer,   ///< 返回固定 A 记录 1.2.3.4（TTL 60s）
-        NxDomain, ///< 返回 NXDOMAIN（Rcode=3，零应答）
-        Silent,   ///< 收到查询不应答
+        Answer,      ///< 返回固定地址记录（TTL 60s）
+        MixedAnswer, ///< A/AAAA 返回不同 TTL 的地址记录
+        NxDomain,    ///< 返回 NXDOMAIN（Rcode=3，零应答）
+        Silent,      ///< 收到查询不应答
     };
 
     MiniDnsServer(net::io_context &ioc, const Behavior behavior, const std::uint32_t ttlSec = 60)
@@ -207,6 +226,14 @@ private:
         out.push_back(static_cast<std::uint8_t>(v & 0xFF));
     }
 
+    static void PutU32(std::vector<std::uint8_t> &out, const std::uint32_t v)
+    {
+        out.push_back(static_cast<std::uint8_t>(v >> 24));
+        out.push_back(static_cast<std::uint8_t>((v >> 16) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((v >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(v & 0xFF));
+    }
+
     auto Loop() -> net::awaitable<void>
     {
         std::vector<std::uint8_t> buf(4096);
@@ -237,27 +264,39 @@ private:
                 continue;
             }
             const bool Nx = Behavior_ == Behavior::NxDomain;
+            const auto QueryType = static_cast<std::uint16_t>((buf[off + 1] << 8) | buf[off + 2]);
+            const bool Aaaa = QueryType == 28;
+            const bool Full = Behavior_ == Behavior::Answer || Behavior_ == Behavior::MixedAnswer;
             std::vector<std::uint8_t> out;
             PutU16(out, static_cast<std::uint16_t>((buf[0] << 8) | buf[1])); // 回显 Id
             PutU16(out, 0x8180u | (Nx ? 0x0003u : 0u));                      // QR|RD|RA (+Rcode=3)
             PutU16(out, 1);
-            PutU16(out, Nx ? 0u : 1u);
+            PutU16(out, Full ? 1u : 0u);
             PutU16(out, 0);
             PutU16(out, 0);
             out.insert(out.end(), buf.begin() + 12,
                        buf.begin() + static_cast<std::ptrdiff_t>(QEnd));
-            if (!Nx)
+            if (Full)
             {
                 PutU16(out, 0xC00Cu); // 压缩指针指向问题段名字
-                PutU16(out, 1);       // type A
+                PutU16(out, Aaaa ? 28 : 1); // type A / AAAA
                 PutU16(out, 1);       // class IN
-                // TTL 4 字节大端
-                out.push_back(static_cast<std::uint8_t>((TtlSec_ >> 24) & 0xFFu));
-                out.push_back(static_cast<std::uint8_t>((TtlSec_ >> 16) & 0xFFu));
-                out.push_back(static_cast<std::uint8_t>((TtlSec_ >> 8) & 0xFFu));
-                out.push_back(static_cast<std::uint8_t>(TtlSec_ & 0xFFu));
-                PutU16(out, 4);       // rdlength
-                out.insert(out.end(), {1, 2, 3, 4});
+                const auto Ttl = Behavior_ == Behavior::MixedAnswer
+                                     ? (Aaaa ? 1u : 60u)
+                                     : TtlSec_;
+                PutU32(out, Ttl);
+                if (Aaaa)
+                {
+                    PutU16(out, 16);
+                    // 使用文档保留地址，避免把未指定地址 :: 混入地址族合并测试。
+                    out.insert(out.end(), {0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
+                                           0, 0, 0, 0, 0, 0, 0, 1});
+                }
+                else
+                {
+                    PutU16(out, 4); // rdlength
+                    out.insert(out.end(), {1, 2, 3, 4});
+                }
             }
             (void)co_await Udp_.async_send_to(
                 net::buffer(out), sender, net::redirect_error(net::use_awaitable, ec));
@@ -304,6 +343,39 @@ TEST(DnsResolver, NxDomainNegativeCachedNoRetry)
              });
     EXPECT_TRUE(ec);
     EXPECT_EQ(server->QueryCount(), 1u); // 负缓存命中，不再打上游
+    server->Close();
+}
+
+TEST(DnsResolver, CacheTtlUsesShortestAddressFamily)
+{
+    net::io_context ioc;
+    auto server = std::make_shared<MiniDnsServer>(ioc, MiniDnsServer::Behavior::MixedAnswer);
+    server->Start();
+
+    Config cfg;
+    cfg.Servers = {server->MakeConfig()};
+    Resolver r(ioc.get_executor(), cfg);
+
+    std::error_code ec;
+    std::vector<net::ip::address> addrs;
+    run_coro(ioc,
+             [&]() -> net::awaitable<void>
+             {
+                 addrs = co_await r.AsyncResolve("ttl.local", ec);
+             });
+    ASSERT_FALSE(ec);
+    ASSERT_EQ(addrs.size(), 2u);
+    EXPECT_EQ(server->QueryCount(), 2u);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+    run_coro(ioc,
+             [&]() -> net::awaitable<void>
+             {
+                 addrs = co_await r.AsyncResolve("ttl.local", ec);
+             });
+
+    EXPECT_FALSE(ec);
+    EXPECT_EQ(server->QueryCount(), 4u);
     server->Close();
 }
 

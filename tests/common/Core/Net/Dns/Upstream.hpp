@@ -64,6 +64,20 @@ namespace Preview::Network::Dns
     };
 
     /**
+     * @struct UpstreamOptions
+     * @brief 上游查询客户端配置
+     * @details 将服务器列表、调度策略、超时和连接池容量收敛为
+     *          一个配置对象，避免构造函数参数过多。
+     */
+    struct UpstreamOptions
+    {
+        std::vector<Server> Servers; ///< 上游服务器列表
+        Mode QueryMode{Mode::Fastest}; ///< 多上游查询策略
+        std::chrono::milliseconds DefaultTimeout{4000}; ///< 默认查询超时
+        std::size_t MaxConnsPerServer{4}; ///< 每服务器最大闲置连接数
+    };
+
+    /**
      * @class Upstream
      * @brief 异步 DNS 查询编排（非线程安全，单 io_context 内使用）
      */
@@ -73,18 +87,26 @@ namespace Preview::Network::Dns
         /**
          * @brief 构造查询客户端
          * @param ex 执行器
-         * @param servers 上游服务器列表
-         * @param mode 解析策略
-         * @param defaultTimeout 默认超时（毫秒），Server 未单独配置时生效
-         * @param maxConnsPerServer 每服务器最大闲置连接数（0 = 禁用池）
+         * @param options 上游服务器、策略、超时和连接池配置
          */
-        explicit Upstream(net::any_io_executor ex, std::vector<Server> servers = {},
-                          const Mode mode = Mode::Fastest,
-                          const std::chrono::milliseconds defaultTimeout = std::chrono::milliseconds{4000},
-                          const std::size_t maxConnsPerServer = 4)
-            : Ex_(std::move(ex)), Servers_(std::move(servers)), Mode_(mode), Timeout_(defaultTimeout),
-              TcpPool_(maxConnsPerServer, PoolIdleTtl),
-              TlsPool_(maxConnsPerServer, PoolIdleTtl), DohPool_(maxConnsPerServer, PoolIdleTtl)
+        explicit Upstream(net::any_io_executor ex, UpstreamOptions options = {})
+            : Ex_(std::move(ex)), Servers_(std::move(options.Servers)),
+              Mode_(options.QueryMode), Timeout_(options.DefaultTimeout),
+              TcpPool_(options.MaxConnsPerServer, PoolIdleTtl),
+              TlsPool_(options.MaxConnsPerServer, PoolIdleTtl),
+              DohPool_(options.MaxConnsPerServer, PoolIdleTtl)
+        {
+        }
+
+        /**
+         * @brief 构造查询客户端的简化形式
+         * @param ex 执行器
+         * @param servers 上游服务器列表
+         * @param mode 多上游查询策略
+         */
+        explicit Upstream(net::any_io_executor ex, std::vector<Server> servers,
+                          const Mode mode = Mode::Fastest)
+            : Upstream(std::move(ex), UpstreamOptions{std::move(servers), mode})
         {
         }
 
@@ -183,11 +205,22 @@ namespace Preview::Network::Dns
         /// 闲置连接存活时长
         static constexpr std::chrono::milliseconds PoolIdleTtl{30000};
 
-        /// 池键：同一池实例内以 host|port 区分服务器
+        /// 池键：按地址、端口、TLS/HTTP 身份区分可复用连接
         [[nodiscard]] static auto PoolKey(const Server &server) -> std::string
         {
-            return server.Address + '|' + std::to_string(server.Port);
+            return server.Address + '|' + std::to_string(server.Port) + '|' + server.Hostname +
+                   '|' + server.HttpPath + '|' + (server.SkipCertCheck ? '1' : '0');
         }
+
+        template <PoolableTransport Link>
+        struct PooledExchangeRequest
+        {
+            ConnPool<Link> &Pool;
+            std::string Key;
+            net::ip::tcp::endpoint Endpoint;
+            const Server &ServerConfig;
+            std::span<const std::uint8_t> Wire;
+        };
 
         /// 单服务器查询分发
         [[nodiscard]] auto QueryServer(const Server &server, const Message &query,
@@ -277,34 +310,32 @@ namespace Preview::Network::Dns
          * @param makeLink 新建连接工厂（返回 EcResult，建连失败携带错误码）
          */
         template <PoolableTransport Link, typename Factory>
-        auto ExchangePooled(ConnPool<Link> &pool, const std::string &key,
-                            const net::ip::tcp::endpoint &ep, const Server &server,
-                            std::span<const std::uint8_t> wire, Factory makeLink)
+        auto ExchangePooled(PooledExchangeRequest<Link> request, Factory makeLink)
             -> net::awaitable<EcResult<std::vector<std::uint8_t>>>
         {
-            if (server.KeepAlive)
+            if (request.ServerConfig.KeepAlive)
             {
-                auto lease = pool.Acquire(key);
+                auto lease = request.Pool.Acquire(request.Key);
                 if (lease.Conn)
                 {
-                    if (auto result = co_await ExchangeOnce(*lease.Conn, wire))
+                    if (auto result = co_await ExchangeOnce(*lease.Conn, request.Wire))
                     {
-                        pool.Release(key, lease.Conn);
+                        request.Pool.Release(request.Key, lease.Conn);
                         co_return result;
                     }
                     // 复用失败：对端可能已按自身策略关闭 keep-alive 连接，
                     // 连接随 lease 离开作用域丢弃，落新建重试
                 }
             }
-            auto fresh = co_await makeLink(ep, server);
+            auto fresh = co_await makeLink(request.Endpoint, request.ServerConfig);
             if (!fresh)
             {
                 co_return std::unexpected(fresh.error());
             }
-            auto result = co_await ExchangeOnce(**fresh, wire);
-            if (result && server.KeepAlive)
+            auto result = co_await ExchangeOnce(**fresh, request.Wire);
+            if (result && request.ServerConfig.KeepAlive)
             {
-                pool.Release(key, *fresh);
+                request.Pool.Release(request.Key, *fresh);
             }
             co_return result;
         }
@@ -338,9 +369,13 @@ namespace Preview::Network::Dns
             -> net::awaitable<EcResult<std::shared_ptr<DohTransport>>>
         {
             const auto HostHeader = !server.Hostname.empty() ? server.Hostname : server.Address;
-            auto link = std::make_shared<DohTransport>(Ex_, TimeoutFor(server),
-                                                       GetSslContext(server), server.HttpPath,
-                                                       HostHeader);
+            DohOptions options;
+            options.Executor = Ex_;
+            options.Timeout = TimeoutFor(server);
+            options.Context = GetSslContext(server);
+            options.HttpPath = server.HttpPath;
+            options.HostHeader = HostHeader;
+            auto link = std::make_shared<DohTransport>(std::move(options));
             if (auto ec = co_await link->Connect(ep, server))
             {
                 co_return std::unexpected(ec);
@@ -409,7 +444,7 @@ namespace Preview::Network::Dns
             if (!ec)
             {
                 auto received = co_await ExchangePooled(
-                    TcpPool_, PoolKey(server), ep, server, wire,
+                    PooledExchangeRequest<TcpTransport>{TcpPool_, PoolKey(server), ep, server, wire},
                     [&](const net::ip::tcp::endpoint &end, const Server &srv)
                     { return MakeTcp(end, srv); });
                 if (!received)
@@ -443,7 +478,7 @@ namespace Preview::Network::Dns
             if (!ec)
             {
                 auto received = co_await ExchangePooled(
-                    TlsPool_, PoolKey(server), ep, server, wire,
+                    PooledExchangeRequest<TlsTransport>{TlsPool_, PoolKey(server), ep, server, wire},
                     [&](const net::ip::tcp::endpoint &end, const Server &srv)
                     { return MakeTls(end, srv); });
                 if (!received)
@@ -477,7 +512,7 @@ namespace Preview::Network::Dns
             if (!ec)
             {
                 auto received = co_await ExchangePooled(
-                    DohPool_, PoolKey(server), ep, server, wire,
+                    PooledExchangeRequest<DohTransport>{DohPool_, PoolKey(server), ep, server, wire},
                     [&](const net::ip::tcp::endpoint &end, const Server &srv)
                     { return MakeDoh(end, srv); });
                 if (!received)

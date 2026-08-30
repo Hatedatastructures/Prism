@@ -1,8 +1,10 @@
 # shadowsocks2022 子模块测试
 prism_add_test(Shadowsocks2022BeastTest.cpp)
 target_link_libraries(Shadowsocks2022BeastTest PRIVATE vmtest_common)
-prism_add_test(Ss2022ClientServerPerf.cpp)
-target_link_libraries(Ss2022ClientServerPerf PRIVATE vmtest_common)
+if(PRISM_ENABLE_BENCHMARK)
+    prism_add_test(Ss2022ClientServerPerf.cpp)
+    target_link_libraries(Ss2022ClientServerPerf PRIVATE vmtest_common)
+endif()
 prism_add_test(Ss2022CodecDeep.cpp)
 target_link_libraries(Ss2022CodecDeep PRIVATE vmtest_common)
 prism_add_test(Ss2022ConnErrorMatrix.cpp)

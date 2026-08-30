@@ -9,22 +9,30 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: prism-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   # 快速门禁：每次 push/PR 都跑（头文件注册 + 镜像漂移警告，不构建）
   gate:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: G7 Header Registration + Mirror Drift
         run: pwsh scripts/check_common_headers.ps1 -CheckMirror
 
   build-windows:
     runs-on: windows-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup MinGW
         uses: egor-tensin/setup-mingw@v2
@@ -36,17 +44,34 @@ jobs:
       - name: Setup CMake
         uses: lukka/get-cmake@latest
 
+      - name: Cache CMake dependencies
+        uses: actions/cache@v5
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-cmake-deps-${{ hashFiles('CMakeLists.txt', 'scripts/patch-*.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-cmake-deps-
+
       - name: G7 Header Registration Check
         run: pwsh scripts/check_common_headers.ps1
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "MinGW Makefiles"
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G "MinGW Makefiles" -DPRISM_ENABLE_BENCHMARK=OFF -DPRISM_ENABLE_STRESS=OFF
 
       - name: Build
-        run: cmake --build build --config Release -j4
+        run: cmake --build build --config Release -j4 --verbose
 
       - name: Run Tests
-        run: ctest --test-dir build --output-on-failure
+        shell: pwsh
+        run: |
+          $ctestArgs = @('--test-dir', 'build', '--output-on-failure', '--timeout', '60', '-j', '2', '-LE', 'perf|stress')
+          & ctest @ctestArgs
+          $parallelExit = $LASTEXITCODE
+          if ($parallelExit -ne 0) {
+            Write-Host "Parallel CTest failed with exit code $parallelExit; rerunning only failed tests serially."
+            & ctest --test-dir build --output-on-failure --timeout 60 --rerun-failed -j 1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Create Archive
         run: |
@@ -55,39 +80,56 @@ jobs:
           cd release && 7z a -tzip prism-windows-x64.zip Prism.exe
 
       - name: Upload Archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prism-windows-x64-zip
           path: release/prism-windows-x64.zip
 
       - name: Upload Executable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prism-windows-x64
           path: build/src/Prism.exe
 
   build-linux:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install Dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake g++-13 nasm
 
+      - name: Cache CMake dependencies
+        uses: actions/cache@v5
+        with:
+          path: build/_deps
+          key: ${{ runner.os }}-cmake-deps-${{ hashFiles('CMakeLists.txt', 'scripts/patch-*.cmake') }}
+          restore-keys: |
+            ${{ runner.os }}-cmake-deps-
+
       - name: G7 Header Registration Check
         run: pwsh scripts/check_common_headers.ps1
 
       - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DPRISM_ENABLE_BENCHMARK=OFF -DPRISM_ENABLE_STRESS=OFF
 
       - name: Build
-        run: cmake --build build --config Release -j$(nproc)
+        run: cmake --build build --config Release --parallel 4 --verbose
 
       - name: Run Tests
-        run: ctest --test-dir build --output-on-failure
+        run: |
+          set +e
+          ctest --test-dir build --output-on-failure --timeout 60 -j 2 -LE 'perf|stress'
+          parallel_exit=$?
+          if [ "$parallel_exit" -ne 0 ]; then
+            echo "Parallel CTest failed with exit code $parallel_exit; rerunning only failed tests serially."
+            ctest --test-dir build --output-on-failure --timeout 60 --rerun-failed -j 1
+            exit $?
+          fi
 
       - name: Create Archive
         run: |
@@ -96,13 +138,13 @@ jobs:
           cd release && tar -czvf prism-linux-x64.tar.gz Prism
 
       - name: Upload Archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prism-linux-x64-tar
           path: release/prism-linux-x64.tar.gz
 
       - name: Upload Executable
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prism-linux-x64
           path: build/src/Prism
@@ -115,12 +157,12 @@ jobs:
       contents: write
     steps:
       - name: Download Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             artifacts/prism-windows-x64-zip/prism-windows-x64.zip

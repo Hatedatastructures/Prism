@@ -60,4 +60,3 @@ if(MINGW)
     endforeach()
 endif()
 
-
