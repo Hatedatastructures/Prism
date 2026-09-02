@@ -14,13 +14,13 @@
 #include <span>
 #include <vector>
 
-#include <common/Protocols/Hysteria2/Codec.hpp>
-#include <common/Protocols/Shadowsocks2022/Codec.hpp>
-#include <common/Protocols/Socks5/Codec.hpp>
-#include <common/Protocols/Trojan/Codec.hpp>
-#include <common/Protocols/Tuic/Codec.hpp>
-#include <common/Protocols/Vless/Codec.hpp>
-#include <common/Protocols/Vmess/Codec.hpp>
+#include <preview/Protocols/Hysteria2/Codec.hpp>
+#include <preview/Protocols/Shadowsocks2022/Codec.hpp>
+#include <preview/Protocols/Socks5/Codec.hpp>
+#include <preview/Protocols/Trojan/Codec.hpp>
+#include <preview/Protocols/Tuic/Codec.hpp>
+#include <preview/Protocols/Vless/Codec.hpp>
+#include <preview/Protocols/Vmess/Codec.hpp>
 
 namespace
 {

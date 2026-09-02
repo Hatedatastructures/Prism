@@ -26,11 +26,11 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Net/UdpRelay.hpp>
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Core/Transport/Unreliable.hpp>
-#include <common/Stress/StressHelper.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Net/UdpRelay.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Transport/Unreliable.hpp>
+#include <TestSupport/Stress/StressHelper.hpp>
 
 namespace
 {

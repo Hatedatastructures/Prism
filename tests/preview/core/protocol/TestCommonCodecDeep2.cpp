@@ -15,11 +15,11 @@
 #include <string_view>
 #include <vector>
 
-#include <common/Core/Error.hpp>
-#include <common/Protocols/Hysteria2/Codec.hpp>
-#include <common/Protocols/Socks5/Codec.hpp>
-#include <common/Protocols/Anytls/Codec.hpp>
-#include <common/Protocols/Reality/Codec.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Protocols/Hysteria2/Codec.hpp>
+#include <preview/Protocols/Socks5/Codec.hpp>
+#include <preview/Protocols/Anytls/Codec.hpp>
+#include <preview/Protocols/Reality/Codec.hpp>
 #include <gtest/gtest.h>
 
 namespace

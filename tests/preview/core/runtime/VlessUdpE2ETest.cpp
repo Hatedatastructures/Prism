@@ -23,18 +23,17 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Handling.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
-#include <common/Core/Runtime/Listener.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Composition/Adapters/ProtocolAdapter.hpp>
+#include <preview/Runtime/Listener.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -45,7 +44,7 @@ namespace
     using udp = net::ip::udp;
     using namespace Preview;
 
-    // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
+    // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::MakeUuid;
     using Preview::Testing::RunCoro;
     using TrafficRecorder = Preview::Testing::TrafficRecorder;
@@ -98,76 +97,22 @@ namespace
         };
     }
 
-    /// 构造一个 VLESS UDP 帧
-    auto make_frame(const Vless::Address &Target, std::string_view payload)
-        -> std::vector<std::uint8_t>
+    /// 流承载 UDP 没有明确的帧长度；服务端必须收口连接而不是尝试解析裸流。
+    auto wait_for_stream_rejection(const std::shared_ptr<Vless::Conn<>> &proxy)
+        -> net::awaitable<bool>
     {
-        std::vector<std::uint8_t> Frame;
-        Vless::BuildUdpPkt(
-            Target,
-            std::span<const std::uint8_t>(
-                reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()),
-            Frame);
-        return Frame;
-    }
-
-    /// 客户端流上往返一次：写帧 → 读回帧 → 解析
-    struct roundtrip_result
-    {
-        std::string echo;
-        Vless::Address src;
-        bool Ok{false};
-    };
-
-    /// 客户端通过协议连接（流）发送一帧并接收回帧
-    auto stream_roundtrip(const std::shared_ptr<Vless::Conn<>> &proxy,
-                          const std::vector<std::uint8_t> &Frame)
-        -> net::awaitable<roundtrip_result>
-    {
-        roundtrip_result out;
-        std::error_code ec;
-        std::size_t Done = 0;
-        auto frame_span = std::span<const std::byte>(
-            reinterpret_cast<const std::byte *>(Frame.data()), Frame.size());
-        while (Done < Frame.size())
+        std::array<std::byte, 64> Buffer{};
+        std::error_code ReadEc;
+        net::steady_timer Watchdog(proxy->Executor());
+        Watchdog.expires_after(std::chrono::seconds(2));
+        auto Result = co_await (proxy->async_read_some(std::span(Buffer), ReadEc) ||
+                                Watchdog.async_wait(net::use_awaitable));
+        if (Result.index() == 1)
         {
-            const auto written = co_await proxy->async_write_some(
-                frame_span.subspan(Done), ec);
-            if (ec)
-            {
-                co_return out;
-            }
-            Done += written;
+            proxy->Close();
+            co_return false;
         }
-        std::array<std::byte, 65535> Rx{};
-        std::error_code rec;
-        // 看门狗竞速：数据面断裂时失败而非挂死（对齐 helpers 头范式）
-        net::steady_timer wd(proxy->Executor());
-        wd.expires_after(std::chrono::seconds(2));
-        auto Result = co_await (proxy->async_read_some(std::span(Rx), rec) ||
-                                wd.async_wait(net::use_awaitable));
-        if (Result.index() == 1 || rec)
-        {
-            co_return out;
-        }
-        const auto n = std::get<0>(std::move(Result));
-        if (n == 0)
-        {
-            co_return out;
-        }
-        Vless::Address src;
-        std::span<const std::uint8_t> payload;
-        if (Vless::ParseUdpPkt(
-                std::span<const std::uint8_t>(
-                    reinterpret_cast<const std::uint8_t *>(Rx.data()), n),
-                src, payload) != Error::None)
-        {
-            co_return out;
-        }
-        out.echo.assign(reinterpret_cast<const char *>(payload.data()), payload.size());
-        out.src = std::move(src);
-        out.Ok = true;
-        co_return out;
+        co_return std::get<0>(std::move(Result)) == 0 || ReadEc;
     }
 
     TEST(TcpListener, VlessUdpConnectEcho)
@@ -203,8 +148,6 @@ namespace
                 return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
-        std::string echo1;
-        std::string echo2;
         bool handshake_ok = false;
         RunCoro(
             ioc,
@@ -225,49 +168,29 @@ namespace
                 }
                 Vless::ClientConfig ccfg;
                 ccfg.uuid = test_uuid();
-                auto [err, proxy] = co_await Vless::Connect(
+                auto [err, proxy] = co_await Vless::Connect({
                     std::move(raw), ccfg,
                     Vless::Address{Vless::AddressType::Ipv4, "127.0.0.1", 0},
-                    Vless::Command::Udp);
+                    Vless::Command::Udp});
                 handshake_ok = err == Error::None && proxy != nullptr;
                 if (!proxy)
                 {
                     co_return;
                 }
 
-                const auto frame1 = make_frame(
-                    Vless::Address{Vless::AddressType::Domain, "example.com", 53},
-                    "vless udp one");
-                const auto r1 = co_await stream_roundtrip(proxy, frame1);
-                echo1 = r1.echo;
-
-                const auto frame2 = make_frame(
-                    Vless::Address{Vless::AddressType::Ipv4, "8.8.8.8", 443},
-                    "vless udp two");
-                const auto r2 = co_await stream_roundtrip(proxy, frame2);
-                echo2 = r2.echo;
+                const auto rejected = co_await wait_for_stream_rejection(proxy);
+                EXPECT_TRUE(rejected);
 
                 proxy->Close();
-                // 有界轮询等数据面退出并上报流量（对齐 TrojanTrafficIdentity 样板）
-                net::steady_timer timer(ioc);
-                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-                while (recorder->Calls == 0 &&
-                       std::chrono::steady_clock::now() < deadline)
-                {
-                    timer.expires_after(std::chrono::milliseconds(5));
-                    co_await timer.async_wait(net::use_awaitable);
-                }
                 listener.Stop();
             });
 
         EXPECT_TRUE(handshake_ok);
-        EXPECT_EQ(echo1, "vless udp one");
-        EXPECT_EQ(echo2, "vless udp two");
         EXPECT_FALSE(*upstream_ep);
-        // UDP 数据面流量必须经 traffic sink 上报（up/down 口径与 relay 一致）
-        EXPECT_GT(recorder->Calls, 0);
-        EXPECT_GT(recorder->Up, 0u);
-        EXPECT_GT(recorder->Down, 0u);
+        // 未进入数据面，不应伪造流量统计。
+        EXPECT_EQ(recorder->Calls, 0);
+        EXPECT_EQ(recorder->Up, 0u);
+        EXPECT_EQ(recorder->Down, 0u);
     }
 
     TEST(TcpListener, VlessUdpConnectIdleTimeout)
@@ -318,22 +241,16 @@ namespace
                 }
                 Vless::ClientConfig ccfg;
                 ccfg.uuid = test_uuid();
-                auto [err, proxy] = co_await Vless::Connect(
+                auto [err, proxy] = co_await Vless::Connect({
                     std::move(raw), ccfg,
                     Vless::Address{Vless::AddressType::Ipv4, "127.0.0.1", 0},
-                    Vless::Command::Udp);
+                    Vless::Command::Udp});
                 if (!proxy)
                 {
                     co_return;
                 }
-                // 空闲等待（超过服务端 IdleTimeout）→ 流被关闭
-                net::steady_timer t(ioc);
-                t.expires_after(std::chrono::milliseconds(400));
-                co_await t.async_wait(net::use_awaitable);
-
-                std::array<std::byte, 8> buf{};
-                const auto n = co_await proxy->async_read_some(std::span(buf), ec);
-                closed = (n == 0 || ec != std::error_code{});
+                // 不具备数据报边界的流式 UDP 在握手后立即被安全拒绝。
+                closed = co_await wait_for_stream_rejection(proxy);
 
                 proxy->Close();
                 listener.Stop();
@@ -374,7 +291,7 @@ namespace
                 return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
-        bool first_ok = false;
+        bool stream_rejected = false;
         RunCoro(
             ioc,
             [&]() -> net::awaitable<void>
@@ -391,27 +308,23 @@ namespace
                 }
                 Vless::ClientConfig ccfg;
                 ccfg.uuid = test_uuid();
-                auto [err, proxy] = co_await Vless::Connect(
+                auto [err, proxy] = co_await Vless::Connect({
                     std::move(raw), ccfg,
                     Vless::Address{Vless::AddressType::Ipv4, "127.0.0.1", 0},
-                    Vless::Command::Udp);
+                    Vless::Command::Udp});
                 if (!proxy)
                 {
                     co_return;
                 }
-                // 先验证一次往返（数据面已建立）
-                const auto Frame = make_frame(
-                    Vless::Address{Vless::AddressType::Domain, "example.com", 53},
-                    "first round");
-                const auto r = co_await stream_roundtrip(proxy, Frame);
-                first_ok = r.Ok;
+                // 流式 UDP 没有明确帧长度，服务端必须拒绝该数据面。
+                stream_rejected = co_await wait_for_stream_rejection(proxy);
 
                 // 关闭流（客户端断开）→ 数据面随 EOF 终止，无需再验证回包
                 proxy->Close();
                 listener.Stop();
             });
 
-        EXPECT_TRUE(first_ok);
+        EXPECT_TRUE(stream_rejected);
         EXPECT_FALSE(*upstream_ep);
     }
 

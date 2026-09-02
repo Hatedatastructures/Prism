@@ -2,7 +2,7 @@
  * @file TlsRecord.cpp
  * @brief TLS 记录帧单元测试
  * @details 测试 Record::builder、Record::serialize、Record::Header/payload/Size 等纯逻辑，
- *          以及使用 MockTransport 测试 Record::Read(Transmission&) 和 Record::Write(Transmission&) 异步 I/O。
+ *          以及使用 ProductionMockTransport 测试 Record::Read(Transmission&) 和 Record::Write(Transmission&) 异步 I/O。
  */
 
 #include <prism/diagnose/log.hpp>
@@ -16,7 +16,7 @@
 #include <cstring>
 #include <span>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
 namespace net = boost::asio;
@@ -159,7 +159,7 @@ namespace
                                        std::byte{0x00}, std::byte{0x04},                  // length=4
                                        std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
 
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         mock->InjectRead(wire);
 
         auto result_rec = std::make_shared<psm::tls::record>();
@@ -184,7 +184,7 @@ namespace
 
     TEST(TlsRecord, AsyncReadError)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         mock->SetReadError(std::make_error_code(std::errc::connection_reset));
 
         auto result_ec = std::make_shared<psm::fault::code>();
@@ -210,7 +210,7 @@ namespace
         std::vector<std::byte> wire = {std::byte{0x17}, std::byte{0x03}, std::byte{0x03}, std::byte{0x40},
                                        std::byte{0x01}}; // length=16385 > 16384
 
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         mock->InjectRead(wire);
 
         auto result_ec = std::make_shared<std::error_code>();
@@ -234,7 +234,7 @@ namespace
         std::array<std::byte, 3> payload = {std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
         auto rec = psm::tls::record::builder().type(0x17).version(0x0303).payload(payload).build();
 
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
 
         net::co_spawn(
             mock->GetIoContext(),
@@ -259,7 +259,7 @@ namespace
         std::array<std::byte, 2> payload = {std::byte{0x01}, std::byte{0x02}};
         auto rec = psm::tls::record::builder().type(0x16).version(0x0303).payload(payload).build();
 
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         mock->SetWriteError(std::make_error_code(std::errc::broken_pipe));
 
         net::co_spawn(

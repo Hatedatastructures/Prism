@@ -15,11 +15,11 @@
 #include <cstdint>
 #include <string>
 
-#include <common/Core/Memory/Container.hpp>
-#include <common/Core/Memory/Pointer.hpp>
-#include <common/Core/Memory/Pool.hpp>
-#include <common/Protocols/Socks5/Codec.hpp>
-#include <common/Protocols/Socks5/Types.hpp>
+#include <preview/Foundation/Memory/Container.hpp>
+#include <preview/Foundation/Memory/Pointer.hpp>
+#include <preview/Foundation/Memory/Pool.hpp>
+#include <preview/Protocols/Socks5/Codec.hpp>
+#include <preview/Protocols/Socks5/Types.hpp>
 
 namespace
 {
@@ -33,19 +33,19 @@ namespace
         ASSERT_NE(mr, nullptr);
 
         // 分配字符串
-        Preview::Memory::string s(mr);
+        Preview::Memory::String s(mr);
         s.assign("hello");
         EXPECT_EQ(s, "hello");
 
         // 分配 vector
-        Preview::Memory::vector<std::uint8_t> v(mr);
+        Preview::Memory::Vector<std::uint8_t> v(mr);
         v.push_back(1);
         v.push_back(2);
         EXPECT_EQ(v.size(), 2U);
 
         // reset 后旧对象失效但可重新分配
         arena.Reset();
-        Preview::Memory::string s2(mr);
+        Preview::Memory::String s2(mr);
         s2.assign("world");
         EXPECT_EQ(s2, "world");
     }
@@ -69,10 +69,10 @@ namespace
         // 8KB 缓冲耗尽后回退上游（local_pool），不崩溃
         Preview::Memory::FrameArena arena;
         auto mr = arena.Get();
-        std::vector<Preview::Memory::string> objs;
+        std::vector<Preview::Memory::String> objs;
         for (int i = 0; i < 200; ++i)
         {
-            Preview::Memory::string s(mr);
+            Preview::Memory::String s(mr);
             s.assign(64, static_cast<char>('a' + (i % 26)));
             objs.push_back(std::move(s));
         }
@@ -86,11 +86,11 @@ namespace
 
     TEST(MemoryPointer, ArenaLifetimeWithinScope)
     {
-        Preview::Memory::string *ptr = nullptr;
+        Preview::Memory::String *ptr = nullptr;
         {
             Preview::Memory::FrameArena arena;
             auto mr = arena.Get();
-            auto s = std::make_unique<Preview::Memory::string>(mr);
+            auto s = std::make_unique<Preview::Memory::String>(mr);
             s->assign("scoped");
             ptr = s.get();
             EXPECT_EQ(*ptr, "scoped");
@@ -143,7 +143,7 @@ namespace
         struct fake_conn
         {
             Preview::Memory::SessionResource<> mem;
-            auto target_string() -> Preview::Memory::string
+            auto target_string() -> Preview::Memory::String
             {
                 return mem.MakeString("conn-target");
             }
@@ -184,7 +184,7 @@ namespace
 
         // 复用缓冲（arena 分配，首次扩容后零分配）
         Preview::Memory::SessionResource mem;
-        Preview::Memory::vector<std::uint8_t> tx_wire(mem.Arena());
+        Preview::Memory::Vector<std::uint8_t> tx_wire(mem.Arena());
         start = std::chrono::steady_clock::now();
         for (int i = 0; i < kIters; ++i)
         {
@@ -227,7 +227,7 @@ namespace
                            .count();
 
         Preview::Memory::SessionResource mem;
-        Preview::Memory::vector<std::uint8_t> tx_wire(mem.Arena());
+        Preview::Memory::Vector<std::uint8_t> tx_wire(mem.Arena());
         start = std::chrono::steady_clock::now();
         for (int i = 0; i < kIters; ++i)
         {
@@ -264,6 +264,20 @@ namespace
         typename Mem::DynamicString str = mem.MakeString("policy-str");
         EXPECT_EQ(str, "policy-str");
         EXPECT_EQ(Mem::GetArenaSize(), 8192U);
+    }
+
+    TEST(MemoryPointer, MakeBufferUsesSelectedResource)
+    {
+        Preview::Memory::SessionResource<> memory;
+
+        auto small = memory.MakeBuffer<std::uint8_t>(64);
+        EXPECT_EQ(small.get_allocator().resource(), memory.Arena());
+
+        auto large = memory.MakeBuffer<std::uint8_t>(8193);
+        EXPECT_EQ(large.get_allocator().resource(), Preview::Memory::System::LocalPool());
+
+        auto wide = memory.MakeBuffer<std::uint64_t>(2048);
+        EXPECT_EQ(wide.get_allocator().resource(), Preview::Memory::System::LocalPool());
     }
 
 } // namespace

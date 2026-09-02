@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <span>
 
-#include <common/Protocols/Mux/H2Mux/Codec.hpp>
+#include <preview/Protocols/Mux/H2Mux/Codec.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -148,8 +148,7 @@ namespace
 
     TEST(H2muxFrameError, WindowUpdateDelta)
     {
-        // BuildPing 仅返回 9 字节帧头：length 字段声明 4 字节 delta 负载，
-        // 帧体不携带 delta 值（delta 为 uint32 无越界输入）
+        // WindowUpdate 帧包含 9 字节帧头和 4 字节大端 delta 负载。
         {
             auto wu = H2Mux::BuildWinupd(5, 0);
             H2Mux::FrameHeader out{};
@@ -157,6 +156,9 @@ namespace
             EXPECT_EQ(out.Type, H2Mux::FrameType::WindowUpdate);
             EXPECT_EQ(out.length, 4u) << "length 字段声明 4 字节负载";
             EXPECT_EQ(out.StreamId, 5u);
+            EXPECT_EQ(wu.size(), 13u);
+            EXPECT_EQ(wu[9], 0u);
+            EXPECT_EQ(wu[12], 0u);
         }
         // 手工构造大端 delta = 100（wire 规范：4 字节大端增量）
         {

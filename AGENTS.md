@@ -241,7 +241,7 @@ scheme_executor::execute → {transport, detected, preread}
 - **Boost.Asio 别名**: `namespace net = boost::asio;`（Asio 自身 API 保持官方小写风格，不改造）
 - **注释**: Doxygen 风格中文 (`@file`, `@brief`, `@details`, `@return`, `@note`)，禁止英文注释
 - **注释参考**: `net/transport/reliable.hpp`
-- **编码规范详细**: `.agents/skills/enforce-coding/SKILL.md`（完整规范清单）
+- **编码规范详细**: `.claude/skills/enforce-coding/SKILL.md`（完整规范清单）
 - **标识符命名**: 简洁清晰，避免过长的多词组合
 - **函数参数** (Rule 1): 不超过 3 个，超过用 struct 收敛
 
@@ -271,9 +271,9 @@ scheme_executor::execute → {transport, detected, preread}
 
 ## 测试
 
-约 325 个 Google Test 独立可执行 target（每个 `.cpp` 一个 target，`prism_add_test` 模式），ctest 注册约 3250 个用例（2026-08-21 实测：CMakeLists `add_executable`/`prism_add_test` 计数 + `TEST(`/`TEST_F(` 宏计数）。共用基础设施：
+约 325 个 Google Test 独立可执行 target（每个 `.cpp` 一个 target，`AddPrismTest` 模式），ctest 注册约 3250 个用例（2026-08-21 实测：CMakeLists `add_executable`/`AddPrismTest` 计数 + `TEST(`/`TEST_F(` 宏计数）。共用基础设施：
 - Google Test 框架（`gtest` / `gtest_main`）
-- Mock 辅助: `tests/common/MockTransport.hpp`、`tests/common/MockTlsServer.hpp`
+- Mock 辅助: `tests/TestSupport/Production/ProductionMockTransport.hpp`、`tests/TestSupport/Tls/MockTlsServer.hpp`
 - 测试公共库分层: `tests/common/` 下 `core/`（协议公共实现）、`proxy/`（各代理协议连接）、`mux/`、`stealth/`、`stress/`
 - 并发测试: `tests/concurrency/server.cpp` + `client.cpp`（需两个终端同时运行）
 - Go 互操作测试: `tests/go/`（quic-go/sing-quic 客户端，需 Go 1.22+ 在 PATH），运行 `ctest --test-dir build -R "GoCompat|GoCmp"`

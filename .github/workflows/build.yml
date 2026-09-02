@@ -27,6 +27,9 @@ jobs:
       - name: G7 Header Registration + Mirror Drift
         run: pwsh scripts/check_common_headers.ps1 -CheckMirror
 
+      - name: Workflow Syntax Check
+        run: pwsh scripts/check_workflow.ps1
+
   build-windows:
     runs-on: windows-latest
     timeout-minutes: 120
@@ -72,6 +75,9 @@ jobs:
             & ctest --test-dir build --output-on-failure --timeout 60 --rerun-failed -j 1
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+      - name: Preview Contract Smoke
+        run: ctest --test-dir build --output-on-failure -R "^(ProtocolContract|TransportContract)" -j 4 --timeout 120
 
       - name: Create Archive
         run: |
@@ -130,6 +136,9 @@ jobs:
             ctest --test-dir build --output-on-failure --timeout 60 --rerun-failed -j 1
             exit $?
           fi
+
+      - name: Preview Contract Smoke
+        run: ctest --test-dir build --output-on-failure -R '^(ProtocolContract|TransportContract)' -j 4 --timeout 120
 
       - name: Create Archive
         run: |

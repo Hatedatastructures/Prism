@@ -77,7 +77,7 @@ namespace psm::dns
      * @note 该类不是线程安全的，应在单个 io_context 线程或 strand 中使用
      * @warning 上游服务器列表为空时，resolve() 将直接返回失败结果
      */
-    class upstream
+    class upstream : public std::enable_shared_from_this<upstream>
     {
     public:
         /**
@@ -180,7 +180,9 @@ namespace psm::dns
          * @param query_msg DNS 查询报文
          * @return 协程对象，返回 query_result
          */
-        [[nodiscard]] auto resolve_concurrent(const message &query_msg) -> net::awaitable<query_result>;
+        [[nodiscard]] auto resolve_concurrent(const message &query_msg,
+                                              std::shared_ptr<upstream> owner)
+            -> net::awaitable<query_result>;
 
         /**
          * @brief 从并发结果中选择最佳响应

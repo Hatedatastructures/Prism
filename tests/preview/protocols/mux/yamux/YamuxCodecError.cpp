@@ -14,8 +14,8 @@
 #include <span>
 #include <vector>
 
-#include <common/Protocols/Mux/Yamux/Codec.hpp>
-#include <common/Protocols/Mux/Yamux/Types.hpp>
+#include <preview/Protocols/Mux/Yamux/Codec.hpp>
+#include <preview/Protocols/Mux/Yamux/Types.hpp>
 #include <gtest/gtest.h>
 
 namespace

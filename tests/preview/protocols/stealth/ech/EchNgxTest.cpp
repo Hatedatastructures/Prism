@@ -8,7 +8,7 @@
  *          - ContainsEchExtension：ClientHello 扫描（含/不含）
  */
 
-#include <common/Protocols/Ech/Ech.hpp>
+#include <preview/Protocols/Ech/Ech.hpp>
 
 #include <openssl/ssl.h>
 
@@ -108,8 +108,10 @@ TEST(EchKeygen, KeypairFromPrivateDeterministic)
 
     Ech::EchKeypair kp1;
     Ech::EchKeypair kp2;
-    EXPECT_EQ(Ech::KeypairFromPrivate(key, "example.com", 32, kp1), Preview::Fault::Code::Success);
-    EXPECT_EQ(Ech::KeypairFromPrivate(key, "example.com", 32, kp2), Preview::Fault::Code::Success);
+    EXPECT_EQ(Ech::KeypairFromPrivate({key, "example.com", 32, kp1}),
+              Preview::Fault::Code::Success);
+    EXPECT_EQ(Ech::KeypairFromPrivate({key, "example.com", 32, kp2}),
+              Preview::Fault::Code::Success);
 
     // 确定性：相同私钥 → 相同 ECHConfig
     ASSERT_EQ(kp1.EchConfig.size(), kp2.EchConfig.size());

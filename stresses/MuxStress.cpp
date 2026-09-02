@@ -7,7 +7,7 @@
 
 #include <prism/protocol/multiplex/smux/frame.hpp>
 #include <prism/protocol/multiplex/yamux/frame.hpp>
-#include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/memory/pointer.hpp>
 #include <prism/foundation/memory/container.hpp>
 
 #include "CountingResource.hpp"

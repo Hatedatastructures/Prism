@@ -23,11 +23,11 @@
 #include <string_view>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Shadowsocks2022/Codec.hpp>
-#include <common/Protocols/Shadowsocks2022/Conn.hpp>
-#include <common/Protocols/Shadowsocks2022/Dgram.hpp>
-#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Shadowsocks2022/Codec.hpp>
+#include <preview/Protocols/Shadowsocks2022/Conn.hpp>
+#include <preview/Protocols/Shadowsocks2022/Dgram.hpp>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -167,12 +167,30 @@ namespace
         bad_body[16] = 0xFF;
         EXPECT_TRUE(codec4.OpenPayload(bad_body).empty());
 
-        // 超长长度块（> max_chunk_size = 0xFFFF）
+        // 合法最大长度与超出 uint16 的长度边界
         ss::ChunkCodec codec5(std::span<const std::uint8_t>(key), 3);
         ss::ChunkCodec dec5(std::span<const std::uint8_t>(key), 3);
+        std::vector<std::uint8_t> max_payload(ss::MaxChunkSize, 0xAB);
+        const auto max_wire = dec5.Seal(max_payload);
+        EXPECT_FALSE(max_wire.empty());
+        std::vector<std::uint8_t> too_large(static_cast<std::size_t>(ss::MaxChunkSize) + 1, 0xAB);
+        EXPECT_TRUE(codec5.Seal(too_large).empty());
+
+        // 短读不能提前消耗 nonce，补齐同一块后必须仍可解密。
+        ss::ChunkCodec retry_encoder{std::span<const std::uint8_t>(key)};
+        ss::ChunkCodec retry_decoder{std::span<const std::uint8_t>(key)};
+        const auto retry_wire = retry_encoder.Seal(AsU8Span(std::string_view{"retry"}));
+        std::size_t retry_consumed = 0;
+        EXPECT_TRUE(retry_decoder.Open(std::span<const std::uint8_t>(retry_wire).first(20), retry_consumed).empty());
+        const auto retry_plain = retry_decoder.Open(retry_wire, retry_consumed);
+        EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(retry_plain.data()), retry_plain.size()), "retry");
+
+        // 解密长度块后长度仍必须受 uint16 表示范围约束。
+        ss::ChunkCodec codec6(std::span<const std::uint8_t>(key), 3);
+        ss::ChunkCodec dec6(std::span<const std::uint8_t>(key), 3);
         std::vector<std::uint8_t> big_payload(20000, 0xAB);
-        const auto big_wire = dec5.Seal(big_payload);
-        EXPECT_FALSE(codec5.OpenLen(std::span<const std::uint8_t>(big_wire).first(18)).has_value());
+        const auto big_wire = dec6.Seal(big_payload);
+        EXPECT_TRUE(codec6.OpenLen(std::span<const std::uint8_t>(big_wire).first(18)).has_value());
     }
 
     TEST(Ss2022CodecDeep, SessionKeyAndUdp)
@@ -201,6 +219,26 @@ namespace
         EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(out_payload.data()), out_payload.size()),
                   "Data");
 
+        // AES-128-GCM 的 Build/Parse 必须严格拒绝非 16 字节密钥；
+        // SessionIdLen=8 只表示报文头字段宽度，不能作为密钥宽度。
+        for (const auto Length : std::array<std::size_t, 6>{0, 7, 8, 15, 17, 32})
+        {
+            const std::vector<std::uint8_t> short_key(Length, 0x33);
+            EXPECT_TRUE(ss::BuildUdpPacket(
+                            ss::UdpBuildInput{short_key, 7, &dst, AsU8Span(std::string_view{"Data"})})
+                            .empty())
+                << "Build 应拒绝 key length=" << Length;
+            EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{short_key, packet, &out_dst, &out_payload}),
+                      Error::BadLength)
+                << "Parse 应拒绝 key length=" << Length;
+        }
+
+        // UDP 明文超过协议上限必须拒绝，避免构造非法数据报
+        std::vector<std::uint8_t> oversized(ss::MaxUdpPayload + 1, 0xAA);
+        EXPECT_TRUE(ss::BuildUdpPacket(
+                        ss::UdpBuildInput{key, 8, &dst, oversized})
+                        .empty());
+
         // 空 Target → bad_length
         EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{key, packet, nullptr, &out_payload}),
                   Error::BadLength);
@@ -213,15 +251,53 @@ namespace
         wrong_key.fill(0x99);
         EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{wrong_key, packet, &out_dst, &out_payload}),
                   Error::BadAuth);
-        // 类型字节非法 → bad_message
+        // 修改密文中的类型位置会先破坏 AEAD，必须报告 bad_auth，不能解析伪造字段
         auto bad_type = packet;
         bad_type[16] = 0x02;
         EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{key, bad_type, &out_dst, &out_payload}),
-                  Error::BadMessage);
+                  Error::BadAuth);
         // 载荷 tag 校验失败 → bad_auth
         auto bad_tag = packet;
         bad_tag.back() ^= 0x01;
         EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{key, bad_tag, &out_dst, &out_payload}),
+                  Error::BadAuth);
+    }
+
+    TEST(Ss2022CodecDeep, RejectsUnknownAddressTypeInVarHeader)
+    {
+        const std::vector<std::uint8_t> Wire{0xFF, 0x00, 0x00, 0x50, 0x00, 0x00};
+        ss::Address Target{};
+        std::span<const std::uint8_t> Payload;
+
+        EXPECT_EQ(ss::ParseVarHeader(Wire, Target, Payload), Error::BadAddress);
+    }
+
+    TEST(Ss2022CodecDeep, DistinguishesEmptyPayloadFromBadAuthentication)
+    {
+        const std::array<std::uint8_t, 16> Key{0x01, 0x02, 0x03, 0x04,
+                                                0x05, 0x06, 0x07, 0x08,
+                                                0x09, 0x0A, 0x0B, 0x0C,
+                                                0x0D, 0x0E, 0x0F, 0x10};
+        ss::Address Target{};
+        Target.Type = ss::AddressType::Ipv4;
+        Target.Host = "192.0.2.1";
+        Target.Port = 443;
+
+        const auto EmptyPacket = ss::BuildUdpPacket(
+            ss::UdpBuildInput{Key, 99, &Target, std::span<const std::uint8_t>{}});
+        ASSERT_FALSE(EmptyPacket.empty());
+
+        ss::Address ParsedTarget{};
+        std::vector<std::uint8_t> ParsedPayload{0xFF};
+        EXPECT_EQ(ss::ParseUdpPacket(
+                      ss::UdpParseInput{Key, EmptyPacket, &ParsedTarget, &ParsedPayload}),
+                  Error::None);
+        EXPECT_TRUE(ParsedPayload.empty());
+
+        auto TamperedPacket = EmptyPacket;
+        TamperedPacket.back() ^= 0x01;
+        EXPECT_EQ(ss::ParseUdpPacket(
+                      ss::UdpParseInput{Key, TamperedPacket, &ParsedTarget, &ParsedPayload}),
                   Error::BadAuth);
     }
 
@@ -309,23 +385,45 @@ namespace
                      dst.Port = 80;
                      const auto serr = co_await dg2->AsyncSendTo(dst, AsU8Span(std::string_view{"pkt"}));
                      EXPECT_EQ(serr, Error::None);
-                     std::array<std::uint8_t, 2048> raw{};
-                     std::error_code ec;
-                     const auto rn = co_await peer2->async_read_some(AsBytes(std::span<std::uint8_t>(raw)), ec);
-                     const auto back = std::vector<std::uint8_t>(raw.begin(), raw.begin() + rn);
-                     const auto werr = co_await peer2->WriteAll(back);
-                     EXPECT_FALSE(werr);
+                      std::array<std::uint8_t, 2048> raw{};
+                      std::error_code ec;
+                      const auto rn = co_await peer2->async_read_some(AsBytes(std::span<std::uint8_t>(raw)), ec);
+                      const auto request = std::vector<std::uint8_t>(raw.begin(), raw.begin() + rn);
+                      ss::Address requestTarget{};
+                      std::vector<std::uint8_t> requestPayload;
+                      std::array<std::uint8_t, ss::SessionIdLen> clientSession{};
+                      std::uint64_t requestPacketId = 0;
+                      std::uint64_t requestTimestamp = 0;
+                      std::uint8_t requestType = 0;
+                      const auto parseErr = ss::ParseUdpPacket(
+                          ss::UdpParseInput{key, request, &requestTarget, &requestPayload,
+                                            &clientSession, &requestPacketId, &requestTimestamp,
+                                            &requestType, nullptr});
+                      EXPECT_EQ(parseErr, Error::None);
+                      EXPECT_EQ(requestType, ss::HeaderTypeClient);
+                      std::array<std::uint8_t, ss::SessionIdLen> serverSession{0xA0, 0xA1, 0xA2, 0xA3,
+                                                                                 0xA4, 0xA5, 0xA6, 0xA7};
+                      const auto response = ss::BuildUdpPacket(ss::UdpBuildInput{
+                          key, 0, &requestTarget, requestPayload, serverSession, 0, clientSession,
+                          ss::HeaderTypeServer});
+                      const auto werr = co_await peer2->WriteAll(response);
+                      EXPECT_FALSE(werr);
                      ss::Address src{};
                      std::vector<std::uint8_t> payload;
                      const auto rerr = co_await dg2->AsyncReceiveFrom(src, payload);
                      EXPECT_EQ(rerr, Error::None);
-                     EXPECT_EQ(src.Host, "example.com");
+                     // SIP022 服务端响应不携带目标地址，客户端沿用请求目标。
+                     EXPECT_TRUE(src.Host.empty());
                  });
 
         // Conn：完整握手（fake Server 响应）+ 装饰器方法 + 数据面
         auto [e, f] = MakeMemoryPair(ioc.get_executor());
         auto server_side = std::make_shared<MemoryStream>(std::move(f));
-        auto cn = std::make_shared<Shadowsocks2022::Conn<>>("pw");
+        const std::array<std::uint8_t, 16> ConnPsk{0x61, 0x62, 0x63, 0x64,
+                                                   0x65, 0x66, 0x67, 0x68,
+                                                   0x69, 0x6A, 0x6B, 0x6C,
+                                                   0x6D, 0x6E, 0x6F, 0x70};
+        auto cn = std::make_shared<Shadowsocks2022::Conn<>>(ConnPsk);
 
         // 未握手读写 → not_open
         run_coro(ioc,
@@ -359,8 +457,7 @@ namespace
                          const auto salt = std::span<const std::uint8_t>(buf.data(), 16);
                          std::array<std::uint8_t, 16> ServerSalt{};
                          ServerSalt.fill(0x77);
-                         const auto resp_key =
-                             ss::SessionKey(Shadowsocks2022::DerivePsk("pw"), ServerSalt, 16);
+                          const auto resp_key = ss::SessionKey(ConnPsk, ServerSalt, 16);
                          ss::ChunkCodec RespCodec(resp_key);
                          std::array<std::uint8_t, ss::RespFixedHdrPlain> plain{};
                          plain[0] = ss::HeaderTypeServer;

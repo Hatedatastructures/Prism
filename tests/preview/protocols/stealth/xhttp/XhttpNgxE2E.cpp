@@ -9,9 +9,9 @@
  * @note 使用自包含 http2 实现（非 nghttp2）
  */
 
-#include <common/Protocols/Http2/Impl.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Xhttp/Xhttp.hpp>
+#include <preview/Protocols/Http2/Impl.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Xhttp/Xhttp.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ssl.hpp>

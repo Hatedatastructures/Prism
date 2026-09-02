@@ -1,6 +1,5 @@
-prism_add_test(SmuxFrameError.cpp)
-target_link_libraries(SmuxFrameError PRIVATE vmtest_common)
+AddPreviewTest(SmuxFrameError.cpp)
+target_link_libraries(SmuxFrameError PRIVATE PreviewProtocolMux PreviewTestSupport)
 
-prism_add_test(SmuxCraftDeep2.cpp)
-target_link_libraries(SmuxCraftDeep2 PRIVATE vmtest_common)
-
+AddProductionTest(SmuxCraftDeep2.cpp)
+target_link_libraries(SmuxCraftDeep2 PRIVATE ProductionTestSupport)

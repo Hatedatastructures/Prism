@@ -10,11 +10,12 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
-#include <common/Bench/Bench.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Core/Transport/Stream.hpp>
+#include <TestSupport/Benchmark/Bench.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Transport/Stream.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -147,11 +148,12 @@ namespace
                          const auto n = co_await a.ReadSome(buf);
                          EXPECT_EQ(n, 0u);
                      };
-                     net::co_spawn(a.Executor(), reader(), net::detached);
+                     auto reader_task = net::co_spawn(a.Executor(), std::move(reader), net::use_awaitable);
                      // 让 reader 先挂起
                      co_await net::post(a.Executor(), net::use_awaitable);
                      co_await net::post(a.Executor(), net::use_awaitable);
                      a.Cancel();
+                     co_await std::move(reader_task);
                  });
     }
 

@@ -9,8 +9,8 @@
 
 #include <prism/foundation/memory/pool.hpp>
 
-#include <common/Bench/Bench.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
+#include <tests/TestSupport/Benchmark/Bench.hpp>
+#include <preview/Transport/MemoryStream.hpp>
 #include <common/proxy/trojan/trojan.hpp>
 #include <common/proxy/vless/vless.hpp>
 #include <common/proxy/shadowsocks2022/shadowsocks2022.hpp>

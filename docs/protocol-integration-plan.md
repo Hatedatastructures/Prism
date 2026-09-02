@@ -38,7 +38,7 @@ probe 识别 ─→ make_protocol_handler(type) ─→ <proto>::handler::run()
 | 4. 协议模块 | `include/prism/protocol/<name>/` + `src/prism/protocol/<name>/`（handler/codec/config/constants） |
 | 5. 配置聚合 | `include/prism/runtime/config.hpp`（protocol::config）+ `include/prism/settings/settings.hpp`（glaze） |
 | 6. 伪装方案（如有） | `include/prism/handshake/<name>/scheme.hpp` + `src/prism/handshake/registry.cpp`（register_schemes） |
-| 7. 测试 | `tests/protocol/<name>/` + `tests/handshake/<name>/`，`prism_add_test` 宏 |
+| 7. 测试 | `tests/protocol/<name>/` + `tests/handshake/<name>/`，`AddPrismTest` 宏 |
 
 **编码约束**：函数参数 ≤2（超 3 用 struct 收敛）、函数体 ≤120 行、lambda ≤10 行、纯协程无阻塞、Doxygen 中文注释、hot path 用 PMR。
 

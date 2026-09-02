@@ -14,7 +14,7 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Runtime/SessionRegistry.hpp>
+#include <preview/Runtime/SessionRegistry.hpp>
 
 namespace
 {

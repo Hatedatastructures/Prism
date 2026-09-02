@@ -2,7 +2,7 @@
  * @file TunnelTest.cpp
  * @brief 隧道双向转发测试
  * @details 测试 tunnel() 函数的双向转发、write_policy 分支、
- * 空闲超时取消、流量统计刷写等行为。使用 MockTransport 作为
+ * 空闲超时取消、流量统计刷写等行为。使用 ProductionMockTransport 作为
  * 入站/出站传输层。
  * @note 驱动模式：co_spawn + completion handler + ioc.run()，
  * 附看门狗定时器防止 tunnel 未返回时测试挂死。
@@ -26,14 +26,14 @@
 #include <span>
 #include <vector>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
 namespace
 {
     namespace net = boost::asio;
     using namespace psm::connect;
-    using namespace Preview::Testing;
+    using Psm::Testing::ProductionMockTransport;
     using namespace psm::transport;
 
     // 辅助：创建最小会话资源
@@ -65,8 +65,8 @@ namespace
     }
 
     // 辅助：延迟关闭两端传输，唤醒挂起读使 tunnel 返回
-    void spawn_closer(net::io_context &ioc, const std::shared_ptr<MockTransport> &Inbound,
-                      const std::shared_ptr<MockTransport> &Outbound)
+    void spawn_closer(net::io_context &ioc, const std::shared_ptr<ProductionMockTransport> &Inbound,
+                      const std::shared_ptr<ProductionMockTransport> &Outbound)
     {
         net::co_spawn(
             ioc,
@@ -89,8 +89,8 @@ TEST(Tunnel, BasicBidirectionalForward)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto Inbound = std::make_shared<MockTransport>();
-    auto Outbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
+    auto Outbound = std::make_shared<ProductionMockTransport>();
 
     // 注入测试数据：Inbound→Outbound 和 Outbound→Inbound
     const std::vector<std::byte> upload_data(100, std::byte{0xAA});
@@ -135,8 +135,8 @@ TEST(Tunnel, PartialWritePolicy)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto Inbound = std::make_shared<MockTransport>();
-    auto Outbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
+    auto Outbound = std::make_shared<ProductionMockTransport>();
 
     const std::vector<std::byte> Data(50, std::byte{0xCC});
     Inbound->InjectRead(Data.data(), Data.size());
@@ -173,8 +173,8 @@ TEST(Tunnel, EmptyDataImmediateClose)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto Inbound = std::make_shared<MockTransport>();
-    auto Outbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
+    auto Outbound = std::make_shared<ProductionMockTransport>();
 
     // 不注入任何数据，直接关闭
     Inbound->close();
@@ -207,8 +207,8 @@ TEST(Tunnel, ReadErrorTerminatesTunnel)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto Inbound = std::make_shared<MockTransport>();
-    auto Outbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
+    auto Outbound = std::make_shared<ProductionMockTransport>();
 
     // 设置 Inbound 读错误
     Inbound->SetReadError(std::make_error_code(std::errc::connection_reset));
@@ -240,8 +240,8 @@ TEST(Tunnel, WriteErrorTerminatesTunnel)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto Inbound = std::make_shared<MockTransport>();
-    auto Outbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
+    auto Outbound = std::make_shared<ProductionMockTransport>();
 
     // 给 Inbound 数据可以读，但 Outbound 写会报错
     const std::vector<std::byte> Data(100, std::byte{0xDD});
@@ -275,8 +275,8 @@ TEST(Tunnel, MinimalBufferSize)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto Inbound = std::make_shared<MockTransport>();
-    auto Outbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
+    auto Outbound = std::make_shared<ProductionMockTransport>();
 
     // 最小数据
     const std::vector<std::byte> Data{std::byte{0x01}, std::byte{0x02}};
@@ -314,8 +314,8 @@ TEST(Tunnel, CancelPropagation)
     net::io_context ioc;
     std::atomic<bool> Done{false};
 
-    auto Inbound = std::make_shared<MockTransport>();
-    auto Outbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
+    auto Outbound = std::make_shared<ProductionMockTransport>();
 
     auto sess = make_minimal_session(ioc, 4096);
 

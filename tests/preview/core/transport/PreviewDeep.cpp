@@ -10,17 +10,17 @@
 #include <prism/foundation/foundation.hpp>
 
 #include "../../src/prism/net/transport/preview.cpp"
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
-using Preview::Testing::MockTransport;
+using Psm::Testing::ProductionMockTransport;
 
 namespace
 {
     namespace psm_transport = psm::transport;
-    auto make_mock() -> std::shared_ptr<MockTransport>
+    auto make_mock() -> std::shared_ptr<ProductionMockTransport>
     {
-        return std::make_shared<MockTransport>();
+        return std::make_shared<ProductionMockTransport>();
     }
 
     // ─── 构造函数测试 ──────────────────────────
@@ -129,7 +129,7 @@ namespace
     {
         auto mock = make_mock();
         psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
-        // MockTransport 使用默认 TransportType() → 沿 NextLayer 链，最终返回 Tcp
+        // ProductionMockTransport 使用默认 TransportType() → 沿 NextLayer 链，最终返回 Tcp
         EXPECT_EQ(p.transport_type(), psm::transport::transmission::type::tcp) << "TransportType: mock Inner -> Tcp";
     }
 
@@ -330,7 +330,7 @@ namespace
     {
         auto mock = make_mock();
         psm::transport::preview p(psm::transport::shared_transmission(mock), std::span<const std::byte>{});
-        auto *ll = p.lowest_layer<MockTransport>();
+        auto *ll = p.lowest_layer<ProductionMockTransport>();
         EXPECT_EQ(ll, mock.get()) << "lowest_layer: navigates to mock";
     }
 

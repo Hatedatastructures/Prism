@@ -20,16 +20,16 @@
 #include <string_view>
 #include <utility>
 
-#include <common/Core/Error.hpp>
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Handling.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Runtime/Adapter/Handler.hpp>
-#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Runtime/Contract/Handler.hpp>
+#include <preview/Composition/Adapters/ProtocolAdapter.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -37,7 +37,7 @@ namespace
     namespace net = boost::asio;
     using namespace Preview;
 
-    using Preview::Testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
+    using Preview::Testing::RunCoro; // 公共样板（见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
 
     /// 可识别首包（socks5 Greeting）
     auto socks5_greeting() -> std::string

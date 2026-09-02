@@ -1,5 +1,4 @@
-prism_add_test(WsCodec.cpp)
-prism_add_test(WsSchemeDeep.cpp)
+AddProductionTest(WsCodec.cpp)
+AddProductionTest(WsSchemeDeep.cpp)
 
-prism_add_test(WsE2E.cpp)
-
+AddProductionTest(WsE2E.cpp)

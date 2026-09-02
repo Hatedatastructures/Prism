@@ -1,1 +1,1 @@
-prism_add_test(validator.cpp)
+AddProductionTest(validator.cpp)

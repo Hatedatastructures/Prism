@@ -20,18 +20,18 @@
 #include <string>
 #include <vector>
 
-#include <common/Bench/Bench.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
-#include <common/Protocols/Trojan/Trojan.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
-#include <common/Protocols/Anytls/Anytls.hpp>
-#include <common/Protocols/Gun/Gun.hpp>
-#include <common/Protocols/Reality/Reality.hpp>
-#include <common/Protocols/Restls/Restls.hpp>
-#include <common/Protocols/Shadowtls/Shadowtls.hpp>
-#include <common/Protocols/Trusttunnel/Trusttunnel.hpp>
-#include <common/Protocols/Ws/Ws.hpp>
+#include <TestSupport/Benchmark/Bench.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
+#include <preview/Protocols/Anytls/Anytls.hpp>
+#include <preview/Protocols/Gun/Gun.hpp>
+#include <preview/Protocols/Reality/Reality.hpp>
+#include <preview/Protocols/Restls/Restls.hpp>
+#include <preview/Protocols/Shadowtls/Shadowtls.hpp>
+#include <preview/Protocols/Trusttunnel/Trusttunnel.hpp>
+#include <preview/Protocols/Ws/Ws.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -207,7 +207,8 @@ namespace
             const auto sr = make_random32();
             const auto cr = make_random32();
             auto [err, c] =
-                co_await Shadowtls::Connect(std::move(up), Shadowtls::ClientConfig{"st_password"}, sr, cr);
+                co_await Shadowtls::Connect(
+                    {std::move(up), Shadowtls::ClientConfig{"st_password"}, sr, cr});
             co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
@@ -259,7 +260,7 @@ namespace
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
             auto [err, c] = co_await Trusttunnel::Connect(
-                std::move(up), Trusttunnel::ClientConfig{"tu_user", "tu_pass"}, "example.com", 443);
+                {std::move(up), Trusttunnel::ClientConfig{"tu_user", "tu_pass"}, "example.com", 443});
             co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
@@ -336,8 +337,8 @@ namespace
             Reality::ClientConfig cfg;
             cfg.private_key = cli_priv;
             cfg.ShortId.fill(0x42);
-            auto [err, c] = co_await Reality::Connect(std::move(up), cfg, srv_pub,
-                                                      Reality::HandshakeParams{random, hello, cfg.ShortId});
+            auto [err, c] = co_await Reality::Connect(
+                {std::move(up), cfg, srv_pub, Reality::HandshakeParams{random, hello, cfg.ShortId}});
             co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
@@ -346,8 +347,8 @@ namespace
             Reality::ServerConfig cfg;
             cfg.private_key = srv_priv;
             cfg.ShortId.fill(0x42);
-            auto [err, got_sid, c] = co_await Reality::Accept(std::move(up), cfg, cli_pub,
-                                                              Reality::HandshakeParams{random, hello});
+            auto [err, got_sid, c] = co_await Reality::Accept(
+                {std::move(up), cfg, cli_pub, Reality::HandshakeParams{random, hello}});
             (void)got_sid;
             co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
@@ -403,8 +404,8 @@ namespace
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
                      auto [cerr, c] = co_await Trusttunnel::Connect(
-                         std::make_shared<MemoryStream>(std::move(a)),
-                         Trusttunnel::ClientConfig{"tu_user", "tu_pass"}, "example.com", 443);
+                         {std::make_shared<MemoryStream>(std::move(a)),
+                          Trusttunnel::ClientConfig{"tu_user", "tu_pass"}, "example.com", 443});
                      if (cerr != Error::None)
                      {
                          EXPECT_TRUE(false) << "Connect err=" << static_cast<int>(cerr);

@@ -17,9 +17,9 @@
 #include <string>
 #include <vector>
 
-#include <common/Bench/Bench.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
+#include <TestSupport/Benchmark/Bench.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
 #include <gtest/gtest.h>
 
 namespace

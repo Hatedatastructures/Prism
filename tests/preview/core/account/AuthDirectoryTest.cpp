@@ -19,12 +19,12 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Account/Authenticator.hpp>
-#include <common/Core/Account/Directory.hpp>
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Middleware/Builtin/Auth.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Middleware/Pipeline.hpp>
+#include <preview/Foundation/Utility/Account/Authenticator.hpp>
+#include <preview/Foundation/Utility/Account/Directory.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Runtime/Middleware/Builtin/Auth.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Runtime/Middleware/Pipeline.hpp>
 
 namespace
 {
@@ -67,7 +67,7 @@ namespace
     TEST(DirectoryAuthenticator, DisabledRejected)
     {
         Preview::Account::Directory dir;
-        dir.Upsert("blocked", 5, true); // 禁用
+        dir.Upsert("blocked", {.MaxConnections = 5, .Disabled = true}); // 禁用
 
         const Preview::Account::DirectoryAuthenticator Auth(&dir);
         auto r = Auth.CheckDirectory("user", "blocked");
@@ -78,7 +78,7 @@ namespace
     TEST(DirectoryAuthenticator, ExpiredRejected)
     {
         Preview::Account::Directory dir;
-        dir.Upsert("old", 5, false, 1000);
+        dir.Upsert("old", {.MaxConnections = 5, .ExpireAt = 1000});
 
         fake_now = 500;
         const Preview::Account::DirectoryAuthenticator Auth(&dir, fake_clock);
@@ -121,18 +121,23 @@ namespace
         std::exception_ptr ep;
         net::co_spawn(ioc,
                       [&]() -> net::awaitable<void>
-                      {
-                          rc_ok = co_await mw.Handle(Inbound, ctx);
-                          // 错误凭据 → auth_failed
-                          ctx.RawSecret = "wrong";
-                          rc_bad = co_await mw.Handle(Inbound, ctx);
+                       {
+                           rc_ok = co_await mw.Handle(Inbound, ctx);
+                           EXPECT_EQ(ctx.identity, "cred-a");
+                           EXPECT_TRUE(ctx.AccountLease.has_value());
+                           EXPECT_EQ(dir.Find("cred-a")->Active(), 1u);
+                           // 错误凭据 → auth_failed
+                           ctx.RawSecret = "wrong";
+                           rc_bad = co_await mw.Handle(Inbound, ctx);
                       },
                       [&](std::exception_ptr e) { ep = e; ioc.stop(); });
         ioc.run();
         ASSERT_FALSE(ep);
         EXPECT_EQ(rc_ok, Preview::Fault::Code::Success);
-        EXPECT_EQ(ctx.identity, "cred-a");
         EXPECT_EQ(rc_bad, Preview::Fault::Code::AuthFailed);
+        EXPECT_TRUE(ctx.identity.empty());
+        EXPECT_FALSE(ctx.AccountLease.has_value());
+        EXPECT_EQ(dir.Find("cred-a")->Active(), 0u);
     }
 
 } // namespace

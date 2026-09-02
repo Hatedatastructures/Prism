@@ -20,8 +20,8 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -230,7 +230,7 @@ namespace
                  });
     }
 
-    TEST(VlessConnSession, UdpDgramRoundtrip)
+    TEST(VlessConnSession, StreamBackedUdpFactoryIsRejected)
     {
         net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
@@ -239,51 +239,14 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 服务端：AcceptPacket（udp 命令）→ Dgram 收包
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         Vless::ServerConfig cfg;
-                         cfg.uuid = uuid;
-                         auto [err, req, dg] =
-                             co_await Vless::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
-                                                           cfg);
-                         if (err != Error::None || !dg)
-                         {
-                             EXPECT_TRUE(false) << "AcceptPacket Failed";
-                             co_return;
-                         }
-                         EXPECT_EQ(req.Cmd, Vless::Command::Udp);
-                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::Udp);
-                         Vless::Address src;
-                         std::vector<std::uint8_t> payload;
-                         const auto rerr = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(rerr, Error::None);
-                         EXPECT_EQ(src.Type, Vless::AddressType::Domain);
-                         EXPECT_EQ(src.Host, "example.com");
-                         EXPECT_EQ(src.Port, 53u);
-                         EXPECT_EQ(std::string(payload.begin(), payload.end()), "dns query");
-                         EXPECT_TRUE(dg->Stream());
-                         dg->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-
                      Vless::ClientConfig cfg;
                      cfg.uuid = uuid;
                      auto [herr, dg] = co_await Vless::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
                          make_addr(Vless::AddressType::Domain, "example.com", 53));
-                     EXPECT_EQ(herr, Error::None);
-                     if (!dg)
-                     {
-                         co_return;
-                     }
-                     const std::string p = "dns query";
-                     const auto serr = co_await dg->AsyncSendTo(
-                         make_addr(Vless::AddressType::Domain, "example.com", 53),
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
-                                                       p.size()));
-                     EXPECT_EQ(serr, Error::None);
-                     dg->Close();
+                     EXPECT_EQ(herr, Error::NotSupported);
+                     EXPECT_FALSE(dg);
+                     b.Close();
                  });
     }
 
@@ -335,7 +298,7 @@ namespace
                          cfg.uuid = uuid;
                          auto [err, req, Conn] =
                              co_await Vless::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                         EXPECT_EQ(err, Error::BadMessage);
+                          EXPECT_EQ(err, Error::BadMessage);
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
@@ -553,7 +516,7 @@ namespace
                          make_addr(Vless::AddressType::Domain, "example.com", 53),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
-                     EXPECT_EQ(err, Error::IoError);
+                     EXPECT_EQ(err, Error::NotSupported);
                      dg->Close();
                  });
     }
@@ -574,7 +537,7 @@ namespace
                          Vless::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::BadMessage);
+                         EXPECT_EQ(err, Error::NotSupported);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -602,7 +565,7 @@ namespace
                          Vless::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::UnexpectedEof);
+                         EXPECT_EQ(err, Error::NotSupported);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -637,7 +600,7 @@ namespace
                      Vless::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::IoError);
+                     EXPECT_EQ(err, Error::NotSupported);
                      dg->Close();
                      dg->Cancel();
                      EXPECT_NE(dg->NextLayer(), nullptr);
@@ -645,6 +608,38 @@ namespace
                      EXPECT_NE(const_dg->NextLayer(), nullptr);
                      auto released = dg->Release();
                      EXPECT_TRUE(released);
+                 });
+    }
+
+    TEST(VlessDgramSession, StreamBackedDatagramIsRejected)
+    {
+        net::io_context ioc;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto Dgram = std::make_shared<Vless::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     Vless::Address Src;
+                     std::vector<std::uint8_t> Payload;
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Src, Payload), Error::NotSupported);
+                     Dgram->Close();
+                     b.Close();
+                 });
+    }
+
+    TEST(VlessDgramSession, UdpTunnelRejectsStreamWithoutFrameBoundaries)
+    {
+        net::io_context ioc;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto Conn = std::make_shared<Vless::Conn<>>(
+            std::make_shared<MemoryStream>(std::move(a)), test_uuid());
+        Vless::UdpTunnelOptions Options;
+        auto Tunnel = std::make_shared<Vless::UdpTunnel>(std::move(Conn), std::move(Options));
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     co_await Tunnel->Run();
+                     b.Close();
                  });
     }
 

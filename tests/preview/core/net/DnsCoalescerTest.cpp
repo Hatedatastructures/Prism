@@ -5,7 +5,7 @@
  *          两阶段清理生命周期、活跃等待者阻止清理
  */
 
-#include <common/Core/Net/Dns/Coalescer.hpp>
+#include <preview/Net/Dns/Coalescer.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>

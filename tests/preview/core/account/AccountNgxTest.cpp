@@ -17,8 +17,8 @@
 #include <utility>
 #include <vector>
 
-#include <common/Core/Memory/CowMap.hpp>
-#include <common/Core/Account/Directory.hpp>
+#include <preview/Foundation/Memory/CowMap.hpp>
+#include <preview/Foundation/Utility/Account/Directory.hpp>
 
 namespace
 {
@@ -159,7 +159,7 @@ namespace
     TEST(AccountLease, DisabledRejected)
     {
         Preview::Account::Directory dir;
-        dir.Upsert("dave", 5, true); // 禁用
+        dir.Upsert("dave", {.MaxConnections = 5, .Disabled = true}); // 禁用
 
         EXPECT_FALSE(Preview::Account::TryAcquire(dir, "dave"));
         // 未知账户
@@ -169,7 +169,7 @@ namespace
     TEST(AccountLease, ExpiredRejected)
     {
         Preview::Account::Directory dir;
-        dir.Upsert("eve", 5, false, 1000); // 1000ms 过期
+        dir.Upsert("eve", {.MaxConnections = 5, .ExpireAt = 1000}); // 1000ms 过期
 
         EXPECT_TRUE(Preview::Account::TryAcquire(dir, "eve", 500));  // 未过期
         EXPECT_FALSE(Preview::Account::TryAcquire(dir, "eve", 1000)); // 过期

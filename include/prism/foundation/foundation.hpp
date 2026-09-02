@@ -15,6 +15,7 @@
 // Memory 子模块
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/memory/pointer.hpp>
 
 // Fault 子模块
 #include <prism/foundation/fault/code.hpp>

@@ -24,15 +24,15 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Handling.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
-#include <common/Core/Runtime/Listener.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Composition/Adapters/ProtocolAdapter.hpp>
+#include <preview/Runtime/Listener.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -40,7 +40,7 @@ namespace
     namespace net = boost::asio;
     using namespace Preview;
 
-    // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
+    // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::RunCoro;
     using Preview::Testing::TcpEchoServer;
     using Preview::Testing::StartTcpEchoUpstream;

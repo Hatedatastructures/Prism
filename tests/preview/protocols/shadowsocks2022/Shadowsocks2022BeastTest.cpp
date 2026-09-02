@@ -5,7 +5,7 @@
 
 #include <ctime>
 
-#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <gtest/gtest.h>
 
 namespace

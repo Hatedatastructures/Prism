@@ -12,7 +12,7 @@
 #include <span>
 #include <vector>
 
-#include <common/Protocols/Gun/Codec.hpp>
+#include <preview/Protocols/Gun/Codec.hpp>
 
 namespace
 {

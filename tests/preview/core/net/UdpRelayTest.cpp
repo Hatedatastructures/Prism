@@ -9,8 +9,8 @@
  * @note 使用 loopback UDP socket；客户端来源动态学习（无需预置）
  */
 
-#include <common/Core/Net/UdpRelay.hpp>
-#include <common/Core/Transport/Unreliable.hpp>
+#include <preview/Net/UdpRelay.hpp>
+#include <preview/Transport/Unreliable.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>

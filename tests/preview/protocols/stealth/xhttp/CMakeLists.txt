@@ -1,6 +1,6 @@
 # xhttp 子模块
-prism_add_test(XhttpNgxE2E.cpp)
-target_link_libraries(XhttpNgxE2E PRIVATE vmtest_common)
+AddPreviewTest(XhttpNgxE2E.cpp)
+target_link_libraries(XhttpNgxE2E PRIVATE PreviewTransport PreviewProtocolHttp2 PreviewProtocolXhttp PreviewTestSupport)
 
-prism_add_test(XhttpErrorMatrix.cpp)
-target_link_libraries(XhttpErrorMatrix PRIVATE vmtest_common)
+AddPreviewTest(XhttpErrorMatrix.cpp)
+target_link_libraries(XhttpErrorMatrix PRIVATE PreviewProtocolXhttp PreviewTestSupport)

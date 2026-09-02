@@ -7,7 +7,7 @@
  *          多流并发上传（6 流 × 8MB）。
  * @note 测试进程退出时 io_context 析构会销毁挂起的协程，Windows 上
  *       存在竞态（挂死/崩溃）。因此 echo server 支持显式停止：
- *       测试末尾设置 stop 并 cancel 挂起的 accept，再驱动 poll 让
+ *       测试末尾设置 stop 并 cancel 挂起的 accept，再驱动 run 让
  *       所有协程正常退出，避免 ioc 析构销毁挂起协程。
  */
 
@@ -21,6 +21,7 @@
 #include <prism/protocol/protocol.hpp>
 
 #include <boost/asio.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
 #include <array>
@@ -40,6 +41,8 @@ using namespace psm::multiplex;
 
 namespace
 {
+
+    using CompletionChannel = net::experimental::channel<void(boost::system::error_code)>;
 
     [[nodiscard]] auto build_smux_header(const smux::command cmd, const std::uint16_t length,
                                          const std::uint32_t stream_id) -> std::array<std::byte, 8>
@@ -76,45 +79,53 @@ namespace
  * @details accept 被取消（stop 后测试端 cancel）时 ec=aborted，协程
  *          正常 co_return 退出——避免 ioc 析构销毁挂起 accept 协程。
  */
-    auto echo_server(std::shared_ptr<tcp::acceptor> acceptor, std::shared_ptr<std::atomic<bool>> stop)
+    auto echo_connection(std::shared_ptr<tcp::socket> Socket,
+                         std::shared_ptr<CompletionChannel> connection_done)
+        -> net::awaitable<void>
+    {
+        try
+        {
+            std::array<std::byte, 8192> buf{};
+            while (true)
+            {
+                auto n = co_await Socket->async_read_some(net::buffer(buf), net::use_awaitable);
+                if (n == 0)
+                {
+                    break;
+                }
+                co_await net::async_write(*Socket, net::buffer(buf, n), net::use_awaitable);
+            }
+        }
+        catch (...)
+        {
+        }
+        (void)connection_done->try_send(boost::system::error_code{});
+    }
+
+    auto echo_server(std::shared_ptr<tcp::acceptor> acceptor, std::shared_ptr<std::atomic<bool>> stop,
+                     std::shared_ptr<CompletionChannel> server_done,
+                     std::shared_ptr<CompletionChannel> connection_done,
+                     std::shared_ptr<tcp::socket> connection)
         -> net::awaitable<void>
     {
         while (!stop->load())
         {
             boost::system::error_code ec;
-            auto sock = co_await acceptor->async_accept(net::redirect_error(net::use_awaitable, ec));
+            co_await acceptor->async_accept(*connection, net::redirect_error(net::use_awaitable, ec));
             if (ec)
             {
-                co_return;
+                (void)connection_done->try_send(boost::system::error_code{});
+                break;
             }
             if (stop->load())
             {
-                sock.close();
-                co_return;
+                connection->close();
+                (void)connection_done->try_send(boost::system::error_code{});
+                break;
             }
-            net::co_spawn(
-                sock.get_executor(),
-                [s = std::move(sock)]() mutable -> net::awaitable<void>
-                {
-                    try
-                    {
-                        std::array<std::byte, 8192> buf{};
-                        while (true)
-                        {
-                            auto n = co_await s.async_read_some(net::buffer(buf), net::use_awaitable);
-                            if (n == 0)
-                            {
-                                break;
-                            }
-                            co_await net::async_write(s, net::buffer(buf, n), net::use_awaitable);
-                        }
-                    }
-                    catch (...)
-                    {
-                    }
-                },
-                net::detached);
+            co_await echo_connection(connection, connection_done);
         }
+        (void)server_done->try_send(boost::system::error_code{});
     }
 
     auto make_socket_pair(net::any_io_executor ex) -> net::awaitable<std::pair<tcp::socket, tcp::socket>>
@@ -158,19 +169,39 @@ namespace
     {
         std::shared_ptr<tcp::acceptor> acceptor;
         std::shared_ptr<std::atomic<bool>> stop;
+        std::shared_ptr<CompletionChannel> server_done;
+        std::shared_ptr<CompletionChannel> connection_done;
+        std::shared_ptr<tcp::socket> connection;
 
         echo_harness(net::any_io_executor ex, std::uint16_t &port)
         {
             acceptor = std::make_shared<tcp::acceptor>(ex, tcp::endpoint(net::ip::address_v4::loopback(), 0));
             port = acceptor->local_endpoint().port();
             stop = std::make_shared<std::atomic<bool>>(false);
-            net::co_spawn(ex, echo_server(acceptor, stop), net::detached);
+            server_done = std::make_shared<CompletionChannel>(ex, 1);
+            connection_done = std::make_shared<CompletionChannel>(ex, 1);
+            connection = std::make_shared<tcp::socket>(ex);
+            net::co_spawn(ex, echo_server(acceptor, stop, server_done, connection_done, connection),
+                          net::detached);
         }
 
         void shutdown()
         {
             stop->store(true);
-            acceptor->cancel();
+            boost::system::error_code Ec;
+            acceptor->cancel(Ec);
+            connection->cancel(Ec);
+            connection->close(Ec);
+        }
+
+        [[nodiscard]] auto wait_for_connection() -> net::awaitable<void>
+        {
+            co_await connection_done->async_receive(net::use_awaitable);
+        }
+
+        [[nodiscard]] auto wait_for_server() -> net::awaitable<void>
+        {
+            co_await server_done->async_receive(net::use_awaitable);
         }
     };
 
@@ -179,21 +210,35 @@ namespace
         net::io_context ioc{1};
         psm::multiplex::config mux_config;
         psm::dns::config dns_cfg;
-        psm::connect::dialer router{psm::connect::dialer_options{ioc, dns_cfg}};
-        psm::outbound::direct outbound{router};
+        std::unique_ptr<psm::connect::dialer> router;
+        std::unique_ptr<psm::outbound::direct> outbound;
 
         LifecycleContext()
         {
+            router = std::make_unique<psm::connect::dialer>(
+                psm::connect::dialer_options{ioc, dns_cfg});
+            outbound = std::make_unique<psm::outbound::direct>(*router);
             mux_config.enabled = true;
             // 测试环境关闭 keepalive：避免 ioc 析构时销毁挂起的 30s timer 协程
             mux_config.smux.keepalive_interval = 0;
+        }
+
+        [[nodiscard]] auto Outbound() -> psm::outbound::direct &
+        {
+            return *outbound;
+        }
+
+        void Shutdown()
+        {
+            outbound.reset();
+            router.reset();
         }
     };
 
     /**
  * @brief 驱动 io_context 直到协程完成，然后清理挂起协程
- * @details 协程完成回调 ioc.stop() 后，restart + 循环 poll 让所有
- *          已取消/完成的协程恢复并退出，最后 stop——ioc 析构时
+ * @details 协程完成回调 ioc.stop() 后，restart + run 让所有
+ *          已取消/完成的协程恢复并退出；ioc 析构时
  *          不再有挂起协程（规避 Windows 销毁竞态）。
  */
     void run_and_drain(net::io_context &ioc, const std::exception_ptr &ep, bool pass, const char *label,
@@ -212,10 +257,7 @@ namespace
         }
         EXPECT_TRUE(pass) << label << ": " << detail;
         ioc.restart();
-        while (ioc.poll() > 0)
-        {
-        }
-        ioc.stop();
+        ioc.run();
     }
 
     // ── 模拟 Clash 快速上行：不等 0x00 状态，SYN+addr+多帧数据连续发送 ──
@@ -243,7 +285,7 @@ namespace
 
             auto server_transport = psm::transport::make_reliable(std::move(server_sock));
             auto session = std::make_shared<smux::control>(
-                multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+                multiplexer_options{std::move(server_transport), &ctx->Outbound(), ctx->mux_config});
             session->start();
 
             const std::uint32_t stream_id = 1;
@@ -349,6 +391,8 @@ namespace
             client_sock.close();
             session->close();
             echo.shutdown();
+            co_await echo.wait_for_connection();
+            co_await echo.wait_for_server();
         };
 
         net::co_spawn(ctx->ioc, coro(),
@@ -359,6 +403,7 @@ namespace
                       });
         ctx->ioc.run();
 
+        ctx->Shutdown();
         run_and_drain(ctx->ioc, ep, pass, "SmuxRapidUplink",
                       "smux rapid uplink (no wait for status): echo must be complete");
         ctx.reset();
@@ -384,7 +429,7 @@ namespace
 
             auto server_transport = psm::transport::make_reliable(std::move(server_sock));
             auto session = std::make_shared<smux::control>(
-                multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+                multiplexer_options{std::move(server_transport), &ctx->Outbound(), ctx->mux_config});
             session->start();
 
             const std::uint32_t stream_id = 2;
@@ -489,6 +534,8 @@ namespace
             client_sock.close();
             session->close();
             echo.shutdown();
+            co_await echo.wait_for_connection();
+            co_await echo.wait_for_server();
         };
 
         net::co_spawn(ctx->ioc, coro(),
@@ -499,6 +546,7 @@ namespace
                       });
         ctx->ioc.run();
 
+        ctx->Shutdown();
         run_and_drain(ctx->ioc, ep, pass, "SmuxLargeUpload", "smux 1MB upload echo must be complete");
         ctx.reset();
     }
@@ -530,7 +578,7 @@ namespace
             auto [client_sock, server_sock] = co_await make_socket_pair(ex);
             auto server_transport = psm::transport::make_reliable(std::move(server_sock));
             auto session = std::make_shared<smux::control>(
-                multiplexer_options{std::move(server_transport), &ctx->outbound, ctx->mux_config});
+                multiplexer_options{std::move(server_transport), &ctx->Outbound(), ctx->mux_config});
             session->start();
 
             // 6 个流交错建立 + 并发上传
@@ -652,6 +700,11 @@ namespace
             {
                 e.shutdown();
             }
+            for (auto &e : echoes)
+            {
+                co_await e.wait_for_connection();
+                co_await e.wait_for_server();
+            }
         };
 
         net::co_spawn(ctx->ioc, coro(),
@@ -662,6 +715,7 @@ namespace
                       });
         ctx->ioc.run();
 
+        ctx->Shutdown();
         run_and_drain(ctx->ioc, ep, pass, "SmuxMultiStreamUpload",
                       "smux 6-stream concurrent upload (48MB) echo must be complete");
         ctx.reset();

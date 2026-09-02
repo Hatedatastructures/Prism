@@ -15,9 +15,9 @@
 
 #include <boost/asio/co_spawn.hpp>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 
-using MockTransport = Preview::Testing::MockTransport;
+using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace yamux = psm::multiplex::yamux;
 namespace net = boost::asio;
@@ -30,7 +30,7 @@ namespace
 
     struct CraftFixture
     {
-        std::shared_ptr<MockTransport> transport;
+        std::shared_ptr<ProductionMockTransport> transport;
         std::unique_ptr<net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<yamux::control> craft_obj;
@@ -38,7 +38,7 @@ namespace
 
         CraftFixture()
         {
-            transport = std::make_shared<MockTransport>();
+            transport = std::make_shared<ProductionMockTransport>();
             ioc = std::make_unique<net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
@@ -60,7 +60,7 @@ namespace
 
     TEST(YamuxCraftDeep, ConstructorWithMr)
     {
-        auto transport = std::make_shared<MockTransport>();
+        auto transport = std::make_shared<ProductionMockTransport>();
         auto ioc = std::make_unique<net::io_context>(1);
         psm::dns::config dns_cfg;
         psm::connect::dialer_options ropts{*ioc, dns_cfg};

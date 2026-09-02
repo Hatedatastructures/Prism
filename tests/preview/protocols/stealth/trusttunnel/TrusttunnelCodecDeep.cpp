@@ -8,7 +8,7 @@
 
 #include <string>
 
-#include <common/Protocols/Trusttunnel/Codec.hpp>
+#include <preview/Protocols/Trusttunnel/Codec.hpp>
 
 namespace
 {

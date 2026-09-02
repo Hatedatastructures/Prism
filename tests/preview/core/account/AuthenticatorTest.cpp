@@ -22,12 +22,12 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Authenticator.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Hysteria2/Hysteria2.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
-#include <common/Protocols/Trojan/Trojan.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
+#include <preview/Foundation/Authenticator.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Hysteria2/Hysteria2.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
 
 namespace
 {

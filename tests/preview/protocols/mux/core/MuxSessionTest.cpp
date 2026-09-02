@@ -15,10 +15,10 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Mux/H2Mux/H2Mux.hpp>
-#include <common/Protocols/Mux/Smux/Smux.hpp>
-#include <common/Protocols/Mux/Yamux/Yamux.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Mux/H2Mux/H2Mux.hpp>
+#include <preview/Protocols/Mux/Smux/Smux.hpp>
+#include <preview/Protocols/Mux/Yamux/Yamux.hpp>
 #include <gtest/gtest.h>
 
 namespace

@@ -13,7 +13,7 @@
 
 #include <boost/asio.hpp>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 
 // 打开 craft 及其传递依赖的非公开访问
 #define private public
@@ -27,7 +27,7 @@
 // 包含源文件以获得 gcov 覆盖
 #include "../src/prism/protocol/multiplex/h2mux/control.cpp"
 
-using MockTransport = Preview::Testing::MockTransport;
+using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace h2mux = psm::multiplex::h2mux;
 namespace net = boost::asio;
@@ -63,14 +63,14 @@ namespace
 
     struct CraftFixture
     {
-        std::shared_ptr<MockTransport> transport;
+        std::shared_ptr<ProductionMockTransport> transport;
         std::unique_ptr<net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<h2mux::control> craft_obj;
 
         CraftFixture()
         {
-            transport = std::make_shared<MockTransport>();
+            transport = std::make_shared<ProductionMockTransport>();
             ioc = std::make_unique<net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};

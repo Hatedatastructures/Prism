@@ -8,12 +8,12 @@
  *          - Pipeline 完整识别（含预读回注可重读）
  */
 
-#include <common/Core/Memory/Container.hpp>
-#include <common/Core/Recognition/Recognition.hpp>
-#include <common/Core/Recognition/Probe.hpp>
-#include <common/Core/Recognition/Protocol.hpp>
-#include <common/Core/Recognition/Route.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
+#include <preview/Foundation/Memory/Container.hpp>
+#include <preview/Runtime/Recognition/Recognition.hpp>
+#include <preview/Runtime/Recognition/Probe.hpp>
+#include <preview/Runtime/Recognition/Protocol.hpp>
+#include <preview/Runtime/Recognition/Route.hpp>
+#include <preview/Transport/MemoryStream.hpp>
 
 #include <boost/asio/io_context.hpp>
 
@@ -154,6 +154,40 @@ TEST(RecognitionProbe, ProbeAndRewind)
              });
 }
 
+TEST(RecognitionProbe, ReadsUntilProtocolCanBeClassified)
+{
+    net::io_context ioc;
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+
+    net::co_spawn(
+        ioc,
+        [sb]() -> net::awaitable<void>
+        {
+            const std::array<std::byte, 4> tls{
+                std::byte{0x16}, std::byte{0x03}, std::byte{0x01}, std::byte{0x00}};
+            for (const auto Byte : tls)
+            {
+                std::error_code ec;
+                const std::array<std::byte, 1> one{Byte};
+                co_await sb->async_write_some(one, ec);
+                co_await net::post(sb->Executor(), net::use_awaitable);
+            }
+        },
+        net::detached);
+
+    rec::ProbeResult result;
+    run_coro(ioc,
+             [&]() -> net::awaitable<void>
+             {
+                 result = co_await rec::Probe(*sa);
+             });
+
+    EXPECT_EQ(result.Type, rec::ProtocolType::Tls);
+    EXPECT_GE(result.PreReadSize, 2U);
+}
+
 // ── SNI 路由表 ──
 
 TEST(RecognitionRoute, ExactMatch)
@@ -229,6 +263,7 @@ TEST(RecognitionPipeline, UnknownPassthrough)
                  std::array<std::byte, 3> unknown{std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
                  std::error_code ec;
                  co_await sb->async_write_some(unknown, ec);
+                 sb->Close();
 
                  auto Result = co_await pipe.Recognize(sa);
                  EXPECT_FALSE(Result.success);

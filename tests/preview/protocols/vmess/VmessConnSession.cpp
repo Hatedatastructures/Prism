@@ -27,8 +27,8 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Vmess/Vmess.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Vmess/Vmess.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -130,7 +130,7 @@ namespace
         const auto plain = Vmess::BuildRequestHeader(hdr, Vmess::RequestMeta{iv, key, v, p});
         const auto cmd_key = Vmess::CmdKeyFromUuid(uuid);
         const auto sealed = Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{plain, time_sec, random4});
-        const auto auth_id = Vmess::CreateAuthId(time_sec, random4);
+        const auto auth_id = Vmess::CreateAuthId(cmd_key, time_sec, random4);
         std::error_code ec;
         co_await Stream.async_write_some(AsBytes(std::span<const std::uint8_t>(sealed)), ec);
         if (ec)

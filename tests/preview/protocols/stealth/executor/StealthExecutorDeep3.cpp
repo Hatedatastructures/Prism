@@ -12,7 +12,7 @@
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 
 #define private public
 #include <prism/handshake/executor.hpp>
@@ -104,7 +104,7 @@ namespace
     auto make_context() -> handshake::handshake_context
     {
         handshake::handshake_context ctx;
-        ctx.transport = std::make_shared<Preview::Testing::MockTransport>();
+        ctx.transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
 
         auto cfg = std::make_shared<psm::settings>();
         auto proc =
@@ -119,10 +119,53 @@ namespace
         return ctx;
     }
 
+    auto run_single(handshake::scheme_executor *executor, handshake::shared_scheme scheme,
+                    handshake::handshake_context ctx, handshake::handshake_result *result)
+        -> net::awaitable<void>
+    {
+        *result = co_await executor->execute_single(std::move(scheme), std::move(ctx));
+    }
+
+    auto run_pipeline(handshake::scheme_executor *executor,
+                      const psm::memory::vector<psm::memory::string> *order,
+                      handshake::handshake_context ctx, handshake::handshake_result *result)
+        -> net::awaitable<void>
+    {
+        *result = co_await executor->execute_pipeline(*order, std::move(ctx));
+    }
+
+    auto run_by_analysis(handshake::scheme_executor *executor,
+                         const psm::recognition::analysis_result *analysis,
+                         handshake::handshake_context ctx, handshake::handshake_result *result)
+        -> net::awaitable<void>
+    {
+        *result = co_await executor->execute_by_analysis(*analysis, std::move(ctx));
+    }
+
+    auto run_execute(handshake::scheme_executor *executor,
+                     const psm::memory::vector<psm::memory::string> *candidates,
+                     handshake::handshake_context ctx, handshake::handshake_result *result)
+        -> net::awaitable<void>
+    {
+        *result = co_await executor->execute(*candidates, std::move(ctx));
+    }
+
+    TEST(StealthExecutorDeep3, ResourceContextDestructionCancelsResolverCoroutine)
+    {
+        auto ctx = make_context();
+        ASSERT_NE(ctx.session, nullptr);
+
+        auto &worker_ioc = ctx.session->worker->ioc;
+        net::post(worker_ioc, [&worker_ioc] { worker_ioc.stop(); });
+        worker_ioc.run();
+
+        ctx.session_keepalive.reset();
+        SUCCEED();
+    }
+
     // ─── 协程运行辅助 ──────────────────────────────────────────
 
-    // 注：每个测试直接内联 net::co_spawn + ioc.run() 模式，
-    // 避免模板函数与 std::function + lambda 的兼容性问题。
+    // 具名协程函数把执行参数放入协程帧，避免临时 lambda 闭包在调度前销毁。
 
     // ─── execute_single 测试 ──────────────────────────────────
 
@@ -138,10 +181,7 @@ namespace
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        auto coro = [&]() -> net::awaitable<void>
-        { result = co_await exec.execute_single(mock, make_context()); };
-
-        net::co_spawn(ioc, coro(),
+        net::co_spawn(ioc, run_single(&exec, mock, make_context(), &result),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -166,7 +206,7 @@ namespace
 
     TEST(StealthExecutorDeep3, ExecuteSingle_PreservesTransport)
     {
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_result preset;
         preset.transport = mock_transport;
         preset.detected = psm::connect::protocol_type::socks5;
@@ -183,7 +223,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_single(mock, make_context()); },
+            run_single(&exec, mock, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -201,7 +241,7 @@ namespace
 
     TEST(StealthExecutorDeep3, ExecutePipeline_FacadeSuccess)
     {
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_result preset;
         preset.transport = mock_transport;
         preset.detected = psm::connect::protocol_type::http;
@@ -221,7 +261,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -256,7 +296,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -272,7 +312,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_StackFailContinue)
     {
         // Stack 方案失败（返回 transport），应继续尝试下一个
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
 
         // 第一个 stack 方案失败
         handshake::handshake_result fail_preset;
@@ -303,7 +343,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -318,7 +358,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_TlsDetectedContinue)
     {
         // Facade 方案返回 detected=tls → "不是我的"，继续下一个
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
 
         handshake::handshake_result tls_preset;
         tls_preset.transport = mock_transport;
@@ -346,7 +386,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -380,7 +420,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -396,7 +436,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_SchemeNotFound_Skipped)
     {
         // 列表中包含不存在的 scheme → 跳过，下一个成功
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::http;
@@ -417,7 +457,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -432,7 +472,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_SchemeDisabled_Skipped)
     {
         // 方案 active=false → 跳过
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::http;
@@ -455,7 +495,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -480,7 +520,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -497,7 +537,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecuteByAnalysis_EmptyCandidates_DefaultOrder)
     {
         // 空候选列表 → 按 registry 注册顺序执行
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::http;
@@ -516,8 +556,7 @@ namespace
         std::exception_ptr ep;
 
         net::co_spawn(
-            ioc, [&]() -> net::awaitable<void>
-            { result = co_await exec.execute_by_analysis(analysis, make_context()); },
+            ioc, run_by_analysis(&exec, &analysis, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -532,7 +571,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecuteByAnalysis_WithCandidates_PipelineOrder)
     {
         // 有候选列表 → 按候选顺序执行
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::trojan;
@@ -551,8 +590,7 @@ namespace
         std::exception_ptr ep;
 
         net::co_spawn(
-            ioc, [&]() -> net::awaitable<void>
-            { result = co_await exec.execute_by_analysis(analysis, make_context()); },
+            ioc, run_by_analysis(&exec, &analysis, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -568,7 +606,7 @@ namespace
 
     TEST(StealthExecutorDeep3, Execute_DelegatesToPipeline)
     {
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
         ok_preset.detected = psm::connect::protocol_type::socks5;
@@ -588,7 +626,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute(candidates, make_context()); },
+            run_execute(&exec, &candidates, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -603,7 +641,7 @@ namespace
 
     TEST(StealthExecutorDeep3, Execute_MultipleCandidatesFirstWins)
     {
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
 
         handshake::handshake_result first_ok;
         first_ok.transport = mock_transport;
@@ -632,7 +670,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute(candidates, make_context()); },
+            run_execute(&exec, &candidates, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -670,7 +708,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;
@@ -685,7 +723,7 @@ namespace
     TEST(StealthExecutorDeep3, ExecutePipeline_FacadeWithPrereadSecondaryProbe)
     {
         // facade 成功且有 preread → secondary_probe 覆盖 detected
-        auto mock_transport = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock_transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
 
         handshake::handshake_result ok_preset;
         ok_preset.transport = mock_transport;
@@ -718,7 +756,7 @@ namespace
 
         net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void> { result = co_await exec.execute_pipeline(order, make_context()); },
+            run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
             {
                 ep = e;

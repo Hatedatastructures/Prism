@@ -1,28 +1,31 @@
-prism_add_test(ParcelDeep.cpp)
-target_link_libraries(ParcelDeep PRIVATE vmtest_common)
+AddProductionTest(ParcelDeep.cpp)
+target_link_libraries(ParcelDeep PRIVATE ProductionTestSupport )
 
-prism_add_test(DuctDeep.cpp)
-target_link_libraries(DuctDeep PRIVATE vmtest_common)
+AddProductionTest(DuctDeep.cpp)
+target_link_libraries(DuctDeep PRIVATE ProductionTestSupport )
 
-prism_add_test(MuxCodecTest.cpp)
-target_link_libraries(MuxCodecTest PRIVATE vmtest_common)
+AddPreviewTest(MuxCodecTest.cpp)
+target_link_libraries(MuxCodecTest PRIVATE PreviewProtocolMux PreviewTestSupport)
 
-prism_add_test(MuxCoreDeep.cpp)
-target_link_libraries(MuxCoreDeep PRIVATE vmtest_common)
+AddProductionTest(MuxCoreDeep.cpp)
+target_link_libraries(MuxCoreDeep PRIVATE ProductionTestSupport )
 
 if(PRISM_ENABLE_BENCHMARK)
-    prism_add_test(MuxPerf.cpp)
-    target_link_libraries(MuxPerf PRIVATE vmtest_common)
+    AddPreviewTest(MuxPerf.cpp)
+ target_link_libraries(MuxPerf PRIVATE PreviewTransport PreviewProtocolMux PreviewTestSupport)
 endif()
 
-prism_add_test(MuxSessionTest.cpp)
-target_link_libraries(MuxSessionTest PRIVATE vmtest_common)
+AddPreviewTest(MuxSessionTest.cpp)
+target_link_libraries(MuxSessionTest PRIVATE PreviewTransport PreviewProtocolMux PreviewTestSupport)
 target_compile_options(MuxSessionTest PRIVATE -O0 -fno-inline)
 
-prism_add_test(MuxSessionDeep2.cpp)
-target_link_libraries(MuxSessionDeep2 PRIVATE vmtest_common)
+AddPreviewTest(MuxSessionDeep2.cpp)
+target_link_libraries(MuxSessionDeep2 PRIVATE PreviewTransport PreviewProtocolMux PreviewTestSupport)
 target_compile_options(MuxSessionDeep2 PRIVATE -O0 -fno-inline)
 
-prism_add_test(MuxSessionDeep.cpp)
-target_link_libraries(MuxSessionDeep PRIVATE vmtest_common)
+AddPreviewTest(MuxSessionDeep.cpp)
+target_link_libraries(MuxSessionDeep PRIVATE PreviewTransport PreviewProtocolMux PreviewTestSupport)
 target_compile_options(MuxSessionDeep PRIVATE -O0 -fno-inline)
+
+AddPreviewTest(MuxWriteContract.cpp)
+target_link_libraries(MuxWriteContract PRIVATE PreviewTransport PreviewProtocolMux PreviewTestSupport)

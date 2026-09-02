@@ -10,18 +10,21 @@
 #include <gtest/gtest.h>
 
 #include <boost/asio/co_spawn.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
-#include <common/Core/ByteSpan.hpp>
-#include <common/Protocols/Xhttp/Conn.hpp>
-#include <common/Protocols/Xhttp/Types.hpp>
+#include <preview/Foundation/ByteSpan.hpp>
+#include <preview/Protocols/Xhttp/Conn.hpp>
+#include <preview/Protocols/Xhttp/Types.hpp>
 
 namespace
 {
@@ -37,6 +40,100 @@ namespace
         {
             std::rethrow_exception(ep);
         }
+    }
+
+    struct WriteProbe
+    {
+        int Active{0};
+        int MaxActive{0};
+        int Completed{0};
+        bool Failed{false};
+        std::string Order;
+    };
+
+    auto ProbeWrite(net::any_io_executor Ex, const std::shared_ptr<WriteProbe> &Probe,
+                    std::span<const std::byte> Data) -> net::awaitable<void>
+    {
+        ++Probe->Active;
+        Probe->MaxActive = (std::max)(Probe->MaxActive, Probe->Active);
+        co_await net::post(Ex, net::use_awaitable);
+        Probe->Order.append(reinterpret_cast<const char *>(Data.data()), Data.size());
+        --Probe->Active;
+        co_return;
+    }
+
+    auto MakeTransportProbe(net::any_io_executor Ex, const std::shared_ptr<WriteProbe> &Probe)
+        -> Xhttp::XhttpTransport::WriteCb
+    {
+        return [Ex, Probe](std::int32_t, std::span<const std::byte> Data)
+        {
+            return ProbeWrite(Ex, Probe, Data);
+        };
+    }
+
+    auto MakeWireProbe(net::any_io_executor Ex, const std::shared_ptr<WriteProbe> &Probe)
+        -> Xhttp::WireWriter::Sink
+    {
+        return [Ex, Probe](std::span<const std::byte> Data)
+        {
+            return ProbeWrite(Ex, Probe, Data);
+        };
+    }
+
+    auto TransportWriteTask(const std::shared_ptr<Xhttp::XhttpTransport> &Transport,
+                            const std::shared_ptr<WriteProbe> &Probe,
+                            std::vector<std::byte> Data) -> net::awaitable<void>
+    {
+        std::error_code ec;
+        const auto N = co_await Transport->async_write_some(Data, ec);
+        if (ec || N != Data.size())
+        {
+            Probe->Failed = true;
+        }
+        ++Probe->Completed;
+        co_return;
+    }
+
+    auto WireWriteTask(const std::shared_ptr<Xhttp::WireWriter> &Writer,
+                       const std::shared_ptr<WriteProbe> &Probe,
+                       std::vector<std::byte> Data) -> net::awaitable<void>
+    {
+        try
+        {
+            co_await Writer->Write(Data);
+        }
+        catch (...)
+        {
+            Probe->Failed = true;
+        }
+        ++Probe->Completed;
+        co_return;
+    }
+
+    auto RunConcurrentTransportWrites(const std::shared_ptr<Xhttp::XhttpTransport> &Transport,
+                                      const std::shared_ptr<WriteProbe> &Probe)
+        -> net::awaitable<void>
+    {
+        const auto Ex = Transport->Executor();
+        auto First = net::co_spawn(
+            Ex, TransportWriteTask(Transport, Probe, {std::byte{'A'}}), net::use_awaitable);
+        auto Second = net::co_spawn(
+            Ex, TransportWriteTask(Transport, Probe, {std::byte{'B'}}), net::use_awaitable);
+        using net::experimental::awaitable_operators::operator&&;
+        co_await (std::move(First) && std::move(Second));
+    }
+
+    auto RunConcurrentWireWrites(net::any_io_executor Ex,
+                                 const std::shared_ptr<Xhttp::WireWriter> &Writer,
+                                 const std::shared_ptr<WriteProbe> &Probe)
+        -> net::awaitable<void>
+    {
+        auto First = net::co_spawn(
+            Ex, WireWriteTask(Writer, Probe, {std::byte{'A'}}), net::use_awaitable);
+        auto Second = net::co_spawn(
+            Ex, WireWriteTask(Writer, Probe, {std::byte{'B'}}), net::use_awaitable);
+        using net::experimental::awaitable_operators::operator&&;
+        co_await (std::move(First) && std::move(Second));
     }
 
     TEST(XhttpErrorMatrix, ConfigEnabledBoundary)
@@ -124,6 +221,50 @@ namespace
                  });
         EXPECT_EQ(flushed_stream, 7);
         EXPECT_EQ(flushed_data, "buffered");
+    }
+
+    TEST(XhttpErrorMatrix, TransportSerializesConcurrentWrites)
+    {
+        net::io_context ioc;
+        auto Probe = std::make_shared<WriteProbe>();
+        auto t = std::make_shared<Xhttp::XhttpTransport>(
+            ioc.get_executor(),
+            MakeTransportProbe(ioc.get_executor(), Probe));
+        t->BindStream(7);
+
+        std::exception_ptr ep;
+        net::co_spawn(ioc, RunConcurrentTransportWrites(t, Probe),
+                      [&](std::exception_ptr Error) { ep = Error; });
+        ioc.run();
+        if (ep)
+        {
+            std::rethrow_exception(ep);
+        }
+        EXPECT_FALSE(Probe->Failed);
+        EXPECT_EQ(Probe->Completed, 2);
+        EXPECT_EQ(Probe->MaxActive, 1);
+        EXPECT_EQ(Probe->Order, "AB");
+    }
+
+    TEST(XhttpErrorMatrix, WireWriterSerializesPhysicalWrites)
+    {
+        net::io_context ioc;
+        auto Probe = std::make_shared<WriteProbe>();
+        auto writer = std::make_shared<Xhttp::WireWriter>(
+            ioc.get_executor(), MakeWireProbe(ioc.get_executor(), Probe));
+
+        std::exception_ptr ep;
+        net::co_spawn(ioc, RunConcurrentWireWrites(ioc.get_executor(), writer, Probe),
+                      [&](std::exception_ptr Error) { ep = Error; });
+        ioc.run();
+        if (ep)
+        {
+            std::rethrow_exception(ep);
+        }
+        EXPECT_FALSE(Probe->Failed);
+        EXPECT_EQ(Probe->Completed, 2);
+        EXPECT_EQ(Probe->MaxActive, 1);
+        EXPECT_EQ(Probe->Order, "AB");
     }
 
     TEST(XhttpErrorMatrix, TransportChannelBackpressureCloses)

@@ -13,7 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 
-#include <common/Core/Diagnose/Observability.hpp>
+#include <preview/Foundation/Utility/Diagnose/Observability.hpp>
 
 namespace
 {

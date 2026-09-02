@@ -9,9 +9,9 @@
  *    ToCode(boost) 全部映射分支、ToCode(std) 全部映射分支
  */
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Compatible.hpp>
-#include <common/Core/Fault/Handling.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Compatible.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
 
 #include <boost/asio/error.hpp>
 #include <boost/system/error_code.hpp>

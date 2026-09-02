@@ -13,10 +13,10 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Net/Dns/Resolver.hpp>
-#include <common/Core/Net/Target.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Net/Dns/Resolver.hpp>
+#include <preview/Net/Target.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -25,7 +25,7 @@ namespace
     using Tcp = net::ip::tcp;
     using namespace Preview;
 
-    using Preview::Testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
+    using Preview::Testing::RunCoro; // 公共样板（见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
 
     // DNS 感知拨号：域名先经 Resolver 解析为 IP 再 Dialer.Connect
     auto dial_with_dns(net::any_io_executor ex, const Network::Target &tgt)

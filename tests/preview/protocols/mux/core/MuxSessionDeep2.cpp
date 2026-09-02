@@ -21,10 +21,10 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Mux/H2Mux/H2Mux.hpp>
-#include <common/Protocols/Mux/Smux/Smux.hpp>
-#include <common/Protocols/Mux/Yamux/Yamux.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Mux/H2Mux/H2Mux.hpp>
+#include <preview/Protocols/Mux/Smux/Smux.hpp>
+#include <preview/Protocols/Mux/Yamux/Yamux.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -220,7 +220,10 @@ namespace
         net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto peer = std::make_shared<MemoryStream>(std::move(b));
-        auto Session = Mux::Session<Yamux::Codec>::Create(std::make_shared<MemoryStream>(std::move(a)), SessionOptions{});
+        SessionOptions YamuxOptions{};
+        YamuxOptions.Role = Preview::Role::Server;
+        auto Session = Mux::Session<Yamux::Codec>::Create(
+            std::make_shared<MemoryStream>(std::move(a)), YamuxOptions);
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -280,7 +283,10 @@ namespace
         net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto peer = std::make_shared<MemoryStream>(std::move(b));
-        auto Session = Mux::Session<H2Mux::Codec>::Create(std::make_shared<MemoryStream>(std::move(a)), SessionOptions{});
+        SessionOptions H2Options{};
+        H2Options.Role = Preview::Role::Server;
+        auto Session = Mux::Session<H2Mux::Codec>::Create(
+            std::make_shared<MemoryStream>(std::move(a)), H2Options);
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
@@ -418,6 +424,61 @@ namespace
                      const auto perr = co_await Handle->WriteAll(AsU8Span(std::string_view{"x"}));
                      EXPECT_TRUE(perr);
                      EXPECT_EQ(perr, make_error_code(Error::BrokenPipe));
+                 });
+    }
+
+    TEST(MuxSessionDeep2, IncomingStreamsHonorMaxAndRole)
+    {
+        net::io_context ioc;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        SessionOptions Opt{};
+        Opt.Role = Preview::Role::Server;
+        Opt.MaxStreams = 1;
+        auto Session = Mux::Session<Smux::Codec>::Create(
+            std::make_shared<MemoryStream>(std::move(a)), Opt);
+        auto Peer = std::make_shared<MemoryStream>(std::move(b));
+
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     std::error_code Ec;
+                     const auto First = Smux::BuildSyn(1);
+                     EXPECT_EQ(co_await Peer->AsyncWrite(AsBytes(std::span<const std::uint8_t>(First)), Ec),
+                               First.size());
+                     auto Accepted = co_await Session->AcceptStream();
+                     EXPECT_NE(Accepted, nullptr);
+                     if (!Accepted)
+                     {
+                         co_return;
+                     }
+
+                     // 第二条合法的对端流超过 MaxStreams，必须关闭会话而不是继续接收。
+                     const auto Second = Smux::BuildSyn(3);
+                     EXPECT_EQ(co_await Peer->AsyncWrite(AsBytes(std::span<const std::uint8_t>(Second)), Ec),
+                               Second.size());
+                     auto Rejected = co_await Session->AcceptStream();
+                     EXPECT_EQ(Rejected, nullptr);
+                     EXPECT_FALSE(Session->IsOpen());
+                 });
+    }
+
+    TEST(MuxSessionDeep2, SessionReadTimeoutClosesIdleSession)
+    {
+        net::io_context ioc;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        (void)b;
+        SessionOptions Opt{};
+        Opt.timeout = std::chrono::milliseconds(10);
+        auto Session = Mux::Session<Smux::Codec>::Create(
+            std::make_shared<MemoryStream>(std::move(a)), Opt);
+
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     net::steady_timer Wait(ioc);
+                     Wait.expires_after(std::chrono::milliseconds(50));
+                     co_await Wait.async_wait(net::use_awaitable);
+                     EXPECT_FALSE(Session->IsOpen());
                  });
     }
 

@@ -15,10 +15,10 @@
 #include <array>
 #include <cstring>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
-using Preview::Testing::MockTransport;
+using Psm::Testing::ProductionMockTransport;
 
 namespace
 {
@@ -38,7 +38,7 @@ namespace
 
     TEST(StealthSealPure, SealConstructor)
     {
-        auto mock = std::make_shared<MockTransport>();
+        auto mock = std::make_shared<ProductionMockTransport>();
         auto km = make_test_key_material();
         auto s = std::make_shared<reality::seal>(mock, km);
         EXPECT_NE(s, nullptr) << "seal: constructed";
@@ -46,7 +46,7 @@ namespace
 
     TEST(StealthSealPure, SealExecutor)
     {
-        auto mock = std::make_shared<MockTransport>();
+        auto mock = std::make_shared<ProductionMockTransport>();
         auto km = make_test_key_material();
         auto s = std::make_shared<reality::seal>(mock, km);
 
@@ -56,7 +56,7 @@ namespace
 
     TEST(StealthSealPure, SealClose)
     {
-        auto mock = std::make_shared<MockTransport>();
+        auto mock = std::make_shared<ProductionMockTransport>();
         auto km = make_test_key_material();
         auto s = std::make_shared<reality::seal>(mock, km);
 
@@ -67,7 +67,7 @@ namespace
 
     TEST(StealthSealPure, SealCancel)
     {
-        auto mock = std::make_shared<MockTransport>();
+        auto mock = std::make_shared<ProductionMockTransport>();
         auto km = make_test_key_material();
         auto s = std::make_shared<reality::seal>(mock, km);
 
@@ -78,7 +78,7 @@ namespace
 
     TEST(StealthSealPure, SealNextLayerNotNull)
     {
-        auto mock = std::make_shared<MockTransport>();
+        auto mock = std::make_shared<ProductionMockTransport>();
         auto km = make_test_key_material();
         auto s = std::make_shared<reality::seal>(mock, km);
         EXPECT_TRUE(s->next_layer() == mock.get()) << "seal: next_layer==mock";
@@ -86,7 +86,7 @@ namespace
 
     TEST(StealthSealPure, SealTransportType)
     {
-        auto mock = std::make_shared<MockTransport>();
+        auto mock = std::make_shared<ProductionMockTransport>();
         auto km = make_test_key_material();
         auto s = std::make_shared<reality::seal>(mock, km);
         // seal 的 transport_type 沿 next_layer() 走 -> nullptr -> tcp

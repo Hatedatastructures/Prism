@@ -1,6 +1,6 @@
 /**
  * @file CoreAead.cpp
- * @brief tests/common/Core/Crypto/Aead.hpp 单元测试
+ * @brief preview/Foundation/Utility/Crypto/Aead.hpp 单元测试
  * @details 覆盖 Preview::Crypto::AeadContext：
  * 1. 4 种 cipher（aes_128_gcm/aes_256_gcm/chacha20_poly1305/xchacha20_poly1305）
  *    构造、Nonce 长度、Seal/Open 往返
@@ -24,7 +24,7 @@
 
 // 访问私有成员 Nonce_/nonce_len_/IncrementNonce()/IsNonceExhausted()
 #define private public
-#include <common/Core/Crypto/Aead.hpp>
+#include <preview/Foundation/Utility/Crypto/Aead.hpp>
 #undef private
 
 namespace

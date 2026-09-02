@@ -21,8 +21,8 @@
 #include <utility>
 #include <vector>
 
-#include <common/Core/Error.hpp>
-#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 
 namespace
 {
@@ -32,6 +32,16 @@ namespace
 
     /// 接收看门狗超时（超过即判定挂死）
     constexpr auto kRecvDeadline = std::chrono::milliseconds(2000);
+
+    auto MakePsk() -> std::array<std::uint8_t, 16>
+    {
+        std::array<std::uint8_t, 16> Psk{};
+        for (std::size_t I = 0; I < Psk.size(); ++I)
+        {
+            Psk[I] = static_cast<std::uint8_t>(0x41 + I);
+        }
+        return Psk;
+    }
 
     /**
      * @brief 与看门狗竞速的接收：返回 nullopt 表示超时（测试应判失败）
@@ -56,9 +66,28 @@ namespace
         -> std::pair<Shadowsocks2022::SharedDgram, net::ip::udp::endpoint>
     {
         net::ip::udp::endpoint bound;
+        Shadowsocks2022::ServerConfig Config;
+        Config.password = password;
+        Config.UsePsk = true;
+        Config.Psk = MakePsk();
         auto Server = Shadowsocks2022::AcceptPacket(
-            ioc.get_executor(), 0, Shadowsocks2022::ServerConfig{password}, &bound);
+            {ioc.get_executor(), 0, Config, &bound});
         return {std::move(Server), bound};
+    }
+
+    auto MakeClient(net::io_context &ioc, const std::string &remote,
+                    const char *password, bool CorrectKey)
+        -> Shadowsocks2022::SharedDgram
+    {
+        Shadowsocks2022::ClientConfig Config;
+        Config.password = password;
+        Config.UsePsk = true;
+        Config.Psk = MakePsk();
+        if (!CorrectKey)
+        {
+            Config.Psk[0] ^= 0xFF;
+        }
+        return Shadowsocks2022::ConnectPacket(ioc.get_executor(), remote, Config);
     }
 
     TEST(SS2022Udp, DirectEchoDomain)
@@ -71,8 +100,7 @@ namespace
             auto [Server, bound] = MakeServer(ioc, "Secret");
             if (!Server) { ADD_FAILURE() << "Server null"; co_return; }
             const auto remote = "127.0.0.1:" + std::to_string(bound.port());
-            auto Client = Shadowsocks2022::ConnectPacket(
-                ioc.get_executor(), remote, Shadowsocks2022::ClientConfig{"Secret"});
+            auto Client = MakeClient(ioc, remote, "Secret", true);
             if (!Client) { ADD_FAILURE() << "Client null"; co_return; }
 
             const std::string payload = "ss2022 udp payload";
@@ -118,8 +146,7 @@ namespace
             auto [Server, bound] = MakeServer(ioc, "Secret");
             if (!Server) { ADD_FAILURE() << "Server null"; co_return; }
             const auto remote = "127.0.0.1:" + std::to_string(bound.port());
-            auto Client = Shadowsocks2022::ConnectPacket(
-                ioc.get_executor(), remote, Shadowsocks2022::ClientConfig{"Secret"});
+            auto Client = MakeClient(ioc, remote, "Secret", true);
             if (!Client) { ADD_FAILURE() << "Client null"; co_return; }
 
             const std::string payload = "ipv4 payload";
@@ -152,8 +179,7 @@ namespace
             auto [Server, bound] = MakeServer(ioc, "right");
             if (!Server) { ADD_FAILURE() << "Server null"; co_return; }
             const auto remote = "127.0.0.1:" + std::to_string(bound.port());
-            auto Client = Shadowsocks2022::ConnectPacket(
-                ioc.get_executor(), remote, Shadowsocks2022::ClientConfig{"wrong"});
+            auto Client = MakeClient(ioc, remote, "wrong", false);
             if (!Client) { ADD_FAILURE() << "Client null"; co_return; }
 
             const std::string payload = "bad psk";

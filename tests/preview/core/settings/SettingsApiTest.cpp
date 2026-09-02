@@ -12,9 +12,9 @@
 #include <cstdint>
 #include <string>
 
-#include <common/Core/Api/ApiManager.hpp>
-#include <common/Core/Settings/Json.hpp>
-#include <common/Core/Settings/Loader.hpp>
+#include <preview/Composition/Api/ApiManager.hpp>
+#include <preview/Composition/Settings/Json.hpp>
+#include <preview/Composition/Settings/Loader.hpp>
 
 namespace
 {
@@ -172,6 +172,21 @@ namespace
         EXPECT_TRUE(api.ListSessions().empty());
         EXPECT_EQ(api.TrafficSummary().Up, 0);
         EXPECT_TRUE(api.ConfigSnapshot().find("\"sessions\":0") != std::string::npos);
+    }
+
+    TEST(ApiManager, IdentityTrafficCompatibility)
+    {
+        Preview::Runtime::SessionRegistry registry;
+        Preview::Runtime::PerWorkerTraffic traffic(1);
+        Preview::Runtime::IdentityTraffic identity;
+        identity.Add("alice", 10, 20);
+        identity.Add("bob", 30, 40);
+
+        Preview::Api::RegistryApiManager api(&registry, &traffic, &identity);
+        EXPECT_TRUE(api.ConfigSnapshot().find("\"identities\":2") != std::string::npos);
+
+        identity.Add("carol", 1, 2);
+        EXPECT_TRUE(api.ConfigSnapshot().find("\"identities\":3") != std::string::npos);
     }
 
 } // namespace

@@ -8,10 +8,10 @@
  *          4. 半包握手（分片发送 ClientHello）
  */
 
-#include <common/Core/Memory/Container.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Native/Native.hpp>
+#include <preview/Foundation/Memory/Container.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Native/Native.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>

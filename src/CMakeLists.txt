@@ -1,6 +1,6 @@
-add_library(${PROJECT_NAME}_static_library STATIC)
+add_library(PrismStaticLibrary STATIC)
 
-target_include_directories(${PROJECT_NAME}_static_library
+target_include_directories(PrismStaticLibrary
         PUBLIC
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_SOURCE_DIR}/include/prism
@@ -13,14 +13,14 @@ target_include_directories(${PROJECT_NAME}_static_library
         ${ngtcp2_SOURCE_DIR}/crypto/includes
 )
 
-target_link_libraries(${PROJECT_NAME}_static_library
+target_link_libraries(PrismStaticLibrary
         PUBLIC
         spdlog::spdlog
         glaze::glaze
-        Boost::system
+        BoostSystemHeaderOnly
         OpenSSL::SSL
         OpenSSL::Crypto
-        blake3_c
+        Blake3C
         nghttp2_static
         ngtcp2_static
         ngtcp2_crypto_boringssl_static
@@ -28,10 +28,10 @@ target_link_libraries(${PROJECT_NAME}_static_library
 )
 
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME}_static_library PUBLIC ws2_32 mswsock crypt32 dbghelp)
+    target_link_libraries(PrismStaticLibrary PUBLIC ws2_32 mswsock crypt32 dbghelp)
 endif()
 
-target_compile_definitions(${PROJECT_NAME}_static_library
+target_compile_definitions(PrismStaticLibrary
         PUBLIC
         BOOST_ASIO_HEADER_ONLY
         BOOST_ASIO_USE_OPENSSL
@@ -40,7 +40,7 @@ target_compile_definitions(${PROJECT_NAME}_static_library
 )
 
 if(WIN32)
-    target_compile_definitions(${PROJECT_NAME}_static_library PUBLIC WIN32_LEAN_AND_MEAN)
+    target_compile_definitions(PrismStaticLibrary PUBLIC WIN32_LEAN_AND_MEAN)
 endif()
 
 add_subdirectory(prism)
@@ -86,7 +86,7 @@ endif()
 
 target_link_libraries(${PROJECT_NAME}
         PRIVATE
-        ${PROJECT_NAME}_static_library
+        PrismStaticLibrary
 )
 
 # boost 1.89 header-only 的 wrapexcept thunk 被 --gc-sections 裁剪，禁用裁剪

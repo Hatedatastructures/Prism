@@ -20,8 +20,9 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Hysteria2/Hysteria2.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Unreliable.hpp>
+#include <preview/Protocols/Hysteria2/Hysteria2.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -56,6 +57,31 @@ namespace
         addr.Host = std::move(host);
         addr.Port = port;
         return addr;
+    }
+
+    TEST(Hysteria2ConnSession, StreamBackedDatagramIsRejected)
+    {
+        net::io_context ioc;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto Dgram = std::make_shared<Hysteria2::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     Hysteria2::Address Src;
+                     std::vector<std::uint8_t> Payload;
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Src, Payload), Error::NotSupported);
+                     Dgram->Close();
+                     b.Close();
+                 });
+    }
+
+    TEST(Hysteria2ConnSession, IndependentDatagramFactoryIsDisabledWithoutProtocolAuth)
+    {
+        net::io_context ioc;
+        const Hysteria2::ClientConfig Client{"pw"};
+        const Hysteria2::ServerConfig Server{"pw"};
+        EXPECT_EQ(Hysteria2::ConnectPacket(ioc.get_executor(), "127.0.0.1:1", Client), nullptr);
+        EXPECT_EQ(Hysteria2::AcceptPacket(ioc.get_executor(), 0, Server), nullptr);
     }
 
     TEST(Hysteria2ConnSession, ClientServerEchoRoundtrip)
@@ -149,7 +175,7 @@ namespace
                  });
     }
 
-    TEST(Hysteria2ConnSession, UdpDatagramRoundtrip)
+    TEST(Hysteria2ConnSession, StreamBackedUdpCommandIsRejected)
     {
         net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
@@ -157,61 +183,17 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto [err, req, Conn] =
-                             co_await Hysteria2::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                        Hysteria2::ServerConfig{"pw"});
-                         if (err != Error::None || !Conn)
-                         {
-                             co_return;
-                         }
-                         // 接收两个数据报（验证 Session/packet Id 递增）
-                         for (int i = 0; i < 2; ++i)
-                         {
-                             Hysteria2::Address src;
-                             std::vector<std::uint8_t> payload;
-                             const auto rerr = co_await Conn->AsyncReceiveDatagram(src, payload);
-                             EXPECT_EQ(rerr, Error::None);
-                             if (i == 0)
-                             {
-                                 EXPECT_EQ(src.Type, Hysteria2::AddressType::Ipv4);
-                                 EXPECT_EQ(src.Host, "93.184.216.34");
-                                 EXPECT_EQ(src.Port, 443u);
-                                 EXPECT_EQ(std::string(payload.begin(), payload.end()), "hello udp");
-                             }
-                             else
-                             {
-                                 EXPECT_EQ(src.Type, Hysteria2::AddressType::Domain);
-                                 EXPECT_EQ(src.Host, "example.com");
-                                 EXPECT_EQ(src.Port, 53u);
-                                 EXPECT_EQ(std::string(payload.begin(), payload.end()), "second");
-                             }
-                         }
-                         Conn->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-
-                     auto [herr, cli] =
-                         co_await Hysteria2::Connect(std::make_shared<MemoryStream>(std::move(a)),
-                                                     Hysteria2::ClientConfig{"pw"},
-                                                     make_addr(Hysteria2::AddressType::Ipv4,
-                                                               "93.184.216.34", 443));
-                     EXPECT_EQ(herr, Error::None);
-                     if (!cli) { co_return; }
-                     const std::string p1 = "hello udp";
-                     auto serr = co_await cli->AsyncSendDatagram(
-                         make_addr(Hysteria2::AddressType::Ipv4, "93.184.216.34", 443),
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p1.data()),
-                                                       p1.size()));
-                     EXPECT_EQ(serr, Error::None);
-                     const std::string p2 = "second";
-                     serr = co_await cli->AsyncSendDatagram(
-                         make_addr(Hysteria2::AddressType::Domain, "example.com", 53),
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p2.data()),
-                                                       p2.size()));
-                     EXPECT_EQ(serr, Error::None);
-                     cli->Close();
+                     auto Conn = std::make_shared<Hysteria2::Conn<>>(
+                         std::make_shared<MemoryStream>(std::move(a)), "pw");
+                     Hysteria2::Address Target;
+                     std::vector<std::uint8_t> Payload;
+                     EXPECT_EQ(co_await Conn->AsyncSendDatagram(
+                                   make_addr(Hysteria2::AddressType::Ipv4, "93.184.216.34", 443),
+                                   AsU8Span(std::string_view{"payload"})),
+                               Error::NotOpen);
+                     EXPECT_EQ(co_await Conn->AsyncReceiveDatagram(Target, Payload), Error::NotOpen);
+                     Conn->Close();
+                     b.Close();
                  });
     }
 
@@ -384,7 +366,7 @@ namespace
                          Hysteria2::Address src;
                          std::vector<std::uint8_t> out;
                          const auto rerr = co_await c->AsyncReceiveDatagram(src, out);
-                         EXPECT_EQ(rerr, Error::BadMessage);
+                          EXPECT_EQ(rerr, Error::NotSupported);
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
@@ -414,119 +396,73 @@ namespace
         return wire;
     }
 
-    TEST(Hysteria2DgramSession, ReceiveSideParsing)
+    TEST(Hysteria2DgramSession, StreamBackedDatagramIsRejected)
     {
         net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-
+        auto Dgram = std::make_shared<Hysteria2::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 服务端：逐帧解析三种地址类型（IPv4 / 域名 / IPv6）
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto dg = std::make_shared<Hysteria2::Dgram<>>(
-                             std::make_shared<MemoryStream>(std::move(b)));
-                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::Udp);
-                         EXPECT_TRUE(dg->Stream());
-                         EXPECT_NE(dg->NextLayer(), nullptr);
-                         EXPECT_NE(dg->lowest_layer<MemoryStream>(), nullptr);
-                         EXPECT_TRUE(dg->Executor());
-
-                         Hysteria2::Address src;
-                         std::vector<std::uint8_t> payload;
-                         // IPv4
-                         auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::None);
-                         EXPECT_EQ(src.Type, Hysteria2::AddressType::Ipv4);
-                         EXPECT_EQ(src.Host, "93.184.216.34");
-                         EXPECT_EQ(src.Port, 443u);
-                         EXPECT_EQ(std::string(payload.begin(), payload.end()), "one");
-                         // 域名
-                         err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::None);
-                         EXPECT_EQ(src.Type, Hysteria2::AddressType::Domain);
-                         EXPECT_EQ(src.Host, "example.com");
-                         EXPECT_EQ(src.Port, 53u);
-                         EXPECT_EQ(std::string(payload.begin(), payload.end()), "two");
-                         // IPv6
-                         err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::None);
-                         EXPECT_EQ(src.Type, Hysteria2::AddressType::Ipv6);
-                         EXPECT_EQ(src.Host, std::string(16, '\x22'));
-                         EXPECT_EQ(src.Port, 8080u);
-                         EXPECT_EQ(std::string(payload.begin(), payload.end()), "three");
-                         dg->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-
-                     // 客户端：发送三种兼容帧
-                     std::error_code ec;
-                     auto w1 = build_recv_wire(0x01, {93, 184, 216, 34}, 443, "one");
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(w1)), ec);
-                     auto w2 = build_recv_wire(0x02, {11, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm'},
-                                               53, "two");
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(w2)), ec);
-                     auto w3 = build_recv_wire(0x03, std::vector<std::uint8_t>(16, 0x22), 8080, "three");
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(w3)), ec);
-                     a.Close();
+                     Hysteria2::Address Src;
+                     std::vector<std::uint8_t> Payload;
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Src, Payload), Error::NotSupported);
+                     EXPECT_EQ(co_await Dgram->AsyncSendTo(
+                                   make_addr(Hysteria2::AddressType::Ipv4, "127.0.0.1", 53),
+                                   AsU8Span(std::string_view{"payload"})),
+                               Error::NotSupported);
+                     Dgram->Close();
+                     b.Close();
                  });
     }
 
-    TEST(Hysteria2DgramSession, SendSideRoundtrip)
+    TEST(Hysteria2DgramSession, StreamBackedSendIsRejected)
     {
         net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        auto a_stream = std::make_shared<MemoryStream>(std::move(a));
-        auto b_stream = std::make_shared<MemoryStream>(std::move(b));
-
+        auto Dgram = std::make_shared<Hysteria2::Dgram<>>(
+            std::make_shared<MemoryStream>(std::move(a)));
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto dg = std::make_shared<Hysteria2::Dgram<>>(b_stream);
-                         // 透传读取客户端 BuildUdp 帧并解析验证
-                         std::array<std::uint8_t, 512> wire{};
-                         std::error_code ec;
-                         const auto n = co_await dg->async_read_some(
-                             AsBytes(std::span<std::uint8_t>(wire)), ec);                         EXPECT_GT(n, 0u);
-                         Hysteria2::Message msg;
-                         std::size_t consumed = 0;
-                         const auto perr = Hysteria2::Parse(
-                             std::span<const std::uint8_t>(wire).first(n), msg, consumed);
-                         EXPECT_EQ(perr, Error::None);
-                         EXPECT_EQ(msg.Type, Hysteria2::Message::Kind::Udp);
-                         EXPECT_EQ(msg.SessionId, 0u);
-                         EXPECT_EQ(msg.PacketId, 1u);
-                         EXPECT_EQ(msg.dst.Type, Hysteria2::AddressType::Ipv4);
-                         EXPECT_EQ(msg.dst.Host, "93.184.216.34");
-                         EXPECT_EQ(msg.dst.Port, 443u);
-                         EXPECT_EQ(msg.payload, "Dgram hello");
-                         // 透传写入（passthrough）
-                         std::error_code w_ec;
-                         const auto w = co_await dg->async_write_some(
-                             AsBytes(std::span<const std::uint8_t>(wire).first(n)), w_ec);
-                         EXPECT_EQ(w, n);
-                         dg->Close();
-                         dg->Cancel();
-                         EXPECT_NE(dg->NextLayer(), nullptr);
-                         const Hysteria2::Dgram<> *const_dg = dg.get();
-                         EXPECT_NE(const_dg->NextLayer(), nullptr);
-                         auto released = dg->Release();
-                         EXPECT_TRUE(released);
-                         EXPECT_EQ(dg->NextLayer(), nullptr);
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     EXPECT_EQ(co_await Dgram->AsyncSendTo(
+                                   make_addr(Hysteria2::AddressType::Ipv4, "93.184.216.34", 443),
+                                   AsU8Span(std::string_view{"payload"})),
+                               Error::NotSupported);
+                     Dgram->Close();
+                     b.Close();
+                 });
+    }
 
-                     auto dg = std::make_shared<Hysteria2::Dgram<>>(a_stream);
-                     EXPECT_TRUE(dg->Executor());
-                     const std::string p = "Dgram hello";
-                     const auto err = co_await dg->AsyncSendTo(
-                         make_addr(Hysteria2::AddressType::Ipv4, "93.184.216.34", 443),
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
-                                                       p.size()));
-                     EXPECT_EQ(err, Error::None);
+    TEST(Hysteria2DgramSession, RawUdpDatagramKeepsFrameBoundary)
+    {
+        net::io_context ioc;
+        auto RawServer = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
+        auto RawClient = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
+        boost::system::error_code OpenEc;
+        RawServer->NativeSocket().open(net::ip::udp::v4(), OpenEc);
+        RawServer->NativeSocket().bind({net::ip::address_v4::loopback(), 0}, OpenEc);
+        EXPECT_FALSE(OpenEc);
+        const auto ServerEndpoint = RawServer->NativeSocket().local_endpoint();
+        EXPECT_TRUE(RawClient->Connect("127.0.0.1:" + std::to_string(ServerEndpoint.port())));
+        auto Server = std::make_shared<Hysteria2::Dgram<>>(RawServer);
+        auto Client = std::make_shared<Hysteria2::Dgram<>>(RawClient);
+        const auto Payload = std::string("udp-payload-without-truncation");
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     const auto Sent = co_await Client->AsyncSendTo(
+                         make_addr(Hysteria2::AddressType::Domain, "example.com", 443),
+                         AsU8Span(std::string_view(Payload)));
+                     EXPECT_EQ(Sent, Error::None);
+                     Hysteria2::Address Target;
+                     std::vector<std::uint8_t> Received;
+                     const auto Err = co_await Server->AsyncReceiveFrom(Target, Received);
+                     EXPECT_EQ(Err, Error::None);
+                     EXPECT_EQ(Target.Host, "example.com");
+                     EXPECT_EQ(std::string(Received.begin(), Received.end()), Payload);
+                     Server->Close();
+                     Client->Close();
                  });
     }
 
@@ -546,7 +482,7 @@ namespace
                          Hysteria2::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::BadMessage);
+                          EXPECT_EQ(err, Error::NotSupported);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -574,7 +510,7 @@ namespace
                          Hysteria2::Address src;
                          std::vector<std::uint8_t> payload;
                          const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::BadMessage);
+                          EXPECT_EQ(err, Error::NotSupported);
                          dg->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
@@ -601,7 +537,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                      EXPECT_EQ(err, Error::NotSupported);
                      dg->Close();
                  });
     }

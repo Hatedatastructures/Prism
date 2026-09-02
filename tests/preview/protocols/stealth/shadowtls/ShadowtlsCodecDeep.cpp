@@ -12,7 +12,7 @@
 #include <span>
 #include <string>
 
-#include <common/Protocols/Shadowtls/Codec.hpp>
+#include <preview/Protocols/Shadowtls/Codec.hpp>
 
 namespace
 {

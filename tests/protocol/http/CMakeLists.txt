@@ -1,4 +1,4 @@
-prism_add_test(Http.cpp)
-prism_add_test(HttpParser.cpp)
-prism_add_test(HttpParserAuth.cpp)
-prism_add_test(HttpParserDeep.cpp)
+AddProductionTest(Http.cpp)
+AddProductionTest(HttpParser.cpp)
+AddProductionTest(HttpParserAuth.cpp)
+AddProductionTest(HttpParserDeep.cpp)

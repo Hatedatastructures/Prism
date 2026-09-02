@@ -11,9 +11,9 @@
 #include <string_view>
 #include <vector>
 
-#include <common/Protocols/Mux/H2Mux/Codec.hpp>
-#include <common/Protocols/Mux/Smux/Codec.hpp>
-#include <common/Protocols/Mux/Yamux/Codec.hpp>
+#include <preview/Protocols/Mux/H2Mux/Codec.hpp>
+#include <preview/Protocols/Mux/Smux/Codec.hpp>
+#include <preview/Protocols/Mux/Yamux/Codec.hpp>
 #include <gtest/gtest.h>
 
 namespace

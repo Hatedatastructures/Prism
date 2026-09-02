@@ -6,7 +6,7 @@
  *   句柄委托与会话失效安全
  * - http3/qpack.hpp：QPACK 编解码往返 + 错误路径（非法前缀 / 动态表越界 /
  *   静态表越界 / 截断）+ HPACK huffman 往返与坏填充
- * - http3/Auth.hpp：认证请求解析（成功/拒绝）、认证响应帧构造与回环解码
+ * - http3/auth.hpp：认证请求解析（成功/拒绝）、认证响应帧构造与回环解码
  * - http3/Server.hpp：nghttp3 服务端初始化守卫 + 认证全流程（字节级 quic-go
  *   兼容路径）+ CheckAuth 包装
  * - quic/GatewayCommon.hpp：首字节分流、连接表生命周期、分发钩子
@@ -27,13 +27,13 @@
 #include <system_error>
 #include <vector>
 
-#include <common/Protocols/Http2/Session.hpp>
-#include <common/Protocols/Http2/Stream.hpp>
-#include <common/Protocols/Http3/Auth.hpp>
-#include <common/Protocols/Http3/Qpack.hpp>
-#include <common/Protocols/Http3/Server.hpp>
-#include <common/Protocols/Quic/GatewayCommon.hpp>
-#include <common/Protocols/Quic/StreamAdapter.hpp>
+#include <preview/Protocols/Http2/Session.hpp>
+#include <preview/Protocols/Http2/Stream.hpp>
+#include <preview/Protocols/Http3/Auth.hpp>
+#include <preview/Protocols/Http3/Qpack.hpp>
+#include <preview/Protocols/Http3/Server.hpp>
+#include <preview/Protocols/Quic/GatewayCommon.hpp>
+#include <preview/Protocols/Quic/StreamAdapter.hpp>
 
 namespace
 {
@@ -45,6 +45,22 @@ namespace
     namespace qp = Preview::Http3::Qpack;
     namespace quic = Preview::Quic;
     namespace net = boost::asio;
+
+    std::size_t DelayedEofCalls = 0;
+
+    auto DelayedEmptyHttp3Data(nghttp3_conn *, std::int64_t, nghttp3_vec *Vec, std::size_t,
+                               std::uint32_t *Flags, void *, void *) -> nghttp3_ssize
+    {
+        if (DelayedEofCalls++ == 0)
+        {
+            static std::uint8_t Data = 0;
+            Vec[0] = nghttp3_vec{&Data, 1};
+            *Flags = 0;
+            return 1;
+        }
+        *Flags = NGHTTP3_DATA_FLAG_EOF;
+        return 0;
+    }
 
     // ── http2：会话记录型 mock ──
 
@@ -265,7 +281,7 @@ namespace
         const std::array<std::uint8_t, 4> last{0x00, 0x00, 0xFF, 0x23};
         const auto fields = qp::DecodeHeaderBlock(last, mr);
         ASSERT_EQ(fields.size(), 1);
-        EXPECT_EQ(std::string_view(fields[0].Name.data(), fields[0].Name.size()), "x-Frame-Options");
+        EXPECT_EQ(std::string_view(fields[0].Name.data(), fields[0].Name.size()), "x-frame-options");
         EXPECT_EQ(std::string_view(fields[0].value.data(), fields[0].value.size()), "sameorigin");
     }
 
@@ -328,7 +344,7 @@ namespace
         std::size_t off4 = qp::EncodePrefix(b4);
         off4 += qp::EncodeLiteral(":method", "POST",
                                    std::span<std::uint8_t>(b4.data() + off4, b4.size() - off4));
-        off4 += qp::EncodeLiteral(":path", "/Auth",
+        off4 += qp::EncodeLiteral(":path", "/auth",
                                    std::span<std::uint8_t>(b4.data() + off4, b4.size() - off4));
         off4 += qp::EncodeLiteral("hysteria-auth", "password123",
                                    std::span<std::uint8_t>(b4.data() + off4, b4.size() - off4));
@@ -337,7 +353,7 @@ namespace
         auto f4 = qp::DecodeHeaderBlock(std::span<const std::uint8_t>(b4.data(), off4), mr);
         ASSERT_EQ(f4.size(), 4);
         EXPECT_EQ(std::string_view(f4[0].value.data(), f4[0].value.size()), "POST");
-        EXPECT_EQ(std::string_view(f4[1].value.data(), f4[1].value.size()), "/Auth");
+        EXPECT_EQ(std::string_view(f4[1].value.data(), f4[1].value.size()), "/auth");
         EXPECT_EQ(std::string_view(f4[2].value.data(), f4[2].value.size()), "password123");
         EXPECT_EQ(std::string_view(f4[3].value.data(), f4[3].value.size()), "0");
 
@@ -379,7 +395,7 @@ namespace
         EXPECT_FALSE(qp::HuffmanDecode(bad, dec_bad));
     }
 
-    // ── http3/Auth：头构造与解析 ──
+    // ── http3/auth：头构造与解析 ──
 
     TEST(Http3Auth, ParseAuthRequestSuccess)
     {
@@ -390,7 +406,7 @@ namespace
                                   std::span<std::uint8_t>(buf.data() + off, buf.size() - off));
         off += qp::EncodeLiteral(":authority", "hysteria",
                                   std::span<std::uint8_t>(buf.data() + off, buf.size() - off));
-        off += qp::EncodeLiteral(":path", "/Auth",
+        off += qp::EncodeLiteral(":path", "/auth",
                                   std::span<std::uint8_t>(buf.data() + off, buf.size() - off));
         off += qp::EncodeLiteral("hysteria-auth", "password123",
                                   std::span<std::uint8_t>(buf.data() + off, buf.size() - off));
@@ -401,7 +417,7 @@ namespace
         ASSERT_TRUE(h3a::ParseAuthRequest(std::span<const std::uint8_t>(buf.data(), off), req, mr));
         EXPECT_EQ(req.Method, "POST");
         EXPECT_EQ(req.Host, "hysteria");
-        EXPECT_EQ(req.Path, "/Auth");
+        EXPECT_EQ(req.Path, "/auth");
         EXPECT_EQ(req.Auth, "password123");
         EXPECT_EQ(req.Rx, 12345);
     }
@@ -414,7 +430,7 @@ namespace
         std::size_t off1 = qp::EncodePrefix(b1);
         off1 += qp::EncodeLiteral(":method", "GET",
                                    std::span<std::uint8_t>(b1.data() + off1, b1.size() - off1));
-        off1 += qp::EncodeLiteral(":path", "/Auth",
+        off1 += qp::EncodeLiteral(":path", "/auth",
                                    std::span<std::uint8_t>(b1.data() + off1, b1.size() - off1));
         off1 += qp::EncodeLiteral("hysteria-auth", "password123",
                                    std::span<std::uint8_t>(b1.data() + off1, b1.size() - off1));
@@ -426,7 +442,7 @@ namespace
         std::size_t off2 = qp::EncodePrefix(b2);
         off2 += qp::EncodeLiteral(":method", "POST",
                                    std::span<std::uint8_t>(b2.data() + off2, b2.size() - off2));
-        off2 += qp::EncodeLiteral(":path", "/Auth",
+        off2 += qp::EncodeLiteral(":path", "/auth",
                                    std::span<std::uint8_t>(b2.data() + off2, b2.size() - off2));
         h3a::AuthRequest req2(mr);
         EXPECT_FALSE(h3a::ParseAuthRequest(std::span<const std::uint8_t>(b2.data(), off2), req2, mr));
@@ -445,7 +461,7 @@ namespace
     {
         const auto mr = Preview::Memory::CurrentResource();
         std::array<std::byte, 256> out{};
-        const auto n = h3a::EncodeAuthResponse(h3a::StatusAuthOk, true, 1000000, out);
+        const auto n = h3a::EncodeAuthResponse({h3a::StatusAuthOk, true, 1000000, out});
         ASSERT_GT(n, 2);
 
         // HTTP/3 帧头：Type=HEADERS(1) + Length varint（RFC 9000 §16）
@@ -480,7 +496,7 @@ namespace
 
         // udp 关闭分支
         std::array<std::byte, 256> out2{};
-        const auto n2 = h3a::EncodeAuthResponse(233, false, 0, out2);
+        const auto n2 = h3a::EncodeAuthResponse({233, false, 0, out2});
         ASSERT_GT(n2, 2);
         const auto *hdr2 = reinterpret_cast<const std::uint8_t *>(out2.data());
         std::size_t pos2 = 0;
@@ -495,7 +511,7 @@ namespace
 
         // 缓冲不足 → 0
         std::array<std::byte, 1> tiny{};
-        EXPECT_EQ(h3a::EncodeAuthResponse(233, true, 0, tiny), 0);
+        EXPECT_EQ(h3a::EncodeAuthResponse({233, true, 0, tiny}), 0);
     }
 
     // ── http3/Server：nghttp3 服务端骨架 ──
@@ -535,7 +551,7 @@ namespace
         opts.authenticate = [](std::string_view Method, std::string_view Path,
                                std::string_view Auth)
         {
-            return Method == "POST" && Path == "/Auth" && Auth == "password123";
+            return Method == "POST" && Path == "/auth" && Auth == "password123";
         };
         auto srv = h3::MakeServer(opts);
         int next = 3;
@@ -564,7 +580,7 @@ namespace
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
         off += qp::EncodeLiteral(":authority", "hysteria",
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
-        off += qp::EncodeLiteral(":path", "/Auth",
+        off += qp::EncodeLiteral(":path", "/auth",
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
         off += qp::EncodeLiteral("hysteria-auth", "password123",
                                   std::span<std::uint8_t>(block.data() + off, block.size() - off));
@@ -584,7 +600,7 @@ namespace
         // 认证头解析结果
         EXPECT_TRUE(srv->AuthHeadersComplete());
         EXPECT_EQ(srv->Method(), "POST");
-        EXPECT_EQ(srv->Path(), "/Auth");
+        EXPECT_EQ(srv->Path(), "/auth");
         EXPECT_EQ(srv->Auth(), "password123");
         EXPECT_EQ(srv->Rx(), 12345);
         EXPECT_EQ(srv->AuthStreamId(), 0);
@@ -592,19 +608,101 @@ namespace
 
         // 认证响应提交并泵出（响应 HEADERS 帧发往 Stream 0）
         EXPECT_EQ(srv->SubmitAuthResponse(), Preview::Fault::Code::Success);
-        std::vector<h3::OutPacket> out;
-        ASSERT_TRUE(srv->PumpOutput(out));
-        ASSERT_FALSE(out.empty());
         bool found_response = false;
-        for (const auto &p : out)
+        bool checked_pending_guard = false;
+        for (int Round = 0; Round < 32 && !found_response; ++Round)
         {
-            if (p.StreamId == 0 && !p.Data.empty() &&
-                std::to_integer<std::uint8_t>(p.Data[0]) == 0x01)
+            std::vector<h3::OutPacket> out;
+            ASSERT_TRUE(srv->PumpOutput(out));
+            if (out.empty())
             {
-                found_response = true;
+                break;
+            }
+            if (!checked_pending_guard)
+            {
+                std::vector<h3::OutPacket> duplicate;
+                ASSERT_TRUE(srv->PumpOutput(duplicate));
+                EXPECT_TRUE(duplicate.empty());
+                checked_pending_guard = true;
+            }
+            for (const auto &p : out)
+            {
+                if (p.StreamId == 0 && !p.Data.empty() &&
+                    std::to_integer<std::uint8_t>(p.Data[0]) == 0x01)
+                {
+                    found_response = true;
+                    EXPECT_GT(p.Data.size(), 1U);
+                }
+                srv->AddWriteOffset(p.StreamId, p.Data.size());
             }
         }
         EXPECT_TRUE(found_response);
+        srv->Close();
+    }
+
+    TEST(Http3Server, EmitsZeroLengthFinPacket)
+    {
+        auto srv = h3::MakeServer({});
+        int next = 3;
+        ASSERT_TRUE(srv->Init([&]() -> std::int64_t
+                              {
+                                  const auto Id = next;
+                                  next += 4;
+                                  return Id;
+                              }));
+
+        const std::array<std::byte, 2> settings{std::byte{0x04}, std::byte{0x00}};
+        ASSERT_EQ(srv->Feed(2, settings, false), Preview::Fault::Code::Success);
+        const std::array<std::byte, 1> qenc{std::byte{0x20}};
+        ASSERT_EQ(srv->Feed(6, qenc, false), Preview::Fault::Code::Success);
+
+        std::array<std::uint8_t, 512> block{};
+        std::size_t off = qp::EncodePrefix(block);
+        off += qp::EncodeLiteral(":method", "POST",
+                                 std::span<std::uint8_t>(block.data() + off, block.size() - off));
+        off += qp::EncodeLiteral(":scheme", "https",
+                                 std::span<std::uint8_t>(block.data() + off, block.size() - off));
+        off += qp::EncodeLiteral(":authority", "hysteria",
+                                 std::span<std::uint8_t>(block.data() + off, block.size() - off));
+        off += qp::EncodeLiteral(":path", "/auth",
+                                 std::span<std::uint8_t>(block.data() + off, block.size() - off));
+        std::array<std::byte, 600> frame{};
+        std::size_t fn = 0;
+        ASSERT_TRUE(h3a::WriteFrameVarint(frame, fn, h3a::FrameHeaders));
+        ASSERT_TRUE(h3a::WriteFrameVarint(frame, fn, off));
+        std::memcpy(frame.data() + fn, block.data(), off);
+        ASSERT_EQ(srv->Feed(0, std::span<const std::byte>(frame.data(), fn + off), true),
+                  Preview::Fault::Code::Success);
+        const std::array<nghttp3_nv, 1> response{
+            nghttp3_nv{reinterpret_cast<const std::uint8_t * const>(":status"),
+                       reinterpret_cast<const std::uint8_t * const>("200"), 7, 3,
+                       NGHTTP3_NV_FLAG_NONE}};
+        DelayedEofCalls = 0;
+        const nghttp3_data_reader reader{DelayedEmptyHttp3Data};
+        ASSERT_EQ(nghttp3_conn_submit_response(srv->Native(), 0, response.data(), response.size(), &reader), 0);
+
+        bool saw_response_data = false;
+        bool saw_zero_fin = false;
+        for (int Round = 0; Round < 32 && !saw_zero_fin; ++Round)
+        {
+            std::vector<h3::OutPacket> out;
+            ASSERT_TRUE(srv->PumpOutput(out));
+            if (out.empty())
+            {
+                break;
+            }
+            for (const auto &packet : out)
+            {
+                if (packet.StreamId == 0)
+                {
+                    saw_response_data = saw_response_data || !packet.Data.empty();
+                    saw_zero_fin = packet.Data.empty() && packet.Fin;
+                }
+                srv->AddWriteOffset(packet.StreamId, packet.Data.size());
+            }
+        }
+        EXPECT_TRUE(saw_response_data);
+        EXPECT_TRUE(saw_zero_fin);
         srv->Close();
     }
 
@@ -635,16 +733,16 @@ namespace
     {
         // 空输入 → unknown
         EXPECT_EQ(Preview::Quic::GuessProtocol({}), Preview::Quic::ProtocolGuess::Unknown);
-        // 0x04 = HTTP/3 SETTINGS → hysteria2
-        const std::array<std::byte, 1> h3{std::byte{0x04}};
-        const std::array<std::byte, 2> h3two{std::byte{0x04}, std::byte{0x01}};
-        const std::array<std::byte, 1> tuic{std::byte{0x40}};
+        // HEADERS 帧首字节 0x01 → hysteria2
+        const std::array<std::byte, 1> h3{std::byte{0x01}};
+        const std::array<std::byte, 2> h3two{std::byte{0x01}, std::byte{0x00}};
+        const std::array<std::byte, 1> tuic{std::byte{0x05}};
         EXPECT_EQ(Preview::Quic::GuessProtocol(h3), Preview::Quic::ProtocolGuess::Hysteria2);
         EXPECT_EQ(Preview::Quic::GuessProtocol(h3two), Preview::Quic::ProtocolGuess::Hysteria2);
-        // 0x40 = tuic
+        // TUIC v5 版本字节 0x05
         EXPECT_EQ(Preview::Quic::GuessProtocol(tuic), Preview::Quic::ProtocolGuess::Tuic);
         // 其余字节 → unknown
-        for (const auto fb : {std::byte{0x00}, std::byte{0x05}, std::byte{0x3F}, std::byte{0x41}})
+        for (const auto fb : {std::byte{0x00}, std::byte{0x04}, std::byte{0x3F}, std::byte{0x40}})
         {
             const std::array<std::byte, 1> b{fb};
             EXPECT_EQ(Preview::Quic::GuessProtocol(b), Preview::Quic::ProtocolGuess::Unknown);
@@ -710,14 +808,14 @@ namespace
     {
         recording_gateway gw;
         const auto key = Preview::Quic::GatewayCommon::ConnKey{0x1122};
-        const std::array<std::byte, 1> fb_h3{std::byte{0x04}};
-        const std::array<std::byte, 1> fb_tuic{std::byte{0x40}};
-        const std::array<std::byte, 1> fb_unk{std::byte{0x05}};
+        const std::array<std::byte, 1> fb_h3{std::byte{0x01}};
+        const std::array<std::byte, 1> fb_tuic{std::byte{0x05}};
+        const std::array<std::byte, 1> fb_unk{std::byte{0x40}};
         // 未登记连接 → 分发拒绝
         EXPECT_FALSE(gw.Dispatch(key, fb_h3));
         ASSERT_TRUE(gw.RegisterConnection(key));
 
-        // 0x04 → hysteria2 钩子
+        // 0x01 → hysteria2 钩子
         EXPECT_TRUE(gw.Dispatch(key, fb_h3));
         auto *st = gw.Lookup(key);
         ASSERT_NE(st, nullptr);
@@ -727,7 +825,7 @@ namespace
         ASSERT_EQ(gw.h3_keys.size(), 1);
         EXPECT_EQ(gw.h3_keys[0], key);
 
-        // 0x40 → tuic 钩子（同一连接可切换判定）
+        // 0x05 → tuic 钩子（同一连接可切换判定）
         EXPECT_TRUE(gw.Dispatch(key, fb_tuic));
         EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::Tuic);
         EXPECT_EQ(gw.tuic_calls, 1);

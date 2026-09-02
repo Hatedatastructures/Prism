@@ -1,5 +1,5 @@
 # http 子模块测试
-prism_add_test(Http11ConnectTest.cpp)
-target_link_libraries(Http11ConnectTest PRIVATE vmtest_common)
-prism_add_test(HttpTrojanVlessBeastTest.cpp)
-target_link_libraries(HttpTrojanVlessBeastTest PRIVATE vmtest_common)
+AddPreviewTest(Http11ConnectTest.cpp)
+target_link_libraries(Http11ConnectTest PRIVATE PreviewTransport PreviewNet PreviewProtocolHttp PreviewTestSupport)
+AddPreviewTest(HttpTrojanVlessBeastTest.cpp)
+target_link_libraries(HttpTrojanVlessBeastTest PRIVATE PreviewProtocolTrojan PreviewProtocolVless PreviewTestSupport)

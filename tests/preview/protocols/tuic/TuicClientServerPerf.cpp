@@ -11,11 +11,12 @@
 #include <cstdio>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include <common/Bench/Bench.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Tuic/Tuic.hpp>
+#include <TestSupport/Benchmark/Bench.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Tuic/Tuic.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -47,6 +48,26 @@ namespace
         return u;
     }
 
+    auto test_exporter(std::span<std::uint8_t> Output, std::span<const std::uint8_t> Label,
+                       std::string_view Context) -> bool
+    {
+        std::uint8_t State = 0x5A;
+        for (const auto Byte : Label)
+        {
+            State = static_cast<std::uint8_t>((State * 33U) ^ Byte);
+        }
+        for (const auto Byte : Context)
+        {
+            State = static_cast<std::uint8_t>((State * 33U) ^ static_cast<std::uint8_t>(Byte));
+        }
+        for (std::size_t I = 0; I < Output.size(); ++I)
+        {
+            State = static_cast<std::uint8_t>(State * 33U + static_cast<std::uint8_t>(I));
+            Output[I] = State;
+        }
+        return true;
+    }
+
     auto make_dst() -> Tuic::Address
     {
         Tuic::Address dst{};
@@ -60,6 +81,7 @@ namespace
     {
         net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto [auth_a, auth_b] = MakeMemoryPair(ioc.get_executor());
 
         constexpr std::size_t kTotal = 4 * 1024 * 1024;
         constexpr std::size_t kBlock = 64 * 1024;
@@ -70,7 +92,9 @@ namespace
                      {
                          auto [err, req, Conn] =
                              co_await Tuic::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                   Tuic::ServerConfig{make_uuid(), "pw"});
+                                                    Tuic::ServerConfig{make_uuid(), "pw",
+                                                                        std::make_shared<MemoryStream>(std::move(auth_b)),
+                                                                        test_exporter});
                          if (err != Error::None)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
@@ -96,7 +120,10 @@ namespace
 
                      auto [herr, cli] =
                          co_await Tuic::Connect(std::make_shared<MemoryStream>(std::move(a)),
-                                                Tuic::ClientConfig{make_uuid(), "pw"}, make_dst());
+                                                 Tuic::ClientConfig{make_uuid(), "pw",
+                                                                    std::make_shared<MemoryStream>(std::move(auth_a)),
+                                                                    test_exporter},
+                                                 make_dst());
                      if (herr != Error::None || !cli)
                      {
                          EXPECT_TRUE(false) << "Connect Failed";
@@ -141,6 +168,7 @@ namespace
     {
         net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto [auth_a, auth_b] = MakeMemoryPair(ioc.get_executor());
 
         run_coro(
             ioc,
@@ -150,7 +178,9 @@ namespace
                 {
                     auto [err, req, Conn] =
                         co_await Tuic::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                              Tuic::ServerConfig{make_uuid(), "pw"});
+                                              Tuic::ServerConfig{make_uuid(), "pw",
+                                                                 std::make_shared<MemoryStream>(std::move(auth_b)),
+                                                                 test_exporter});
                     if (err != Error::None)
                     {
                         co_return;
@@ -167,7 +197,10 @@ namespace
                 net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
                 auto [herr, cli] = co_await Tuic::Connect(std::make_shared<MemoryStream>(std::move(a)),
-                                                          Tuic::ClientConfig{make_uuid(), "pw"}, make_dst());
+                                                          Tuic::ClientConfig{make_uuid(), "pw",
+                                                                             std::make_shared<MemoryStream>(std::move(auth_a)),
+                                                                             test_exporter},
+                                                          make_dst());
                 if (herr != Error::None || !cli)
                 {
                     co_return;

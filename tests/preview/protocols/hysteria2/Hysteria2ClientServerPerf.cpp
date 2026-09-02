@@ -13,9 +13,9 @@
 #include <string>
 #include <vector>
 
-#include <common/Bench/Bench.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Hysteria2/Hysteria2.hpp>
+#include <TestSupport/Benchmark/Bench.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Hysteria2/Hysteria2.hpp>
 #include <gtest/gtest.h>
 
 namespace

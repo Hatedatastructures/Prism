@@ -1,3 +1,3 @@
-prism_add_test(SmuxCraftPure.cpp)
-prism_add_test(SmuxCraftDeep.cpp)
-prism_add_test(SmuxFrameDeep.cpp)
+AddProductionTest(SmuxCraftPure.cpp)
+AddProductionTest(SmuxCraftDeep.cpp)
+AddProductionTest(SmuxFrameDeep.cpp)

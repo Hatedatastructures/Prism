@@ -15,14 +15,15 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <array>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Vmess/Vmess.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Vmess/Vmess.hpp>
 
 namespace
 {
@@ -64,13 +65,14 @@ namespace
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
                 EXPECT_EQ(err, Preview::Error::IoError); // 只发 4 字节后 EOF（len_enc 读不满）
             };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
 
             // 只发 4 字节（半包）
             const std::vector<std::uint8_t> wire{0x01, 0x02, 0x03, 0x04};
             std::error_code ec;
             co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
             a.Close();
+            co_await std::move(server_task);
         });
     }
 

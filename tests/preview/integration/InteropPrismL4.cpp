@@ -33,15 +33,15 @@
 #include <string_view>
 #include <vector>
 
-#include <common/Core/Error.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
-#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
-#include <common/Protocols/Trojan/Trojan.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
-#include <common/Protocols/Vmess/Codec.hpp>
-#include <common/Protocols/Vmess/Vmess.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
+#include <preview/Protocols/Vmess/Codec.hpp>
+#include <preview/Protocols/Vmess/Vmess.hpp>
 
 namespace
 {
@@ -231,10 +231,10 @@ namespace
             std::array<std::uint8_t, 16> bad_uuid{};
             bad_uuid.fill(0xAB);
             cfg.uuid = opts.auth_fail ? bad_uuid : uuid;
-            auto [e, c] = co_await Vless::Connect(
+            auto [e, c] = co_await Vless::Connect({
                 std::move(raw), cfg,
                 Vless::Address{Vless::AddressType::Ipv4, "127.0.0.1", echo_port},
-                Vless::Command::Tcp);
+                Vless::Command::Tcp});
             err = e;
             proxy = std::move(c);
         }
@@ -242,10 +242,10 @@ namespace
         {
             Trojan::ClientConfig cfg;
             cfg.password = opts.auth_fail ? std::string(k_wrong_password) : std::string(k_trojan_password);
-            auto [e, c] = co_await Trojan::Connect(
+            auto [e, c] = co_await Trojan::Connect({
                 std::move(raw), cfg,
                 Trojan::Address{Trojan::AddressType::Ipv4, "127.0.0.1", echo_port},
-                Trojan::Command::Connect);
+                Trojan::Command::Connect});
             err = e;
             proxy = std::move(c);
         }
@@ -255,10 +255,10 @@ namespace
             std::array<std::uint8_t, 16> bad_uuid{};
             bad_uuid.fill(0xCD);
             cfg.uuid = opts.auth_fail ? bad_uuid : uuid;
-            auto [e, c] = co_await Vmess::Connect(
+            auto [e, c] = co_await Vmess::Connect({
                 std::move(raw), cfg,
                 Vmess::Address{Vmess::AddressType::Ipv4, "127.0.0.1", echo_port},
-                static_cast<std::uint8_t>(Vmess::Command::Tcp));
+                static_cast<std::uint8_t>(Vmess::Command::Tcp)});
             err = e;
             proxy = std::move(c);
         }

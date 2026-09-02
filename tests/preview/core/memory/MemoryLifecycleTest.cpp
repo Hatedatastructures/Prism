@@ -22,10 +22,10 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Memory/Container.hpp>
-#include <common/Core/Memory/Pointer.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
+#include <preview/Foundation/Memory/Container.hpp>
+#include <preview/Foundation/Memory/Pointer.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
 
 namespace
 {

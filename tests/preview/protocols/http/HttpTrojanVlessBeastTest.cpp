@@ -5,8 +5,8 @@
 
 #include <cstring>
 
-#include <common/Protocols/Trojan/Trojan.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
 #include <gtest/gtest.h>
 
 namespace

@@ -1,6 +1,5 @@
-prism_add_test(VmessAuth.cpp)
-prism_add_test(VmessKdf.cpp)
-prism_add_test(VmessHeader.cpp)
-prism_add_test(VmessChunk.cpp)
-prism_add_test(VmessConnEcho.cpp)
-
+AddProductionTest(VmessAuth.cpp)
+AddProductionTest(VmessKdf.cpp)
+AddProductionTest(VmessHeader.cpp)
+AddProductionTest(VmessChunk.cpp)
+AddProductionTest(VmessConnEcho.cpp)

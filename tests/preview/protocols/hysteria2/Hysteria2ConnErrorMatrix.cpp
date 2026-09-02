@@ -25,8 +25,8 @@
 #include <utility>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Hysteria2/Hysteria2.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Hysteria2/Hysteria2.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -79,6 +79,11 @@ namespace
         [[nodiscard]] auto Executor() const -> net::any_io_executor override
         {
             return Ex_;
+        }
+
+        [[nodiscard]] auto TransportType() const noexcept -> Type override
+        {
+            return Type::Udp;
         }
 
         /**
@@ -380,7 +385,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -403,7 +408,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -427,7 +432,9 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     // UDP 已保留完整数据报边界；截断数据报是 need_more，
+                     // 而不是流式 EOF。
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -438,7 +445,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // UDP 帧头完整，载荷读取注入错误 → io_error
+                     // UDP 数据报读取本身注入错误 → io_error
                      const auto Target = make_addr(Hysteria2::AddressType::Ipv4, "1.2.3.4", 80);
                      auto raw = std::make_shared<scripted_transmission>(ioc.get_executor());
                      raw->to_read = make_server_handshake_bytes("pw", Target);
@@ -448,8 +455,7 @@ namespace
                      auto [herr, msg] = co_await c->ReadHandshake();
                      EXPECT_EQ(herr, Error::None);
                      (void)msg;
-                     // 第 12 次读取（握手 6 次 + 帧头 5 次后）为载荷读取 → io_error
-                     raw->read_fail_at = 12;
+                     raw->read_fail_at = raw->reads_done + 1;
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await c->AsyncReceiveDatagram(src, out);
@@ -534,7 +540,9 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     // UDP 已保留完整数据报边界；截断数据报是 need_more，
+                     // 而不是流式 EOF。
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -552,7 +560,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     EXPECT_EQ(err, Error::None);
                  });
     }
 
@@ -563,10 +571,10 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 帧头完整，载荷读取注入错误 → io_error（第 5 次读取为载荷：头/ATYP/地址/端口之后）
+                     // UDP 数据报读取本身注入错误 → io_error
                      auto raw = std::make_shared<scripted_transmission>(ioc.get_executor());
                      raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->read_fail_at = 5;
+                     raw->read_fail_at = 1;
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> payload;
@@ -582,14 +590,14 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 域名地址：长度 5 但仅注入 2 字节 → 地址体截断 io_error
+                     // UDP 数据报域名地址：长度 5 但仅注入 2 字节 → need_more
                      auto raw = std::make_shared<scripted_transmission>(ioc.get_executor());
                      raw->to_read = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> payload;
                      const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::IoError);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 

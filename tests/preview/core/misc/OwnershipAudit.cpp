@@ -24,11 +24,11 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Coroutine/Registry.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transport/Pad.hpp>
-#include <common/Protocols/Mux/Smux/Smux.hpp>
-#include <common/Protocols/Vmess/Codec.hpp>
+#include <preview/Foundation/Utility/Coroutine/Registry.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Pad.hpp>
+#include <preview/Protocols/Mux/Smux/Smux.hpp>
+#include <preview/Protocols/Vmess/Codec.hpp>
 #include <gtest/gtest.h>
 
 namespace

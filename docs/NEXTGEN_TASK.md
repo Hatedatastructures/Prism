@@ -59,8 +59,8 @@
   middleware 迁移到 error 或保留 fault 但明确边界，二选一并在 SPEC 固化）。
 - **M4 新旧接口双轨**：mux/session.hpp 仍用 transport_base（:43），legacy_bridge 桥接
   mux/client、server → 将 mux 迁移到 transmission，删除 transport_base/legacy_bridge。
-- **M5 CMake 清单脱节**：transmission.hpp 等 7+ 个头未列入 target_sources；prism_test_common
-  与 vmtest_common 重复 >95% → 合并为单一库（如 `prism_ngx`），完整列出全部头文件。
+- **M5 CMake 清单脱节**：transmission.hpp 等 7+ 个头未列入 target_sources；旧的重复公共
+  target 已按 Foundation/Transport/Net/Runtime/Protocol/Composition 职责拆分，并完整登记头文件。
 - **M6 空壳模块**：core/account、core/runstate、core/stats 仅 README → 落实实现或删除
   占位（依据主项目 user/resource/stats 功能裁剪）。
 - **M7 编码问题**：middleware/context.hpp:43 乱码 + 8 文件 CRLF → 修复编码，统一 LF。
@@ -102,7 +102,7 @@
 | G6 | 错误体系一致性 | 按 T1 决策方案核查引用边界 | 通过 |
 | G7 | CMake 完整性 | 全部 .hpp 在 target_sources 或聚合头可达 | 无遗漏 |
 | G8 | 编码规范 | AGENTS.md 规则 1/3/13、Doxygen 中文注释、规范 v2 大驼峰（存量未迁移文件暂循旧风格） | 自查通过 |
-| G9 | 协程纯度 | 无阻塞/锁/busy-wait（cpp-coroutine-purity 清单） | 自查通过 |
+| G9 | 协程纯度 | 无阻塞/锁/busy-wait（coroutine-audit 清单） | 自查通过 |
 | G10 | 生命周期 | co-lifecycle-audit 清单（shared_ptr 捕获、PMR 资源） | 自查通过 |
 | G11 | 资源清理 | `taskkill //F //PID <pid>`（只杀本轮启动的进程） | 无残留 |
 | G12 | 性能 | 热路径改动跑相关 bench 对比基线 | 不劣化 ±3% |
@@ -229,7 +229,7 @@ T0 传输接口补齐（P0，D1） → T1 架构收口（P0，清误导）
 
 ### T0 传输接口补齐（P0 — Next-Gen 地基，D1）
 
-> **前置发现**：`transmission` 接口（`tests/common/core/transmission.hpp`）缺少
+> **前置发现**：`transmission` 接口（`preview/Transport/Transmission.hpp`）缺少
 > `shutdown()/set_timeout()/is_open()`，但实现类（memory_stream/socket_stream）已有
 > （`:158-205`、`:167-216`）——**接口比实现薄**，SPEC 2.2 要求的会话接口能力无法通过
 > 多态调用。本任务先把地基补齐，后续所有协议 conn 才能统一超时/半关/状态查询。
@@ -247,7 +247,7 @@ T0 传输接口补齐（P0，D1） → T1 架构收口（P0，清误导）
 - **四象限**：Q1（分支：超时触发/未触发/0 禁用/取消/EOF 各路径）+ Q2（transmission 相关
   模块 ≥80%）+ Q3（若 conn 透传为热路径：TransportBench 对比）+ Q4（T0 为接口层，
   连接级并发由 T4 压测覆盖，此处豁免 Q4 并注明）。
-- 关联 skills：cpp-coroutine-purity、write-test、co-lifecycle-audit。
+- 关联 skills：coroutine-audit、write-test、co-lifecycle-audit。
 
 ### T1 架构收口（P0 — 清理误导，统一基线）
 
@@ -261,9 +261,10 @@ T0 传输接口补齐（P0，D1） → T1 架构收口（P0，清误导）
 - **T1-3 传输接口统一**：mux/session.hpp + mux/{smux,yamux,h2mux}/session.hpp 从
   transport_base 迁移到 transmission；删除 `legacy_bridge.hpp`、`transport_base.hpp`。
   门禁：G5 + 全部 mux 测试回归。
-- **T1-4 CMake 整合**：合并 prism_test_common + vmtest_common → 单一 `prism_ngx` INTERFACE
-  库；target_sources 完整列出全部头文件（含 transmission/authenticator/legacy_bridge
-  （若 T1-3 后仍存）等）；更新所有 `target_link_libraries`（17+4 处）。
+- **T1-4 CMake 整合**：删除旧的聚合 INTERFACE 库，按 Foundation/Transport/Net/Runtime/
+  Protocol/Composition 拆分 target；target_sources 完整列出全部头文件（含
+  transmission/authenticator/legacy_bridge（若 T1-3 后仍存）等）；更新所有
+  `target_link_libraries`（17+4 处）。
   门禁：G7 + 全量回归。
 - **T1-5 编码与清理**：修复 middleware/context.hpp 乱码；统一 LF；空壳模块
   （account/runstate/stats）落实实现或删除占位；修正 transmission.hpp 错误注释。

@@ -164,7 +164,9 @@ namespace psm::protocol::shadowsocks
         const auto body_enc = packet.subspan(separate_hdr_len);
         memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len, memory::current_resource());
 
-        if (const auto r = entry->aead_ctx->open(body_plain, as_u8(body_enc), nonce_span);
+        if (const auto r = entry->aead_ctx->open(crypto::open_input{
+                std::span<std::uint8_t>(body_plain.data(), body_plain.size()),
+                as_u8(body_enc), nonce_span, {}});
             r != fault::code::success)
         {
             diagnose::warn(prefix_, "AES-GCM decrypt body failed");
@@ -305,7 +307,10 @@ namespace psm::protocol::shadowsocks
         memory::vector<std::uint8_t> body_plain(body_enc.size() - aead_tag_len, memory::current_resource());
         const auto nonce_span = std::span<const std::uint8_t>(nonce.data(), nonce.size());
 
-        if (const auto r = ctx.open(body_plain, as_u8(body_enc), nonce_span); r != fault::code::success)
+        if (const auto r = ctx.open(crypto::open_input{
+                std::span<std::uint8_t>(body_plain.data(), body_plain.size()),
+                as_u8(body_enc), nonce_span, {}});
+            r != fault::code::success)
         {
             diagnose::warn(prefix_, "chacha20 decrypt body failed");
             return {fault::code::crypto_error, result};
@@ -393,7 +398,10 @@ namespace psm::protocol::shadowsocks
         // 安全：字节 vector 区域转 uint8_t span 用于 AEAD 加密输出
         const auto body_out = std::span<std::uint8_t>(
             reinterpret_cast<std::uint8_t *>(result.data() + session_id_len + packet_id_len), body_enc_len);
-        if (const auto r = ctx.seal(body_out, plain, nonce_span); r != fault::code::success)
+        if (const auto r = ctx.seal(crypto::seal_input{
+                body_out,
+                std::span<const std::uint8_t>(plain.data(), plain.size()), nonce_span, {}});
+            r != fault::code::success)
         {
             diagnose::warn(prefix_, "chacha20 encrypt body failed");
             return {fault::code::crypto_error, {}};

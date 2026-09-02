@@ -7,8 +7,8 @@
  * @note 全部离线字节操作，无网络
  */
 
-#include <common/Core/Net/Dns/Answer.hpp>
-#include <common/Core/Net/Dns/Format.hpp>
+#include <preview/Net/Dns/Answer.hpp>
+#include <preview/Net/Dns/Format.hpp>
 
 #include <boost/asio/ip/address.hpp>
 

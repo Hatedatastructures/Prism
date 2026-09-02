@@ -1,17 +1,17 @@
 # nested 子模块
 if(PRISM_ENABLE_BENCHMARK)
-    prism_add_test(StealthNestedPerf3.cpp)
-    target_link_libraries(StealthNestedPerf3 PRIVATE vmtest_common)
+    AddPreviewTest(StealthNestedPerf3.cpp)
+ target_link_libraries(StealthNestedPerf3 PRIVATE PreviewTransport PreviewProtocolAnytls PreviewProtocolGun PreviewProtocolReality PreviewProtocolRestls PreviewProtocolShadowtls PreviewProtocolSocks5 PreviewProtocolTrojan PreviewProtocolTrusttunnel PreviewProtocolVless PreviewProtocolWs PreviewTestSupport)
 endif()
 
 # nested 子模块
 if(PRISM_ENABLE_BENCHMARK)
-    prism_add_test(StealthNestedPerf2.cpp)
-    target_link_libraries(StealthNestedPerf2 PRIVATE vmtest_common)
+    AddPreviewTest(StealthNestedPerf2.cpp)
+ target_link_libraries(StealthNestedPerf2 PRIVATE PreviewTransport PreviewProtocolAnytls PreviewProtocolGun PreviewProtocolReality PreviewProtocolRestls PreviewProtocolShadowtls PreviewProtocolSocks5 PreviewProtocolTrojan PreviewProtocolTrusttunnel PreviewProtocolVless PreviewProtocolWs PreviewTestSupport)
 endif()
 
 # nested 子模块
 if(PRISM_ENABLE_BENCHMARK)
-    prism_add_test(StealthNestedPerf.cpp)
-    target_link_libraries(StealthNestedPerf PRIVATE vmtest_common)
+    AddPreviewTest(StealthNestedPerf.cpp)
+ target_link_libraries(StealthNestedPerf PRIVATE PreviewTransport PreviewProtocolAnytls PreviewProtocolGun PreviewProtocolReality PreviewProtocolRestls PreviewProtocolShadowtls PreviewProtocolSocks5 PreviewProtocolTrojan PreviewProtocolTrusttunnel PreviewProtocolVless PreviewProtocolWs PreviewTestSupport)
 endif()

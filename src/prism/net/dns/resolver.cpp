@@ -9,6 +9,7 @@
 #include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <numeric>
 #include <optional>
@@ -18,6 +19,33 @@ using namespace psm::diagnose;
 namespace psm::dns
 {
 
+    struct eviction_state
+    {
+        eviction_state(net::io_context &ioc, detail::cache_options options)
+            : cache(std::make_shared<detail::cache>(options)), timer(ioc)
+        {
+        }
+
+        std::shared_ptr<detail::cache> cache;
+        std::atomic<bool> alive{true};
+        net::steady_timer timer;
+    };
+
+    [[nodiscard]] auto run_eviction(std::shared_ptr<eviction_state> state) -> net::awaitable<void>
+    {
+        while (state->alive.load(std::memory_order_acquire))
+        {
+            state->timer.expires_after(std::chrono::seconds(30));
+            boost::system::error_code ec;
+            co_await state->timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            if (ec == net::error::operation_aborted || !state->alive.load(std::memory_order_acquire))
+            {
+                co_return;
+            }
+            state->cache->evict_expired();
+        }
+    }
+
     // ─── resolver 具体实现 ──────────────────────────────────────
 
     class resolver::impl
@@ -26,7 +54,8 @@ namespace psm::dns
         explicit impl(net::io_context &ioc, config cfg,
                       memory::resource_pointer mr = memory::current_resource())
             : ioc_(ioc), config_(std::move(cfg)), mr_(mr ? mr : memory::current_resource()),
-              upstream_(ioc_, mr_), cache_(
+              upstream_(std::make_shared<upstream>(ioc_, mr_)),
+              eviction_(std::make_shared<eviction_state>(ioc_,
                                         [&]
                                         {
                                             detail::cache_options opts;
@@ -42,16 +71,15 @@ namespace psm::dns
                                                 opts.stale = detail::stale_policy::discard;
                                             }
                                             return opts;
-                                        }()),
-              rules_(mr_), coalescer_(mr_), alive_(std::make_shared<std::atomic<bool>>(true)),
-              eviction_timer_(ioc_)
+                                        }())),
+              rules_(mr_), coalescer_(mr_)
         {
             if (!config_.servers.empty())
             {
-                upstream_.set_servers(std::move(config_.servers));
+                upstream_->set_servers(std::move(config_.servers));
             }
-            upstream_.set_mode(config_.mode);
-            upstream_.set_timeout(config_.timeout_ms);
+            upstream_->set_mode(config_.mode);
+            upstream_->set_timeout(config_.timeout_ms);
 
             for (const auto &rule : config_.address_rules)
             {
@@ -69,16 +97,16 @@ namespace psm::dns
                 rules_.add_cname(rule.domain, rule.target);
             }
 
-            net::co_spawn(ioc_, eviction_loop(), net::detached);
+            net::co_spawn(ioc_, run_eviction(eviction_), net::detached);
         }
 
         ~impl()
         {
-            if (alive_)
+            if (eviction_)
             {
-                alive_->store(false);
+                eviction_->alive.store(false, std::memory_order_release);
+                (void)eviction_->timer.cancel();
             }
-            eviction_timer_.cancel();
         }
 
         [[nodiscard]] auto resolve(std::string_view host)
@@ -193,21 +221,6 @@ namespace psm::dns
         }
 
     private:
-        [[nodiscard]] auto eviction_loop() -> net::awaitable<void>
-        {
-            while (alive_->load())
-            {
-                eviction_timer_.expires_after(std::chrono::seconds(30));
-                boost::system::error_code ec;
-                co_await eviction_timer_.async_wait(net::redirect_error(net::use_awaitable, ec));
-                if (ec == net::error::operation_aborted || !alive_->load())
-                {
-                    co_return;
-                }
-                cache_.evict_expired();
-            }
-        }
-
         /**
          * @brief IP 过滤：移除黑名单和类型不匹配的 IP，返回过滤后的列表
          * @param ips 待过滤的 IP 列表
@@ -253,12 +266,12 @@ namespace psm::dns
                 }
                 if (ttl > 0)
                 {
-                    cache_.put({qname, qt, result.ips, ttl});
+                    eviction_->cache->put({qname, qt, result.ips, ttl});
                 }
             }
             else if (fault::failed(result.error) || (fault::succeeded(result.error) && result.ips.empty()))
             {
-                cache_.put_negative(qname, qt, config_.negative_ttl);
+                eviction_->cache->put_negative(qname, qt, config_.negative_ttl);
             }
         }
 
@@ -294,7 +307,7 @@ namespace psm::dns
             {
                 return std::nullopt;
             }
-            if (auto cached = cache_.get(qname, qt); cached)
+            if (auto cached = eviction_->cache->get(qname, qt); cached)
             {
                 if (cached->empty())
                 {
@@ -351,7 +364,7 @@ namespace psm::dns
             query_result result(mr_);
             try
             {
-                result = co_await upstream_.resolve(qname, qt);
+                result = co_await upstream_->resolve(qname, qt);
             }
             catch (...)
             {
@@ -372,7 +385,7 @@ namespace psm::dns
                 {
                     if (config_.cache_enabled)
                     {
-                        cache_.put_negative(qname, qt, config_.negative_ttl);
+                        eviction_->cache->put_negative(qname, qt, config_.negative_ttl);
                     }
                     diagnose::warn("{} all IPs blacklisted", qname);
                     co_return std::make_pair(fault::code::blocked, memory::vector<net::ip::address>(mr_));
@@ -468,12 +481,10 @@ namespace psm::dns
         net::io_context &ioc_;
         memory::resource_pointer mr_;
         config config_;
-        upstream upstream_;
-        detail::cache cache_;
+        std::shared_ptr<upstream> upstream_;
+        std::shared_ptr<eviction_state> eviction_;
         detail::rules_engine rules_;
         detail::coalescer coalescer_;
-        std::shared_ptr<std::atomic<bool>> alive_;
-        net::steady_timer eviction_timer_;
     };
 
     // ─── resolver 构造函数 + 转发 ───────────────────────────

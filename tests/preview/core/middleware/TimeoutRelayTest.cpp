@@ -21,11 +21,12 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Middleware/Builtin/Relay.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Middleware/Pipeline.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transmission.hpp>
+#include <preview/Runtime/Middleware/Builtin/Relay.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Runtime/Middleware/Pipeline.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 
 namespace
 {
@@ -273,6 +274,33 @@ namespace
                      a1->Close();
                  });
         EXPECT_TRUE(RelayDone);
+    }
+
+    TEST(TimeoutRelay, WriteFailureReturnsIoError)
+    {
+        net::io_context ioc;
+        auto Inbound = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        auto Outbound = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        Outbound->FailNextWrite = true;
+        Preview::Fault::Code Result = Preview::Fault::Code::Success;
+
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     net::post(ioc, [Inbound]
+                               { Inbound->InjectRead({0x01U, 0x02U, 0x03U}); });
+                     Preview::Middleware::Context ctx;
+                     ctx.Inbound = Inbound;
+                     ctx.Outbound = Outbound;
+                     Preview::Middleware::Builtin::RelayMiddleware relay(
+                         nullptr, std::chrono::milliseconds(0));
+                     auto Input = ctx.Inbound;
+                     Result = co_await relay.Handle(Input, ctx);
+                 });
+
+        EXPECT_EQ(Result, Preview::Fault::Code::IoError);
+        EXPECT_TRUE(Inbound->IsClosed());
+        EXPECT_TRUE(Outbound->IsClosed());
     }
 
     TEST(TimeoutRelay, ConcurrentBidirectionalTransfer)

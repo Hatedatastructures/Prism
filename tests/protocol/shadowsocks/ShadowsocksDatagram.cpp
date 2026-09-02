@@ -192,7 +192,8 @@ namespace
         // AEAD 加密 body
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
         psm::memory::vector<std::uint8_t> BodyEnc(body_enc_len, psm::memory::current_resource());
-        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        ctx.seal(psm::crypto::seal_input{
+            BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()), {}});
 
         // AES-ECB 加密 SeparateHeader
         std::array<std::uint8_t, 16> separate_plain{};
@@ -250,7 +251,8 @@ namespace
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
         psm::memory::vector<std::uint8_t> BodyEnc(body_enc_len, psm::memory::current_resource());
-        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        ctx.seal(psm::crypto::seal_input{
+            BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()), {}});
 
         // 组装: SessionID(8) + PacketID(8) + BodyEnc
         psm::memory::vector<std::byte> result(16 + body_enc_len, psm::memory::current_resource());
@@ -419,7 +421,8 @@ namespace
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
         psm::memory::vector<std::uint8_t> BodyEnc(body_enc_len, psm::memory::current_resource());
-        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        ctx.seal(psm::crypto::seal_input{
+            BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()), {}});
 
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);

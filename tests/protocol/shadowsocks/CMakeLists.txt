@@ -1,9 +1,7 @@
-prism_add_test(Shadowsocks.cpp)
-prism_add_test(ShadowsocksConnPure.cpp)
-prism_add_test(ShadowsocksDatagram.cpp)
-prism_add_test(ShadowsocksDatagramPure.cpp)
-prism_add_test(ShadowsocksDatagramDeep.cpp)
-prism_add_test(ShadowsocksFramingPure.cpp)
-prism_add_test(ShadowsocksProcessPure.cpp)
-
-
+AddProductionTest(Shadowsocks.cpp)
+AddProductionTest(ShadowsocksConnPure.cpp)
+AddProductionTest(ShadowsocksDatagram.cpp)
+AddProductionTest(ShadowsocksDatagramPure.cpp)
+AddProductionTest(ShadowsocksDatagramDeep.cpp)
+AddProductionTest(ShadowsocksFramingPure.cpp)
+AddProductionTest(ShadowsocksProcessPure.cpp)

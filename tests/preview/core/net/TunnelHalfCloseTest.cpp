@@ -5,7 +5,7 @@
  *          （MuxLifecycle 模式）；阶段切换由事件驱动（wait_until 有界轮询），
  *          禁止 detached + run_for 分段驱动。
  *          场景语义：先等待双向数据全量排空，再触发半关闭/关闭并断言
- *          隧道有界收口——对齐 MockTransport"EOF 即关闭两端"的模型。
+ *          隧道有界收口——对齐 ProductionMockTransport"EOF 即关闭两端"的模型。
  */
 
 #include <gtest/gtest.h>
@@ -23,11 +23,11 @@
 #include <utility>
 #include <vector>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 
 namespace net = boost::asio;
 
-using namespace Preview::Testing; // MockTransport（对齐同目录 TunnelTest 惯例）
+using Psm::Testing::ProductionMockTransport;
 
 namespace {
 
@@ -73,19 +73,19 @@ namespace {
             psm::resource::session::options{wrk, 1, buf, nullptr, {}, nullptr, nullptr});
     }
 
-    /// 隧道测试共享夹具：两端 MockTransport + 完成标志
+    /// 隧道测试共享夹具：两端 ProductionMockTransport + 完成标志
     struct harness
     {
         net::io_context &ioc;
-        std::shared_ptr<MockTransport> in;
-        std::shared_ptr<MockTransport> out;
+        std::shared_ptr<ProductionMockTransport> in;
+        std::shared_ptr<ProductionMockTransport> out;
         std::shared_ptr<psm::resource::session> sess;
         std::shared_ptr<std::exception_ptr> tep;
         std::shared_ptr<bool> Done;
 
         explicit harness(net::io_context &ctx)
-            : ioc(ctx), in(std::make_shared<MockTransport>()),
-              out(std::make_shared<MockTransport>()), sess(make_sess(ctx)),
+            : ioc(ctx), in(std::make_shared<ProductionMockTransport>()),
+              out(std::make_shared<ProductionMockTransport>()), sess(make_sess(ctx)),
               tep(std::make_shared<std::exception_ptr>()), Done(std::make_shared<bool>(false))
         {
         }
@@ -123,7 +123,7 @@ TEST(TunnelHalfClose, SmallRequestLargeResponse)
 
     auto body = [&]() -> net::awaitable<void>
     {
-        // 等待双向数据全部排空（MockTransport 的 EOF 携带错误码，
+        // 等待双向数据全部排空（ProductionMockTransport 的 EOF 携带错误码，
         // 任一方向读 EOF 都会触发 CloseRelay 立即关闭两端，
         // 因此必须先完成全量转发再触发半关闭，否则会截断在途数据）
         co_await wait_until(ioc, [&]

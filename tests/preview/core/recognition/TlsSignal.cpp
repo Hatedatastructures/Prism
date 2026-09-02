@@ -3,7 +3,7 @@
  * @brief TLS ClientHello 信号解析器单元测试
  * @details 测试 psm::recognition::tls::parse_client_hello 的纯函数逻辑，
  * 覆盖 SNI 提取、key_share 解析、版本解析、扩展解析和各类边界条件。
- * 同时使用 MockTransport 测试 read_tls_record 异步 I/O 路径。
+ * 同时使用 ProductionMockTransport 测试 read_tls_record 异步 I/O 路径。
  */
 
 #include <prism/diagnose/log.hpp>
@@ -18,7 +18,7 @@
 #include <span>
 #include <vector>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
 namespace
@@ -441,7 +441,7 @@ namespace
     TEST(TlsSignal, ReadTlsRecordFromTransport)
     {
         auto wire = make_handshake_record();
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         mock->InjectRead(wire);
 
         fault::code ResultEc = fault::code::success;
@@ -472,7 +472,7 @@ namespace
         std::vector<std::byte> wire = {std::byte{0x17}, std::byte{0x03}, std::byte{0x03},
                                        std::byte{0x00}, std::byte{0x04}, std::byte{0x01},
                                        std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         mock->InjectRead(wire);
 
         fault::code ResultEc = fault::code::success;
@@ -493,7 +493,7 @@ namespace
 
     TEST(TlsSignal, ReadTlsRecordError)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         mock->SetReadError(std::make_error_code(std::errc::connection_reset));
 
         fault::code ResultEc = fault::code::success;
@@ -518,7 +518,7 @@ namespace
         auto wire = make_handshake_record();
         std::span<const std::byte> preread(wire.data(), wire.size());
 
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         // 不注入任何数据 — preread 已包含全部
 
         fault::code ResultEc = fault::code::success;
@@ -546,7 +546,7 @@ namespace
         auto wire = make_handshake_record();
         std::span<const std::byte> preread(wire.data(), 5);
 
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         // 注入剩余部分
         std::vector<std::byte> rest(wire.begin() + 5, wire.end());
         mock->InjectRead(std::move(rest));
@@ -576,7 +576,7 @@ namespace
         std::array<std::byte, 3> short_preread = {std::byte{0x16}, std::byte{0x03}, std::byte{0x03}};
 
         auto wire = make_handshake_record();
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         mock->InjectRead(wire);
 
         fault::code ResultEc = fault::code::success;
@@ -604,7 +604,7 @@ namespace
         std::array<std::byte, 5> non_hs_preread = {std::byte{0x17}, std::byte{0x03}, std::byte{0x03},
                                                    std::byte{0x00}, std::byte{0x04}};
 
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
 
         fault::code ResultEc = fault::code::success;
 
@@ -629,7 +629,7 @@ namespace
         std::array<std::byte, 5> oversized_preread = {std::byte{0x16}, std::byte{0x03}, std::byte{0x03},
                                                       std::byte{0x40}, std::byte{0x01}}; // length=16385
 
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
 
         fault::code ResultEc = fault::code::success;
 

@@ -1,4 +1,2 @@
-prism_add_test(TuicCodec.cpp)
-
-
+AddProductionTest(TuicCodec.cpp)
 

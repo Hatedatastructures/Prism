@@ -11,8 +11,8 @@ target_include_directories(ConcurrencyServer PRIVATE
 )
 
 target_link_libraries(ConcurrencyServer PRIVATE
-    ${PROJECT_NAME}_static_library
-    Boost::system
+    PrismStaticLibrary
+    BoostSystemHeaderOnly
     glaze::glaze
     spdlog::spdlog
 )
@@ -36,8 +36,8 @@ target_include_directories(ConcurrencyClient PRIVATE
 )
 
 target_link_libraries(ConcurrencyClient PRIVATE
-    ${PROJECT_NAME}_static_library
-    Boost::system
+    PrismStaticLibrary
+    BoostSystemHeaderOnly
     glaze::glaze
     spdlog::spdlog
 )

@@ -9,11 +9,12 @@
  *          - 异常路径：畸形请求 400 / 读失败
  */
 
-#include <common/Core/Authenticator.hpp>
-#include <common/Protocols/Http1/Conn.hpp>
-#include <common/Protocols/Http1/Parser.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Transport/Reliable.hpp>
+#include <preview/Foundation/Authenticator.hpp>
+#include <preview/Protocols/Http1/Conn.hpp>
+#include <preview/Protocols/Http1/Parser.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Reliable.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
@@ -211,7 +212,8 @@ TEST(Http11Connect, AuthRequired407)
                  Client = co_await Preview::Network::Dialer::Dialer(ioc.get_executor()).Connect("127.0.0.1", port, ec);
                  if (!ec)
                  {
-                     co_await Preview::Http11::SendConnect(Client, "example.com", 443, "Basic dXNlcjpwYXNz");
+                     co_await Preview::Http11::SendConnect(
+                         {Client, "example.com", 443, "Basic dXNlcjpwYXNz"});
                      status_ok = co_await Preview::Http11::ReadResponse(Client, ec);
                      Client->Close();
                  }
@@ -320,4 +322,64 @@ TEST(Http11Connect, TunnelBidirectional)
              });
     EXPECT_EQ(status, 200);
     EXPECT_EQ(echo_back, "tunnel-echo");
+}
+
+TEST(Http11Connect, ServerPreservesCoalescedTunnelPayload)
+{
+    net::io_context ioc;
+    auto [clientEnd, serverEnd] = Preview::MakeMemoryPair(ioc.get_executor());
+    Preview::SharedTransmission Client =
+        std::make_shared<Preview::MemoryStream>(std::move(clientEnd));
+    auto ServerTransport = std::make_shared<Preview::MemoryStream>(std::move(serverEnd));
+    Preview::Http11::ServerConn Server(ServerTransport);
+    const std::string Payload = "first-tunnel-bytes";
+    const std::string Wire = "CONNECT example.com:443 HTTP/1.1\r\n"
+                             "Host: example.com:443\r\n"
+                             "\r\n" +
+                             Payload;
+    std::string Received;
+    run_coro(ioc,
+             [&]() -> net::awaitable<void>
+             {
+                 std::error_code ec;
+                 co_await Client->AsyncWrite(
+                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Wire.data()), Wire.size()),
+                     ec);
+                 Client->Shutdown();
+                 Preview::Http11::HttpRequest Request;
+                 EXPECT_EQ(co_await Server.ReadRequest(Request), Preview::Fault::Code::Success);
+                 auto Released = Server.Release();
+                 std::array<std::byte, 64> Buffer{};
+                 const auto N = co_await Released->AsyncRead(std::span<std::byte>(Buffer), ec);
+                 Received.assign(reinterpret_cast<const char *>(Buffer.data()), N);
+             });
+    EXPECT_EQ(Received, Payload);
+}
+
+TEST(Http11Connect, ClientPreservesCoalescedResponsePayload)
+{
+    net::io_context ioc;
+    auto [clientEnd, serverEnd] = Preview::MakeMemoryPair(ioc.get_executor());
+    Preview::SharedTransmission Client =
+        std::make_shared<Preview::MemoryStream>(std::move(clientEnd));
+    auto Server = std::make_shared<Preview::MemoryStream>(std::move(serverEnd));
+    const std::string Payload = "response-tunnel-bytes";
+    const std::string Wire = "HTTP/1.1 200 Connection Established\r\n\r\n" + Payload;
+    int Status = 0;
+    std::string Received;
+    run_coro(ioc,
+             [&]() -> net::awaitable<void>
+             {
+                 std::error_code ec;
+                 co_await Server->AsyncWrite(
+                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Wire.data()), Wire.size()),
+                     ec);
+                 Server->Shutdown();
+                 Status = co_await Preview::Http11::ReadResponse(Client, ec);
+                 std::array<std::byte, 64> Buffer{};
+                 const auto N = co_await Client->AsyncRead(std::span<std::byte>(Buffer), ec);
+                 Received.assign(reinterpret_cast<const char *>(Buffer.data()), N);
+             });
+    EXPECT_EQ(Status, 200);
+    EXPECT_EQ(Received, Payload);
 }

@@ -1,12 +1,11 @@
-prism_add_test(H2muxCraftDeep.cpp)
-target_link_libraries(H2muxCraftDeep PRIVATE vmtest_common)
+AddProductionTest(H2muxCraftDeep.cpp)
+target_link_libraries(H2muxCraftDeep PRIVATE ProductionTestSupport)
 
-prism_add_test(H2muxFrameError.cpp)
-target_link_libraries(H2muxFrameError PRIVATE vmtest_common)
+AddPreviewTest(H2muxFrameError.cpp)
+target_link_libraries(H2muxFrameError PRIVATE PreviewProtocolMux PreviewTestSupport)
 
-prism_add_test(H2muxCraftAsync.cpp)
-target_link_libraries(H2muxCraftAsync PRIVATE vmtest_common)
+AddProductionTest(H2muxCraftAsync.cpp)
+target_link_libraries(H2muxCraftAsync PRIVATE ProductionTestSupport)
 
-prism_add_test(H2muxCraftDeep2.cpp)
-target_link_libraries(H2muxCraftDeep2 PRIVATE vmtest_common)
-
+AddProductionTest(H2muxCraftDeep2.cpp)
+target_link_libraries(H2muxCraftDeep2 PRIVATE ProductionTestSupport)

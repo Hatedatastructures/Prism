@@ -6,8 +6,8 @@
  *          - Outbound：路由解析 + 拨号（反向命中 → 映射端点）
  */
 
-#include <common/Core/Net/Outbound/Outbound.hpp>
-#include <common/Core/Net/Route/Route.hpp>
+#include <preview/Net/Outbound/Outbound.hpp>
+#include <preview/Net/Route/Route.hpp>
 
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>

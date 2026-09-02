@@ -5,7 +5,7 @@
  */
 
 #include <benchmark/benchmark.h>
-#include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/memory/pointer.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <cstddef>
 #include <cstring>

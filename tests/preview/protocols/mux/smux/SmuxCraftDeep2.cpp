@@ -14,7 +14,7 @@
 #include <prism/foundation/foundation.hpp>
 #include <prism/net/connection/outbound/direct.hpp>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
 // 预包含依赖头文件（不打开 private）
@@ -35,7 +35,7 @@
 // 包含源文件以获得 gcov 覆盖
 #include "../../src/prism/protocol/multiplex/smux/control.cpp"
 
-using MockTransport = Preview::Testing::MockTransport;
+using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace smux = psm::multiplex::smux;
 namespace net = boost::asio;
@@ -44,7 +44,7 @@ namespace
 {
     struct CraftFixture
     {
-        std::shared_ptr<MockTransport> transport;
+        std::shared_ptr<ProductionMockTransport> transport;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::unique_ptr<psm::outbound::direct> outbound_ptr;
         std::shared_ptr<smux::control> craft_obj;
@@ -52,7 +52,7 @@ namespace
 
         CraftFixture()
         {
-            transport = std::make_shared<MockTransport>();
+            transport = std::make_shared<ProductionMockTransport>();
             auto &ioc = transport->GetIoContext();
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{ioc, dns_cfg};
@@ -518,7 +518,7 @@ TEST(SmuxCraftDeep2, ActivateStreamValidTcpAddress)
                       .emplace(10, multiplex::multiplexer::pending_entry(psm::memory::current_resource()))
                       .first->second;
     entry.connecting = true;
-    // Flags(2B)=0x0000 + ATYP=0x01(IPv4) + 127.0.0.1 + Port=80
+    // Flags(2B)=0x0000 + ATYP=0x01(IPv4) + 127.0.0.1 + Port=0
     entry.buffer.push_back(std::byte{0x00});
     entry.buffer.push_back(std::byte{0x00});
     entry.buffer.push_back(std::byte{0x01});
@@ -527,36 +527,29 @@ TEST(SmuxCraftDeep2, ActivateStreamValidTcpAddress)
     entry.buffer.push_back(std::byte{0x00});
     entry.buffer.push_back(std::byte{0x01});
     entry.buffer.push_back(std::byte{0x00});
-    entry.buffer.push_back(std::byte{0x50});
+    entry.buffer.push_back(std::byte{0x00});
 
     bool activate_done = false;
-    net::co_spawn(
-        fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            co_await fx.craft_obj->activate_stream(10);
-            activate_done = true;
-        },
-        net::detached);
+    // activate_tcp 失败路径：send(1帧) + fin(1帧) = 2帧。
+    // 直接把 channel receive awaitable 交给 co_spawn，避免临时捕获协程闭包。
+    for (int i = 0; i < 2; ++i)
+    {
+        boost::system::error_code ec;
+        auto token = net::redirect_error(net::use_awaitable, ec);
+        auto receive = fx.craft_obj->channel_.async_receive(token);
+        net::co_spawn(fx.ioc(), std::move(receive), net::detached);
+    }
 
-    // activate_tcp 失败路径：send(1帧) + fin(1帧) = 2帧
-    net::co_spawn(
-        fx.ioc(),
-        [&]() -> net::awaitable<void>
-        {
-            for (int i = 0; i < 2; ++i)
-            {
-                boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
-                co_await fx.craft_obj->channel_.async_receive(token);
-            }
-        },
-        net::detached);
+    net::co_spawn(fx.ioc(), fx.craft_obj->activate_stream(10),
+                  [&](std::exception_ptr ep)
+                  {
+                      EXPECT_FALSE(ep);
+                      activate_done = true;
+                      fx.ioc().stop();
+                  });
+    fx.ioc().run();
 
-    fx.poll(500);
-
-    // TCP 连接涉及真实网络 I/O（async_forward），poll 可能无法在有限迭代内完成
-    // 仅检查不崩溃，不强制要求 activate_done
+    EXPECT_TRUE(activate_done) << "activate_stream: valid TCP address completed";
 }
 
 TEST(SmuxCraftDeep2, ActivateStreamValidUdpAddress)

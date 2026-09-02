@@ -2,11 +2,11 @@
  * @file ParcelDeep.cpp
  * @brief multiplex/parcel 深度同步逻辑测试
  * @details 通过 #include 源文件访问 parcel 的全部实现，
- *          使用 TestCore（core 子类）+ MockTransport 构建 parcel，
+ *          使用 TestCore（core 子类）+ ProductionMockTransport 构建 parcel，
  *          测试构造、析构、close、set_destination、OnData 等同步/协程路径。
  *
  *          start() 不使用 run()，原因与 DuctDeep 相同：
- *          MockTransport 的 timer 轮询在队列为空时挂起。
+ *          ProductionMockTransport 的 timer 轮询在队列为空时挂起。
  *          start() 相关路径在已有的 MuxParcel.cpp 集成测试中间接覆盖。
  */
 
@@ -17,9 +17,9 @@
 #include <prism/protocol/multiplex/datagram.hpp>
 #include <prism/protocol/multiplex/multiplexer.hpp>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 
-using MockTransport = Preview::Testing::MockTransport;
+using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace net = boost::asio;
 
@@ -67,7 +67,7 @@ namespace
 
     struct ParcelFixture
     {
-        std::shared_ptr<MockTransport> mux_transport;
+        std::shared_ptr<ProductionMockTransport> mux_transport;
         std::unique_ptr<net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<TestCore> core_obj;
@@ -76,7 +76,7 @@ namespace
         explicit ParcelFixture(std::uint32_t max_dgram = 4096,
                                multiplex::addr_mode mode = multiplex::addr_mode::length_prefixed)
         {
-            mux_transport = std::make_shared<MockTransport>();
+            mux_transport = std::make_shared<ProductionMockTransport>();
             ioc = std::make_unique<net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
@@ -123,7 +123,7 @@ namespace
 
     TEST(ParcelDeep, ConstructorWithMr)
     {
-        auto mux_t = std::make_shared<MockTransport>();
+        auto mux_t = std::make_shared<ProductionMockTransport>();
         auto ioc = std::make_unique<net::io_context>(1);
         psm::dns::config dns_cfg;
         psm::connect::dialer_options ropts{*ioc, dns_cfg};

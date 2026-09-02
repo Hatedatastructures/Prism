@@ -7,7 +7,7 @@
 #pragma once
 
 #include <prism/diagnose/context.hpp>
-#include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/memory/pointer.hpp>
 #include <prism/net/connection/types.hpp>
 #include <prism/net/transport/transmission.hpp>
 #include <prism/resource/worker.hpp>

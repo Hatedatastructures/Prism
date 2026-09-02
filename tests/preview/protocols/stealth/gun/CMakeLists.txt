@@ -1,2 +1,2 @@
-prism_add_test(GunCodecDeep.cpp)
-target_link_libraries(GunCodecDeep PRIVATE vmtest_common)
+AddPreviewTest(GunCodecDeep.cpp)
+target_link_libraries(GunCodecDeep PRIVATE PreviewProtocolGun PreviewTestSupport)

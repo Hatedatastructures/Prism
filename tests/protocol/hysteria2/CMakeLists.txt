@@ -1,5 +1,3 @@
-prism_add_test(Hysteria2Codec.cpp)
-
-
+AddProductionTest(Hysteria2Codec.cpp)
 
 

@@ -17,16 +17,16 @@
 #include <span>
 #include <vector>
 
-#include <common/Protocols/Http2/Codec.hpp>
-#include <common/Protocols/Http2/Frame.hpp>
-#include <common/Protocols/Http3/Qpack.hpp>
-#include <common/Protocols/Hysteria2/Codec.hpp>
-#include <common/Protocols/Shadowsocks2022/Codec.hpp>
-#include <common/Protocols/Socks5/Codec.hpp>
-#include <common/Protocols/Trojan/Codec.hpp>
-#include <common/Protocols/Tuic/Codec.hpp>
-#include <common/Protocols/Vless/Codec.hpp>
-#include <common/Protocols/Vmess/Codec.hpp>
+#include <preview/Protocols/Http2/Codec.hpp>
+#include <preview/Protocols/Http2/Frame.hpp>
+#include <preview/Protocols/Http3/Qpack.hpp>
+#include <preview/Protocols/Hysteria2/Codec.hpp>
+#include <preview/Protocols/Shadowsocks2022/Codec.hpp>
+#include <preview/Protocols/Socks5/Codec.hpp>
+#include <preview/Protocols/Trojan/Codec.hpp>
+#include <preview/Protocols/Tuic/Codec.hpp>
+#include <preview/Protocols/Vless/Codec.hpp>
+#include <preview/Protocols/Vmess/Codec.hpp>
 
 namespace
 {
@@ -184,6 +184,21 @@ namespace
             // 注：qpack huffman 位填充可致输出略膨胀（实测 ~1.32x，最短码 5bit 界限 1.6x），
             //     无安全上限可断言；保持健壮性角色（不崩溃 + ASan 捕获越界）。
         }
+    }
+
+    TEST(FuzzExtended, QpackHuffmanRejectsLongInvalidPrefix)
+    {
+        std::array<std::uint8_t, 16> Invalid{};
+        Invalid.fill(0xFF);
+        std::vector<std::uint8_t> out;
+        EXPECT_FALSE(Preview::Http3::Qpack::HuffmanDecode(Invalid, out));
+    }
+
+    TEST(FuzzExtended, QpackHuffmanRejectsFullBytePadding)
+    {
+        const std::array<std::uint8_t, 1> Invalid{0xFF};
+        std::vector<std::uint8_t> out;
+        EXPECT_FALSE(Preview::Http3::Qpack::HuffmanDecode(Invalid, out));
     }
 
     TEST(FuzzExtended, CodecStructuredMutation)

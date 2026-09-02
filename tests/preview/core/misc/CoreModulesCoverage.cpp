@@ -8,17 +8,18 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <array>
 #include <memory>
 #include <string>
 
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Recognition/ProbeDefense.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transport/Pad.hpp>
-#include <common/Core/Transport/Preview.hpp>
-#include <common/Core/Transport/Snapshot.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Runtime/Recognition/ProbeDefense.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Pad.hpp>
+#include <preview/Transport/Preview.hpp>
+#include <preview/Transport/Snapshot.hpp>
 
 namespace
 {
@@ -71,13 +72,14 @@ namespace
                 const auto n = co_await pad->async_read_some(buf, ec);
                 EXPECT_GT(n, 0u);
             };
-            net::co_spawn(ioc.get_executor(), sink(), net::detached);
+            auto sink_task = net::co_spawn(ioc.get_executor(), std::move(sink), net::use_awaitable);
 
             const std::string Data = "pad-roundtrip-Data";
             std::error_code ec;
             co_await a.async_write_some(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data()), Data.size()), ec);
             EXPECT_FALSE(ec);
+            co_await std::move(sink_task);
         });
     }
 
@@ -100,12 +102,13 @@ namespace
                 const auto n = co_await pad->async_read_some(buf, ec);
                 EXPECT_EQ(n, 5u);
             };
-            net::co_spawn(ioc.get_executor(), sink(), net::detached);
+            auto sink_task = net::co_spawn(ioc.get_executor(), std::move(sink), net::use_awaitable);
 
             const std::string Data = "hello";
             std::error_code ec;
             co_await a.async_write_some(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data()), Data.size()), ec);
+            co_await std::move(sink_task);
         });
     }
 

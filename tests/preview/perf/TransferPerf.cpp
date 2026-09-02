@@ -18,9 +18,9 @@
 #include <memory>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
 
 using clk = std::chrono::steady_clock;
 namespace net = boost::asio;

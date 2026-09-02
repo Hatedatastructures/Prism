@@ -856,27 +856,33 @@ namespace psm::dns
     auto upstream::resolve_fallback(std::string_view domain, const message &query_msg)
         -> net::awaitable<query_result>
     {
+        query_result last(mr_);
         for (const auto &server : servers_)
         {
-            auto result = co_await query_server(server, query_msg);
+            last = co_await query_server(server, query_msg);
 
             diagnose::debug("query to {} completed: code={}, ips={}, rtt={}ms", server.address,
-                            fault::describe(result.error), result.ips.size(), result.rtt_ms);
+                            fault::describe(last.error), last.ips.size(), last.rtt_ms);
 
             // 成功获取结果即返回
-            if (succeeded(result.error) && !result.ips.empty())
+            if (succeeded(last.error) && !last.ips.empty())
             {
-                co_return result;
+                co_return last;
             }
         }
 
         diagnose::warn("all upstream failed in fallback mode, domain={}", domain);
+        if (last.error != fault::code::success)
+        {
+            co_return last;
+        }
         auto fallback = query_result(mr_);
         fallback.error = fault::code::dns_failed;
         co_return fallback;
     }
 
-    auto upstream::resolve_concurrent(const message &query_msg) -> net::awaitable<query_result>
+    auto upstream::resolve_concurrent(const message &query_msg, std::shared_ptr<upstream> owner)
+        -> net::awaitable<query_result>
     {
         // 使用 shared_ptr 延长生命周期，确保 detached 任务安全访问
         auto query_shared = std::make_shared<message>(query_msg);
@@ -896,13 +902,13 @@ namespace psm::dns
         // 为每个上游服务器启动独立的查询协程
         for (std::size_t i = 0; i < servers_.size(); ++i)
         {
-            const auto &server = servers_[i];
+            const auto server = servers_[i];
 
-            auto task = [this, &server, query_shared, results_shared, i, completion_signal,
+            auto task = [owner, server, query_shared, results_shared, i, completion_signal,
                          completed_count]() -> net::awaitable<void>
             {
                 auto &result = (*results_shared)[i];
-                result = co_await query_server(server, *query_shared);
+                result = co_await owner->query_server(server, *query_shared);
 
                 diagnose::debug("query to {} completed: code={}, ips={}, rtt={}ms", server.address,
                                 fault::describe(result.error), result.ips.size(), result.rtt_ms);
@@ -1008,8 +1014,20 @@ namespace psm::dns
             co_return co_await resolve_fallback(domain, query_msg);
         }
 
-        // first / fastest 模式：并发查询所有上游
-        co_return co_await resolve_concurrent(query_msg);
+        // first / fastest 模式：并发查询所有上游。detached worker 必须持有
+        // upstream 的共享所有权；stack-owned 调用显式报告不支持。
+        std::shared_ptr<upstream> owner;
+        try
+        {
+            owner = shared_from_this();
+        }
+        catch (const std::bad_weak_ptr &)
+        {
+            query_result failed(mr_);
+            failed.error = fault::code::not_supported;
+            co_return failed;
+        }
+        co_return co_await resolve_concurrent(query_msg, std::move(owner));
     }
 
 } // namespace psm::dns

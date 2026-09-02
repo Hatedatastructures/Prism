@@ -8,8 +8,8 @@
  *          覆盖热路径扫描器（Answer.hpp）与完整物化路径（Format.hpp）双通道
  */
 
-#include <common/Core/Net/Dns/Answer.hpp>
-#include <common/Core/Net/Dns/Format.hpp>
+#include <preview/Net/Dns/Answer.hpp>
+#include <preview/Net/Dns/Format.hpp>
 
 #include <cstdint>
 #include <random>

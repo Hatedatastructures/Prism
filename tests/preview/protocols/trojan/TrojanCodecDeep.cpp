@@ -15,8 +15,8 @@
 #include <string_view>
 #include <vector>
 
-#include <common/Core/Error.hpp>
-#include <common/Protocols/Trojan/Codec.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Protocols/Trojan/Codec.hpp>
 #include <gtest/gtest.h>
 
 namespace

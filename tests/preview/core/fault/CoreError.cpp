@@ -1,6 +1,6 @@
 /**
  * @file CoreError.cpp
- * @brief tests/common/Core/Error.hpp 单元测试
+ * @brief preview/Foundation/Error.hpp 单元测试
  * @details 覆盖 Preview::Error 协议错误码体系：
  * 1. ErrorCategory() 分类器单例与 Name()
  * 2. Message() 全部 19 个枚举 case 分支 + default 分支
@@ -8,7 +8,7 @@
  * 4. std / boost 双路 IsErrorCodeEnum 特化与隐式转换
  */
 
-#include <common/Core/Error.hpp>
+#include <preview/Foundation/Error.hpp>
 
 #include <boost/system/error_code.hpp>
 
@@ -25,7 +25,7 @@ namespace
         // 分类器单例：多次调用返回同一实例
         const auto &cat = Preview::ErrorCategory();
         EXPECT_EQ(&cat, &Preview::ErrorCategory());
-        EXPECT_EQ(std::string_view(cat.name()), "preview.protocol");
+        EXPECT_EQ(std::string_view(cat.name()), "prism.protocol");
     }
 
     TEST(CoreError, Messages)
@@ -76,7 +76,7 @@ namespace
         // 显式构造：value 与 Category 精确匹配
         const boost::system::error_code ec = Preview::make_error_code(Preview::Error::NeedMore);
         EXPECT_EQ(ec.value(), static_cast<int>(Preview::Error::NeedMore));
-        EXPECT_EQ(std::string_view(ec.category().name()), "preview.protocol");
+        EXPECT_EQ(std::string_view(ec.category().name()), "prism.protocol");
         EXPECT_TRUE(ec) << "非零错误码应判为失败";
 
         // 零值错误码判为成功

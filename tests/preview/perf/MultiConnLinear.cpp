@@ -22,8 +22,8 @@
 #include <thread>
 #include <vector>
 
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Protocols/Vmess/Vmess.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Protocols/Vmess/Vmess.hpp>
 
 using clk = std::chrono::steady_clock;
 namespace net = boost::asio;

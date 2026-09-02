@@ -20,12 +20,12 @@
 | 组件 | 代码 | 等级 | 证据 |
 |---|---|---|---|
 | relay（双向转发） | `core/middleware/builtin/relay.hpp` | L3 | 独立双向 buffer、半关闭、空闲超时、写失败、并发双向——TimeoutRelay 7/7 + DialRelayEcho |
-| memory stream | `core/transport/memory_stream.hpp` | L3 | 单 executor 契约 + close/cancel/timeout 挂起读——Transport 15/15 |
+| memory stream | `preview/Transport/MemoryStream.hpp` | L3 | 单 executor 契约 + close/cancel/timeout 挂起读——Transport 15/15 |
 | XHTTP transport | `protocols/xhttp/conn.hpp` | L2 | pending flush 所有权、channel 背压、EOF 重复防护——XhttpErrorMatrix 5/5（stream-up/packet-up 未验） |
 | mux session（smux/yamux/h2mux 公共） | `protocols/mux/session.hpp` | L2 | 非法帧/payload 超限 teardown、20/20 含 OwnershipAudit（stream 级错误矩阵、背压待补） |
 | mux 中间件接入 | `core/middleware/builtin/mux.hpp` + `core/runtime/session.hpp:152` | L3 | 协议专用 listener 已配 `accept_protocol` 时正确包装——MuxE2ETest 2/2（直通/包装+中继） |
 | pad 中间件接入 | `core/middleware/builtin/pad.hpp` + `core/runtime/session.hpp` | L3 | `ctx.pad` 透传，按配置包装 `pad_transport`——PadE2ETest 2/2 |
-| DNS 解析接入 | `core/net/dns/resolver.hpp` + `core/net/dialer/dialer.hpp` | L3 | `async_resolve` 带 LRU/负缓存 + `dial_with_dns` 域名→IP 拨号——DnsDialE2ETest 3/3 |
+| DNS 解析接入 | `preview/Net/Dns/Resolver.hpp` + `preview/Net/Dialer/Dialer.hpp` | L3 | `async_resolve` 带 LRU/负缓存 + `dial_with_dns` 域名→IP 拨号——DnsDialE2ETest 3/3 |
 | runtime：tcp_listener + session | `core/runtime/` | L3 | 亲和性、识别、accept_protocol、dial、relay、udp_service、流量统计 + mux/pad/dns——ListenerE2E 4/4（AffinityBalancer/TcpListener/StopStopsAccepting/ConnectionStorm）、SessionOrchestration 5/5 |
 | recognition | `core/recognition/` | L3 | 首包矩阵（含 VLESS 结构化识别）、probe 回注、SNI 路由 + 协议专用放宽——RecognitionTest 13/13 |
 

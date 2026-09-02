@@ -27,17 +27,17 @@
 #include <thread>
 #include <vector>
 
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
-#include <common/Protocols/Trojan/Trojan.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
-#include <common/Protocols/Anytls/Anytls.hpp>
-#include <common/Protocols/Gun/Gun.hpp>
-#include <common/Protocols/Reality/Reality.hpp>
-#include <common/Protocols/Restls/Restls.hpp>
-#include <common/Protocols/Shadowtls/Shadowtls.hpp>
-#include <common/Protocols/Trusttunnel/Trusttunnel.hpp>
-#include <common/Protocols/Ws/Ws.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
+#include <preview/Protocols/Anytls/Anytls.hpp>
+#include <preview/Protocols/Gun/Gun.hpp>
+#include <preview/Protocols/Reality/Reality.hpp>
+#include <preview/Protocols/Restls/Restls.hpp>
+#include <preview/Protocols/Shadowtls/Shadowtls.hpp>
+#include <preview/Protocols/Trusttunnel/Trusttunnel.hpp>
+#include <preview/Protocols/Ws/Ws.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -330,7 +330,7 @@ namespace
                 cr[i] = static_cast<std::uint8_t>(i * 5 + 2);
             }
             auto [err, c] =
-                co_await Shadowtls::Connect(std::move(up), Shadowtls::ClientConfig{"st"}, sr, cr);
+                co_await Shadowtls::Connect({std::move(up), Shadowtls::ClientConfig{"st"}, sr, cr});
             co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
@@ -364,8 +364,8 @@ namespace
         }
         auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, c] = co_await Trusttunnel::Connect(std::move(up), Trusttunnel::ClientConfig{"u", "p"},
-                                                          "example.com", 443);
+            auto [err, c] = co_await Trusttunnel::Connect(
+                {std::move(up), Trusttunnel::ClientConfig{"u", "p"}, "example.com", 443});
             co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }
@@ -432,8 +432,8 @@ namespace
             Reality::ServerConfig cfg;
             cfg.private_key = srv_priv;
             cfg.ShortId.fill(0x42);
-            auto [err, sid, c] = co_await Reality::Accept(std::move(up), cfg, cli_pub,
-                                                          Reality::HandshakeParams{random, hello});
+            auto [err, sid, c] = co_await Reality::Accept(
+                {std::move(up), cfg, cli_pub, Reality::HandshakeParams{random, hello}});
             (void)sid;
             co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
@@ -443,8 +443,8 @@ namespace
             Reality::ClientConfig cfg;
             cfg.private_key = cli_priv;
             cfg.ShortId.fill(0x42);
-            auto [err, c] = co_await Reality::Connect(std::move(up), cfg, srv_pub,
-                                                      Reality::HandshakeParams{random, hello, cfg.ShortId});
+            auto [err, c] = co_await Reality::Connect(
+                {std::move(up), cfg, srv_pub, Reality::HandshakeParams{random, hello, cfg.ShortId}});
             co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
                                                         : SharedTransmission{}};
         }

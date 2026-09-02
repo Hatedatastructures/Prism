@@ -18,9 +18,9 @@
 
 #include <boost/system/error_code.hpp>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Compatible.hpp>
-#include <common/Core/Fault/Handling.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Compatible.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
 
 namespace
 {

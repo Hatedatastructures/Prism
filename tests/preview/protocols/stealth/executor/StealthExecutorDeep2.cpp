@@ -8,7 +8,7 @@
 
 #include <prism/foundation/foundation.hpp>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
 // ── 关键：在 connect/util.hpp 等传递依赖之前，先以 private=open 包含 snapshot + executor ──
@@ -69,7 +69,7 @@ namespace
 
     TEST(StealthExecutorDeep2, PassThroughWithTransport)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_context ctx;
         ctx.transport = nullptr;
 
@@ -94,7 +94,7 @@ namespace
 
     TEST(StealthExecutorDeep2, PassThroughWithPrereadAndTransport)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_context ctx;
         ctx.transport = nullptr;
 
@@ -113,7 +113,7 @@ namespace
 
     TEST(StealthExecutorDeep2, PassThroughEmptyPreread)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_context ctx;
         ctx.transport = nullptr;
 
@@ -148,7 +148,7 @@ namespace
 
     TEST(StealthExecutorDeep2, EnsureSnapshotAlreadySnapshot)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         auto snap = std::make_shared<transport::snapshot>(mock);
         handshake::handshake_context ctx;
         ctx.transport = snap;
@@ -159,7 +159,7 @@ namespace
 
     TEST(StealthExecutorDeep2, EnsureSnapshotNotSnapshot)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_context ctx;
         ctx.transport = mock;
 
@@ -174,7 +174,7 @@ namespace
     TEST(StealthExecutorDeep2, TryRewindPolluted)
     {
         handshake::handshake_context ctx;
-        ctx.transport = std::make_shared<Preview::Testing::MockTransport>();
+        ctx.transport = std::make_shared<Psm::Testing::ProductionMockTransport>();
         auto result = handshake::scheme_executor::try_rewind(ctx, handshake::rewind_mode::polluted);
         EXPECT_EQ(result, false) << "try_rewind: polluted returns false";
     }
@@ -189,7 +189,7 @@ namespace
 
     TEST(StealthExecutorDeep2, TryRewindNotSnapshot)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         handshake::handshake_context ctx;
         ctx.transport = mock;
 
@@ -199,7 +199,7 @@ namespace
 
     TEST(StealthExecutorDeep2, TryRewindSnapshotCannotRewind)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         auto snap = std::make_shared<transport::snapshot>(mock);
         // Wrote_ 已通过 #define private public 开放（snapshot.hpp 首次包含时生效）
         snap->wrote_ = true;
@@ -212,7 +212,7 @@ namespace
 
     TEST(StealthExecutorDeep2, TryRewindSnapshotSuccess)
     {
-        auto mock = std::make_shared<Preview::Testing::MockTransport>();
+        auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         auto snap = std::make_shared<transport::snapshot>(mock);
         handshake::handshake_context ctx;
         ctx.transport = snap;

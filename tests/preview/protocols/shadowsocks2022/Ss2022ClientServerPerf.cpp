@@ -15,9 +15,9 @@
 #include <string>
 #include <vector>
 
-#include <common/Bench/Bench.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <TestSupport/Benchmark/Bench.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <gtest/gtest.h>
 
 namespace

@@ -286,6 +286,10 @@ namespace psm::multiplex
         memory::unordered_map<std::uint32_t, std::shared_ptr<datagram>> datagrams_; ///< 活跃 UDP 流
 
     private:
+        /// 以 coroutine 参数持有会话，避免临时捕获闭包跨挂起点失效。
+        static auto run_owned(std::shared_ptr<multiplexer> self) -> net::awaitable<void>;
+        static auto send_owned(std::shared_ptr<multiplexer> self) -> net::awaitable<void>;
+
         using channel_type =
             net::experimental::concurrent_channel<void(boost::system::error_code, outbound_frame)>;
 

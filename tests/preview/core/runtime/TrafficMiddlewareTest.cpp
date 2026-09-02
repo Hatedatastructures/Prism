@@ -12,7 +12,9 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
@@ -21,13 +23,13 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Authenticator.hpp>
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Runtime/Statistics.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Authenticator.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Runtime/Statistics.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -35,7 +37,38 @@ namespace
     namespace net = boost::asio;
     using namespace Preview;
 
-    using Preview::Testing::RunCoro; // 公共样板（见 <common/RuntimeTestHelpers.hpp>）
+    using Preview::Testing::RunCoro; // 公共样板（见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
+
+    using CompletionChannel = net::experimental::channel<void(boost::system::error_code)>;
+
+    auto SpawnAndSignal(net::any_io_executor Executor, net::awaitable<void> Task)
+        -> std::shared_ptr<CompletionChannel>
+    {
+        auto Done = std::make_shared<CompletionChannel>(Executor, 1);
+        net::co_spawn(Executor, std::move(Task),
+                      [Done](std::exception_ptr Failure)
+                      {
+                          Done->try_send(Failure ? boost::system::errc::make_error_code(
+                                                        boost::system::errc::io_error)
+                                                  : boost::system::error_code{});
+                      });
+        return Done;
+    }
+
+    auto SpawnAndSignal(net::any_io_executor Executor,
+                        net::awaitable<Preview::Fault::Code> Task)
+        -> std::shared_ptr<CompletionChannel>
+    {
+        auto Done = std::make_shared<CompletionChannel>(Executor, 1);
+        net::co_spawn(Executor, std::move(Task),
+                      [Done](std::exception_ptr Failure, Preview::Fault::Code)
+                      {
+                          Done->try_send(Failure ? boost::system::errc::make_error_code(
+                                                        boost::system::errc::io_error)
+                                                  : boost::system::error_code{});
+                      });
+        return Done;
+    }
 
     /// 回显上游
     auto echo_upstream(SharedTransmission client_side) -> net::awaitable<void>
@@ -140,14 +173,8 @@ namespace
         RunCoro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     net::co_spawn(
-                         ioc.get_executor(),
-                         [&]() -> net::awaitable<void> { co_await Session.Run(inbound_s); },
-                         net::detached);
-                     net::co_spawn(
-                         ioc.get_executor(),
-                         [&]() -> net::awaitable<void> { co_await echo_upstream(upstream_s); },
-                         net::detached);
+                     auto session_done = SpawnAndSignal(ioc.get_executor(), Session.Run(inbound_s));
+                     auto echo_done = SpawnAndSignal(ioc.get_executor(), echo_upstream(upstream_s));
 
                      std::error_code wec;
                      const auto payload = socks5_greeting();
@@ -165,6 +192,17 @@ namespace
                      t.expires_after(std::chrono::milliseconds(300));
                      co_await t.async_wait(net::use_awaitable);
                      client_s->Close();
+                     inbound_s->Close();
+                     upstream_s->Close();
+                     outbound_s->Close();
+                     boost::system::error_code session_ec;
+                     boost::system::error_code echo_ec;
+                     co_await session_done->async_receive(
+                         net::redirect_error(net::use_awaitable, session_ec));
+                     co_await echo_done->async_receive(
+                         net::redirect_error(net::use_awaitable, echo_ec));
+                     EXPECT_FALSE(session_ec);
+                     EXPECT_FALSE(echo_ec);
                  });
 
         auto a = counter.Total("alice");

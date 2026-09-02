@@ -8,10 +8,10 @@
  *          - 会话状态机（Feed/Collect 往返、流生命周期、坏帧拒绝）
  */
 
-#include <common/Protocols/Http2/Codec.hpp>
-#include <common/Protocols/Http2/Frame.hpp>
-#include <common/Protocols/Http2/Impl.hpp>
-#include <common/Protocols/Http2/Session.hpp>
+#include <preview/Protocols/Http2/Codec.hpp>
+#include <preview/Protocols/Http2/Frame.hpp>
+#include <preview/Protocols/Http2/Impl.hpp>
+#include <preview/Protocols/Http2/Session.hpp>
 
 #include <boost/asio/io_context.hpp>
 
@@ -31,7 +31,7 @@ namespace
     TEST(H2Frame, HeaderEncodeDecode)
     {
         std::vector<std::byte> payload(100, std::byte{0xAB});
-        auto Frame = h2::BuildFrame(FrameType::Data, h2::FlagEndStream, 5, payload);
+        auto Frame = h2::BuildFrame({FrameType::Data, h2::FlagEndStream, 5, payload});
         ASSERT_EQ(Frame.size(), h2::FrameHeaderSize + 100);
 
         const auto h = h2::ParseFrameHeader(Frame);
@@ -45,7 +45,7 @@ namespace
     TEST(H2Frame, StreamIdBoundary)
     {
         // 31 位上限 0x7FFFFFFF
-        auto Frame = h2::BuildFrame(FrameType::Data, 0, 0x7FFFFFFF, {});
+        auto Frame = h2::BuildFrame({FrameType::Data, 0, 0x7FFFFFFF, {}});
         const auto h = h2::ParseFrameHeader(Frame);
         ASSERT_TRUE(h.has_value());
         EXPECT_EQ(h->StreamId, 0x7FFFFFFFu);
@@ -109,8 +109,8 @@ namespace
         h2::HpackDecoder decoder;
 
         HeaderList headers = {
-            {":Method", "GET"},   // 静态表索引 2
-            {":Path", "/"},       // 静态表索引 4
+            {":method", "GET"},   // 静态表索引 2
+            {":path", "/"},       // 静态表索引 4
             {":authority", "example.com"}, // 名引用 1 + 值字面量
             {"custom-Header", "custom-value"}, // 新名字面量
         };
@@ -118,9 +118,9 @@ namespace
         auto decoded = decoder.Decode(block);
         ASSERT_TRUE(decoded.has_value());
         ASSERT_EQ(decoded->size(), 4u);
-        EXPECT_EQ((*decoded)[0].Name, ":Method");
+        EXPECT_EQ((*decoded)[0].Name, ":method");
         EXPECT_EQ((*decoded)[0].value, "GET");
-        EXPECT_EQ((*decoded)[1].Name, ":Path");
+        EXPECT_EQ((*decoded)[1].Name, ":path");
         EXPECT_EQ((*decoded)[1].value, "/");
         EXPECT_EQ((*decoded)[2].Name, ":authority");
         EXPECT_EQ((*decoded)[2].value, "example.com");
@@ -130,9 +130,9 @@ namespace
 
     TEST(H2Hpack, StaticTableLookup)
     {
-        EXPECT_EQ(h2::LookupStatic(":Method", "GET"), 2u);
+        EXPECT_EQ(h2::LookupStatic(":method", "GET"), 2u);
         EXPECT_EQ(h2::LookupStatic(":status", "200"), 8u);
-        EXPECT_EQ(h2::LookupStatic(":Method", "PUT"), 0u); // 值不匹配
+        EXPECT_EQ(h2::LookupStatic(":method", "PUT"), 0u); // 值不匹配
         EXPECT_EQ(h2::LookupStaticName(":authority"), 1u);
         EXPECT_EQ(h2::LookupStaticName("unknown"), 0u);
     }
@@ -155,6 +155,20 @@ namespace
         EXPECT_EQ(h2::DecodeInt(out, 6, off), 16384u);
     }
 
+    TEST(H2Hpack, HuffmanStringDecode)
+    {
+        // RFC 7541 Appendix C.4："www.example.com" 的 Huffman 字面量。
+        const std::array<std::byte, 13> Encoded{
+            std::byte{0x8C}, std::byte{0xF1}, std::byte{0xE3}, std::byte{0xC2}, std::byte{0xE5},
+            std::byte{0xF2}, std::byte{0x3A}, std::byte{0x6B}, std::byte{0xA0}, std::byte{0xAB},
+            std::byte{0x90}, std::byte{0xF4}, std::byte{0xFF}};
+        std::size_t Offset = 0;
+        const auto Decoded = h2::DecodeString(Encoded, Offset);
+        ASSERT_TRUE(Decoded.has_value());
+        EXPECT_EQ(*Decoded, "www.example.com");
+        EXPECT_EQ(Offset, Encoded.size());
+    }
+
     // ── 会话状态机 ──
 
     TEST(H2Session, FeedCollectRoundTrip)
@@ -165,7 +179,7 @@ namespace
 
         // 客户端 SETTINGS + 开流 + 数据
         Client->SendSettings();
-        const int StreamId = Client->OpenStream({{":Method", "GET"}, {":Path", "/"}}, false);
+        const int StreamId = Client->OpenStream({{":method", "GET"}, {":path", "/"}}, false);
         EXPECT_GT(StreamId, 0);
         Client->SubmitData(StreamId, std::span<const std::byte>(), false); // 空数据
         const std::byte payload[] = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
@@ -202,7 +216,7 @@ namespace
 
         std::vector<h2::SettingsEntry> entries = {{h2::SettingsMaxConcurrentStreams, 10}};
         auto payload = h2::EncodeSettings(entries);
-        auto Frame = h2::BuildFrame(FrameType::Settings, 0, 0, payload);
+        auto Frame = h2::BuildFrame({FrameType::Settings, 0, 0, payload});
 
         int settings_seen = 0;
         Server->OnSettings = [&](const std::vector<h2::SettingsEntry> &e) { settings_seen = static_cast<int>(e.size()); };
@@ -227,7 +241,7 @@ namespace
 
         // 流 0 上发 DATA → 协议错误
         std::vector<std::byte> payload(10, std::byte{0});
-        auto bad = h2::BuildFrame(FrameType::Data, 0, 0, payload);
+        auto bad = h2::BuildFrame({FrameType::Data, 0, 0, payload});
         std::error_code ec;
         EXPECT_FALSE(Server->Feed(bad, ec));
         EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
@@ -237,7 +251,7 @@ namespace
     {
         net::io_context ioc;
         auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
-        auto bad = h2::BuildFrame(FrameType::Continuation, 0, 1, {});
+        auto bad = h2::BuildFrame({FrameType::Continuation, 0, 1, {}});
         std::error_code ec;
         EXPECT_FALSE(Server->Feed(bad, ec));
     }
@@ -247,7 +261,7 @@ namespace
         net::io_context ioc;
         auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
         std::array<std::byte, 8> opaque{};
-        auto ping = h2::BuildFrame(FrameType::Ping, 0, 0, opaque);
+        auto ping = h2::BuildFrame({FrameType::Ping, 0, 0, opaque});
         std::error_code ec;
         EXPECT_TRUE(Server->Feed(ping, ec));
         std::vector<std::byte> out;

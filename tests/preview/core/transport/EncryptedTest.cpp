@@ -25,7 +25,7 @@
 #include <memory>
 #include <span>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
 // ── 加载自签名证书到 ssl::context 的辅助函数 ──
@@ -35,7 +35,7 @@ namespace
     namespace net = boost::asio;
     namespace ssl = net::ssl;
     using namespace psm::transport;
-    using namespace Preview::Testing;
+    using Psm::Testing::ProductionMockTransport;
 
     void load_self_signed_cert(ssl::context &ctx)
     {
@@ -178,7 +178,7 @@ TEST(Encrypted, TransportTypeAndNextLayer)
     net::io_context ioc;
     ssl::context SslCtx(ssl::context::tls_client);
 
-    auto mock = std::make_shared<MockTransport>();
+    auto mock = std::make_shared<ProductionMockTransport>();
     encrypted::connector_type conn(std::move(mock), {});
 
     auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
@@ -201,7 +201,7 @@ TEST(Encrypted, ReleaseOwnership)
     net::io_context ioc;
     ssl::context SslCtx(ssl::context::tls_client);
 
-    auto mock = std::make_shared<MockTransport>();
+    auto mock = std::make_shared<ProductionMockTransport>();
     encrypted::connector_type conn(std::move(mock), {});
 
     auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
@@ -294,7 +294,7 @@ TEST(Encrypted, ExecutorIsValid)
     net::io_context ioc;
     ssl::context SslCtx(ssl::context::tls_client);
 
-    auto mock = std::make_shared<MockTransport>();
+    auto mock = std::make_shared<ProductionMockTransport>();
     encrypted::connector_type conn(std::move(mock), {});
 
     auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
@@ -311,7 +311,7 @@ TEST(Encrypted, MakeEncryptedFactory)
     net::io_context ioc;
     ssl::context SslCtx(ssl::context::tls_client);
 
-    auto mock = std::make_shared<MockTransport>();
+    auto mock = std::make_shared<ProductionMockTransport>();
     encrypted::connector_type conn(std::move(mock), {});
 
     auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);

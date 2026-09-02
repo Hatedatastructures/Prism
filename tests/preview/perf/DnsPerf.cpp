@@ -14,10 +14,10 @@
  *          ctest -L perf -R Perf_Dns
  */
 
-#include <common/Core/Net/Dns/Answer.hpp>
-#include <common/Core/Net/Dns/Cache.hpp>
-#include <common/Core/Net/Dns/Format.hpp>
-#include <common/Core/Net/Dns/Resolver.hpp>
+#include <preview/Net/Dns/Answer.hpp>
+#include <preview/Net/Dns/Cache.hpp>
+#include <preview/Net/Dns/Format.hpp>
+#include <preview/Net/Dns/Resolver.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>

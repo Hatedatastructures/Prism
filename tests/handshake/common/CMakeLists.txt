@@ -1,3 +1,3 @@
-prism_add_test(StealthCommonPure.cpp)
-prism_add_test(StealthRegistryDeep.cpp)
-prism_add_test(StealthRegistryPure.cpp)
+AddProductionTest(StealthCommonPure.cpp)
+AddProductionTest(StealthRegistryDeep.cpp)
+AddProductionTest(StealthRegistryPure.cpp)

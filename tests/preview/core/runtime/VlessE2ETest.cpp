@@ -24,16 +24,16 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
-#include <common/Core/Runtime/Listener.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Composition/Adapters/ProtocolAdapter.hpp>
+#include <preview/Runtime/Listener.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -42,7 +42,7 @@ namespace
     using Tcp = net::ip::tcp;
     using namespace Preview;
 
-    // 公共样板（RunCoro/echo 上游/tail_read_guarded 等见 <common/RuntimeTestHelpers.hpp>）
+    // 公共样板（RunCoro/echo 上游/tail_read_guarded 等见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::AcceptAndClose;
     using Preview::Testing::AcceptEchoLoop;
     using Preview::Testing::ChainState;

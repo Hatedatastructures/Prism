@@ -147,7 +147,7 @@ external interop / performance / stress / fuzz
 ~~~text
 tests/common/core/middleware/builtin/relay.hpp
 tests/common/protocols/xhttp/conn.hpp
-tests/common/core/transport/memory_stream.hpp
+preview/Transport/MemoryStream.hpp
 tests/common/protocols/mux/session.hpp
 ~~~
 
@@ -523,7 +523,7 @@ docs/ngx-test-data/LIFECYCLE_AUDIT.md
 ~~~text
 tests/common/core/middleware/builtin/relay.hpp
 tests/common/protocols/xhttp/conn.hpp
-tests/common/core/transport/memory_stream.hpp
+preview/Transport/MemoryStream.hpp
 tests/common/protocols/mux/session.hpp
 tests/preview/ 对应回归测试
 docs/ngx-test-data/

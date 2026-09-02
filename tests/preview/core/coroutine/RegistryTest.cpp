@@ -19,7 +19,7 @@
 #include <chrono>
 #include <string>
 
-#include <common/Core/Coroutine/Registry.hpp>
+#include <preview/Foundation/Utility/Coroutine/Registry.hpp>
 
 namespace
 {

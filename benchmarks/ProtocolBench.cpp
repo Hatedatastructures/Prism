@@ -13,7 +13,7 @@
 #include <prism/protocol/shadowsocks/codec/framing.hpp>
 #include <prism/crypto/sha224.hpp>
 #include <prism/crypto/base64.hpp>
-#include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/memory/pointer.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <array>

@@ -1,0 +1,219 @@
+/**
+ * @file Pool.hpp
+ * @brief 内存池系统定义
+ * @details 提供全局和线程局部的内存池管理，以及基于
+ * 内存池的对象分配基类和帧分配器。遵循热路径无分配、
+ * 线程封闭和大小分类的设计原则。
+ * @note 镜像自 include/prism/foundation/memory/，同步策略：锁定
+ */
+#pragma once
+
+#include <preview/Foundation/Memory/Container.hpp>
+
+#include <cstdint>
+
+namespace Preview::Memory
+{
+
+    /**
+     * @struct Policy
+     * @brief 内存策略配置
+     * @details 定义内存池的调优参数，针对代理服务器
+     * 典型负载进行优化，平衡内存利用率、分配速度和
+     * 内存峰值。
+     */
+    struct Policy
+    {
+        // 每个 Chunk 包含的最大块数，降低此值可减少内存峰值
+        static constexpr std::size_t MaxBlocks = 256;
+
+        // 最大池化阈值，16KB 足以覆盖 HTTP Header 等典型对象
+        static constexpr std::size_t MaxSize = 16384;
+    }; // struct Policy
+
+    /**
+     * @class System
+     * @brief 全局内存系统管理器
+     * @details 提供全局单例的内存池访问接口，管理全局
+     * 同步池、线程局部池和热路径池。所有方法均为静态
+     * 方法，无需实例化。
+     */
+    class System
+    {
+    public:
+        /**
+         * @brief 获取全局线程安全池
+         * @return 全局同步池指针，永不返回 nullptr
+         * @details 适用于跨线程传递的对象和生命周期
+         * 不确定的长期对象。使用 new 分配，确保在静态
+         * 析构阶段后仍可用。
+         */
+        [[nodiscard]] static auto GlobalPool() 
+            -> SynchronizedPool *
+        {
+            static auto *pool = []()
+            {
+                std::pmr::pool_options opts;
+                opts.largest_required_pool_block = Policy::MaxSize;
+                opts.max_blocks_per_chunk = Policy::MaxBlocks;
+
+                // new 出来的资源随进程销毁，避免静态析构顺序问题
+                return new SynchronizedPool(opts, std::pmr::new_delete_resource());
+            }();
+            return pool;
+        }
+
+        /**
+         * @brief 获取线程局部内存池
+         * @return 线程局部池指针，永不返回 nullptr
+         * @details 返回线程局部的无锁内存池，适用于临时
+         * 计算和单线程处理逻辑。使用 thread_local 存储，
+         * 每个线程独立实例。
+         */
+        [[nodiscard]] static auto LocalPool() 
+            -> UnsynchronizedPool *
+        {
+            // thread_local 保证每个线程一份
+            thread_local auto *pool = []()
+            {
+                std::pmr::pool_options opts;
+                opts.largest_required_pool_block = Policy::MaxSize;
+                opts.max_blocks_per_chunk = Policy::MaxBlocks;
+
+                return new UnsynchronizedPool(opts, std::pmr::new_delete_resource());
+            }();
+            return pool;
+        }
+
+        /**
+         * @brief 获取热路径内存池
+         * @return 线程局部池指针，与 LocalPool() 相同
+         * @details 热路径专用的内存池，是 LocalPool()
+         * 的语义化别名。分配的对象生命周期必须与当前线程
+         * 绑定，禁止跨线程传递。
+         */
+        [[nodiscard]] static auto HotPool() 
+            -> UnsynchronizedPool *
+        {
+            return LocalPool();
+        }
+
+        /**
+         * @brief 启用全局池化策略
+         * @details 将默认内存资源设置为全局内存池。调用后，
+         * 所有未指定显式内存资源的 PMR 容器将自动使用
+         * GlobalPool()。应在程序启动早期调用。
+         */
+        static void EnablePooling()
+        {
+            std::pmr::set_default_resource(GlobalPool());
+        }
+    }; // class System
+
+    /**
+     * @enum PoolType
+     * @brief 内存池类型选择
+     * @details 用于 PooledObject 基类选择不同的内存池策略。
+     */
+    enum class PoolType : std::uint8_t
+    {
+        Global, ///< 全局线程安全池，适用于跨线程传递对象
+        Local   ///< 线程局部无锁池，适用于单线程热路径对象
+    }; // enum class PoolType
+
+    /**
+     * @class PooledObject
+     * @brief 对象池基类模板
+     * @tparam T 子类类型，使用 CRTP 惯用法
+     * @tparam Type 池类型，默认 Local（热路径优化）
+     * @details 通过重载 operator new/delete 使继承类
+     * 自动使用内存池分配。小对象使用指定池，
+     * 大对象直通系统堆。
+     * @note 默认改用 LocalPool 以消除多线程竞争，
+     * 若对象需跨线程传递请显式指定 PoolType::Global
+     */
+    template <typename T, PoolType Type = PoolType::Local>
+    class PooledObject
+    {
+    public:
+        /**
+         * @brief 获取目标内存池
+         * @return 根据池类型返回对应的内存池指针
+         */
+        [[nodiscard]] static auto TargetPool()
+             -> ResourcePointer
+        {
+            if (Type == PoolType::Global)
+            {
+                return System::GlobalPool();
+            }
+            return System::LocalPool();
+        }
+
+        /**
+         * @brief 重载单对象 new 操作符
+         * @param Count 待分配的字节数
+         * @return 分配的内存指针
+         * @details 小对象从目标池分配，大对象直通系统堆。
+         */
+        void *operator new(const std::size_t Count)
+        {
+            if (Count <= Policy::MaxSize)
+            {
+                return PooledObject::TargetPool()->allocate(Count);
+            }
+            // 大对象直接走系统堆
+            return ::operator new(Count);
+        }
+
+        /**
+         * @brief 重载单对象 delete 操作符
+         * @param ptr 待释放的内存指针
+         * @param Count 待释放的字节数
+         * @details 必须与 operator new 对应，归还到正确的位置。
+         */
+        void operator delete(void *ptr, const std::size_t Count)
+        {
+            if (Count <= Policy::MaxSize)
+            {
+                PooledObject::TargetPool()->deallocate(ptr, Count);
+            }
+            else
+            {
+                ::operator delete(ptr);
+            }
+        }
+
+        /**
+         * @brief 重载数组 new 操作符
+         * @param Count 待分配的字节数
+         * @return 分配的内存指针
+         */
+        void *operator new[](const std::size_t Count)
+        {
+            if (Count <= Policy::MaxSize)
+            {
+                return PooledObject::TargetPool()->allocate(Count);
+            }
+            return ::operator new[](Count);
+        }
+
+        /**
+         * @brief 重载数组 delete 操作符
+         * @param ptr 待释放的内存指针
+         * @param Count 待释放的字节数
+         */
+        void operator delete[](void *ptr, std::size_t Count)
+        {
+            if (Count <= Policy::MaxSize)
+            {
+                PooledObject::TargetPool()->deallocate(ptr, Count);
+            }
+            else
+            {
+                ::operator delete[](ptr);
+            }
+        }
+    }; // class PooledObject
+
+} // namespace Preview::Memory

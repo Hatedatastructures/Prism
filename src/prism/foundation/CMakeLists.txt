@@ -1,11 +1,11 @@
-target_sources(${PROJECT_NAME}_static_library
+target_sources(PrismStaticLibrary
         PRIVATE
             boost_thunk_fix.cpp
             coroutine/registry.cpp
             rate/counter.cpp
 )
 
-target_sources(${PROJECT_NAME}_static_library
+target_sources(PrismStaticLibrary
         PUBLIC
         FILE_SET public_headers TYPE HEADERS
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include
@@ -13,6 +13,7 @@ target_sources(${PROJECT_NAME}_static_library
             ${PROJECT_SOURCE_DIR}/include/prism/foundation/foundation.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/foundation/memory/container.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/foundation/memory/pool.hpp
+            ${PROJECT_SOURCE_DIR}/include/prism/foundation/memory/pointer.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/foundation/fault/code.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/foundation/fault/compatible.hpp
             ${PROJECT_SOURCE_DIR}/include/prism/foundation/fault/handling.hpp

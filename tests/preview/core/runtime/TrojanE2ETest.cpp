@@ -25,15 +25,15 @@
 #include <string>
 #include <system_error>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
-#include <common/Core/Runtime/Listener.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/Protocols/Trojan/Trojan.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Composition/Adapters/ProtocolAdapter.hpp>
+#include <preview/Runtime/Listener.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -43,7 +43,7 @@ namespace
     using namespace Preview;
     using Preview::Runtime::MakeAcceptTrojan;
 
-    // 公共样板（RunCoro/echo 上游/TailReadGuarded 等见 <common/RuntimeTestHelpers.hpp>）
+    // 公共样板（RunCoro/echo 上游/TailReadGuarded 等见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::ChainState;
     using ConnectResult = Preview::Testing::ConnectResult;
     using Preview::Testing::RunCoro;
@@ -127,7 +127,7 @@ namespace
                     co_return;
                 }
                 auto [err, proxy] = co_await Trojan::Connect(
-                    std::move(raw), ccfg, Target, Trojan::Command::Connect);
+                    {std::move(raw), ccfg, Target, Trojan::Command::Connect});
                  out.Err = err;
                 if (!proxy)
                 {
@@ -251,10 +251,10 @@ namespace
                 {
                     co_return;
                 }
-                auto [err, proxy] = co_await Trojan::Connect(
+                auto [err, proxy] = co_await Trojan::Connect({
                     std::move(raw), Trojan::ClientConfig{"Secret"},
                     Trojan::Address{Trojan::AddressType::Domain, "example.com", 80},
-                    Trojan::Command::Connect);
+                    Trojan::Command::Connect});
                 if (!proxy)
                 {
                     listener.Stop();
@@ -321,10 +321,10 @@ namespace
                 {
                     co_return;
                 }
-                auto [err, proxy] = co_await Trojan::Connect(
+                auto [err, proxy] = co_await Trojan::Connect({
                     std::move(raw), Trojan::ClientConfig{"Secret"},
                     Trojan::Address{Trojan::AddressType::Domain, "example.com", 80},
-                    Trojan::Command::Connect);
+                    Trojan::Command::Connect});
                 if (!proxy)
                 {
                     listener.Stop();
@@ -417,10 +417,10 @@ namespace
                 {
                     co_return;
                 }
-                auto [err, proxy] = co_await Trojan::Connect(
+                auto [err, proxy] = co_await Trojan::Connect({
                     std::move(raw), Trojan::ClientConfig{"Secret"},
                     Trojan::Address{Trojan::AddressType::Domain, "example.com", 80},
-                    Trojan::Command::Connect);
+                    Trojan::Command::Connect});
                 if (!proxy)
                 {
                     listener.Stop();
@@ -495,10 +495,10 @@ namespace
                 {
                     co_return;
                 }
-                auto [err, proxy] = co_await Trojan::Connect(
+                auto [err, proxy] = co_await Trojan::Connect({
                     std::move(raw), Trojan::ClientConfig{"Secret"},
                     Trojan::Address{Trojan::AddressType::Domain, "example.com", 80},
-                    Trojan::Command::Connect);
+                    Trojan::Command::Connect});
                 if (!proxy)
                 {
                     listener.Stop();

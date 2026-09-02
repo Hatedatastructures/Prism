@@ -119,7 +119,8 @@ namespace
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
         memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
-        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        ctx.seal(psm::crypto::seal_input{
+            BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()), {}});
 
         // AES-ECB 加密 SeparateHeader
         std::array<std::uint8_t, 16> separate_plain{};
@@ -178,7 +179,8 @@ namespace
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
         memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
-        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        ctx.seal(psm::crypto::seal_input{
+            BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()), {}});
 
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);
@@ -240,7 +242,8 @@ namespace
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
         memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
-        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        ctx.seal(psm::crypto::seal_input{
+            BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()), {}});
 
         std::array<std::uint8_t, 16> separate_plain{};
         std::memcpy(separate_plain.data(), session_id.data(), 8);
@@ -307,7 +310,8 @@ namespace
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
         memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
-        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        ctx.seal(psm::crypto::seal_input{
+            BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()), {}});
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), session_id.data(), 8);
@@ -353,7 +357,8 @@ namespace
 
         const auto body_enc_len = crypto::aead_context::seal_size(plain_len);
         memory::vector<std::uint8_t> BodyEnc(body_enc_len, memory::current_resource());
-        ctx.seal(BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()));
+        ctx.seal(psm::crypto::seal_input{
+            BodyEnc, plain, std::span<const std::uint8_t>(nonce.data(), nonce.size()), {}});
 
         memory::vector<std::byte> result(16 + body_enc_len, memory::current_resource());
         std::memcpy(result.data(), session_id.data(), 8);
@@ -675,7 +680,7 @@ namespace
 
         // 重放同一包 -> AEAD nonce 自增导致解密失败（crypto_error，replay 检查在解密之后）
         auto [ec2, res2] = relay->decrypt_inbound(packet, sender);
-        EXPECT_EQ(ec2, psm::fault::code::crypto_error) << "aes replay: crypto_error (nonce mismatch)";
+        EXPECT_EQ(ec2, psm::fault::code::replay_detected) << "aes replay: replay_detected";
     }
 
     // ─── 完整 ChaCha20 解密路径 ────────────────────────
@@ -750,7 +755,7 @@ namespace
         EXPECT_EQ(ec1, psm::fault::code::success) << "chacha replay: first success";
 
         auto [ec2, res2] = relay->decrypt_inbound(packet, sender);
-        EXPECT_EQ(ec2, psm::fault::code::crypto_error) << "chacha replay: crypto_error (nonce mismatch)";
+        EXPECT_EQ(ec2, psm::fault::code::replay_detected) << "chacha replay: replay_detected";
     }
 
     // ─── encrypt_out / send_chacha null entry ─────────────

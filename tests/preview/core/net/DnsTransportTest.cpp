@@ -11,9 +11,9 @@
  * @note 全部走 127.0.0.1 回环，无外部网络依赖
  */
 
-#include <common/Core/Net/Dns/Format.hpp>
-#include <common/Core/Net/Dns/Upstream.hpp>
-#include <common/MockTlsServer.hpp>
+#include <preview/Net/Dns/Format.hpp>
+#include <preview/Net/Dns/Upstream.hpp>
+#include <TestSupport/Tls/MockTlsServer.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
@@ -415,7 +415,7 @@ TEST(DnsTransport, TestTlsPoolReuse)
     net::io_context ioc;
     tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
     const auto Port = acceptor.local_endpoint().port();
-    net::co_spawn(ioc, Preview::Testing::MockTlsServer::Run(acceptor, 1), net::detached);
+    net::co_spawn(ioc, Preview::Testing::Tls::MockTlsServer::Run(acceptor, 1), net::detached);
 
     Preview::Network::Dns::Server cfg;
     cfg.Address = "127.0.0.1";
@@ -448,8 +448,8 @@ TEST(DnsTransport, TestDohStatus200WithResponder)
     tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
     const auto Port = acceptor.local_endpoint().port();
     net::co_spawn(ioc,
-                  Preview::Testing::MockTlsServer::Run(
-                      acceptor, 2, Preview::Testing::MakeDohResponder("HTTP/1.1 200 OK")),
+                  Preview::Testing::Tls::MockTlsServer::Run(
+                      acceptor, 2, Preview::Testing::Tls::MakeDohResponder("HTTP/1.1 200 OK")),
                   net::detached);
 
     Preview::Network::Dns::Server cfg;
@@ -481,8 +481,8 @@ TEST(DnsTransport, TestDohStatusRejection)
     tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
     const auto Port = acceptor.local_endpoint().port();
     net::co_spawn(ioc,
-                  Preview::Testing::MockTlsServer::Run(
-                      acceptor, 1, Preview::Testing::MakeDohResponder("HTTP/1.1 404 Not Found")),
+                  Preview::Testing::Tls::MockTlsServer::Run(
+                      acceptor, 1, Preview::Testing::Tls::MakeDohResponder("HTTP/1.1 404 Not Found")),
                   net::detached);
 
     Preview::Network::Dns::Server cfg;

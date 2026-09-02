@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.23)
-project(prism LANGUAGES C CXX)
+project(Prism LANGUAGES C CXX)
 
 # CMake 4.0+ 将 CMP0167 行为改为 NEW（FindBoost 弃用），此处显式设置避免警告
 if(POLICY CMP0167)
@@ -79,12 +79,11 @@ FetchContent_MakeAvailable(boost_src)
 
 # 创建 INTERFACE 库：仅传递头文件路径和编译宏，不产生编译产物
 set(boost_include_dir "${boost_src_SOURCE_DIR}")
-add_library(boost_system_header_only INTERFACE)
-target_include_directories(boost_system_header_only INTERFACE ${boost_include_dir})
+add_library(BoostSystemHeaderOnly INTERFACE)
+target_include_directories(BoostSystemHeaderOnly INTERFACE ${boost_include_dir})
 # BOOST_ERROR_CODE_HEADER_ONLY: boost::system::error_code 纯头文件实现，不链接 boost_system 库
 # BOOST_SYSTEM_NO_LIB: 禁止 CMake 自动链接 Boost.System 共享库
-target_compile_definitions(boost_system_header_only INTERFACE BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
-add_library(Boost::system ALIAS boost_system_header_only)
+target_compile_definitions(BoostSystemHeaderOnly INTERFACE BOOST_ERROR_CODE_HEADER_ONLY BOOST_SYSTEM_NO_LIB)
 
 # --- glaze v6.5.1 ---
 # 高性能 JSON 序列化库，纯 header-only。
@@ -254,7 +253,7 @@ FetchContent_MakeAvailable(blake3)
 
 # BLAKE3 C 库（手动构建，不使用 Rust/Cargo）
 set(BLAKE3_C_DIR "${blake3_SOURCE_DIR}/c")
-add_library(blake3_c STATIC
+add_library(Blake3C STATIC
     ${BLAKE3_C_DIR}/blake3.c
     ${BLAKE3_C_DIR}/blake3_dispatch.c
     ${BLAKE3_C_DIR}/blake3_portable.c
@@ -263,7 +262,7 @@ add_library(blake3_c STATIC
     ${BLAKE3_C_DIR}/blake3_avx2.c
     ${BLAKE3_C_DIR}/blake3_avx512.c
 )
-target_include_directories(blake3_c PUBLIC ${BLAKE3_C_DIR})
+target_include_directories(Blake3C PUBLIC ${BLAKE3_C_DIR})
 # BLAKE3 各 SIMD 源文件需要对应的指令集编译选项（per-file）。
 # 非 x86 架构不传递 GCC x86 专用参数，交由 BLAKE3 的可移植实现处理。
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|x86|i[3-6]86)$" AND
@@ -408,6 +407,8 @@ FetchContent_MakeAvailable(nghttp3)
 
 # 依赖 src 的所有子目录必须在 nghttp3/ngtcp2 之后（src 用到其 include 变量）
 add_subdirectory(src)
-add_subdirectory(tests)
+add_subdirectory(preview)
+add_subdirectory(tests/TestSupport)
 add_subdirectory(benchmarks)
+add_subdirectory(tests)
 add_subdirectory(stresses)

@@ -1,7 +1,7 @@
 /**
  * @file AnytlsSessionDeep.cpp
  * @brief anytls/session.cpp 深度测试 — 全分支覆盖
- * @details 通过 #define private public 访问 private 成员，使用 MockTransport
+ * @details 通过 #define private public 访问 private 成员，使用 ProductionMockTransport
  *          注入帧数据测试 recv_loop/dispatch_frame 各命令分支：
  *          constructor、close、get_stream_channel、
  *          OnSettings（v1/v2/padding-md5 匹配/不匹配）、
@@ -22,7 +22,7 @@
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
 // 必须在 session.hpp 之前定义，否则 transport.hpp 内部已包含 session.hpp
@@ -35,7 +35,7 @@
 
 #include "../../src/prism/handshake/anytls/session.cpp"
 
-using MockTransport = Preview::Testing::MockTransport;
+using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace anytls = psm::handshake::anytls;
 namespace net = boost::asio;
 
@@ -69,7 +69,7 @@ namespace
 
     struct SessionFixture
     {
-        std::shared_ptr<MockTransport> transport;
+        std::shared_ptr<ProductionMockTransport> transport;
         std::shared_ptr<anytls::anytls_session> session;
         anytls::anytls_session::stream_callback last_callback;
         bool callback_called{false};
@@ -83,7 +83,7 @@ namespace
 
         void init(std::shared_ptr<anytls::padding_factory> padding = nullptr)
         {
-            transport = std::make_shared<MockTransport>();
+            transport = std::make_shared<ProductionMockTransport>();
             auto cb = [this](std::uint32_t sid, std::shared_ptr<psm::transport::transmission> trans,
                              psm::memory::vector<std::uint8_t> preread)
             {
@@ -1150,7 +1150,7 @@ namespace
         fx.init();
 
         // 注入只有 3 字节（不足 7），read_exact 会读取 3 字节后再次 async_read_some
-        // MockTransport 队列空后进入轮询定时器，close() 后 read_exact 返回 false
+        // ProductionMockTransport 队列空后进入轮询定时器，close() 后 read_exact 返回 false
         std::vector<std::byte> short_data(3, std::byte{0x00});
         fx.transport->InjectRead(short_data.data(), short_data.size());
 

@@ -1,3 +1,3 @@
-prism_add_test(StealthExecutorPure2.cpp)
-prism_add_test(StealthExecutorDeep.cpp)
-prism_add_test(StealthFacadeSchemes.cpp)
+AddProductionTest(StealthExecutorPure2.cpp)
+AddProductionTest(StealthExecutorDeep.cpp)
+AddProductionTest(StealthFacadeSchemes.cpp)

@@ -11,8 +11,8 @@
 
 #include <memory>
 
-#include <common/Core/Recognition/SchemeExecutor.hpp>
-#include <common/Core/Transmission.hpp>
+#include <preview/Runtime/Recognition/SchemeExecutor.hpp>
+#include <preview/Transport/Transmission.hpp>
 
 namespace
 {

@@ -4,8 +4,8 @@
 #include <cstdio>
 #include <string>
 
-#include <common/Protocols/Http3/Qpack.hpp>
-#include <common/Core/Memory/Container.hpp>
+#include <preview/Protocols/Http3/Qpack.hpp>
+#include <preview/Foundation/Memory/Container.hpp>
 
 namespace
 {
@@ -18,7 +18,7 @@ namespace
         offset += Preview::Http3::Qpack::EncodeLiteral(
             ":method", "POST", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
         offset += Preview::Http3::Qpack::EncodeLiteral(
-            ":path", "/Auth", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
+            ":path", "/auth", std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));
         offset += Preview::Http3::Qpack::EncodeLiteral(
             "hysteria-auth", "password123",
             std::span<std::uint8_t>(buf.data() + offset, buf.size() - offset));

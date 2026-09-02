@@ -9,7 +9,7 @@
  * @note 测试用真实 Resolver（本地 hosts/loopback），避免外部网络
  */
 
-#include <common/Core/Net/Dns/Resolver.hpp>
+#include <preview/Net/Dns/Resolver.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
@@ -18,10 +18,12 @@
 #include <boost/asio/redirect_error.hpp>
 
 #include <chrono>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -32,11 +34,87 @@ namespace
     using namespace Preview;
     using Preview::Network::Dns::Config;
 
+    auto ResolveLifetimeProbe(
+        net::io_context &Ioc,
+        std::unique_ptr<Preview::Network::Dns::Resolver> &Owner,
+        std::unique_ptr<std::string> &Input,
+        std::error_code &Ec,
+        std::vector<net::ip::address> &Addresses,
+        int &Completions,
+        bool &ExecutorDrained) -> net::awaitable<void>
+    {
+        Addresses = co_await Owner->AsyncResolve(*Input, Ec);
+        ++Completions;
+        Owner.reset();
+        Input.reset();
+        net::post(Ioc, [&ExecutorDrained] { ExecutorDrained = true; });
+        co_return;
+    }
+
+    struct MaintenanceProbeCache
+    {
+        void EvictExpired()
+        {
+        }
+    };
+
+    struct MaintenanceProbeCoalescer
+    {
+        void FlushCleanup()
+        {
+        }
+    };
+
+    struct MaintenanceProbeTimer
+    {
+        void expires_after(std::chrono::seconds)
+        {
+        }
+
+        auto async_wait(auto) -> net::awaitable<void>
+        {
+            co_return;
+        }
+    };
+
+    struct MaintenanceProbeUpstream
+    {
+        void ClearIdleConns()
+        {
+        }
+    };
+
+    struct MaintenanceProbeState
+    {
+        std::shared_ptr<std::atomic<bool>> Alive_{std::make_shared<std::atomic<bool>>(false)};
+        MaintenanceProbeTimer MaintenanceTimer_;
+        MaintenanceProbeCache Cache_;
+        MaintenanceProbeCoalescer Coalescer_;
+        std::shared_ptr<MaintenanceProbeUpstream> Upstream_ =
+            std::make_shared<MaintenanceProbeUpstream>();
+    };
+
+    using MaintenanceFunction = net::awaitable<void> (*)(std::shared_ptr<MaintenanceProbeState>);
+    static_assert(std::is_same_v<decltype(&Preview::Network::Dns::Detail::MaintenanceLoop<MaintenanceProbeState>),
+                                 MaintenanceFunction>,
+                  "MaintenanceLoop must own its State shared_ptr by value");
+
     template <typename A>
     void run_coro(net::io_context &ioc, A coro)
     {
         std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
+        auto KeepAlive = std::make_shared<A>(std::move(coro));
+        net::co_spawn(
+            ioc,
+            [KeepAlive]() -> net::awaitable<void>
+            {
+                co_await (*KeepAlive)();
+            },
+            [&](std::exception_ptr e)
+            {
+                ep = e;
+                ioc.stop();
+            });
         ioc.restart(); // 清除上一次 stop() 状态，使后续 run() 真正执行新协程
         ioc.run();
         if (ep)
@@ -166,6 +244,46 @@ TEST(DnsResolver, ClearCache)
     EXPECT_EQ(r.Size(), 1u);
     r.Clear();
     EXPECT_EQ(r.Size(), 0u);
+}
+
+TEST(DnsResolver, TimeoutLoserOwnsResolveInputs)
+{
+    net::io_context ioc;
+    Config cfg;
+    cfg.CacheEnabled = false;
+    cfg.DisableIpv6 = true;
+    cfg.TimeoutMs = 0;
+
+    auto owner = std::make_unique<Preview::Network::Dns::Resolver>(ioc.get_executor(), cfg);
+    auto input = std::make_unique<std::string>("localhost");
+    std::error_code ec;
+    std::vector<net::ip::address> addresses;
+    int completions = 0;
+    bool coroutineCompleted = false;
+    bool executorDrained = false;
+    std::exception_ptr exception;
+
+    net::co_spawn(
+        ioc,
+        ResolveLifetimeProbe(ioc, owner, input, ec, addresses, completions, executorDrained),
+        [&](std::exception_ptr error)
+        {
+            exception = error;
+            coroutineCompleted = true;
+        });
+
+    ioc.run();
+    ioc.restart();
+    ioc.run();
+
+    ASSERT_FALSE(exception);
+    EXPECT_TRUE(coroutineCompleted);
+    EXPECT_TRUE(executorDrained);
+    EXPECT_EQ(completions, 1);
+    EXPECT_TRUE(addresses.empty());
+    EXPECT_EQ(ec, make_error_code(Preview::Error::Timeout));
+    EXPECT_EQ(owner, nullptr);
+    EXPECT_EQ(input, nullptr);
 }
 
 using Preview::Network::Dns::Resolver;

@@ -16,12 +16,12 @@
 #include <string_view>
 #include <vector>
 
-#include <common/Core/ByteSpan.hpp>
-#include <common/Core/Error.hpp>
-#include <common/Protocols/Socks5/Codec.hpp>
-#include <common/Protocols/Tuic/Codec.hpp>
-#include <common/Protocols/Vless/Codec.hpp>
-#include <common/Protocols/Ws/Codec.hpp>
+#include <preview/Foundation/ByteSpan.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Protocols/Socks5/Codec.hpp>
+#include <preview/Protocols/Tuic/Codec.hpp>
+#include <preview/Protocols/Vless/Codec.hpp>
+#include <preview/Protocols/Ws/Codec.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -411,10 +411,10 @@ namespace
         EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x01, 1, 2})), addr, consumed),
                   Error::NeedMore);
         // ipv6 不足
-        EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x04, 1})), addr, consumed),
+        EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x02, 1})), addr, consumed),
                   Error::NeedMore);
         // ipv6 成功
-        std::vector<std::uint8_t> v6{0x04};
+        std::vector<std::uint8_t> v6{0x02};
         v6.insert(v6.end(), 16, 0x42);
         v6.push_back(0x00);
         v6.push_back(0x50);
@@ -422,13 +422,13 @@ namespace
         EXPECT_EQ(addr.Host, std::string(16, '\x42'));
         EXPECT_EQ(addr.Port, 80u);
         // domain 缺长度
-        EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x03})), addr, consumed),
+        EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x00})), addr, consumed),
                   Error::NeedMore);
         // domain 不足
-        EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x03, 3, 'a'})), addr, consumed),
+        EXPECT_EQ(Tuic::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x00, 3, 'a'})), addr, consumed),
                   Error::NeedMore);
         // domain 成功
-        std::vector<std::uint8_t> dom{0x03, 3};
+        std::vector<std::uint8_t> dom{0x00, 3};
         const std::string_view Name = "abc";
         dom.insert(dom.end(), Name.begin(), Name.end());
         dom.push_back(0x01);
@@ -443,22 +443,22 @@ namespace
         // Parse：地址解析失败（domain 长度截断）→ need_more 经 Parse 传播
         Tuic::Message msg{};
         std::size_t consumed = 0;
-        std::vector<std::uint8_t> bad{0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0x0A, 'a', 'b'};
+        std::vector<std::uint8_t> bad{0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 0, 0x00, 0x0A, 'a', 'b'};
         EXPECT_EQ(Tuic::Parse(bad, msg, consumed), Error::NeedMore);
 
         // Parser：need_more（设置 ec）/ 错误传播
         Tuic::Parser p;
         std::error_code ec;
-        EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x04})), ec), 0u);
+        EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x05})), ec), 0u);
         EXPECT_TRUE(ec);
         EXPECT_EQ(ec, make_error_code(Error::NeedMore));
         EXPECT_EQ(ec, make_error_code(Error::NeedMore));
         p.Reset();
-        EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x03, 0x07, 0, 0, 0, 0, 0, 0, 0, 0})), ec), 0u);
+        EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x03, 0x02, 0, 0, 0, 0, 1, 0, 0, 0})), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::BadMagic));
         p.Reset();
         // 成功解析
-        std::vector<std::uint8_t> Ok{0x04, 0x07, 0, 0, 0, 0, 1, 0, 0, 0, 0x01, 8, 8, 8, 8, 0x00, 0x35, 'x'};
+        std::vector<std::uint8_t> Ok{0x05, 0x02, 0, 0, 0, 1, 1, 0, 0, 1, 0x01, 8, 8, 8, 8, 0x00, 0x35, 'x'};
         EXPECT_EQ(p.Put(boost::asio::buffer(Ok), ec), 18u);
         EXPECT_TRUE(p.IsDone());
         EXPECT_EQ(p.Get().Cmd, Tuic::CmdPacket);

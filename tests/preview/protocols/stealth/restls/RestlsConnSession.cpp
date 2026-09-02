@@ -18,8 +18,8 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Restls/Restls.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Restls/Restls.hpp>
 #include <gtest/gtest.h>
 
 namespace

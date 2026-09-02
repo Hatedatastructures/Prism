@@ -4,14 +4,14 @@
  * @details 测试 craft 的 send/fin/send_loop/wait_first_connect/
  *          frame_loop/activate_stream(handle_connect 第二次触发)等异步路径。
  *          所有测试使用 co_spawn + ioc.run() 模式。
- * @note close() 后必须 transport->close() 解除 MockTransport 轮询循环
+ * @note close() 后必须 transport->close() 解除 ProductionMockTransport 轮询循环
  *       对 frame_loop 的阻塞，否则 ioc.run() 不会返回。
  */
 
 #include <prism/diagnose/log.hpp>
 #include <prism/foundation/foundation.hpp>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 
 #define private public
 #define protected public
@@ -23,7 +23,7 @@
 
 #include <nghttp2/nghttp2.h>
 
-using MockTransport = Preview::Testing::MockTransport;
+using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace h2mux = psm::multiplex::h2mux;
 namespace net = boost::asio;
@@ -59,14 +59,14 @@ namespace
 
     struct AsyncFixture
     {
-        std::shared_ptr<MockTransport> transport;
+        std::shared_ptr<ProductionMockTransport> transport;
         std::unique_ptr<net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<h2mux::control> craft_obj;
 
         explicit AsyncFixture(h2mux::address_resolver resolver = make_check_resolver())
         {
-            transport = std::make_shared<MockTransport>();
+            transport = std::make_shared<ProductionMockTransport>();
             ioc = std::make_unique<net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};

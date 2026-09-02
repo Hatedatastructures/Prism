@@ -1,7 +1,7 @@
 # memory 子模块测试
-prism_add_test(MemoryLifecycleTest.cpp)
-target_link_libraries(MemoryLifecycleTest PRIVATE vmtest_common)
-prism_add_test(MemoryPointerTest.cpp)
-target_link_libraries(MemoryPointerTest PRIVATE vmtest_common)
-prism_add_test(PreviewMemoryTest.cpp)
-target_link_libraries(PreviewMemoryTest PRIVATE vmtest_common)
+AddPreviewTest(MemoryLifecycleTest.cpp)
+target_link_libraries(MemoryLifecycleTest PRIVATE PreviewFoundation PreviewTransport PreviewProtocolSocks5 PreviewTestSupport)
+AddPreviewTest(MemoryPointerTest.cpp)
+target_link_libraries(MemoryPointerTest PRIVATE PreviewFoundation PreviewProtocolSocks5 PreviewTestSupport)
+AddPreviewTest(PreviewMemoryTest.cpp)
+target_link_libraries(PreviewMemoryTest PRIVATE PreviewFoundation PreviewTestSupport)

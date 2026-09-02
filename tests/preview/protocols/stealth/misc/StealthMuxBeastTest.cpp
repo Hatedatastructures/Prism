@@ -5,16 +5,16 @@
 
 #include <cstring>
 
-#include <common/Protocols/Mux/H2Mux/Session.hpp>
-#include <common/Protocols/Mux/Smux/Session.hpp>
-#include <common/Protocols/Mux/Yamux/Session.hpp>
-#include <common/Protocols/Anytls/Anytls.hpp>
-#include <common/Protocols/Gun/Gun.hpp>
-#include <common/Protocols/Reality/Reality.hpp>
-#include <common/Protocols/Restls/Restls.hpp>
-#include <common/Protocols/Shadowtls/Shadowtls.hpp>
-#include <common/Protocols/Trusttunnel/Trusttunnel.hpp>
-#include <common/Protocols/Ws/Ws.hpp>
+#include <preview/Protocols/Mux/H2Mux/Session.hpp>
+#include <preview/Protocols/Mux/Smux/Session.hpp>
+#include <preview/Protocols/Mux/Yamux/Session.hpp>
+#include <preview/Protocols/Anytls/Anytls.hpp>
+#include <preview/Protocols/Gun/Gun.hpp>
+#include <preview/Protocols/Reality/Reality.hpp>
+#include <preview/Protocols/Restls/Restls.hpp>
+#include <preview/Protocols/Shadowtls/Shadowtls.hpp>
+#include <preview/Protocols/Trusttunnel/Trusttunnel.hpp>
+#include <preview/Protocols/Ws/Ws.hpp>
 #include <gtest/gtest.h>
 
 namespace

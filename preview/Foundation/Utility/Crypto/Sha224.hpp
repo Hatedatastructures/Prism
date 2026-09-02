@@ -1,0 +1,75 @@
+/**
+ * @file Sha224.hpp
+ * @brief SHA224 哈希工具
+ * @details 提供基于 OpenSSL 的 SHA224 哈希计算功能，用于 Trojan 协议凭据处理。
+ * @note 已分叉，各自演进（与主库 foundation 无镜像同步约束）
+ */
+#pragma once
+
+#include <preview/Foundation/Memory/Container.hpp>
+
+#include <openssl/sha.h>
+
+#include <array>
+#include <cctype>
+#include <cstdint>
+#include <string>
+#include <string_view>
+
+namespace Preview::Crypto
+{
+
+    /**
+     * @brief 计算字符串的 SHA224 哈希值
+     * @param input 输入字符串
+     * @return 56 字节的十六进制哈希字符串
+     */
+    [[nodiscard]] inline auto Sha224(std::string_view input) -> std::string
+    {
+        std::array<std::uint8_t, SHA224_DIGEST_LENGTH> Hash{};
+        SHA224(reinterpret_cast<const std::uint8_t *>(input.data()), input.size(), Hash.data());
+
+        std::string Result;
+        Result.reserve(56);
+        for (const auto byte : Hash)
+        {
+            constexpr char HexChars[] = "0123456789abcdef";
+            Result.push_back(HexChars[(byte >> 4) & 0x0F]);
+            Result.push_back(HexChars[byte & 0x0F]);
+        }
+        return Result;
+    }
+
+    /**
+     * @brief 检查字符串是否为有效的十六进制字符串
+     * @param str 输入字符串
+     * @return 如果字符串只包含十六进制字符则返回 true
+     */
+    [[nodiscard]] inline auto IsHex(std::string_view str) -> bool
+    {
+        for (const auto c : str)
+        {
+            if (!std::isxdigit(static_cast<std::uint8_t>(c)))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @brief 将凭据转换为 SHA224 哈希（如果还不是哈希）
+     * @param Credential 凭据字符串（可能是明文或已哈希）
+     * @return 56 字节的十六进制哈希字符串
+     * @details 如果输入已经是 56 字节的十六进制字符串，直接返回；
+     * 否则计算其 SHA224 哈希值。
+     */
+    [[nodiscard]] inline auto NormalizeCredential(std::string_view Credential) -> std::string
+    {
+        if (Credential.size() == 56 && IsHex(Credential))
+        {
+            return std::string{Credential};
+        }
+        return Sha224(Credential);
+    }
+} // namespace Preview::Crypto

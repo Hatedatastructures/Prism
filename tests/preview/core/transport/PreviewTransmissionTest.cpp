@@ -1,6 +1,6 @@
 /**
  * @file PreviewTransmissionTest.cpp
- * @brief Preview 传输抽象测试（core/Transmission.hpp）
+ * @brief Preview 传输抽象测试（preview/Transport/Transmission.hpp）
  * @details 覆盖 Transmission 虚接口：
  * 1. 叶子实现纯虚方法
  * 2. async_read_some/async_write_some 协程读写
@@ -25,7 +25,8 @@
 #include <span>
 #include <system_error>
 
-#include <common/Core/Transmission.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 
 namespace
 {
@@ -53,6 +54,10 @@ namespace
         {
             std::memset(Buffer.data(), 0, Buffer.size());
             ec.clear();
+            if (ReadOverreport_)
+            {
+                co_return Buffer.size() + 1;
+            }
             co_return Buffer.size();
         }
 
@@ -89,10 +94,16 @@ namespace
             return Canceled_;
         }
 
+        void set_read_overreport(const bool Value)
+        {
+            ReadOverreport_ = Value;
+        }
+
     private:
         net::any_io_executor Ex_;
         bool Closed_{false};
         bool Canceled_{false};
+        bool ReadOverreport_{false};
     };
 
     /// 装饰器：包装内层传输，委托读写并暴露 NextLayer
@@ -193,6 +204,24 @@ namespace
             EXPECT_EQ(n, 32U); });
     }
 
+    TEST(PreviewTransmission, AsyncReadRejectsOverreportedProgress)
+    {
+        net::io_context ioc;
+        auto leaf = std::make_shared<leaf_transmission>(ioc.get_executor());
+        leaf->set_read_overreport(true);
+        std::size_t done = 0;
+        std::error_code ec;
+
+        run_coro(ioc, [&]() -> net::awaitable<void>
+                 {
+                     std::array<std::byte, 8> buf{};
+                     done = co_await leaf->AsyncRead(buf, ec);
+                 });
+
+        EXPECT_EQ(done, 0U);
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::BrokenPipe));
+    }
+
     TEST(PreviewTransmission, AsyncWriteCombined)
     {
         net::io_context ioc;
@@ -205,6 +234,25 @@ namespace
             const auto n = co_await leaf->AsyncWrite(buf, ec);
             EXPECT_FALSE(ec);
             EXPECT_EQ(n, 32U); });
+    }
+
+    TEST(PreviewTransmission, AsyncWriteRejectsOverreportedProgress)
+    {
+        net::io_context ioc;
+        auto transport = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        transport->OverreportWrite = true;
+        std::size_t done = 0;
+        std::error_code ec;
+
+        run_coro(ioc, [&]() -> net::awaitable<void>
+                 {
+                     const std::array<std::byte, 8> buf{};
+                     done = co_await transport->AsyncWrite(buf, ec);
+                 });
+
+        EXPECT_EQ(done, 0U);
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::BrokenPipe));
+        EXPECT_TRUE(transport->Written.empty());
     }
 
     TEST(PreviewTransmission, TransportTypeDelegate)

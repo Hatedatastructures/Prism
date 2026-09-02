@@ -1,6 +1,6 @@
 # trusttunnel 子模块
-prism_add_test(TrusttunnelDgramSession.cpp)
-target_link_libraries(TrusttunnelDgramSession PRIVATE vmtest_common)
+AddPreviewTest(TrusttunnelDgramSession.cpp)
+target_link_libraries(TrusttunnelDgramSession PRIVATE PreviewTransport PreviewProtocolTrusttunnel PreviewTestSupport)
 
-prism_add_test(TrusttunnelCodecDeep.cpp)
-target_link_libraries(TrusttunnelCodecDeep PRIVATE vmtest_common)
+AddPreviewTest(TrusttunnelCodecDeep.cpp)
+target_link_libraries(TrusttunnelCodecDeep PRIVATE PreviewProtocolTrusttunnel PreviewTestSupport)

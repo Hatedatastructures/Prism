@@ -23,8 +23,8 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Trojan/Trojan.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Trojan/Trojan.hpp>
 #include <gtest/gtest.h>
 
 namespace

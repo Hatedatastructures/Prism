@@ -17,8 +17,8 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Shadowtls/Shadowtls.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Shadowtls/Shadowtls.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -88,9 +88,9 @@ namespace
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-                     auto [herr, cli] = co_await Shadowtls::Connect(
+                     auto [herr, cli] = co_await Shadowtls::Connect({
                          std::make_shared<MemoryStream>(std::move(a)), Shadowtls::ClientConfig{"pw123456"},
-                         std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd));
+                         std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd)});
                      EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
@@ -131,9 +131,9 @@ namespace
 
                      const auto server_rnd = make_random(0x33);
                      const auto client_rnd = make_random(0x44);
-                     auto [herr, cli] = co_await Shadowtls::Connect(
+                     auto [herr, cli] = co_await Shadowtls::Connect({
                          std::make_shared<MemoryStream>(std::move(a)), Shadowtls::ClientConfig{"wrong-pw"},
-                         std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd));
+                         std::span<const std::uint8_t>(server_rnd), std::span<const std::uint8_t>(client_rnd)});
                      EXPECT_EQ(herr, Error::None); // 客户端只发送，不感知认证结果
                      if (cli)
                      {

@@ -15,7 +15,7 @@
 #include <cstdint>
 #include <span>
 
-#include <common/Protocols/Mux/Smux/Codec.hpp>
+#include <preview/Protocols/Mux/Smux/Codec.hpp>
 #include <gtest/gtest.h>
 
 namespace

@@ -11,9 +11,10 @@
  *    Succeeded()/Failed() 模板分发
  */
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Compatible.hpp>
-#include <common/Core/Fault/Handling.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Compatible.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
+#include <preview/Foundation/Error.hpp>
 
 #include <boost/asio/error.hpp>
 #include <boost/system/error_code.hpp>
@@ -23,6 +24,7 @@
 #include <string_view>
 #include <system_error>
 #include <type_traits>
+#include <utility>
 
 #include <gtest/gtest.h>
 
@@ -260,6 +262,37 @@ namespace
         const boost::system::error_code lo{-1, boost::system::Category()};
         EXPECT_EQ(Preview::Fault::ToCode(hi), Code::GenericError);
         EXPECT_EQ(Preview::Fault::ToCode(lo), Code::GenericError);
+    }
+
+    TEST(FaultCoverage, ToCodeBoostProtocolCategoryMappings)
+    {
+        const std::pair<Preview::Error, Code> Cases[] = {
+            {Preview::Error::None, Code::Success},
+            {Preview::Error::NeedMore, Code::WouldBlock},
+            {Preview::Error::UnexpectedEof, Code::Eof},
+            {Preview::Error::BadLength, Code::BadMessage},
+            {Preview::Error::BadMagic, Code::BadMessage},
+            {Preview::Error::BadAuth, Code::AuthFailed},
+            {Preview::Error::AuthFailed, Code::AuthFailed},
+            {Preview::Error::VersionMismatch, Code::BadMessage},
+            {Preview::Error::NotSupported, Code::NotSupported},
+            {Preview::Error::BadMessage, Code::BadMessage},
+            {Preview::Error::BadAddress, Code::UnsupportedAddress},
+            {Preview::Error::NotOpen, Code::IoError},
+            {Preview::Error::Canceled, Code::Canceled},
+            {Preview::Error::Timeout, Code::Timeout},
+            {Preview::Error::BrokenPipe, Code::IoError},
+            {Preview::Error::ProtocolError, Code::ProtocolError},
+            {Preview::Error::KdfError, Code::GenericError},
+            {Preview::Error::Unsupported, Code::NotSupported},
+            {Preview::Error::IoError, Code::IoError},
+        };
+
+        for (const auto &[ErrorValue, Expected] : Cases)
+        {
+            EXPECT_EQ(Preview::Fault::ToCode(Preview::make_error_code(ErrorValue)), Expected)
+                << "协议错误映射错误值=" << static_cast<int>(ErrorValue);
+        }
     }
 
     TEST(FaultCoverage, ToCodeBoostUnknown)

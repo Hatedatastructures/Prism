@@ -23,94 +23,94 @@ if(NOT benchmark_FOUND)
 endif()
 
 add_executable(CodecBench CodecBench.cpp)
-target_link_libraries(CodecBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(CodecBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(MemoryBench MemoryBench.cpp)
-target_link_libraries(MemoryBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(MemoryBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(MuxBench MuxBench.cpp)
-target_link_libraries(MuxBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(MuxBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(CryptoBench CryptoBench.cpp)
-target_link_libraries(CryptoBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(CryptoBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(ProtocolBench ProtocolBench.cpp)
-target_link_libraries(ProtocolBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(ProtocolBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(IOBench IOBench.cpp)
-target_link_libraries(IOBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(IOBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(MuxConnBench MuxConnBench.cpp)
-target_link_libraries(MuxConnBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(MuxConnBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(SessionBench SessionBench.cpp)
-target_link_libraries(SessionBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(SessionBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(RealityBench RealityBench.cpp)
-target_link_libraries(RealityBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(RealityBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(ScaleBench ScaleBench.cpp)
-target_link_libraries(ScaleBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(ScaleBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(ResourceBench ResourceBench.cpp)
-target_link_libraries(ResourceBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(ResourceBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(LatencyBench LatencyBench.cpp)
-target_link_libraries(LatencyBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(LatencyBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(RecognitionBench RecognitionBench.cpp)
-target_link_libraries(RecognitionBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(RecognitionBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(StealthBench StealthBench.cpp)
-target_link_libraries(StealthBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(StealthBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(InfraBench InfraBench.cpp)
-target_link_libraries(InfraBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(InfraBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(H2MuxBench H2MuxBench.cpp)
-target_link_libraries(H2MuxBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(H2MuxBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(RegressionBench RegressionBench.cpp)
-target_link_libraries(RegressionBench PRIVATE ${PROJECT_NAME}_static_library)
-target_include_directories(RegressionBench PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+target_link_libraries(RegressionBench PRIVATE PrismStaticLibrary)
+target_include_directories(RegressionBench PRIVATE ${PROJECT_SOURCE_DIR})
 
 add_executable(RealityAuthBench RealityAuthBench.cpp)
-target_link_libraries(RealityAuthBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(RealityAuthBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(ResolveBench ResolveBench.cpp)
-target_link_libraries(ResolveBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(ResolveBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(AnyTLSFrameBench AnyTLSFrameBench.cpp)
-target_link_libraries(AnyTLSFrameBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(AnyTLSFrameBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(StealthExtBench StealthExtBench.cpp)
-target_link_libraries(StealthExtBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(StealthExtBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(SsAntiReplayBench SsAntiReplayBench.cpp)
-target_link_libraries(SsAntiReplayBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(SsAntiReplayBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(TlsFrameBench TlsFrameBench.cpp)
-target_link_libraries(TlsFrameBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(TlsFrameBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(Socks5FrameBench Socks5FrameBench.cpp)
-target_link_libraries(Socks5FrameBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(Socks5FrameBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(CryptoMiscBench CryptoMiscBench.cpp)
-target_link_libraries(CryptoMiscBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(CryptoMiscBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(RecognitionPipeBench RecognitionPipeBench.cpp)
-target_link_libraries(RecognitionPipeBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(RecognitionPipeBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 
 add_executable(TrustTunnelBench TrustTunnelBench.cpp)
-target_link_libraries(TrustTunnelBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(TrustTunnelBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(DnsMessageBench DnsMessageBench.cpp)
-target_link_libraries(DnsMessageBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
+target_link_libraries(DnsMessageBench PRIVATE PrismStaticLibrary benchmark::benchmark)
 
 add_executable(DnsCacheBench DnsCacheBench.cpp)
-target_link_libraries(DnsCacheBench PRIVATE ${PROJECT_NAME}_static_library benchmark::benchmark)
-target_include_directories(DnsCacheBench PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+target_link_libraries(DnsCacheBench PRIVATE PrismStaticLibrary benchmark::benchmark)
+target_include_directories(DnsCacheBench PRIVATE ${PROJECT_SOURCE_DIR})
 
 foreach(target_name IN ITEMS CodecBench MemoryBench MuxBench CryptoBench ProtocolBench IOBench MuxConnBench SessionBench RealityBench ScaleBench ResourceBench LatencyBench RecognitionBench StealthBench InfraBench H2MuxBench RegressionBench RealityAuthBench ResolveBench AnyTLSFrameBench StealthExtBench SsAntiReplayBench TlsFrameBench Socks5FrameBench CryptoMiscBench RecognitionPipeBench TrustTunnelBench DnsMessageBench DnsCacheBench)
     if(MINGW)

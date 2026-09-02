@@ -5,7 +5,7 @@
  *          错误处理（版本/命令/地址非法）。
  */
 
-#include <common/Protocols/Socks5/Socks5.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -64,6 +64,23 @@ namespace
         EXPECT_EQ(out[4], 127);
         EXPECT_EQ(out[8], 0x1F);
         EXPECT_EQ(out[9], 0x90);
+    }
+
+    TEST(Socks5Beast, SerializerMethodReply)
+    {
+        Socks5::Serializer s;
+        Socks5::Message msg;
+        msg.Type = Socks5::Message::Kind::MethodReply;
+        msg.Method = Socks5::AuthNone;
+        s.Reset(msg);
+        std::error_code ec;
+        std::array<std::uint8_t, 2> out{};
+        const auto n = s.Get(net::mutable_buffer(out.data(), out.size()), ec);
+        EXPECT_FALSE(ec);
+        EXPECT_EQ(n, 2U);
+        EXPECT_EQ(out[0], 0x05);
+        EXPECT_EQ(out[1], 0x00);
+        EXPECT_TRUE(s.IsDone());
     }
 
     TEST(Socks5Beast, ParserFullFrame)

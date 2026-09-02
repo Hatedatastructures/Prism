@@ -19,8 +19,8 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
 #include <gtest/gtest.h>
 
 namespace

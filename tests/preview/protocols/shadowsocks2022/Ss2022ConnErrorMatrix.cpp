@@ -18,8 +18,8 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 
 namespace
 {

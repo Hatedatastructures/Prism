@@ -1,11 +1,11 @@
-target_sources(${PROJECT_NAME}_static_library
+target_sources(PrismStaticLibrary
         PRIVATE
             launch.cpp
             tls.cpp
             worker.cpp
 )
 
-target_sources(${PROJECT_NAME}_static_library
+target_sources(PrismStaticLibrary
         PUBLIC
         FILE_SET public_headers TYPE HEADERS
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include

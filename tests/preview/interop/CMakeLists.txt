@@ -1,3 +1,3 @@
 # interop 对拍测试
-prism_add_test(GoldenVectorTest.cpp)
-target_link_libraries(GoldenVectorTest PRIVATE vmtest_common)
+AddPreviewTest(GoldenVectorTest.cpp)
+target_link_libraries(GoldenVectorTest PRIVATE PreviewProtocolShadowsocks2022 PreviewProtocolSocks5 PreviewProtocolTrojan PreviewProtocolVless PreviewProtocolVmess PreviewTestSupport)

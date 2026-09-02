@@ -18,14 +18,14 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Middleware/Pipeline.hpp>
-#include <common/Core/Middleware/Builtin/Dial.hpp>
-#include <common/Core/Middleware/Builtin/Relay.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/Core/Fault/Handling.hpp>
-#include <common/Core/Fault/Code.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Runtime/Middleware/Pipeline.hpp>
+#include <preview/Runtime/Middleware/Builtin/Dial.hpp>
+#include <preview/Runtime/Middleware/Builtin/Relay.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
 
 namespace
 {

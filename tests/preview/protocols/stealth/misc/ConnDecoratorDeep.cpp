@@ -15,13 +15,13 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Mux/Smux/Smux.hpp>
-#include <common/Protocols/Mux/Stream.hpp>
-#include <common/Protocols/Tuic/Conn.hpp>
-#include <common/Protocols/Anytls/Conn.hpp>
-#include <common/Protocols/Gun/Conn.hpp>
-#include <common/Protocols/Reality/Conn.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Mux/Smux/Smux.hpp>
+#include <preview/Protocols/Mux/Stream.hpp>
+#include <preview/Protocols/Tuic/Conn.hpp>
+#include <preview/Protocols/Anytls/Conn.hpp>
+#include <preview/Protocols/Gun/Conn.hpp>
+#include <preview/Protocols/Reality/Conn.hpp>
 #include <gtest/gtest.h>
 
 namespace

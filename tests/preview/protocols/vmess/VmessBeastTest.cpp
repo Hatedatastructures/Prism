@@ -5,7 +5,7 @@
 
 #include <ctime>
 
-#include <common/Protocols/Vmess/Vmess.hpp>
+#include <preview/Protocols/Vmess/Vmess.hpp>
 #include <gtest/gtest.h>
 
 namespace

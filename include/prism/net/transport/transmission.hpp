@@ -291,8 +291,13 @@ namespace psm::transport
         {
             const auto remaining = buffer.subspan(total_written);
             const auto n = co_await t.async_write_some(remaining, ec);
-            if (ec || n == 0)
+            if (ec)
             {
+                co_return total_written;
+            }
+            if (n == 0)
+            {
+                ec = psm::fault::code::io_error;
                 co_return total_written;
             }
             total_written += n;

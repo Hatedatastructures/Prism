@@ -18,15 +18,15 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
-#include <common/Core/Runtime/Listener.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Composition/Adapters/ProtocolAdapter.hpp>
+#include <preview/Runtime/Listener.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -36,7 +36,7 @@ namespace
     using namespace Preview;
     using Preview::Runtime::MakeAcceptSs2022;
 
-    // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
+    // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::AcceptEchoLoop;
     using Preview::Testing::ChainState;
     using ConnectResult = Preview::Testing::ConnectResult;

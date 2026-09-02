@@ -1,4 +1,4 @@
-target_sources(${PROJECT_NAME}_static_library
+target_sources(PrismStaticLibrary
         PRIVATE
         registry.cpp
         common.cpp
@@ -44,7 +44,7 @@ target_sources(${PROJECT_NAME}_static_library
         recognition/tls/signal.cpp
 )
 
-target_sources(${PROJECT_NAME}_static_library
+target_sources(PrismStaticLibrary
         PUBLIC
         FILE_SET public_headers TYPE HEADERS
         BASE_DIRS ${PROJECT_SOURCE_DIR}/include

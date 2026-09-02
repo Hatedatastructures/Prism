@@ -5,7 +5,7 @@
  *          FIFO 淘汰顺序（含刷新）、serve-stale 策略、负缓存过期
  */
 
-#include <common/Core/Net/Dns/Cache.hpp>
+#include <preview/Net/Dns/Cache.hpp>
 
 #include <boost/asio/ip/address.hpp>
 

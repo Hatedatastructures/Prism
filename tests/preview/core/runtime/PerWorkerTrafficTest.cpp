@@ -18,7 +18,7 @@
 #include <thread>
 #include <vector>
 
-#include <common/Core/Runtime/Statistics.hpp>
+#include <preview/Runtime/Statistics.hpp>
 
 namespace
 {
@@ -126,6 +126,67 @@ namespace
             total_up += pod.Up;
         }
         EXPECT_EQ(total_up, 4);
+    }
+
+    TEST(IdentityTraffic, ConcurrentCopyOnWriteExactTotals)
+    {
+        constexpr int Writers = 8;
+        constexpr int Rounds = 250;
+        constexpr int SharedIdentities = 8;
+        constexpr std::uint64_t SharedUp = static_cast<std::uint64_t>(Writers) * Rounds * 3;
+        constexpr std::uint64_t SharedDown = static_cast<std::uint64_t>(Writers) * Rounds * 5;
+
+        Preview::Runtime::IdentityTraffic traffic;
+        std::vector<std::thread> threads;
+        for (int writer = 0; writer < Writers; ++writer)
+        {
+            threads.emplace_back([&, writer]
+                                 {
+                                     for (int round = 0; round < Rounds; ++round)
+                                     {
+                                         for (int id = 0; id < SharedIdentities; ++id)
+                                         {
+                                             traffic.Add("shared-" + std::to_string(id), 3, 5);
+                                             traffic.Add("writer-" + std::to_string(writer) + "-" +
+                                                            std::to_string(id),
+                                                        7, 11);
+                                         }
+                                     }
+                                 });
+        }
+        for (auto &thread : threads)
+        {
+            thread.join();
+        }
+
+        EXPECT_EQ(traffic.IdentityCount(),
+                  static_cast<std::size_t>(SharedIdentities + Writers * SharedIdentities));
+        for (int id = 0; id < SharedIdentities; ++id)
+        {
+            const auto shared = traffic.PerIdentity("shared-" + std::to_string(id));
+            EXPECT_EQ(shared.Up, SharedUp);
+            EXPECT_EQ(shared.Down, SharedDown);
+        }
+
+        const auto snapshot = traffic.All();
+        ASSERT_EQ(snapshot.size(), static_cast<std::size_t>(SharedIdentities * (Writers + 1)));
+        std::uint64_t totalUp = 0;
+        std::uint64_t totalDown = 0;
+        for (const auto &[identity, pod] : snapshot)
+        {
+            (void)identity;
+            totalUp += pod.Up;
+            totalDown += pod.Down;
+        }
+        EXPECT_EQ(totalUp, SharedUp * SharedIdentities +
+                               static_cast<std::uint64_t>(Writers * SharedIdentities * Rounds) * 7);
+        EXPECT_EQ(totalDown, SharedDown * SharedIdentities +
+                                 static_cast<std::uint64_t>(Writers * SharedIdentities * Rounds) * 11);
+
+        traffic.Add("after-snapshot", 13, 17);
+        EXPECT_EQ(snapshot.size(), static_cast<std::size_t>(SharedIdentities * (Writers + 1)));
+        EXPECT_EQ(traffic.IdentityCount(),
+                  static_cast<std::size_t>(SharedIdentities * (Writers + 1) + 1));
     }
 
     TEST(TrafficPod, MergeSemantics)

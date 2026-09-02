@@ -11,9 +11,9 @@
  *       全部为内存操作，无网络依赖。
  */
 
-#include <common/Core/Net/Dns/Cache.hpp>
-#include <common/Core/Net/Dns/Coalescer.hpp>
-#include <common/Core/Net/Dns/Format.hpp>
+#include <preview/Net/Dns/Cache.hpp>
+#include <preview/Net/Dns/Coalescer.hpp>
+#include <preview/Net/Dns/Format.hpp>
 
 #include <benchmark/benchmark.h>
 

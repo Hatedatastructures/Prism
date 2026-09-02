@@ -18,10 +18,12 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 
-#include <common/Core/ByteSpan.hpp>
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Protocols/Tuic/Tuic.hpp>
+#include <preview/Foundation/ByteSpan.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Protocols/Tuic/Tuic.hpp>
 
 namespace
 {
@@ -50,18 +52,43 @@ namespace
         return u;
     }
 
+    auto test_exporter(std::span<std::uint8_t> Output, std::span<const std::uint8_t> Label,
+                       std::string_view Context) -> bool
+    {
+        std::uint8_t State = 0x5A;
+        for (const auto Byte : Label)
+        {
+            State = static_cast<std::uint8_t>((State * 33U) ^ Byte);
+        }
+        for (const auto Byte : Context)
+        {
+            State = static_cast<std::uint8_t>((State * 33U) ^ static_cast<std::uint8_t>(Byte));
+        }
+        for (std::size_t I = 0; I < Output.size(); ++I)
+        {
+            State = static_cast<std::uint8_t>(State * 33U + static_cast<std::uint8_t>(I));
+            Output[I] = State;
+        }
+        return true;
+    }
+
     TEST(TuicConnSession, ConnectAcceptRoundtrip)
     {
         net::io_context ioc;
         Tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
         const auto port = acceptor.local_endpoint().port();
+        auto [auth_a, auth_b] = MakeMemoryPair(ioc.get_executor());
 
         Tuic::ClientConfig ccfg;
         ccfg.uuid = test_uuid();
         ccfg.password = "pw";
+        ccfg.AuthStream = std::make_shared<MemoryStream>(std::move(auth_a));
+        ccfg.Exporter = test_exporter;
         Tuic::ServerConfig scfg;
         scfg.uuid = test_uuid();
         scfg.password = "pw";
+        scfg.AuthStream = std::make_shared<MemoryStream>(std::move(auth_b));
+        scfg.Exporter = test_exporter;
 
         Tuic::Address Target;
         Target.Type = Tuic::AddressType::Domain;
@@ -118,6 +145,49 @@ namespace
                      echo_back.assign(reinterpret_cast<const char *>(buf.data()), n);
                  });
         EXPECT_EQ(echo_back, "tuic-Stream");
+    }
+
+    TEST(TuicConnSession, ExporterAuthenticationRejectsWrongPassword)
+    {
+        net::io_context ioc;
+        auto [stream_a, stream_b] = MakeMemoryPair(ioc.get_executor());
+        auto [auth_a, auth_b] = MakeMemoryPair(ioc.get_executor());
+
+        Tuic::ClientConfig ccfg;
+        ccfg.uuid = test_uuid();
+        ccfg.password = "client-password";
+        ccfg.AuthStream = std::make_shared<MemoryStream>(std::move(auth_a));
+        ccfg.Exporter = test_exporter;
+
+        Tuic::ServerConfig scfg;
+        scfg.uuid = test_uuid();
+        scfg.password = "server-password";
+        scfg.AuthStream = std::make_shared<MemoryStream>(std::move(auth_b));
+        scfg.Exporter = test_exporter;
+
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     auto Server = [&]() -> net::awaitable<void>
+                     {
+                         auto [Err, Request, Conn] = co_await Tuic::Accept(
+                             std::make_shared<MemoryStream>(std::move(stream_b)), scfg);
+                         EXPECT_EQ(Err, Error::BadAuth);
+                         EXPECT_FALSE(Conn);
+                         (void)Request;
+                     };
+                     net::co_spawn(ioc.get_executor(), Server(), net::detached);
+
+                     auto [Err, Conn] = co_await Tuic::Connect(
+                         std::make_shared<MemoryStream>(std::move(stream_a)), ccfg,
+                         Tuic::Address{Tuic::AddressType::Domain, "example.com", 443});
+                     EXPECT_EQ(Err, Error::None);
+                     EXPECT_TRUE(Conn);
+                     if (Conn)
+                     {
+                         Conn->Close();
+                     }
+                 });
     }
 
     TEST(TuicConnSession, BadFrameRejected)

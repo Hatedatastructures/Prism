@@ -15,19 +15,55 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <memory_resource>
 #include <span>
 #include <string>
 #include <vector>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Handling.hpp>
-#include <common/Core/Memory/Container.hpp>
-#include <common/Core/Memory/Pool.hpp>
-#include <common/Core/Crypto/Aead.hpp>
-#include <common/Protocols/Http3/Qpack.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
+#include <preview/Foundation/Memory/Container.hpp>
+#include <preview/Foundation/Memory/Pool.hpp>
+#include <preview/Foundation/Utility/Crypto/Aead.hpp>
+#include <preview/Protocols/Http3/Qpack.hpp>
 
 namespace
 {
+
+    /**
+     * @class CountingResource
+     * @brief 只用于基准的 PMR 分配计数包装器
+     * @details 不参与 Preview 生产代码；所有实际分配仍委托给当前资源。
+     */
+    class CountingResource final : public std::pmr::memory_resource
+    {
+    public:
+        explicit CountingResource(std::pmr::memory_resource *upstream) : Upstream_(upstream)
+        {
+        }
+
+        std::size_t Allocations{0};
+
+    private:
+        void *do_allocate(std::size_t Bytes, std::size_t Alignment) override
+        {
+            ++Allocations;
+            return Upstream_->allocate(Bytes, Alignment);
+        }
+
+        void do_deallocate(void *Pointer, std::size_t Bytes, std::size_t Alignment) override
+        {
+            Upstream_->deallocate(Pointer, Bytes, Alignment);
+        }
+
+        [[nodiscard]] auto do_is_equal(const std::pmr::memory_resource &Other) const noexcept -> bool override
+        {
+            const auto *Resource = dynamic_cast<const CountingResource *>(&Other);
+            return Resource && Resource->Upstream_ == Upstream_;
+        }
+
+        std::pmr::memory_resource *Upstream_;
+    };
 
     // ── 1. fault 错误码检查 ──
 
@@ -55,13 +91,15 @@ namespace
 
     static void BM_MemoryPoolAlloc(benchmark::State &State)
     {
-        auto mr = Preview::Memory::CurrentResource();
+        CountingResource resource(Preview::Memory::CurrentResource());
         for (auto _ : State)
         {
-            auto *p = mr->allocate(64, alignof(std::max_align_t));
+            auto *p = resource.allocate(64, alignof(std::max_align_t));
             benchmark::DoNotOptimize(p);
-            mr->deallocate(p, 64, alignof(std::max_align_t));
+            resource.deallocate(p, 64, alignof(std::max_align_t));
         }
+        State.counters["allocations/op"] =
+            static_cast<double>(resource.Allocations) / static_cast<double>(State.iterations());
     }
     BENCHMARK(BM_MemoryPoolAlloc);
 
@@ -70,7 +108,7 @@ namespace
         auto mr = Preview::Memory::CurrentResource();
         for (auto _ : State)
         {
-            Preview::Memory::string s(mr);
+            Preview::Memory::String s(mr);
             s.append("hello");
             s.append("world");
             benchmark::DoNotOptimize(s.size());
@@ -82,7 +120,7 @@ namespace
 
     static void BM_AeadSeal16KB(benchmark::State &State)
     {
-        std::array<std::uint8_t, 32> key{};
+        std::array<std::uint8_t, 16> key{};
         std::fill(key.begin(), key.end(), 0x42);
         Preview::Crypto::AeadContext ctx(Preview::Crypto::AeadCipher::Aes128Gcm, key);
 

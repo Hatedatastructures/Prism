@@ -24,16 +24,16 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Handling.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Runtime/Adapter/ProtocolAdapter.hpp>
-#include <common/Core/Runtime/Listener.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Composition/Adapters/ProtocolAdapter.hpp>
+#include <preview/Runtime/Listener.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -43,7 +43,7 @@ namespace
     using udp = net::ip::udp;
     using namespace Preview;
 
-    // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
+    // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::RunCoro;
     using TrafficRecorder = Preview::Testing::TrafficRecorder;
     using Preview::Testing::UdpEchoServer;
@@ -225,10 +225,10 @@ namespace
                 {
                     co_return;
                 }
-                auto [err, Conn] = co_await Socks5::Connect(
+                auto [err, Conn] = co_await Socks5::Connect({
                     std::move(raw), Socks5::ClientConfig{},
                     Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
-                    Socks5::Command::UdpAssociate);
+                    Socks5::Command::UdpAssociate});
                 handshake_ok = err == Error::None && Conn != nullptr;
                 if (!Conn)
                 {
@@ -325,10 +325,10 @@ namespace
                 {
                     co_return;
                 }
-                auto [err, Conn] = co_await Socks5::Connect(
+                auto [err, Conn] = co_await Socks5::Connect({
                     std::move(raw), Socks5::ClientConfig{},
                     Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
-                    Socks5::Command::UdpAssociate);
+                    Socks5::Command::UdpAssociate});
                 if (!Conn)
                 {
                     co_return;
@@ -408,10 +408,10 @@ namespace
                 {
                     co_return;
                 }
-                auto [err, Conn] = co_await Socks5::Connect(
+                auto [err, Conn] = co_await Socks5::Connect({
                     std::move(raw), Socks5::ClientConfig{},
                     Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
-                    Socks5::Command::UdpAssociate);
+                    Socks5::Command::UdpAssociate});
                 if (!Conn)
                 {
                     co_return;
@@ -504,10 +504,10 @@ namespace
                 {
                     co_return;
                 }
-                auto [err, Conn] = co_await Socks5::Connect(
+                auto [err, Conn] = co_await Socks5::Connect({
                     std::move(raw), Socks5::ClientConfig{},
                     Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
-                    Socks5::Command::UdpAssociate);
+                    Socks5::Command::UdpAssociate});
                 if (!Conn)
                 {
                     co_return;
@@ -617,10 +617,10 @@ namespace
                     listener.Stop();
                     co_return;
                 }
-                auto [err, Conn] = co_await Socks5::Connect(
+                auto [err, Conn] = co_await Socks5::Connect({
                     std::move(raw), Socks5::ClientConfig{},
                     Socks5::Address{Socks5::AddressType::Ipv4, "127.0.0.1", 0},
-                    Socks5::Command::UdpAssociate);
+                    Socks5::Command::UdpAssociate});
                 if (!Conn)
                 {
                     listener.Stop();

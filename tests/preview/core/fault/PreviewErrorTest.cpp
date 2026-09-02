@@ -15,14 +15,14 @@
 
 #include <boost/system/error_code.hpp>
 
-#include <common/Core/Error.hpp>
+#include <preview/Foundation/Error.hpp>
 
 namespace
 {
 
     TEST(PreviewError, CategoryName)
     {
-        EXPECT_STREQ(Preview::ErrorCategory().name(), "preview.protocol");
+        EXPECT_STREQ(Preview::ErrorCategory().name(), "prism.protocol");
     }
 
     TEST(PreviewError, make_error_code)

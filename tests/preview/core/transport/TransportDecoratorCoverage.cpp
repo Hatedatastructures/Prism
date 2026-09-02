@@ -1,6 +1,6 @@
 /**
  * @file TransportDecoratorCoverage.cpp
- * @brief tests/common/core/transport/ 装饰器模块覆盖率测试
+ * @brief preview/Transport/ 装饰器模块覆盖率测试
  * @details 覆盖八个传输装饰器/叶子模块：
  * - PadTransport：填充启用/禁用、最小/最大边界、数据透传、大块透传兜底、
  *   随机填充确定性（不破坏数据）、StopAfter 透传
@@ -45,15 +45,16 @@
 #include <string_view>
 #include <vector>
 
-#include <common/Core/ByteSpan.hpp>
-#include <common/Core/Transport/Connector.hpp>
-#include <common/Core/Transport/Encrypted.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transport/Pad.hpp>
-#include <common/Core/Transport/Preview.hpp>
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Core/Transport/Snapshot.hpp>
-#include <common/Core/Transport/Unreliable.hpp>
+#include <preview/Foundation/ByteSpan.hpp>
+#include <preview/Transport/Connector.hpp>
+#include <preview/Transport/Encrypted.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Pad.hpp>
+#include <preview/Transport/Preview.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Transport/Snapshot.hpp>
+#include <preview/Transport/Unreliable.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -907,6 +908,31 @@ namespace
                  });
     }
 
+    TEST(Connector, WritesEveryByteAcrossShortBufferSequence)
+    {
+        net::io_context ioc;
+        auto Transport = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        Transport->MaxWrite = 2;
+        Preview::Transport::Connector Conn(Transport);
+        const std::array<std::byte, 3> First{std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
+        const std::array<std::byte, 2> Second{std::byte{0x04}, std::byte{0x05}};
+        const std::array<net::const_buffer, 2> Buffers{net::buffer(First), net::buffer(Second)};
+        boost::system::error_code Error;
+        std::size_t Written = 0;
+
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     Written = co_await Conn.async_write_some(
+                         Buffers, net::redirect_error(net::use_awaitable, Error));
+                 });
+
+        EXPECT_FALSE(Error);
+        EXPECT_EQ(Written, 5U);
+        const std::vector<std::uint8_t> Expected{1, 2, 3, 4, 5};
+        EXPECT_EQ(Transport->Written, Expected);
+    }
+
     TEST(Connector, MemberAsyncReadWrite)
     {
         net::io_context ioc;
@@ -1298,6 +1324,57 @@ namespace
                      Server.Close();
                      client_a.Close();
                      client_b.Close();
+                 });
+    }
+
+    TEST(Unreliable, AllowAnyPeerAcceptsMultipleSources)
+    {
+        net::io_context ioc;
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     Preview::Transport::Unreliable Server(ioc.get_executor());
+                     Preview::Transport::Unreliable ClientA(ioc.get_executor());
+                     Preview::Transport::Unreliable ClientB(ioc.get_executor());
+                     boost::system::error_code OpenEc;
+                     Server.NativeSocket().open(net::ip::udp::v4(), OpenEc);
+                     Server.NativeSocket().bind({net::ip::address_v4::loopback(), 0}, OpenEc);
+                     ClientA.NativeSocket().open(net::ip::udp::v4(), OpenEc);
+                     ClientA.NativeSocket().bind({net::ip::address_v4::loopback(), 0}, OpenEc);
+                     ClientB.NativeSocket().open(net::ip::udp::v4(), OpenEc);
+                     ClientB.NativeSocket().bind({net::ip::address_v4::loopback(), 0}, OpenEc);
+                     EXPECT_FALSE(OpenEc);
+                     if (OpenEc)
+                     {
+                         co_return;
+                     }
+                     const auto ServerEndpoint = Server.NativeSocket().local_endpoint();
+                     ClientA.SetRemote(ServerEndpoint);
+                     ClientB.SetRemote(ServerEndpoint);
+                     Server.AllowAnyPeer();
+
+                     std::error_code Ec;
+                     EXPECT_EQ(co_await ClientA.async_write_some(sv_bytes("a"), Ec), 1u);
+                     EXPECT_EQ(co_await ClientB.async_write_some(sv_bytes("b"), Ec), 1u);
+                     std::array<std::byte, 8> Buffer{};
+                     Preview::Transport::Unreliable::EndpointType FirstEndpoint;
+                     Preview::Transport::Unreliable::EndpointType SecondEndpoint;
+                     const auto First = co_await Server.AsyncReceiveFrom(
+                         std::span<std::byte>(Buffer), FirstEndpoint, Ec);
+                     const std::string FirstValue =
+                         std::string(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(Buffer).first(First))));
+                     const auto Second = co_await Server.AsyncReceiveFrom(
+                         std::span<std::byte>(Buffer), SecondEndpoint, Ec);
+                     const std::string SecondValue =
+                         std::string(Preview::AsStrView(Preview::AsU8(std::span<std::byte>(Buffer).first(Second))));
+                     EXPECT_TRUE((FirstValue == "a" && SecondValue == "b") ||
+                                 (FirstValue == "b" && SecondValue == "a"))
+                         << "first=" << FirstValue << " second=" << SecondValue;
+                     EXPECT_NE(FirstEndpoint, SecondEndpoint);
+                     EXPECT_FALSE(Server.RemoteEndpoint().has_value());
+                     Server.Close();
+                     ClientA.Close();
+                     ClientB.Close();
                  });
     }
 

@@ -9,7 +9,7 @@
  * @note psm::diagnose::Shutdown() 幂等，多次调用安全。
  */
 
-#include <common/TestRunner.hpp>
+#include <TestSupport/Runner/TestRunner.hpp>
 #include <gtest/gtest.h>
 
 #include <prism/diagnose/diagnose.hpp>

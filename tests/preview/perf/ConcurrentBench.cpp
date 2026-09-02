@@ -15,11 +15,11 @@
 #include <thread>
 #include <vector>
 
-#include <common/Core/Memory/Container.hpp>
-#include <common/Core/Memory/Pointer.hpp>
-#include <common/Core/Memory/Pool.hpp>
-#include <common/Protocols/Socks5/Codec.hpp>
-#include <common/Protocols/Socks5/Types.hpp>
+#include <preview/Foundation/Memory/Container.hpp>
+#include <preview/Foundation/Memory/Pointer.hpp>
+#include <preview/Foundation/Memory/Pool.hpp>
+#include <preview/Protocols/Socks5/Codec.hpp>
+#include <preview/Protocols/Socks5/Types.hpp>
 
 using clk = std::chrono::steady_clock;
 
@@ -120,8 +120,9 @@ int main()
             All.insert(All.end(), l.begin(), l.end());
         }
         std::printf("Arena 复用  8线程 x %d次: 总 %8.2f ms  P50=%5.1f ns  P99=%6.1f ns  P999=%7.1f ns\n",
-                    kIters, Total / 1e6, Percentile(All, 0.5), Percentile(All, 0.99),
-                    Percentile(All, 0.999));
+                     kIters, Total / 1e6, static_cast<double>(Percentile(All, 0.5)),
+                     static_cast<double>(Percentile(All, 0.99)),
+                     static_cast<double>(Percentile(All, 0.999)));
     }
 
     // ── 每帧 malloc（无资源指针）──
@@ -145,8 +146,9 @@ int main()
             All.insert(All.end(), l.begin(), l.end());
         }
         std::printf("每帧 malloc 8线程 x %d次: 总 %8.2f ms  P50=%5.1f ns  P99=%6.1f ns  P999=%7.1f ns\n",
-                    kIters, Total / 1e6, Percentile(All, 0.5), Percentile(All, 0.99),
-                    Percentile(All, 0.999));
+                     kIters, Total / 1e6, static_cast<double>(Percentile(All, 0.5)),
+                     static_cast<double>(Percentile(All, 0.99)),
+                     static_cast<double>(Percentile(All, 0.999)));
     }
     return 0;
 }

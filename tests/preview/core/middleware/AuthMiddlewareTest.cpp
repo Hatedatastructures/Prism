@@ -17,13 +17,13 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Authenticator.hpp>
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Handling.hpp>
-#include <common/Core/Middleware/Builtin/Auth.hpp>
-#include <common/Core/Middleware/Builtin/Dial.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Middleware/Pipeline.hpp>
+#include <preview/Foundation/Authenticator.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Handling.hpp>
+#include <preview/Runtime/Middleware/Builtin/Auth.hpp>
+#include <preview/Runtime/Middleware/Builtin/Dial.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Runtime/Middleware/Pipeline.hpp>
 
 namespace
 {

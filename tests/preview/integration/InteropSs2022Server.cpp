@@ -17,7 +17,7 @@
 #include <random>
 #include <vector>
 
-#include <common/Protocols/Shadowsocks2022/Codec.hpp>
+#include <preview/Protocols/Shadowsocks2022/Codec.hpp>
 
 namespace ss = Preview::Shadowsocks2022;
 

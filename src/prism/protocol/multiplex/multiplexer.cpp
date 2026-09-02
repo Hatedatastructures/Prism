@@ -43,12 +43,10 @@ namespace psm::multiplex
 
         auto self = shared_from_this();
 
-        auto run_wrapper = [self]() -> net::awaitable<void> { co_await self->run(); };
-        net::co_spawn(transport_->executor(), run_wrapper(),
+        net::co_spawn(transport_->executor(), run_owned(self),
                       [self](const std::exception_ptr &ep) { self->on_exception(ep); });
 
-        auto send_task = [self]() -> net::awaitable<void> { co_await self->send_loop(); };
-        net::co_spawn(transport_->executor(), std::move(send_task), net::detached);
+        net::co_spawn(transport_->executor(), send_owned(std::move(self)), net::detached);
     }
 
     void multiplexer::on_exception(const std::exception_ptr &ep)
@@ -179,6 +177,16 @@ namespace psm::multiplex
             diagnose::debug(prefix_, "send loop unknown error");
         }
         diagnose::debug(prefix_, "send loop ended");
+    }
+
+    auto multiplexer::run_owned(std::shared_ptr<multiplexer> self) -> net::awaitable<void>
+    {
+        co_await self->run();
+    }
+
+    auto multiplexer::send_owned(std::shared_ptr<multiplexer> self) -> net::awaitable<void>
+    {
+        co_await self->send_loop();
     }
 
 } // namespace psm::multiplex

@@ -24,20 +24,20 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Vmess/Codec.hpp>
-#include <common/Protocols/Vmess/Vmess.hpp>
-#include <common/Protocols/Anytls/Codec.hpp>
-#include <common/Protocols/Anytls/Conn.hpp>
-#include <common/Protocols/Gun/Conn.hpp>
-#include <common/Protocols/Reality/Codec.hpp>
-#include <common/Protocols/Reality/Conn.hpp>
-#include <common/Protocols/Restls/Conn.hpp>
-#include <common/Protocols/Shadowtls/Conn.hpp>
-#include <common/Protocols/Trusttunnel/Codec.hpp>
-#include <common/Protocols/Trusttunnel/Conn.hpp>
-#include <common/Protocols/Ws/Codec.hpp>
-#include <common/Protocols/Ws/Conn.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Vmess/Codec.hpp>
+#include <preview/Protocols/Vmess/Vmess.hpp>
+#include <preview/Protocols/Anytls/Codec.hpp>
+#include <preview/Protocols/Anytls/Conn.hpp>
+#include <preview/Protocols/Gun/Conn.hpp>
+#include <preview/Protocols/Reality/Codec.hpp>
+#include <preview/Protocols/Reality/Conn.hpp>
+#include <preview/Protocols/Restls/Conn.hpp>
+#include <preview/Protocols/Shadowtls/Conn.hpp>
+#include <preview/Protocols/Trusttunnel/Codec.hpp>
+#include <preview/Protocols/Trusttunnel/Conn.hpp>
+#include <preview/Protocols/Ws/Codec.hpp>
+#include <preview/Protocols/Ws/Conn.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -1158,9 +1158,10 @@ namespace
 
                      Vmess::ClientConfig cfg;
                      cfg.uuid = uuid;
-                     auto [herr, cli] = co_await Vmess::Connect(
+                     auto [herr, cli] = co_await Vmess::Connect({
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
-                         make_addr(Vmess::AddressType::Domain, "example.com", 443), static_cast<std::uint8_t>(Vmess::Command::Udp));
+                         make_addr(Vmess::AddressType::Domain, "example.com", 443),
+                         static_cast<std::uint8_t>(Vmess::Command::Udp)});
                      EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {

@@ -20,8 +20,8 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -443,10 +443,10 @@ namespace
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-                     auto [herr, cli] = co_await Socks5::Connect(
+                     auto [herr, cli] = co_await Socks5::Connect({
                          std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{},
                          make_addr(Socks5::AddressType::Domain, "example.com", 443),
-                         Socks5::Command::UdpAssociate);
+                         Socks5::Command::UdpAssociate});
                      EXPECT_EQ(herr, Error::BadAuth);
                      EXPECT_FALSE(cli);
                  });

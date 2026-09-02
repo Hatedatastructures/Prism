@@ -13,15 +13,15 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Middleware/Builtin/Mux.hpp>
-#include <common/Core/Middleware/Context.hpp>
-#include <common/Core/Middleware/Pipeline.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Runtime/Listener.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Runtime/Middleware/Builtin/Mux.hpp>
+#include <preview/Runtime/Middleware/Context.hpp>
+#include <preview/Runtime/Middleware/Pipeline.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Runtime/Listener.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -30,7 +30,7 @@ namespace
     using Tcp = net::ip::tcp;
     using namespace Preview;
 
-    // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
+    // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::AcceptEchoLoop;
     using Preview::Testing::RunCoro;
     using Preview::Testing::TcpEchoServer;

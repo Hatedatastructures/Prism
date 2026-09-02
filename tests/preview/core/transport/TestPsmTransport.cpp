@@ -24,16 +24,16 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/ByteSpan.hpp>
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Fault/Compatible.hpp>
-#include <common/Core/Middleware/Builtin/Dial.hpp>
-#include <common/Core/Middleware/Builtin/Relay.hpp>
+#include <preview/Foundation/ByteSpan.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Fault/Compatible.hpp>
+#include <preview/Runtime/Middleware/Builtin/Dial.hpp>
+#include <preview/Runtime/Middleware/Builtin/Relay.hpp>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/Core/Transport/Unreliable.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <preview/Transport/Unreliable.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -219,12 +219,13 @@ namespace
     TEST(PsmTransmission, CompletionHandlerBridges)
     {
         net::io_context ioc;
-        mock_transport t(ioc.get_executor(), std::make_error_code(std::errc::io_error), 0);
+        auto t = std::make_shared<mock_transport>(
+            ioc.get_executor(), std::make_error_code(std::errc::io_error), 0);
 
         // completion-handler 风格读（默认 co_spawn 桥接）
         std::promise<std::pair<boost::system::error_code, std::size_t>> done_r;
         auto fr = done_r.get_future();
-        t.async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t n)
+        t->async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t n)
                           { done_r.set_value({ec, n}); });
         ioc.run();
         const auto [rec, rn] = fr.get();
@@ -232,11 +233,11 @@ namespace
 
         // completion-handler 风格写（独立 io_context）
         net::io_context ioc2;
-        mock_transport t2(ioc2.get_executor());
+        auto t2 = std::make_shared<mock_transport>(ioc2.get_executor());
         std::promise<std::pair<boost::system::error_code, std::size_t>> done_w;
         auto fw = done_w.get_future();
         std::array<std::byte, 4> buf{};
-        t2.async_write_some(std::span<const std::byte>(buf), [&](boost::system::error_code ec, std::size_t n)
+        t2->async_write_some(std::span<const std::byte>(buf), [&](boost::system::error_code ec, std::size_t n)
                             { done_w.set_value({ec, n}); });
         ioc2.run();
         (void)fw.get();
@@ -301,10 +302,10 @@ namespace
         // 空错误码 → 空 boost ec（经 completion-handler 桥接触发 ToEc）
         {
             net::io_context ioc;
-            mock_transport Ok(ioc.get_executor());
+            auto Ok = std::make_shared<mock_transport>(ioc.get_executor());
             std::promise<boost::system::error_code> done1;
             auto f1 = done1.get_future();
-            Ok.async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
+            Ok->async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
                                { done1.set_value(ec); });
             ioc.run();
             EXPECT_FALSE(f1.get());
@@ -314,10 +315,10 @@ namespace
         {
             net::io_context ioc;
             const auto fault_ec = Preview::Fault::make_error_code(Preview::Fault::Code::Eof);
-            mock_transport ft(ioc.get_executor(), fault_ec, 0);
+            auto ft = std::make_shared<mock_transport>(ioc.get_executor(), fault_ec, 0);
             std::promise<boost::system::error_code> done2;
             auto f2 = done2.get_future();
-            ft.async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
+            ft->async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
                                { done2.set_value(ec); });
             ioc.run();
             EXPECT_TRUE(f2.get());
@@ -327,10 +328,10 @@ namespace
         {
             net::io_context ioc;
             const auto gen_ec = std::make_error_code(std::errc::connection_reset);
-            mock_transport gt(ioc.get_executor(), gen_ec, 0);
+            auto gt = std::make_shared<mock_transport>(ioc.get_executor(), gen_ec, 0);
             std::promise<boost::system::error_code> done3;
             auto f3 = done3.get_future();
-            gt.async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
+            gt->async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
                                { done3.set_value(ec); });
             ioc.run();
             EXPECT_EQ(f3.get(), boost::system::error_code(gen_ec.value(),

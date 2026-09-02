@@ -1,6 +1,6 @@
 /**
  * @file CoreTransmission.cpp
- * @brief tests/common/Core/Transmission.hpp 单元测试
+ * @brief preview/Transport/Transmission.hpp 单元测试
  * @details 覆盖 Preview::Transmission 传输抽象接口：
  * 1. 内存 mock（可配置读/写行为）验证全部纯虚方法：async_read_some、
  *    async_write_some、Close、Cancel、Executor
@@ -10,8 +10,8 @@
  * 5. Release() 默认与覆写、TransmissionLike 概念
  */
 
-#include <common/Core/Error.hpp>
-#include <common/Core/Transmission.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Transport/Transmission.hpp>
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
@@ -587,13 +587,13 @@ namespace
     {
         // completion-handler 桥接：成功路径（ToEc 空错误分支）
         net::io_context ioc;
-        mock_transmission t(ioc.get_executor());
-        t.set_read_data({std::byte{'h'}, std::byte{'e'}, std::byte{'l'}, std::byte{'l'}, std::byte{'o'}});
+        auto t = std::make_shared<mock_transmission>(ioc.get_executor());
+        t->set_read_data({std::byte{'h'}, std::byte{'e'}, std::byte{'l'}, std::byte{'l'}, std::byte{'o'}});
         std::byte buf[8]{};
         boost::system::error_code got_ec{static_cast<int>(boost::system::errc::invalid_argument), boost::system::generic_category()};
         std::size_t got_n = 0;
 
-        t.async_read_some(buf, [&](boost::system::error_code ec, std::size_t n)
+        t->async_read_some(buf, [&](boost::system::error_code ec, std::size_t n)
                            {
                                got_ec = ec;
                                got_n = n;
@@ -608,12 +608,12 @@ namespace
     {
         // completion-handler 桥接：写入成功路径
         net::io_context ioc;
-        mock_transmission t(ioc.get_executor());
+        auto t = std::make_shared<mock_transmission>(ioc.get_executor());
         const std::byte buf[3]{};
         boost::system::error_code got_ec{static_cast<int>(boost::system::errc::invalid_argument), boost::system::generic_category()};
         std::size_t got_n = 0;
 
-        t.async_write_some(buf, [&](boost::system::error_code ec, std::size_t n)
+        t->async_write_some(buf, [&](boost::system::error_code ec, std::size_t n)
                             {
                                 got_ec = ec;
                                 got_n = n;
@@ -622,21 +622,21 @@ namespace
 
         EXPECT_FALSE(got_ec);
         EXPECT_EQ(got_n, 3);
-        EXPECT_EQ(t.written_, 3);
+        EXPECT_EQ(t->written_, 3);
     }
 
     TEST(CoreTransmission, HandlerReadErrorProtocol)
     {
         // completion-handler 桥接：Preview 协议错误 → boost 侧保留协议分类
         net::io_context ioc;
-        mock_transmission t(ioc.get_executor());
-        t.SetReadError(
+        auto t = std::make_shared<mock_transmission>(ioc.get_executor());
+        t->SetReadError(
             static_cast<std::error_code>(Preview::make_error_code(Preview::Error::NeedMore)));
         std::byte buf[8]{};
         boost::system::error_code got_ec;
         std::size_t got_n = 999;
 
-        t.async_read_some(buf, [&](boost::system::error_code ec, std::size_t n)
+        t->async_read_some(buf, [&](boost::system::error_code ec, std::size_t n)
                            {
                                got_ec = ec;
                                got_n = n;
@@ -645,7 +645,7 @@ namespace
 
         EXPECT_EQ(got_n, 0);
         EXPECT_TRUE(got_ec);
-        EXPECT_EQ(std::string_view(got_ec.category().name()), "preview.protocol");
+        EXPECT_EQ(std::string_view(got_ec.category().name()), "prism.protocol");
         EXPECT_EQ(got_ec.value(), static_cast<int>(Preview::Error::NeedMore));
     }
 
@@ -653,13 +653,13 @@ namespace
     {
         // completion-handler 桥接：非协议错误 → boost 侧归入 generic 分类
         net::io_context ioc;
-        mock_transmission t(ioc.get_executor());
-        t.SetWriteError(std::make_error_code(std::errc::io_error));
+        auto t = std::make_shared<mock_transmission>(ioc.get_executor());
+        t->SetWriteError(std::make_error_code(std::errc::io_error));
         const std::byte buf[8]{};
         boost::system::error_code got_ec;
         std::size_t got_n = 999;
 
-        t.async_write_some(buf, [&](boost::system::error_code ec, std::size_t n)
+        t->async_write_some(buf, [&](boost::system::error_code ec, std::size_t n)
                             {
                                 got_ec = ec;
                                 got_n = n;
@@ -670,5 +670,22 @@ namespace
         EXPECT_TRUE(got_ec);
         EXPECT_EQ(std::string_view(got_ec.category().name()), "generic");
         EXPECT_EQ(got_ec.value(), static_cast<int>(std::errc::io_error));
+    }
+
+    TEST(CoreTransmission, CompletionHandlerRejectsStackOwnedTransport)
+    {
+        net::io_context ioc;
+        mock_transmission t(ioc.get_executor());
+        bool called = false;
+        t.async_read_some(std::span<std::byte>{},
+                          [&](boost::system::error_code ec, std::size_t n)
+                          {
+                              called = true;
+                              EXPECT_EQ(n, 0u);
+                              EXPECT_EQ(ec, boost::system::errc::make_error_code(
+                                                 boost::system::errc::not_supported));
+                          });
+        ioc.run();
+        EXPECT_TRUE(called);
     }
 } // namespace

@@ -1,7 +1,7 @@
 /**
  * @file DgramErrorCoverage.cpp
  * @brief 各协议 Dgram（UDP 数据面）错误路径覆盖测试
- * @details 使用共享的可编程传输桩（ProgrammableTransport）直接构造
+ * @details 使用共享的可编程传输桩（PreviewMockTransport）直接构造
  * Dgram（绕过握手），对 7 个协议（socks5/trojan/vless/tuic/vmess/
  * hysteria2/shadowsocks2022）覆盖错误分支：
  * 1. AsyncSendTo：底层写失败 → io_error（ss2022 另覆盖半包写）
@@ -19,23 +19,25 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <common/Core/ByteSpan.hpp>
-#include <common/Core/Error.hpp>
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/ProgrammableTransport.hpp>
-#include <common/Protocols/Hysteria2/Hysteria2.hpp>
-#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
-#include <common/Protocols/Trojan/Trojan.hpp>
-#include <common/Protocols/Tuic/Tuic.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
-#include <common/Protocols/Vmess/Vmess.hpp>
+#include <preview/Foundation/ByteSpan.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
+#include <preview/Protocols/Hysteria2/Hysteria2.hpp>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <preview/Protocols/Tuic/Tuic.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
+#include <preview/Protocols/Vmess/Vmess.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -142,6 +144,15 @@ namespace
         return uuid;
     }
 
+    /// dgram 错误矩阵使用有限注入流，耗尽后按旧桩契约显式返回 EOF。
+    auto make_mock(net::any_io_executor ex) -> std::shared_ptr<PreviewMockTransport>
+    {
+        auto Mock = std::make_shared<PreviewMockTransport>(ex);
+        Mock->EofOnDrain = true;
+        Mock->TransportKind = Preview::Transmission::Type::Udp;
+        return Mock;
+    }
+
     // ──────────────────────────── SOCKS5 ────────────────────────────
 
     TEST(Socks5DgramErr, SendWriteFail)
@@ -151,7 +162,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      const std::string p = "x";
@@ -167,7 +178,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
@@ -183,7 +194,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 0x00, 0x00};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -200,7 +211,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x99};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -218,7 +229,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 域名长度声明 5，实际仅 2 字节 → 半包截断 io_error
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x03, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -236,7 +247,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 地址体完整，端口缺失 → io_error
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -254,7 +265,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 帧头完整，载荷读取注入错误 → io_error
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
@@ -273,7 +284,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 帧头完整，载荷缺失（EOF）→ unexpected_eof
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -291,7 +302,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // IPv6 地址体截断（16 字节仅注入 8）→ io_error
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      std::vector<std::uint8_t> wire{0x00, 0x00, 0x00, 0x04};
                      wire.insert(wire.end(), 8, 0x21);
                      raw->ToRead = wire;
@@ -310,7 +321,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
@@ -332,7 +343,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      const std::string p = "x";
@@ -348,7 +359,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
@@ -364,7 +375,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x99};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -381,7 +392,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x03, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -398,7 +409,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -416,7 +427,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // LEN(2) + CRLF(2) 头部缺失 → io_error
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -434,7 +445,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // CRLF 魔数非法 → bad_magic
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, 'X', 'Y'};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -452,7 +463,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // LEN 声明 5，实际仅 2 字节载荷 → io_error
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, '\r', '\n', 'h', 'e'};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -469,7 +480,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, '\r', '\n'};
                      raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
@@ -487,7 +498,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
@@ -509,7 +520,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      const std::string p = "x";
@@ -525,7 +536,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
@@ -541,7 +552,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x99};
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
@@ -558,7 +569,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x02, 0x05, 'a', 'b'}; // VLESS domain = 0x02
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
@@ -575,7 +586,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
@@ -592,7 +603,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
                      raw->ReadFailAt = 4; // 第 4 次读取 = 载荷读取
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
@@ -610,7 +621,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
@@ -627,7 +638,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      std::vector<std::uint8_t> wire{0x03}; // VLESS ipv6 = 0x03
                      wire.insert(wire.end(), 8, 0x21);
                      raw->ToRead = wire;
@@ -646,7 +657,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
@@ -661,10 +672,10 @@ namespace
 
     // ──────────────────────────── TUIC ────────────────────────────
 
-    /// tuic 帧：Ver(0x04) Cmd(0x07) AssocID(4 LE) PktID(4 LE) 10 字节头 + ATYP 单独一字节
+    /// TUIC v5 packet 帧：Ver(0x05) Cmd(0x02) + 2B Assoc/Pkt + 分片字段 + Size + ATYP。
     auto make_tuic_head(std::uint8_t atyp) -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> head{0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0};
+        std::vector<std::uint8_t> head{0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 0};
         head.push_back(atyp);
         return head;
     }
@@ -676,7 +687,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      const std::string p = "x";
@@ -692,7 +703,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
@@ -708,13 +719,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x07, 0, 0, 0};
+                     auto raw = make_mock(ioc.get_executor());
+                     raw->ToRead = {0x05, 0x02, 0, 0, 0};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -725,13 +736,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x05, 0x07, 0, 0, 0, 0, 0, 0, 0, 0x01};
+                     auto raw = make_mock(ioc.get_executor());
+                     raw->ToRead = {0x04, 0x02, 0, 0, 0, 0, 1, 0, 0, 0, 0x01};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::BadMessage);
+                     EXPECT_EQ(err, Error::BadMagic);
                  });
     }
 
@@ -742,8 +753,8 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x06, 0, 0, 0, 0, 0, 0, 0, 0x01};
+                     auto raw = make_mock(ioc.get_executor());
+                     raw->ToRead = {0x05, 0x06, 0, 0, 0, 0, 0, 0, 0, 0};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
@@ -759,7 +770,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      const auto head = make_tuic_head(0x99);
                      raw->ToRead.assign(head.begin(), head.end());
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
@@ -777,13 +788,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0x05, 'a', 'b'};
+                     auto raw = make_mock(ioc.get_executor());
+                     raw->ToRead = {0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 0, 0x00, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::IoError);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -794,13 +805,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
+                     auto raw = make_mock(ioc.get_executor());
+                     raw->ToRead = {0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 0, 0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -811,9 +822,9 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取（头/ATYP/地址/端口之后）
+                     auto raw = make_mock(ioc.get_executor());
+                     raw->ToRead = {0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 1, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     raw->FailNextRead = true;
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
@@ -829,13 +840,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     raw->ToRead = {0x04, 0x07, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
+                     auto raw = make_mock(ioc.get_executor());
+                     raw->ToRead = {0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 1, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -846,8 +857,8 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     const auto head = make_tuic_head(0x04);
+                     auto raw = make_mock(ioc.get_executor());
+                     const auto head = make_tuic_head(0x02);
                      std::vector<std::uint8_t> wire(head.begin(), head.end());
                      wire.insert(wire.end(), 8, 0x21);
                      raw->ToRead = wire;
@@ -855,7 +866,7 @@ namespace
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::IoError);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -866,7 +877,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
@@ -896,7 +907,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      const std::string p = "x";
@@ -912,7 +923,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
@@ -928,13 +939,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -945,7 +956,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x01, 0, 0, 0, 0, 0, 0, 0, 0x01};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
@@ -962,7 +973,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      const auto head = make_hy2_head(0x99);
                      raw->ToRead.assign(head.begin(), head.end());
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
@@ -980,13 +991,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::IoError);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -997,13 +1008,13 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -1014,9 +1025,9 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取（头/ATYP/地址/端口之后）
+                     raw->FailNextRead = true;
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
@@ -1025,20 +1036,21 @@ namespace
                  });
     }
 
-    TEST(Hysteria2DgramErr, ReceivePayloadEof)
+    TEST(Hysteria2DgramErr, ReceiveEmptyPayloadAccepted)
     {
         net::io_context ioc;
 
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
+                     EXPECT_EQ(err, Error::None);
+                     EXPECT_TRUE(out.empty());
                  });
     }
 
@@ -1049,7 +1061,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      const auto head = make_hy2_head(0x03); // hysteria2 ipv6 = 0x03
                      std::vector<std::uint8_t> wire(head.begin(), head.end());
                      wire.insert(wire.end(), 8, 0x21);
@@ -1058,7 +1070,7 @@ namespace
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::IoError);
+                     EXPECT_EQ(err, Error::NeedMore);
                  });
     }
 
@@ -1069,7 +1081,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
@@ -1095,17 +1107,44 @@ namespace
         return key;
     }
 
-    /// 构造合法长度的 ss2022 UDP 数据报（SeparateHeader 16 + Type 1 + TS 8 +
-    /// ATYP + ADDR + PORT 2 + tag 16），SessionID 取自密钥
-    auto make_ss_packet(const std::array<std::uint8_t, 16> &key, std::uint8_t Type) -> std::vector<std::uint8_t>
+    /// 构造带合法 AEAD 的 ss2022 UDP 数据报，供字段错误路径测试使用。
+    auto make_ss_packet(const std::array<std::uint8_t, 16> &key, std::uint8_t Type,
+                        const std::vector<std::uint8_t> &Address = {0x01, 1, 2, 3, 4, 0x00, 0x50})
+        -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> packet(key.begin(), key.end());
-        packet.push_back(Type);
-        packet.insert(packet.end(), 8, 0);
-        packet.push_back(0x01); // ipv4
-        packet.insert(packet.end(), {1, 2, 3, 4, 0x00, 0x50});
-        packet.insert(packet.end(), 16, 0); // tag
-        return packet;
+        std::array<std::uint8_t, 16> SeparatePlain{};
+        std::copy_n(key.begin(), 8, SeparatePlain.begin());
+        SeparatePlain.back() = 1;
+        const auto Separate = Shadowsocks2022::detail::CryptSeparate(
+            key, std::span<const std::uint8_t, Shadowsocks2022::SeparateHdrLen>(SeparatePlain), true);
+        if (!Separate)
+        {
+            return {};
+        }
+
+        const auto SessionId = std::span<const std::uint8_t>(SeparatePlain.data(),
+                                                              Shadowsocks2022::SessionIdLen);
+        const auto Subkey = Shadowsocks2022::SessionKey(key, SessionId, Shadowsocks2022::AeadKeyLen);
+        std::array<std::uint8_t, 12> Nonce{};
+        std::memcpy(Nonce.data(), SeparatePlain.data() + Shadowsocks2022::SessionIdLen / 2,
+                    Shadowsocks2022::SessionIdLen / 2);
+        std::memcpy(Nonce.data() + Shadowsocks2022::SessionIdLen / 2,
+                    SeparatePlain.data() + Shadowsocks2022::SessionIdLen,
+                    Shadowsocks2022::PacketIdLen);
+
+        std::vector<std::uint8_t> Plain{Type};
+        Plain.insert(Plain.end(), 8, 0);
+        Plain.insert(Plain.end(), Address.begin(), Address.end());
+        Plain.insert(Plain.end(), {0, 0});
+        const auto Body = Shadowsocks2022::detail::UdpSeal(
+            Shadowsocks2022::detail::UdpSealInput{Subkey, Nonce, Plain, {}});
+        if (Body.empty())
+        {
+            return {};
+        }
+        std::vector<std::uint8_t> Packet(Separate->begin(), Separate->end());
+        Packet.insert(Packet.end(), Body.begin(), Body.end());
+        return Packet;
     }
 
     TEST(Ss2022DgramErr, SendWriteFail)
@@ -1115,7 +1154,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      const std::string p = "x";
@@ -1132,7 +1171,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 单次写入仅返回 8 字节（半包写）→ n != 帧长 → io_error
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->MaxWrite = 8;
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      const std::string p = "x";
@@ -1148,7 +1187,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->FailNextRead = true;
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      Shadowsocks2022::Address src;
@@ -1165,7 +1204,7 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
@@ -1182,7 +1221,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // 不足最小长度（SeparateHeader + 头部 + tag）→ bad_length
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      Shadowsocks2022::Address src;
@@ -1200,7 +1239,7 @@ namespace
                  [&]() -> net::awaitable<void>
                  {
                      // SessionID 前 8 字节与密钥不一致 → bad_auth
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto packet = make_ss_packet(make_ss_key(), 0x01);
                      packet[0] ^= 0xFF;
                      raw->ToRead = packet;
@@ -1219,8 +1258,8 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 类型字节非 udp_type(0x01) → bad_message
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     // 合法 AEAD 内的类型字节非法 → bad_message
+                     auto raw = make_mock(ioc.get_executor());
                      raw->ToRead = make_ss_packet(make_ss_key(), 0x02);
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      Shadowsocks2022::Address src;
@@ -1237,17 +1276,16 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     // 域名长度声明 0xFF 但包内无足够字节 → need_more
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
-                     std::vector<std::uint8_t> packet = make_ss_packet(make_ss_key(), 0x01);
-                     packet[25] = 0x03; // ATYP = domain
-                     packet[26] = 0xFF; // 域名长度声明
+                     // 合法 AEAD 内的域名长度声明 0xFF 但包内无足够字节 → need_more
+                     auto raw = make_mock(ioc.get_executor());
+                     const std::vector<std::uint8_t> TruncatedDomain{0x03, 0xFF};
+                     const auto packet = make_ss_packet(make_ss_key(), 0x00, TruncatedDomain);
                      raw->ToRead = packet;
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
-                     EXPECT_EQ(err, Error::NeedMore);
+                     EXPECT_EQ(err, Error::BadMessage);
                  });
     }
 
@@ -1258,12 +1296,12 @@ namespace
         run_coro(ioc,
                  [&]() -> net::awaitable<void>
                  {
-                     auto raw = std::make_shared<ProgrammableTransport>(ioc.get_executor());
+                     auto raw = make_mock(ioc.get_executor());
                      auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
                      dg->Close();
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
-                     EXPECT_EQ(serr, Error::IoError);
+                     EXPECT_EQ(serr, Error::NotOpen);
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto rerr = co_await dg->AsyncReceiveFrom(src, out);

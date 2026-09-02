@@ -8,7 +8,7 @@
 #include <benchmark/benchmark.h>
 #include <prism/crypto/x25519.hpp>
 #include <prism/crypto/hkdf.hpp>
-#include <prism/foundation/memory/pool.hpp>
+#include <prism/foundation/memory/pointer.hpp>
 #include <prism/foundation/memory/container.hpp>
 #include <prism/foundation/foundation.hpp>
 #include <array>

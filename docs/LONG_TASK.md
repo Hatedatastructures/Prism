@@ -101,7 +101,7 @@ T1 正确性三件套（P0） → T2 技术债与安全清理（P0.5，穿插）
   - 新单测 `TunnelHalfClose`：内存流模拟 A 发数据后 shutdown → B 继续回发大响应（> buffer 多块）→ A 完整收到；对称场景；双向同时 EOF；中途错误；单向阶段空闲超时。
   - 现有隧道测试全量回归。
   - Go interop 补「请求端先关 → 响应完整送达」用例（tests/go）。
-- **关联 skills**：tunnel-audit、cpp-coroutine-purity、write-test。
+- **关联 skills**：tunnel-audit、coroutine-audit、write-test。
 
 #### T1-2 worker 优雅停机
 
@@ -374,7 +374,7 @@ T1 正确性三件套（P0） → T2 技术债与安全清理（P0.5，穿插）
 
 #### T7-1 CI 增加 Go 互操作 Job
 
-- Windows job 增 Go 1.22+（actions/setup-go）→ 构建 `go_test_*`/`go_cmp_*` targets → 跑 `GoCompat_*`/`GoCmp_*` ctest（需 MINGW 环境 + Prism 显式配置路径，参照 `tests/go/run_go_test.ps1`）。
+- Windows job 增 Go 1.22+（actions/setup-go）→ 构建 `GoTest*`/`GoCmp*` targets → 跑 `GoTest*`/`GoCmp*` ctest（需 MINGW 环境 + Prism 显式配置路径，参照 `tests/go/run_go_test.ps1`）。
 - **验收**：CI 中 Go 测试全绿（hysteria2/tuic/vmess/singvmess + 7 个 cmp）。
 
 #### T7-2 CI 增加 ASAN Job
@@ -499,7 +499,7 @@ T1 正确性三件套（P0） → T2 技术债与安全清理（P0.5，穿插）
 | G4 | 依赖 DAG 审计 | `docs/ARCHITECTURE.md` 第 261-262 行的 4 条 grep | 改动任何头文件 | 除已知环外 0 命中 |
 | G5 | detached 审计 | `bash scripts/audit_detached.sh src/`（MSYS2 环境） | 新增/修改 co_spawn | 0 DANGEROUS |
 | G6 | 编码规范 | AGENTS.md 规则 1/3/13（参数≤3、函数≤120 行、lambda≤10 行）、Doxygen 中文注释、规范 v2 大驼峰（存量未迁移文件暂循旧风格） | 每个单元 | 逐项自查通过 |
-| G7 | 协程纯度 | 无阻塞调用/无锁/无 busy-wait（cpp-coroutine-purity skill 清单） | 每个单元 | 逐项自查通过 |
+| G7 | 协程纯度 | 无阻塞调用/无锁/无 busy-wait（coroutine-audit skill 清单） | 每个单元 | 逐项自查通过 |
 | G8 | 生命周期 | co-lifecycle-audit 清单（shared_ptr 捕获、co_await 后成员访问、PMR 资源） | 每个单元 | 逐项自查通过 |
 | G9 | 错误链 | error-chain-audit（新增错误路径必须传播/记录，不吞异常） | 新增错误处理 | 逐项自查通过 |
 | G10 | 性能门禁 | 热路径改动必须跑相关 bench（`build/benchmarks/*.exe`）并对比基线 | 热路径改动 | 不劣于基线 ±3% |

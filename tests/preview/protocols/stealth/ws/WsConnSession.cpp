@@ -17,8 +17,8 @@
 #include <memory>
 #include <string>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Ws/Ws.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Ws/Ws.hpp>
 #include <gtest/gtest.h>
 
 namespace

@@ -13,13 +13,14 @@
 
 #include <array>
 #include <cstdint>
+#include <chrono>
 #include <cstring>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <common/Core/Error.hpp>
-#include <common/Protocols/Vmess/Codec.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Protocols/Vmess/Codec.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -200,8 +201,11 @@ namespace
         std::array<std::uint8_t, 16> key{};
         Vmess::RequestMeta m{std::span<const std::uint8_t, 16>(iv), std::span<const std::uint8_t, 16>(key)};
         const auto body = Vmess::BuildRequestHeader(hdr, m);
+        const auto time_sec = std::chrono::duration_cast<std::chrono::seconds>(
+                                  std::chrono::system_clock::now().time_since_epoch())
+                                  .count();
         const auto wire =
-            Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{body, 1000, random});
+            Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{body, time_sec, random});
 
         Vmess::Parser p(uuid);
         std::error_code ec;
@@ -231,7 +235,7 @@ namespace
         bad_hdr.Target.Host = "x.com";
         const auto bad_body = Vmess::BuildRequestHeader(bad_hdr, m);
         const auto bad_wire =
-            Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{bad_body, 1000, random});
+            Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{bad_body, time_sec, random});
         EXPECT_EQ(p.Put(boost::asio::buffer(bad_wire), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::BadMagic));
         p.Reset();

@@ -1,2 +1,1 @@
-prism_add_test(Socks5.cpp)
-
+AddProductionTest(Socks5.cpp)

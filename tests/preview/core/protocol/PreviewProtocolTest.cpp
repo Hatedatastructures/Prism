@@ -16,9 +16,9 @@
 #include <span>
 #include <string>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Protocol/Address.hpp>
-#include <common/Core/Protocol/Framing.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Protocols/Common/Address.hpp>
+#include <preview/Protocols/Common/Framing.hpp>
 
 namespace
 {

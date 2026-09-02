@@ -21,12 +21,12 @@
 #include <memory>
 #include <vector>
 
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
-#include <common/Protocols/Socks5/Socks5.hpp>
-#include <common/Protocols/Trojan/Trojan.hpp>
-#include <common/Protocols/Vless/Vless.hpp>
-#include <common/Protocols/Vmess/Vmess.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <preview/Protocols/Socks5/Socks5.hpp>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <preview/Protocols/Vless/Vless.hpp>
+#include <preview/Protocols/Vmess/Vmess.hpp>
 
 using clk = std::chrono::steady_clock;
 namespace net = boost::asio;

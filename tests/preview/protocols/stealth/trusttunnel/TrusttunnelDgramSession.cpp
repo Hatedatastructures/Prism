@@ -18,8 +18,8 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Transport/MemoryStream.hpp>
-#include <common/Protocols/Trusttunnel/Trusttunnel.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Trusttunnel/Trusttunnel.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -109,7 +109,7 @@ namespace
                      cfg.username = "admin";
                      cfg.password = "Secret";
                      auto [herr, dg] = co_await Trusttunnel::ConnectPacket(
-                         std::make_shared<MemoryStream>(std::move(a)), cfg, "example.com", 443);
+                         {std::make_shared<MemoryStream>(std::move(a)), cfg, "example.com", 443});
                      EXPECT_EQ(herr, Error::None);
                      if (!dg)
                      {
@@ -172,7 +172,7 @@ namespace
                      cfg.username = "admin";
                      cfg.password = "wrong";
                      auto [herr, dg] = co_await Trusttunnel::ConnectPacket(
-                         std::make_shared<MemoryStream>(std::move(a)), cfg, "example.com", 443);
+                         {std::make_shared<MemoryStream>(std::move(a)), cfg, "example.com", 443});
                      EXPECT_EQ(herr, Error::None); // 客户端只发送 CONNECT，不感知认证结果
                      if (dg)
                      {

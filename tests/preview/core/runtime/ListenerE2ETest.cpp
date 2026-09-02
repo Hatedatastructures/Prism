@@ -23,12 +23,12 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Fault/Code.hpp>
-#include <common/Core/Net/Dialer/Dialer.hpp>
-#include <common/Core/Runtime/Listener.hpp>
-#include <common/Core/Runtime/Session.hpp>
-#include <common/Core/Transmission.hpp>
-#include <common/RuntimeTestHelpers.hpp>
+#include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Net/Dialer/Dialer.hpp>
+#include <preview/Runtime/Listener.hpp>
+#include <preview/Runtime/Session.hpp>
+#include <preview/Transport/Transmission.hpp>
+#include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
@@ -37,7 +37,7 @@ namespace
     using Tcp = net::ip::tcp;
     using namespace Preview;
 
-    // 公共样板（RunCoro/echo 上游见 <common/RuntimeTestHelpers.hpp>）
+    // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::TcpEchoServer;
     using Preview::Testing::RunCoro;
 
@@ -73,22 +73,23 @@ namespace
         net::io_context ioc;
 
         // 真实 echo 上游
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        const auto echo_port = echo_acceptor.local_endpoint().port();
+        auto echo_acceptor = std::make_shared<Tcp::acceptor>(
+            ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        const auto echo_port = echo_acceptor->local_endpoint().port();
         net::co_spawn(
             ioc.get_executor(),
-            [&]() -> net::awaitable<void>
+            [echo_acceptor, executor = ioc.get_executor()]() -> net::awaitable<void>
             {
                 while (true)
                 {
                     boost::system::error_code ec;
-                    auto sock = co_await echo_acceptor.async_accept(
+                    auto sock = co_await echo_acceptor->async_accept(
                         net::redirect_error(net::use_awaitable, ec));
                     if (ec)
                     {
                         co_return;
                     }
-                    net::co_spawn(ioc.get_executor(), TcpEchoServer(std::move(sock)), net::detached);
+                    net::co_spawn(executor, TcpEchoServer(std::move(sock)), net::detached);
                 }
             },
             net::detached);
@@ -150,6 +151,8 @@ namespace
                      echo_back.assign(reinterpret_cast<const char *>(buf.data()), n);
                      Conn->Close();
                      listener.Stop();
+                     boost::system::error_code close_ec;
+                     echo_acceptor->close(close_ec);
                  });
         EXPECT_EQ(echo_back, socks5_greeting());
     }
@@ -196,26 +199,53 @@ namespace
         EXPECT_TRUE(refused);
     }
 
+    TEST(TcpListener, DestroyAfterStopKeepsAcceptLoopStateAlive)
+    {
+        net::io_context ioc;
+        Preview::Fault::Code start_result = Preview::Fault::Code::GenericError;
+        {
+            auto listener = std::make_unique<Preview::Runtime::TcpListener>(
+                ioc.get_executor(),
+                [](Preview::SharedTransmission, std::size_t)
+                    -> std::shared_ptr<Preview::Runtime::Session>
+                { return nullptr; });
+            RunCoro(ioc,
+                    [&]() -> net::awaitable<void>
+                    {
+                        start_result = co_await listener->Start(
+                            net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                        listener->Stop();
+                    });
+        }
+
+        // Stop 的 accept completion 可能尚未被调度；共享 Lifetime 必须独立完成。
+        ioc.restart();
+        ioc.run();
+        EXPECT_EQ(start_result, Preview::Fault::Code::Success);
+        SUCCEED();
+    }
+
     TEST(TcpListener, ConnectionStorm)
     {
         net::io_context ioc;
 
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        const auto echo_port = echo_acceptor.local_endpoint().port();
+        auto echo_acceptor = std::make_shared<Tcp::acceptor>(
+            ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        const auto echo_port = echo_acceptor->local_endpoint().port();
         net::co_spawn(
             ioc.get_executor(),
-            [&]() -> net::awaitable<void>
+            [echo_acceptor, executor = ioc.get_executor()]() -> net::awaitable<void>
             {
                 while (true)
                 {
                     boost::system::error_code ec;
-                    auto sock = co_await echo_acceptor.async_accept(
+                    auto sock = co_await echo_acceptor->async_accept(
                         net::redirect_error(net::use_awaitable, ec));
                     if (ec)
                     {
                         co_return;
                     }
-                    net::co_spawn(ioc.get_executor(), TcpEchoServer(std::move(sock)), net::detached);
+                    net::co_spawn(executor, TcpEchoServer(std::move(sock)), net::detached);
                 }
             },
             net::detached);
@@ -300,6 +330,8 @@ namespace
                          co_await t.async_wait(net::use_awaitable);
                      }
                      listener.Stop();
+                     boost::system::error_code close_ec;
+                     echo_acceptor->close(close_ec);
                  });
         EXPECT_EQ(start_rc, Preview::Fault::Code::Success);
         EXPECT_EQ(success, conn_count);

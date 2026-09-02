@@ -18,16 +18,16 @@
 #include <string>
 #include <vector>
 
-#include <common/Protocols/Socks5/Codec.hpp>
-#include <common/Protocols/Socks5/Types.hpp>
-#include <common/Protocols/Trojan/Codec.hpp>
-#include <common/Protocols/Trojan/Types.hpp>
-#include <common/Protocols/Vless/Codec.hpp>
-#include <common/Protocols/Vless/Types.hpp>
-#include <common/Protocols/Vmess/Codec.hpp>
-#include <common/Protocols/Vmess/Types.hpp>
-#include <common/Protocols/Shadowsocks2022/Codec.hpp>
-#include <common/Protocols/Shadowsocks2022/Types.hpp>
+#include <preview/Protocols/Socks5/Codec.hpp>
+#include <preview/Protocols/Socks5/Types.hpp>
+#include <preview/Protocols/Trojan/Codec.hpp>
+#include <preview/Protocols/Trojan/Types.hpp>
+#include <preview/Protocols/Vless/Codec.hpp>
+#include <preview/Protocols/Vless/Types.hpp>
+#include <preview/Protocols/Vmess/Codec.hpp>
+#include <preview/Protocols/Vmess/Types.hpp>
+#include <preview/Protocols/Shadowsocks2022/Codec.hpp>
+#include <preview/Protocols/Shadowsocks2022/Types.hpp>
 
 namespace
 {

@@ -23,14 +23,14 @@
 #include <memory>
 #include <string_view>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
 namespace
 {
     namespace net = boost::asio;
     using namespace psm::connect;
-    using namespace Preview::Testing;
+    using Psm::Testing::ProductionMockTransport;
     using namespace psm::protocol;
 } // anonymous namespace
 
@@ -38,7 +38,7 @@ namespace
 
 TEST(Forward, OptionsStructure)
 {
-    auto Inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
     psm::connect::target tgt;
     tgt.host = "example.com";
     tgt.port = "443";
@@ -55,7 +55,7 @@ TEST(Forward, OptionsStructure)
 
 TEST(Forward, OptionsMoveSemantics)
 {
-    auto Inbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
     psm::connect::target tgt;
     tgt.host = "test.org";
     tgt.port = "80";
@@ -72,8 +72,8 @@ TEST(Forward, OptionsMoveSemantics)
 TEST(Forward, TunnelOptionsStructure)
 {
     net::io_context ioc;
-    auto Inbound = std::make_shared<MockTransport>();
-    auto Outbound = std::make_shared<MockTransport>();
+    auto Inbound = std::make_shared<ProductionMockTransport>();
+    auto Outbound = std::make_shared<ProductionMockTransport>();
 
     // 创建最小资源上下文
     auto cfg = std::make_shared<psm::settings>();

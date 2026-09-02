@@ -5,7 +5,7 @@
  *          authority 拆分，防止配置解析结果与上游连接层不一致。
  */
 
-#include <common/Core/Net/Dns/Config.hpp>
+#include <preview/Net/Dns/Config.hpp>
 
 #include <gtest/gtest.h>
 

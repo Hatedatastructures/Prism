@@ -6,8 +6,8 @@
  *          黑名单；Resolver 侧验证规则在缓存/上游之前生效且无需网络
  */
 
-#include <common/Core/Net/Dns/Resolver.hpp>
-#include <common/Core/Net/Dns/Rules.hpp>
+#include <preview/Net/Dns/Resolver.hpp>
+#include <preview/Net/Dns/Rules.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/io_context.hpp>

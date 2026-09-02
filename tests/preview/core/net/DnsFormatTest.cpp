@@ -6,7 +6,7 @@
  *          NormalizeName 规范化、MinTtl 与 ExtractIps 过滤语义
  */
 
-#include <common/Core/Net/Dns/Format.hpp>
+#include <preview/Net/Dns/Format.hpp>
 
 #include <gtest/gtest.h>
 

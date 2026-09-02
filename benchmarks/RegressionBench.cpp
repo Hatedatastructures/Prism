@@ -7,7 +7,7 @@
  *          每项基准输出格式: [BENCH] name: value unit
  */
 
-#include "common/TestRunner.hpp"
+#include "tests/TestSupport/Runner/TestRunner.hpp"
 
 #include <prism/foundation/foundation.hpp>
 #include <prism/diagnose/log.hpp>

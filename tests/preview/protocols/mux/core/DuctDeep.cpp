@@ -2,10 +2,10 @@
  * @file DuctDeep.cpp
  * @brief multiplex/duct 深度同步逻辑测试
  * @details 通过 #include 源文件访问 duct 的全部实现，
- *          使用 TestCore（core 子类）+ MockTransport 构建 duct，
+ *          使用 TestCore（core 子类）+ ProductionMockTransport 构建 duct，
  *          测试构造、析构、close、OnData、on_fin 等同步/协程路径。
  *
- *          start() 测试不使用 run()，因为 MockTransport 的 async_read_some
+ *          start() 测试不使用 run()，因为 ProductionMockTransport 的 async_read_some
  *          在队列为空时用 100us 定时器轮询，run() 会无限循环。
  *          改为：在关闭 target 前，注入足够的数据让 readloop 读完，
  *          然后 close target → readloop 检测 Closed_=true 返回 eof。
@@ -23,9 +23,9 @@
 #include <prism/protocol/multiplex/multiplexer.hpp>
 #include <prism/protocol/multiplex/stream.hpp>
 
-#include "common/MockTransport.hpp"
+#include "TestSupport/Production/ProductionMockTransport.hpp"
 
-using MockTransport = Preview::Testing::MockTransport;
+using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace net = boost::asio;
 
@@ -73,8 +73,8 @@ namespace
 
     struct DuctFixture
     {
-        std::shared_ptr<MockTransport> mux_transport;
-        std::shared_ptr<MockTransport> target_transport;
+        std::shared_ptr<ProductionMockTransport> mux_transport;
+        std::shared_ptr<ProductionMockTransport> target_transport;
         std::unique_ptr<net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<TestCore> core_obj;
@@ -82,8 +82,8 @@ namespace
 
         explicit DuctFixture(std::uint32_t buffer_size = 4096)
         {
-            mux_transport = std::make_shared<MockTransport>();
-            target_transport = std::make_shared<MockTransport>();
+            mux_transport = std::make_shared<ProductionMockTransport>();
+            target_transport = std::make_shared<ProductionMockTransport>();
             ioc = std::make_unique<net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
@@ -134,8 +134,8 @@ namespace
 
     TEST(DuctDeep, ConstructorWithMr)
     {
-        auto mux_t = std::make_shared<MockTransport>();
-        auto tgt_t = std::make_shared<MockTransport>();
+        auto mux_t = std::make_shared<ProductionMockTransport>();
+        auto tgt_t = std::make_shared<ProductionMockTransport>();
         auto ioc = std::make_unique<net::io_context>(1);
         psm::dns::config dns_cfg;
         psm::connect::dialer_options ropts{*ioc, dns_cfg};
@@ -242,7 +242,7 @@ namespace
     // ─── start 路径 ────────────────────────
     // 核心问题：start() spawn 两个协程到 target 的 ioc。
     // readloop 在 Closed_=true 后才退出（返回 eof 给 async_read_some）。
-    // 但 MockTransport 的 timer 轮询需要 run() 来驱动 timer wait 回调。
+    // 但 ProductionMockTransport 的 timer 轮询需要 run() 来驱动 timer wait 回调。
     // 解决方案：不调用 start() — 只测试同步路径。
     // start() 相关路径在已有的 MultiplexDuct.cpp 集成测试中覆盖。
 

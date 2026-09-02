@@ -15,11 +15,11 @@
  *       BLAKE3 官方测试向量
  */
 
-#include <common/Core/Crypto/Crypto.hpp>
-#include <common/Core/Crypto/X25519.hpp>
-#include <common/Core/Exception/Network.hpp>
-#include <common/Core/Exception/Protocol.hpp>
-#include <common/Core/Exception/Security.hpp>
+#include <preview/Foundation/Utility/Crypto/Crypto.hpp>
+#include <preview/Foundation/Utility/Crypto/X25519.hpp>
+#include <preview/Foundation/Exception/Network.hpp>
+#include <preview/Foundation/Exception/Protocol.hpp>
+#include <preview/Foundation/Exception/Security.hpp>
 
 #include <array>
 #include <cstddef>

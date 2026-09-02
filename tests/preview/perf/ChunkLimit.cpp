@@ -20,8 +20,8 @@
 #include <memory>
 #include <vector>
 
-#include <common/Core/Transport/Reliable.hpp>
-#include <common/Protocols/Vmess/Codec.hpp>
+#include <preview/Transport/Reliable.hpp>
+#include <preview/Protocols/Vmess/Codec.hpp>
 
 using clk = std::chrono::steady_clock;
 namespace net = boost::asio;

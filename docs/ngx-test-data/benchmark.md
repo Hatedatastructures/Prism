@@ -5,6 +5,73 @@
 > 用途：参考基线。ASAN/纯净 Release 重建后需重新采集对比。
 > 机器：16 核（L1 48KiB×16 / L2 2MiB×16 / L3 36MiB）
 
+## 2026-09-01 纯 Release 闭环采样
+
+本节是 Preview migration local closure 的当前证据，不替代上面的历史 coverage
+基线。采集窗口为 `2026-09-01 02:22:47` 至 `02:36:16 +08:00`，编译器为
+`C:/msys64/ucrt64/bin/g++.exe`，CMake 配置为 `Release`、
+`PRISM_ENABLE_BENCHMARK=ON`、`PRISM_ENABLE_STRESS=OFF`、coverage/ASAN 关闭，
+使用现有 `build/`。运行环境输出为 32 logical CPUs @ 2995 MHz，L1D 48 KiB × 16、
+L2 2 MiB × 16、L3 36 MiB × 1。
+
+配置与构建命令：
+
+```text
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DPRISM_ENABLE_BENCHMARK=ON -DPRISM_ENABLE_STRESS=OFF
+cmake --build build --config Release --target PreviewCodecBench PreviewTransportBench PreviewRuntimeBench PreviewDnsBench CodecBench MuxBench ProtocolBench ResolveBench DnsMessageBench DnsCacheBench -j1
+ctest --test-dir build -L perf -V -j1 --timeout 600
+```
+
+Preview perf CTest 共注册 `90` 项，实际运行 `65` 项全部通过，`25` 项因已有
+`StealthNested2` 外部依赖门禁而 disabled，失败 `0`，退出码 `0`，总耗时 `15.01 s`。
+Preview verbose raw 输出中的代表性值如下；带 `med` 的条目已经使用各自测试内的
+三次运行中位数：
+
+| Domain | Representative raw measurement |
+|---|---|
+| Codec | `vmess chunk Seal 16KB` 1336.36 ns/op；`ss2022 chunk Seal 16KB` 1462.34 ns/op |
+| Transport | TCP raw 16KB: 2103.1 MB/s；TCP raw 256KB: 6816.2 MB/s |
+| Runtime | `BM_AeadSeal16KB` 1004 ns；`BM_MemoryPoolAlloc` 23.9 ns |
+| Mux | smux 1129.1 MB/s；yamux 1207.2 MB/s；h2mux 1178.3 MB/s |
+| DNS | cache hit 126 ns/op；AnswerScan 52 ns/op；local UDP E2E 9521 QPS |
+
+生产 Google Benchmark 使用 `--benchmark_min_time=0.05s`、
+`--benchmark_repetitions=3`、`--benchmark_color=false`，同时输出 console 和 JSON。
+JSON 中每个非 aggregate benchmark 都有 3 个 iteration，并生成 mean/median/stddev/cv
+aggregate。代表性 `real_time` median（单位均为 ns）如下，完整值保存在对应 JSON：
+
+| Executable | Benchmark | Median |
+|---|---|---:|
+| `CodecBench` | `BM_DnsPackMessage` | 145.38 |
+| `CodecBench` | `BM_ShadowsocksDecodePsk` | 110.22 |
+| `MuxBench` | `BM_SmuxBuildUdpDatagram_IPv4/512` | 51.68 |
+| `ProtocolBench` | `BM_Socks5DecodeUdpHeader` | 12.97 |
+| `ProtocolBench` | `BM_ShadowsocksParseAddressPort` | 8.11 |
+| `ResolveBench` | `BM_Cache_Get_Hit100` | 77.92 |
+| `DnsMessageBench` | `BM_DnsPackQuery` | 179.15 |
+| `DnsCacheBench` | `BM_CacheGetHit` | 131.52 |
+
+原始证据文件：`build/preview-perf-20260901-verbose.log`、
+`build/preview-perf-20260901-rerun.log`，以及
+`build/production-{CodecBench,MuxBench,ProtocolBench,ResolveBench,DnsMessageBench,DnsCacheBench}-20260901.{log,json}`。
+
+### 比较边界与所有权影响
+
+本次没有 production 与 Preview 之间“相同输入、相同协议实现边界、相同计量方式”
+的可直接对拍 benchmark。Preview 的 domain perf 是本地 fake server 上的端到端传输、
+手写计时或独立 Google Benchmark；production targets 是另一套编解码、cache 和
+PMR/容器实现的微基准。因此本次没有合法的跨实现百分比，也没有声称“无性能回退”；
+`>5%` 直接比较门禁在本批没有适用样本。上述数字用于记录可复现的当前量级和后续
+同 harness 对比的锚点。
+
+DNS OS resolver 为了跨挂起点保活，会复制规范化 name、executor 和 timeout；这引入
+一次必要的 owned-string copy/allocation。`IdentityTraffic` 的已有 identity 路径只做
+atomic snapshot load、查找和 `fetch_add`；首次 identity 才复制不可变表并分配 slot。
+Mux writer 的完整写循环在底层 short write 时增加调用次数，但不允许牺牲帧完整性。
+
+采样完成后已将同一 `build/` 恢复为正常的 `Release + PRISM_ENABLE_BENCHMARK=OFF +
+PRISM_ENABLE_STRESS=OFF` 配置，并在恢复后重新构建功能 targets。
+
 ## Socks5FrameBench（帧编解码）
 
 | Benchmark | Time | CPU |

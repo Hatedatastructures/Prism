@@ -3,40 +3,59 @@
 > 本规范描述 `tests/common/`（preview 库）的**真实架构**与统一设计标准。
 > 参考 Go 参考实现（mihomo transport / sing 系列）的接口模式。目标：
 > **可替换主项目 src/prism 的新一代架构**（NEXTGEN_TASK.md）。
-> 更新：2026-08-16（T1-6，按真实架构重写；同日一致性整理：G7 门禁补全 / psm 兼容豁免 / 薄聚合头说明）。
+> 更新：2026-08-31（Preview Foundation、Transport、Net、Runtime、Protocols、
+> Composition 已移出 tests/common；TestSupport 已独立分层；剩余 tests/preview
+> 测试目录暂不物理迁移）。
 
 ## 1. 目录结构与模块归属
 
 ```
 tests/common/
-  Core/                基础层（Adapter/ 为唯一上向依赖例外，见 5.2）
-    Memory/ Fault/ Exception/ Crypto/ Coroutine/ Rate/ Diagnose/ Account/ Api/
-    Error.hpp  Transmission.hpp  Authenticator.hpp  FlatBuffer.hpp  Parser.hpp
-    SessionBase.hpp  CodecTraits.hpp  ByteSpan.hpp  Role.hpp
-    Transport/        Reliable/Unreliable/Encrypted/Pad/Preview/Snapshot/Connector/
-                      MemoryStream/Algorithm/Stream
-    Protocol/         Address/Form/Framing/Read/Mux
-    Net/              Target/Dialer/Route/Outbound/Dns/UdpRelay
-    Middleware/       Pipeline/Context + Builtin(Auth/Dial/Mux/Pad/Relay/Throttle)
-    Recognition/      Protocol/Probe/Route/Recognition/SchemeExecutor/ProbeDefense
-    Runtime/          Session/Listener/SessionRegistry/Statistics + Adapter/
-    Settings/         Json/Loader
-  Protocols/          全协议平铺（含 Http1/Http2/Http3/Quic/Mux 子库）
-    <proto>/          Types/Codec/Conn/Dgram + 聚合头（四件套，见 1.1）
-    Mux/              Smux/Yamux/H2Mux（模板化 FrameCodec + Client/Server/Session）
-  TestRunner.hpp  MockTransport.hpp  MockTlsServer.hpp  ProgrammableTransport.hpp  RuntimeTestHelpers.hpp  gtest_main.cpp
-  Stress/             StressHelper.hpp
-  Bench/              Bench.hpp
+  （仅保留该规范入口；Preview 生产头已全部移出）
+
+tests/TestSupport/
+  Runner/{TestRunner.hpp,gtest_main.cpp}
+  Production/ProductionMockTransport.hpp
+  Preview/PreviewMockTransport.hpp
+  Tls/MockTlsServer.hpp
+  Fixtures/RuntimeTestHelpers.hpp
+  Benchmark/Bench.hpp
+  Stress/StressHelper.hpp
+
+preview/
+  Foundation/         已从 tests/common/Core 物理迁移的基础层候选实现
+  Transport/          已从 tests/common/Core 物理迁移的传输层候选实现
+  Net/                已从 tests/common/Core/Net 物理迁移的网络层候选实现
+  Runtime/            已从 tests/common/Core/{Middleware,Recognition,Runtime} 物理迁移的运行时实现
+  Composition/        已从 tests/common/Core/{Runtime/Adapter,Api,Settings} 物理迁移的组合实现
+  Protocols/           已从 tests/common/Protocols 物理迁移的协议候选实现
+
+  当前职责拆分头（仍由协议聚合头兼容包含）：
+    Net/Dns/Types.hpp
+    Net/Dns/Detail/{ConfigOptions,Exchange,Fallback,Maintenance}.hpp
+    Protocols/Http3/{Detail/Varint,Huffman,StaticTable,DynamicTable,Decoder,Encoder}.hpp
+    Protocols/Mux/{StreamState,SessionReadLoop,SessionWriteLoop}.hpp
+    Protocols/Shadowsocks2022/{ChunkCodec,KeyDerivation,RequestCodec,ResponseCodec}.hpp
+    Protocols/Vmess/{Auth,ChunkCodec,RequestCodec,ResponseCodec}.hpp
+
+最终职责目录：
+  preview/Foundation/{Fault,Exception,Memory,Utility}
+  preview/Transport/{Reliable,Encrypted,Buffered,Detail}
+  preview/Net/{Dns,Endpoint,Connection,Socket,Detail}
+  preview/Runtime/{Session,Worker,Front,Resource,Contract,Detail}
+  preview/Protocols/{Common,Http,Socks5,Trojan,Vless,Vmess,Shadowsocks2022,Mux,Http3}
+  preview/Composition/{Adapters,ProtocolFactory,ProtocolRegistry,Bootstrap}
 ```
 
 ### 1.1 协议目录（proxy/stealth）
 
-每个协议一个目录，**聚合头四件套**（扁平结构，无 Codec/Kdf/Chunk 子目录）：
+每个普通协议一个目录，保留薄的 `Types/Codec/Conn/Dgram` 聚合入口；复杂协议的
+认证、请求/响应和数据面按职责拆分，聚合头只做兼容 include：
 
 ```
-tests/common/Protocols/<proto>/
+  preview/Protocols/<proto>/
   Types.hpp   — 常量、枚举、标志位、配置结构
-  Codec.hpp   — 帧编解码（Build/Parse 纯函数 + 解析状态机）
+  Codec.hpp   — 编解码聚合入口（具体职责见下表）
   Conn.hpp    — 连接装饰器（继承 Transmission，模板化 Memory）
   Dgram.hpp   — UDP 数据报封装（需要时）
   <proto>.hpp — 聚合头（re-export 上述）
@@ -44,12 +63,22 @@ tests/common/Protocols/<proto>/
 
 伪装方案同构：Types/Codec/Conn + 聚合头（无 Dgram 或按需）。
 
+复杂协议拆分：
+
+```text
+Vmess/           Auth + RequestCodec + ResponseCodec + ChunkCodec
+Shadowsocks2022/ KeyDerivation + RequestCodec + ResponseCodec + ChunkCodec
+Http3/           StaticTable + DynamicTable + Decoder + Encoder + Huffman + Detail/Varint
+Mux/             StreamState + SessionReadLoop + SessionWriteLoop + Session
+Net/Dns/Detail/  ConfigOptions + Exchange
+```
+
 例外（**薄聚合头**，无 Codec 层，聚合头仅 re-export 子头、不定义工厂）：
 
 ```
-tests/common/Protocols/Ech/    — Keygen/Scan/Types（无 Conn：SSL_ECH_KEYS 构造 + ClientHello 扫描）
-tests/common/Protocols/Native/ — Types/Conn（原生 TLS 直通，无帧编解码）
-tests/common/Protocols/Xhttp/  — Types/Conn（HTTP/2 stream-one，帧处理在 Http2/ 子库）
+preview/Protocols/Ech/    — Keygen/Scan/Types（无 Conn：SSL_ECH_KEYS 构造 + ClientHello 扫描）
+preview/Protocols/Native/ — Types/Conn（原生 TLS 直通，无帧编解码）
+preview/Protocols/Xhttp/  — Types/Conn（HTTP/2 stream-one，帧处理在 Http2/ 子库）
 ```
 
 > 三者均为 TLS 直通/解密类方案，不存在 Build/Parse 帧编解码层，
@@ -65,20 +94,27 @@ tests/common/Protocols/Xhttp/  — Types/Conn（HTTP/2 stream-one，帧处理在
 ### 1.2 多路复用（Mux/）
 
 ```
-tests/common/Protocols/Mux/Smux/（Yamux/H2Mux 同构）
+preview/Protocols/Mux/Smux/（Yamux/H2Mux 同构）
   Types.hpp   — 帧类型/常量
   Codec.hpp   — 帧编解码（模板化 FrameCodec 策略）
   Session.hpp — 会话状态机（流表/帧循环/背压，模板注入 Codec）
   Client.hpp  — 客户端封装（OpenStream 视角）
   Server.hpp  — 服务端封装（AcceptStream 视角）
   Smux.hpp    — 聚合头
+
+preview/Protocols/Mux/StreamState.hpp
+  SessionIface/StreamHandle — 流状态、通知和生命周期窄契约
+preview/Protocols/Mux/SessionReadLoop.hpp
+  ReadExact — 帧头/负载的完整读取拼接
+preview/Protocols/Mux/SessionWriteLoop.hpp
+  WriteFrame — uint8_t 到 Transmission 的写入适配
 ```
 
 共享 `Mux/Session.hpp` 模板框架 + `Mux/Stream.hpp`（流句柄 StreamHandle）。
 
 ## 2. 接口设计（统一 Transmission + 模板策略 + 多态）
 
-### 2.1 传输抽象（Core/Transmission.hpp）
+### 2.1 传输抽象（preview/Transport/Transmission.hpp）
 
 单一 `Preview::Transmission` 虚接口（全部模块统一使用）：
 
@@ -100,7 +136,7 @@ tests/common/Protocols/Mux/Smux/（Yamux/H2Mux 同构）
 - **concept**：`TransmissionLike` 约束模板参数。
 - 生命周期：`SharedTransmission`（shared_ptr）管理。
 
-### 2.2 会话接口（Core/SessionBase.hpp）
+### 2.2 会话接口（preview/Foundation/SessionBase.hpp）
 
 虚拟流/会话的统一接口（Mux StreamHandle 实现）：
 
@@ -128,13 +164,13 @@ class Conn : public Transmission, public std::enable_shared_from_this<Conn<Memor
 
 | 体系 | 用途 | 定义 |
 |---|---|---|
-| `Core/Error.hpp` | **协议编解码**（细粒度：need_more/unexpected_eof/bad_length/bad_auth/...） | `Preview::Error`（boost::system::error_category） |
-| `Core/Fault/Code.hpp` | **中间件/流程**（粗粒度：io_error/timeout/canceled/auth_failed/...） | `Preview::Fault::Code` |
+| `preview/Foundation/Error.hpp` | **协议编解码**（细粒度：need_more/unexpected_eof/bad_length/bad_auth/...） | `Preview::Error`（boost::system::error_category） |
+| `preview/Foundation/Fault/Code.hpp` | **中间件/流程**（粗粒度：io_error/timeout/canceled/auth_failed/...） | `Preview::Fault::Code` |
 
 - 桥接：`Fault::ToCode(boost::system::error_code)` 已支持 error 转换。
 - **禁止第三种体系**；新错误优先入 Error.hpp（编解码）或 Fault（流程）。
 
-## 4. 认证抽象（Core/Authenticator.hpp）
+## 4. 认证抽象（preview/Foundation/Authenticator.hpp）
 
 ```cpp
 struct AuthResult { bool Ok; std::string identity; };
@@ -146,7 +182,7 @@ class Authenticator {
 - `StaticAuthenticator` / `RejectAuthenticator` 内置。
 - 已接入：socks5/trojan/vless/hysteria2（vmess/ss2022 密码学校验豁免、tuic 无认证）。
 
-## 5. 中间件管线（Core/Middleware/）
+## 5. 中间件管线（preview/Runtime/Middleware/）
 
 ```
 Pipeline（Add/Run）→ Context（Inbound/Outbound/Target/detected/traffic/identity/pad）
@@ -167,7 +203,7 @@ Builtin/Throttle  （TokenBucket 限速 → blocked；T5-4）
 Builtin/Ban       （失败计数封禁，窗口过期解封；T5-4）
 ```
 
-## 5.2 运行时骨架（Core/Runtime/，T4/T5）
+## 5.2 运行时骨架（preview/Runtime/，T4/T5）
 
 ```
 Session            （Run：识别 → 认证/拨号/转发管线；T4-2）
@@ -175,15 +211,22 @@ Listener           （TCP AcceptLoop + 亲和性分发 FNV-1a + 会话工厂；T
 Statistics         （TrafficCounter：identity 维度聚合；T4-4）
 PerWorkerTraffic   （alignas(64) 原子槽 + identity 聚合；T5-2）
 SessionRegistry    （COW 值拷贝快照，严禁 L3 引用；T5-7）
-Adapter/           （协议接入缝：MakeProtocolAccept + 错误映射复用 Fault::ToCode（唯一表，见 §3）；协议适配器薄封装）
+  Contract/          （ProtocolHandler/AcceptResult 等稳定类型擦除接口）
+  Composition/       （具体协议 adapter/factory 绑定；不属于 Runtime）
 ```
 
-> `Core/Runtime/Adapter/` 是 Core 层**唯一的例外**：适配器直接 include 上层
-> `Protocols/`（Socks5/Ss2022/Trojan/Vless/Vmess 共 5 文件 7 处），使 Core/
-> 失去独立可编译性。此为 preview 期临时设计（减少接入样板），迁移方向：
-> 目录上移至组合层或协议类型模板注入，纳入 NEXTGEN 迁移决策。
+> `preview/Composition/Adapters/` 是具体协议绑定的组合层，不属于 Runtime。
+> `Common.hpp`、`Handler.hpp`、`ProtocolAdapter.hpp` 以及五个具体 adapter
+> 已归属 `PreviewComposition`；`Handler.hpp` 已迁移到 `Runtime/Contract` 作为稳定契约。
+> Runtime 不得拥有或 include 具体 Protocol，具体协议绑定只在 Composition 发生。
 
-## 5.3 账户与限速（Core/Account/ + Core/Rate/，T5）
+### 5.2.1 TrafficSink 契约
+
+`preview/Foundation/Utility/TrafficSink.hpp` 定义协议数据面与运行时统计之间的最小接口。
+`Middleware::Context` 只保留兼容类型别名；协议 UDP 数据面不得 include 完整
+`Middleware/Context.hpp`。该接口不拥有实现对象，Report 调用不分配内存。
+
+## 5.3 账户与限速（preview/Foundation/Utility/Account/ + preview/Foundation/Utility/Rate/，T5）
 
 ```
 Account/CowMap     （模板化 COW：快照 + CAS 更新；O3/O6 复用）
@@ -212,20 +255,23 @@ Diagnose/Observability（HDR 指数桶 + EWMA + 1/N 采样 SPSC ring；O5）
 ## 6. 命名空间与编码规范
 
 > **2026-08-22 规范 v2**：标识符切换大驼峰（`Preview::` / PascalCase 文件名）。
-> **2026-08-25 迁移完成**：全库 `Preview::Testing`（含 MockTransport/MockTlsServer/RuntimeTestHelpers/TestRunner），
+> **2026-08-30 迁移完成**：TestSupport 已拆成生产 mock、Preview mock、TLS、Runner、
+> Fixtures、Benchmark 和 Stress 子目录；生产 mock 与 Preview mock 类型体系独立。
 > 小写 `preview::` 体系已废弃。
 
 - **全库 `Preview::`**；禁止历史命名体系混用与 psm:: 混用。
-  - **主库依赖说明**：`TestRunner.hpp`（继承主库 `psm::diagnose` 日志）、`MockTransport.hpp`
-    （继承主库 `psm::transport::transmission`）、`MockTlsServer.hpp`
-    （内存 TLS 后端）、`gtest_main.cpp`
-    （初始化主库 `psm::memory::system` 池）——这些是对**生产库** `psm::*` 命名空间的合法引用，
-    属于 tests/common 自身 `Preview::Testing` 命名空间内的跨库调用，非本库遗留。
+  - **测试支持依赖说明**：`tests/TestSupport/Runner/TestRunner.hpp` 和 `gtest_main.cpp`
+    使用生产库 `psm::*`；`ProductionMockTransport.hpp` 位于 `Psm::Testing`，属于
+    `ProductionTestSupport`，不是 Preview 生产候选实现；Preview fixtures 位于
+    `Preview::Testing`。
   - **RuntimeTestHelpers.hpp**（runtime E2E 公共样板，`Preview::Testing`
-    命名空间与 TestRunner 同层）：RunCoro/echo 上游/ChainStatePtr/
+    命名空间位于 TestSupport/Fixtures）：RunCoro/echo 上游/ChainStatePtr/
     DialUpstream/TailReadGuarded 等；仅 tests/preview/core/runtime 使用。
-- 库名策略：**`prism_ngx` 唯一主名**（INTERFACE 库）；
-  `prism_test_common` / `vmtest_common` 仅为旧链接结构兼容别名，新代码一律链接 `prism_ngx`。
+- CMake target 策略：`PreviewFoundation`、`PreviewTransport`、`PreviewNet`、
+  `PreviewRuntime`、`PreviewProtocolsCommon`、各 `PreviewProtocol<Scheme>`、
+  `PreviewComposition` 和 `TestSupport` 按职责拆分。`Core` 只是过渡物理路径。
+- 本批删除旧的三个 snake_case Preview target；consumer 直接链接
+  PascalCase target，不保留 snake_case alias。
 - 标识符 PascalCase（2026-08-22 规范 v2）；Doxygen 中文注释（@file/@brief/@details/@return）。
 - 头文件保护 `#pragma once`；聚合头同步（新增子头必须入聚合头 + CMake）。
 
@@ -239,34 +285,88 @@ Diagnose/Observability（HDR 指数桶 + EWMA + 1/N 采样 SPSC ring；O5）
 
 ## 8. 构建（CMake）
 
-- 单一 `prism_ngx` INTERFACE 库（tests/common/CMakeLists.txt）。
-- `prism_test_common` / `vmtest_common` 为兼容别名（指向 prism_ngx）。
-- 全部头文件列于 target_sources（G7 完整性门禁）。
-- **G7 门禁自动化**：`scripts/check_common_headers.ps1` 校验磁盘头文件与
-  target_sources 双向一致（漏登记/重复/漂移），已接入 CI（build.yml 两平台）；
-  支持 `-CheckMirror` 开关输出镜像分叉警告（白名单见 §9）。
+- `preview/CMakeLists.txt` 定义 `PreviewFoundation`、`PreviewTransport`、
+  `PreviewNet`、`PreviewRuntime`、`PreviewComposition`、
+  `PreviewProtocolsCommon` 和全部 `PreviewProtocol<Scheme>` 的根级 source
+  ownership；`tests/common/CMakeLists.txt` 不再拥有 Preview 生产头；
+  `tests/TestSupport/CMakeLists.txt` 定义
+  `TestSupport` 和 `ProductionTestSupport`。
+- `PreviewComposition` 是唯一同时依赖 Runtime 和具体 Protocol 的层。
+- Preview 生产 target 不得依赖 TestSupport；Runtime 不得依赖具体 Protocol。
+- 所有 public header 必须在一个且仅一个 target 的 `target_sources` 中登记。
+- `scripts/check_common_headers.ps1` 按 target 检查磁盘头文件、重复登记、陈旧登记
+  和未知 target，支持 `-CheckMirror` 输出独立镜像 drift。
+- 测试 consumer 必须显式链接所需模块；禁止通过全量公共 target 获得所有协议。
+
+### 8.1 target 过渡状态
+
+本批已删除旧的三个 snake_case Preview target。
+Foundation、Transport、Net、Runtime、Protocols 和 Composition 已从 `tests/common` 物理迁移至项目根级
+`preview/`；`tests/common` 不再承载 Preview 生产头。
+`tests/preview` 的物理目录暂不迁移；其 CMake 链接已经使用 PascalCase 模块 target。
+
+### 8.2 物理迁移与职责拆分状态
+
+- Phase 2C：Net 的 Target/Dialer/Route/Outbound/DNS/UdpRelay 已迁移至
+  `preview/Net/`。
+- Phase 2D：Runtime 的 Middleware/Recognition/Session/Listener/Registry/Statistics
+  已迁移至 `preview/Runtime/`；具体协议 adapter 位于
+  `preview/Composition/Adapters/`，`Runtime/Contract/Handler.hpp` 只提供稳定契约。
+- Phase 2E：`tests/common/Protocols/**` 已整体迁移至 `preview/Protocols/**`，每个
+  协议由独立 `PreviewProtocol<Scheme>` target 拥有；Composition 是唯一同时依赖
+  Runtime 与具体协议的层。
+- Phase 3/4：TestSupport 已按 Production/Preview/Tls/Runner/Fixtures/Benchmark/Stress
+  拆分；Preview mock 使用事件通知等待，生产 mock 保留原行为；契约测试位于
+  `tests/Contract/`，只在该层并列依赖 psm 与 Preview。
+- Phase 6：VMess/SS2022 的 Auth/Request/Response/Chunk、QPACK 的
+  StaticTable/DynamicTable/Decoder/Encoder/Huffman、Mux 流状态与读写适配、DNS
+  Exchange/Fallback/Maintenance 已抽出；Mux 更细的帧状态循环拆分和跨平台性能
+  基线固化保留为后续垂直切片。
+
+### 8.3 参数与性能约束
+
+协议装配边界的四参数入口统一使用轻量 `*Parameters` 值对象：字段中的
+`SharedTransmission` 转移所有权，配置/地址/随机数只借用，调用期间必须保持有效。
+已覆盖 SOCKS5、Trojan、VLESS、VMess、Reality、ShadowTLS、TrustTunnel、HTTP/1.1
+CONNECT 和 SS2022 UDP 装配入口。参数对象不引入虚调用或额外共享指针链；数据面
+Codec 仍保持静态/内联路径。
+
+Preview benchmark 通过 `PreviewCodecBench`、`PreviewTransportBench`、
+`PreviewRuntimeBench` 和 `PreviewDnsBench` 按领域聚合现有 perf 可执行文件；这些
+target 只在 `PRISM_ENABLE_BENCHMARK=ON` 时注册，不加入默认构建。
+2026-08-31 Windows Release smoke：Core AEAD 16KB 为 994 ns/op（9.77 GiB/s）、
+PMR 计数为 1 allocation/op；VMess/SS2022 Chunk 分别约 1304/1440 ns/op；
+并发 Arena 与 malloc 对比均为 P50 200 ns、P99 400 ns、P999 500 ns。该组数据
+用于记录基线，正式跨平台回退阈值仍需 Linux 复测后固化。
 
 ## 9. 镜像复制策略
 
-`Core/` 的部分模块与生产 `include/prism/` 存在复制关系，按文件登记：
+`preview/Foundation/` 的部分模块与生产 `include/prism/` 存在复制关系，按文件登记：
 
 | 目录 | 与生产关系 | 同步策略 |
 |---|---|---|
-| `Core/Fault/` | 镜像 `include/prism/foundation/fault/`（逐字，仅命名空间差异） | 锁定：人工比对，改动需两侧同步 |
-| `Core/Exception/` | 镜像 `include/prism/foundation/exception/` | 锁定 |
-| `Core/Memory/` | 镜像 `include/prism/foundation/memory/` | 锁定 |
-| `Core/Crypto/` | **已分叉**（Aead.hpp 15.1KB vs 9.6KB，各自演进） | 分叉：preview 自包含实现，白名单豁免镜像 diff |
-| `Core/Diagnose/`、`Core/Net/Dns/` | 部分分叉 | 待评估（Dns 已于 2026-08-26 重构为 7 层分层：Config/Format/Cache/Coalescer/Rules/Upstream/Resolver，对齐主项目 net/dns，见 A-29） |
+| `preview/Foundation/Fault/` | 镜像 `include/prism/foundation/fault/`（逐字，仅命名空间差异） | 锁定：人工比对，改动需两侧同步 |
+| `preview/Foundation/Exception/` | 镜像 `include/prism/foundation/exception/` | 锁定 |
+| `preview/Foundation/Memory/{Container,Pool}.hpp` | 镜像 `include/prism/foundation/memory/` | 锁定 |
+| `preview/Foundation/Memory/CowMap.hpp` | Preview-only 扩展，无生产镜像 | 不进入严格镜像集合 |
+| `preview/Foundation/Memory/Pointer.hpp` | 正式 fork；生产对应 `memory/pointer.hpp` 为固定 512B arena，Preview 为可配置会话 arena | 不进入严格镜像集合 |
+| `preview/Foundation/Utility/Crypto/` | **已分叉**（Aead.hpp 15.1KB vs 9.6KB，各自演进） | 分叉：preview 自包含实现，白名单豁免镜像 diff |
+| `preview/Foundation/Utility/Diagnose/` | 正式 fork | Preview 观测接口独立演进，不要求与 psm 逐字同步 |
+| `preview/Net/Dns/` | 正式 fork | Preview DNS 已有独立 11 层分层和扫描优化，不作为逐字镜像 |
 
 > 镜像文件头注 `@note 镜像自 include/prism/...，同步策略：锁定/分叉`。
-> `scripts/check_common_headers.ps1 -CheckMirror` 按上表输出分叉警告；
-> 白名单（`$mirrorWhitelist`）中的文件允许差异，新增白名单条目必须同步更新本表。
+> `scripts/check_common_headers.ps1 -CheckMirror` 按上表执行规范化镜像比较；
+> Fault/Exception/Memory 的九个登记文件除登记的 namespace/path 转换外必须一致，未声明差异
+> 使门禁 hard fail。生产 `memory/frame_arena` 已独立放入
+> `include/prism/foundation/memory/pointer.hpp`，不改变九个池职责镜像的比较范围。
+> Crypto/Diagnose/DNS 是正式 fork，不进入严格镜像集合。
 
 ## 26. DNS 解析子系统（2026-08-29 重构定稿，A-30）
 
-`Core/Net/Dns/` 分层扩至 **11 头**：Config / Format / **Answer**（热路径扫描）/
+`preview/Net/Dns/` 分层扩至 **12 个根头及 Detail 辅助头**：Config / Format / **Answer**（热路径扫描）/
 **Transport**（概念+Udp/Tcp/Tls）/**ConnPool**（连接池）/**Doh** / Cache /
-Coalescer / Rules / Upstream / Resolver。依赖单向：Resolver → 编排层 → 传输层 →
+Coalescer / Rules / Upstream / Resolver / Types；Detail 下有 ConfigOptions、Exchange、Fallback 和 Maintenance。
+依赖单向：Resolver → 编排层 → 传输层 →
 字节层；Transport 之上的层"知道 DNS"，之下只知道"字节帧"（`TransportLink` /
 `PoolableTransport` 分层 concept）；单文件 ≤400 行红线。
 
@@ -292,9 +392,12 @@ Coalescer / Rules / Upstream / Resolver。依赖单向：Resolver → 编排层 
 - **维护循环**：Resolver 30s 周期 EvictExpired + flight FlushCleanup + 连接池
   清扫（`alive_` 存活标记模式）；flight 清理仍保留查询入口执行（生产
   query_pipeline 同款，防顺序解析加入陈旧 flight 永久挂起）。
-- **性能基准**（`tests/preview/perf/DnsPerf.cpp`，perf 标签）：Cache 命中
+- **性能基准**（`tests/preview/perf/DnsPerf.cpp`，perf 标签）：历史基线为 Cache
   105 ns/op、Scan 50 ns/op（Unpack 234）、回环 E2E 9111 QPS（并发 500，
-  2026-08-29 实测，跨机器噪声大仅作对标记录）。
+  2026-08-29 实测，跨机器噪声大仅作对标记录）。2026-08-31 Windows
+  Release smoke 为 Cache 127 ns/op、Scan 51 ns/op（Unpack 226）、回环
+  9142 QPS；本次仅完成可重复性 smoke，正式回退阈值仍需跨 Windows/Linux 基线
+  复测后锁定。
 - **EDNS0**：查询 Additional 段宣告接收缓冲 4096（RFC 6891，无 DO 位）；
   响应 OPT（type 41）的 TTL 字段为扩展标志位，不参与最小 TTL（ScanAnswers 与
   Message::MinTtl 双路径一致，见 `DnsAnswer.TestOptRecordExcludedFromMinTtl`）；

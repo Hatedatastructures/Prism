@@ -16,9 +16,9 @@
 #include <string>
 #include <vector>
 
-#include <common/Core/Memory/Container.hpp>
-#include <common/Core/Memory/Pointer.hpp>
-#include <common/Core/Memory/Pool.hpp>
+#include <preview/Foundation/Memory/Container.hpp>
+#include <preview/Foundation/Memory/Pointer.hpp>
+#include <preview/Foundation/Memory/Pool.hpp>
 
 namespace
 {
@@ -27,11 +27,11 @@ namespace
 
     TEST(PreviewMemory, ContainerAliases)
     {
-        Preview::Memory::string s;
+        Preview::Memory::String s;
         s.assign("hello");
         EXPECT_EQ(s, "hello");
 
-        Preview::Memory::vector<std::uint8_t> v;
+        Preview::Memory::Vector<std::uint8_t> v;
         v.push_back(1);
         v.push_back(2);
         EXPECT_EQ(v.size(), 2U);
@@ -57,17 +57,17 @@ namespace
         auto mr = Arena.Get();
         ASSERT_NE(mr, nullptr);
 
-        Preview::Memory::string s(mr);
+        Preview::Memory::String s(mr);
         s.assign("Frame");
         EXPECT_EQ(s, "Frame");
 
-        Preview::Memory::vector<std::uint8_t> v(mr);
+        Preview::Memory::Vector<std::uint8_t> v(mr);
         v.push_back(0xAB);
         EXPECT_EQ(v.size(), 1U);
 
         // Reset 后旧对象失效但可重新分配
         Arena.Reset();
-        Preview::Memory::string s2(mr);
+        Preview::Memory::String s2(mr);
         s2.assign("after-Reset");
         EXPECT_EQ(s2, "after-Reset");
     }
@@ -77,10 +77,10 @@ namespace
         // 8KB 栈缓冲耗尽后回退线程局部池，不崩溃
         Preview::Memory::FrameArena Arena;
         auto mr = Arena.Get();
-        std::vector<Preview::Memory::string> objs;
+        std::vector<Preview::Memory::String> objs;
         for (int i = 0; i < 200; ++i)
         {
-            Preview::Memory::string s(mr);
+            Preview::Memory::String s(mr);
             s.assign(64, static_cast<char>('a' + (i % 26)));
             objs.push_back(std::move(s));
         }

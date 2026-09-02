@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <cstring>
 
-#include <common/Protocols/Reality/Reality.hpp>
+#include <preview/Protocols/Reality/Reality.hpp>
 #include <gtest/gtest.h>
 
 namespace
