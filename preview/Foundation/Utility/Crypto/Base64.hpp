@@ -197,34 +197,34 @@ namespace Preview::Crypto
         // 处理完整的 3 字节组
         for (std::size_t G = 0; G < FullGroups; ++G)
         {
-            const auto B0 = input[I];
-            const auto B1 = input[I + 1];
-            const auto B2 = input[I + 2];
+            const auto Byte0 = input[I];
+            const auto Byte1 = input[I + 1];
+            const auto Byte2 = input[I + 2];
             I += 3;
 
-            Result.push_back(detail::EncodeTbl[B0 >> 2]);
-            Result.push_back(detail::EncodeTbl[((B0 & 0x03) << 4) | (B1 >> 4)]);
-            Result.push_back(detail::EncodeTbl[((B1 & 0x0F) << 2) | (B2 >> 6)]);
-            Result.push_back(detail::EncodeTbl[B2 & 0x3F]);
+            Result.push_back(detail::EncodeTbl[Byte0 >> 2]);
+            Result.push_back(detail::EncodeTbl[((Byte0 & 0x03) << 4) | (Byte1 >> 4)]);
+            Result.push_back(detail::EncodeTbl[((Byte1 & 0x0F) << 2) | (Byte2 >> 6)]);
+            Result.push_back(detail::EncodeTbl[Byte2 & 0x3F]);
         }
 
         // 处理剩余字节
         const std::size_t Remaining = input.size() % 3;
         if (Remaining == 1)
         {
-            const auto B0 = input[I];
-            Result.push_back(detail::EncodeTbl[B0 >> 2]);
-            Result.push_back(detail::EncodeTbl[(B0 & 0x03) << 4]);
+            const auto Byte0 = input[I];
+            Result.push_back(detail::EncodeTbl[Byte0 >> 2]);
+            Result.push_back(detail::EncodeTbl[(Byte0 & 0x03) << 4]);
             Result.push_back('=');
             Result.push_back('=');
         }
         else if (Remaining == 2)
         {
-            const auto B0 = input[I];
-            const auto B1 = input[I + 1];
-            Result.push_back(detail::EncodeTbl[B0 >> 2]);
-            Result.push_back(detail::EncodeTbl[((B0 & 0x03) << 4) | (B1 >> 4)]);
-            Result.push_back(detail::EncodeTbl[(B1 & 0x0F) << 2]);
+            const auto Byte0 = input[I];
+            const auto Byte1 = input[I + 1];
+            Result.push_back(detail::EncodeTbl[Byte0 >> 2]);
+            Result.push_back(detail::EncodeTbl[((Byte0 & 0x03) << 4) | (Byte1 >> 4)]);
+            Result.push_back(detail::EncodeTbl[(Byte1 & 0x0F) << 2]);
             Result.push_back('=');
         }
 

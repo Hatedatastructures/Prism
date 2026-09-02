@@ -15,6 +15,8 @@
  *       BLAKE3 官方测试向量
  */
 
+#include <boost/asio.hpp>
+
 #include <preview/Foundation/Utility/Crypto/Crypto.hpp>
 #include <preview/Foundation/Utility/Crypto/X25519.hpp>
 #include <preview/Foundation/Exception/Network.hpp>
@@ -159,6 +161,12 @@ namespace
         EXPECT_EQ(std::string(crypto::Base64Encode(std::array<std::uint8_t, 1>{0xFF})), "/w==");
         EXPECT_EQ(std::string(crypto::Base64Encode(std::array<std::uint8_t, 2>{0xFF, 0xFF})), "//8=");
         EXPECT_EQ(std::string(crypto::Base64Encode(std::array<std::uint8_t, 3>{0xFF, 0xFF, 0xFF})), "////");
+    }
+
+    TEST(Base64Coverage, AsioIncludeOrderCompatibility)
+    {
+        const std::array<std::uint8_t, 1> Data{0xFF};
+        EXPECT_EQ(std::string(crypto::Base64Encode(Data)), "/w==");
     }
 
     TEST(Base64Coverage, DecodeKnownVectors)
