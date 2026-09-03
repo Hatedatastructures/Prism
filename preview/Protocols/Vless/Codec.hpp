@@ -94,8 +94,7 @@ namespace Preview::Vless
             Off += 16;
             break;
         }
-        case AddressType::Domain:
-        default: {
+        case AddressType::Domain: {
             if (Off >= Data.size())
             {
                 return Error::NeedMore;
@@ -109,6 +108,8 @@ namespace Preview::Vless
             Off += Len;
             break;
         }
+        default:
+            return Error::BadMessage;
         }
         if (Data.size() < Off + 2)
         {
@@ -246,8 +247,7 @@ namespace Preview::Vless
             Off += 16;
             break;
         }
-        case AddressType::Domain:
-        default: {
+        case AddressType::Domain: {
             if (Off >= Data.size())
             {
                 return Error::NeedMore;
@@ -261,6 +261,8 @@ namespace Preview::Vless
             Off += Len;
             break;
         }
+        default:
+            return Error::BadMessage;
         }
         Consumed = Off;
         return Error::None;

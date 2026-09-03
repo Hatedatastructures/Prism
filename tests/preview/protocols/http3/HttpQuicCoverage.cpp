@@ -32,8 +32,10 @@
 #include <preview/Protocols/Http3/Auth.hpp>
 #include <preview/Protocols/Http3/Qpack.hpp>
 #include <preview/Protocols/Http3/Server.hpp>
+#include <preview/Protocols/Quic/DatagramAdapter.hpp>
 #include <preview/Protocols/Quic/GatewayCommon.hpp>
 #include <preview/Protocols/Quic/StreamAdapter.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 
 namespace
 {
@@ -1003,6 +1005,81 @@ namespace
         adapter->Close();
         EXPECT_TRUE(provider->closed);
         EXPECT_TRUE(provider->IsClosed());
+    }
+
+    TEST(QuicDatagramAdapter, MemoryProviderRoundtrip)
+    {
+        net::io_context ioc;
+        auto [SenderProvider, ReceiverProvider] =
+            Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
+        auto Sender = std::make_shared<Preview::Quic::DatagramAdapter>(SenderProvider);
+        auto Receiver = std::make_shared<Preview::Quic::DatagramAdapter>(ReceiverProvider);
+        const std::array<std::byte, 4> Payload{
+            std::byte{0x11}, std::byte{0x22}, std::byte{0x33}, std::byte{0x44}};
+        std::array<std::byte, 8> Received{};
+        std::exception_ptr Failure;
+        std::size_t Sent = 0;
+        std::size_t Count = 0;
+        std::error_code SendEc;
+        std::error_code ReceiveEc;
+        net::co_spawn(
+            ioc,
+            [&]() -> net::awaitable<void>
+            {
+                Sent = co_await Sender->async_write_some(Payload, SendEc);
+                Count = co_await Receiver->async_read_some(Received, ReceiveEc);
+                ioc.stop();
+            },
+            [&](std::exception_ptr Ep) { Failure = std::move(Ep); });
+        ioc.run();
+
+        ASSERT_FALSE(Failure);
+        EXPECT_EQ(Sender->TransportType(), Preview::Transmission::Type::Udp);
+        EXPECT_EQ(Sender->Executor(), ioc.get_executor());
+        EXPECT_EQ(Sent, Payload.size());
+        EXPECT_FALSE(SendEc);
+        EXPECT_EQ(Count, Payload.size());
+        EXPECT_FALSE(ReceiveEc);
+        EXPECT_TRUE(std::equal(Payload.begin(), Payload.end(), Received.begin()));
+    }
+
+    TEST(QuicDatagramAdapter, ShortWriteIsRejected)
+    {
+        net::io_context ioc;
+        auto [Provider, Peer] =
+            Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
+        (void)Peer;
+        Provider->MaxSend = 2;
+        auto Adapter = std::make_shared<Preview::Quic::DatagramAdapter>(Provider);
+        const std::array<std::byte, 4> Payload{
+            std::byte{0xA1}, std::byte{0xA2}, std::byte{0xA3}, std::byte{0xA4}};
+        std::exception_ptr Failure;
+        std::size_t Sent = 0;
+        std::error_code Ec;
+        net::co_spawn(
+            ioc,
+            [&]() -> net::awaitable<void>
+            {
+                Sent = co_await Adapter->async_write_some(Payload, Ec);
+                ioc.stop();
+            },
+            [&](std::exception_ptr Ep) { Failure = std::move(Ep); });
+        ioc.run();
+
+        ASSERT_FALSE(Failure);
+        EXPECT_EQ(Sent, 2u);
+        EXPECT_EQ(Ec, Preview::make_error_code(Preview::Error::IoError));
+    }
+
+    TEST(QuicDatagramAdapter, CloseAndCancelReachProvider)
+    {
+        net::io_context ioc;
+        auto Provider = std::make_shared<Preview::Testing::MemoryDatagramProvider>(ioc.get_executor());
+        auto Adapter = std::make_shared<Preview::Quic::DatagramAdapter>(Provider);
+        Adapter->Cancel();
+        EXPECT_TRUE(Provider->IsCanceled());
+        Adapter->Close();
+        EXPECT_TRUE(Provider->IsClosed());
     }
 
 } // namespace

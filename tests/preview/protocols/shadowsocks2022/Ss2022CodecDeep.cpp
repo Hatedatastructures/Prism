@@ -10,6 +10,7 @@
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
@@ -35,6 +36,53 @@ namespace
     using namespace Preview;
     namespace ss = Preview::Shadowsocks2022;
     namespace net = boost::asio;
+    using namespace boost::asio::experimental::awaitable_operators;
+
+    struct FactoryHandshakeResult
+    {
+        Error ClientError{Error::IoError};
+        Error ServerError{Error::IoError};
+        bool ClientConnected{false};
+        ss::Message Request{};
+    };
+
+    auto RunAcceptFactory(const std::shared_ptr<MemoryStream> &Endpoint,
+                          ss::ServerConfig Config)
+        -> net::awaitable<std::tuple<Error, ss::Message, ss::SharedConn>>
+    {
+        auto KeepAlive = Endpoint;
+        auto Result = co_await ss::Accept(Endpoint, Config);
+        if (std::get<0>(Result) != Error::None)
+        {
+            KeepAlive->Close();
+        }
+        co_return Result;
+    }
+
+    auto RunFactoryHandshake(const ss::ClientConfig &ClientConfig,
+                             const ss::ServerConfig &ServerConfig)
+        -> net::awaitable<FactoryHandshakeResult>
+    {
+        auto [ClientRawValue, ServerRawValue] = MakeMemoryPair(co_await net::this_coro::executor);
+        auto ClientRaw = std::make_shared<MemoryStream>(std::move(ClientRawValue));
+        auto ServerRaw = std::make_shared<MemoryStream>(std::move(ServerRawValue));
+        const ss::Address Target{ss::AddressType::Domain, "example.com", 443};
+
+        auto ServerTask = net::co_spawn(
+            ServerRaw->Executor(), RunAcceptFactory(ServerRaw, ServerConfig), net::use_awaitable);
+        auto ClientTask = net::co_spawn(
+            ClientRaw->Executor(), ss::Connect(ClientRaw, ClientConfig, Target), net::use_awaitable);
+        auto Combined = co_await (std::move(ServerTask) && std::move(ClientTask));
+
+        FactoryHandshakeResult Result;
+        Result.ServerError = std::get<0>(Combined);
+        Result.Request = std::get<1>(std::move(Combined));
+        Result.ClientError = std::get<3>(Combined).first;
+        Result.ClientConnected = std::get<3>(Combined).second != nullptr;
+        ClientRaw->Close();
+        ServerRaw->Close();
+        co_return Result;
+    }
 
     /**
      * @brief 驱动协程运行
@@ -121,6 +169,72 @@ namespace
         std::vector<std::uint8_t> dom_ok{0x03, 0x03, 'a', 'b', 'c', 0x00, 0x50, 0x00, 0x00};
         EXPECT_EQ(ss::ParseVarHeader(dom_ok, addr, payload), Error::None);
         EXPECT_EQ(addr.Host, "abc");
+    }
+
+    TEST(Ss2022CodecDeep, AcceptFactoryUsesRawPsk)
+    {
+        const std::array<std::uint8_t, 16> Psk{
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE};
+        ss::ClientConfig Client;
+        Client.UsePsk = true;
+        Client.Psk = Psk;
+        ss::ServerConfig Server;
+        Server.UsePsk = true;
+        Server.Psk = Psk;
+
+        net::io_context ioc;
+        FactoryHandshakeResult Result;
+        run_coro(ioc, [&]() -> net::awaitable<void>
+        {
+            Result = co_await RunFactoryHandshake(Client, Server);
+        }());
+
+        EXPECT_EQ(Result.ClientError, Error::None);
+        EXPECT_EQ(Result.ServerError, Error::None);
+        EXPECT_TRUE(Result.ClientConnected);
+        EXPECT_EQ(Result.Request.dst.Host, "example.com");
+        EXPECT_EQ(Result.Request.dst.Port, 443u);
+    }
+
+    TEST(Ss2022CodecDeep, AcceptFactoryRejectsWrongRawPsk)
+    {
+        ss::ClientConfig Client;
+        Client.UsePsk = true;
+        Client.Psk.fill(0xA5);
+        ss::ServerConfig Server;
+        Server.UsePsk = true;
+        Server.Psk.fill(0x5A);
+
+        net::io_context ioc;
+        FactoryHandshakeResult Result;
+        run_coro(ioc, [&]() -> net::awaitable<void>
+        {
+            Result = co_await RunFactoryHandshake(Client, Server);
+        }());
+
+        EXPECT_EQ(Result.ServerError, Error::BadAuth);
+        EXPECT_NE(Result.ClientError, Error::None);
+        EXPECT_FALSE(Result.ClientConnected);
+    }
+
+    TEST(Ss2022CodecDeep, AcceptFactoryKeepsPasswordCompatibility)
+    {
+        ss::ClientConfig Client;
+        Client.password = "password-compatibility";
+        ss::ServerConfig Server;
+        Server.password = Client.password;
+
+        net::io_context ioc;
+        FactoryHandshakeResult Result;
+        run_coro(ioc, [&]() -> net::awaitable<void>
+        {
+            Result = co_await RunFactoryHandshake(Client, Server);
+        }());
+
+        EXPECT_EQ(Result.ClientError, Error::None);
+        EXPECT_EQ(Result.ServerError, Error::None);
+        EXPECT_TRUE(Result.ClientConnected);
     }
 
     TEST(Ss2022CodecDeep, ChunkCodecErrors)

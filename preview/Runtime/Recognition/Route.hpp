@@ -13,9 +13,23 @@
 #include <vector>
 
 #include <preview/Foundation/Memory/Container.hpp>
+#include <preview/Runtime/Recognition/Protocol.hpp>
 
 namespace Preview::Recognition
 {
+
+    /**
+     * @struct RouteEntry
+     * @brief SNI 路由目标
+     * @details scheme 负责外层伪装包装；Protocol 为包装后的内层协议。
+     *          AllowFallback 仅表示显式允许未命中方案时走回退路径。
+     */
+    struct RouteEntry
+    {
+        std::string Scheme;
+        ProtocolType Protocol{ProtocolType::Unknown};
+        bool AllowFallback{false};
+    };
 
     /**
      * @class SniRouteTable
@@ -29,40 +43,79 @@ namespace Preview::Recognition
     public:
         /**
          * @brief 添加路由
-         * @param domain 域名（支持 *. 前缀通配）
-         * @param scheme 方案名
+         * @param Domain 域名（支持 *. 前缀通配）
+         * @param Scheme 方案名
          */
-        void Add(std::string_view domain, std::string_view scheme)
+        void Add(std::string_view Domain, std::string_view Scheme)
         {
-            Routes_[std::string(domain)] = std::string(scheme);
+            Add(Domain, Scheme, ProtocolType::Unknown, false);
+        }
+
+        /**
+         * @brief 添加带内层协议的路由
+         * @param Domain 域名（支持 *. 前缀通配）
+         * @param Scheme 方案名
+         * @param Protocol 包装后的内层协议
+         * @param AllowFallback 是否允许显式回退
+         */
+        void Add(std::string_view Domain, std::string_view Scheme, ProtocolType Protocol,
+                 bool AllowFallback = false)
+        {
+            Routes_[Normalize(Domain)] = RouteEntry{std::string(Scheme), Protocol, AllowFallback};
         }
 
         /**
          * @brief 查询 SNI 对应方案
-         * @param sni SNI 域名
+         * @param Sni SNI 域名
          * @return 方案名；未命中返回空
-         * @details 先精确匹配，再遍历通配项（后缀匹配）。
+         * @details 先精确匹配，再选择最长的单标签通配项。
          */
-        [[nodiscard]] auto Lookup(std::string_view sni) const -> std::string_view
+        [[nodiscard]] auto Lookup(std::string_view Sni) const -> std::string_view
         {
-            if (const auto It = Routes_.find(std::string(sni)); It != Routes_.end())
+            const auto *Entry = LookupEntry(Sni);
+            return Entry ? std::string_view(Entry->Scheme) : std::string_view{};
+        }
+
+        /**
+         * @brief 查询完整 SNI 路由
+         * @param Sni SNI 域名
+         * @return 路由条目；未命中返回 nullptr
+         */
+        [[nodiscard]] auto LookupEntry(std::string_view Sni) const -> const RouteEntry *
+        {
+            const auto Normalized = Normalize(Sni);
+            if (const auto It = Routes_.find(Normalized); It != Routes_.end())
             {
-                return It->second;
+                return &It->second;
             }
-            // 通配匹配：*.Domain 命中 sni 的父域
+
+            // 通配匹配：只允许一个非空标签，并选择最长后缀。
+            const RouteEntry *Best = nullptr;
+            std::size_t BestSuffix = 0;
             for (const auto &[domain, scheme] : Routes_)
             {
                 if (domain.size() > 2 && domain[0] == '*' && domain[1] == '.')
                 {
                     const std::string_view suffix(domain.data() + 1, domain.size() - 1);
-                    if (sni.size() > suffix.size() &&
-                        sni.substr(sni.size() - suffix.size()) == suffix)
+                    if (Normalized.size() <= suffix.size() ||
+                        !std::string_view(Normalized).ends_with(suffix))
                     {
-                        return scheme;
+                        continue;
+                    }
+                    const auto Prefix = std::string_view(Normalized).substr(
+                        0, Normalized.size() - suffix.size());
+                    if (Prefix.empty() || Prefix.find('.') != std::string_view::npos)
+                    {
+                        continue;
+                    }
+                    if (suffix.size() > BestSuffix)
+                    {
+                        BestSuffix = suffix.size();
+                        Best = &scheme;
                     }
                 }
             }
-            return {};
+            return Best;
         }
 
         /**
@@ -83,7 +136,23 @@ namespace Preview::Recognition
         }
 
     private:
-        std::unordered_map<std::string, std::string> Routes_;
+        [[nodiscard]] static auto Normalize(std::string_view Domain) -> std::string
+        {
+            std::string Result;
+            Result.reserve(Domain.size());
+            for (const auto Character : Domain)
+            {
+                const auto Byte = static_cast<unsigned char>(Character);
+                Result.push_back(static_cast<char>(Byte >= 'A' && Byte <= 'Z' ? Byte + ('a' - 'A') : Byte));
+            }
+            while (!Result.empty() && Result.back() == '.')
+            {
+                Result.pop_back();
+            }
+            return Result;
+        }
+
+        std::unordered_map<std::string, RouteEntry> Routes_;
     };
 
 } // namespace Preview::Recognition

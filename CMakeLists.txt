@@ -317,6 +317,12 @@ message(STATUS "PRISM_ENABLE_BENCHMARK=${PRISM_ENABLE_BENCHMARK}")
 option(PRISM_ENABLE_STRESS "Enable forward stress tools" ON)
 message(STATUS "PRISM_ENABLE_STRESS=${PRISM_ENABLE_STRESS}")
 
+option(PRISM_ENABLE_INTEROP "Enable external Preview interoperability runners" OFF)
+message(STATUS "PRISM_ENABLE_INTEROP=${PRISM_ENABLE_INTEROP}")
+
+option(PRISM_ENABLE_PERF_CONTRACT "Enable Preview/production performance Contract" OFF)
+message(STATUS "PRISM_ENABLE_PERF_CONTRACT=${PRISM_ENABLE_PERF_CONTRACT}")
+
 option(PRISM_ENABLE_COVERAGE "Enable code coverage instrumentation (gcc/clang --coverage)" OFF)
 message(STATUS "PRISM_ENABLE_COVERAGE=${PRISM_ENABLE_COVERAGE}")
 

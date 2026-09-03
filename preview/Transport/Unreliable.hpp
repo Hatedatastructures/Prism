@@ -19,9 +19,13 @@
 
 #include <boost/asio.hpp>
 
+#include <charconv>
+#include <cctype>
 #include <chrono>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace Preview::Transport
 {
@@ -78,36 +82,50 @@ namespace Preview::Transport
         }
 
         /**
-         * @brief 连接远端（host:port 解析 + 设置发送目标）
-         * @param remote 远端地址（"host:port"）
-         * @return 解析成功返回 true
+         * @brief 连接远端（严格解析 host:port）
+         * @param remote 远端地址（IPv4/domain 使用 host:port，IPv6 使用 [host]:port）
+         * @return 语法合法并完成数值地址装配时返回 true；域名解析延迟到首次读写
+         * @details 端口必须全部由十进制数字组成且不超过 65535。域名不在同步
+         *          Connect 中阻塞解析，而是在首次异步读写时通过 Asio resolver 解析。
          */
         auto Connect(const std::string &remote) -> bool
         {
-            const auto Colon = remote.rfind(':');
-            if (Colon == std::string::npos)
+            const auto Parsed = ParseRemote(remote);
+            if (!Parsed)
             {
                 return false;
             }
+
             boost::system::error_code ec;
-            const auto Host = remote.substr(0, Colon);
-            const auto Port = static_cast<unsigned short>(std::strtoul(remote.c_str() + Colon + 1, nullptr, 10));
-            const auto Ep = net::ip::udp::endpoint(net::ip::make_address(Host, ec), Port);
-            if (ec)
+            if (Socket_.is_open())
             {
-                return false;
-            }
-            if (!Socket_.is_open())
-            {
-                Socket_.open(Ep.protocol(), ec);
+                Socket_.close(ec);
                 if (ec)
                 {
                     return false;
                 }
             }
-            RemoteEndpoint_ = Ep;
+
+            RemoteEndpoint_.reset();
+            RemoteHost_.clear();
+            RemotePort_ = 0;
             FilterRemote_ = true;
             CaptureRemote_ = false;
+
+            if (Parsed->Address)
+            {
+                const auto Endpoint = EndpointType(*Parsed->Address, Parsed->Port);
+                Socket_.open(Endpoint.protocol(), ec);
+                if (ec)
+                {
+                    return false;
+                }
+                RemoteEndpoint_ = Endpoint;
+                return true;
+            }
+
+            RemoteHost_ = Parsed->Host;
+            RemotePort_ = Parsed->Port;
             return true;
         }
 
@@ -131,6 +149,8 @@ namespace Preview::Transport
             if (!ec)
             {
                 RemoteEndpoint_.reset();
+                RemoteHost_.clear();
+                RemotePort_ = 0;
                 FilterRemote_ = false;
                 CaptureRemote_ = true;
             }
@@ -195,6 +215,8 @@ namespace Preview::Transport
         void SetRemote(const EndpointType &Endpoint)
         {
             RemoteEndpoint_ = Endpoint;
+            RemoteHost_.clear();
+            RemotePort_ = 0;
             FilterRemote_ = true;
             CaptureRemote_ = false;
         }
@@ -208,6 +230,8 @@ namespace Preview::Transport
         void AllowAnyPeer() noexcept
         {
             RemoteEndpoint_.reset();
+            RemoteHost_.clear();
+            RemotePort_ = 0;
             FilterRemote_ = false;
             CaptureRemote_ = false;
         }
@@ -232,8 +256,13 @@ namespace Preview::Transport
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
         [[nodiscard]] auto AsyncReceiveFrom(std::span<std::byte> Buffer, EndpointType &SenderEndpoint,
-                                            std::error_code &ec) -> net::awaitable<std::size_t>
+                                             std::error_code &ec) -> net::awaitable<std::size_t>
         {
+            if (!RemoteEndpoint_ && !RemoteHost_.empty() && !co_await ResolveRemote())
+            {
+                ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
+                co_return 0;
+            }
             boost::system::error_code SysEc;
             auto Token = net::redirect_error(net::use_awaitable, SysEc);
             while (true)
@@ -302,6 +331,11 @@ namespace Preview::Transport
         [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
             -> net::awaitable<std::size_t> override
         {
+            if (!RemoteEndpoint_ && !RemoteHost_.empty() && !co_await ResolveRemote())
+            {
+                ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
+                co_return 0;
+            }
             if (!RemoteEndpoint_)
             {
                 ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
@@ -377,8 +411,168 @@ namespace Preview::Transport
         }
 
     private:
+        struct ParsedRemote
+        {
+            std::string Host;
+            unsigned short Port{0};
+            std::optional<net::ip::address> Address;
+        };
+
+        [[nodiscard]] static auto ParsePort(const std::string_view Text)
+            -> std::optional<unsigned short>
+        {
+            if (Text.empty())
+            {
+                return std::nullopt;
+            }
+            unsigned long Value = 0;
+            const auto Parsed = std::from_chars(Text.data(), Text.data() + Text.size(), Value, 10);
+            if (Parsed.ec != std::errc{} || Parsed.ptr != Text.data() + Text.size() || Value > 65535UL)
+            {
+                return std::nullopt;
+            }
+            return static_cast<unsigned short>(Value);
+        }
+
+        [[nodiscard]] static auto IsValidDomain(const std::string_view Host) noexcept -> bool
+        {
+            if (Host.empty() || Host.front() == '.' || Host.front() == '-' ||
+                Host.find_first_of("[]:/\\ \t\r\n") != std::string_view::npos)
+            {
+                return false;
+            }
+            bool LabelStart = true;
+            char Previous = 0;
+            for (const auto Character : Host)
+            {
+                if (Character == '.')
+                {
+                    if (LabelStart || Previous == '-')
+                    {
+                        return false;
+                    }
+                    LabelStart = true;
+                    Previous = Character;
+                    continue;
+                }
+                if (Character == '-' && LabelStart)
+                {
+                    return false;
+                }
+                if (!std::isalnum(static_cast<unsigned char>(Character)) && Character != '-')
+                {
+                    return false;
+                }
+                LabelStart = false;
+                Previous = Character;
+            }
+            return !LabelStart && Previous != '-';
+        }
+
+        [[nodiscard]] static auto ParseRemote(const std::string_view Remote)
+            -> std::optional<ParsedRemote>
+        {
+            if (Remote.empty())
+            {
+                return std::nullopt;
+            }
+
+            std::string_view Host;
+            std::string_view PortText;
+            std::optional<net::ip::address> Address;
+            if (Remote.front() == '[')
+            {
+                const auto Close = Remote.find(']');
+                if (Close == std::string_view::npos || Close == 1 ||
+                    Close + 1 >= Remote.size() || Remote[Close + 1] != ':')
+                {
+                    return std::nullopt;
+                }
+                Host = Remote.substr(1, Close - 1);
+                PortText = Remote.substr(Close + 2);
+                boost::system::error_code ec;
+                const auto ParsedAddress = net::ip::make_address_v6(Host, ec);
+                if (ec)
+                {
+                    return std::nullopt;
+                }
+                Address = ParsedAddress;
+            }
+            else
+            {
+                const auto FirstColon = Remote.find(':');
+                const auto LastColon = Remote.rfind(':');
+                if (FirstColon == std::string_view::npos || FirstColon != LastColon)
+                {
+                    return std::nullopt;
+                }
+                Host = Remote.substr(0, FirstColon);
+                PortText = Remote.substr(FirstColon + 1);
+                if (Host.empty() || Host.find_first_of("[]") != std::string_view::npos)
+                {
+                    return std::nullopt;
+                }
+                boost::system::error_code ec;
+                const auto ParsedAddress = net::ip::make_address(Host, ec);
+                if (!ec)
+                {
+                    Address = ParsedAddress;
+                }
+                else if (!IsValidDomain(Host))
+                {
+                    return std::nullopt;
+                }
+            }
+
+            const auto Port = ParsePort(PortText);
+            if (!Port)
+            {
+                return std::nullopt;
+            }
+            return ParsedRemote{std::string(Host), *Port, Address};
+        }
+
+        [[nodiscard]] auto ResolveRemote() -> net::awaitable<bool>
+        {
+            if (RemoteEndpoint_)
+            {
+                co_return true;
+            }
+            if (RemoteHost_.empty())
+            {
+                co_return false;
+            }
+
+            net::ip::udp::resolver Resolver(Socket_.get_executor());
+            boost::system::error_code ResolveEc;
+            const auto Results = co_await Resolver.async_resolve(
+                RemoteHost_, std::to_string(RemotePort_),
+                net::redirect_error(net::use_awaitable, ResolveEc));
+            if (ResolveEc)
+            {
+                co_return false;
+            }
+            for (const auto &Entry : Results)
+            {
+                const auto Endpoint = Entry.endpoint();
+                boost::system::error_code OpenEc;
+                Socket_.open(Endpoint.protocol(), OpenEc);
+                if (OpenEc)
+                {
+                    continue;
+                }
+                RemoteEndpoint_ = Endpoint;
+                RemoteHost_.clear();
+                RemotePort_ = 0;
+                co_return true;
+            }
+            co_return false;
+        }
+
         SocketType Socket_;                           // UDP socket
         std::optional<EndpointType> RemoteEndpoint_; // 远程端点，发送目标和接收过滤依据
+        std::string RemoteHost_;                      // 延迟解析的域名
+        unsigned short RemotePort_{0};                // 延迟解析的域名端口
         bool FilterRemote_{false};                   // 是否只接收指定远端
         bool CaptureRemote_{true};                  // 首次兼容式读取是否绑定来源
         EndpointType SenderEndpoint_;                // 兼容 async_read_some 的来源端点

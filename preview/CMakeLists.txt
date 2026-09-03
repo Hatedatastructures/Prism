@@ -195,6 +195,7 @@ target_sources(PreviewRuntime INTERFACE
         Runtime/Recognition/Recognition.hpp
         Runtime/Recognition/Route.hpp
         Runtime/Recognition/SchemeExecutor.hpp
+        Runtime/Recognition/Tls.hpp
         # Runtime session/front/resource and stable protocol contract
         Runtime/Session.hpp
         Runtime/Listener.hpp
@@ -263,8 +264,29 @@ add_library(PreviewProtocolQuic INTERFACE)
 ConfigurePreviewTarget(PreviewProtocolQuic)
 target_sources(PreviewProtocolQuic INTERFACE
         Protocols/Quic/GatewayCommon.hpp
+        Protocols/Quic/DatagramAdapter.hpp
+        Protocols/Quic/Native.hpp
         Protocols/Quic/StreamAdapter.hpp
 )
+
+add_library(PreviewProtocolQuicNative STATIC)
+ConfigurePreviewTarget(PreviewProtocolQuicNative)
+target_sources(PreviewProtocolQuicNative
+        PRIVATE
+        Protocols/Quic/Native.cpp
+)
+target_include_directories(PreviewProtocolQuicNative PRIVATE
+        ${ngtcp2_SOURCE_DIR}/lib/includes
+        ${ngtcp2_SOURCE_DIR}/crypto/includes
+)
+target_link_libraries(PreviewProtocolQuicNative PUBLIC
+        PreviewProtocolQuic
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        ngtcp2_static
+        ngtcp2_crypto_boringssl_static
+)
+LinkPreviewTargets(PreviewProtocolQuicNative PreviewProtocolQuic)
 
 add_library(PreviewProtocolHttp INTERFACE)
 ConfigurePreviewTarget(PreviewProtocolHttp)
@@ -528,6 +550,8 @@ endforeach()
 LinkPreviewTargets(PreviewProtocolHttp2 PreviewProtocolsCommon PreviewProtocolHttp3Core)
 LinkPreviewTargets(PreviewProtocolQuic PreviewProtocolsCommon)
 LinkPreviewTargets(PreviewProtocolHysteria2 PreviewProtocolsCommon PreviewProtocolHttp3Core)
+LinkPreviewTargets(PreviewProtocolHysteria2 PreviewProtocolQuic)
+LinkPreviewTargets(PreviewProtocolTuic PreviewProtocolQuic)
 LinkPreviewTargets(PreviewProtocolXhttp PreviewProtocolHttp2)
 
 LinkPreviewTargets(PreviewComposition

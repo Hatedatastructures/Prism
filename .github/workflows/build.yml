@@ -30,7 +30,11 @@ jobs:
       - name: Workflow Syntax Check
         run: pwsh scripts/check_workflow.ps1
 
+      - name: Preview Gate D Workflow Check
+        run: pwsh scripts/check_workflow.ps1 -WorkflowPath .github/workflows/preview-gate-d.yml
+
   build-windows:
+    needs: gate
     runs-on: windows-latest
     timeout-minutes: 120
     steps:
@@ -67,17 +71,17 @@ jobs:
       - name: Run Tests
         shell: pwsh
         run: |
-          $ctestArgs = @('--test-dir', 'build', '--output-on-failure', '--timeout', '60', '-j', '2', '-LE', 'perf|stress')
+          $ctestArgs = @('--test-dir', 'build', '--no-tests=error', '--output-on-failure', '--timeout', '60', '-j', '2', '-LE', 'perf|stress')
           & ctest @ctestArgs
           $parallelExit = $LASTEXITCODE
           if ($parallelExit -ne 0) {
             Write-Host "Parallel CTest failed with exit code $parallelExit; rerunning only failed tests serially."
-            & ctest --test-dir build --output-on-failure --timeout 60 --rerun-failed -j 1
+            & ctest --test-dir build --no-tests=error --output-on-failure --timeout 60 --rerun-failed -j 1
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
       - name: Preview Contract Smoke
-        run: ctest --test-dir build --output-on-failure -R "^(ProtocolContract|TransportContract)" -j 4 --timeout 120
+        run: ctest --test-dir build --no-tests=error --output-on-failure -R "^(ProtocolContract|TransportContract)" -j 4 --timeout 120
 
       - name: Create Archive
         run: |
@@ -98,6 +102,7 @@ jobs:
           path: build/src/Prism.exe
 
   build-linux:
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -129,16 +134,16 @@ jobs:
       - name: Run Tests
         run: |
           set +e
-          ctest --test-dir build --output-on-failure --timeout 60 -j 2 -LE 'perf|stress'
+          ctest --test-dir build --no-tests=error --output-on-failure --timeout 60 -j 2 -LE 'perf|stress'
           parallel_exit=$?
           if [ "$parallel_exit" -ne 0 ]; then
             echo "Parallel CTest failed with exit code $parallel_exit; rerunning only failed tests serially."
-            ctest --test-dir build --output-on-failure --timeout 60 --rerun-failed -j 1
+            ctest --test-dir build --no-tests=error --output-on-failure --timeout 60 --rerun-failed -j 1
             exit $?
           fi
 
       - name: Preview Contract Smoke
-        run: ctest --test-dir build --output-on-failure -R '^(ProtocolContract|TransportContract)' -j 4 --timeout 120
+        run: ctest --test-dir build --no-tests=error --output-on-failure -R '^(ProtocolContract|TransportContract)' -j 4 --timeout 120
 
       - name: Create Archive
         run: |

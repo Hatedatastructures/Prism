@@ -17,6 +17,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
@@ -172,7 +173,8 @@ namespace Preview::Shadowsocks2022
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
         -> net::awaitable<std::tuple<Error, ss::Message, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(cfg.password, cfg.TimeWindow);
+        auto C = cfg.UsePsk ? std::make_shared<Conn<>>(cfg.Psk, cfg.TimeWindow)
+                            : std::make_shared<Conn<>>(cfg.password, cfg.TimeWindow);
         auto [Err, req] = co_await C->ReadHandshake(std::move(upstream));
         SharedConn Conn;
         if (Err == Error::None)

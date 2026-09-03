@@ -14,6 +14,7 @@
 #include <preview/Protocols/Xhttp/Xhttp.hpp>
 
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/steady_timer.hpp>
 
@@ -30,6 +31,7 @@
 namespace
 {
     namespace net = boost::asio;
+    using namespace boost::asio::experimental::awaitable_operators;
     namespace ssl = net::ssl;
     namespace h2 = Preview::Http2;
     using namespace Preview;
@@ -90,8 +92,8 @@ namespace
 
         // POST /
         h2::HeaderList headers = {
-            {":Method", "POST"},
-            {":Path", "/"},
+            {":method", "POST"},
+            {":path", "/"},
             {":scheme", "https"},
             {":authority", "example.com"},
         };
@@ -101,13 +103,13 @@ namespace
             *Ok = false;
             co_return;
         }
-        Session->SubmitData(sid, std::span<const std::byte>(
+        (void)Session->SubmitData(sid, std::span<const std::byte>(
                                      reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
                              true);
 
         // 收集并发送
         std::vector<std::byte> wire;
-        Session->Collect(wire);
+        (void)Session->Collect(wire);
         std::vector<std::byte> received;
 
         auto write_wire = [&]() -> net::awaitable<void>
@@ -124,15 +126,25 @@ namespace
         co_await write_wire();
 
         // 读响应循环
-        Session->OnHeaders = [](std::int32_t, const h2::HeaderList &hdrs, bool)
+        Session->OnHeaders = [Ok](std::int32_t, const h2::HeaderList &hdrs, bool)
         {
+            bool HasStatus = false;
+            bool HasContentType = false;
             for (const auto &h : hdrs)
             {
                 if (h.Name == ":status")
                 {
+                    HasStatus = true;
                     EXPECT_EQ(h.value, "200");
                 }
+                if (h.Name == "content-type")
+                {
+                    HasContentType = true;
+                    EXPECT_EQ(h.value, "text/event-stream");
+                }
             }
+            EXPECT_TRUE(HasStatus);
+            EXPECT_TRUE(HasContentType);
         };
         Session->OnData = [&](std::int32_t, std::span<const std::byte> Data)
         {
@@ -180,7 +192,17 @@ namespace
         std::size_t Total = 0;
         while (true)
         {
-            const auto n = co_await trans->async_read_some(buf, ec);
+            auto read = trans->async_read_some(buf, ec);
+            net::steady_timer watchdog(trans->Executor());
+            watchdog.expires_after(std::chrono::seconds(2));
+            auto result = co_await (std::move(read) || watchdog.async_wait(net::use_awaitable));
+            if (result.index() == 1)
+            {
+                trans->Close();
+                *Ok = false;
+                co_return;
+            }
+            const auto n = std::get<0>(std::move(result));
             if (ec || n == 0)
             {
                 break;

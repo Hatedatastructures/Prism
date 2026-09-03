@@ -23,6 +23,7 @@
 #include <preview/Transport/MemoryStream.hpp>
 #include <preview/Transport/Unreliable.hpp>
 #include <preview/Protocols/Hysteria2/Hysteria2.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -82,6 +83,68 @@ namespace
         const Hysteria2::ServerConfig Server{"pw"};
         EXPECT_EQ(Hysteria2::ConnectPacket(ioc.get_executor(), "127.0.0.1:1", Client), nullptr);
         EXPECT_EQ(Hysteria2::AcceptPacket(ioc.get_executor(), 0, Server), nullptr);
+    }
+
+    TEST(Hysteria2DgramProvider, MemoryProviderRoundtrip)
+    {
+        net::io_context ioc;
+        auto [ClientProvider, ServerProvider] =
+            Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
+        auto Client = Hysteria2::ConnectPacket(ClientProvider, Hysteria2::ClientConfig{});
+        auto Server = Hysteria2::AcceptPacket(ServerProvider, Hysteria2::ServerConfig{});
+        ASSERT_NE(Client, nullptr);
+        ASSERT_NE(Server, nullptr);
+
+        const auto Target = make_addr(Hysteria2::AddressType::Domain, "example.com", 443);
+        const auto Payload = AsU8Span(std::string_view{"hysteria2-provider"});
+        Hysteria2::Address ReceivedTarget;
+        std::vector<std::uint8_t> ReceivedPayload;
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     const auto SendError = co_await Client->AsyncSendTo(Target, Payload);
+                     EXPECT_EQ(SendError, Error::None);
+                     const auto ReceiveError = co_await Server->AsyncReceiveFrom(
+                         ReceivedTarget, ReceivedPayload);
+                     EXPECT_EQ(ReceiveError, Error::None);
+                     if (ReceiveError == Error::None)
+                     {
+                         EXPECT_EQ(co_await Server->AsyncSendTo(ReceivedTarget, ReceivedPayload),
+                                   Error::None);
+                     }
+                     Client->Close();
+                     Server->Close();
+                 });
+
+        EXPECT_EQ(ReceivedTarget.Host, "example.com");
+        EXPECT_EQ(ReceivedTarget.Port, 443u);
+        EXPECT_EQ(std::string(ReceivedPayload.begin(), ReceivedPayload.end()),
+                  "hysteria2-provider");
+    }
+
+    TEST(Hysteria2DgramProvider, ShortWriteAndCloseAreErrors)
+    {
+        net::io_context ioc;
+        auto [ClientProvider, ServerProvider] =
+            Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
+        auto Client = Hysteria2::ConnectPacket(ClientProvider, Hysteria2::ClientConfig{});
+        auto Server = Hysteria2::AcceptPacket(ServerProvider, Hysteria2::ServerConfig{});
+        ASSERT_NE(Client, nullptr);
+        ASSERT_NE(Server, nullptr);
+        const auto Target = make_addr(Hysteria2::AddressType::Ipv4, "127.0.0.1", 53);
+
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     ClientProvider->MaxSend = 2;
+                     EXPECT_EQ(co_await Client->AsyncSendTo(Target, AsU8Span(std::string_view{"short"})),
+                               Error::IoError);
+                     ClientProvider->MaxSend = 0;
+                     Server->Close();
+                     EXPECT_EQ(co_await Client->AsyncSendTo(Target, AsU8Span(std::string_view{"closed"})),
+                               Error::IoError);
+                     Client->Close();
+                 });
     }
 
     TEST(Hysteria2ConnSession, ClientServerEchoRoundtrip)

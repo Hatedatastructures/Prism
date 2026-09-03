@@ -1,0 +1,102 @@
+name: Preview Gate D Evidence
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 2 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prism-preview-gate-d-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence:
+    name: Preview evidence (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Setup PowerShell
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y powershell
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          cache-dependency-path: tests/go/go.sum
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sudo apt-get install -y build-essential g++-13 nasm
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          if ('${{ runner.os }}' -eq 'Windows') {
+            cmake -B build -G 'MinGW Makefiles' -DCMAKE_BUILD_TYPE=Release -DPRISM_ENABLE_INTEROP=ON -DPRISM_ENABLE_PERF_CONTRACT=ON -DPRISM_ENABLE_BENCHMARK=OFF -DPRISM_ENABLE_STRESS=OFF
+          } else {
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DPRISM_ENABLE_INTEROP=ON -DPRISM_ENABLE_PERF_CONTRACT=ON -DPRISM_ENABLE_BENCHMARK=OFF -DPRISM_ENABLE_STRESS=OFF
+          }
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build --config Release --parallel 4
+
+      - name: Run Tests
+        shell: pwsh
+        run: ctest --test-dir build --no-tests=error --output-on-failure --timeout 60 -j 1 -LE 'perf|stress|interop'
+
+      - name: Run Performance Contract
+        shell: pwsh
+        run: ctest --test-dir build --no-tests=error --output-on-failure --timeout 120 -j 1 -R '^PerformanceContract\.'
+
+      - name: Build Go reference tools
+        shell: pwsh
+        working-directory: tests/go
+        run: |
+          New-Item -ItemType Directory -Force -Path ../../build/tests/go | Out-Null
+          $Tools = @('anytlscmp', 'guncmp', 'realitycmp', 'restlscmp', 'shadowtlscmp', 'trusttunnelcmp', 'wscmp')
+          foreach ($Tool in $Tools) {
+            go build -o ("../../build/tests/go/{0}.exe" -f $Tool) ("./{0}" -f $Tool)
+          }
+          go build -o ../../build/tests/go/ss2022_client.exe ./interop/ss2022_client
+          go build -o ../../build/tests/go/ss2022_server.exe ./interop/ss2022_server
+
+      - name: Run External Interop Matrix
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/interop/Run-Matrix.ps1 -RepoRoot $pwd -OutputDirectory build/interop-results -Platform '${{ runner.os }}-${{ runner.arch }}' -PrismExe build/src/Prism.exe -AllowBlocked
+
+      - name: Fail on protocol or implementation mismatch
+        shell: pwsh
+        run: |
+          $Summary = Get-Content -Raw build/interop-results/summary.json | ConvertFrom-Json
+          Write-Host ("Interop evidence: total={0}, pass={1}, blocked={2}, failed={3}" -f $Summary.total, $Summary.pass, $Summary.blocked, $Summary.failed)
+          if ($Summary.failed -gt 0) { exit 1 }
+
+      - name: Upload Evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: preview-gate-d-${{ runner.os }}-${{ runner.arch }}
+          if-no-files-found: warn
+          path: |
+            build/interop-results/**
+            build/**/preview-production-perf.json
+            build/**/perf-contract*.json

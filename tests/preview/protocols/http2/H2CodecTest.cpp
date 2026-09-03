@@ -142,17 +142,33 @@ namespace
         std::vector<std::byte> out;
         h2::EncodeInt(10, 7, 0x80, out);
         std::size_t off = 0;
-        EXPECT_EQ(h2::DecodeInt(out, 7, off), 10u);
+        const auto decoded10 = h2::DecodeInt(out, 7, off);
+        ASSERT_TRUE(decoded10.has_value());
+        EXPECT_EQ(*decoded10, 10u);
 
         out.clear();
         h2::EncodeInt(200, 7, 0x80, out); // 需多字节
         off = 0;
-        EXPECT_EQ(h2::DecodeInt(out, 7, off), 200u);
+        const auto decoded200 = h2::DecodeInt(out, 7, off);
+        ASSERT_TRUE(decoded200.has_value());
+        EXPECT_EQ(*decoded200, 200u);
 
         out.clear();
         h2::EncodeInt(16384, 6, 0x40, out);
         off = 0;
-        EXPECT_EQ(h2::DecodeInt(out, 6, off), 16384u);
+        const auto decoded16384 = h2::DecodeInt(out, 6, off);
+        ASSERT_TRUE(decoded16384.has_value());
+        EXPECT_EQ(*decoded16384, 16384u);
+    }
+
+    TEST(H2Hpack, TruncatedIntegerContinuationRejected)
+    {
+        const std::array<std::byte, 2> truncated{
+            std::byte{0x7F}, std::byte{0x80}};
+        std::size_t offset = 0;
+        const auto decoded = h2::DecodeInt(truncated, 7, offset);
+        EXPECT_FALSE(decoded.has_value());
+        EXPECT_EQ(offset, truncated.size());
     }
 
     TEST(H2Hpack, HuffmanStringDecode)
@@ -181,13 +197,13 @@ namespace
         Client->SendSettings();
         const int StreamId = Client->OpenStream({{":method", "GET"}, {":path", "/"}}, false);
         EXPECT_GT(StreamId, 0);
-        Client->SubmitData(StreamId, std::span<const std::byte>(), false); // 空数据
+        (void)Client->SubmitData(StreamId, std::span<const std::byte>(), false); // 空数据
         const std::byte payload[] = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}};
-        Client->SubmitData(StreamId, payload, true);
+        (void)Client->SubmitData(StreamId, payload, true);
 
         // 收集客户端输出 → 投喂服务端
         std::vector<std::byte> wire;
-        Client->Collect(wire);
+        (void)Client->Collect(wire);
         ASSERT_FALSE(wire.empty());
 
         int headers_seen = 0;
@@ -226,12 +242,112 @@ namespace
 
         // ACK 帧入队
         std::vector<std::byte> out;
-        Server->Collect(out);
+        (void)Server->Collect(out);
         ASSERT_GE(out.size(), h2::FrameHeaderSize);
         const auto h = h2::ParseFrameHeader(out);
         ASSERT_TRUE(h.has_value());
         EXPECT_EQ(h->Type, FrameType::Settings);
         EXPECT_EQ(h->Flags, h2::FlagAck);
+    }
+
+    TEST(H2Session, SettingsAckWithPayloadRejected)
+    {
+        net::io_context ioc;
+        auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
+        const std::array<std::byte, 1> payload{std::byte{0x01}};
+        const auto Frame = h2::BuildFrame({FrameType::Settings, h2::FlagAck, 0, payload});
+        std::error_code ec;
+        EXPECT_FALSE(Server->Feed(Frame, ec));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
+    }
+
+    TEST(H2Session, WindowUpdateZeroIncrementRejected)
+    {
+        net::io_context ioc;
+        auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
+        const std::array<std::byte, 4> payload{};
+        const auto Frame = h2::BuildFrame({FrameType::WindowUpdate, 0, 0, payload});
+        std::error_code ec;
+        EXPECT_FALSE(Server->Feed(Frame, ec));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
+    }
+
+    TEST(H2Session, RstStreamInvalidLengthRejected)
+    {
+        net::io_context ioc;
+        auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
+        const auto Frame = h2::BuildFrame({FrameType::RstStream, 0, 1, {}});
+        std::error_code ec;
+        EXPECT_FALSE(Server->Feed(Frame, ec));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
+    }
+
+    TEST(H2Session, RstStreamOnConnectionStreamRejected)
+    {
+        net::io_context ioc;
+        auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
+        const auto Frame = h2::BuildFrame({FrameType::RstStream, 0, 0, h2::EncodeRstStream(h2::ErrorCancel)});
+        std::error_code ec;
+        EXPECT_FALSE(Server->Feed(Frame, ec));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
+    }
+
+    TEST(H2Session, RstStreamOnIdleStreamRejected)
+    {
+        net::io_context ioc;
+        auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
+        const auto Frame = h2::BuildFrame({FrameType::RstStream, 0, 1, h2::EncodeRstStream(h2::ErrorCancel)});
+        std::error_code ec;
+        EXPECT_FALSE(Server->Feed(Frame, ec));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
+    }
+
+    TEST(H2Session, HeadersWithoutEndHeadersRejected)
+    {
+        net::io_context ioc;
+        auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
+        const auto Frame = h2::BuildFrame({FrameType::Headers, 0, 1, {}});
+        std::error_code ec;
+        EXPECT_FALSE(Server->Feed(Frame, ec));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
+    }
+
+    TEST(H2Session, DataOnIdleStreamRejected)
+    {
+        net::io_context ioc;
+        auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
+        const std::array<std::byte, 1> payload{std::byte{0x01}};
+        const auto Frame = h2::BuildFrame({FrameType::Data, 0, 1, payload});
+        std::error_code ec;
+        EXPECT_FALSE(Server->Feed(Frame, ec));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
+    }
+
+    TEST(H2Session, DataAfterEndStreamRejected)
+    {
+        net::io_context ioc;
+        auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
+        const auto Headers = h2::BuildFrame({FrameType::Headers,
+                                              static_cast<std::uint8_t>(h2::FlagEndHeaders | h2::FlagEndStream),
+                                              1,
+                                              {}});
+        const std::array<std::byte, 1> payload{std::byte{0x01}};
+        const auto Data = h2::BuildFrame({FrameType::Data, 0, 1, payload});
+        std::error_code ec;
+        ASSERT_TRUE(Server->Feed(Headers, ec));
+        EXPECT_FALSE(Server->Feed(Data, ec));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
+    }
+
+    TEST(H2Session, PriorityInvalidLengthRejected)
+    {
+        net::io_context ioc;
+        auto Server = std::make_shared<h2::SessionImpl>(ioc.get_executor(), true);
+        const std::array<std::byte, 4> payload{};
+        const auto Frame = h2::BuildFrame({FrameType::Priority, 0, 1, payload});
+        std::error_code ec;
+        EXPECT_FALSE(Server->Feed(Frame, ec));
+        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::ProtocolError));
     }
 
     TEST(H2Session, BadFrameRejected)
@@ -265,11 +381,23 @@ namespace
         std::error_code ec;
         EXPECT_TRUE(Server->Feed(ping, ec));
         std::vector<std::byte> out;
-        Server->Collect(out);
+        (void)Server->Collect(out);
         ASSERT_GE(out.size(), h2::FrameHeaderSize);
         const auto h = h2::ParseFrameHeader(out);
         ASSERT_TRUE(h.has_value());
         EXPECT_EQ(h->Type, FrameType::Ping);
         EXPECT_EQ(h->Flags, h2::FlagAck);
+    }
+
+    TEST(H2Session, RejectsNegativeStreamIdOnSend)
+    {
+        net::io_context ioc;
+        auto Client = std::make_shared<h2::SessionImpl>(ioc.get_executor(), false);
+        EXPECT_EQ(Client->SubmitHeaders(-1, {}, false), -1);
+        EXPECT_EQ(Client->SubmitData(-1, {}, false), -1);
+        EXPECT_EQ(Client->ResetStream(-1, h2::ErrorCancel), -1);
+        std::vector<std::byte> Out;
+        EXPECT_FALSE(Client->Collect(Out));
+        EXPECT_TRUE(Out.empty());
     }
 } // namespace

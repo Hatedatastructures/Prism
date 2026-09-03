@@ -548,7 +548,7 @@ namespace
         // 版本错误
         std::vector<std::uint8_t> bad{0x01};
         bad.insert(bad.end(), 16, 0x11);
-        bad.insert(bad.end(), 6, 0x00);
+        bad.insert(bad.end(), {0x00, 0x01, 0x00, 0x50, 0x01, 8, 8, 8, 8});
         EXPECT_EQ(p.Put(boost::asio::buffer(bad), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::BadMagic));
         p.Reset();

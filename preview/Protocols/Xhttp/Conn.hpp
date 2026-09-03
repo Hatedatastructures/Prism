@@ -567,11 +567,11 @@ namespace Preview::Xhttp
                 std::string_view Path;
                 for (const auto &h : headers)
                 {
-                    if (h.Name == ":Method" && h.value == "POST")
+                    if (h.Name == ":method" && h.value == "POST")
                     {
                         IsPost = true;
                     }
-                    else if (h.Name == ":Path")
+                    else if (h.Name == ":path")
                     {
                         Path = h.value;
                     }
@@ -589,8 +589,8 @@ namespace Preview::Xhttp
                 if (IsPost && PathOk)
                 {
                     Transport->BindStream(sid);
-                    h2::HeaderList resp = {{":status", "200"}, {"content-Type", "text/event-Stream"}};
-                    Session->SubmitHeaders(sid, resp, false);
+                    h2::HeaderList resp = {{":status", "200"}, {"content-type", "text/event-stream"}};
+                    (void)Session->SubmitHeaders(sid, resp, false);
                 }
             };
             Session_->OnData = [Transport = Transport_](std::int32_t sid, std::span<const std::byte> Data)

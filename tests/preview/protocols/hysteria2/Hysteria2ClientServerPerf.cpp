@@ -16,6 +16,7 @@
 #include <TestSupport/Benchmark/Bench.hpp>
 #include <preview/Transport/MemoryStream.hpp>
 #include <preview/Protocols/Hysteria2/Hysteria2.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -133,50 +134,41 @@ namespace
     TEST(Hysteria2ClientServer, UdpDatagramRoundtrip)
     {
         net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto [ClientProvider, ServerProvider] =
+            Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
+        auto Client = Hysteria2::ConnectPacket(ClientProvider, Hysteria2::ClientConfig{"pw123456"});
+        auto Server = Hysteria2::AcceptPacket(ServerProvider, Hysteria2::ServerConfig{"pw123456"});
+        ASSERT_NE(Client, nullptr);
+        ASSERT_NE(Server, nullptr);
 
         run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [Client, Server, &ioc]() -> net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [Server]() -> net::awaitable<void>
                      {
-                         auto [err, req, Conn] =
-                             co_await Hysteria2::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                        Hysteria2::ServerConfig{"pw123456"});
-                         if (err != Error::None)
-                         {
-                             co_return;
-                         }
                          Hysteria2::Address src;
                          std::vector<std::uint8_t> payload;
-                         const auto rerr = co_await Conn->AsyncReceiveDatagram(src, payload);
+                         const auto rerr = co_await Server->AsyncReceiveFrom(src, payload);
                          EXPECT_EQ(rerr, Error::None);
                          EXPECT_EQ(std::string(payload.begin(), payload.end()), "hello udp");
                          std::vector<std::uint8_t> back(payload.rbegin(), payload.rend());
-                         (void)co_await Conn->AsyncSendDatagram(src, back);
-                         Conn->Close();
+                         EXPECT_EQ(co_await Server->AsyncSendTo(src, back), Error::None);
+                         Server->Close();
                      };
                      net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
 
-                     auto [herr, cli] =
-                         co_await Hysteria2::Connect(std::make_shared<MemoryStream>(std::move(a)),
-                                                     Hysteria2::ClientConfig{"pw123456"}, make_dst());
-                     if (herr != Error::None || !cli)
-                     {
-                         co_return;
-                     }
                      const std::string payload = "hello udp";
-                     auto serr = co_await cli->AsyncSendDatagram(
+                     const auto serr = co_await Client->AsyncSendTo(
                          make_dst(),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(payload.data()),
                                                        payload.size()));
                      EXPECT_EQ(serr, Error::None);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> back;
-                     const auto rerr = co_await cli->AsyncReceiveDatagram(src, back);
+                     const auto rerr = co_await Client->AsyncReceiveFrom(src, back);
                      EXPECT_EQ(rerr, Error::None);
                      EXPECT_EQ(std::string(back.begin(), back.end()), "pdu olleh");
-                     cli->Close();
+                     Client->Close();
                  });
     }
 

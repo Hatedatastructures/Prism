@@ -13,6 +13,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -121,7 +122,11 @@ namespace Preview::Http2
             {
                 return -1;
             }
-            SubmitHeadersFrame(Id, Headers, EndStream);
+            if (!SubmitHeadersFrame(Id, Headers, EndStream))
+            {
+                Streams_.erase(Id);
+                return -1;
+            }
             return Id;
         }
 
@@ -135,8 +140,7 @@ namespace Preview::Http2
         [[nodiscard]] auto SubmitHeaders(std::int32_t StreamId, const HeaderList &Headers,
                                           bool EndStream) -> std::int32_t override
         {
-            SubmitHeadersFrame(StreamId, Headers, EndStream);
-            return 0;
+            return SubmitHeadersFrame(StreamId, Headers, EndStream) ? 0 : -1;
         }
 
         /**
@@ -149,13 +153,17 @@ namespace Preview::Http2
         [[nodiscard]] auto SubmitData(std::int32_t StreamId, std::span<const std::byte> Data,
                                        bool EndStream) -> std::int32_t override
         {
+            if (StreamId < 0)
+            {
+                return -1;
+            }
             std::vector<std::byte> Payload(Data.begin(), Data.end());
             std::uint8_t Flags = 0;
             if (EndStream)
             {
                 Flags |= FlagEndStream;
             }
-            TxQueue_.push_back(BuildFrame({FrameType::Data, Flags, StreamId, Payload}));
+            TxQueue_.push_back(BuildFrame({FrameType::Data, Flags, static_cast<std::uint32_t>(StreamId), Payload}));
             return 0;
         }
 
@@ -168,8 +176,13 @@ namespace Preview::Http2
         [[nodiscard]] auto ResetStream(std::int32_t StreamId, std::uint32_t ErrorCode)
             -> std::int32_t override
         {
+            if (StreamId < 0)
+            {
+                return -1;
+            }
             auto Payload = EncodeRstStream(ErrorCode);
-            TxQueue_.push_back(BuildFrame({FrameType::RstStream, FlagNone, StreamId, Payload}));
+            TxQueue_.push_back(
+                BuildFrame({FrameType::RstStream, FlagNone, static_cast<std::uint32_t>(StreamId), Payload}));
             Streams_.erase(StreamId);
             return 0;
         }
@@ -271,12 +284,32 @@ namespace Preview::Http2
                 }
                 return true;
             case FrameType::WindowUpdate:
-                return true; // 不实现流控，忽略
+                if (Payload.size() != 4 || DecodeU31(Payload) == 0)
+                {
+                    ec = make_error_code(Error::ProtocolError);
+                    return false;
+                }
+                return true; // 不实现流控，但仍校验 RFC 载荷
             case FrameType::RstStream:
+                if (H.StreamId == ConnectionStreamId || Payload.size() != 4)
+                {
+                    ec = make_error_code(Error::ProtocolError);
+                    return false;
+                }
+                if (Streams_.find(static_cast<std::int32_t>(H.StreamId)) == Streams_.end())
+                {
+                    ec = make_error_code(Error::ProtocolError);
+                    return false;
+                }
                 OnStreamCloseIf(H.StreamId, ErrorCancel);
                 return true;
             case FrameType::Priority:
-                return true; // 忽略
+                if (H.StreamId == ConnectionStreamId || Payload.size() != 5)
+                {
+                    ec = make_error_code(Error::ProtocolError);
+                    return false;
+                }
+                return true; // 不实现排序，但仍校验 RFC 载荷
             case FrameType::Continuation:
                 ec = make_error_code(Error::ProtocolError);
                 return false; // 不支持 CONTINUATION
@@ -294,6 +327,11 @@ namespace Preview::Http2
             -> bool
         {
             if (H.StreamId == ConnectionStreamId)
+            {
+                ec = make_error_code(Error::ProtocolError);
+                return false;
+            }
+            if (Streams_.find(static_cast<std::int32_t>(H.StreamId)) == Streams_.end())
             {
                 ec = make_error_code(Error::ProtocolError);
                 return false;
@@ -336,6 +374,11 @@ namespace Preview::Http2
                 ec = make_error_code(Error::ProtocolError);
                 return false;
             }
+            if ((H.Flags & FlagEndHeaders) == 0)
+            {
+                ec = make_error_code(Error::ProtocolError);
+                return false; // 当前实现不支持跨帧 CONTINUATION
+            }
             std::size_t Offset = 0;
             if ((H.Flags & FlagPadded) != 0)
             {
@@ -366,6 +409,20 @@ namespace Preview::Http2
                 ec = make_error_code(Error::BadMessage);
                 return false;
             }
+            const auto StreamId = static_cast<std::int32_t>(H.StreamId);
+            if (const auto It = Streams_.find(StreamId); It != Streams_.end())
+            {
+                if (It->second.RemoteClosed)
+                {
+                    ec = make_error_code(Error::ProtocolError);
+                    return false;
+                }
+            }
+            else
+            {
+                Streams_.emplace(StreamId, StreamState{});
+                LastRxStream_ = (std::max)(LastRxStream_, H.StreamId);
+            }
             const auto EndStream = (H.Flags & FlagEndStream) != 0;
             if (OnHeaders)
             {
@@ -389,6 +446,11 @@ namespace Preview::Http2
             }
             if ((H.Flags & FlagAck) != 0)
             {
+                if (!Payload.empty())
+                {
+                    ec = make_error_code(Error::ProtocolError);
+                    return false;
+                }
                 return true; // ACK 确认，忽略
             }
             auto Entries = DecodeSettings(Payload);
@@ -439,15 +501,22 @@ namespace Preview::Http2
         }
 
         /// 提交 HEADERS 帧（HPACK 编码）
-        void SubmitHeadersFrame(std::int32_t StreamId, const HeaderList &Headers, bool EndStream)
+        [[nodiscard]] auto SubmitHeadersFrame(std::int32_t StreamId, const HeaderList &Headers, bool EndStream)
+            -> bool
         {
+            if (StreamId < 0)
+            {
+                return false;
+            }
             auto Block = Encoder_.Encode(Headers);
             std::uint8_t Flags = FlagEndHeaders;
             if (EndStream)
             {
                 Flags |= FlagEndStream;
             }
-            TxQueue_.push_back(BuildFrame({FrameType::Headers, Flags, StreamId, Block}));
+            TxQueue_.push_back(
+                BuildFrame({FrameType::Headers, Flags, static_cast<std::uint32_t>(StreamId), Block}));
+            return true;
         }
 
         /// 分配客户端流 ID（奇数递增）

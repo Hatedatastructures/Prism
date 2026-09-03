@@ -52,6 +52,8 @@ namespace Preview::Runtime
 
         /// SNI 路由表（可选，TLS 分流）
         Preview::Recognition::SniRouteTable *routes{nullptr};
+        /// 伪装方案执行器（可选；由启动层拥有）
+        Preview::Recognition::SchemeExecutor *Scheme{nullptr};
         /// 认证器（可选；缺省跳过认证）
         Preview::SharedAuthenticator Auth{};
         /// 中继空闲超时（0 = 禁用）
@@ -101,7 +103,7 @@ namespace Preview::Runtime
         [[nodiscard]] auto Run(Preview::SharedTransmission Inbound) -> net::awaitable<Preview::Fault::Code>
         {
             // 1. 协议识别（预读回注）
-            Preview::Recognition::Pipeline recog(Opts_.routes);
+            Preview::Recognition::Pipeline recog(Opts_.routes, Opts_.Scheme);
             auto Res = co_await recog.Recognize(std::move(Inbound));
             // 协议专用 listener：已配置 AcceptProtocol 时，recognition 仅负责预读回注，
             // 是否识别成功交给 AcceptProtocol 决定（Trojan/SS2022 等首字节不可识别）。

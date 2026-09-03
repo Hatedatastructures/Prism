@@ -21,6 +21,7 @@
 #include <utility>
 
 #include <preview/Foundation/Error.hpp>
+#include <preview/Protocols/Quic/DatagramAdapter.hpp>
 #include <preview/Transport/Transmission.hpp>
 #include <preview/Transport/Unreliable.hpp>
 #include <preview/Protocols/Tuic/Codec.hpp>
@@ -121,6 +122,24 @@ namespace Preview::Tuic
     }
 
     /**
+     * @brief 从已建立的 QUIC 数据报提供者创建客户端包连接
+     * @param Provider 已认证 QUIC 会话的数据报提供者（所有权移交）
+     * @param cfg 客户端配置（QUIC 会话已完成认证时不再重复使用）
+     * @return TUIC 包连接；提供者为空时返回空
+     */
+    [[nodiscard]] inline auto ConnectPacket(Preview::Quic::SharedDatagramProvider Provider,
+                                             const ClientConfig &cfg) -> SharedDgram
+    {
+        (void)cfg;
+        if (!Provider)
+        {
+            return nullptr;
+        }
+        auto Transport = std::make_shared<Preview::Quic::DatagramAdapter>(std::move(Provider));
+        return std::make_shared<Dgram<>>(std::move(Transport));
+    }
+
+    /**
      * @brief 接收服务端流连接并完成 Connect 握手
      * @param upstream 上游传输（所有权移交）
      * @param cfg 服务端配置
@@ -163,6 +182,24 @@ namespace Preview::Tuic
         (void)port;
         (void)cfg;
         return nullptr;
+    }
+
+    /**
+     * @brief 从已建立的 QUIC 数据报提供者创建服务端包连接
+     * @param Provider 已认证 QUIC 会话的数据报提供者（所有权移交）
+     * @param cfg 服务端配置（QUIC 会话已完成认证时不再重复使用）
+     * @return TUIC 包连接；提供者为空时返回空
+     */
+    [[nodiscard]] inline auto AcceptPacket(Preview::Quic::SharedDatagramProvider Provider,
+                                            const ServerConfig &cfg) -> SharedDgram
+    {
+        (void)cfg;
+        if (!Provider)
+        {
+            return nullptr;
+        }
+        auto Transport = std::make_shared<Preview::Quic::DatagramAdapter>(std::move(Provider));
+        return std::make_shared<Dgram<>>(std::move(Transport));
     }
 
 } // namespace Preview::Tuic

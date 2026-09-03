@@ -374,21 +374,9 @@ if(GO_EXECUTABLE AND MINGW)
             VERBATIM)
         list(APPEND _GoTestTargets ${_ProtoTarget})
     endforeach()
-    # vmess_client 依赖 go.mod 中 mihomo 的 replace 指向的本机源码目录；
-    # 该目录不存在（如 CI 干净环境）时跳过注册，避免 ALL 构建失败
-    set(_vmess_available OFF)
+    # VMess 参考客户端使用 go.mod 中固定版本的 mihomo 模块；
+    # 不允许依赖开发机绝对路径，依赖获取失败应让构建明确失败。
     if(EXISTS ${_GoSrcDir}/go.mod)
-        file(READ ${_GoSrcDir}/go.mod _vmess_gomod)
-        if(_vmess_gomod MATCHES "replace[ \t]+github.com/metacubex/mihomo[ \t]*=>[ \t]*([^\r\n]+)")
-            set(_vmess_replace_dir "${CMAKE_MATCH_1}")
-            string(STRIP "${_vmess_replace_dir}" _vmess_replace_dir)
-            if(EXISTS "${_vmess_replace_dir}")
-                set(_vmess_available ON)
-            endif()
-        endif()
-    endif()
-
-    if(_vmess_available)
         add_custom_target(GoTestVmess ALL
             COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/vmess_client.exe ./vmess_client
             WORKING_DIRECTORY ${_GoSrcDir}
@@ -396,7 +384,7 @@ if(GO_EXECUTABLE AND MINGW)
             VERBATIM)
         list(APPEND _GoTestTargets GoTestVmess)
     else()
-        message(STATUS "Go vmess_client skipped: mihomo replace dir not available")
+        message(FATAL_ERROR "Go VMess reference client requires tests/go/go.mod")
     endif()
     add_custom_target(GoTestSingVmess ALL
         COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/singvmess.exe ./singvmess
@@ -421,18 +409,29 @@ if(GO_EXECUTABLE AND MINGW)
                     -Config ${_GoPrismConfig})
         set_tests_properties(${_CompatTarget} PROPERTIES TIMEOUT 60)
     endforeach()
-    if(_vmess_available)
-        add_test(NAME GoCompatVmess
-            COMMAND powershell -ExecutionPolicy Bypass -File ${_GoRunner}
-                    -GoExe ${_GoBinDir}/vmess_client.exe
-                    -PrismExe ${_GoPrismExe}
-                    -Config ${_GoPrismConfig})
-        set_tests_properties(GoCompatVmess PROPERTIES TIMEOUT 60)
-    endif()
+    add_test(NAME GoCompatVmess
+        COMMAND powershell -ExecutionPolicy Bypass -File ${_GoRunner}
+                -GoExe ${_GoBinDir}/vmess_client.exe
+                -PrismExe ${_GoPrismExe}
+                -Config ${_GoPrismConfig})
+    set_tests_properties(GoCompatVmess PROPERTIES TIMEOUT 60)
     add_test(NAME GoCompatSingVmess
         COMMAND powershell -ExecutionPolicy Bypass -File ${_GoRunner}
                 -GoExe ${_GoBinDir}/singvmess.exe
                 -PrismExe ${_GoPrismExe}
                 -Config ${_GoPrismConfig})
     set_tests_properties(GoCompatSingVmess PROPERTIES TIMEOUT 60)
+endif()
+
+if(PRISM_ENABLE_INTEROP)
+    find_program(PRISM_POWERSHELL_EXECUTABLE NAMES pwsh powershell)
+    if(NOT PRISM_POWERSHELL_EXECUTABLE)
+        message(FATAL_ERROR "PRISM_ENABLE_INTEROP requires pwsh or powershell")
+    endif()
+    add_test(NAME PreviewInteropMatrix
+        COMMAND ${PRISM_POWERSHELL_EXECUTABLE} -NoProfile -ExecutionPolicy Bypass
+                -File ${CMAKE_SOURCE_DIR}/scripts/interop/Run-Matrix.ps1
+                -RepoRoot ${CMAKE_SOURCE_DIR}
+                -OutputDirectory ${CMAKE_BINARY_DIR}/interop-results)
+    set_tests_properties(PreviewInteropMatrix PROPERTIES LABELS interop TIMEOUT 900)
 endif()

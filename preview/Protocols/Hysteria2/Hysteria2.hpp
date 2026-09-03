@@ -30,6 +30,7 @@
 #include <preview/Protocols/Hysteria2/Conn.hpp>
 #include <preview/Protocols/Hysteria2/Dgram.hpp>
 #include <preview/Protocols/Hysteria2/Types.hpp>
+#include <preview/Protocols/Quic/DatagramAdapter.hpp>
 
 namespace Preview::Hysteria2
 {
@@ -109,6 +110,24 @@ namespace Preview::Hysteria2
     }
 
     /**
+     * @brief 从已建立的 QUIC 数据报提供者创建客户端包连接
+     * @param Provider 已认证 QUIC 会话的数据报提供者（所有权移交）
+     * @param cfg 客户端配置（QUIC 会话已完成认证时不再重复使用）
+     * @return Hysteria2 包连接；提供者为空时返回空
+     */
+    [[nodiscard]] inline auto ConnectPacket(Preview::Quic::SharedDatagramProvider Provider,
+                                             const ClientConfig &cfg) -> SharedDgram
+    {
+        (void)cfg;
+        if (!Provider)
+        {
+            return nullptr;
+        }
+        auto Transport = std::make_shared<Preview::Quic::DatagramAdapter>(std::move(Provider));
+        return std::make_shared<Dgram<>>(std::move(Transport));
+    }
+
+    /**
      * @brief 接收服务端流连接并完成认证握手
      * @param upstream 上游传输（所有权移交）
      * @param cfg 服务端配置
@@ -146,6 +165,24 @@ namespace Preview::Hysteria2
         (void)port;
         (void)cfg;
         return nullptr;
+    }
+
+    /**
+     * @brief 从已建立的 QUIC 数据报提供者创建服务端包连接
+     * @param Provider 已认证 QUIC 会话的数据报提供者（所有权移交）
+     * @param cfg 服务端配置（QUIC 会话已完成认证时不再重复使用）
+     * @return Hysteria2 包连接；提供者为空时返回空
+     */
+    [[nodiscard]] inline auto AcceptPacket(Preview::Quic::SharedDatagramProvider Provider,
+                                            const ServerConfig &cfg) -> SharedDgram
+    {
+        (void)cfg;
+        if (!Provider)
+        {
+            return nullptr;
+        }
+        auto Transport = std::make_shared<Preview::Quic::DatagramAdapter>(std::move(Provider));
+        return std::make_shared<Dgram<>>(std::move(Transport));
     }
 
 } // namespace Preview::Hysteria2

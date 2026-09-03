@@ -19,6 +19,21 @@ if (-not (Test-Path -LiteralPath $WorkflowPath -PathType Leaf)) {
 
 $Lines = @(Get-Content -LiteralPath $WorkflowPath -Encoding UTF8)
 $Problems = [System.Collections.Generic.List[string]]::new()
+$WorkflowText = $Lines -join "`n"
+
+foreach ($Job in @('build-windows', 'build-linux')) {
+    if ($WorkflowText -match "(?ms)^  ${Job}:\s*\r?\n" -and
+        $WorkflowText -notmatch "(?ms)^  ${Job}:\s*\r?\n\s+needs:\s+gate\s*$") {
+        $Problems.Add("$Job must declare needs: gate")
+    }
+}
+
+$RunTestsBlocks = [regex]::Matches($WorkflowText, '(?ms)^\s+- name:\s+Run Tests\s*\r?\n(.*?)(?=^\s+- name:|^\s{2}\w|\z)')
+foreach ($Match in $RunTestsBlocks) {
+    if ($Match.Groups[1].Value -notmatch '--no-tests=error') {
+        $Problems.Add("Run Tests must pass --no-tests=error")
+    }
+}
 
 function Get-Indent([string]$Line) {
     return $Line.Length - $Line.TrimStart().Length

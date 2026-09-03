@@ -21,6 +21,7 @@
 #include <preview/Transport/Unreliable.hpp>
 #include <preview/Protocols/Tuic/Dgram.hpp>
 #include <preview/Protocols/Tuic/Tuic.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <gtest/gtest.h>
 
 namespace
@@ -99,6 +100,62 @@ namespace
         EXPECT_EQ(Consumed, Tuic::AuthenticateFrameLen);
         EXPECT_EQ(Parsed.Uuid, Uuid);
         EXPECT_EQ(Parsed.Token, Token);
+    }
+
+    TEST(TuicDgramProvider, MemoryProviderRoundtrip)
+    {
+        net::io_context ioc;
+        auto [ClientProvider, ServerProvider] =
+            Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
+        auto Client = Tuic::ConnectPacket(ClientProvider, Tuic::ClientConfig{});
+        auto Server = Tuic::AcceptPacket(ServerProvider, Tuic::ServerConfig{});
+        ASSERT_NE(Client, nullptr);
+        ASSERT_NE(Server, nullptr);
+
+        const auto Target = make_dst();
+        const auto Payload = AsU8Span(std::string_view{"tuic-provider"});
+        Tuic::Address ReceivedTarget;
+        std::vector<std::uint8_t> ReceivedPayload;
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     EXPECT_EQ(co_await Client->AsyncSendTo(Target, Payload), Error::None);
+                     EXPECT_EQ(co_await Server->AsyncReceiveFrom(ReceivedTarget, ReceivedPayload),
+                               Error::None);
+                     EXPECT_EQ(co_await Server->AsyncSendTo(ReceivedTarget, ReceivedPayload),
+                               Error::None);
+                     Client->Close();
+                     Server->Close();
+                 });
+
+        EXPECT_EQ(ReceivedTarget.Host, Target.Host);
+        EXPECT_EQ(ReceivedTarget.Port, Target.Port);
+        EXPECT_EQ(std::string(ReceivedPayload.begin(), ReceivedPayload.end()), "tuic-provider");
+    }
+
+    TEST(TuicDgramProvider, ShortWriteAndCloseAreErrors)
+    {
+        net::io_context ioc;
+        auto [ClientProvider, ServerProvider] =
+            Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
+        auto Client = Tuic::ConnectPacket(ClientProvider, Tuic::ClientConfig{});
+        auto Server = Tuic::AcceptPacket(ServerProvider, Tuic::ServerConfig{});
+        ASSERT_NE(Client, nullptr);
+        ASSERT_NE(Server, nullptr);
+        const auto Target = make_dst();
+
+        run_coro(ioc,
+                 [&]() -> net::awaitable<void>
+                 {
+                     ClientProvider->MaxSend = 2;
+                     EXPECT_EQ(co_await Client->AsyncSendTo(Target, AsU8Span(std::string_view{"short"})),
+                               Error::IoError);
+                     ClientProvider->MaxSend = 0;
+                     Server->Close();
+                     EXPECT_EQ(co_await Client->AsyncSendTo(Target, AsU8Span(std::string_view{"closed"})),
+                               Error::IoError);
+                     Client->Close();
+                 });
     }
 
     TEST(TuicDgram, DecoratorBasics)

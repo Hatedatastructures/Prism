@@ -438,6 +438,33 @@ namespace
                  });
     }
 
+    TEST(UdpTransmission, ConnectRejectsMalformedHostPort)
+    {
+        net::io_context ioc;
+        const std::array<std::string_view, 9> Invalid{
+            "", ":443", "example.com:", "example.com:not-a-port", "example.com:1x",
+            "example.com:65536", "[::1", "[::1]443", "2001:db8::1:443"};
+
+        for (const auto Remote : Invalid)
+        {
+            Preview::Transport::Unreliable Transport(ioc.get_executor());
+            EXPECT_FALSE(Transport.Connect(std::string(Remote))) << Remote;
+        }
+    }
+
+    TEST(UdpTransmission, ConnectAcceptsIpv4Ipv6AndDomain)
+    {
+        net::io_context ioc;
+        const std::array<std::string_view, 3> Valid{
+            "127.0.0.1:443", "[::1]:443", "example.com:443"};
+
+        for (const auto Remote : Valid)
+        {
+            Preview::Transport::Unreliable Transport(ioc.get_executor());
+            EXPECT_TRUE(Transport.Connect(std::string(Remote))) << Remote;
+        }
+    }
+
     TEST(MiddlewareNames, Accessors)
     {
         Preview::Middleware::Builtin::DialMiddleware Dial;

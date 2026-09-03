@@ -23,6 +23,7 @@
 #include <vector>
 
 #include <preview/Transport/MemoryStream.hpp>
+#include <preview/Protocols/Vless/Codec.hpp>
 #include <preview/Protocols/Vless/Vless.hpp>
 
 namespace
@@ -47,6 +48,40 @@ namespace
     {
         return {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
     };
+
+    TEST(VlessCodec, ParseAddressRejectsUnknownAtyp)
+    {
+        Vless::Address Address;
+        std::size_t Offset = 0;
+        const std::array<std::uint8_t, 1> Wire{0x09};
+
+        EXPECT_EQ(Vless::ParseAddress(Wire, Address, Offset), Error::BadMessage);
+        EXPECT_EQ(Offset, 1u);
+    }
+
+    TEST(VlessCodec, ParseRequestRejectsUnknownAtyp)
+    {
+        std::vector<std::uint8_t> Wire{Vless::ProtocolVersion};
+        const auto Uuid = make_uuid();
+        Wire.insert(Wire.end(), Uuid.begin(), Uuid.end());
+        Wire.insert(Wire.end(), {0x00, static_cast<std::uint8_t>(Vless::Command::Tcp), 0x01, 0xBB,
+                                 0x09});
+        Vless::RequestHeader Request;
+        std::size_t Consumed = 0;
+
+        EXPECT_EQ(Vless::ParseRequest(Wire, Request, Consumed), Error::BadMessage);
+    }
+
+    TEST(VlessCodec, ParseAddressKeepsNeedMoreForKnownAtyp)
+    {
+        Vless::Address Address;
+        std::size_t Offset = 0;
+        const std::array<std::uint8_t, 3> Wire{static_cast<std::uint8_t>(Vless::AddressType::Ipv4),
+                                               127, 0};
+
+        EXPECT_EQ(Vless::ParseAddress(Wire, Address, Offset), Error::NeedMore);
+        EXPECT_EQ(Offset, 1u);
+    }
 
     TEST(VlessConnErrorMatrix, BadUuid)
     {

@@ -329,6 +329,23 @@ namespace
         EXPECT_NE(PreviewError, Preview::Error::None);
     }
 
+    TEST(ProtocolContract, VlessUnknownAddressTypeRejected)
+    {
+        std::vector<std::uint8_t> Wire{0x00};
+        Wire.insert(Wire.end(), 16, 0x11);
+        Wire.insert(Wire.end(), {0x00, 0x01, 0x01, 0xBB, 0x09});
+
+        const auto Production = psm::protocol::vless::format::parse_request(
+            std::span<const std::uint8_t>(Wire));
+        Preview::Vless::RequestHeader PreviewRequest;
+        std::size_t Consumed = 0;
+        const auto PreviewError = Preview::Vless::ParseRequest(
+            std::span<const std::uint8_t>(Wire), PreviewRequest, Consumed);
+
+        EXPECT_FALSE(Production.has_value());
+        EXPECT_EQ(PreviewError, Preview::Error::BadMessage);
+    }
+
     TEST(ProtocolContract, SmuxDataAndFinWireMatchesProduction)
     {
         const std::array<std::uint8_t, 4> Payload{0x41, 0x00, 0xFE, 0x7F};

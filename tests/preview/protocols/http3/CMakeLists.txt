@@ -1,6 +1,8 @@
 # http3 子模块测试
 AddPreviewTest(HttpQuicCoverage.cpp)
 target_link_libraries(HttpQuicCoverage PRIVATE PreviewProtocolHttp2 PreviewProtocolQuic PreviewProtocolHttp3 PreviewTestSupport)
+AddPreviewTest(NativeQuicLoopback.cpp)
+target_link_libraries(NativeQuicLoopback PRIVATE PreviewProtocolQuicNative PreviewTestSupport)
 AddPreviewTest(QpackEncodeOut.cpp)
 target_link_libraries(QpackEncodeOut PRIVATE PreviewFoundation PreviewProtocolHttp3 PreviewTestSupport)
 AddPreviewTest(QpackInteropTest.cpp)

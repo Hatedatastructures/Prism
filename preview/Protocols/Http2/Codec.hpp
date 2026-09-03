@@ -14,6 +14,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -130,12 +131,16 @@ namespace Preview::Http2
      * @return 整数值
      */
     [[nodiscard]] inline auto DecodeInt(std::span<const std::byte> Data, std::uint8_t PrefixBits,
-                                         std::size_t &Offset) -> std::uint64_t
+                                         std::size_t &Offset) -> std::optional<std::uint64_t>
     {
+        if (PrefixBits == 0 || PrefixBits > 8)
+        {
+            return std::nullopt;
+        }
         const auto PrefixMask = static_cast<std::uint8_t>((1U << PrefixBits) - 1U);
         if (Offset >= Data.size())
         {
-            return 0;
+            return std::nullopt;
         }
         auto value = static_cast<std::uint64_t>(std::to_integer<std::uint8_t>(Data[Offset]) & PrefixMask);
         ++Offset;
@@ -148,14 +153,23 @@ namespace Preview::Http2
         {
             const auto B = std::to_integer<std::uint8_t>(Data[Offset]);
             ++Offset;
-            value += static_cast<std::uint64_t>(B & 0x7F) << Shift;
+            const auto Payload = static_cast<std::uint64_t>(B & 0x7F);
+            if (Shift >= 64 || Payload > (std::numeric_limits<std::uint64_t>::max() - value) >> Shift)
+            {
+                return std::nullopt;
+            }
+            value += Payload << Shift;
             if ((B & 0x80) == 0)
             {
-                break;
+                return value;
+            }
+            if (Shift > 56)
+            {
+                return std::nullopt;
             }
             Shift += 7;
         }
-        return value;
+        return std::nullopt;
     }
 
     /**
@@ -188,7 +202,7 @@ namespace Preview::Http2
         }
         const auto Huffman = (std::to_integer<std::uint8_t>(Data[Offset]) & 0x80) != 0;
         const auto Len = DecodeInt(Data, 7, Offset);
-        if (Offset > Data.size() || Len > Data.size() - Offset)
+        if (!Len || Offset > Data.size() || *Len > Data.size() - Offset)
         {
             return std::nullopt;
         }
@@ -197,21 +211,21 @@ namespace Preview::Http2
             std::vector<std::uint8_t> Decoded;
             const auto Encoded = std::span<const std::uint8_t>(
                 reinterpret_cast<const std::uint8_t *>(Data.data() + Offset),
-                static_cast<std::size_t>(Len));
+                static_cast<std::size_t>(*Len));
             if (!Preview::Http3::Qpack::Detail::HuffmanDecodeImpl(Encoded, Decoded))
             {
                 return std::nullopt;
             }
-            Offset += static_cast<std::size_t>(Len);
+            Offset += static_cast<std::size_t>(*Len);
             return std::string(reinterpret_cast<const char *>(Decoded.data()), Decoded.size());
         }
         std::string out;
-        out.reserve(static_cast<std::size_t>(Len));
-        for (std::size_t I = 0; I < static_cast<std::size_t>(Len); ++I)
+        out.reserve(static_cast<std::size_t>(*Len));
+        for (std::size_t I = 0; I < static_cast<std::size_t>(*Len); ++I)
         {
             out.push_back(std::to_integer<char>(Data[Offset + I]));
         }
-        Offset += static_cast<std::size_t>(Len);
+        Offset += static_cast<std::size_t>(*Len);
         return out;
     }
 
@@ -323,7 +337,11 @@ namespace Preview::Http2
                 {
                     // 索引头字段（§6.1）
                     const auto Idx = DecodeInt(Data, 7, Offset);
-                    auto H = LookupIndex(Idx);
+                    if (!Idx)
+                    {
+                        return std::nullopt;
+                    }
+                    auto H = LookupIndex(*Idx);
                     if (!H)
                     {
                         return std::nullopt;
@@ -334,11 +352,15 @@ namespace Preview::Http2
                 {
                     // 增量索引字面量头字段（§6.2.1）
                     const auto Idx = DecodeInt(Data, 6, Offset);
+                    if (!Idx)
+                    {
+                        return std::nullopt;
+                    }
                     std::string Name;
-                    if (Idx != 0)
+                    if (*Idx != 0)
                     {
                         // Name 引用索引（静态/动态表）
-                        auto H = LookupIndex(Idx);
+                        auto H = LookupIndex(*Idx);
                         if (!H)
                         {
                             return std::nullopt;
@@ -368,16 +390,24 @@ namespace Preview::Http2
                 {
                     // 动态表大小更新（§6.3）：按新上限驱逐超限条目
                     const auto NewCap = DecodeInt(Data, 5, Offset);
-                    EvictDynamic(NewCap);
+                    if (!NewCap)
+                    {
+                        return std::nullopt;
+                    }
+                    EvictDynamic(*NewCap);
                 }
                 else if ((B & 0x10) != 0)
                 {
                     // 永不索引字面量（§6.2.3）：仅解析
                     const auto Idx = DecodeInt(Data, 4, Offset);
-                    std::string Name;
-                    if (Idx != 0)
+                    if (!Idx)
                     {
-                        auto H = LookupIndex(Idx);
+                        return std::nullopt;
+                    }
+                    std::string Name;
+                    if (*Idx != 0)
+                    {
+                        auto H = LookupIndex(*Idx);
                         if (!H)
                         {
                             return std::nullopt;
@@ -404,10 +434,14 @@ namespace Preview::Http2
                 {
                     // 无索引字面量（§6.2.2）
                     const auto Idx = DecodeInt(Data, 4, Offset);
-                    std::string Name;
-                    if (Idx != 0)
+                    if (!Idx)
                     {
-                        auto H = LookupIndex(Idx);
+                        return std::nullopt;
+                    }
+                    std::string Name;
+                    if (*Idx != 0)
+                    {
+                        auto H = LookupIndex(*Idx);
                         if (!H)
                         {
                             return std::nullopt;

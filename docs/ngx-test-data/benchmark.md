@@ -1,5 +1,15 @@
 # Preview Benchmark 基线
 
+> Gate D 状态（2026-09-03）：同一 harness 的 Preview/生产对拍尚未完成；本文件中的
+> 独立数字不构成跨实现性能结论。可比较场景采用 `<=5%` 噪声、`5%-10%` 复核、
+> `>10%` 阻止迁移的分级规则，待统一 runner 产出原始 JSON 后生效。
+
+本轮已增加唯一的 `tests/Contract/PerformanceContract.cpp` target。它使用相同的
+payload、100 次预热、10000 次迭代和 3 次重复，输出生产/Preview 的 VLESS、SS2022
+和 SOCKS5 codec 中位数到 `build/tests/Contract/preview-production-perf.json`；这
+是可复现的 codec 级 Contract 证据，不等同于 TCP/UDP 网络吞吐、握手延迟或峰值内存
+对拍，后者仍列为 Gate D 缺口。
+
 > 采集日期：2026-08-18 晚间
 > 构建配置：`Release + PRISM_ENABLE_COVERAGE=ON`（MinGW，含 --coverage 插桩，性能略降）
 > 用途：参考基线。ASAN/纯净 Release 重建后需重新采集对比。

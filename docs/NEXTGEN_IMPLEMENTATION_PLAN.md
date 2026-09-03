@@ -4,7 +4,7 @@
 >
 > 本计划不等同于立即把 tests/common 搬入 src/prism。迁移必须建立在公共层正确性、完整纵向链路和生产对拍结果之上。
 >
-> 当前状态：阶段 0～5 已完成（Gate A/B/C 通过 + adapter v2 收敛）；阶段 5.6 审计整改 A-1~A-6 已完成（2026-08-20，26 个 target 全绿）；阶段 6（质量门禁）6a-6f 全部完成（2026-08-20，6e 以 Debug+_GLIBCXX_ASSERTIONS 替代 ASAN）；Gate D 推进中：L5 SS2022 外部互操作双向 PASS（sing-shadowsocks v0.2.12）+ L4 生产对拍 socks5/ss2022 双向 PASS、vless/trojan/vmess 认证失败路径 PASS（echo 受阻于生产识别器，见 Gate D）。
+> 当前状态（2026-09-03）：阶段 0～4 的既有 Gate A/B/C 证据保留；Preview 已补齐 XHTTP 标准字段、SS2022 TCP raw PSK、VLESS 非法 ATYP、HTTP/2/HPACK 负向校验、TLS/SNI 基础解析和 native ngtcp2 QUIC UDP 回环。外部矩阵已生成 52 条机器记录（8 pass、44 blocked、0 failure），并新增同一 Contract 的 codec 性能输出；完整网络性能和全协议 L5 仍未闭合。VLESS/Trojan/VMess 真实生产单端口 echo 仍是 `blocked-production-prerequisite`，迁移决策矩阵已生成但没有协议满足 `migrate`。生产目录本轮不修改。
 
 ## 1. 总体设计
 
@@ -578,9 +578,11 @@ VLESS 接入时不得复制一套 runtime/middleware 编排逻辑。
 #### 仍缺项（迁移前补齐）
 
 - ❌ 生产对拍（L4）数据面全通：socks5/ss2022 已 PASS；vless/trojan/vmess echo 受阻于生产识别器——`src/prism/handshake/recognition/probe/analyzer.cpp` 只识别 SOCKS5/TLS/HTTP，其余一律回退 shadowsocks，VLESS/Trojan/VMess 首包被当 SS2022 解密失败（`decrypt fixed header failed: expected 11 plain bytes, got 27 enc bytes`）。生产 TODO（`logs/issues.md` T-1），不在 preview 侧改。
-- ❌ 外部互操作（L5）其他协议：VLESS/Trojan/VMess/Reality 等与 mihomo/sing-box 对拍（SS2022 双向已完成，2026-08-20）
-- ❌ preview vs psm 同场景性能对标
+- ⚠️ 外部互操作（L5）其他协议：当前 runner 已为全部协议生成逐方向 `environment-unavailable` 记录；Reality/ShadowTLS/Restls/AnyTLS/TrustTunnel/WebSocket/gRPC 另有 codec-vector 参考程序通过，但仍不是全链路 echo。
+- ⚠️ preview vs psm 同场景性能对标：`PerformanceContract` 已固定输入/预热/迭代/重复并输出 codec 指标；TCP/UDP/握手/CPU/峰值内存的统一网络 harness 尚未建立。
+- ⚠️ QUIC/Hysteria2/TUIC：Preview native ngtcp2 client/server UDP loopback 与 datagram provider 已通过；协议认证流和 quic-go/sing-quic 外部闭环仍待做。
 - ✅ 生命周期/错误链审查结论文档（`docs/ngx-test-data/LIFECYCLE_AUDIT.md` 第 6 节，2026-08-20）
+- ✅ 逐协议迁移建议矩阵：`docs/ngx-test-data/migration-decision.md` 已生成；当前没有协议满足 `migrate` 条件。
 
 ## 7. 明确禁止的路径
 

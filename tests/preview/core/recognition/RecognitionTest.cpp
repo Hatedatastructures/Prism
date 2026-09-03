@@ -13,6 +13,8 @@
 #include <preview/Runtime/Recognition/Probe.hpp>
 #include <preview/Runtime/Recognition/Protocol.hpp>
 #include <preview/Runtime/Recognition/Route.hpp>
+#include <preview/Runtime/Recognition/SchemeExecutor.hpp>
+#include <preview/Runtime/Recognition/Tls.hpp>
 #include <preview/Transport/MemoryStream.hpp>
 
 #include <boost/asio/io_context.hpp>
@@ -217,6 +219,300 @@ TEST(RecognitionRoute, MultipleRoutes)
     EXPECT_EQ(routes.Size(), 2u);
     routes.Clear();
     EXPECT_EQ(routes.Size(), 0u);
+}
+
+TEST(RecognitionRoute, LookupNormalizesAsciiCase)
+{
+    rec::SniRouteTable routes;
+    routes.Add("Example.COM", "reality");
+    EXPECT_EQ(routes.Lookup("example.com"), "reality");
+}
+
+TEST(RecognitionRoute, LongestWildcardWins)
+{
+    rec::SniRouteTable routes;
+    routes.Add("*.example.com", "shadowtls");
+    routes.Add("*.deep.example.com", "reality");
+    EXPECT_EQ(routes.Lookup("node.deep.example.com"), "reality");
+}
+
+TEST(RecognitionRoute, WildcardMatchesSingleLabelOnly)
+{
+    rec::SniRouteTable routes;
+    routes.Add("*.example.com", "shadowtls");
+    EXPECT_EQ(routes.Lookup("a.b.example.com"), "");
+}
+
+TEST(RecognitionRoute, LookupEntryCarriesProtocolAndFallback)
+{
+    rec::SniRouteTable routes;
+    routes.Add("api.example.com", "native", rec::ProtocolType::Vless, true);
+    const auto *entry = routes.LookupEntry("API.EXAMPLE.COM.");
+    ASSERT_NE(entry, nullptr);
+    EXPECT_EQ(entry->Scheme, "native");
+    EXPECT_EQ(entry->Protocol, rec::ProtocolType::Vless);
+    EXPECT_TRUE(entry->AllowFallback);
+}
+
+TEST(RecognitionTls, ParsesClientHelloSniAndVersion)
+{
+    const auto PushU16 = [](std::vector<std::uint8_t> &out, const std::size_t value)
+    {
+        out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    };
+    const auto PushU24 = [](std::vector<std::uint8_t> &out, const std::size_t value)
+    {
+        out.push_back(static_cast<std::uint8_t>((value >> 16) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    };
+
+    const std::string Host = "Example.COM";
+    std::vector<std::uint8_t> Sni;
+    PushU16(Sni, Host.size() + 3);
+    Sni.push_back(0x00);
+    PushU16(Sni, Host.size());
+    Sni.insert(Sni.end(), Host.begin(), Host.end());
+
+    std::vector<std::uint8_t> Extensions;
+    PushU16(Extensions, 0x0000);
+    PushU16(Extensions, Sni.size());
+    Extensions.insert(Extensions.end(), Sni.begin(), Sni.end());
+    PushU16(Extensions, 0x002B);
+    PushU16(Extensions, 3);
+    Extensions.push_back(2);
+    PushU16(Extensions, 0x0304);
+
+    std::vector<std::uint8_t> Body{0x03, 0x03};
+    Body.insert(Body.end(), 32, 0x42);
+    Body.push_back(0x00); // session_id length
+    Body.push_back(0x00);
+    Body.push_back(0x02); // one cipher suite
+    Body.push_back(0x13);
+    Body.push_back(0x01);
+    Body.push_back(0x01); // one compression method
+    Body.push_back(0x00);
+    PushU16(Body, Extensions.size());
+    Body.insert(Body.end(), Extensions.begin(), Extensions.end());
+
+    std::vector<std::uint8_t> Record{0x16, 0x03, 0x01, 0x00, 0x00};
+    Record[3] = static_cast<std::uint8_t>(((Body.size() + 4) >> 8) & 0xFF);
+    Record[4] = static_cast<std::uint8_t>((Body.size() + 4) & 0xFF);
+    Record.push_back(0x01);
+    PushU24(Record, Body.size());
+    Record.insert(Record.end(), Body.begin(), Body.end());
+
+    const auto [Err, Features] = rec::ParseClientHello(Record);
+    EXPECT_EQ(Err, Error::None);
+    EXPECT_EQ(Features.ServerName, Host);
+    EXPECT_EQ(Features.LegacyVersion, 0x0303);
+    ASSERT_EQ(Features.Versions.size(), 1u);
+    EXPECT_EQ(Features.Versions.front(), 0x0304);
+    EXPECT_EQ(Features.RawRecord.size(), Record.size());
+}
+
+TEST(RecognitionTls, ReadsRecordAfterPrereadPrefix)
+{
+    net::io_context ioc;
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+    const std::array<std::uint8_t, 9> Record{
+        0x16, 0x03, 0x01, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00};
+    const std::array<std::byte, 2> Prefix{
+        static_cast<std::byte>(Record[0]), static_cast<std::byte>(Record[1])};
+
+    net::co_spawn(
+        ioc,
+        [sb, Record]() -> net::awaitable<void>
+        {
+            std::error_code ec;
+            co_await sb->async_write_some(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Record.data() + 2), 7), ec);
+        },
+        net::detached);
+
+    run_coro(ioc,
+             [&]() -> net::awaitable<void>
+             {
+                 const auto [Err, Got] = co_await rec::ReadTlsRecord(*sa, Prefix);
+                 EXPECT_EQ(Err, Error::None);
+                 EXPECT_EQ(Got.size(), Record.size());
+                 if (Got.size() != Record.size())
+                 {
+                     co_return;
+                 }
+                 EXPECT_TRUE(std::equal(Got.begin(), Got.end(), Record.begin(), Record.end()));
+             });
+}
+
+TEST(RecognitionTls, RejectsNonHandshakeAndTruncatedRecords)
+{
+    const std::array<std::uint8_t, 5> ApplicationData{
+        0x17, 0x03, 0x03, 0x00, 0x00};
+    const auto [ApplicationError, unusedApplication] = rec::ParseClientHello(ApplicationData);
+    (void)unusedApplication;
+    EXPECT_EQ(ApplicationError, Error::BadMessage);
+
+    const std::array<std::uint8_t, 9> Truncated{
+        0x16, 0x03, 0x03, 0x00, 0x04, 0x01, 0x00, 0x00, 0x00};
+    const auto [TruncatedError, unusedTruncated] = rec::ParseClientHello(Truncated);
+    (void)unusedTruncated;
+    EXPECT_EQ(TruncatedError, Error::BadMessage);
+}
+
+TEST(RecognitionPipeline, RoutesTlsClientHelloToScheme)
+{
+    const auto PushU16 = [](std::vector<std::uint8_t> &out, const std::size_t value)
+    {
+        out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    };
+    const auto PushU24 = [](std::vector<std::uint8_t> &out, const std::size_t value)
+    {
+        out.push_back(static_cast<std::uint8_t>((value >> 16) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xFF));
+        out.push_back(static_cast<std::uint8_t>(value & 0xFF));
+    };
+    const std::string Host = "example.com";
+    std::vector<std::uint8_t> Sni;
+    PushU16(Sni, Host.size() + 3);
+    Sni.push_back(0x00);
+    PushU16(Sni, Host.size());
+    Sni.insert(Sni.end(), Host.begin(), Host.end());
+    std::vector<std::uint8_t> Extensions;
+    PushU16(Extensions, 0x0000);
+    PushU16(Extensions, Sni.size());
+    Extensions.insert(Extensions.end(), Sni.begin(), Sni.end());
+    std::vector<std::uint8_t> Body{0x03, 0x03};
+    Body.insert(Body.end(), 32, 0x42);
+    Body.push_back(0x00);
+    Body.push_back(0x00);
+    Body.push_back(0x02);
+    Body.push_back(0x13);
+    Body.push_back(0x01);
+    Body.push_back(0x01);
+    Body.push_back(0x00);
+    PushU16(Body, Extensions.size());
+    Body.insert(Body.end(), Extensions.begin(), Extensions.end());
+    std::vector<std::uint8_t> Record{0x16, 0x03, 0x01, 0x00, 0x00, 0x01};
+    Record[3] = static_cast<std::uint8_t>(((Body.size() + 4) >> 8) & 0xFF);
+    Record[4] = static_cast<std::uint8_t>((Body.size() + 4) & 0xFF);
+    PushU24(Record, Body.size());
+    Record.insert(Record.end(), Body.begin(), Body.end());
+
+    net::io_context ioc;
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+    rec::SniRouteTable routes;
+    routes.Add("example.com", "reality", rec::ProtocolType::Trojan);
+    rec::SchemeExecutor executor;
+    auto called = std::make_shared<bool>(false);
+    executor.RegisterScheme("reality", [called](SharedTransmission Inbound)
+                            -> net::awaitable<SharedTransmission>
+    {
+        *called = true;
+        co_return Inbound;
+    });
+    rec::Pipeline pipe(&routes, &executor);
+
+    run_coro(ioc,
+             [sa, sb, Record, Pipe = &pipe, called]() -> net::awaitable<void>
+             {
+                 std::error_code ec;
+                 co_await sb->async_write_some(
+                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Record.data()), Record.size()), ec);
+                 auto Result = co_await Pipe->Recognize(sa);
+                 EXPECT_TRUE(Result.success);
+                 EXPECT_EQ(Result.detected, rec::ProtocolType::Trojan);
+                 EXPECT_EQ(Result.scheme, "reality");
+                 EXPECT_TRUE(*called);
+                 std::array<std::byte, 5> replay{};
+                 const auto N = co_await Result.transport->async_read_some(replay, ec);
+                 EXPECT_EQ(N, replay.size());
+                 EXPECT_EQ(replay[0], std::byte{0x16});
+             });
+}
+
+TEST(RecognitionPipeline, RejectsUnknownTlsSni)
+{
+    const std::vector<std::uint8_t> Record{
+        0x16, 0x03, 0x01, 0x00, 0x28, 0x01, 0x00, 0x00, 0x24,
+        0x03, 0x03, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+        0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+        0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
+        0x42, 0x42, 0x42, 0x42, 0x00, 0x00, 0x02, 0x13, 0x01,
+        0x01, 0x00};
+    net::io_context ioc;
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+    rec::SniRouteTable routes;
+    routes.Add("known.example", "reality", rec::ProtocolType::Trojan);
+    rec::SchemeExecutor executor;
+    rec::Pipeline pipe(&routes, &executor);
+
+    run_coro(ioc,
+             [sa, sb, Record, Pipe = &pipe]() -> net::awaitable<void>
+             {
+                 std::error_code ec;
+                 co_await sb->async_write_some(
+                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Record.data()), Record.size()), ec);
+                 auto Result = co_await Pipe->Recognize(sa);
+                 EXPECT_FALSE(Result.success);
+                 EXPECT_EQ(Result.detected, rec::ProtocolType::Tls);
+                 EXPECT_TRUE(Result.scheme.empty());
+             });
+}
+
+TEST(RecognitionPipeline, RewindsTransportWhenSchemeFails)
+{
+    const std::vector<std::uint8_t> Sni{
+        0x00, 0x0E, 0x00, 0x00, 0x00, 0x0B, 'e', 'x', 'a', 'm', 'p', 'l', 'e', '.', 'c', 'o', 'm'};
+    std::vector<std::uint8_t> Extensions{0x00, 0x00, 0x00, 0x10};
+    Extensions.insert(Extensions.end(), Sni.begin(), Sni.end());
+    std::vector<std::uint8_t> Body{0x03, 0x03};
+    Body.insert(Body.end(), 32, 0x42);
+    Body.insert(Body.end(), {0x00, 0x00, 0x02, 0x13, 0x01, 0x01, 0x00,
+                             0x00, 0x14});
+    Body.insert(Body.end(), Extensions.begin(), Extensions.end());
+    std::vector<std::uint8_t> Record{
+        0x16, 0x03, 0x01, 0x00, static_cast<std::uint8_t>(Body.size() + 4),
+        0x01, 0x00, static_cast<std::uint8_t>((Body.size() >> 16) & 0xFF),
+        static_cast<std::uint8_t>((Body.size() >> 8) & 0xFF),
+        static_cast<std::uint8_t>(Body.size() & 0xFF)};
+    Record.insert(Record.end(), Body.begin(), Body.end());
+    net::io_context ioc;
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+    rec::SniRouteTable routes;
+    routes.Add("example.com", "reject", rec::ProtocolType::Trojan);
+    rec::SchemeExecutor executor;
+    executor.RegisterScheme("reject", [](SharedTransmission) -> net::awaitable<SharedTransmission>
+                            { co_return nullptr; });
+    rec::Pipeline pipe(&routes, &executor);
+
+    run_coro(ioc,
+             [sa, sb, Record, Pipe = &pipe]() -> net::awaitable<void>
+             {
+                 std::error_code ec;
+                 co_await sb->async_write_some(
+                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Record.data()), Record.size()), ec);
+                 auto Result = co_await Pipe->Recognize(sa);
+                 EXPECT_FALSE(Result.success);
+                 EXPECT_NE(Result.transport, nullptr);
+                 if (!Result.transport)
+                 {
+                     co_return;
+                 }
+                 std::array<std::byte, 5> Replayed{};
+                 const auto Read = co_await Result.transport->async_read_some(Replayed, ec);
+                 EXPECT_EQ(Read, Replayed.size());
+                 EXPECT_EQ(Replayed[0], std::byte{0x16});
+             });
 }
 
 // ── Pipeline ──
