@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <memory>
 #include <span>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -50,18 +51,22 @@ namespace Preview::Tuic
     public:
         /**
          * @brief 构造函数（工厂调用）
-         * @param upstream 底层数据报或已认证 QUIC 数据流（所有权移交）
+         * @param Upstream 底层数据报或已认证 QUIC 数据流（所有权移交）
          */
-        explicit Dgram(SharedTransmission upstream)
-            : NextLayer_(std::move(upstream))
+        explicit Dgram(SharedTransmission Upstream)
+            : NextLayer_(std::move(Upstream))
         {
         }
 
         /**
          * @brief 获取执行器（委托底层传输）
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
@@ -75,33 +80,50 @@ namespace Preview::Tuic
 
         /**
          * @brief 发送一个 UDP 数据报（WriteTo 语义）
-         * @param dest 目标地址（帧内携带）
-         * @param payload 载荷
+         * @param Destination 目标地址（帧内携带）
+         * @param Payload 载荷
          * @return 错误码
          */
-        [[nodiscard]] auto AsyncSendTo(const Address &dest, std::span<const std::uint8_t> payload)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncSendTo(
+            const Address &Destination,
+            std::span<const std::uint8_t> Payload) -> Net::awaitable<Error>
         {
-            Message msg;
-            msg.Cmd = CmdPacket;
-            msg.AssocId = AssocId_;
-            msg.PktId = PacketId_++;
-            msg.dst = dest;
-            msg.payload.assign(reinterpret_cast<const char *>(payload.data()), payload.size());
-            Build(msg, TxWire_);
-            if (TxWire_.empty())
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+            if (Payload.size() > 0xFFFF)
             {
                 co_return Error::BadLength;
             }
+            Message MessageValue;
+            MessageValue.Cmd = CmdPacket;
+            MessageValue.AssocId = AssocId_;
+            MessageValue.PktId = PacketId_;
+            MessageValue.dst = Destination;
+            MessageValue.payload.assign(
+                reinterpret_cast<const char *>(Payload.data()),
+                Payload.size());
+            Build(MessageValue, TxWire_);
+            if (TxWire_.empty())
+            {
+                co_return Error::BadAddress;
+            }
+            ++PacketId_;
             std::size_t Done = 0;
             while (Done < TxWire_.size())
             {
-                std::error_code ec;
+                std::error_code ErrorCode;
                 const auto N = co_await NextLayer_->async_write_some(
-                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done), ec);
-                if (ec || N == 0)
+                    AsBytes(std::span<const std::uint8_t>(TxWire_)).subspan(Done),
+                    ErrorCode);
+                if (ErrorCode || N == 0)
                 {
                     co_return Error::IoError;
+                }
+                if (N > TxWire_.size() - Done)
+                {
+                    co_return Error::BadLength;
                 }
                 Done += N;
             }
@@ -110,20 +132,26 @@ namespace Preview::Tuic
 
         /**
          * @brief 接收一个 UDP 数据报（ReadFrom 语义）
-         * @param src 输出源地址（帧内目标）
-         * @param payload 输出载荷
+         * @param Source 输出源地址（帧内目标）
+         * @param Payload 输出载荷
          * @return 错误码
          */
-        [[nodiscard]] auto AsyncReceiveFrom(Address &src, std::vector<std::uint8_t> &payload)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncReceiveFrom(
+            Address &Source,
+            std::vector<std::uint8_t> &Payload) -> Net::awaitable<Error>
         {
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
             if (NextLayer_ && NextLayer_->TransportType() == Preview::Transmission::Type::Udp)
             {
                 std::array<std::uint8_t, 65536> Datagram{};
-                std::error_code ec;
+                std::error_code ErrorCode;
                 const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(std::span<std::uint8_t>(Datagram)), ec);
-                if (ec)
+                    AsBytes(std::span<std::uint8_t>(Datagram)),
+                    ErrorCode);
+                if (ErrorCode)
                 {
                     co_return Error::IoError;
                 }
@@ -131,48 +159,59 @@ namespace Preview::Tuic
                 {
                     co_return Error::UnexpectedEof;
                 }
+                if (N > Datagram.size())
+                {
+                    co_return Error::BadLength;
+                }
                 Message Parsed{};
                 std::size_t Consumed = 0;
                 const auto Err = Parse(
-                    std::span<const std::uint8_t>(Datagram.data(), N), Parsed, Consumed);
+                    std::span<const std::uint8_t>(Datagram.data(), N),
+                    Parsed,
+                    Consumed);
                 if (Err != Error::None || Parsed.Cmd != CmdPacket || Consumed != N)
                 {
-                    co_return Err == Error::None ? Error::BadMessage : Err;
+                    if (Err != Error::None)
+                    {
+                        co_return Err;
+                    }
+                    co_return Error::BadMessage;
                 }
-                src = Parsed.dst;
-                payload.assign(reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()),
-                               reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()) +
-                                   Parsed.payload.size());
+                Source = Parsed.dst;
+                Payload.assign(
+                    reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()),
+                    reinterpret_cast<const std::uint8_t *>(Parsed.payload.data()) +
+                        Parsed.payload.size());
                 co_return Error::None;
             }
 
             // 1. Ver + Cmd + AssocID(2) + PktID(2) + FragTotal + FragId + Size(2)
-            std::array<std::uint8_t, 10> head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(head)))
+            std::array<std::uint8_t, 10> Head{};
+            if (co_await ReadExact(std::span<std::uint8_t>(Head)))
             {
                 co_return Error::UnexpectedEof;
             }
-            if (head[0] != ProtocolVersion || head[1] != CmdPacket)
+            if (Head[0] != ProtocolVersion || Head[1] != CmdPacket)
             {
                 co_return Error::BadMessage;
             }
 
-            const auto FragTotal = head[6];
-            const auto FragId = head[7];
-            const auto Size = static_cast<std::size_t>(head[8]) << 8 | head[9];
+            const auto FragTotal = Head[6];
+            const auto FragId = Head[7];
+            const auto Size = static_cast<std::size_t>(Head[8]) << 8 | Head[9];
             if (FragTotal == 0 || FragId >= FragTotal)
             {
                 co_return Error::BadMessage;
             }
 
             // 2. ATYP + ADDR + PORT（ATYP 位于 10 字节头之后）
-            std::array<std::uint8_t, 1> atyp{};
-            if (co_await ReadExact(std::span<std::uint8_t>(atyp)))
+            std::array<std::uint8_t, 1> Atyp{};
+            if (co_await ReadExact(std::span<std::uint8_t>(Atyp)))
             {
                 co_return Error::UnexpectedEof;
             }
-            src.Type = static_cast<AddressType>(atyp[0]);
-            if (src.Type == AddressType::None)
+            Source.Type = static_cast<AddressType>(Atyp[0]);
+            if (Source.Type == AddressType::None)
             {
                 if (FragId == 0)
                 {
@@ -185,61 +224,79 @@ namespace Preview::Tuic
                 {
                     co_return Error::BadMessage;
                 }
-                auto Err = co_await ReadAddressBody(src);
-                if (Err != Error::None)
+                const auto AddressError = co_await ReadAddressBody(Source);
+                if (AddressError != Error::None)
                 {
-                    co_return Err;
+                    co_return AddressError;
                 }
-                std::array<std::uint8_t, 2> port{};
-                if (co_await ReadExact(std::span<std::uint8_t>(port)))
+                std::array<std::uint8_t, 2> Port{};
+                if (co_await ReadExact(std::span<std::uint8_t>(Port)))
                 {
                     co_return Error::UnexpectedEof;
                 }
-                src.Port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
+                Source.Port = static_cast<std::uint16_t>(Port[0]) << 8 | Port[1];
             }
 
             // 3. 按 Size 精确读取，避免 TCP/QUIC stream 的 partial/coalesced write 破坏帧边界
-            std::vector<std::uint8_t> chunk(Size);
-            if (co_await ReadExact(std::span<std::uint8_t>(chunk)))
+            std::vector<std::uint8_t> Chunk(Size);
+            if (co_await ReadExact(std::span<std::uint8_t>(Chunk)))
             {
                 co_return Error::UnexpectedEof;
             }
-            payload.assign(chunk.begin(), chunk.end());
+            Payload.assign(Chunk.begin(), Chunk.end());
             co_return Error::None;
         }
 
         /**
          * @brief 透传读取（底层数据报原样）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 透传写入（底层数据报原样）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭底层传输
          */
-        void Close() override
+        auto Close() -> void override
         {
-            NextLayer_->Close();
+            if (NextLayer_)
+            {
+                NextLayer_->Close();
+            }
         }
 
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
-            NextLayer_->Cancel();
+            if (NextLayer_)
+            {
+                NextLayer_->Cancel();
+            }
         }
 
         /**
@@ -267,7 +324,8 @@ namespace Preview::Tuic
         }
 
         /**
-         * @brief 获取底层传输
+         * @brief 获取底层传输共享引用
+         * @return 底层传输共享指针
          */
         [[nodiscard]] auto Stream() const noexcept -> SharedTransmission
         {
@@ -277,17 +335,27 @@ namespace Preview::Tuic
     private:
         /**
          * @brief 精确读取指定字节数
-         * @param dst 目标缓冲区
+         * @param Dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Dst) -> Net::awaitable<bool>
         {
-            std::size_t Done = 0;
-            while (Done < dst.size())
+            if (!NextLayer_)
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
-                if (ec || N == 0)
+                co_return true;
+            }
+            std::size_t Done = 0;
+            while (Done < Dst.size())
+            {
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_read_some(
+                    AsBytes(Dst.subspan(Done)),
+                    ErrorCode);
+                if (ErrorCode || N == 0)
+                {
+                    co_return true;
+                }
+                if (N > Dst.size() - Done)
                 {
                     co_return true;
                 }
@@ -298,14 +366,18 @@ namespace Preview::Tuic
 
         /**
          * @brief 读取地址体（ATYP 已由调用方解析）
-         * @param addr 输出地址
+         * @param AddressValue 输出地址
          * @return 错误码
          * @note 转发层：统一实现见 Protocol/common::ReadAddressBody
          */
-        [[nodiscard]] auto ReadAddressBody(Address &addr) -> net::awaitable<Error>
+        [[nodiscard]] auto ReadAddressBody(Address &AddressValue) -> Net::awaitable<Error>
         {
             return Preview::Protocol::Common::ReadAddressBody(
-                addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return ReadExact(dst); });
+                AddressValue,
+                [this](std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
+                {
+                    return ReadExact(Buffer);
+                });
         }
 
         SharedTransmission NextLayer_; ///< 底层数据报传输（独占所有权）

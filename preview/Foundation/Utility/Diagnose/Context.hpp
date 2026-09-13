@@ -45,12 +45,12 @@ namespace Preview::Diagnose
         Context() = default;
 
         // 字段
-        std::chrono::steady_clock::time_point born{};
+        std::chrono::steady_clock::time_point Born{};
         std::uint16_t Worker = 0;
         std::uint8_t Stage = 0;
         char Target[48] = {};
-        char proto[8] = {};
-        char scheme[8] = {};
+        char Proto[8] = {};
+        char Scheme[8] = {};
         std::uint64_t Conn = 0;
 
         /**
@@ -71,23 +71,23 @@ namespace Preview::Diagnose
             {
                 Render();
             }
-            return cached;
+            return Cached;
         }
 
     private:
         auto Render() const noexcept -> void
         {
             RenderGen = CacheGen;
-            auto Ms = std::chrono::duration_cast<std::chrono::milliseconds>(born.time_since_epoch()).count();
+            auto Ms = std::chrono::duration_cast<std::chrono::milliseconds>(Born.time_since_epoch()).count();
             auto Sec = Ms / 1000;
             auto Hh = static_cast<int>((Sec % 86400) / 3600);
             auto Mm = static_cast<int>((Sec % 3600) / 60);
             auto Ss = static_cast<int>(Sec % 60);
-            std::snprintf(cached, sizeof(cached), "[W%u][S%u][%s][%s %02d:%02d:%02d.%03d]", Worker, Stage,
-                          proto, Target, Hh, Mm, Ss, static_cast<int>(Ms % 1000));
+            std::snprintf(Cached, sizeof(Cached), "[W%u][S%u][%s][%s %02d:%02d:%02d.%03d]", Worker, Stage,
+                          Proto, Target, Hh, Mm, Ss, static_cast<int>(Ms % 1000));
         }
 
-        mutable char cached[80] = {};
+        mutable char Cached[80] = {};
         mutable std::uint8_t CacheGen = 0;
         mutable std::uint8_t RenderGen = 0;
     };

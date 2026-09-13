@@ -27,8 +27,8 @@
 namespace Preview::Transport {
 
 
-    namespace net = boost::asio;
-    namespace ssl = net::ssl;
+    namespace Net = boost::asio;
+    namespace Ssl = Net::ssl;
 
     /**
      * @class Encrypted
@@ -47,7 +47,7 @@ namespace Preview::Transport {
     {
     public:
         using ConnectorType = ::Preview::Transport::Connector;
-        using StreamType = boost::asio::ssl::stream<ConnectorType>;
+        using StreamType = Net::ssl::stream<ConnectorType>;
         using SharedStream = std::shared_ptr<StreamType>;
 
         /**
@@ -56,7 +56,7 @@ namespace Preview::Transport {
          * TLS 流必须已完成握手。
          * @param SslStream TLS 流的共享指针
          */
-        explicit Encrypted(SharedStream SslStream) : SslStream_(std::move(SslStream))
+        explicit Encrypted(SharedStream Stream) : SslStream_(std::move(Stream))
         {
         }
 
@@ -105,14 +105,14 @@ namespace Preview::Transport {
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             boost::system::error_code SysEc;
-            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            auto Token = Net::redirect_error(Net::use_awaitable, SysEc);
             const auto N =
-                co_await SslStream_->async_read_some(net::buffer(Buffer.data(), Buffer.size()), Token);
-            ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
+                co_await SslStream_->async_read_some(Net::buffer(Buffer.data(), Buffer.size()), Token);
+            ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
             co_return N;
         }
 
@@ -124,14 +124,15 @@ namespace Preview::Transport {
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
+                                            std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             boost::system::error_code SysEc;
-            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            auto Token = Net::redirect_error(Net::use_awaitable, SysEc);
             const auto N =
-                co_await SslStream_->async_write_some(net::buffer(Buffer.data(), Buffer.size()), Token);
-            ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
+                co_await SslStream_->async_write_some(Net::buffer(Buffer.data(), Buffer.size()), Token);
+            ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
             co_return N;
         }
 
@@ -142,11 +143,11 @@ namespace Preview::Transport {
          */
         void Close() override
         {
-            auto *ssl = SslStream_->native_handle();
-            if (ssl)
+            auto *SslHandle = SslStream_->native_handle();
+            if (SslHandle)
             {
-                SSL_set_quiet_shutdown(ssl, 1);
-                SSL_shutdown(ssl);
+                SSL_set_quiet_shutdown(SslHandle, 1);
+                SSL_shutdown(SslHandle);
             }
             SslStream_->next_layer().NextLayer()->Close();
         }
@@ -203,8 +204,8 @@ namespace Preview::Transport {
          * 握手失败时从 Connector 释放传输层所有权，避免 transport 丢失。
          * @note 调用方应确保入站传输已包装 Preview（如有预读数据）。
          */
-        [[nodiscard]] static auto SslHandshake(SharedTransmission Inbound, ssl::context &SslCtx)
-            -> net::awaitable<std::tuple<Fault::Code, SharedStream, SharedTransmission>>;
+        [[nodiscard]] static auto SslHandshake(SharedTransmission Inbound, Ssl::context &SslCtx)
+            -> Net::awaitable<std::tuple<Fault::Code, SharedStream, SharedTransmission>>;
 
     private:
         SharedStream SslStream_; // TLS 流的共享指针，持有流的所有权
@@ -217,15 +218,15 @@ namespace Preview::Transport {
      * @param SslStream TLS 流的共享指针
      * @return SharedTransmission 传输层指针
      */
-    [[nodiscard]] inline SharedTransmission MakeEncrypted(Encrypted::SharedStream SslStream)
+    [[nodiscard]] inline auto MakeEncrypted(Encrypted::SharedStream SslStream) -> SharedTransmission
     {
         return std::make_shared<Encrypted>(std::move(SslStream));
     }
 
 
 
-    inline auto Encrypted::SslHandshake(SharedTransmission Inbound, ssl::context &SslCtx)
-        -> net::awaitable<std::tuple<Fault::Code, Encrypted::SharedStream, SharedTransmission>>
+    inline auto Encrypted::SslHandshake(SharedTransmission Inbound, Ssl::context &SslCtx)
+        -> Net::awaitable<std::tuple<Fault::Code, Encrypted::SharedStream, SharedTransmission>>
     {
         if (!Inbound)
         {
@@ -236,20 +237,17 @@ namespace Preview::Transport {
         ConnectorType Connector(std::move(Inbound), {});
         auto Stream = std::make_shared<StreamType>(std::move(Connector), SslCtx);
 
-        boost::system::error_code ec;
-        auto Token = net::redirect_error(net::use_awaitable, ec);
-
         // TLS 握手超时（30 秒）：防恶意客户端连接后不发 ClientHello 挂起
         using boost::asio::experimental::awaitable_operators::operator||;
-        net::steady_timer deadline(Stream->get_executor(), std::chrono::seconds(30));
-        auto DoHandshake = [&Stream]() -> net::awaitable<boost::system::error_code>
+        Net::steady_timer Deadline(Stream->get_executor(), std::chrono::seconds(30));
+        auto DoHandshake = [&Stream]() -> Net::awaitable<boost::system::error_code>
         {
             boost::system::error_code HEc;
             co_await Stream->async_handshake(boost::asio::ssl::stream_base::server,
-                                             net::redirect_error(net::use_awaitable, HEc));
+                                             Net::redirect_error(Net::use_awaitable, HEc));
             co_return HEc;
         };
-        const auto Result = co_await (DoHandshake() || deadline.async_wait(net::use_awaitable));
+        const auto Result = co_await (DoHandshake() || Deadline.async_wait(Net::use_awaitable));
         if (Result.index() == 1)
         {
             Diagnose::Warn("TLS handshake timeout");

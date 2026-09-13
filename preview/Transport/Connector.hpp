@@ -15,7 +15,9 @@
 
 #include <boost/asio.hpp>
 
+#include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <span>
@@ -24,7 +26,7 @@
 
 namespace Preview::Transport {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class Connector
@@ -41,8 +43,8 @@ namespace Preview::Transport {
     class Connector final
     {
     public:
-        using ExecutorType = net::any_io_executor;
-        using executor_type = net::any_io_executor;
+        using ExecutorType = Net::any_io_executor;
+        using executor_type = Net::any_io_executor;
         using TransmissionPtr = Preview::SharedTransmission;
         using lowest_layer_type = Transmission;
 
@@ -57,12 +59,12 @@ namespace Preview::Transport {
          * @param trans 传输层对象指针，所有权将被转移
          * @param preread 预读数据切片，默认为空
          */
-        explicit Connector(TransmissionPtr trans, std::span<const std::byte> preread = {})
-            : Trans_(std::move(trans))
+        explicit Connector(TransmissionPtr TransmissionObject, std::span<const std::byte> Preread = {})
+            : Trans_(std::move(TransmissionObject))
         {
-            if (!preread.empty())
+            if (!Preread.empty())
             {
-                PrereadBuffer_.assign(preread.begin(), preread.end());
+                PrereadBuffer_.assign(Preread.begin(), Preread.end());
             }
         }
 
@@ -72,11 +74,11 @@ namespace Preview::Transport {
          * 移动后源对象的偏移量被重置为零。
          * @param other 要移动的适配器对象
          */
-        Connector(Connector &&other) noexcept
-            : Trans_(std::move(other.Trans_)), PrereadBuffer_(std::move(other.PrereadBuffer_)),
-              PrereadOffset_(other.PrereadOffset_)
+        Connector(Connector &&Other) noexcept
+            : Trans_(std::move(Other.Trans_)), PrereadBuffer_(std::move(Other.PrereadBuffer_)),
+              PrereadOffset_(Other.PrereadOffset_)
         {
-            other.PrereadOffset_ = 0;
+            Other.PrereadOffset_ = 0;
         }
 
         /**
@@ -86,14 +88,14 @@ namespace Preview::Transport {
          * @param other 要移动的适配器对象
          * @return Connector& 当前对象的引用
          */
-        auto operator=(Connector &&other) noexcept -> Connector &
+        auto operator=(Connector &&Other) noexcept -> Connector &
         {
-            if (this != &other)
+            if (this != &Other)
             {
-                Trans_ = std::move(other.Trans_);
-                PrereadBuffer_ = std::move(other.PrereadBuffer_);
-                PrereadOffset_ = other.PrereadOffset_;
-                other.PrereadOffset_ = 0;
+                Trans_ = std::move(Other.Trans_);
+                PrereadBuffer_ = std::move(Other.PrereadBuffer_);
+                PrereadOffset_ = Other.PrereadOffset_;
+                Other.PrereadOffset_ = 0;
             }
             return *this;
         }
@@ -149,45 +151,70 @@ namespace Preview::Transport {
          * @return 异步操作结果，类型取决于完成令牌
          */
         template <typename MutableBufferSequence, typename CompletionToken>
-        [[maybe_unused]] auto async_read_some(const MutableBufferSequence &buffers, CompletionToken &&token)
+        [[maybe_unused]] auto async_read_some(const MutableBufferSequence &BufferSequence,
+                                              CompletionToken &&CompletionTokenObject)
         {
+            auto ReadBuffers = CollectMutableBuffers(BufferSequence);
             if (PrereadOffset_ < PrereadBuffer_.size())
             {
-                std::size_t BytesAvailable = PrereadBuffer_.size() - PrereadOffset_;
-                std::size_t BytesToCopy = 0;
-                auto BufIt = net::buffer_sequence_begin(buffers);
-                auto BufEnd = net::buffer_sequence_end(buffers);
-                for (; BufIt != BufEnd && BytesToCopy < BytesAvailable; ++BufIt)
-                {
-                    auto Buf = *BufIt;
-                    std::size_t BufSize = Buf.size();
-                    std::size_t CopySize = std::min(BufSize, BytesAvailable - BytesToCopy);
-                    std::memcpy(Buf.data(), PrereadBuffer_.data() + PrereadOffset_ + BytesToCopy,
-                                CopySize);
-                    BytesToCopy += CopySize;
-                }
+                const auto BytesToCopy = CopyToBuffers(
+                    std::span<const std::byte>(PrereadBuffer_).subspan(PrereadOffset_), ReadBuffers);
                 PrereadOffset_ += BytesToCopy;
-                auto Handler = [BytesToCopy]<typename Callback>(Callback &&Handler)
-                {
-                    boost::system::error_code ec;
-                    std::forward<Callback>(Handler)(ec, BytesToCopy);
-                };
-                return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                    Handler, token);
+                const auto Ex = Trans_->Executor();
+                auto PrereadOperation = [Ex, BytesToCopy](auto &&Handler) mutable
+                    {
+                        PostCompletion(Ex, std::forward<decltype(Handler)>(Handler), {}, BytesToCopy);
+                    };
+                return Net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
+                    std::move(PrereadOperation), CompletionTokenObject);
             }
 
-            // 预读数据已耗尽，直接委托给传输层的 completion-handler 方法
-            // 读语义：填充首个非空缓冲（ReadSome 语义允许；非连续缓冲无法单次填充）
-            return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                [trans = Trans_, FirstBuf = *net::buffer_sequence_begin(buffers)](auto &&Handler) mutable
+            // 预读数据已耗尽：单一缓冲直接委托，多缓冲使用短生命周期聚合缓冲，
+            // 完成后再按原序列回写，保持 Transmission 的连续 span 接口。
+            auto ReadOperation =
+                [TransmissionObject = Trans_, ReadBuffers = std::move(ReadBuffers)](auto &&Handler) mutable
                 {
-                    // asio mutable_buffer::Data() 返回 void*，byte_span helper 不覆盖，
-                    // 保留显式转换
-                    std::span<std::byte> span(reinterpret_cast<std::byte *>(FirstBuf.data()),
-                                              FirstBuf.size());
-                    trans->async_read_some(span, std::forward<decltype(Handler)>(Handler));
-                },
-                token);
+                    using HandlerType = std::decay_t<decltype(Handler)>;
+                    auto State = std::make_shared<ReadState<HandlerType>>();
+                    State->Trans = TransmissionObject;
+                    State->Buffers = std::move(ReadBuffers);
+                    State->Completion.emplace(std::forward<decltype(Handler)>(Handler));
+                    for (const auto Buffer : State->Buffers)
+                    {
+                        State->Capacity += Buffer.size();
+                    }
+                    if (State->Capacity == 0)
+                    {
+                        auto Completion = std::move(*State->Completion);
+                        State->Completion.reset();
+                        PostCompletion(State->Trans->Executor(), std::move(Completion), {}, 0);
+                        return;
+                    }
+                    if (State->Buffers.size() == 1)
+                    {
+                        const auto Buffer = State->Buffers.front();
+                        const auto Span = std::span<std::byte>(
+                            reinterpret_cast<std::byte *>(Buffer.data()), Buffer.size());
+                        auto CompleteOperation =
+                            [State](boost::system::error_code Ec, const std::size_t N)
+                        {
+                            CompleteRead(State, std::move(Ec), N);
+                        };
+                        State->Trans->async_read_some(Span, std::move(CompleteOperation));
+                        return;
+                    }
+                    State->Scratch.resize(State->Capacity);
+                    State->UsesScratch = true;
+                    auto CompleteOperation =
+                        [State](boost::system::error_code Ec, const std::size_t N)
+                    {
+                        CompleteRead(State, std::move(Ec), N);
+                    };
+                    State->Trans->async_read_some(std::span<std::byte>(State->Scratch),
+                                                  std::move(CompleteOperation));
+                };
+            return Net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
+                std::move(ReadOperation), CompletionTokenObject);
         }
 
         /**
@@ -200,24 +227,29 @@ namespace Preview::Transport {
          * @return 异步操作结果，类型取决于完成令牌
          */
         template <typename ConstBufferSequence, typename CompletionToken>
-        auto async_write_some(const ConstBufferSequence &buffers, CompletionToken &&token)
+        auto async_write_some(const ConstBufferSequence &BufferSequence,
+                              CompletionToken &&CompletionTokenObject)
         {
-            return net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
-                [trans = Trans_, buffers](auto &&Handler) mutable
+            auto WriteOperation =
+                [TransmissionObject = Trans_, BufferSequence](auto &&Handler) mutable
                 {
                     using HandlerType = std::decay_t<decltype(Handler)>;
                     auto State = std::make_shared<WriteState<HandlerType>>();
-                    State->Trans = trans;
-                    for (auto It = net::buffer_sequence_begin(buffers),
-                              End = net::buffer_sequence_end(buffers);
+                    State->Trans = TransmissionObject;
+                    for (auto It = Net::buffer_sequence_begin(BufferSequence),
+                              End = Net::buffer_sequence_end(BufferSequence);
                          It != End; ++It)
                     {
                         State->Buffers.emplace_back(*It);
                     }
                     State->Completion.emplace(std::forward<decltype(Handler)>(Handler));
-                    WriteNext(std::move(State));
-                },
-                token);
+                    const auto HandlerExecutor = Net::get_associated_executor(*State->Completion,
+                                                                                TransmissionObject->Executor());
+                    auto WriteNextOperation = [State]() mutable { WriteNext(State); };
+                    Net::post(HandlerExecutor, std::move(WriteNextOperation));
+                };
+            return Net::async_initiate<CompletionToken, void(boost::system::error_code, std::size_t)>(
+                std::move(WriteOperation), CompletionTokenObject);
         }
 
         /**
@@ -228,10 +260,10 @@ namespace Preview::Transport {
          * @param ec 错误码输出参数，成功时为默认值
          * @return net::awaitable<std::size_t> 协程对象，完成后返回实际写入的总字节数
          */
-        [[nodiscard]] auto AsyncWrite(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+        [[nodiscard]] auto AsyncWrite(std::span<const std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t>
         {
-            co_return co_await Trans_->AsyncWrite(Buffer, ec);
+            co_return co_await Trans_->AsyncWrite(Buffer, ErrorCode);
         }
 
         /**
@@ -242,10 +274,10 @@ namespace Preview::Transport {
          * @param ec 错误码输出参数，成功时为默认值
          * @return net::awaitable<std::size_t> 协程对象，完成后返回实际读取的总字节数
          */
-        [[nodiscard]] auto AsyncRead(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+        [[nodiscard]] auto AsyncRead(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t>
         {
-            co_return co_await Trans_->AsyncRead(Buffer, ec);
+            co_return co_await Trans_->AsyncRead(Buffer, ErrorCode);
         }
 
         using LowestLayerType = Connector;
@@ -293,11 +325,88 @@ namespace Preview::Transport {
         }
 
     private:
+        template <typename MutableBufferSequence>
+        [[nodiscard]] static auto CollectMutableBuffers(const MutableBufferSequence &BufferSequence)
+            -> std::vector<Net::mutable_buffer>
+        {
+            std::vector<Net::mutable_buffer> Result;
+            for (auto It = Net::buffer_sequence_begin(BufferSequence),
+                      End = Net::buffer_sequence_end(BufferSequence);
+                 It != End; ++It)
+            {
+                Result.emplace_back(*It);
+            }
+            return Result;
+        }
+
+        [[nodiscard]] static auto CopyToBuffers(std::span<const std::byte> Source,
+                                                const std::vector<Net::mutable_buffer> &Buffers) -> std::size_t
+        {
+            std::size_t Copied = 0;
+            for (const auto Buffer : Buffers)
+            {
+                if (Copied >= Source.size())
+                {
+                    break;
+                }
+                const auto Count = std::min(Buffer.size(), Source.size() - Copied);
+                if (Count > 0)
+                {
+                    std::memcpy(Buffer.data(), Source.data() + Copied, Count);
+                    Copied += Count;
+                }
+            }
+            return Copied;
+        }
+
+        template <typename Handler>
+        static auto PostCompletion(const Net::any_io_executor &DefaultExecutor,
+                                   Handler &&HandlerFn,
+                                   boost::system::error_code Ec,
+                                   const std::size_t N) -> void
+        {
+            const auto HandlerExecutor = Net::get_associated_executor(HandlerFn, DefaultExecutor);
+            auto Callback = std::forward<Handler>(HandlerFn);
+            auto CompletionOperation = [Callback = std::move(Callback), Ec = std::move(Ec), N]() mutable
+            { std::move(Callback)(Ec, N); };
+            Net::post(HandlerExecutor, std::move(CompletionOperation));
+        }
+
+        template <typename Handler>
+        struct ReadState
+        {
+            TransmissionPtr Trans;
+            std::vector<Net::mutable_buffer> Buffers;
+            std::vector<std::byte> Scratch;
+            std::size_t Capacity{0};
+            bool UsesScratch{false};
+            std::optional<Handler> Completion;
+        };
+
+        template <typename Handler>
+        static auto CompleteRead(const std::shared_ptr<ReadState<Handler>> &State,
+                                 boost::system::error_code Ec,
+                                 std::size_t N) -> void
+        {
+            if (N > State->Capacity)
+            {
+                Ec = Preview::make_error_code(Preview::Error::BrokenPipe);
+                N = 0;
+            }
+            if (State->UsesScratch && N > 0)
+            {
+                (void)CopyToBuffers(std::span<const std::byte>(State->Scratch).first(N), State->Buffers);
+            }
+            auto Completion = std::move(*State->Completion);
+            State->Completion.reset();
+            PostCompletion(State->Trans->Executor(), std::move(Completion), std::move(Ec), N);
+        }
+
         template <typename Handler>
         struct WriteState
         {
             TransmissionPtr Trans;
-            std::vector<net::const_buffer> Buffers;
+            std::vector<Net::const_buffer> Buffers;
             std::size_t Index{0};
             std::size_t Offset{0};
             std::size_t Total{0};
@@ -317,35 +426,52 @@ namespace Preview::Transport {
             if (State->Index >= State->Buffers.size())
             {
                 auto HandlerFn = std::move(*State->Completion);
-                HandlerFn({}, State->Total);
+                State->Completion.reset();
+                PostCompletion(State->Trans->Executor(), std::move(HandlerFn), {}, State->Total);
                 return;
             }
 
             const auto Buffer = State->Buffers[State->Index];
             const auto Remaining = Buffer.size() - State->Offset;
             const auto *Data = reinterpret_cast<const std::byte *>(Buffer.data()) + State->Offset;
-            State->Trans->async_write_some(
-                std::span<const std::byte>(Data, Remaining),
+            auto WriteCompletion =
                 [State](boost::system::error_code Ec, const std::size_t Written) mutable
                 {
+                    const auto RemainingNow =
+                        State->Buffers[State->Index].size() - State->Offset;
+                    if (Written > RemainingNow)
+                    {
+                        auto HandlerFn = std::move(*State->Completion);
+                        State->Completion.reset();
+                        PostCompletion(State->Trans->Executor(), std::move(HandlerFn),
+                                       Preview::make_error_code(Preview::Error::BrokenPipe), State->Total);
+                        return;
+                    }
                     if (Ec)
                     {
                         auto HandlerFn = std::move(*State->Completion);
-                        HandlerFn(std::move(Ec), State->Total + Written);
+                        State->Completion.reset();
+                        PostCompletion(State->Trans->Executor(), std::move(HandlerFn), std::move(Ec),
+                                       State->Total + Written);
                         return;
                     }
-                    const auto RemainingNow =
-                        State->Buffers[State->Index].size() - State->Offset;
-                    if (Written == 0 || Written > RemainingNow)
+                    if (Written == 0)
                     {
                         auto HandlerFn = std::move(*State->Completion);
-                        HandlerFn(Preview::make_error_code(Preview::Error::BrokenPipe), State->Total);
+                        State->Completion.reset();
+                        PostCompletion(State->Trans->Executor(), std::move(HandlerFn),
+                                       Preview::make_error_code(Preview::Error::BrokenPipe), State->Total);
                         return;
                     }
                     State->Offset += Written;
                     State->Total += Written;
-                    WriteNext(State);
-                });
+                    const auto HandlerExecutor = Net::get_associated_executor(*State->Completion,
+                                                                                State->Trans->Executor());
+                    auto WriteNextOperation = [State]() mutable { WriteNext(State); };
+                    Net::post(HandlerExecutor, std::move(WriteNextOperation));
+                };
+            State->Trans->async_write_some(std::span<const std::byte>(Data, Remaining),
+                                           std::move(WriteCompletion));
         }
 
         TransmissionPtr Trans_;                   // 传输层对象的共享指针

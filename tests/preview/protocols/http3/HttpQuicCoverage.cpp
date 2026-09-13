@@ -46,7 +46,7 @@ namespace
     namespace memory = Preview::Memory;
     namespace qp = Preview::Http3::Qpack;
     namespace quic = Preview::Quic;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     std::size_t DelayedEofCalls = 0;
 
@@ -74,7 +74,7 @@ namespace
     class mock_h2_session final : public h2::H2Session
     {
     public:
-        net::any_io_executor ex{};
+        Net::any_io_executor ex{};
         std::int32_t open_result{1};
         bool feed_result{true};
         bool collect_result{false};
@@ -119,6 +119,10 @@ namespace
             return 0;
         }
 
+        auto ConsumeData(std::int32_t, std::size_t) -> void override
+        {
+        }
+
         auto ResetStream(std::int32_t StreamId, std::uint32_t ErrorCode) -> std::int32_t override
         {
             reset_streams.push_back(StreamId);
@@ -126,7 +130,7 @@ namespace
             return 0;
         }
 
-        auto Executor() const -> net::any_io_executor override
+        auto Executor() const -> Net::any_io_executor override
         {
             return ex;
         }
@@ -140,14 +144,14 @@ namespace
         const auto Ok = h2::StreamOpenResult::MakeSuccess(5);
         EXPECT_TRUE(Ok.Ok);
         EXPECT_EQ(Ok.StreamId, 5);
-        EXPECT_FALSE(Ok.ec);
+        EXPECT_FALSE(Ok.ErrorCode);
 
         const auto Fail =
             h2::StreamOpenResult::MakeFailure(std::make_error_code(std::errc::protocol_error));
         EXPECT_FALSE(Fail.Ok);
         EXPECT_EQ(Fail.StreamId, -1);
-        EXPECT_TRUE(Fail.ec);
-        EXPECT_EQ(Fail.ec, std::make_error_code(std::errc::protocol_error));
+        EXPECT_TRUE(Fail.ErrorCode);
+        EXPECT_EQ(Fail.ErrorCode, std::make_error_code(std::errc::protocol_error));
     }
 
     TEST(Http2Session, OpenStreamFailurePaths)
@@ -156,7 +160,7 @@ namespace
         const auto r1 = h2::OpenStream(nullptr, {}, false);
         EXPECT_FALSE(r1.Ok);
         EXPECT_EQ(r1.StreamId, -1);
-        EXPECT_EQ(r1.ec, std::make_error_code(std::errc::not_connected));
+        EXPECT_EQ(r1.ErrorCode, std::make_error_code(std::errc::not_connected));
 
         // 会话返回负流 ID → protocol_error（失败边界）
         auto Session = std::make_shared<mock_h2_session>();
@@ -164,7 +168,7 @@ namespace
         const auto r2 = h2::OpenStream(Session, {}, false);
         EXPECT_FALSE(r2.Ok);
         EXPECT_EQ(r2.StreamId, -1);
-        EXPECT_EQ(r2.ec, std::make_error_code(std::errc::protocol_error));
+        EXPECT_EQ(r2.ErrorCode, std::make_error_code(std::errc::protocol_error));
 
         // 失败时不产出句柄
         EXPECT_EQ(h2::OpenStreamHandle(nullptr, {}, false), nullptr);
@@ -634,6 +638,7 @@ namespace
                 {
                     found_response = true;
                     EXPECT_GT(p.Data.size(), 1U);
+                    EXPECT_FALSE(p.Fin);
                 }
                 srv->AddWriteOffset(p.StreamId, p.Data.size());
             }
@@ -731,19 +736,16 @@ namespace
 
     // ── quic/GatewayCommon：分流与连接表 ──
 
-    TEST(QuicGateway, GuessProtocolFirstByte)
+    TEST(QuicGateway, GuessProtocolDoesNotInspectStreamBytes)
     {
         // 空输入 → unknown
         EXPECT_EQ(Preview::Quic::GuessProtocol({}), Preview::Quic::ProtocolGuess::Unknown);
-        // HEADERS 帧首字节 0x01 → hysteria2
         const std::array<std::byte, 1> h3{std::byte{0x01}};
         const std::array<std::byte, 2> h3two{std::byte{0x01}, std::byte{0x00}};
         const std::array<std::byte, 1> tuic{std::byte{0x05}};
-        EXPECT_EQ(Preview::Quic::GuessProtocol(h3), Preview::Quic::ProtocolGuess::Hysteria2);
-        EXPECT_EQ(Preview::Quic::GuessProtocol(h3two), Preview::Quic::ProtocolGuess::Hysteria2);
-        // TUIC v5 版本字节 0x05
-        EXPECT_EQ(Preview::Quic::GuessProtocol(tuic), Preview::Quic::ProtocolGuess::Tuic);
-        // 其余字节 → unknown
+        EXPECT_EQ(Preview::Quic::GuessProtocol(h3), Preview::Quic::ProtocolGuess::Unknown);
+        EXPECT_EQ(Preview::Quic::GuessProtocol(h3two), Preview::Quic::ProtocolGuess::Unknown);
+        EXPECT_EQ(Preview::Quic::GuessProtocol(tuic), Preview::Quic::ProtocolGuess::Unknown);
         for (const auto fb : {std::byte{0x00}, std::byte{0x04}, std::byte{0x3F}, std::byte{0x40}})
         {
             const std::array<std::byte, 1> b{fb};
@@ -815,29 +817,35 @@ namespace
         const std::array<std::byte, 1> fb_unk{std::byte{0x40}};
         // 未登记连接 → 分发拒绝
         EXPECT_FALSE(gw.Dispatch(key, fb_h3));
-        ASSERT_TRUE(gw.RegisterConnection(key));
+        ASSERT_TRUE(gw.RegisterConnection(key, Preview::Quic::ConnectionProtocol::H3, "h3"));
 
-        // 0x01 → hysteria2 钩子
+        // 连接绑定 H3 后，stream 首字节不参与重新判定。
         EXPECT_TRUE(gw.Dispatch(key, fb_h3));
         auto *st = gw.Lookup(key);
         ASSERT_NE(st, nullptr);
-        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::Hysteria2);
+        EXPECT_EQ(st->Type, Preview::Quic::ConnectionProtocol::H3);
         EXPECT_EQ(gw.h3_calls, 1);
         EXPECT_EQ(gw.tuic_calls, 0);
         ASSERT_EQ(gw.h3_keys.size(), 1);
         EXPECT_EQ(gw.h3_keys[0], key);
 
-        // 0x05 → tuic 钩子（同一连接可切换判定）
+        // 0x05 仍然走同一 H3 连接。
         EXPECT_TRUE(gw.Dispatch(key, fb_tuic));
-        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::Tuic);
-        EXPECT_EQ(gw.tuic_calls, 1);
-        ASSERT_EQ(gw.tuic_keys.size(), 1);
-        EXPECT_EQ(gw.tuic_keys[0], key);
+        EXPECT_EQ(st->Type, Preview::Quic::ConnectionProtocol::H3);
+        EXPECT_EQ(gw.h3_calls, 2);
+        EXPECT_EQ(gw.tuic_calls, 0);
 
-        // 未知首字节 → false，钩子不触发
-        EXPECT_FALSE(gw.Dispatch(key, fb_unk));
-        EXPECT_EQ(st->Type, Preview::Quic::ProtocolGuess::Unknown);
-        EXPECT_EQ(gw.h3_calls, 1);
+        // 任意首字节都可作为已绑定 H3 的 stream 数据。
+        EXPECT_TRUE(gw.Dispatch(key, fb_unk));
+        EXPECT_EQ(st->Type, Preview::Quic::ConnectionProtocol::H3);
+        EXPECT_EQ(gw.h3_calls, 3);
+        EXPECT_EQ(gw.tuic_calls, 0);
+
+        const auto TuicKey = Preview::Quic::GatewayCommon::ConnKey{0x3344};
+        ASSERT_TRUE(gw.RegisterConnection(TuicKey, Preview::Quic::ConnectionProtocol::Tuic, "h3"));
+        EXPECT_TRUE(gw.Dispatch(TuicKey, fb_h3));
+        ASSERT_NE(gw.Lookup(TuicKey), nullptr);
+        EXPECT_EQ(gw.Lookup(TuicKey)->Type, Preview::Quic::ConnectionProtocol::Tuic);
         EXPECT_EQ(gw.tuic_calls, 1);
     }
 
@@ -853,11 +861,12 @@ namespace
         std::vector<std::byte> read_data;
         std::vector<std::byte> written;
         bool closed{false};
+        bool shutdown_write{false};
         std::int64_t sid{7};
         std::size_t write_limit{std::numeric_limits<std::size_t>::max()};
 
         auto Read(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             ec.clear();
             const auto n = std::min(Buffer.size(), read_data.size());
@@ -871,7 +880,7 @@ namespace
         }
 
         auto Write(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             ec.clear();
             const auto n = std::min(Buffer.size(), write_limit);
@@ -883,6 +892,11 @@ namespace
         void Close() override
         {
             closed = true;
+        }
+
+        void ShutdownWrite() override
+        {
+            shutdown_write = true;
         }
 
         auto StreamId() const noexcept -> std::int64_t override
@@ -898,7 +912,7 @@ namespace
 
     TEST(QuicStreamAdapter, ReadDelegatesToProvider)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto provider = std::make_shared<mock_stream_provider>();
         provider->read_data = {std::byte{0x41}, std::byte{0x42}, std::byte{0x43}};
         auto adapter = std::make_shared<Preview::Quic::StreamAdapter>(ioc.get_executor(), provider);
@@ -908,9 +922,9 @@ namespace
         std::error_code ec;
         std::size_t n1 = 0;
         std::size_t n2 = 0;
-        net::co_spawn(
+        Net::co_spawn(
             ioc.get_executor(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 n1 = co_await adapter->async_read_some(buf, ec);
                 n2 = co_await adapter->async_read_some(buf, ec); // 数据耗尽 → EOF
@@ -929,7 +943,7 @@ namespace
 
     TEST(QuicStreamAdapter, WriteDelegatesToProvider)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto provider = std::make_shared<mock_stream_provider>();
         provider->write_limit = 2; // 提供者部分写入
         auto adapter = std::make_shared<Preview::Quic::StreamAdapter>(ioc.get_executor(), provider);
@@ -938,9 +952,9 @@ namespace
         std::exception_ptr ep;
         std::error_code ec;
         std::size_t n = 0;
-        net::co_spawn(
+        Net::co_spawn(
             ioc.get_executor(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 n = co_await adapter->async_write_some(payload, ec);
                 co_return;
@@ -958,7 +972,7 @@ namespace
 
     TEST(QuicStreamAdapter, NullProviderErrorSafe)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto adapter = std::make_shared<Preview::Quic::StreamAdapter>(ioc.get_executor(), nullptr);
 
         std::exception_ptr ep;
@@ -968,9 +982,9 @@ namespace
         std::error_code wec;
         std::size_t n = 0;
         std::size_t wn = 0;
-        net::co_spawn(
+        Net::co_spawn(
             ioc.get_executor(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 n = co_await adapter->async_read_some(buf, ec);
                 wn = co_await adapter->async_write_some(one, wec);
@@ -991,7 +1005,7 @@ namespace
 
     TEST(QuicStreamAdapter, CloseAndTypePropagation)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto provider = std::make_shared<mock_stream_provider>();
         auto adapter = std::make_shared<Preview::Quic::StreamAdapter>(ioc.get_executor(), provider);
 
@@ -1007,9 +1021,32 @@ namespace
         EXPECT_TRUE(provider->IsClosed());
     }
 
+    TEST(QuicStreamAdapter, ShutdownPropagatesWriteFin)
+    {
+        Net::io_context ioc;
+        auto provider = std::make_shared<mock_stream_provider>();
+        auto adapter = std::make_shared<Preview::Quic::StreamAdapter>(ioc.get_executor(), provider);
+
+        adapter->Shutdown();
+
+        EXPECT_TRUE(provider->shutdown_write);
+        EXPECT_FALSE(provider->closed);
+    }
+
+    TEST(QuicStreamAdapter, CancelClosesProviderAndWakesReads)
+    {
+        Net::io_context ioc;
+        auto provider = std::make_shared<mock_stream_provider>();
+        auto adapter = std::make_shared<Preview::Quic::StreamAdapter>(ioc.get_executor(), provider);
+
+        adapter->Cancel();
+        EXPECT_TRUE(provider->closed);
+        EXPECT_TRUE(provider->IsClosed());
+    }
+
     TEST(QuicDatagramAdapter, MemoryProviderRoundtrip)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [SenderProvider, ReceiverProvider] =
             Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
         auto Sender = std::make_shared<Preview::Quic::DatagramAdapter>(SenderProvider);
@@ -1022,9 +1059,9 @@ namespace
         std::size_t Count = 0;
         std::error_code SendEc;
         std::error_code ReceiveEc;
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 Sent = co_await Sender->async_write_some(Payload, SendEc);
                 Count = co_await Receiver->async_read_some(Received, ReceiveEc);
@@ -1045,7 +1082,7 @@ namespace
 
     TEST(QuicDatagramAdapter, ShortWriteIsRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [Provider, Peer] =
             Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
         (void)Peer;
@@ -1056,9 +1093,9 @@ namespace
         std::exception_ptr Failure;
         std::size_t Sent = 0;
         std::error_code Ec;
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 Sent = co_await Adapter->async_write_some(Payload, Ec);
                 ioc.stop();
@@ -1073,7 +1110,7 @@ namespace
 
     TEST(QuicDatagramAdapter, CloseAndCancelReachProvider)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto Provider = std::make_shared<Preview::Testing::MemoryDatagramProvider>(ioc.get_executor());
         auto Adapter = std::make_shared<Preview::Quic::DatagramAdapter>(Provider);
         Adapter->Cancel();

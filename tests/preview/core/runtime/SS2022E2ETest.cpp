@@ -31,9 +31,14 @@
 namespace
 {
 
-    namespace net = boost::asio;
-    using Tcp = net::ip::tcp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Fault = Preview::Fault;
+    namespace Network = Preview::Network;
+    namespace Runtime = Preview::Runtime;
+    namespace Shadowsocks2022 = Preview::Shadowsocks2022;
+    using Tcp = Net::ip::tcp;
+    using Preview::Error;
+    using Preview::SharedTransmission;
     using Preview::Runtime::MakeAcceptSs2022;
 
     // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
@@ -47,10 +52,10 @@ namespace
     using ss2022_chain_state = Preview::Testing::ChainState;
 
     /// 连接 SS2022 纵向测试的回环上游（复用公共 DialUpstream）
-    auto dial_ss2022_upstream(
+    auto DialSs2022Upstream(
         const std::shared_ptr<ss2022_chain_state> &State,
         const Network::Target &Target)
-        -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+        -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
     {
         co_return co_await Preview::Testing::DialUpstream(State, Target);
     }
@@ -61,12 +66,12 @@ namespace
         -> ConnectResult
     {
         ConnectResult out;
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto StateObj = std::make_shared<ss2022_chain_state>(
             ss2022_chain_state{ioc.get_executor(), echo_port});
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [](const std::exception_ptr &) {});
 
         Runtime::TcpListener listener(
@@ -77,18 +82,18 @@ namespace
                 Runtime::SessionOptions opts;
                 opts.AcceptProtocol = MakeAcceptSs2022(scfg);
                 opts.Dial = [StateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
-                    co_return co_await dial_ss2022_upstream(StateObj, t);
+                    co_return co_await DialSs2022Upstream(StateObj, t);
                 };
                 return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
-                const auto start_rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                const auto start_rc = co_await listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 if (start_rc != Fault::Code::Success)
                 {
                      out.Err = Error::IoError;
@@ -172,7 +177,7 @@ namespace
 
     TEST(TcpListener, SS2022TcpConnectDialRefused)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Runtime::TcpListener listener(
             ioc.get_executor(),
             [](SharedTransmission, std::size_t) -> std::shared_ptr<Runtime::Session>
@@ -180,16 +185,16 @@ namespace
                 Runtime::SessionOptions opts;
                 opts.AcceptProtocol = MakeAcceptSs2022(Shadowsocks2022::ServerConfig{"Secret"});
                 opts.Dial = [](const Network::Target &)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return std::pair{Fault::Code::ConnectionRefused, SharedTransmission{}};
                 };
                 return std::make_shared<Runtime::Session>(std::move(opts));
             });
         bool saw_close = false;
-        RunCoro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(ioc, [&]() -> Net::awaitable<void>
         {
-            const auto start_rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+            const auto start_rc = co_await listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
             EXPECT_EQ(start_rc, Fault::Code::Success);
             const auto listen_port = listener.LocalEndpoint().port();
             std::error_code ec;
@@ -211,12 +216,12 @@ namespace
 
     TEST(TcpListener, SS2022TrafficIdentity)
     {
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto StateObj = std::make_shared<ss2022_chain_state>(ss2022_chain_state{ioc.get_executor(), echo_port});
         auto recorder = std::make_shared<Preview::Testing::TrafficRecorder>();
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [](const std::exception_ptr &) {});
         Runtime::TcpListener listener(
             ioc.get_executor(),
@@ -226,15 +231,15 @@ namespace
                 opts.AcceptProtocol = MakeAcceptSs2022(Shadowsocks2022::ServerConfig{"Secret"});
                 opts.traffic = recorder.get();
                 opts.Dial = [StateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
-                    co_return co_await dial_ss2022_upstream(StateObj, t);
+                    co_return co_await DialSs2022Upstream(StateObj, t);
                 };
                 return std::make_shared<Runtime::Session>(std::move(opts));
             });
-        RunCoro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(ioc, [&]() -> Net::awaitable<void>
         {
-            const auto start_rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+            const auto start_rc = co_await listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
             EXPECT_EQ(start_rc, Fault::Code::Success);
             const auto listen_port = listener.LocalEndpoint().port();
             std::error_code ec;
@@ -258,13 +263,13 @@ namespace
             }
             proxy->Close();
             // 有界轮询等待流量上报落账（替代固定 sleep，避免慢机 flaky）
-            net::steady_timer timer(ioc.get_executor());
+            Net::steady_timer timer(ioc.get_executor());
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
             while ((recorder->Up == 0u || recorder->Down == 0u) &&
                    std::chrono::steady_clock::now() < deadline)
             {
                 timer.expires_after(std::chrono::milliseconds(5));
-                co_await timer.async_wait(net::use_awaitable);
+                co_await timer.async_wait(Net::use_awaitable);
             }
             listener.Stop();
             boost::system::error_code ce;

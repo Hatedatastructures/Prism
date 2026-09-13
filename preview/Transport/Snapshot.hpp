@@ -18,14 +18,18 @@
 
 #include <boost/asio.hpp>
 
+#include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <span>
+#include <stdexcept>
 #include <system_error>
 
 namespace Preview::Transport
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    inline constexpr std::size_t DefaultSnapshotMaxCaptureBytes = 64 * 1024;
 
     /**
      * @class Snapshot
@@ -42,8 +46,10 @@ namespace Preview::Transport
          * @param Inner 被包装的内层传输
          * @param mr PMR 内存资源，用于 Captured_ 缓冲区分配
          */
-        explicit Snapshot(SharedTransmission Inner, Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource())
-            : Inner_(std::move(Inner)), Captured_(mr)
+        explicit Snapshot(SharedTransmission Inner,
+                          Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource(),
+                          std::size_t MaxCaptureBytes = DefaultSnapshotMaxCaptureBytes)
+            : Inner_(std::move(Inner)), Captured_(mr), MaxCaptureBytes_(MaxCaptureBytes)
         {
         }
 
@@ -97,12 +103,12 @@ namespace Preview::Transport
          * @param ec 错误码输出
          * @return 读取的字节数
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             if (!Inner_)
             {
-                ec = std::make_error_code(std::errc::bad_file_descriptor);
+                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
 
@@ -113,13 +119,24 @@ namespace Preview::Transport
                 const auto N = (std::min)(Buffer.size(), Remaining);
                 std::memcpy(Buffer.data(), Captured_.data() + ReadPos_, N);
                 ReadPos_ += N;
-                ec = {};
+                ErrorCode = {};
                 co_return N;
             }
 
-            // Phase 2: 从内层读取并捕获
-            const auto N = co_await Inner_->async_read_some(Buffer, ec);
-            if (N > 0 && !ec)
+            // Phase 2: 从内层读取并捕获；先限制底层读窗口，避免捕获区越界。
+            if (Captured_.size() >= MaxCaptureBytes_)
+            {
+                ErrorCode = Preview::make_error_code(Preview::Error::BadLength);
+                co_return 0;
+            }
+            const auto Window = (std::min)(Buffer.size(), MaxCaptureBytes_ - Captured_.size());
+            const auto N = co_await Inner_->async_read_some(Buffer.first(Window), ErrorCode);
+            if (N > Window)
+            {
+                ErrorCode = Preview::make_error_code(Preview::Error::BadLength);
+                co_return 0;
+            }
+            if (N > 0)
             {
                 Captured_.insert(Captured_.end(), Buffer.data(), Buffer.data() + N);
                 ReadPos_ += N;
@@ -134,16 +151,17 @@ namespace Preview::Transport
          * @param ec 错误码输出
          * @return 写入的字节数
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
+                                            std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             Wrote_ = true;
             if (!Inner_)
             {
-                ec = std::make_error_code(std::errc::bad_file_descriptor);
+                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await Inner_->async_write_some(Buffer, ec);
+            co_return co_await Inner_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
@@ -171,13 +189,19 @@ namespace Preview::Transport
         }
 
         /**
-         * @brief 回滚读取位置到起点
-         * @details 将 ReadPos_ 归零，下次 async_read_some 将从 Captured_ 起点回放。
-         * 不清空 Captured_ 数据。调用前应检查 CanRewind()。
+         * @brief 尝试回滚读取位置到起点
+         * @details 未发生写入时将 ReadPos_ 归零，下次 async_read_some 将从
+         * Captured_ 起点回放；写入后拒绝回滚并保持当前读取位置。
+         * @return 成功回滚返回 true；写入后返回 false
          */
-        void Rewind() noexcept
+        [[nodiscard]] auto Rewind() noexcept -> bool
         {
+            if (Wrote_)
+            {
+                return false;
+            }
             ReadPos_ = 0;
+            return true;
         }
 
         /**
@@ -202,6 +226,7 @@ namespace Preview::Transport
     private:
         SharedTransmission Inner_;
         Preview::Memory::Vector<std::byte> Captured_; ///< 预读捕获缓冲（PMR 分配）
+        std::size_t MaxCaptureBytes_{DefaultSnapshotMaxCaptureBytes};
         std::size_t ReadPos_{0};
         bool Wrote_{false};
     };
@@ -212,11 +237,12 @@ namespace Preview::Transport
      * @param mr PMR 内存资源
      * @return 包装后的 Snapshot 传输
      */
-    [[nodiscard]] inline auto MakeSnapshot(SharedTransmission Inner,
-                                            Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource())
+    [[nodiscard]] inline auto MakeSnapshot(
+        SharedTransmission Inner, Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource(),
+        std::size_t MaxCaptureBytes = DefaultSnapshotMaxCaptureBytes)
         -> SharedTransmission
     {
-        return std::make_shared<Snapshot>(std::move(Inner), mr);
+        return std::make_shared<Snapshot>(std::move(Inner), mr, MaxCaptureBytes);
     }
 
 } // namespace Preview::Transport

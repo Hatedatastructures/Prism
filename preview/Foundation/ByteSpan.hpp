@@ -26,11 +26,13 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace Preview
 {
 
-    namespace detail
+    namespace Detail
     {
         /**
          * @brief 单字节平凡元素（std::byte / uint8_t / char 等）
@@ -58,10 +60,10 @@ namespace Preview
          * @tparam C 源类型
          */
         template <typename C>
-        concept ByteSource = requires(const C &c) 
+        concept ByteSource = requires(const C &Source)
         {
-            { c.data() } -> BytePointer;
-            c.size();
+            { Source.data() } -> BytePointer;
+            Source.size();
         };
 
         /**
@@ -69,12 +71,12 @@ namespace Preview
          * @tparam C 源类型
          */
         template <typename C>
-        concept MutableByteSource = requires(C &c) 
+        concept MutableByteSource = requires(C &Source)
         {
-            { c.data() } -> MutableBytePointer;
-            c.size();
+            { Source.data() } -> MutableBytePointer;
+            Source.size();
         };
-    } // namespace detail
+    } // namespace Detail
 
     // ── 统一转换 As<To>：目标元素类型由模板参数控制 ──
 
@@ -87,12 +89,12 @@ namespace Preview
      * @param s 源 span
      * @return To 视图（大小不变）
      */
-    template <detail::ByteElement To, detail::ByteElement From, std::size_t E>
+    template <Detail::ByteElement To, Detail::ByteElement From, std::size_t E>
         requires (!std::is_const_v<From>)
-    [[nodiscard]] inline auto As(std::span<From, E> s) noexcept 
+    [[nodiscard]] inline auto As(std::span<From, E> Span) noexcept
         -> std::span<To>
     {
-        return {reinterpret_cast<To *>(s.data()), s.size()};
+        return {reinterpret_cast<To *>(Span.data()), Span.size()};
     }
 
     /**
@@ -104,11 +106,11 @@ namespace Preview
      * @param s 源 span（const 元素）
      * @return const To 视图（大小不变）
      */
-    template <detail::ByteElement To, detail::ByteElement From, std::size_t E>
-    [[nodiscard]] inline auto As(std::span<const From, E> s) noexcept 
+    template <Detail::ByteElement To, Detail::ByteElement From, std::size_t E>
+    [[nodiscard]] inline auto As(std::span<const From, E> Span) noexcept
         -> std::span<const To>
     {
-        return {reinterpret_cast<const To *>(s.data()), s.size()};
+        return {reinterpret_cast<const To *>(Span.data()), Span.size()};
     }
 
     /**
@@ -120,11 +122,11 @@ namespace Preview
      * @param c 源容器
      * @return To 可变视图
      */
-    template <detail::ByteElement To, detail::MutableByteSource C>
-    [[nodiscard]] inline auto As(C &c) noexcept 
+    template <Detail::ByteElement To, Detail::MutableByteSource C>
+    [[nodiscard]] inline auto As(C &Container) noexcept
         -> std::span<To>
     {
-        return {reinterpret_cast<To *>(c.data()), c.size()};
+        return {reinterpret_cast<To *>(Container.data()), Container.size()};
     }
 
     /**
@@ -134,11 +136,11 @@ namespace Preview
      * @param c 源容器（const 或只读）
      * @return const To 视图
      */
-    template <detail::ByteElement To, detail::ByteSource C>
-    [[nodiscard]] inline auto As(const C &c) noexcept 
+    template <Detail::ByteElement To, Detail::ByteSource C>
+    [[nodiscard]] inline auto As(const C &Container) noexcept
         -> std::span<const To>
     {
-        return {reinterpret_cast<const To *>(c.data()), c.size()};
+        return {reinterpret_cast<const To *>(Container.data()), Container.size()};
     }
 
     /**
@@ -148,11 +150,11 @@ namespace Preview
      * @param len 元素数
      * @return const To 视图
      */
-    template <detail::ByteElement To>
-    [[nodiscard]] inline auto As(const char *Data, std::size_t len) noexcept 
+    template <Detail::ByteElement To>
+    [[nodiscard]] inline auto As(const char *Data, std::size_t Length) noexcept
         -> std::span<const To>
     {
-        return {reinterpret_cast<const To *>(Data), len};
+        return {reinterpret_cast<const To *>(Data), Length};
     }
 
     // ── 便捷名（保持既有调用点不变）──
@@ -164,10 +166,10 @@ namespace Preview
      * @param s uint8_t 视图
      * @return byte 视图（大小不变）
      */
-    [[nodiscard]] inline auto AsBytes(std::span<std::uint8_t> s) noexcept 
+    [[nodiscard]] inline auto AsBytes(std::span<std::uint8_t> Span) noexcept
         -> std::span<std::byte>
     {
-        return {reinterpret_cast<std::byte *>(s.data()), s.size()};
+        return {reinterpret_cast<std::byte *>(Span.data()), Span.size()};
     }
 
     /**
@@ -175,10 +177,10 @@ namespace Preview
      * @param s uint8_t 只读视图
      * @return byte 只读视图（大小不变）
      */
-    [[nodiscard]] inline auto AsBytes(std::span<const std::uint8_t> s) noexcept 
+    [[nodiscard]] inline auto AsBytes(std::span<const std::uint8_t> Span) noexcept
         -> std::span<const std::byte>
     {
-        return {reinterpret_cast<const std::byte *>(s.data()), s.size()};
+        return {reinterpret_cast<const std::byte *>(Span.data()), Span.size()};
     }
 
     /**
@@ -190,10 +192,10 @@ namespace Preview
      * @return 目标视图（可变源 → 可变，只读源 → 只读）
      */
     template <typename C>
-    [[nodiscard]] inline auto AsBytes(C &&c) noexcept 
-        -> decltype(As<std::byte>(std::forward<C>(c)))
+    [[nodiscard]] inline auto AsBytes(C &&Source) noexcept
+        -> decltype(As<std::byte>(std::forward<C>(Source)))
     {
-        return As<std::byte>(std::forward<C>(c));
+        return As<std::byte>(std::forward<C>(Source));
     }
 
     /**
@@ -203,10 +205,10 @@ namespace Preview
      * @return 目标视图（可变源 → 可变，只读源 → 只读）
      */
     template <typename C>
-    [[nodiscard]] inline auto AsU8(C &&c) noexcept 
-        -> decltype(As<std::uint8_t>(std::forward<C>(c)))
+    [[nodiscard]] inline auto AsU8(C &&Source) noexcept
+        -> decltype(As<std::uint8_t>(std::forward<C>(Source)))
     {
-        return As<std::uint8_t>(std::forward<C>(c));
+        return As<std::uint8_t>(std::forward<C>(Source));
     }
 
     /**
@@ -216,10 +218,10 @@ namespace Preview
      * @return 目标视图（可变源 → 可变，只读源 → 只读）
      */
     template <typename C>
-    [[nodiscard]] inline auto AsU8Span(C &&c) noexcept 
-        -> decltype(As<std::uint8_t>(std::forward<C>(c)))
+    [[nodiscard]] inline auto AsU8Span(C &&Source) noexcept
+        -> decltype(As<std::uint8_t>(std::forward<C>(Source)))
     {
-        return As<std::uint8_t>(std::forward<C>(c));
+        return As<std::uint8_t>(std::forward<C>(Source));
     }
 
     /**
@@ -228,10 +230,10 @@ namespace Preview
      * @param len 元素数
      * @return uint8_t 视图（Size() 个元素）
      */
-    [[nodiscard]] inline auto AsU8Span(const char *Data, std::size_t len) noexcept
+    [[nodiscard]] inline auto AsU8Span(const char *Data, std::size_t Length) noexcept
         -> std::span<const std::uint8_t>
     {
-        return As<std::uint8_t>(Data, len);
+        return As<std::uint8_t>(Data, Length);
     }
 
     /**
@@ -241,10 +243,10 @@ namespace Preview
      * @return 目标视图（可变源 → 可变，只读源 → 只读）
      */
     template <typename C>
-    [[nodiscard]] inline auto AsBytesSpan(C &&c) noexcept 
-        -> decltype(As<std::byte>(std::forward<C>(c)))
+    [[nodiscard]] inline auto AsBytesSpan(C &&Source) noexcept
+        -> decltype(As<std::byte>(std::forward<C>(Source)))
     {
-        return As<std::byte>(std::forward<C>(c));
+        return As<std::byte>(std::forward<C>(Source));
     }
 
     /**
@@ -253,10 +255,10 @@ namespace Preview
      * @param len 元素数
      * @return byte 视图（Size() 个元素）
      */
-    [[nodiscard]] inline auto AsBytesSpan(const char *Data, std::size_t len) noexcept
+    [[nodiscard]] inline auto AsBytesSpan(const char *Data, std::size_t Length) noexcept
         -> std::span<const std::byte>
     {
-        return As<std::byte>(Data, len);
+        return As<std::byte>(Data, Length);
     }
 
     /**
@@ -264,10 +266,10 @@ namespace Preview
      * @param s uint8_t 视图
      * @return string_view（Size() 个字符）
      */
-    [[nodiscard]] inline auto AsStrView(std::span<const std::uint8_t> s) noexcept 
+    [[nodiscard]] inline auto AsStrView(std::span<const std::uint8_t> Span) noexcept
         -> std::string_view
     {
-        return {reinterpret_cast<const char *>(s.data()), s.size()};
+        return {reinterpret_cast<const char *>(Span.data()), Span.size()};
     }
 
     /**
@@ -275,10 +277,10 @@ namespace Preview
      * @param s byte 视图
      * @return string_view（Size() 个字符）
      */
-    [[nodiscard]] inline auto AsStrView(std::span<const std::byte> s) noexcept 
+    [[nodiscard]] inline auto AsStrView(std::span<const std::byte> Span) noexcept
         -> std::string_view
     {
-        return AsStrView(AsU8(s));
+        return AsStrView(AsU8(Span));
     }
 
 } // namespace Preview

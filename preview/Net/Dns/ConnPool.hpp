@@ -59,21 +59,21 @@ namespace Preview::Network::Dns
          * @param key 桶键（如 "host|port"）
          * @return 命中返回已弹出的连接；闲置过期项顺路淘汰
          */
-        [[nodiscard]] auto Acquire(const std::string &key) -> Lease
+        [[nodiscard]] auto Acquire(const std::string &Key) -> Lease
         {
-            const auto It = Buckets_.find(key);
+            const auto It = Buckets_.find(Key);
             if (It == Buckets_.end())
             {
                 return {};
             }
-            auto &idle = It->second;
-            while (!idle.empty())
+            auto &Idle = It->second;
+            while (!Idle.empty())
             {
-                auto entry = std::move(idle.back());
-                idle.pop_back();
-                if (std::chrono::steady_clock::now() - entry.Since < IdleTtl_)
+                auto EntryValue = std::move(Idle.back());
+                Idle.pop_back();
+                if (std::chrono::steady_clock::now() - EntryValue.Since < IdleTtl_)
                 {
-                    return {std::move(entry.Conn), true};
+                    return {std::move(EntryValue.Conn), true};
                 }
                 // 过期：连接随 entry 离开作用域自动析构
             }
@@ -85,18 +85,18 @@ namespace Preview::Network::Dns
          * @brief 归还健康连接
          * @details 池已满或该键不在册（容量 0）时直接丢弃
          */
-        void Release(const std::string &key, std::shared_ptr<Link> conn)
+        void Release(const std::string &Key, std::shared_ptr<Link> Connection)
         {
-            if (!conn || !conn->IsOpen() || MaxPerServer_ == 0)
+            if (!Connection || !Connection->IsOpen() || MaxPerServer_ == 0)
             {
                 return;
             }
-            auto &idle = Buckets_[key];
-            if (idle.size() >= MaxPerServer_)
+            auto &Idle = Buckets_[Key];
+            if (Idle.size() >= MaxPerServer_)
             {
                 return;
             }
-            idle.push_back({std::move(conn), std::chrono::steady_clock::now()});
+            Idle.push_back({std::move(Connection), std::chrono::steady_clock::now()});
         }
 
         /**
@@ -104,12 +104,12 @@ namespace Preview::Network::Dns
          */
         [[nodiscard]] auto IdleCount() const -> std::size_t
         {
-            std::size_t total = 0;
-            for (const auto &[key, idle] : Buckets_)
+            std::size_t Total = 0;
+            for (const auto &[Key, Idle] : Buckets_)
             {
-                total += idle.size();
+                Total += Idle.size();
             }
-            return total;
+            return Total;
         }
 
         /**
@@ -119,21 +119,31 @@ namespace Preview::Network::Dns
         auto ClearExpired() -> std::size_t
         {
             const auto Now = std::chrono::steady_clock::now();
-            std::size_t evicted = 0;
+            std::size_t Evicted = 0;
             for (auto It = Buckets_.begin(); It != Buckets_.end();)
             {
-                auto &idle = It->second;
-                auto Keep = std::remove_if(idle.begin(), idle.end(),
-                                           [&](const IdleEntry &e)
+                auto &Idle = It->second;
+                auto Keep = std::remove_if(Idle.begin(), Idle.end(),
+                                           [&](const IdleEntry &EntryValue)
                                            {
-                                               const bool stale = Now - e.Since >= IdleTtl_;
-                                               evicted += stale ? 1 : 0;
-                                               return stale;
+                                               const bool Stale = Now - EntryValue.Since >= IdleTtl_;
+                                               if (Stale)
+                                               {
+                                                   ++Evicted;
+                                               }
+                                               return Stale;
                                            });
-                idle.erase(Keep, idle.end());
-                It = idle.empty() ? Buckets_.erase(It) : std::next(It);
+                Idle.erase(Keep, Idle.end());
+                if (Idle.empty())
+                {
+                    It = Buckets_.erase(It);
+                }
+                else
+                {
+                    ++It;
+                }
             }
-            return evicted;
+            return Evicted;
         }
 
     private:

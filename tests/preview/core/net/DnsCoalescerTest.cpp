@@ -21,17 +21,16 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace Preview;
+    namespace Net = boost::asio;
     using Preview::Network::Dns::Coalescer;
     using Preview::Network::Dns::Flight;
 
-    using TestResult = std::vector<net::ip::address>;
+    using TestResult = std::vector<Net::ip::address>;
 } // namespace
 
 TEST(DnsCoalescer, TestFindCreateReusesFlight)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Coalescer<TestResult> c(ioc.get_executor());
 
     auto [flight1, isNew1] = c.FindCreate("a.com", 1);
@@ -51,7 +50,7 @@ TEST(DnsCoalescer, TestFindCreateReusesFlight)
 
 TEST(DnsCoalescer, TestLeaderWakesWaiter)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Coalescer<TestResult> c(ioc.get_executor());
 
     auto [flight, isNew] = c.FindCreate("wake.com", 1);
@@ -61,11 +60,11 @@ TEST(DnsCoalescer, TestLeaderWakesWaiter)
     bool waiterSawValue = false;
     boost::system::error_code waitEc;
 
-    auto waiter = [&]() -> net::awaitable<void>
+    auto waiter = [&]() -> Net::awaitable<void>
     {
         flight->AcquireWaiter();
         co_await flight->Timer().async_wait(
-            net::redirect_error(net::use_awaitable, waitEc));
+            Net::redirect_error(Net::use_awaitable, waitEc));
         flight->ReleaseWaiter();
         if (const auto *res = c.GetResult(*flight))
         {
@@ -73,23 +72,23 @@ TEST(DnsCoalescer, TestLeaderWakesWaiter)
             waiterSawValue = !res->empty();
         }
     };
-    net::co_spawn(ioc, waiter, net::detached);
+    Net::co_spawn(ioc, waiter, Net::detached);
 
     // leader 延迟完成后写入结果并唤醒
-    auto leader = [&]() -> net::awaitable<void>
+    auto leader = [&]() -> Net::awaitable<void>
     {
-        net::steady_timer delay(ioc.get_executor());
+        Net::steady_timer delay(ioc.get_executor());
         delay.expires_after(std::chrono::milliseconds(20));
-        co_await delay.async_wait(net::use_awaitable);
-        c.SetResult(flight, TestResult{net::ip::make_address("5.5.5.5")});
+        co_await delay.async_wait(Net::use_awaitable);
+        c.SetResult(flight, TestResult{Net::ip::make_address("5.5.5.5")});
         c.CleanupFlight(flight);
     };
-    net::co_spawn(ioc, leader, net::detached);
+    Net::co_spawn(ioc, leader, Net::detached);
 
     ioc.run();
 
     // 等待者被 cancel 唤醒（而非超时）且读到结果
-    EXPECT_EQ(waitEc, net::error::operation_aborted);
+    EXPECT_EQ(waitEc, Net::error::operation_aborted);
     EXPECT_TRUE(waiterGotResult);
     EXPECT_TRUE(waiterSawValue);
     EXPECT_EQ(flight->Ready(), true);
@@ -97,7 +96,7 @@ TEST(DnsCoalescer, TestLeaderWakesWaiter)
 
 TEST(DnsCoalescer, TestCleanupLifecycle)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Coalescer<TestResult> c(ioc.get_executor());
 
     auto [flight, isNew] = c.FindCreate("life.com", 1);
@@ -110,7 +109,7 @@ TEST(DnsCoalescer, TestCleanupLifecycle)
     EXPECT_EQ(c.Size(), 1u);
 
     // 完成后标记 + 两阶段删除（flight 与结果槽一起移除）
-    c.SetResult(flight, TestResult{net::ip::make_address("6.6.6.6")});
+    c.SetResult(flight, TestResult{Net::ip::make_address("6.6.6.6")});
     c.CleanupFlight(flight);
     EXPECT_TRUE(flight->PendingCleanup());
     c.FlushCleanup();
@@ -120,7 +119,7 @@ TEST(DnsCoalescer, TestCleanupLifecycle)
 
 TEST(DnsCoalescer, TestActiveWaiterBlocksCleanup)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Coalescer<TestResult> c(ioc.get_executor());
 
     auto [flight, isNew] = c.FindCreate("busy.com", 1);
@@ -145,7 +144,7 @@ TEST(DnsCoalescer, TestConcurrentWaitersSingleFlight)
 {
     // 多等待者并发挂在同一 flight：leader 完成一次即全部唤醒，
     // 每位等待者都读到同一结果（single-flight 语义）
-    net::io_context ioc;
+    Net::io_context ioc;
     Coalescer<TestResult> c(ioc.get_executor());
 
     auto [flight, isNew] = c.FindCreate("burst.com", 1);
@@ -155,12 +154,12 @@ TEST(DnsCoalescer, TestConcurrentWaitersSingleFlight)
     int woke = 0;
     std::vector<TestResult> seen(WaiterCount);
 
-    auto waiter = [&](const int id) -> net::awaitable<void>
+    auto waiter = [&](const int id) -> Net::awaitable<void>
     {
         flight->AcquireWaiter();
         boost::system::error_code waitEc;
         co_await flight->Timer().async_wait(
-            net::redirect_error(net::use_awaitable, waitEc));
+            Net::redirect_error(Net::use_awaitable, waitEc));
         flight->ReleaseWaiter();
         if (const auto *res = c.GetResult(*flight))
         {
@@ -170,19 +169,19 @@ TEST(DnsCoalescer, TestConcurrentWaitersSingleFlight)
     };
     for (int i = 0; i < WaiterCount; ++i)
     {
-        net::co_spawn(ioc, waiter(i), net::detached);
+        Net::co_spawn(ioc, waiter(i), Net::detached);
     }
 
     // leader 延迟完成后一次性唤醒所有等待者
-    auto leader = [&]() -> net::awaitable<void>
+    auto leader = [&]() -> Net::awaitable<void>
     {
-        net::steady_timer delay(ioc.get_executor());
+        Net::steady_timer delay(ioc.get_executor());
         delay.expires_after(std::chrono::milliseconds(20));
-        co_await delay.async_wait(net::use_awaitable);
-        c.SetResult(flight, TestResult{net::ip::make_address("7.7.7.7")});
+        co_await delay.async_wait(Net::use_awaitable);
+        c.SetResult(flight, TestResult{Net::ip::make_address("7.7.7.7")});
         c.CleanupFlight(flight);
     };
-    net::co_spawn(ioc, leader, net::detached);
+    Net::co_spawn(ioc, leader, Net::detached);
 
     ioc.run();
 

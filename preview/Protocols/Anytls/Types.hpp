@@ -5,6 +5,8 @@
  *          - 认证：TLS 握手后首帧 = [SHA-256(password) 32B][PadLen 2B BE][Padding]
  *          - 数据：内部多路复用（Session 帧）
  *          本测试库实现纯逻辑认证编解码（不含真实 TLS 传输）。
+ * @note PasswordHashLen、PadLenFieldSize 和 AuthFrameHdrlen 属于认证 wire
+ *       常量，保持名称和值兼容；配置字段由 Anytls.hpp 定义。
  * @note 参考 AnyTLS 协议规范。
  */
 

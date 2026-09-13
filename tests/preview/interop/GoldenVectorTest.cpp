@@ -31,7 +31,13 @@
 
 namespace
 {
-    using namespace Preview;
+    namespace Socks5 = Preview::Socks5;
+    namespace Trojan = Preview::Trojan;
+    namespace Vless = Preview::Vless;
+    namespace Vmess = Preview::Vmess;
+    namespace Shadowsocks2022 = Preview::Shadowsocks2022;
+    using Preview::Error;
+    using Preview::make_error_code;
 
     // ===== SOCKS5 RFC 1928 Golden Vectors =====
 
@@ -140,9 +146,8 @@ TEST(GoldenVector, DomainTooLongFailsClosed)
 {
     Socks5::Address addr{Socks5::AddressType::Domain, std::string(300, 'a'), 443};
     const auto wire = Socks5::EncodeAddress(addr);
-    // ATYP(1) + 空域名长度字节(1) + PORT(2) —— 不允许出现 300 字节载荷
-    ASSERT_EQ(wire.size(), 4u);
-    EXPECT_EQ(wire[1], 0x00);
+    // 地址无法用单字节长度表达时必须拒绝，不能生成空域名替代目标。
+    EXPECT_TRUE(wire.empty());
 }
 
 TEST(GoldenVector, VlessTcpRequestParse)

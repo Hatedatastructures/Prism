@@ -18,6 +18,7 @@
 #include <preview/Transport/Transmission.hpp>
 
 #include <boost/asio.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
 
 #include <charconv>
 #include <cctype>
@@ -30,7 +31,7 @@
 namespace Preview::Transport
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class Unreliable
@@ -45,11 +46,11 @@ namespace Preview::Transport
      * @note UDP 是不可靠传输，不保证数据送达、顺序或去重。
      * @warning 如果未设置远程端点，写入操作将返回错误。
      */
-    class Unreliable final : public Transmission, public std::enable_shared_from_this<Unreliable>
+    class Unreliable final : public Transmission
     {
     public:
-        using SocketType = net::ip::udp::socket;
-        using EndpointType = net::ip::udp::endpoint;
+        using SocketType = Net::ip::udp::socket;
+        using EndpointType = Net::ip::udp::endpoint;
 
         /**
          * @brief 构造函数
@@ -59,7 +60,7 @@ namespace Preview::Transport
          * @param Executor 执行器，用于初始化 socket
          * @param RemoteEndpoint 远程端点（可选，可在后续设置）
          */
-        explicit Unreliable(net::any_io_executor Executor,
+        explicit Unreliable(Net::any_io_executor Executor,
                             std::optional<EndpointType> RemoteEndpoint = std::nullopt)
             : Socket_(Executor), RemoteEndpoint_(std::move(RemoteEndpoint)),
               FilterRemote_(RemoteEndpoint_.has_value()),
@@ -74,8 +75,8 @@ namespace Preview::Transport
          * @param socket 已构造的 UDP socket
          * @param RemoteEndpoint 远程端点（可选）
          */
-        explicit Unreliable(SocketType socket, std::optional<EndpointType> RemoteEndpoint = std::nullopt)
-            : Socket_(std::move(socket)), RemoteEndpoint_(std::move(RemoteEndpoint)),
+        explicit Unreliable(SocketType Socket, std::optional<EndpointType> RemoteEndpoint = std::nullopt)
+            : Socket_(std::move(Socket)), RemoteEndpoint_(std::move(RemoteEndpoint)),
               FilterRemote_(RemoteEndpoint_.has_value()),
               CaptureRemote_(!RemoteEndpoint_.has_value())
         {
@@ -88,19 +89,19 @@ namespace Preview::Transport
          * @details 端口必须全部由十进制数字组成且不超过 65535。域名不在同步
          *          Connect 中阻塞解析，而是在首次异步读写时通过 Asio resolver 解析。
          */
-        auto Connect(const std::string &remote) -> bool
+        auto Connect(const std::string &Remote) -> bool
         {
-            const auto Parsed = ParseRemote(remote);
+            const auto Parsed = ParseRemote(Remote);
             if (!Parsed)
             {
                 return false;
             }
 
-            boost::system::error_code ec;
+            boost::system::error_code ErrorCode;
             if (Socket_.is_open())
             {
-                Socket_.close(ec);
-                if (ec)
+                Socket_.close(ErrorCode);
+                if (ErrorCode)
                 {
                     return false;
                 }
@@ -115,8 +116,8 @@ namespace Preview::Transport
             if (Parsed->Address)
             {
                 const auto Endpoint = EndpointType(*Parsed->Address, Parsed->Port);
-                Socket_.open(Endpoint.protocol(), ec);
-                if (ec)
+                Socket_.open(Endpoint.protocol(), ErrorCode);
+                if (ErrorCode)
                 {
                     return false;
                 }
@@ -136,17 +137,17 @@ namespace Preview::Transport
          */
         auto Bind(const unsigned short Port) -> bool
         {
-            boost::system::error_code ec;
+            boost::system::error_code ErrorCode;
             if (!Socket_.is_open())
             {
-                Socket_.open(net::ip::udp::v4(), ec);
-                if (ec)
+                Socket_.open(Net::ip::udp::v4(), ErrorCode);
+                if (ErrorCode)
                 {
                     return false;
                 }
             }
-            Socket_.bind(net::ip::udp::endpoint(net::ip::udp::v4(), Port), ec);
-            if (!ec)
+            Socket_.bind(Net::ip::udp::endpoint(Net::ip::udp::v4(), Port), ErrorCode);
+            if (!ErrorCode)
             {
                 RemoteEndpoint_.reset();
                 RemoteHost_.clear();
@@ -154,7 +155,7 @@ namespace Preview::Transport
                 FilterRemote_ = false;
                 CaptureRemote_ = true;
             }
-            return !ec;
+            return !ErrorCode;
         }
 
         /**
@@ -164,9 +165,13 @@ namespace Preview::Transport
          */
         [[nodiscard]] auto LocalEndpoint() const -> EndpointType
         {
-            boost::system::error_code ec;
-            const auto Ep = Socket_.local_endpoint(ec);
-            return ec ? EndpointType{} : Ep;
+            boost::system::error_code ErrorCode;
+            const auto Endpoint = Socket_.local_endpoint(ErrorCode);
+            if (ErrorCode)
+            {
+                return EndpointType{};
+            }
+            return Endpoint;
         }
 
         /**
@@ -256,23 +261,23 @@ namespace Preview::Transport
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
         [[nodiscard]] auto AsyncReceiveFrom(std::span<std::byte> Buffer, EndpointType &SenderEndpoint,
-                                             std::error_code &ec) -> net::awaitable<std::size_t>
+                                             std::error_code &ErrorCode) -> Net::awaitable<std::size_t>
         {
             if (!RemoteEndpoint_ && !RemoteHost_.empty() && !co_await ResolveRemote())
             {
-                ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
+                ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
                 co_return 0;
             }
             boost::system::error_code SysEc;
-            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            auto Token = Net::redirect_error(Net::use_awaitable, SysEc);
             while (true)
             {
                 SysEc.clear();
-                std::size_t N = co_await Socket_.async_receive_from(net::buffer(Buffer.data(), Buffer.size()),
+                std::size_t N = co_await Socket_.async_receive_from(Net::buffer(Buffer.data(), Buffer.size()),
                                                                     SenderEndpoint, Token);
                 if (SysEc)
                 {
-                    ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
+                    ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
                     co_return 0;
                 }
                 if (!FilterRemote_ || (RemoteEndpoint_ && SenderEndpoint == *RemoteEndpoint_))
@@ -283,7 +288,7 @@ namespace Preview::Transport
                         FilterRemote_ = true;
                         CaptureRemote_ = false;
                     }
-                    ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::Success);
+                    ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::Code::Success);
                     co_return N;
                 }
             }
@@ -299,13 +304,13 @@ namespace Preview::Transport
          *          AllowAnyPeer 模式下按接收来源逐包响应。
          */
         [[nodiscard]] auto AsyncSendTo(std::span<const std::byte> Buffer, const EndpointType &Endpoint,
-                                       std::error_code &ec) -> net::awaitable<std::size_t>
+                                       std::error_code &ErrorCode) -> Net::awaitable<std::size_t>
         {
             boost::system::error_code SysEc;
             const auto N = co_await Socket_.async_send_to(
-                net::buffer(Buffer.data(), Buffer.size()), Endpoint,
-                net::redirect_error(net::use_awaitable, SysEc));
-            ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
+                Net::buffer(Buffer.data(), Buffer.size()), Endpoint,
+                Net::redirect_error(Net::use_awaitable, SysEc));
+            ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
             co_return N;
         }
 
@@ -314,10 +319,24 @@ namespace Preview::Transport
          * @details 连接式模式按 RemoteEndpoint 过滤来源；AllowAnyPeer 模式
          *          不会把本次来源写入共享 RemoteEndpoint。
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
-            co_return co_await AsyncReceiveFrom(Buffer, SenderEndpoint_, ec);
+            if (Timeout_.count() > 0)
+            {
+                using boost::asio::experimental::awaitable_operators::operator||;
+                Net::steady_timer Timer(Socket_.get_executor());
+                Timer.expires_after(Timeout_);
+                auto Result = co_await (AsyncReceiveFrom(Buffer, SenderEndpoint_, ErrorCode) ||
+                                        Timer.async_wait(Net::use_awaitable));
+                if (Result.index() == 1)
+                {
+                    ErrorCode = std::make_error_code(std::errc::timed_out);
+                    co_return 0;
+                }
+                co_return std::get<0>(Result);
+            }
+            co_return co_await AsyncReceiveFrom(Buffer, SenderEndpoint_, ErrorCode);
         }
 
         /**
@@ -328,20 +347,21 @@ namespace Preview::Transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
+                                            std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             if (!RemoteEndpoint_ && !RemoteHost_.empty() && !co_await ResolveRemote())
             {
-                ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
+                ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
                 co_return 0;
             }
             if (!RemoteEndpoint_)
             {
-                ec = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
+                ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::Code::IoError);
                 co_return 0;
             }
-            co_return co_await AsyncSendTo(Buffer, *RemoteEndpoint_, ec);
+            co_return co_await AsyncSendTo(Buffer, *RemoteEndpoint_, ErrorCode);
         }
 
         /**
@@ -351,8 +371,8 @@ namespace Preview::Transport
          */
         void Close() override
         {
-            boost::system::error_code ec;
-            Socket_.close(ec);
+            boost::system::error_code CloseError;
+            Socket_.close(CloseError);
         }
 
         /**
@@ -362,8 +382,8 @@ namespace Preview::Transport
          */
         void Cancel() override
         {
-            boost::system::error_code ec;
-            Socket_.cancel(ec);
+            boost::system::error_code CancelError;
+            Socket_.cancel(CancelError);
         }
 
         /**
@@ -374,11 +394,14 @@ namespace Preview::Transport
         }
 
         /**
-         * @brief 设置读超时（UDP 叶子由上层处理，空操作）
-         * @param ms 超时毫秒数（0 = 禁用）
+         * @brief 设置读超时（0 = 禁用）
+         * @param ms 超时毫秒数
+         * @details 超时后 async_read_some 取消挂起的接收并以
+         *          operation_timed_out 完成；0 表示等待直到数据到达。
          */
-        void SetTimeout(std::chrono::milliseconds /*ms*/) override
+        void SetTimeout(std::chrono::milliseconds ms) override
         {
+            Timeout_ = ms;
         }
 
         /**
@@ -415,7 +438,7 @@ namespace Preview::Transport
         {
             std::string Host;
             unsigned short Port{0};
-            std::optional<net::ip::address> Address;
+            std::optional<Net::ip::address> Address;
         };
 
         [[nodiscard]] static auto ParsePort(const std::string_view Text)
@@ -479,7 +502,7 @@ namespace Preview::Transport
 
             std::string_view Host;
             std::string_view PortText;
-            std::optional<net::ip::address> Address;
+            std::optional<Net::ip::address> Address;
             if (Remote.front() == '[')
             {
                 const auto Close = Remote.find(']');
@@ -490,9 +513,9 @@ namespace Preview::Transport
                 }
                 Host = Remote.substr(1, Close - 1);
                 PortText = Remote.substr(Close + 2);
-                boost::system::error_code ec;
-                const auto ParsedAddress = net::ip::make_address_v6(Host, ec);
-                if (ec)
+                boost::system::error_code ErrorCode;
+                const auto ParsedAddress = Net::ip::make_address_v6(Host, ErrorCode);
+                if (ErrorCode)
                 {
                     return std::nullopt;
                 }
@@ -512,9 +535,9 @@ namespace Preview::Transport
                 {
                     return std::nullopt;
                 }
-                boost::system::error_code ec;
-                const auto ParsedAddress = net::ip::make_address(Host, ec);
-                if (!ec)
+                boost::system::error_code ErrorCode;
+                const auto ParsedAddress = Net::ip::make_address(Host, ErrorCode);
+                if (!ErrorCode)
                 {
                     Address = ParsedAddress;
                 }
@@ -532,7 +555,7 @@ namespace Preview::Transport
             return ParsedRemote{std::string(Host), *Port, Address};
         }
 
-        [[nodiscard]] auto ResolveRemote() -> net::awaitable<bool>
+        [[nodiscard]] auto ResolveRemote() -> Net::awaitable<bool>
         {
             if (RemoteEndpoint_)
             {
@@ -543,11 +566,11 @@ namespace Preview::Transport
                 co_return false;
             }
 
-            net::ip::udp::resolver Resolver(Socket_.get_executor());
+            Net::ip::udp::resolver Resolver(Socket_.get_executor());
             boost::system::error_code ResolveEc;
             const auto Results = co_await Resolver.async_resolve(
                 RemoteHost_, std::to_string(RemotePort_),
-                net::redirect_error(net::use_awaitable, ResolveEc));
+                Net::redirect_error(Net::use_awaitable, ResolveEc));
             if (ResolveEc)
             {
                 co_return false;
@@ -576,6 +599,7 @@ namespace Preview::Transport
         bool FilterRemote_{false};                   // 是否只接收指定远端
         bool CaptureRemote_{true};                  // 首次兼容式读取是否绑定来源
         EndpointType SenderEndpoint_;                // 兼容 async_read_some 的来源端点
+        std::chrono::milliseconds Timeout_{0};       // 读超时（0 = 禁用）
     };
 
     /**
@@ -587,8 +611,8 @@ namespace Preview::Transport
      * @return SharedTransmission 创建的 Unreliable 实例
      */
     [[nodiscard]] inline auto
-    MakeUnreliable(net::any_io_executor Executor,
-                    std::optional<net::ip::udp::endpoint> RemoteEndpoint = std::nullopt)
+    MakeUnreliable(Net::any_io_executor Executor,
+                    std::optional<Net::ip::udp::endpoint> RemoteEndpoint = std::nullopt)
         -> SharedTransmission
     {
         return std::make_shared<Unreliable>(Executor, std::move(RemoteEndpoint));
@@ -603,10 +627,10 @@ namespace Preview::Transport
      * @return SharedTransmission 创建的 Unreliable 实例
      */
     [[nodiscard]] inline auto
-    MakeUnreliable(net::ip::udp::socket socket,
-                    std::optional<net::ip::udp::endpoint> RemoteEndpoint = std::nullopt)
+    MakeUnreliable(Net::ip::udp::socket Socket,
+                    std::optional<Net::ip::udp::endpoint> RemoteEndpoint = std::nullopt)
         -> SharedTransmission
     {
-        return std::make_shared<Unreliable>(std::move(socket), std::move(RemoteEndpoint));
+        return std::make_shared<Unreliable>(std::move(Socket), std::move(RemoteEndpoint));
     }
 } // namespace Preview::Transport

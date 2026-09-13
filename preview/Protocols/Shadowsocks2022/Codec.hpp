@@ -4,6 +4,7 @@
  * @details 请求握手、响应/数据报、会话密钥和分块数据面分别由
  *          RequestCodec.hpp、ResponseCodec.hpp、KeyDerivation.hpp 与
  *          ChunkCodec.hpp 提供。
+ * @note 本文件仅聚合并导出 SS2022 公共 codec 子头，不重复定义 wire 逻辑。
  */
 
 #pragma once

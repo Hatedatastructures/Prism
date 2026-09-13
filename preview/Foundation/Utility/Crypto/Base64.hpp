@@ -19,7 +19,7 @@
 namespace Preview::Crypto
 {
 
-    namespace detail
+    namespace Detail
     {
 
         /**
@@ -52,7 +52,7 @@ namespace Preview::Crypto
         }
 
         constexpr auto DecTable = DecodeTbl();
-    } // namespace detail
+    } // namespace Detail
 
     /**
      * @brief Base64 解码
@@ -63,76 +63,22 @@ namespace Preview::Crypto
      * 输入长度不是 4 的倍数时返回空字符串。
      * @note 遵循 RFC 4648 标准 Base64 解码规则。
      */
-    [[nodiscard]] inline auto Base64Decode(std::string_view input) -> std::string
+    [[nodiscard]] inline auto Base64Decode(std::string_view Input) -> std::string
     {
-        if (input.empty())
+        if (Input.empty())
         {
             return {};
         }
 
-        // 计算有效字符数（跳过空白），并检查长度合法性
-        std::size_t ValidCount = 0;
-        std::size_t Padding = 0;
-        for (const auto c : input)
+        std::string Clean;
+        Clean.reserve(Input.size());
+        for (const auto Character : Input)
         {
-            if (c == '=')
-            {
-                ++Padding;
-            }
-            else if (!std::isspace(static_cast<std::uint8_t>(c)))
-            {
-                ++ValidCount;
-            }
-        }
-
-        if (Padding > 2)
-        {
-            return {};
-        }
-
-        // 有效字符（不含 padding）必须是 4 的倍数
-        const auto Total = ValidCount + Padding;
-        if (Total % 4 != 0)
-        {
-            return {};
-        }
-
-        std::string Result;
-        Result.reserve((ValidCount / 4) * 3);
-
-        std::uint8_t group[4]{};
-        std::size_t GroupCount = 0;
-
-        for (const auto c : input)
-        {
-            if (c == '=')
-            {
-                group[GroupCount++] = 0;
-                if (GroupCount == 4)
-                {
-                    // 根据 padding 数量决定输出字节数
-                    switch (Padding)
-                    {
-                    case 1:
-                        Result.push_back(static_cast<char>((group[0] << 2) | (group[1] >> 4)));
-                        Result.push_back(static_cast<char>(((group[1] & 0x0F) << 4) | (group[2] >> 2)));
-                        break;
-                    case 2: Result.push_back(static_cast<char>((group[0] << 2) | (group[1] >> 4))); break;
-                    default: break;
-                    }
-                    GroupCount = 0;
-                    Padding = 0;
-                }
-                continue;
-            }
-
-            if (std::isspace(static_cast<std::uint8_t>(c)))
+            if (std::isspace(static_cast<std::uint8_t>(Character)))
             {
                 continue;
             }
-
-            // URL-safe 变体转换
-            auto Ch = static_cast<std::uint8_t>(c);
+            auto Ch = static_cast<std::uint8_t>(Character);
             if (Ch == '-')
             {
                 Ch = '+';
@@ -141,29 +87,87 @@ namespace Preview::Crypto
             {
                 Ch = '/';
             }
-
-            const auto value = detail::DecTable[Ch];
-            if (value == 255)
+            if (Ch != '=' && Detail::DecTable[Ch] == 255)
             {
                 return {};
             }
-
-            group[GroupCount++] = value;
-            if (GroupCount == 4)
-            {
-                Result.push_back(static_cast<char>((group[0] << 2) | (group[1] >> 4)));
-                Result.push_back(static_cast<char>(((group[1] & 0x0F) << 4) | (group[2] >> 2)));
-                Result.push_back(static_cast<char>(((group[2] & 0x03) << 6) | group[3]));
-                GroupCount = 0;
-            }
+            Clean.push_back(static_cast<char>(Ch));
         }
 
-        // 无 padding 的剩余组：按 RFC 4648 规范不应出现
-        // 因为 Base64 要求输入按 3 字节分组，不足时必须补 padding
+        if (Clean.empty() || Clean.size() % 4 != 0)
+        {
+            return {};
+        }
+
+        std::size_t Padding = 0;
+        if (Clean.back() == '=')
+        {
+            ++Padding;
+            if (Clean.size() >= 2 && Clean[Clean.size() - 2] == '=')
+            {
+                ++Padding;
+            }
+        }
+        if (Padding > 2)
+        {
+            return {};
+        }
+        const auto DataEnd = Clean.size() - Padding;
+        if (Clean.substr(0, DataEnd).find('=') != std::string::npos)
+        {
+            return {};
+        }
+
+        std::string Result;
+        Result.reserve((Clean.size() / 4) * 3 - Padding);
+        for (std::size_t Offset = 0; Offset < Clean.size(); Offset += 4)
+        {
+            const auto V0 = Detail::DecTable[static_cast<std::uint8_t>(Clean[Offset])];
+            const auto V1 = Detail::DecTable[static_cast<std::uint8_t>(Clean[Offset + 1])];
+            if (V0 == 255 || V1 == 255)
+            {
+                return {};
+            }
+            const auto IsLast = Offset + 4 == Clean.size();
+            const auto C2 = Clean[Offset + 2];
+            const auto C3 = Clean[Offset + 3];
+            if (C2 == '=')
+            {
+                if (!IsLast || Padding != 2 || C3 != '=' || (V1 & 0x0F) != 0)
+                {
+                    return {};
+                }
+                Result.push_back(static_cast<char>((V0 << 2) | (V1 >> 4)));
+                continue;
+            }
+            const auto V2 = Detail::DecTable[static_cast<std::uint8_t>(C2)];
+            if (V2 == 255)
+            {
+                return {};
+            }
+            if (C3 == '=')
+            {
+                if (!IsLast || Padding != 1 || (V2 & 0x03) != 0)
+                {
+                    return {};
+                }
+                Result.push_back(static_cast<char>((V0 << 2) | (V1 >> 4)));
+                Result.push_back(static_cast<char>(((V1 & 0x0F) << 4) | (V2 >> 2)));
+                continue;
+            }
+            const auto V3 = Detail::DecTable[static_cast<std::uint8_t>(C3)];
+            if (V3 == 255 || (Padding != 0 && IsLast))
+            {
+                return {};
+            }
+            Result.push_back(static_cast<char>((V0 << 2) | (V1 >> 4)));
+            Result.push_back(static_cast<char>(((V1 & 0x0F) << 4) | (V2 >> 2)));
+            Result.push_back(static_cast<char>(((V2 & 0x03) << 6) | V3));
+        }
         return Result;
     }
 
-    namespace detail
+    namespace Detail
     {
 
         /**
@@ -172,7 +176,7 @@ namespace Preview::Crypto
         constexpr char EncodeTbl[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                       "abcdefghijklmnopqrstuvwxyz"
                                       "0123456789+/";
-    } // namespace detail
+    } // namespace Detail
 
     /**
      * @brief Base64 编码
@@ -181,50 +185,50 @@ namespace Preview::Crypto
      * @details 将原始字节编码为标准 Base64 字符串（含 padding）。
      * 遵循 RFC 4648 标准 Base64 编码规则。
      */
-    [[nodiscard]] inline auto Base64Encode(std::span<const std::uint8_t> input) -> std::string
+    [[nodiscard]] inline auto Base64Encode(std::span<const std::uint8_t> Input) -> std::string
     {
-        if (input.empty())
+        if (Input.empty())
         {
             return {};
         }
 
         std::string Result;
-        Result.reserve(((input.size() + 2) / 3) * 4);
+        Result.reserve(((Input.size() + 2) / 3) * 4);
 
         std::size_t I = 0;
-        const std::size_t FullGroups = input.size() / 3;
+        const std::size_t FullGroups = Input.size() / 3;
 
         // 处理完整的 3 字节组
         for (std::size_t G = 0; G < FullGroups; ++G)
         {
-            const auto Byte0 = input[I];
-            const auto Byte1 = input[I + 1];
-            const auto Byte2 = input[I + 2];
+            const auto Byte0 = Input[I];
+            const auto Byte1 = Input[I + 1];
+            const auto Byte2 = Input[I + 2];
             I += 3;
 
-            Result.push_back(detail::EncodeTbl[Byte0 >> 2]);
-            Result.push_back(detail::EncodeTbl[((Byte0 & 0x03) << 4) | (Byte1 >> 4)]);
-            Result.push_back(detail::EncodeTbl[((Byte1 & 0x0F) << 2) | (Byte2 >> 6)]);
-            Result.push_back(detail::EncodeTbl[Byte2 & 0x3F]);
+            Result.push_back(Detail::EncodeTbl[Byte0 >> 2]);
+            Result.push_back(Detail::EncodeTbl[((Byte0 & 0x03) << 4) | (Byte1 >> 4)]);
+            Result.push_back(Detail::EncodeTbl[((Byte1 & 0x0F) << 2) | (Byte2 >> 6)]);
+            Result.push_back(Detail::EncodeTbl[Byte2 & 0x3F]);
         }
 
         // 处理剩余字节
-        const std::size_t Remaining = input.size() % 3;
+        const std::size_t Remaining = Input.size() % 3;
         if (Remaining == 1)
         {
-            const auto Byte0 = input[I];
-            Result.push_back(detail::EncodeTbl[Byte0 >> 2]);
-            Result.push_back(detail::EncodeTbl[(Byte0 & 0x03) << 4]);
+            const auto Byte0 = Input[I];
+            Result.push_back(Detail::EncodeTbl[Byte0 >> 2]);
+            Result.push_back(Detail::EncodeTbl[(Byte0 & 0x03) << 4]);
             Result.push_back('=');
             Result.push_back('=');
         }
         else if (Remaining == 2)
         {
-            const auto Byte0 = input[I];
-            const auto Byte1 = input[I + 1];
-            Result.push_back(detail::EncodeTbl[Byte0 >> 2]);
-            Result.push_back(detail::EncodeTbl[((Byte0 & 0x03) << 4) | (Byte1 >> 4)]);
-            Result.push_back(detail::EncodeTbl[(Byte1 & 0x0F) << 2]);
+            const auto Byte0 = Input[I];
+            const auto Byte1 = Input[I + 1];
+            Result.push_back(Detail::EncodeTbl[Byte0 >> 2]);
+            Result.push_back(Detail::EncodeTbl[((Byte0 & 0x03) << 4) | (Byte1 >> 4)]);
+            Result.push_back(Detail::EncodeTbl[(Byte1 & 0x0F) << 2]);
             Result.push_back('=');
         }
 

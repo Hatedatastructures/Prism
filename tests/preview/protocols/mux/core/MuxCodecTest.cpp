@@ -18,8 +18,10 @@
 
 namespace
 {
-    using namespace Preview;
-    using namespace Preview::Mux;
+    namespace Smux = Preview::Mux::Smux;
+    namespace Yamux = Preview::Mux::Yamux;
+    namespace H2Mux = Preview::Mux::H2Mux;
+    using Error = Preview::Error;
 
     /// @brief 便捷转换：字符串 → 只读字节 span
     /// @param s 输入字符串

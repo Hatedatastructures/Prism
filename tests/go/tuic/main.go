@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"encoding/binary"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -75,10 +77,20 @@ func echoServer() (uint16, error) {
 }
 
 func main() {
-	port, err := echoServer()
-	if err != nil {
-		fmt.Printf("FAIL: echo server: %v\n", err)
-		os.Exit(1)
+	server := flag.String("server", serverAddr, "TUIC server address")
+	pass := flag.String("password", password, "TUIC password")
+	uuidValue := flag.String("uuid", uuidHex, "TUIC UUID")
+	udp := flag.Bool("udp", false, "send a native TUIC UDP packet")
+	flag.Parse()
+
+	var port uint16
+	var err error
+	if !*udp {
+		port, err = echoServer()
+		if err != nil {
+			fmt.Printf("FAIL: echo server: %v\n", err)
+			os.Exit(1)
+		}
 	}
 
 	tlsConfig := &tls.Config{
@@ -96,7 +108,7 @@ func main() {
 	// QUIC 握手可能因服务端就绪时序失败，重试最多 3 次
 	var quicConn *quic.Conn
 	for attempt := 0; attempt < 3; attempt++ {
-		quicConn, err = quic.DialAddr(ctx, serverAddr, tlsConfig, quicConfig)
+		quicConn, err = quic.DialAddr(ctx, *server, tlsConfig, quicConfig)
 		if err == nil {
 			break
 		}
@@ -111,9 +123,9 @@ func main() {
 	defer quicConn.CloseWithError(0, "")
 
 	// 1. 认证（uni 流）：[VER 0x05][TYPE 0x00][UUID 16B][TOKEN 32B]
-	uuid := parseUUID(uuidHex)
+	uuid := parseUUID(*uuidValue)
 	cs := quicConn.ConnectionState()
-	token, err := (&cs.TLS).ExportKeyingMaterial(string(uuid[:]), []byte(password), 32)
+	token, err := (&cs.TLS).ExportKeyingMaterial(string(uuid[:]), []byte(*pass), 32)
 	if err != nil {
 		fmt.Printf("FAIL: export keying material: %v\n", err)
 		os.Exit(1)
@@ -131,6 +143,42 @@ func main() {
 		os.Exit(1)
 	}
 	authStream.Close()
+
+	if *udp {
+		// TUIC v5 native UDP packet:
+		// [VER][TYPE][ASSOC_ID][PKT_ID][FRAG_TOTAL][FRAG_ID][SIZE][ATYP][ADDR][PORT][DATA]
+		payload := []byte("hello tuic v5 udp from go")
+		packet := make([]byte, 0, 17+len(payload))
+		packet = append(packet, 0x05, 0x02, 0x00, 0x01, 0x00, 0x01, 0x01, 0x00, 0x00, 0x00)
+		packet = append(packet, 0x01, 127, 0, 0, 1, 0x00, 0x35)
+		binary.BigEndian.PutUint16(packet[8:10], uint16(len(payload)))
+		packet = append(packet, payload...)
+		if err := quicConn.SendDatagram(packet); err != nil {
+			fmt.Printf("FAIL: send UDP packet: %v\n", err)
+			os.Exit(1)
+		}
+		response, err := quicConn.ReceiveDatagram(ctx)
+		if err != nil {
+			fmt.Printf("FAIL: receive UDP echo: %v\n", err)
+			os.Exit(1)
+		}
+		if len(response) < 17 || response[0] != 0x05 || response[1] != 0x02 {
+			fmt.Printf("FAIL: malformed UDP echo frame (%d bytes)\n", len(response))
+			os.Exit(1)
+		}
+		size := int(binary.BigEndian.Uint16(response[8:10]))
+		if size < 0 || len(response) < 17+size {
+			fmt.Printf("FAIL: truncated UDP echo frame (%d bytes)\n", len(response))
+			os.Exit(1)
+		}
+		got := response[17 : 17+size]
+		if string(got) != string(payload) {
+			fmt.Printf("FAIL: UDP echo mismatch: got %q want %q\n", got, payload)
+			os.Exit(1)
+		}
+		fmt.Printf("PASS: tuic v5 UDP echo ok (%d bytes)\n", len(got))
+		return
+	}
 
 	// 2. Connect（bidi 流）：[VER 0x05][TYPE 0x01][ATYP 0x01][IPv4 4B][PORT 2B]
 	connStream, err := quicConn.OpenStream()

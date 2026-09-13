@@ -18,26 +18,33 @@ namespace Preview::Protocol
      */
     enum class MuxSwitch : std::uint8_t
     {
-        Off, ///< 禁用多路复用
-        On   ///< 启用多路复用
+        Off = 0, ///< 禁用多路复用
+        On = 1 ///< 启用多路复用
     };
 
     /**
      * @brief 检测是否为 mux 多路复用标记地址
-     * @param host 目标主机名
-     * @param mux 多路复用开关
-     * @return 若目标地址为 mux 标记地址且 mux 已启用则返回 true
+     * @param Host 目标主机名
+     * @param Switch 多路复用开关
+     * @return 若目标地址为 mux 标记地址且开关已启用则返回 true
      * @details 检测目标主机名是否以 ".mux.sing-box.arpa" 结尾，
      * 这是 Mihomo/sing-box 兼容的 mux 多路复用标记地址。
      */
-    [[nodiscard]] inline auto IsMuxTarget(std::string_view host, MuxSwitch mux) noexcept -> bool
+    [[nodiscard]] inline auto IsMuxTarget(
+        std::string_view Host,
+        MuxSwitch Switch) noexcept -> bool
     {
-        if (mux != MuxSwitch::On)
+        if (Switch != MuxSwitch::On)
         {
             return false;
         }
-        constexpr std::string_view suffix = ".mux.sing-box.arpa";
-        return host.size() >= suffix.size() && host.substr(host.size() - suffix.size()) == suffix;
+        constexpr std::string_view Suffix = ".mux.sing-box.arpa";
+        if (Host.size() < Suffix.size())
+        {
+            return false;
+        }
+        const auto SuffixStart = Host.size() - Suffix.size();
+        return Host.substr(SuffixStart) == Suffix;
     }
 
 } // namespace Preview::Protocol

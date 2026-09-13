@@ -27,14 +27,19 @@
 
 namespace
 {
-    using namespace Preview;
-    using namespace Preview::Mux;
+    namespace Net = boost::asio;
+    namespace Smux = Preview::Mux::Smux;
+    namespace Yamux = Preview::Mux::Yamux;
+    namespace H2Mux = Preview::Mux::H2Mux;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto run_coro(Net::io_context &ioc, A coro) -> void
     {
         std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
+        Net::co_spawn(ioc, std::move(coro),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -51,7 +56,7 @@ namespace
 
     TEST(MuxSessionDeep, ConcurrentStreamsDataIntegrity)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Smux::Client cl;
         Smux::Server sv;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
@@ -59,9 +64,9 @@ namespace
         ASSERT_TRUE(sv.Accept(std::make_shared<MemoryStream>(std::move(b))));
 
         run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          for (std::uint32_t i = 0; i < 3; ++i)
                          {
@@ -77,7 +82,7 @@ namespace
                              s->Close();
                          }
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      for (std::uint32_t i = 1; i <= 3; ++i)
                      {
@@ -105,13 +110,13 @@ namespace
 
     TEST(MuxSessionDeep, ClosedSessionOpsFail)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Smux::Client cl;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         ASSERT_TRUE(cl.Connect(std::make_shared<MemoryStream>(std::move(a))));
 
          run_coro(ioc,
-                  [&]() -> net::awaitable<void>
+                  [&]() -> Net::awaitable<void>
                   {
                       co_await cl.Session()->Close();
                       auto s = co_await cl.OpenStream();
@@ -124,11 +129,11 @@ namespace
 
     TEST(MuxSessionDeep, FactoryHandshakeFail)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Smux::Client cl;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
          run_coro(ioc,
-                  [&]() -> net::awaitable<void>
+                  [&]() -> Net::awaitable<void>
                   {
                       b.Close();
                       if (!cl.Connect(std::make_shared<MemoryStream>(std::move(a))))
@@ -138,7 +143,7 @@ namespace
                       }
                       while (cl.IsOpen())
                       {
-                          co_await net::post(ioc.get_executor(), net::use_awaitable);
+                          co_await Net::post(ioc.get_executor(), Net::use_awaitable);
                       }
                       EXPECT_FALSE(cl.IsOpen());
                       co_return;

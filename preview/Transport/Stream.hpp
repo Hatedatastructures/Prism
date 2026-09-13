@@ -4,7 +4,7 @@
  * @details 定义测试库统一异步传输接口 concept，基于
  * Transmission 抽象（async_read_some / async_write_some / Close /
  * Cancel / IsOpen / Executor），协程友好的无阻塞 I/O 约定。
- * @note 全局为协程接口（net::awaitable），禁止阻塞 I/O。
+ * @note 全局为协程接口（Net::awaitable），禁止阻塞 I/O。
  */
 
 #pragma once
@@ -22,25 +22,28 @@
 namespace Preview
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /// 统一异步传输 concept
     /// @tparam T 传输类型（MemoryStream / Reliable / 协议连接）
     template <typename T>
     concept Stream =
-        requires(T &s, std::span<std::byte> wbuf, std::span<const std::byte> rbuf, std::error_code &ec) {
+        requires(T &StreamObject, std::span<std::byte> WriteBuffer,
+                 std::span<const std::byte> ReadBuffer, std::error_code &ErrorCode) {
             /// 异步读取（至多 wbuf.size() 字节，0 = 对端关闭）
-            { s.async_read_some(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            { StreamObject.async_read_some(WriteBuffer, ErrorCode) }
+                -> std::same_as<Net::awaitable<std::size_t>>;
             /// 异步写入（至多 rbuf.size() 字节）
-            { s.async_write_some(rbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            { StreamObject.async_write_some(ReadBuffer, ErrorCode) }
+                -> std::same_as<Net::awaitable<std::size_t>>;
             /// 同步关闭（读写均不可用）
-            { s.Close() } -> std::same_as<void>;
+            { StreamObject.Close() } -> std::same_as<void>;
             /// 取消未完成异步操作
-            { s.Cancel() } -> std::same_as<void>;
+            { StreamObject.Cancel() } -> std::same_as<void>;
             /// 是否处于打开状态
-            { s.IsOpen() } -> std::same_as<bool>;
+            { StreamObject.IsOpen() } -> std::same_as<bool>;
             /// 获取执行器
-            { s.Executor() } -> std::same_as<net::any_io_executor>;
+            { StreamObject.Executor() } -> std::same_as<Net::any_io_executor>;
         };
 
     /// 可关闭传输（在 Stream 基础上支持 Shutdown 语义，预留）

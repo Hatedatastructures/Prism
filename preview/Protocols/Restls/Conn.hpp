@@ -21,14 +21,15 @@
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
 #include <string>
+#include <system_error>
 #include <utility>
-#include <vector>
 
 namespace Preview::Restls
 {
@@ -49,19 +50,23 @@ namespace Preview::Restls
         using MemoryType = Memory;
         /**
          * @brief 构造函数
-         * @param upstream 底层传输（所有权移交）
-         * @param password 认证密码
+         * @param Upstream 底层传输（所有权移交）
+         * @param Password 认证密码
          */
-        explicit Conn(SharedTransmission upstream, std::string password)
-            : NextLayer_(std::move(upstream)), Password_(std::move(password))
+        explicit Conn(SharedTransmission Upstream, std::string Password)
+            : NextLayer_(std::move(Upstream)), Password_(std::move(Password))
         {
         }
 
         /**
          * @brief 获取执行器（委托底层传输）
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
@@ -71,11 +76,18 @@ namespace Preview::Restls
          * @return 错误码
          * @details 客户端由密码派生 RestlsSecret，后续认证均以其为密钥。
          */
-        [[nodiscard]] auto WriteHandshake(std::span<const std::uint8_t> ServerRandom)
-        -> net::awaitable<Error>
+        [[nodiscard]] auto WriteHandshake(
+            std::span<const std::uint8_t> ServerRandom) -> Net::awaitable<Error>
         {
-            if (ServerRandom.size() != 32)
+            Handshaken_ = false;
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+            if (ServerRandom.size() != ServerRandom_.size())
+            {
                 co_return Error::BadLength;
+            }
             Secret_ = DeriveSecret(Password_);
             std::copy(ServerRandom.begin(), ServerRandom.end(), ServerRandom_.begin());
             Handshaken_ = true;
@@ -89,11 +101,18 @@ namespace Preview::Restls
          * @details 服务端同样派生 Secret，并以 ServerMask 加密
          * 首个 TLS 记录实现服务端身份验证（测试库简化直接派生）。
          */
-        [[nodiscard]] auto ReadHandshake(std::span<const std::uint8_t> ServerRandom)
-        -> net::awaitable<Error>
+        [[nodiscard]] auto ReadHandshake(
+            std::span<const std::uint8_t> ServerRandom) -> Net::awaitable<Error>
         {
-            if (ServerRandom.size() != 32)
+            Handshaken_ = false;
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+            if (ServerRandom.size() != ServerRandom_.size())
+            {
                 co_return Error::BadLength;
+            }
             Secret_ = DeriveSecret(Password_);
             std::copy(ServerRandom.begin(), ServerRandom.end(), ServerRandom_.begin());
             Handshaken_ = true;
@@ -103,46 +122,56 @@ namespace Preview::Restls
         /**
          * @brief 透传读取（数据面原样，mask 编解码由上层记录层负责）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            ErrorCode.clear();
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 透传写入（数据面原样）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
-                                            std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            ErrorCode.clear();
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭底层传输
          */
-        void Close() override
+        auto Close() -> void override
         {
-            NextLayer_->Close();
+            Handshaken_ = false;
+            if (NextLayer_)
+            {
+                NextLayer_->Close();
+            }
         }
 
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
-            NextLayer_->Cancel();
+            if (NextLayer_)
+            {
+                NextLayer_->Cancel();
+            }
         }
 
         /**
@@ -166,6 +195,7 @@ namespace Preview::Restls
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
+            Handshaken_ = false;
             return std::move(NextLayer_);
         }
 

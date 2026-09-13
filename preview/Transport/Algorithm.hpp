@@ -27,56 +27,91 @@ namespace Preview
     /**
      * @brief 读满 buf.size() 字节（内部循环补读）
      * @tparam S Stream concept 满足类型
-     * @param s 目标流
-     * @param buf 输出缓冲
+     * @param StreamObject 目标流
+     * @param Buffer 输出缓冲
      * @return 错误码；EOF（对端提前关闭）= unexpected_eof
      * @note 超时由流的 SetTimeout 控制（如有）
      */
     template <Stream S>
-    auto AsyncReadExact(S &s, std::span<std::uint8_t> buf) -> net::awaitable<ProtocolEc>
+    auto AsyncReadExact(S &StreamObject, std::span<std::uint8_t> Buffer) -> Net::awaitable<ProtocolEc>
     {
         std::size_t Done = 0;
-        while (Done < buf.size())
+        while (Done < Buffer.size())
         {
-            const auto N = co_await s.ReadSome(buf.subspan(Done));
+            std::error_code Ec;
+            const auto Remaining = Buffer.size() - Done;
+            const auto N = co_await StreamObject.async_read_some(
+                std::span<std::byte>(reinterpret_cast<std::byte *>(Buffer.data() + Done), Remaining), Ec);
+            if (Ec)
+            {
+                co_return make_error_code(Error::IoError);
+            }
             if (N == 0)
             {
                 co_return make_error_code(Error::UnexpectedEof);
             }
+            if (N > Remaining)
+            {
+                co_return make_error_code(Error::BrokenPipe);
+            }
             Done += N;
         }
-        co_return {};
+        co_return make_error_code(Error::None);
     }
 
     /**
      * @brief 写满 buf.size() 字节
      * @tparam S Stream concept 满足类型
-     * @param s 目标流
-     * @param buf 输入缓冲
+     * @param StreamObject 目标流
+     * @param Buffer 输入缓冲
      * @return 错误码（WriteAll 语义：全部写入或失败）
      */
     template <Stream S>
-    auto AsyncWriteExact(S &s, std::span<const std::uint8_t> buf) -> net::awaitable<ProtocolEc>
+    auto AsyncWriteExact(S &StreamObject, std::span<const std::uint8_t> Buffer)
+        -> Net::awaitable<ProtocolEc>
     {
-        co_return co_await s.WriteAll(buf);
+        std::size_t Done = 0;
+        while (Done < Buffer.size())
+        {
+            std::error_code Ec;
+            const auto Remaining = Buffer.size() - Done;
+            const auto N = co_await StreamObject.async_write_some(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Buffer.data() + Done), Remaining),
+                Ec);
+            if (Ec)
+            {
+                co_return make_error_code(Error::IoError);
+            }
+            if (N == 0 || N > Remaining)
+            {
+                co_return make_error_code(Error::BrokenPipe);
+            }
+            Done += N;
+        }
+        co_return make_error_code(Error::None);
     }
 
     /**
      * @brief 带超时读满指定字节
-     * @param s 目标流
-     * @param buf 输出缓冲
-     * @param timeout 读超时（0 = 不设置）
+     * @param StreamObject 目标流
+     * @param Buffer 输出缓冲
+     * @param Timeout 读超时（0 = 不设置）
      * @return 错误码；超时 = timeout
      */
     template <Stream S>
-    auto AsyncReadExact(S &s, std::span<std::uint8_t> buf, std::chrono::milliseconds timeout)
-        -> net::awaitable<ProtocolEc>
+    auto AsyncReadExact(S &StreamObject, std::span<std::uint8_t> Buffer,
+                        std::chrono::milliseconds Timeout) -> Net::awaitable<ProtocolEc>
     {
-        if (timeout.count() > 0)
+        if constexpr (requires(S &StreamValue, std::chrono::milliseconds Duration) {
+                          StreamValue.SetTimeout(Duration);
+                      })
         {
-            s.SetTimeout(timeout);
+            if (Timeout.count() > 0)
+            {
+                StreamObject.SetTimeout(Timeout);
+            }
         }
-        co_return co_await AsyncReadExact(s, buf);
+        co_return co_await AsyncReadExact(StreamObject, Buffer);
     }
 
 } // namespace Preview

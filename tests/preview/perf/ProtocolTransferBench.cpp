@@ -3,7 +3,7 @@
  * @brief 协议层传输基准（本机真实 TCP loopback，Release）
  * @details Client Conn ↔ Server Conn 端到端传输：
  * 1. socks5 透传路径（纯 relay，协议层零拷贝叠加）
- * 2. vmess 加密路径（chunk 加密，资源指针 MakeBuffer 复用）
+ * 2. vmess 加密路径（Chunk 加密，资源指针 MakeBuffer 复用）
  * 3. vmess 对照：每帧分配 vs 复用缓冲（资源指针收益量化）
  */
 
@@ -26,297 +26,302 @@
 #include <preview/Protocols/Socks5/Socks5.hpp>
 #include <preview/Protocols/Vmess/Vmess.hpp>
 
-using clk = std::chrono::steady_clock;
-namespace net = boost::asio;
+using Clock = std::chrono::steady_clock;
+namespace Net = boost::asio;
+namespace Socks5 = Preview::Socks5;
+namespace Transport = Preview::Transport;
+namespace Vmess = Preview::Vmess;
+using Preview::Error;
 
 namespace
 {
-    auto now_ns() -> std::int64_t
+    auto NowNs() -> std::int64_t
     {
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count();
     }
 
     struct Result
     {
-        std::array<std::int64_t, 3> samples{};
-        auto median() const -> std::int64_t
+        std::array<std::int64_t, 3> Samples{};
+        auto Median() const -> std::int64_t
         {
-            auto s = samples;
-            std::sort(s.begin(), s.end());
-            return s[1];
+            auto Sorted = Samples;
+            std::sort(Sorted.begin(), Sorted.end());
+            return Sorted[1];
         }
     };
 
-    auto Report(const char *Name, const std::size_t Bytes, const Result &r) -> void
+    auto Report(const char *Name, const std::size_t Bytes, const Result &Statistics) -> void
     {
-        const double mb = static_cast<double>(Bytes) / (1024.0 * 1024.0);
-        const auto med = r.median();
-        const double sec = static_cast<double>(med) / 1e9;
+        const double Megabytes = static_cast<double>(Bytes) / (1024.0 * 1024.0);
+        const auto Median = Statistics.Median();
+        const double Seconds = static_cast<double>(Median) / 1e9;
         std::printf("%-44s %7.1f MB  med=%7.2f ms (runs %6.2f/%6.2f/%6.2f)  => %9.1f MB/s  %5.1f Gbps\n",
-                    Name, mb, sec * 1000, r.samples[0] / 1e6, r.samples[1] / 1e6, r.samples[2] / 1e6,
-                    mb / sec, mb / sec * 8 / 1000);
+                    Name, Megabytes, Seconds * 1000, Statistics.Samples[0] / 1e6,
+                    Statistics.Samples[1] / 1e6, Statistics.Samples[2] / 1e6,
+                    Megabytes / Seconds, Megabytes / Seconds * 8 / 1000);
     }
 
     /// 性能门禁：全部样本数据面完成 + 吞吐下限（防断链静默/死循环挂死/完全退化）
-    auto Gate(const char *Name, const std::size_t Bytes, const Result &r) -> bool
+    auto Gate(const char *Name, const std::size_t Bytes, const Result &Statistics) -> bool
     {
-        constexpr double kMinMbps = 50.0; // 宽松下限（本地 TCP 基线数百 MB/s，防 10x+ 劣化）
-        Report(Name, Bytes, r);
-        const auto med = r.median();
+        constexpr double MinMbps = 50.0; // 宽松下限（本地 TCP 基线数百 MB/s，防 10x+ 劣化）
+        Report(Name, Bytes, Statistics);
+        const auto Median = Statistics.Median();
         // 任一运行断链/未完成即 FAIL（部分失败不得被中位数掩盖）
-        if (std::any_of(r.samples.begin(), r.samples.end(), [](std::int64_t v) { return v <= 0; }))
+        if (std::any_of(Statistics.Samples.begin(), Statistics.Samples.end(),
+                        [](std::int64_t Value) { return Value <= 0; }))
         {
             std::printf("FAIL %s: 存在数据面未完成运行（断链/死循环）\n", Name);
             return false;
         }
-        const double mbps = static_cast<double>(Bytes) / (1024.0 * 1024.0) / (static_cast<double>(med) / 1e9);
-        if (mbps < kMinMbps)
+        const double MegabitsPerSecond = static_cast<double>(Bytes) / (1024.0 * 1024.0) /
+                                         (static_cast<double>(Median) / 1e9);
+        if (MegabitsPerSecond < MinMbps)
         {
-            std::printf("FAIL %s: 吞吐 %.1f MB/s < 下限 %.1f MB/s\n", Name, mbps, kMinMbps);
+            std::printf("FAIL %s: 吞吐 %.1f MB/s < 下限 %.1f MB/s\n", Name, MegabitsPerSecond, MinMbps);
             return false;
         }
         return true;
     }
 
     // ── socks5 Conn 对 Conn：透传路径 ──
-    auto bench_socks5_transfer(const std::size_t Total, const std::size_t block) -> std::int64_t
+    auto BenchSocks5Transfer(const std::size_t Total, const std::size_t BlockSize) -> std::int64_t
     {
-        using namespace Preview;
-        net::io_context ioc;
-        net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        const auto port = acceptor.local_endpoint().port();
-        std::vector<std::uint8_t> chunk(block, 0x5A);
+        Net::io_context IoContext;
+        Net::ip::tcp::acceptor Acceptor(IoContext, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        const auto Port = Acceptor.local_endpoint().port();
+        std::vector<std::uint8_t> Chunk(BlockSize, 0x5A);
 
-        const std::int64_t t0 = now_ns();
-        int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        const std::int64_t StartNs = NowNs();
+        int Completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
+        Net::co_spawn(IoContext, [&]() -> Net::awaitable<void>
         {
             // 服务端：Accept TCP → socks5 Accept → 读丢弃
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                net::ip::tcp::socket sock(ioc);
-                co_await acceptor.async_accept(sock, net::use_awaitable);
-                auto ss = std::make_shared<Transport::Reliable>(std::move(sock));
-                auto [err, req, Conn] = co_await Socks5::Accept(ss, Socks5::ServerConfig{});
-                if (err != Error::None || !Conn)
+                Net::ip::tcp::socket Socket(IoContext);
+                co_await Acceptor.async_accept(Socket, Net::use_awaitable);
+                auto Reliable = std::make_shared<Transport::Reliable>(std::move(Socket));
+                auto [ErrorValue, Request, Conn] = co_await Socks5::Accept(Reliable, Socks5::ServerConfig{});
+                if (ErrorValue != Error::None || !Conn)
                 {
                     co_return;
                 }
-                std::vector<std::uint8_t> buf(block);
-                std::error_code ec;
+                std::vector<std::uint8_t> Buffer(BlockSize);
+                std::error_code ErrorCode;
                 std::size_t Done = 0;
                 while (Done < Total)
                 {
-                    const auto n = co_await Conn->async_read_some(
-                        std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
-                    if (ec || n == 0)
+                    const auto BytesRead = co_await Conn->async_read_some(
+                        std::span<std::byte>(reinterpret_cast<std::byte *>(Buffer.data()), Buffer.size()), ErrorCode);
+                    if (ErrorCode || BytesRead == 0)
                     {
                         break;
                     }
-                    Done += n;
+                    Done += BytesRead;
                 }
                 Conn->Close();
             };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+            Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::detached);
 
             // 客户端：Connect → socks5 握手 → 写
-            auto ss = std::make_shared<Transport::Reliable>(ioc.get_executor());
-            const auto ec2 = co_await ss->Connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port));
-            if (ec2)
+            auto Reliable = std::make_shared<Transport::Reliable>(IoContext.get_executor());
+            const auto ConnectError = co_await Reliable->Connect(Net::ip::tcp::endpoint(Net::ip::address_v4::loopback(), Port));
+            if (ConnectError)
             {
-                ioc.stop();
+                IoContext.stop();
                 co_return;
             }
-            auto [err, Conn] = co_await Socks5::Connect(
-                ss, Socks5::ClientConfig{},
+            auto [ErrorValue, Conn] = co_await Socks5::Connect(
+                Reliable, Socks5::ClientConfig{},
                 Socks5::Address{Socks5::AddressType::Domain, "Target.internal", 443});
-            if (err != Error::None || !Conn)
+            if (ErrorValue != Error::None || !Conn)
             {
-                ioc.stop();
+                IoContext.stop();
                 co_return;
             }
             std::size_t Done = 0;
-            std::error_code ec;
+            std::error_code ErrorCode;
             while (Done < Total)
             {
-                const auto n = co_await Conn->async_write_some(
-                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
-                if (ec || n == 0)
+                const auto BytesRead = co_await Conn->async_write_some(
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(Chunk.data()), Chunk.size()), ErrorCode);
+                if (ErrorCode || BytesRead == 0)
                 {
-                    break; // 断链：completed=0 门禁 FAIL，避免死循环挂死
+                    break; // 断链：Completed=0 门禁 FAIL，避免死循环挂死
                 }
-                Done += n;
+                Done += BytesRead;
             }
             if (Done < Total)
             {
-                completed = 0;
+                Completed = 0;
             }
             Conn->Close();
-        }, [&](std::exception_ptr) { ioc.stop(); });
-        ioc.run();
-        if (completed == 0)
+        }, [&](std::exception_ptr) { IoContext.stop(); });
+        IoContext.run();
+        if (Completed == 0)
         {
             return 0;
         }
-        return now_ns() - t0;
+        return NowNs() - StartNs;
     }
 
     // ── vmess Conn 对 Conn：加密路径 ──
-    auto bench_vmess_transfer(const std::size_t Total, const std::size_t block, const bool reuse)
+    auto BenchVmessTransfer(const std::size_t Total, const std::size_t BlockSize, const bool Reuse)
         -> std::int64_t
     {
-        using namespace Preview;
-        net::io_context ioc;
-        net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        const auto port = acceptor.local_endpoint().port();
-        std::vector<std::uint8_t> chunk(block, 0x5A);
-        const auto uuid = std::array<std::uint8_t, 16>{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+        Net::io_context IoContext;
+        Net::ip::tcp::acceptor Acceptor(IoContext, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        const auto Port = Acceptor.local_endpoint().port();
+        std::vector<std::uint8_t> Chunk(BlockSize, 0x5A);
+        const auto Uuid = std::array<std::uint8_t, 16>{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
                                                         0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
 
-        const std::int64_t t0 = now_ns();
-        int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        const std::int64_t StartNs = NowNs();
+        int Completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
+        Net::co_spawn(IoContext, [&]() -> Net::awaitable<void>
         {
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                net::ip::tcp::socket sock(ioc);
-                co_await acceptor.async_accept(sock, net::use_awaitable);
-                auto ss = std::make_shared<Transport::Reliable>(std::move(sock));
-                Vmess::ServerConfig scfg;
-                scfg.uuid = uuid;
-                auto [err, req, Conn] = co_await Vmess::Accept(ss, scfg);
-                if (err != Error::None || !Conn)
+                Net::ip::tcp::socket Socket(IoContext);
+                co_await Acceptor.async_accept(Socket, Net::use_awaitable);
+                auto Reliable = std::make_shared<Transport::Reliable>(std::move(Socket));
+                Vmess::ServerConfig ServerConfig;
+                ServerConfig.uuid = Uuid;
+                auto [ErrorValue, Request, Conn] = co_await Vmess::Accept(Reliable, ServerConfig);
+                if (ErrorValue != Error::None || !Conn)
                 {
                     co_return;
                 }
-                std::vector<std::uint8_t> buf(block);
-                std::error_code ec;
+                std::vector<std::uint8_t> Buffer(BlockSize);
+                std::error_code ErrorCode;
                 std::size_t Done = 0;
                 while (Done < Total)
                 {
-                    const auto n = co_await Conn->async_read_some(
-                        std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
-                    if (ec || n == 0)
+                    const auto BytesRead = co_await Conn->async_read_some(
+                        std::span<std::byte>(reinterpret_cast<std::byte *>(Buffer.data()), Buffer.size()), ErrorCode);
+                    if (ErrorCode || BytesRead == 0)
                     {
                         break;
                     }
-                    Done += n;
+                    Done += BytesRead;
                 }
                 Conn->Close();
             };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+            Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::detached);
 
-            auto ss = std::make_shared<Transport::Reliable>(ioc.get_executor());
-            const auto ec2 = co_await ss->Connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port));
-            if (ec2)
+            auto Reliable = std::make_shared<Transport::Reliable>(IoContext.get_executor());
+            const auto ConnectError = co_await Reliable->Connect(Net::ip::tcp::endpoint(Net::ip::address_v4::loopback(), Port));
+            if (ConnectError)
             {
-                ioc.stop();
+                IoContext.stop();
                 co_return;
             }
-            Vmess::ClientConfig ccfg;
-            ccfg.uuid = uuid;
-            auto [err, Conn] = co_await Vmess::Connect(
-                ss, ccfg, Vmess::Address{Vmess::AddressType::Domain, "Target.internal", 443});
-            if (err != Error::None || !Conn)
+            Vmess::ClientConfig ClientConfig;
+            ClientConfig.uuid = Uuid;
+            auto [ErrorValue, Conn] = co_await Vmess::Connect(
+                Reliable, ClientConfig, Vmess::Address{Vmess::AddressType::Domain, "Target.internal", 443});
+            if (ErrorValue != Error::None || !Conn)
             {
-                ioc.stop();
+                IoContext.stop();
                 co_return;
             }
             std::size_t Done = 0;
-            std::error_code ec;
+            std::error_code ErrorCode;
             while (Done < Total)
             {
-                const auto n = co_await Conn->async_write_some(
-                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
-                if (ec || n == 0)
+                const auto BytesRead = co_await Conn->async_write_some(
+                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(Chunk.data()), Chunk.size()), ErrorCode);
+                if (ErrorCode || BytesRead == 0)
                 {
-                    break; // 断链：completed=0 门禁 FAIL，避免死循环挂死
+                    break; // 断链：Completed=0 门禁 FAIL，避免死循环挂死
                 }
-                Done += n;
+                Done += BytesRead;
             }
             if (Done < Total)
             {
-                completed = 0;
+                Completed = 0;
             }
             Conn->Close();
-        }, [&](std::exception_ptr) { ioc.stop(); });
-        ioc.run();
-        if (completed == 0)
+        }, [&](std::exception_ptr) { IoContext.stop(); });
+        IoContext.run();
+        if (Completed == 0)
         {
             return 0;
         }
-        return now_ns() - t0;
+        return NowNs() - StartNs;
     }
 
     // ── vmess 加密：复用 vs 每帧分配（资源指针收益） ──
-    auto bench_vmess_chunk(const bool reuse) -> std::int64_t
+    auto BenchVmessChunk(const bool Reuse) -> std::int64_t
     {
-        using namespace Preview::Vmess;
-        const auto key = std::array<std::uint8_t, 16>{};
+        namespace VmessLocal = Preview::Vmess;
+        const auto Key = std::array<std::uint8_t, 16>{};
         const auto Nonce = std::array<std::uint8_t, 12>{};
-        ChunkEncryptor enc(key, Nonce);
-        constexpr std::size_t kChunk = 16384;
-        constexpr int kIters = 16384; // 16KB x 16384 = 256MB
-        std::vector<std::uint8_t> plain(kChunk);
-        for (std::size_t i = 0; i < plain.size(); ++i)
+        VmessLocal::ChunkEncryptor Encoder(Key, Nonce);
+        constexpr std::size_t ChunkSize = 16384;
+        constexpr int IterationCount = 16384; // 16KB x 16384 = 256MB
+        std::vector<std::uint8_t> Plain(ChunkSize);
+        for (std::size_t I = 0; I < Plain.size(); ++I)
         {
-            plain[i] = static_cast<std::uint8_t>(i);
+            Plain[I] = static_cast<std::uint8_t>(I);
         }
 
-        const std::int64_t t0 = now_ns();
-        if (reuse)
+        const std::int64_t StartNs = NowNs();
+        if (Reuse)
         {
             // 资源指针：Arena 缓冲复用（vmess Conn 实际路径）
-            Preview::Memory::SessionResource<> mem;
-            auto out = mem.MakeBuffer<std::uint8_t>(kChunk + ChunkEncryptor::Overhead);
-            volatile std::size_t sink = 0;
-            for (int i = 0; i < kIters; ++i)
+            Preview::Memory::SessionResource<> MemoryResource;
+            auto Output = MemoryResource.MakeBuffer<std::uint8_t>(ChunkSize + VmessLocal::ChunkEncryptor::Overhead);
+            volatile std::size_t Sink = 0;
+            for (int I = 0; I < IterationCount; ++I)
             {
-                sink += enc.Seal(plain, out);
+                Sink += Encoder.Seal(Plain, Output);
             }
         }
         else
         {
             // 无资源指针：每块新建（系统堆分配）
-            volatile std::size_t sink = 0;
-            for (int i = 0; i < kIters; ++i)
+            volatile std::size_t Sink = 0;
+            for (int I = 0; I < IterationCount; ++I)
             {
-                std::vector<std::uint8_t> out(kChunk + ChunkEncryptor::Overhead);
-                sink += enc.Seal(plain, out);
+                std::vector<std::uint8_t> Output(ChunkSize + VmessLocal::ChunkEncryptor::Overhead);
+                Sink += Encoder.Seal(Plain, Output);
             }
         }
-        return now_ns() - t0;
+        return NowNs() - StartNs;
     }
 } // namespace
 
 int main()
 {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
-    constexpr std::size_t kTotal = 256ULL * 1024 * 1024;
-    constexpr std::size_t kBlock = 262144;
+    constexpr std::size_t TotalBytes = 256ULL * 1024 * 1024;
+    constexpr std::size_t BlockSize = 262144;
 
-    Result r_s5, r_vm, r_reuse, r_naive;
-    for (int i = 0; i < 3; ++i)
+    Result Socks5Result, VmessResult, ReuseResult, NaiveResult;
+    for (int I = 0; I < 3; ++I)
     {
-        r_s5.samples[i] = bench_socks5_transfer(kTotal, kBlock);
-        r_vm.samples[i] = bench_vmess_transfer(kTotal, kBlock, true);
-        r_reuse.samples[i] = bench_vmess_chunk(true);
-        r_naive.samples[i] = bench_vmess_chunk(false);
+        Socks5Result.Samples[I] = BenchSocks5Transfer(TotalBytes, BlockSize);
+        VmessResult.Samples[I] = BenchVmessTransfer(TotalBytes, BlockSize, true);
+        ReuseResult.Samples[I] = BenchVmessChunk(true);
+        NaiveResult.Samples[I] = BenchVmessChunk(false);
     }
-    if (!Gate("socks5 Conn<->Conn (透传)", kTotal, r_s5))
+    if (!Gate("socks5 Conn<->Conn (透传)", TotalBytes, Socks5Result))
     {
         return 1;
     }
-    if (!Gate("vmess Conn<->Conn (加密, 资源指针)", kTotal, r_vm))
+    if (!Gate("vmess Conn<->Conn (加密, 资源指针)", TotalBytes, VmessResult))
     {
         return 1;
     }
     std::printf("---- vmess 加密 256MB（纯加密，无传输）----\n");
-    if (!Gate("vmess chunk 复用缓冲 (资源指针)", 256ULL * 1024 * 1024, r_reuse))
+    if (!Gate("vmess Chunk 复用缓冲 (资源指针)", 256ULL * 1024 * 1024, ReuseResult))
     {
         return 1;
     }
-    if (!Gate("vmess chunk 每帧分配 (无资源指针)", 256ULL * 1024 * 1024, r_naive))
+    if (!Gate("vmess Chunk 每帧分配 (无资源指针)", 256ULL * 1024 * 1024, NaiveResult))
     {
         return 1;
     }

@@ -9,6 +9,7 @@
  * 遵循热路径零开销原则，所有函数 constexpr/noexcept，无动态分配。
  * @note 命名空间保留为原子形式：Preview::Memory、Preview::Fault、Preview::Exception
  * @warning 线程局部资源分配的内存严禁跨线程使用
+ * @note 本文件只负责聚合头，不在此处定义基础设施实现。
  */
 #pragma once
 

@@ -13,10 +13,13 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 
 #include <preview/Foundation/Error.hpp>
+#include <preview/Foundation/Authenticator.hpp>
+#include <preview/Foundation/Utility/Crypto/Base64.hpp>
 #include <preview/Protocols/Trusttunnel/Types.hpp>
 
 namespace Preview::Trusttunnel
@@ -27,140 +30,115 @@ namespace Preview::Trusttunnel
 
     /**
      * @brief 构造 Basic Auth 头值
-     * @param user 用户名
-     * @param pass 密码
+     * @param Username 用户名
+     * @param Password 密码
      * @return "Basic base64(user:pass)"
      */
-    [[nodiscard]] inline auto BasicAuth(std::string_view user, std::string_view pass) -> std::string
+    [[nodiscard]] inline auto BasicAuth(
+        std::string_view Username,
+        std::string_view Password) -> std::string
     {
-        const std::string raw = std::string(user) + ":" + std::string(pass);
-        std::string enc;
-        enc.reserve((raw.size() + 2) / 3 * 4);
-        std::size_t I = 0;
-        for (; I + 2 < raw.size(); I += 3)
+        const std::string Raw = std::string(Username) + ":" + std::string(Password);
+        std::string Encoded;
+        Encoded.reserve((Raw.size() + 2) / 3 * 4);
+        std::size_t Index = 0;
+        for (; Index + 2 < Raw.size(); Index += 3)
         {
-            const auto N = static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I])) << 16 |
-                           static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I + 1])) << 8 |
-                           static_cast<std::uint8_t>(raw[I + 2]);
-            enc.push_back(base64_table[(N >> 18) & 0x3F]);
-            enc.push_back(base64_table[(N >> 12) & 0x3F]);
-            enc.push_back(base64_table[(N >> 6) & 0x3F]);
-            enc.push_back(base64_table[N & 0x3F]);
+            const auto Value = static_cast<std::uint32_t>(static_cast<std::uint8_t>(Raw[Index])) << 16 |
+                               static_cast<std::uint32_t>(static_cast<std::uint8_t>(Raw[Index + 1])) << 8 |
+                               static_cast<std::uint8_t>(Raw[Index + 2]);
+            Encoded.push_back(base64_table[(Value >> 18) & 0x3F]);
+            Encoded.push_back(base64_table[(Value >> 12) & 0x3F]);
+            Encoded.push_back(base64_table[(Value >> 6) & 0x3F]);
+            Encoded.push_back(base64_table[Value & 0x3F]);
         }
-        if (I + 1 == raw.size())
+        if (Index + 1 == Raw.size())
         {
-            const auto N = static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I])) << 16;
-            enc.push_back(base64_table[(N >> 18) & 0x3F]);
-            enc.push_back(base64_table[(N >> 12) & 0x3F]);
-            enc.push_back('=');
-            enc.push_back('=');
+            const auto Value = static_cast<std::uint32_t>(static_cast<std::uint8_t>(Raw[Index])) << 16;
+            Encoded.push_back(base64_table[(Value >> 18) & 0x3F]);
+            Encoded.push_back(base64_table[(Value >> 12) & 0x3F]);
+            Encoded.push_back('=');
+            Encoded.push_back('=');
         }
-        else if (I + 2 == raw.size())
+        else if (Index + 2 == Raw.size())
         {
-            const auto N = static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I])) << 16 |
-                           static_cast<std::uint32_t>(static_cast<std::uint8_t>(raw[I + 1])) << 8;
-            enc.push_back(base64_table[(N >> 18) & 0x3F]);
-            enc.push_back(base64_table[(N >> 12) & 0x3F]);
-            enc.push_back(base64_table[(N >> 6) & 0x3F]);
-            enc.push_back('=');
+            const auto Value = static_cast<std::uint32_t>(static_cast<std::uint8_t>(Raw[Index])) << 16 |
+                               static_cast<std::uint32_t>(static_cast<std::uint8_t>(Raw[Index + 1])) << 8;
+            Encoded.push_back(base64_table[(Value >> 18) & 0x3F]);
+            Encoded.push_back(base64_table[(Value >> 12) & 0x3F]);
+            Encoded.push_back(base64_table[(Value >> 6) & 0x3F]);
+            Encoded.push_back('=');
         }
-        return std::string(BasicPrefix) + enc;
+        return std::string(BasicPrefix) + Encoded;
     }
 
     /**
      * @brief 解析校验 Basic Auth 头值
-     * @param authorization "Basic <base64>"
-     * @param user 输出用户名
-     * @param pass 输出密码
+     * @param Authorization "Basic <base64>"
+     * @param Username 输出用户名
+     * @param Password 输出密码
      * @return true = 解析成功
      */
-    [[nodiscard]] inline auto ParseBasicAuth(std::string_view authorization, std::string &user,
-                                               std::string &pass) -> bool
+    [[nodiscard]] inline auto ParseBasicAuth(
+        std::string_view Authorization,
+        std::string &Username,
+        std::string &Password) -> bool
     {
-        if (authorization.size() < BasicPrefix.size() ||
-            authorization.substr(0, BasicPrefix.size()) != BasicPrefix)
+        if (Authorization.size() < BasicPrefix.size() ||
+            Authorization.substr(0, BasicPrefix.size()) != BasicPrefix)
         {
             return false;
         }
-        const auto Encoded = authorization.substr(BasicPrefix.size());
+        const auto Encoded = Authorization.substr(BasicPrefix.size());
         if (Encoded.empty())
         {
             return false;
         }
 
-        // base64 解码
-        auto Val = [](char c) -> int
+        const auto Raw = Preview::Crypto::Base64Decode(Encoded);
+        if (Raw.empty())
         {
-            if (c >= 'A' && c <= 'Z')
-            {
-                return c - 'A';
-            }
-            if (c >= 'a' && c <= 'z')
-            {
-                return c - 'a' + 26;
-            }
-            if (c >= '0' && c <= '9')
-            {
-                return c - '0' + 52;
-            }
-            if (c == '+')
-            {
-                return 62;
-            }
-            if (c == '/')
-            {
-                return 63;
-            }
-            return -1;
-        };
-        std::string raw;
-        std::uint32_t Acc = 0;
-        int Bits = 0;
-        for (const char c : Encoded)
-        {
-            if (c == '=')
-            {
-                break;
-            }
-            const int V = Val(c);
-            if (V < 0)
-            {
-                return false;
-            }
-            Acc = (Acc << 6) | static_cast<std::uint32_t>(V);
-            Bits += 6;
-            if (Bits >= 8)
-            {
-                Bits -= 8;
-                raw.push_back(static_cast<char>((Acc >> Bits) & 0xFF));
-            }
+            return false;
         }
-        const auto Colon = raw.find(':');
+        const auto Canonical = Preview::Crypto::Base64Encode(
+            std::span<const std::uint8_t>(
+                reinterpret_cast<const std::uint8_t *>(Raw.data()),
+                Raw.size()));
+        if (Canonical != Encoded)
+        {
+            return false;
+        }
+        const auto Colon = Raw.find(':');
         if (Colon == std::string::npos)
         {
             return false;
         }
-        user = raw.substr(0, Colon);
-        pass = raw.substr(Colon + 1);
+        Username = Raw.substr(0, Colon);
+        Password = Raw.substr(Colon + 1);
         return true;
     }
 
     /**
      * @brief 校验 Basic Auth（服务端侧）
-     * @param authorization 客户端头值
+     * @param Authorization 客户端头值
      * @param ExpectUser 期望用户名
      * @param ExpectPass 期望密码
      * @return true = 匹配
      */
-    [[nodiscard]] inline auto VerifyBasicAuth(std::string_view authorization, std::string_view ExpectUser,
-                                                std::string_view ExpectPass) -> bool
+    [[nodiscard]] inline auto VerifyBasicAuth(
+        std::string_view Authorization,
+        std::string_view ExpectUser,
+        std::string_view ExpectPass) -> bool
     {
-        std::string user, pass;
-        if (!ParseBasicAuth(authorization, user, pass))
+        std::string Username;
+        std::string Password;
+        if (!ParseBasicAuth(Authorization, Username, Password))
         {
             return false;
         }
-        return user == ExpectUser && pass == ExpectPass;
+        const auto UserMatches = Preview::ConstantTimeEqual(Username, ExpectUser);
+        const auto PasswordMatches = Preview::ConstantTimeEqual(Password, ExpectPass);
+        return UserMatches && PasswordMatches;
     }
 
 } // namespace Preview::Trusttunnel

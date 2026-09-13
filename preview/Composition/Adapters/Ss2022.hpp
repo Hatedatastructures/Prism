@@ -5,11 +5,15 @@
 
 #pragma once
 
+#include <boost/asio/awaitable.hpp>
+
 #include <preview/Runtime/Contract/Handler.hpp>
 #include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 
 namespace Preview::Runtime::Handler
 {
+
+    namespace Net = boost::asio;
 
     class Ss2022 final : public ProtocolHandler
     {
@@ -17,7 +21,7 @@ namespace Preview::Runtime::Handler
         explicit Ss2022(Preview::Shadowsocks2022::ServerConfig cfg) : Cfg_(std::move(cfg)) {}
 
         auto Accept(Preview::SharedTransmission Inbound)
-            -> net::awaitable<AcceptResult> override
+            -> Net::awaitable<AcceptResult> override
         {
             auto [err, msg, Conn] = co_await Preview::Shadowsocks2022::Accept(std::move(Inbound), Cfg_);
             AcceptResult r;
@@ -26,6 +30,7 @@ namespace Preview::Runtime::Handler
             r.Target.Host = msg.dst.Host;
             r.Target.Port = std::to_string(msg.dst.Port);
             // identity 留空：SS2022 无客户端标识，禁止把密码写进统计
+            r.ProtocolAuthenticated = true;
             r.Transmission = std::move(Conn);
             co_return r;
         }

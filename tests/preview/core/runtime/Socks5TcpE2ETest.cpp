@@ -37,8 +37,15 @@
 namespace
 {
 
-    namespace net = boost::asio;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Socks5 = Preview::Socks5;
+    namespace Fault = Preview::Fault;
+    namespace Network = Preview::Network;
+    namespace Runtime = Preview::Runtime;
+    namespace Fault = Preview::Fault;
+    namespace Network = Preview::Network;
+    namespace Runtime = Preview::Runtime;
+    using Preview::SharedTransmission;
 
     // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::RunCoro;
@@ -46,29 +53,29 @@ namespace
     using Preview::Testing::StartTcpEchoUpstream;
 
     /// SOCKS5 无认证 Greeting
-    auto socks5_greeting() -> std::string
+    auto Socks5Greeting() -> std::string
     {
         return std::string("\x05\x01\x00", 3);
     }
 
     /// SOCKS5 CONNECT 请求（domain）
-    auto socks5_connect_request(const std::string &host, std::uint16_t port) -> std::string
+    auto Socks5ConnectRequest(const std::string &Host, std::uint16_t Port) -> std::string
     {
-        std::string req;
-        req.push_back(0x05); // version
-        req.push_back(0x01); // CONNECT
-        req.push_back(0x00); // reserved
-        req.push_back(0x03); // atyp domain
-        req.push_back(static_cast<char>(host.size()));
-        req += host;
-        req.push_back(static_cast<char>((port >> 8) & 0xff));
-        req.push_back(static_cast<char>(port & 0xff));
-        return req;
+        std::string Request;
+        Request.push_back(0x05); // version
+        Request.push_back(0x01); // CONNECT
+        Request.push_back(0x00); // reserved
+        Request.push_back(0x03); // atyp domain
+        Request.push_back(static_cast<char>(Host.size()));
+        Request += Host;
+        Request.push_back(static_cast<char>((Port >> 8) & 0xff));
+        Request.push_back(static_cast<char>(Port & 0xff));
+        return Request;
     }
 
     /// 读取 SOCKS5 应答并返回 rep 字段
     /// @note 使用 AsyncRead 读满固定长度，避免半包；错误/EOF 时直接返回
-    auto read_socks5_reply(SharedTransmission Conn, std::uint8_t &rep) -> net::awaitable<void>
+    auto ReadSocks5Reply(SharedTransmission Conn, std::uint8_t &Reply) -> Net::awaitable<void>
     {
         std::array<std::byte, 4> head{};
         std::error_code ec;
@@ -77,7 +84,7 @@ namespace
         {
             co_return;
         }
-        rep = static_cast<std::uint8_t>(head[1]);
+        Reply = static_cast<std::uint8_t>(head[1]);
         // 跳过 BND.ADDR + BND.PORT
         const auto atyp = static_cast<std::uint8_t>(head[3]);
         std::size_t skip = 2;
@@ -107,19 +114,19 @@ namespace
     }
 
     /// SOCKS5 TCP 链路用例结果
-    struct socks5_chain_result
+    struct Socks5ChainResult
     {
         std::string echo;                 ///< 回显数据
         std::uint8_t rep{0xff};           ///< CONNECT 应答码
     };
 
     /// 组装 SOCKS5 TCP 会话 listener（识别 → adapter → Dial）
-    auto make_socks5_listener(net::io_context &ioc, std::uint16_t echo_port, bool refused)
+    auto MakeSocks5Listener(Net::io_context &IoContext, std::uint16_t EchoPort, bool Refused)
         -> Preview::Runtime::TcpListener
     {
         return Preview::Runtime::TcpListener(
-            ioc.get_executor(),
-            [&, echo_port, refused](Preview::SharedTransmission Inbound, std::size_t)
+            IoContext.get_executor(),
+            [&, EchoPort, Refused](SharedTransmission Inbound, std::size_t)
                 -> std::shared_ptr<Preview::Runtime::Session>
             {
                 Preview::Runtime::SessionOptions opts;
@@ -127,19 +134,19 @@ namespace
                 Socks5::ServerConfig scfg;
                 scfg.EnableTcp = true;
                 opts.AcceptProtocol = Preview::Runtime::MakeAcceptSocks5(std::move(scfg));
-                opts.Dial = [&](const Preview::Network::Target &t) -> net::awaitable<
+                opts.Dial = [&](const Preview::Network::Target &t) -> Net::awaitable<
                     std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
                 {
                     // 目标必须是客户端请求的地址
                     EXPECT_EQ(t.Host, "example.com");
                     EXPECT_EQ(t.Port, "443");
-                    if (refused)
+                    if (Refused)
                     {
                         co_return std::pair{Preview::Fault::Code::ConnectionRefused, nullptr};
                     }
                     std::error_code ec;
-                    Preview::Network::Dialer::Dialer d(ioc.get_executor());
-                    auto Conn = co_await d.Connect("127.0.0.1", echo_port, ec);
+                    Preview::Network::Dialer::Dialer Dialer(IoContext.get_executor());
+                    auto Conn = co_await Dialer.Connect("127.0.0.1", EchoPort, ec);
                     if (ec)
                     {
                         co_return std::pair{Preview::Fault::Code::Unreachable, nullptr};
@@ -153,17 +160,17 @@ namespace
 
     /// 运行一条 SOCKS5 TCP CONNECT 链路
     /// @param refused 为 true 时 Dial 返回 connection_refused
-    auto run_socks5_connect(bool refused) -> socks5_chain_result
+    auto RunSocks5Connect(bool refused) -> Socks5ChainResult
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         const auto echo_port = StartTcpEchoUpstream(ioc);
-        auto listener = make_socks5_listener(ioc, echo_port, refused);
+        auto listener = MakeSocks5Listener(ioc, echo_port, refused);
 
-        socks5_chain_result out;
+        Socks5ChainResult out;
         RunCoro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
-                     const auto start_rc = co_await listener.Start(net::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 0));
+                     const auto start_rc = co_await listener.Start(Net::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 0));
                      EXPECT_EQ(start_rc, Preview::Fault::Code::Success);
                      const auto listen_port = listener.LocalEndpoint().port();
 
@@ -176,7 +183,7 @@ namespace
                      }
 
                      // 1. Greeting → Method Reply
-                     const auto Greeting = socks5_greeting();
+                     const auto Greeting = Socks5Greeting();
                      co_await Conn->AsyncWrite(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(Greeting.data()), Greeting.size()), ec);
                      if (ec)
@@ -197,12 +204,12 @@ namespace
                      EXPECT_EQ(static_cast<std::uint8_t>(mrep[1]), 0x00);
 
                      // 2. CONNECT 请求 → 应答（拨号后发送）
-                     const auto req = socks5_connect_request("example.com", 443);
+                     const auto req = Socks5ConnectRequest("example.com", 443);
                      co_await Conn->AsyncWrite(
                          std::span<const std::byte>(reinterpret_cast<const std::byte *>(req.data()), req.size()), ec);
                      if (!ec)
                      {
-                         co_await read_socks5_reply(Conn, out.rep);
+                         co_await ReadSocks5Reply(Conn, out.rep);
                      }
 
                      // 3. 回显往返（仅拨号成功时）
@@ -219,9 +226,9 @@ namespace
 
                      Conn->Close();
                      // 让 relay 收尾（不依赖 ioc.Stop 打断在途协程）
-                     net::steady_timer timer(ioc.get_executor(), std::chrono::milliseconds(30));
+                     Net::steady_timer timer(ioc.get_executor(), std::chrono::milliseconds(30));
                      boost::system::error_code tec;
-                     co_await timer.async_wait(net::redirect_error(net::use_awaitable, tec));
+                     co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, tec));
                      listener.Stop();
                  });
         return out;
@@ -229,14 +236,14 @@ namespace
 
     TEST(Socks5TcpChain, FullConnectEcho)
     {
-        const auto r = run_socks5_connect(false);
+        const auto r = RunSocks5Connect(false);
         EXPECT_EQ(r.rep, static_cast<std::uint8_t>(Socks5::ReplyCode::Success));
         EXPECT_EQ(r.echo, "socks5-e2e-payload");
     }
 
     TEST(Socks5TcpChain, DialRefusedMapsToConnectionRefused)
     {
-        const auto r = run_socks5_connect(true);
+        const auto r = RunSocks5Connect(true);
         EXPECT_EQ(r.rep, static_cast<std::uint8_t>(Socks5::ReplyCode::ConnectionRefused));
         EXPECT_TRUE(r.echo.empty());
     }
@@ -246,28 +253,28 @@ namespace
     {
         // A-2 回归：客户端 CONNECT 后立即断开，服务端慢拨号完成后应答写在已关闭连接上，
         // 必须记录错误并收口，不能静默丢失也不得挂起。
-        net::io_context ioc;
+        Net::io_context ioc;
 
         boost::asio::ip::tcp::acceptor echo_acceptor(
-            ioc, net::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 0));
+            ioc, Net::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
-        net::co_spawn(
+        Net::co_spawn(
             ioc.get_executor(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 while (true)
                 {
                     boost::system::error_code ec;
                     auto sock = co_await echo_acceptor.async_accept(
-                        net::redirect_error(net::use_awaitable, ec));
+                        Net::redirect_error(Net::use_awaitable, ec));
                     if (ec)
                     {
                         co_return;
                     }
-                    net::co_spawn(ioc.get_executor(), TcpEchoServer(std::move(sock)), net::detached);
+                    Net::co_spawn(ioc.get_executor(), TcpEchoServer(std::move(sock)), Net::detached);
                 }
             },
-            net::detached);
+            Net::detached);
 
         Preview::Runtime::TcpListener listener(
             ioc.get_executor(),
@@ -279,12 +286,12 @@ namespace
                 scfg.EnableTcp = true;
                 opts.AcceptProtocol = Preview::Runtime::MakeAcceptSocks5(std::move(scfg));
                 opts.Dial = [&](const Preview::Network::Target &)
-                    -> net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
+                    -> Net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
                 {
                     // 慢拨号：确保客户端已断开后再发送 CONNECT 应答
-                    net::steady_timer slow(ioc.get_executor(), std::chrono::milliseconds(200));
+                    Net::steady_timer slow(ioc.get_executor(), std::chrono::milliseconds(200));
                     boost::system::error_code sec;
-                    co_await slow.async_wait(net::redirect_error(net::use_awaitable, sec));
+                    co_await slow.async_wait(Net::redirect_error(Net::use_awaitable, sec));
                     std::error_code dec;
                     Preview::Network::Dialer::Dialer d(ioc.get_executor());
                     auto Conn = co_await d.Connect("127.0.0.1", echo_port, dec);
@@ -300,10 +307,10 @@ namespace
 
         bool completed = false;
         RunCoro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
                      const auto start_rc = co_await listener.Start(
-                         net::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 0));
+                         Net::ip::tcp::endpoint(boost::asio::ip::tcp::v4(), 0));
                      EXPECT_EQ(start_rc, Preview::Fault::Code::Success);
                      const auto listen_port = listener.LocalEndpoint().port();
 
@@ -317,7 +324,7 @@ namespace
                      }
 
                      // Greeting → Method Reply
-                     const auto Greeting = socks5_greeting();
+                     const auto Greeting = Socks5Greeting();
                      co_await Conn->AsyncWrite(
                          std::span<const std::byte>(
                              reinterpret_cast<const std::byte *>(Greeting.data()),
@@ -339,7 +346,7 @@ namespace
                      }
 
                      // CONNECT 请求后立即断开
-                     const auto req = socks5_connect_request("example.com", 443);
+                     const auto req = Socks5ConnectRequest("example.com", 443);
                      co_await Conn->AsyncWrite(
                          std::span<const std::byte>(
                              reinterpret_cast<const std::byte *>(req.data()),
@@ -348,9 +355,9 @@ namespace
                      Conn->Close();
 
                      // 等待服务端完成慢拨号 + 应答写失败收口
-                     net::steady_timer t(ioc.get_executor(), std::chrono::milliseconds(500));
+                     Net::steady_timer t(ioc.get_executor(), std::chrono::milliseconds(500));
                      boost::system::error_code tec;
-                     co_await t.async_wait(net::redirect_error(net::use_awaitable, tec));
+                     co_await t.async_wait(Net::redirect_error(Net::use_awaitable, tec));
                      completed = true;
                      listener.Stop();
                  });

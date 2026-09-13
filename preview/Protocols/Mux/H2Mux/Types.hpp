@@ -4,6 +4,8 @@
  * @details sing-mux 是 sing-box 的多路复用协议，9 字节定长帧头
  *          （对齐 sing-box singmux Frame）：
  *          [Type 1B][Length 4B BE][StreamID 4B BE] = 9 字节。
+ * @note FrameType 数值、FrameHdrsize、MaxFrameLength 和 FrameHeader::length
+ *       属于公共 wire/API 兼容面，保持现有名称和值。
  * @note 协议规范见 src/prism/Protocol/multiplex/h2mux/。
  */
 
@@ -34,7 +36,7 @@ namespace Preview::Mux::H2Mux
     /// 最大帧长度（16MB，sing-mux 限制）
     inline constexpr std::uint32_t MaxFrameLength = 16 * 1024 * 1024;
 
-    /// sing-mux 帧头
+    /// sing-mux 帧头（字段名称保持公共兼容）
     struct FrameHeader
     {
         /// 帧类型

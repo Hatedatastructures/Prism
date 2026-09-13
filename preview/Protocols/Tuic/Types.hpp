@@ -1,10 +1,10 @@
 /**
  * @file Types.hpp
- * @brief Tuic 协议基础类型
- * @details Tuic 是 QUIC 之上的代理协议，消息经 TLV 编码：
+ * @brief TUIC 协议基础类型
+ * @details TUIC 是 QUIC 之上的代理协议，消息经 TLV 编码：
  *          [Ver 1B][Cmd 1B][...载荷]
  *          本测试库实现纯逻辑帧编解码（不含 QUIC 传输）。
- * @note 参考 tuic 协议规范。
+ * @note 参考 TUIC 协议规范。
  */
 
 #pragma once
@@ -53,7 +53,14 @@ namespace Preview::Tuic
         None = 0xFF,
     };
 
-    /// TLS exporter 回调。Label 必须为原始 UUID，Context 必须为密码。
+    /**
+     * @brief TLS exporter 回调
+     * @param Output 导出密钥输出缓冲区
+     * @param Label 原始 UUID 标签
+     * @param Context 认证密码上下文
+     * @return 成功返回 true
+     * @note Label 必须为原始 UUID，Context 必须为密码。
+     */
     using KeyingMaterialExporter = std::function<bool(std::span<std::uint8_t> Output,
                                                        std::span<const std::uint8_t> Label,
                                                        std::string_view Context)>;

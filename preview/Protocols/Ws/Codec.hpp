@@ -30,23 +30,23 @@ namespace Preview::Ws
 
     /**
      * @brief 计算 Sec-WebSocket-Accept
-     * @param key Sec-WebSocket-Key（客户端提供）
+     * @param Key Sec-WebSocket-Key（客户端提供）
      * @return 28 字节 base64 结果；失败返回空
      * @details base64(SHA1(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"))。
      */
-    [[nodiscard]] inline auto ComputeAccept(std::string_view key) -> std::string
+    [[nodiscard]] inline auto ComputeAccept(std::string_view Key) -> std::string
     {
-        std::string combined(key);
-        combined.append(WsGuid);
-        std::array<std::uint8_t, Sha1Len> digest{};
-        SHA1(reinterpret_cast<const std::uint8_t *>(combined.data()), combined.size(), digest.data());
-        std::array<std::uint8_t, AcceptLen + 1> enc{};
-        if (EVP_EncodeBlock(enc.data(), digest.data(), static_cast<int>(digest.size())) !=
+        std::string Combined(Key);
+        Combined.append(WsGuid);
+        std::array<std::uint8_t, Sha1Len> Digest{};
+        SHA1(reinterpret_cast<const std::uint8_t *>(Combined.data()), Combined.size(), Digest.data());
+        std::array<std::uint8_t, AcceptLen + 1> Encoded{};
+        if (EVP_EncodeBlock(Encoded.data(), Digest.data(), static_cast<int>(Digest.size())) !=
             static_cast<int>(AcceptLen))
         {
             return {};
         }
-        return std::string(reinterpret_cast<const char *>(enc.data()), AcceptLen);
+        return std::string(reinterpret_cast<const char *>(Encoded.data()), AcceptLen);
     }
 
     /// 解析出的帧头
@@ -68,56 +68,83 @@ namespace Preview::Ws
 
     /**
      * @brief 解析帧头
-     * @param in 输入数据
+     * @param Input 输入数据
      * @param Header 输出帧头
      * @return true = 解析成功（数据不足返回 false）
      */
-    [[nodiscard]] inline auto ParseFrameHeader(std::span<const std::byte> in, FrameHeader &Header) -> bool
+    [[nodiscard]] inline auto ParseFrameHeader(
+        std::span<const std::byte> Input,
+        FrameHeader &Header) -> bool
     {
-        if (in.size() < 2)
+        Header = FrameHeader{};
+        if (Input.size() < 2)
         {
             return false;
         }
-        const auto Head0 = static_cast<std::uint8_t>(in[0]);
-        const auto Head1 = static_cast<std::uint8_t>(in[1]);
+        const auto Head0 = static_cast<std::uint8_t>(Input[0]);
+        const auto Head1 = static_cast<std::uint8_t>(Input[1]);
         Header.Fin = (Head0 & 0x80) != 0;
         Header.Opcode = static_cast<std::uint8_t>(Head0 & 0x0F);
         Header.Masked = (Head1 & 0x80) != 0;
+
+        if ((Head0 & 0x70U) != 0 ||
+            (Header.Opcode != 0x0U && Header.Opcode != 0x1U && Header.Opcode != 0x2U &&
+             Header.Opcode != 0x8U && Header.Opcode != 0x9U && Header.Opcode != 0xAU))
+        {
+            return false;
+        }
 
         std::size_t Offset = 2;
         std::uint64_t Len = static_cast<std::uint64_t>(Head1 & 0x7F);
         if (Len == 126)
         {
-            if (in.size() < Offset + 2)
+            if (Input.size() - Offset < 2)
             {
                 return false;
             }
-            Len = (static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[Offset])) << 8) |
-                  static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[Offset + 1]));
+            Len = (static_cast<std::uint64_t>(static_cast<std::uint8_t>(Input[Offset])) << 8) |
+                  static_cast<std::uint64_t>(static_cast<std::uint8_t>(Input[Offset + 1]));
             Offset += 2;
+            if (Len < 126)
+            {
+                return false;
+            }
         }
         else if (Len == 127)
         {
-            if (in.size() < Offset + 8)
+            if (Input.size() - Offset < 8)
+            {
+                return false;
+            }
+            if ((static_cast<std::uint8_t>(Input[Offset]) & 0x80U) != 0)
             {
                 return false;
             }
             Len = 0;
             for (std::size_t I = 0; I < 8; ++I)
             {
-                Len = (Len << 8) | static_cast<std::uint64_t>(static_cast<std::uint8_t>(in[Offset + I]));
+                Len = (Len << 8) |
+                      static_cast<std::uint64_t>(static_cast<std::uint8_t>(Input[Offset + I]));
             }
             Offset += 8;
+            if (Len < 65536)
+            {
+                return false;
+            }
+        }
+        if (Header.Opcode >= 0x8U && (!Header.Fin || Len > 125))
+        {
+            return false;
         }
         Header.PayloadLen = Len;
 
         if (Header.Masked)
         {
-            if (in.size() < Offset + 4)
+            if (Input.size() - Offset < 4)
             {
                 return false;
             }
-            std::memcpy(Header.MaskKey.data(), in.data() + Offset, 4);
+            std::memcpy(Header.MaskKey.data(), Input.data() + Offset, 4);
             Offset += 4;
         }
         Header.HeaderLen = Offset;
@@ -127,13 +154,13 @@ namespace Preview::Ws
     /**
      * @brief 应用掩码（32bit 循环 XOR）
      * @param Data 载荷（原地）
-     * @param masked 4 字节掩码键
+     * @param Key 4 字节掩码键
      */
     inline auto ApplyMask(std::span<std::byte> Data, std::span<const std::uint8_t, MaskLen> Key) -> void
     {
         for (std::size_t I = 0; I < Data.size(); ++I)
         {
-            Data[I] = static_cast<std::byte>(static_cast<std::uint8_t>(Data[I]) ^ Key[I % 4]);
+            Data[I] = static_cast<std::byte>(static_cast<std::uint8_t>(Data[I]) ^ Key[I % MaskLen]);
         }
     }
 
@@ -147,13 +174,22 @@ namespace Preview::Ws
 
     /**
      * @brief 编码服务端帧（不掩码）
-     * @param in 帧输入
-     * @param out 输出缓冲区
+     * @param FrameValue 帧输入
+     * @param Output 输出缓冲区
      * @return 写入字节数，0 = 缓冲区不足
      */
-    [[nodiscard]] inline auto EncodeFrame(const FrameInput &in, std::span<std::byte> out) -> std::size_t
+    [[nodiscard]] inline auto EncodeFrame(
+        const FrameInput &FrameValue,
+        std::span<std::byte> Output) -> std::size_t
     {
-        const auto Len = in.payload.size();
+        const auto Len = FrameValue.payload.size();
+        const auto Op = static_cast<std::uint8_t>(FrameValue.op);
+        const bool IsControl = Op >= 0x8U;
+        if ((Op != 0x0U && Op != 0x1U && Op != 0x2U && Op != 0x8U && Op != 0x9U && Op != 0xAU) ||
+            (IsControl && (!FrameValue.Fin || Len > 125 || (Op == 0x8U && Len == 1))))
+        {
+            return 0;
+        }
         std::size_t HeaderLen = 2;
         if (Len >= 126 && Len <= 0xFFFF)
         {
@@ -163,13 +199,13 @@ namespace Preview::Ws
         {
             HeaderLen += 8;
         }
-        if (out.size() < HeaderLen + Len)
+        if (Output.size() < HeaderLen || Len > Output.size() - HeaderLen)
         {
             return 0;
         }
 
         std::uint8_t FinBit;
-        if (in.Fin)
+        if (FrameValue.Fin)
         {
             FinBit = 0x80;
         }
@@ -177,28 +213,31 @@ namespace Preview::Ws
         {
             FinBit = 0x00;
         }
-        const auto Head0 = static_cast<std::uint8_t>(static_cast<std::uint8_t>(in.op)) | FinBit;
-        out[0] = static_cast<std::byte>(Head0);
+        const auto Head0 = Op | FinBit;
+        Output[0] = static_cast<std::byte>(Head0);
         std::size_t Offset = 2;
         if (Len < 126)
         {
-            out[1] = static_cast<std::byte>(Len);
+            Output[1] = static_cast<std::byte>(Len);
         }
         else if (Len <= 0xFFFF)
         {
-            out[1] = std::byte{126};
-            out[Offset++] = static_cast<std::byte>((Len >> 8) & 0xFF);
-            out[Offset++] = static_cast<std::byte>(Len & 0xFF);
+            Output[1] = std::byte{126};
+            Output[Offset++] = static_cast<std::byte>((Len >> 8) & 0xFF);
+            Output[Offset++] = static_cast<std::byte>(Len & 0xFF);
         }
         else
         {
-            out[1] = std::byte{127};
+            Output[1] = std::byte{127};
             for (int I = 7; I >= 0; --I)
             {
-                out[Offset++] = static_cast<std::byte>((Len >> (8 * I)) & 0xFF);
+                Output[Offset++] = static_cast<std::byte>((Len >> (8 * I)) & 0xFF);
             }
         }
-        std::memcpy(out.data() + Offset, in.payload.data(), Len);
+        if (Len > 0)
+        {
+            std::memcpy(Output.data() + Offset, FrameValue.payload.data(), Len);
+        }
         return HeaderLen + Len;
     }
 

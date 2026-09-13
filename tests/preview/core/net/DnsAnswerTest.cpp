@@ -20,7 +20,7 @@
 
 namespace
 {
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
     using Preview::Network::Dns::AnswerSet;
     using Preview::Network::Dns::Message;
     using Preview::Network::Dns::QType;
@@ -53,22 +53,26 @@ namespace
 
     /// 构造 golden 应答：Id=0x1234，问题段 www.example.com/A，
     /// Answer 段以压缩指针回指问题名，rdata 1.2.3.4，TTL=60
-    auto MakeGoldenAnswer(const std::uint8_t rcode = 0, const bool truncated = false,
-                          const std::uint16_t anCount = 1) -> std::vector<std::uint8_t>
+    auto MakeGoldenAnswer(const std::uint8_t Rcode = 0, const bool Truncated = false,
+                          const std::uint16_t AnswerCount = 1) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> out;
         PutU16(out, 0x1234);                                    // id
-        PutU16(out, 0x8180u | (rcode ? rcode : 0u) |
-                        (truncated ? 0x0200u : 0u));            // QR|RD|RA|TC|rcode
+        std::uint16_t Flags = 0x8180u | Rcode;
+        if (Truncated)
+        {
+            Flags |= 0x0200u;
+        }
+        PutU16(out, Flags);                                    // QR|RD|RA|TC|rcode
         PutU16(out, 1);                                         // qdcount
-        PutU16(out, anCount);                                   // ancount
+        PutU16(out, AnswerCount);                               // ancount
         PutU16(out, 0);                                         // nscount
         PutU16(out, 0);                                         // arcount
         PutQuestionName(out);
         out.push_back(0);                                       // 根零
         PutU16(out, 1);                                         // qtype A
         PutU16(out, 1);                                         // qclass IN
-        for (std::uint16_t i = 0; i < anCount; ++i)
+        for (std::uint16_t Index = 0; Index < AnswerCount; ++Index)
         {
             PutU16(out, 0xC00Cu);                               // 压缩指针 → 问题名（偏移 12）
             PutU16(out, 1);                                     // type A
@@ -90,7 +94,7 @@ TEST(DnsAnswer, TestGoldenWireNormalAnswer)
     EXPECT_FALSE(Scan->Truncated);
     EXPECT_EQ(Scan->Rcode, 0u);
     ASSERT_EQ(Scan->Ips.size(), 1u);
-    EXPECT_EQ(Scan->Ips[0], net::ip::make_address_v4("1.2.3.4"));
+    EXPECT_EQ(Scan->Ips[0], Net::ip::make_address_v4("1.2.3.4"));
     EXPECT_EQ(Scan->MinTtl, 60u);
 }
 
@@ -232,7 +236,7 @@ TEST(DnsAnswer, TestAaaaGoldenWire)
     const auto Scan = ScanAnswers(wire, 28);
     ASSERT_TRUE(Scan.has_value());
     ASSERT_EQ(Scan->Ips.size(), 1u);
-    EXPECT_EQ(Scan->Ips[0], net::ip::make_address_v6("2001:db8::1"));
+    EXPECT_EQ(Scan->Ips[0], Net::ip::make_address_v6("2001:db8::1"));
     EXPECT_EQ(Scan->MinTtl, 3600u);
 }
 

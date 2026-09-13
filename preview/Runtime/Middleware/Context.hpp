@@ -57,6 +57,8 @@ namespace Preview::Middleware
         TrafficSink *traffic{nullptr};
         /// 认证通过后的用户标识（Auth 中间件写入，relay 统计按此聚合）
         std::string identity{};
+        /// 协议接入器已完成凭据认证时，跳过通用 Auth 中间件
+        bool ProtocolAuthenticated{false};
         /// 认证通过后的账户租约，持有期间计入并发连接配额
         std::optional<Preview::Account::Lease> AccountLease{};
         /// 原始凭据（Auth 中间件默认提取：identity + Secret）

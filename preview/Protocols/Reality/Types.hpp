@@ -7,6 +7,8 @@
  *            加密 ClientHello.SessionId（短 ID 内嵌）
  *          - 身份：服务端 Ed25519 证书 + HMAC-SHA512 签名
  *          本测试库实现纯逻辑密钥工具与认证编解码。
+ * @note KeyLen、SessionIdAuthLen、RealityInfo 和 MaxShortIdLen 属于 wire/crypto
+ *       公共常量，保持名称和值兼容。
  * @note 参考 Reality 协议规范。
  */
 

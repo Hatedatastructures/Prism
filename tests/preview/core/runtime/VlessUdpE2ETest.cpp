@@ -38,11 +38,18 @@
 namespace
 {
 
-    namespace net = boost::asio;
-    using namespace boost::asio::experimental::awaitable_operators;
-    using Tcp = net::ip::tcp;
-    using udp = net::ip::udp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Runtime = Preview::Runtime;
+    namespace Network = Preview::Network;
+    namespace Vless = Preview::Vless;
+    namespace Fault = Preview::Fault;
+    namespace Middleware = Preview::Middleware;
+    using Preview::Error;
+    using Preview::SharedTransmission;
+    using Preview::Middleware::Context;
+    using boost::asio::experimental::awaitable_operators::operator||;
+    using Tcp = Net::ip::tcp;
+    using Udp = Net::ip::udp;
 
     // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::MakeUuid;
@@ -68,10 +75,10 @@ namespace
 
     /// 构造 UDP 数据面服务（流上帧循环；目标固定重定向到 echo）
     auto make_udp_service(std::uint16_t echo_port, std::chrono::milliseconds IdleTimeout)
-        -> std::function<net::awaitable<Fault::Code>(Middleware::Context &)>
+        -> std::function<Net::awaitable<Fault::Code>(Middleware::Context &)>
     {
         return [echo_port, IdleTimeout](Middleware::Context &ctx)
-            -> net::awaitable<Fault::Code>
+            -> Net::awaitable<Fault::Code>
         {
             auto Stream = std::dynamic_pointer_cast<Vless::Conn<>>(ctx.Inbound);
             if (!Stream)
@@ -84,10 +91,10 @@ namespace
             opts.traffic = ctx.traffic;
             opts.identity = ctx.identity;
             opts.resolve = [echo_port](const Vless::Address &)
-                -> net::awaitable<std::pair<Error, udp::endpoint>>
+                -> Net::awaitable<std::pair<Error, Udp::endpoint>>
             {
                 co_return std::pair{Error::None,
-                                    udp::endpoint(net::ip::make_address("127.0.0.1"),
+                                    Udp::endpoint(Net::ip::make_address("127.0.0.1"),
                                                   echo_port)};
             };
             auto tunnel = std::make_shared<Vless::UdpTunnel>(
@@ -99,14 +106,14 @@ namespace
 
     /// 流承载 UDP 没有明确的帧长度；服务端必须收口连接而不是尝试解析裸流。
     auto wait_for_stream_rejection(const std::shared_ptr<Vless::Conn<>> &proxy)
-        -> net::awaitable<bool>
+        -> Net::awaitable<bool>
     {
         std::array<std::byte, 64> Buffer{};
         std::error_code ReadEc;
-        net::steady_timer Watchdog(proxy->Executor());
+        Net::steady_timer Watchdog(proxy->Executor());
         Watchdog.expires_after(std::chrono::seconds(2));
         auto Result = co_await (proxy->async_read_some(std::span(Buffer), ReadEc) ||
-                                Watchdog.async_wait(net::use_awaitable));
+                                Watchdog.async_wait(Net::use_awaitable));
         if (Result.index() == 1)
         {
             proxy->Close();
@@ -117,16 +124,16 @@ namespace
 
     TEST(TcpListener, VlessUdpConnectEcho)
     {
-        net::io_context ioc;
-        udp::socket echo_sock(ioc.get_executor());
+        Net::io_context ioc;
+        Udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(net::ip::udp::v4(), oec);
-        echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        echo_sock.open(Net::ip::udp::v4(), oec);
+        echo_sock.bind(Udp::endpoint(Net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -151,10 +158,10 @@ namespace
         bool handshake_ok = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listener.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
@@ -195,16 +202,16 @@ namespace
 
     TEST(TcpListener, VlessUdpConnectIdleTimeout)
     {
-        net::io_context ioc;
-        udp::socket echo_sock(ioc.get_executor());
+        Net::io_context ioc;
+        Udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(net::ip::udp::v4(), oec);
-        echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        echo_sock.open(Net::ip::udp::v4(), oec);
+        echo_sock.bind(Udp::endpoint(Net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -227,9 +234,9 @@ namespace
         bool closed = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
-                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                co_await listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;
@@ -262,16 +269,16 @@ namespace
 
     TEST(TcpListener, VlessUdpConnectStreamEofTerminates)
     {
-        net::io_context ioc;
-        udp::socket echo_sock(ioc.get_executor());
+        Net::io_context ioc;
+        Udp::socket echo_sock(ioc.get_executor());
         boost::system::error_code oec;
-        echo_sock.open(net::ip::udp::v4(), oec);
-        echo_sock.bind(udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        echo_sock.open(Net::ip::udp::v4(), oec);
+        echo_sock.bind(Udp::endpoint(Net::ip::make_address("127.0.0.1"), 0), oec);
         ASSERT_FALSE(oec);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -294,9 +301,9 @@ namespace
         bool stream_rejected = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
-                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                co_await listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 const auto listen_port = listener.LocalEndpoint().port();
 
                 std::error_code ec;

@@ -9,7 +9,6 @@
 #include <gtest/gtest.h>
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
 
 #include <array>
@@ -23,14 +22,17 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /// 内存传输（极简，供 relay 测试）
-    class mem_tx final : public Preview::Transmission
+    class MemTx final : public Preview::Transmission
     {
     public:
-        explicit mem_tx(net::any_io_executor ex, std::size_t n) : Ex_(std::move(ex)), n_(n)
+        explicit MemTx(
+            Net::any_io_executor Executor,
+            const std::size_t Remaining)
+            : Ex_(std::move(Executor)),
+              Remaining_(Remaining)
         {
         }
 
@@ -39,25 +41,30 @@ namespace
             return Ex_;
         }
 
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
-            if (n_ == 0)
+            if (Remaining_ == 0)
             {
-                ec.clear();
+                ErrorCode.clear();
                 co_return 0;
             }
-            const auto n = std::min(Buffer.size(), n_);
-            n_ -= n;
-            co_return n;
+            const auto Count = std::min(Buffer.size(), Remaining_);
+            Remaining_ -= Count;
+            ErrorCode.clear();
+            co_return Count;
         }
 
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             // 黑洞对端：吸收全部写入（返回 0 会被组合 AsyncWrite 判定为
             // broken_pipe 而中断 relay，与"可写对端"的桩意图不符）
-            ec.clear();
+            ErrorCode.clear();
             co_return Buffer.size();
         }
 
@@ -70,90 +77,103 @@ namespace
         }
 
     private:
-        net::any_io_executor Ex_;
-        std::size_t n_;
+        Net::any_io_executor Ex_;
+        std::size_t Remaining_;
     };
 
     /// 按身份聚合的 fake sink
-    class aggregating_sink final : public Preview::Middleware::Context::TrafficSink
+    class AggregatingSink final : public Preview::Middleware::Context::TrafficSink
     {
     public:
-        void Report(std::string_view identity, std::size_t up, std::size_t down) override
+        void Report(
+            std::string_view Identity,
+            const std::size_t Up,
+            const std::size_t Down) override
         {
-            auto &acc = by_identity_[std::string(identity)];
-            acc.first += up;
-            acc.second += down;
+            auto &Accumulator = ByIdentity_[std::string(Identity)];
+            Accumulator.first += Up;
+            Accumulator.second += Down;
         }
 
-        std::unordered_map<std::string, std::pair<std::size_t, std::size_t>> by_identity_;
+        std::unordered_map<std::string, std::pair<std::size_t, std::size_t>> ByIdentity_;
     };
 
     TEST(TrafficIdentity, RelayReportsWithIdentity)
     {
-        net::io_context ioc;
-        std::exception_ptr ep;
-
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        std::exception_ptr Exception;
+        auto Coroutine = [&]() -> Net::awaitable<void>
         {
-            Preview::Middleware::Context ctx;
-            ctx.identity = "alice";
-            ctx.BufferSize = 4096;
+            Preview::Middleware::Context Context;
+            Context.identity = "alice";
+            Context.BufferSize = 4096;
 
-            auto Inbound = std::make_shared<mem_tx>(ioc.get_executor(), 16384);
-            auto Outbound = std::make_shared<mem_tx>(ioc.get_executor(), 0);
-            aggregating_sink sink;
-            ctx.traffic = &sink;
-            auto shared_inbound = std::shared_ptr<Preview::Transmission>(Inbound);
+            auto Inbound = std::make_shared<MemTx>(IoContext.get_executor(), 16384);
+            auto Outbound = std::make_shared<MemTx>(IoContext.get_executor(), 0);
+            AggregatingSink Sink;
+            Context.traffic = &Sink;
+            auto SharedInbound = std::shared_ptr<Preview::Transmission>(Inbound);
 
-            Preview::Middleware::Builtin::RelayMiddleware relay(Outbound);
-            const auto Code = co_await relay.Handle(shared_inbound, ctx);
+            Preview::Middleware::Builtin::RelayMiddleware Relay(Outbound);
+            const auto Code = co_await Relay.Handle(SharedInbound, Context);
             EXPECT_EQ(Code, Preview::Fault::Code::Success);
 
             // 按身份聚合：alice 上行（Inbound→Outbound）应计 16384 字节
-            const auto it = sink.by_identity_.find("alice");
-            EXPECT_NE(it, sink.by_identity_.end());
-            if (it != sink.by_identity_.end())
+            const auto Iterator = Sink.ByIdentity_.find("alice");
+            EXPECT_NE(Iterator, Sink.ByIdentity_.end());
+            if (Iterator != Sink.ByIdentity_.end())
             {
-                EXPECT_EQ(it->second.first, 16384u);
+                EXPECT_EQ(Iterator->second.first, 16384u);
             }
-        }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        };
+        auto Completion = [&Exception, &IoContext](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(IoContext, std::move(Coroutine), std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
     TEST(TrafficIdentity, DistinctIdentities)
     {
-        net::io_context ioc;
-        std::exception_ptr ep;
-
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        std::exception_ptr Exception;
+        auto Coroutine = [&]() -> Net::awaitable<void>
         {
-            Preview::Middleware::Context ctx;
-            ctx.identity = "bob";
-            ctx.BufferSize = 4096;
+            Preview::Middleware::Context Context;
+            Context.identity = "bob";
+            Context.BufferSize = 4096;
 
-            auto Inbound = std::make_shared<mem_tx>(ioc.get_executor(), 8192);
-            auto Outbound = std::make_shared<mem_tx>(ioc.get_executor(), 0);
-            aggregating_sink sink;
-            ctx.traffic = &sink;
-            auto shared_inbound = std::shared_ptr<Preview::Transmission>(Inbound);
+            auto Inbound = std::make_shared<MemTx>(IoContext.get_executor(), 8192);
+            auto Outbound = std::make_shared<MemTx>(IoContext.get_executor(), 0);
+            AggregatingSink Sink;
+            Context.traffic = &Sink;
+            auto SharedInbound = std::shared_ptr<Preview::Transmission>(Inbound);
 
-            Preview::Middleware::Builtin::RelayMiddleware relay(Outbound);
-            const auto Code = co_await relay.Handle(shared_inbound, ctx);
+            Preview::Middleware::Builtin::RelayMiddleware Relay(Outbound);
+            const auto Code = co_await Relay.Handle(SharedInbound, Context);
             EXPECT_EQ(Code, Preview::Fault::Code::Success);
 
             // bob 独立聚合，alice 不应出现
-            EXPECT_EQ(sink.by_identity_.count("bob"), 1u);
-            EXPECT_EQ(sink.by_identity_.count("alice"), 0u);
-            EXPECT_EQ(sink.by_identity_["bob"].first, 8192u);
-        }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+            EXPECT_EQ(Sink.ByIdentity_.count("bob"), 1u);
+            EXPECT_EQ(Sink.ByIdentity_.count("alice"), 0u);
+            EXPECT_EQ(Sink.ByIdentity_["bob"].first, 8192u);
+        };
+        auto Completion = [&Exception, &IoContext](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(IoContext, std::move(Coroutine), std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 

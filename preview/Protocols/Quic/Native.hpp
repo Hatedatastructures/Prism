@@ -15,8 +15,11 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 
 #include <openssl/ssl.h>
 
@@ -26,7 +29,10 @@
 namespace Preview::Quic
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+
+    /// 随机源回调；返回 1 表示成功，其他值表示随机源失败。
+    using RandomSource = std::function<int(std::uint8_t *, int)>;
 
     /**
      * @struct ServerOptions
@@ -36,9 +42,10 @@ namespace Preview::Quic
      */
     struct ServerOptions
     {
-        net::any_io_executor Executor{}; ///< 所有 QUIC 操作使用的执行器
-        std::shared_ptr<net::ip::udp::socket> Socket{}; ///< 已绑定 UDP socket
+        Net::any_io_executor Executor{}; ///< 所有 QUIC 操作使用的执行器
+        std::shared_ptr<Net::ip::udp::socket> Socket{}; ///< 已绑定 UDP socket
         SSL_CTX *TlsContext{nullptr}; ///< TLS 1.3 服务端上下文
+        RandomSource Random{}; ///< 可注入的随机源；缺省使用 BoringSSL RAND_bytes
     };
 
     /**
@@ -47,11 +54,12 @@ namespace Preview::Quic
      */
     struct ClientOptions
     {
-        net::any_io_executor Executor{}; ///< 所有 QUIC 操作使用的执行器
-        std::shared_ptr<net::ip::udp::socket> Socket{}; ///< 已绑定 UDP socket
-        net::ip::udp::endpoint Peer{}; ///< 服务端 UDP 端点
+        Net::any_io_executor Executor{}; ///< 所有 QUIC 操作使用的执行器
+        std::shared_ptr<Net::ip::udp::socket> Socket{}; ///< 已绑定 UDP socket
+        Net::ip::udp::endpoint Peer{}; ///< 服务端 UDP 端点
         SSL_CTX *TlsContext{nullptr}; ///< TLS 1.3 客户端上下文
         std::string ServerName{}; ///< TLS SNI
+        RandomSource Random{}; ///< 可注入的随机源；缺省使用 BoringSSL RAND_bytes
     };
 
     namespace Detail
@@ -73,19 +81,31 @@ namespace Preview::Quic
         auto operator=(const Client &) -> Client & = delete;
 
         /** @brief 启动 UDP 接收循环并发送 QUIC Initial */
-        void Start();
+        auto Start() -> void;
 
         /** @brief 等待 QUIC 握手完成，关闭前返回 false */
-        [[nodiscard]] auto WaitHandshake() -> net::awaitable<bool>;
+        [[nodiscard]] auto WaitHandshake() -> Net::awaitable<bool>;
 
         /** @brief 打开一个本端发起的双向 QUIC 流 */
-        [[nodiscard]] auto OpenBidirectionalStream() -> net::awaitable<SharedStreamProvider>;
+        [[nodiscard]] auto OpenBidirectionalStream() -> Net::awaitable<SharedStreamProvider>;
+
+        /** @brief 打开一个本端发起的单向 QUIC 流 */
+        [[nodiscard]] auto OpenUnidirectionalStream() -> Net::awaitable<SharedStreamProvider>;
+
+        /** @brief 接收一个服务端发起的单向 QUIC 流 */
+        [[nodiscard]] auto AcceptUnidirectionalStream() -> Net::awaitable<SharedStreamProvider>;
+
+        /** @brief 从已完成的 TLS 会话导出密钥材料 */
+        [[nodiscard]] auto ExportKeyingMaterial(
+            std::span<std::uint8_t> Output,
+            std::span<const std::uint8_t> Label,
+            std::string_view Context) const -> bool;
 
         /** @brief 获取该连接的数据报提供者 */
         [[nodiscard]] auto Datagram() const -> SharedDatagramProvider;
 
         /** @brief 取消 socket、流和挂起操作并释放 QUIC 状态 */
-        void Close();
+        auto Close() -> void;
 
     private:
         std::shared_ptr<Detail::NativeConnection> Connection_;
@@ -105,19 +125,31 @@ namespace Preview::Quic
         auto operator=(const Server &) -> Server & = delete;
 
         /** @brief 启动 UDP 接收循环并等待客户端 Initial */
-        void Start();
+        auto Start() -> void;
 
         /** @brief 等待 QUIC 握手完成，关闭前返回 false */
-        [[nodiscard]] auto WaitHandshake() -> net::awaitable<bool>;
+        [[nodiscard]] auto WaitHandshake() -> Net::awaitable<bool>;
 
         /** @brief 接收下一个对端发起的双向 QUIC 流 */
-        [[nodiscard]] auto AcceptBidirectionalStream() -> net::awaitable<SharedStreamProvider>;
+        [[nodiscard]] auto AcceptBidirectionalStream() -> Net::awaitable<SharedStreamProvider>;
+
+        /** @brief 打开一个服务端发起的单向 QUIC 流 */
+        [[nodiscard]] auto OpenUnidirectionalStream() -> Net::awaitable<SharedStreamProvider>;
+
+        /** @brief 接收一个客户端发起的单向 QUIC 流 */
+        [[nodiscard]] auto AcceptUnidirectionalStream() -> Net::awaitable<SharedStreamProvider>;
+
+        /** @brief 从已完成的 TLS 会话导出密钥材料 */
+        [[nodiscard]] auto ExportKeyingMaterial(
+            std::span<std::uint8_t> Output,
+            std::span<const std::uint8_t> Label,
+            std::string_view Context) const -> bool;
 
         /** @brief 获取该连接的数据报提供者 */
         [[nodiscard]] auto Datagram() const -> SharedDatagramProvider;
 
         /** @brief 取消 socket、流和挂起操作并释放 QUIC 状态 */
-        void Close();
+        auto Close() -> void;
 
     private:
         std::shared_ptr<Detail::NativeConnection> Connection_;
@@ -138,11 +170,17 @@ namespace Preview::Quic
         Gateway(const Gateway &) = delete;
         auto operator=(const Gateway &) -> Gateway & = delete;
 
-        void Start();
-        [[nodiscard]] auto WaitHandshake() -> net::awaitable<bool>;
-        [[nodiscard]] auto AcceptBidirectionalStream() -> net::awaitable<SharedStreamProvider>;
+        auto Start() -> void;
+        [[nodiscard]] auto WaitHandshake() -> Net::awaitable<bool>;
+        [[nodiscard]] auto AcceptBidirectionalStream() -> Net::awaitable<SharedStreamProvider>;
+        [[nodiscard]] auto OpenUnidirectionalStream() -> Net::awaitable<SharedStreamProvider>;
+        [[nodiscard]] auto AcceptUnidirectionalStream() -> Net::awaitable<SharedStreamProvider>;
+        [[nodiscard]] auto ExportKeyingMaterial(
+            std::span<std::uint8_t> Output,
+            std::span<const std::uint8_t> Label,
+            std::string_view Context) const -> bool;
         [[nodiscard]] auto Datagram() const -> SharedDatagramProvider;
-        void Close();
+        auto Close() -> void;
 
         /** @brief 获取门面持有的单连接服务端 */
         [[nodiscard]] auto Connection() const noexcept -> std::shared_ptr<Server>

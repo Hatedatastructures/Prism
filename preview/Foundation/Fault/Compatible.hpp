@@ -31,9 +31,9 @@ namespace Preview::Fault
      * 缓存，后续调用直接返回引用，无内存分配。
      * @note 首次调用有一次分配开销，后续调用为零开销。
      */
-    [[nodiscard]] inline auto CachedMessage(Code c) noexcept -> const std::string &
+    [[nodiscard]] inline auto CachedMessage(Code C) noexcept -> const std::string &
     {
-        constexpr auto CodeCount = static_cast<std::size_t>(Code::_count);
+        constexpr auto CodeCount = static_cast<std::size_t>(Code::Count);
         static const auto Messages = []()
         {
             std::array<std::string, CodeCount + 1> arr{};
@@ -45,9 +45,9 @@ namespace Preview::Fault
             return arr;
         }();
 
-        if (const auto index = static_cast<std::size_t>(c); index < CodeCount)
+        if (const auto Index = static_cast<std::size_t>(C); Index < CodeCount)
         {
-            return Messages[index];
+            return Messages[Index];
         }
         return Messages[CodeCount];
     }
@@ -77,9 +77,9 @@ namespace Preview::Fault
          * @param c 错误码整数值
          * @return 错误消息字符串
          */
-        [[nodiscard]] auto message(int c) const -> std::string override
+        [[nodiscard]] auto message(int ErrorValue) const -> std::string override
         {
-            return CachedMessage(static_cast<Code>(c));
+            return CachedMessage(static_cast<Code>(ErrorValue));
         }
     }; // class FaultCategory
 
@@ -107,9 +107,9 @@ namespace Preview::Fault
      * @details 将 Fault::Code 枚举值转换为 std::error_code。
      * 留在 Preview::Fault 供 std::error_code 构造 ADL 查找。
      */
-    [[nodiscard]] inline auto make_error_code(Code c) noexcept -> std::error_code
+    [[nodiscard]] inline auto make_error_code(Code ErrorValue) noexcept -> std::error_code
     {
-        return {static_cast<int>(c), Category()};
+        return {static_cast<int>(ErrorValue), Category()};
     }
 
 } // namespace Preview::Fault
@@ -140,9 +140,9 @@ namespace std
          * @param c 错误码枚举值
          * @return 哈希值
          */
-        [[nodiscard]] auto operator()(const Preview::Fault::Code c) const noexcept -> std::size_t
+        [[nodiscard]] auto operator()(const Preview::Fault::Code ErrorValue) const noexcept -> std::size_t
         {
-            return std::hash<int>{}(static_cast<int>(c));
+            return std::hash<int>{}(static_cast<int>(ErrorValue));
         }
     };
 } // namespace std
@@ -185,9 +185,9 @@ namespace boost::system
          * @param c 错误码整数值
          * @return 错误消息字符串
          */
-        [[nodiscard]] auto message(int c) const -> std::string override
+        [[nodiscard]] auto message(int ErrorValue) const -> std::string override
         {
-            return Preview::Fault::CachedMessage(static_cast<Preview::Fault::Code>(c));
+            return Preview::Fault::CachedMessage(static_cast<Preview::Fault::Code>(ErrorValue));
         }
     }; // class FaultCategory
 
@@ -210,10 +210,9 @@ namespace boost::system
      * @details 将 Fault::Code 枚举值转换为
      * boost::system::error_code，配合特化支持隐式转换。
      */
-    [[nodiscard]] inline auto make_error_code(const Preview::Fault::Code c) noexcept -> error_code
+    [[nodiscard]] inline auto make_error_code(const Preview::Fault::Code ErrorValue) noexcept -> error_code
     {
-        return {static_cast<int>(c), Category()};
+        return {static_cast<int>(ErrorValue), Category()};
     }
 
 } // namespace boost::system
-

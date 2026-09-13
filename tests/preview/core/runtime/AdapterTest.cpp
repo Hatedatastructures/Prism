@@ -23,6 +23,8 @@
 #include <preview/Foundation/Error.hpp>
 #include <preview/Foundation/Fault/Code.hpp>
 #include <preview/Foundation/Fault/Handling.hpp>
+#include <preview/Foundation/Utility/Account/Authenticator.hpp>
+#include <preview/Foundation/Utility/Account/Directory.hpp>
 #include <preview/Runtime/Middleware/Context.hpp>
 #include <preview/Runtime/Contract/Handler.hpp>
 #include <preview/Composition/Adapters/ProtocolAdapter.hpp>
@@ -34,35 +36,41 @@
 namespace
 {
 
-    namespace net = boost::asio;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::SharedTransmission;
+    namespace Fault = Preview::Fault;
+    namespace Middleware = Preview::Middleware;
+    namespace Runtime = Preview::Runtime;
 
     using Preview::Testing::RunCoro; // 公共样板（见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
 
     /// 可识别首包（socks5 Greeting）
-    auto socks5_greeting() -> std::string
+    auto Socks5Greeting() -> std::string
     {
         return std::string("\x05\x01\x00", 3);
     }
 
     /// 内存流对 → shared 包装
-    auto make_pair_shared(net::io_context &ioc)
+    auto MakePairShared(Net::io_context &Ioc)
         -> std::pair<std::shared_ptr<MemoryStream>, std::shared_ptr<MemoryStream>>
     {
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        return {std::make_shared<MemoryStream>(std::move(a)),
-                std::make_shared<MemoryStream>(std::move(b))};
+        auto [A, B] = MakeMemoryPair(Ioc.get_executor());
+        return {std::make_shared<MemoryStream>(std::move(A)),
+                std::make_shared<MemoryStream>(std::move(B))};
     }
 
     /// 桩协议处理器：按预设结果返回
-    class stub_handler final : public Runtime::Handler::ProtocolHandler
+    class StubHandler final : public Runtime::Handler::ProtocolHandler
     {
     public:
-        explicit stub_handler(Runtime::Handler::AcceptResult Result) : result_(std::move(Result)) {}
+        explicit StubHandler(Runtime::Handler::AcceptResult Result) : result_(std::move(Result)) {}
 
-        auto Accept(SharedTransmission) -> net::awaitable<Runtime::Handler::AcceptResult> override
+        auto Accept(SharedTransmission) -> Net::awaitable<Runtime::Handler::AcceptResult> override
         {
-            co_return result_;
+            co_return std::move(result_);
         }
 
         [[nodiscard]] auto Name() const -> std::string_view override { return "stub"; }
@@ -71,34 +79,35 @@ namespace
         Runtime::Handler::AcceptResult result_;
     };
 
-    auto make_stub_accept(Runtime::Handler::AcceptResult Result)
+    auto MakeStubAccept(Runtime::Handler::AcceptResult Result)
         -> Runtime::SessionOptions::ProtocolAcceptFn
     {
-        return Runtime::MakeProtocolAccept(std::make_shared<stub_handler>(std::move(Result)));
+        return Runtime::MakeProtocolAccept(std::make_shared<StubHandler>(std::move(Result)));
     }
 
     /// 构造成功结果
-    auto success_result(std::shared_ptr<MemoryStream> tr) -> Runtime::Handler::AcceptResult
+    auto SuccessResult(std::shared_ptr<MemoryStream> Transmission) -> Runtime::Handler::AcceptResult
     {
         Runtime::Handler::AcceptResult r;
         r.err = Error::None;
         r.Target.Host = "example.com";
         r.Target.Port = "443";
         r.identity = "alice";
+        r.ProtocolAuthenticated = true;
         r.IsDgram = true;
-        r.Transmission = std::move(tr);
+        r.Transmission = std::move(Transmission);
         return r;
     }
 
     TEST(AdapterSeam, FillContext)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         RunCoro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto [client_s, inbound_s] = make_pair_shared(ioc);
+                     auto [client_s, inbound_s] = MakePairShared(ioc);
                      const auto *expected = client_s.get();
-                     auto Accept = make_stub_accept(success_result(client_s));
+                     auto Accept = MakeStubAccept(SuccessResult(client_s));
 
                      Middleware::Context ctx;
                      SharedTransmission yn = inbound_s;
@@ -108,21 +117,58 @@ namespace
                      EXPECT_EQ(ctx.Target.Host, "example.com");
                      EXPECT_EQ(ctx.Target.Port, "443");
                      EXPECT_EQ(ctx.identity, "alice");
+                     EXPECT_TRUE(ctx.ProtocolAuthenticated);
                      EXPECT_TRUE(ctx.IsDgram);
                      EXPECT_EQ(yn.get(), expected);
                  });
     }
 
+    TEST(AdapterSeam, TransfersProtocolAccountLeaseToContext)
+    {
+        Net::io_context Io;
+        Preview::Account::Directory Directory;
+        Directory.Upsert("credential", 1);
+        auto Authenticator = std::make_shared<Preview::Account::DirectoryAuthenticator>(&Directory);
+        auto AuthResult = Authenticator->Check("", "credential");
+        ASSERT_TRUE(AuthResult.Ok);
+        ASSERT_TRUE(AuthResult.Lease.has_value());
+        EXPECT_EQ(Directory.Find("credential")->Active(), 1U);
+
+        Runtime::Handler::AcceptResult Result;
+        Result.err = Error::None;
+        Result.ProtocolAuthenticated = true;
+        Result.AccountLease = std::move(AuthResult.Lease);
+        auto [Client, Inbound] = MakePairShared(Io);
+        Result.Transmission = Client;
+        auto Accept = MakeStubAccept(std::move(Result));
+
+        Middleware::Context Context;
+        SharedTransmission Transport = Inbound;
+        RunCoro(Io,
+                [&]() -> Net::awaitable<void>
+                {
+                    const auto Code = co_await Accept(Transport, Context);
+                    EXPECT_EQ(Code, Fault::Code::Success);
+                });
+
+        EXPECT_TRUE(Context.ProtocolAuthenticated);
+        ASSERT_TRUE(Context.AccountLease.has_value());
+        EXPECT_TRUE(*Context.AccountLease);
+        EXPECT_EQ(Directory.Find("credential")->Active(), 1U);
+        Context.AccountLease.reset();
+        EXPECT_EQ(Directory.Find("credential")->Active(), 0U);
+    }
+
     TEST(AdapterSeam, EmptyTransmissionFallsBackToIoError)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         RunCoro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto [client_s, inbound_s] = make_pair_shared(ioc);
+                     auto [client_s, inbound_s] = MakePairShared(ioc);
                      Runtime::Handler::AcceptResult r;
                      r.err = Error::None; // 无错误但无传输 → 兜底 io_error
-                     auto Accept = make_stub_accept(std::move(r));
+                     auto Accept = MakeStubAccept(std::move(r));
 
                      Middleware::Context ctx;
                      SharedTransmission yn = inbound_s;
@@ -143,14 +189,14 @@ namespace
         };
         for (const auto &[err, Want] : cases)
         {
-            net::io_context ioc;
+            Net::io_context ioc;
             RunCoro(ioc,
-                     [&]() -> net::awaitable<void>
+                     [&]() -> Net::awaitable<void>
                      {
-                         auto [client_s, inbound_s] = make_pair_shared(ioc);
+                         auto [client_s, inbound_s] = MakePairShared(ioc);
                          Runtime::Handler::AcceptResult r;
                          r.err = err;
-                         auto Accept = make_stub_accept(std::move(r));
+                         auto Accept = MakeStubAccept(std::move(r));
 
                          Middleware::Context ctx;
                          SharedTransmission yn = inbound_s;
@@ -206,25 +252,25 @@ namespace
 
     TEST(AdapterSeam, SessionRejectsDgramWithoutUdpService)
     {
-        net::io_context ioc;
-        auto [client_s, inbound_s] = make_pair_shared(ioc);
-        auto [data_s, peer_s] = make_pair_shared(ioc);
+        Net::io_context ioc;
+        auto [client_s, inbound_s] = MakePairShared(ioc);
+        auto [data_s, peer_s] = MakePairShared(ioc);
 
         Runtime::SessionOptions opts;
         Runtime::Handler::AcceptResult r;
         r.err = Error::None;
         r.IsDgram = true;
         r.Transmission = std::move(data_s);
-        opts.AcceptProtocol = make_stub_accept(std::move(r));
+        opts.AcceptProtocol = MakeStubAccept(std::move(r));
         Runtime::Session Session(std::move(opts));
 
         Fault::Code Arc = Fault::Code::Success;
         RunCoro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
                      // 先写入可识别首包，recognition 预读不挂起
                      std::error_code wec;
-                     const auto payload = socks5_greeting();
+                     const auto payload = Socks5Greeting();
                      co_await inbound_s->async_write_some(
                          std::span<const std::byte>(
                              reinterpret_cast<const std::byte *>(payload.data()), payload.size()),

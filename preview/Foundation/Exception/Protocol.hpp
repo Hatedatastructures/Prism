@@ -38,9 +38,9 @@ namespace Preview::Exception
          * 自动捕获调用点的源码位置。这是推荐的构造函数，
          * 保留完整的错误分类和源码位置信息。
          */
-        explicit Protocol(Preview::Fault::Code err,
-                          const std::source_location &loc = std::source_location::current())
-            : Deviant(Preview::Fault::make_error_code(err), {}, loc)
+        explicit Protocol(Preview::Fault::Code ErrorCode,
+                          const std::source_location &SourceLocation = std::source_location::current())
+            : Deviant(Preview::Fault::make_error_code(ErrorCode), {}, SourceLocation)
         {
         }
 
@@ -52,9 +52,9 @@ namespace Preview::Exception
          * @details 在保留错误分类的基础上，添加人类可读
          * 的额外描述，便于调试和日志记录。
          */
-        explicit Protocol(Preview::Fault::Code err, std::string_view desc,
-                          const std::source_location &loc = std::source_location::current())
-            : Deviant(Preview::Fault::make_error_code(err), desc, loc)
+        explicit Protocol(Preview::Fault::Code ErrorCode, std::string_view Description,
+                          const std::source_location &SourceLocation = std::source_location::current())
+            : Deviant(Preview::Fault::make_error_code(ErrorCode), Description, SourceLocation)
         {
         }
 
@@ -65,9 +65,9 @@ namespace Preview::Exception
          * @details 将字符串转换为 generic_error 错误码，
          * 丢失错误分类信息，建议迁移到错误码构造函数。
          */
-        explicit Protocol(const std::string &msg,
-                          const std::source_location &loc = std::source_location::current())
-            : Deviant(msg, loc)
+        explicit Protocol(const std::string &Message,
+                          const std::source_location &SourceLocation = std::source_location::current())
+            : Deviant(Message, SourceLocation)
         {
         }
 
@@ -80,8 +80,8 @@ namespace Preview::Exception
          * 丢失错误分类信息，建议迁移到错误码构造函数。
          */
         template <typename... Args>
-        explicit Protocol(std::format_string<Args...> fmt, Args &&...args)
-            : Deviant(std::source_location::current(), fmt, std::forward<Args>(args)...)
+        explicit Protocol(std::format_string<Args...> Format, Args &&...Arguments)
+            : Deviant(std::source_location::current(), Format, std::forward<Args>(Arguments)...)
         {
         }
 
@@ -95,8 +95,9 @@ namespace Preview::Exception
          * 丢失错误分类信息，建议迁移到错误码构造函数。
          */
         template <typename... Args>
-        explicit Protocol(const std::source_location &loc, std::format_string<Args...> fmt, Args &&...args)
-            : Deviant(loc, fmt, std::forward<Args>(args)...)
+        explicit Protocol(const std::source_location &SourceLocation, std::format_string<Args...> Format,
+                          Args &&...Arguments)
+            : Deviant(SourceLocation, Format, std::forward<Args>(Arguments)...)
         {
         }
 

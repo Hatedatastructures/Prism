@@ -1,233 +1,399 @@
 /**
  * @file VmessDepth.cpp
- * @brief vmess 传输深度分析（Release）
- * @details 1. vmess 单连接多次
- *         2. vmess 4 连接并发（调度瓶颈 vs 带宽瓶颈）
- *         3. raw TCP 16KB 对照（同块大小基线）
+ * @brief VMess 单连接与四连接传输基准（Release）
+ * @details 每次运行都验证客户端写入和服务端读取的完整字节数，避免
+ *          未执行的并发路径被标记为通过。
  */
 
 #include <boost/asio.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
+#include <exception>
 #include <memory>
+#include <span>
+#include <tuple>
 #include <vector>
 
-#include <preview/Transport/Reliable.hpp>
 #include <preview/Protocols/Vmess/Vmess.hpp>
+#include <preview/Transport/Reliable.hpp>
 
-using clk = std::chrono::steady_clock;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 namespace
 {
-    auto now_ns() -> std::int64_t
+    using Clock = std::chrono::steady_clock;
+    using Error = Preview::Error;
+    using ExecutorType = Net::any_io_executor;
+    using Reliable = Preview::Transport::Reliable;
+    using VmessAddress = Preview::Vmess::Address;
+    using VmessAddressType = Preview::Vmess::AddressType;
+    using VmessClientConfig = Preview::Vmess::ClientConfig;
+    using VmessServerConfig = Preview::Vmess::ServerConfig;
+    using ServerDoneChannel =
+        Net::experimental::channel<void(boost::system::error_code, bool)>;
+    using ServerExitedChannel =
+        Net::experimental::channel<void(boost::system::error_code)>;
+
+    struct SessionState
     {
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
+        ExecutorType Executor;
+        Net::ip::tcp::acceptor &Acceptor;
+        std::size_t Total;
+        std::size_t Block;
+        std::array<std::uint8_t, 16> Uuid;
+        std::shared_ptr<std::atomic_bool> Completed;
+        std::shared_ptr<ServerDoneChannel> ServerDone;
+        std::shared_ptr<ServerExitedChannel> ServerExited;
+    };
+
+    [[nodiscard]] auto NowNs() -> std::int64_t
+    {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                   Clock::now().time_since_epoch())
+            .count();
     }
 
-    auto bench_vmess_single(const std::size_t Total, const std::size_t block) -> std::int64_t
+    [[nodiscard]] auto MakeUuid() -> std::array<std::uint8_t, 16>
     {
-        using namespace Preview;
-        net::io_context ioc;
-        net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        const auto port = acceptor.local_endpoint().port();
-        std::vector<std::uint8_t> chunk(block, 0x5A);
-        const auto uuid = std::array<std::uint8_t, 16>{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-                                                        0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
+        return {
+            0x11,
+            0x22,
+            0x33,
+            0x44,
+            0x55,
+            0x66,
+            0x77,
+            0x88,
+            0x99,
+            0xAA,
+            0xBB,
+            0xCC,
+            0xDD,
+            0xEE,
+            0xFF,
+            0x00};
+    }
 
-        const std::int64_t t0 = now_ns();
-        int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+    [[nodiscard]] auto WaitForServer(SessionState State) -> Net::awaitable<bool>
+    {
+        const auto Completed =
+            co_await State.ServerDone->async_receive(Net::use_awaitable);
+        co_await State.ServerExited->async_receive(Net::use_awaitable);
+        co_return Completed;
+    }
+
+    auto RunServer(SessionState State) -> Net::awaitable<void>
+    {
+        Net::ip::tcp::socket Socket(State.Executor);
+        boost::system::error_code AcceptError;
+        auto AcceptToken =
+            Net::redirect_error(Net::use_awaitable, AcceptError);
+        co_await State.Acceptor.async_accept(Socket, AcceptToken);
+        if (AcceptError)
         {
-            auto server_coro = [&]() -> net::awaitable<void>
-            {
-                net::ip::tcp::socket sock(ioc);
-                co_await acceptor.async_accept(sock, net::use_awaitable);
-                auto ss = std::make_shared<Transport::Reliable>(std::move(sock));
-                Vmess::ServerConfig scfg;
-                scfg.uuid = uuid;
-                auto [err, req, Conn] = co_await Vmess::Accept(ss, scfg);
-                if (err != Error::None || !Conn)
-                {
-                    co_return;
-                }
-                std::vector<std::uint8_t> buf(block);
-                std::error_code ec;
-                std::size_t Done = 0;
-                while (Done < Total)
-                {
-                    const auto n = co_await Conn->async_read_some(
-                        std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
-                    if (ec || n == 0)
-                    {
-                        break;
-                    }
-                    Done += n;
-                }
-                Conn->Close();
-            };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+            (void)State.ServerDone->try_send(
+                boost::system::error_code{}, false);
+            co_return;
+        }
 
-            auto ss = std::make_shared<Transport::Reliable>(ioc.get_executor());
-            const auto ec2 = co_await ss->Connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port));
-            if (ec2)
+        auto Stream = std::make_shared<Reliable>(std::move(Socket));
+        VmessServerConfig ServerConfig;
+        ServerConfig.uuid = State.Uuid;
+        const auto AcceptResult = co_await Preview::Vmess::Accept(
+            std::move(Stream), ServerConfig);
+        const auto HandshakeError = std::get<0>(AcceptResult);
+        const auto &Connection = std::get<2>(AcceptResult);
+        if (HandshakeError != Error::None || !Connection)
+        {
+            (void)State.ServerDone->try_send(
+                boost::system::error_code{}, false);
+            co_return;
+        }
+
+        std::vector<std::uint8_t> Buffer(State.Block);
+        std::error_code ReadError;
+        std::size_t Done = 0;
+        while (Done < State.Total)
+        {
+            const auto ReadSize = std::min(Buffer.size(), State.Total - Done);
+            auto ReadWindow = std::span<std::byte>(
+                reinterpret_cast<std::byte *>(Buffer.data()), ReadSize);
+            const auto Count =
+                co_await Connection->async_read_some(ReadWindow, ReadError);
+            if (ReadError || Count == 0 || Count > ReadSize)
             {
-                ioc.stop();
-                co_return;
+                break;
             }
-            Vmess::ClientConfig ccfg;
-            ccfg.uuid = uuid;
-            auto [err, Conn] = co_await Vmess::Connect(
-                ss, ccfg, Vmess::Address{Vmess::AddressType::Domain, "Target.internal", 443});
-            if (err != Error::None || !Conn)
+            Done += Count;
+        }
+
+        Connection->Close();
+        const bool Completed = Done == State.Total;
+        State.Completed->store(Completed, std::memory_order_release);
+        (void)State.ServerDone->try_send(
+            boost::system::error_code{}, Completed);
+    }
+
+    auto RunClient(
+        SessionState State,
+        const std::uint16_t Port) -> Net::awaitable<void>
+    {
+        auto ServerCompletion =
+            [ServerDone = State.ServerDone,
+             ServerExited = State.ServerExited](std::exception_ptr Exception)
+            -> void
+        {
+            if (Exception)
             {
-                ioc.stop();
-                co_return;
+                (void)ServerDone->try_send(
+                    boost::system::error_code{}, false);
             }
-            std::size_t Done = 0;
-            std::error_code ec;
-            while (Done < Total)
+            (void)ServerExited->try_send(boost::system::error_code{});
+        };
+        Net::co_spawn(
+            State.Executor,
+            RunServer(State),
+            std::move(ServerCompletion));
+
+        auto Stream = std::make_shared<Reliable>(State.Executor);
+        const auto Endpoint = Net::ip::tcp::endpoint(
+            Net::ip::address_v4::loopback(), Port);
+        const auto ConnectError = co_await Stream->Connect(Endpoint);
+        if (ConnectError)
+        {
+            boost::system::error_code CloseError;
+            State.Acceptor.close(CloseError);
+            (void)co_await WaitForServer(State);
+            co_return;
+        }
+
+        VmessClientConfig ClientConfig;
+        ClientConfig.uuid = State.Uuid;
+        const auto Target = VmessAddress{
+            VmessAddressType::Domain,
+            "Target.internal",
+            443};
+        auto ConnectResult = co_await Preview::Vmess::Connect(
+            std::move(Stream), ClientConfig, Target);
+        const auto HandshakeError = std::get<0>(ConnectResult);
+        auto Connection = std::get<1>(std::move(ConnectResult));
+        if (HandshakeError != Error::None || !Connection)
+        {
+            const auto ServerCompleted = co_await WaitForServer(State);
+            State.Completed->store(
+                ServerCompleted, std::memory_order_release);
+            co_return;
+        }
+
+        const std::vector<std::uint8_t> Chunk(State.Block, 0x5A);
+        std::error_code WriteError;
+        std::size_t Done = 0;
+        while (Done < State.Total)
+        {
+            const auto WriteSize =
+                std::min(Chunk.size(), State.Total - Done);
+            auto WriteWindow = std::span<const std::byte>(
+                reinterpret_cast<const std::byte *>(Chunk.data()),
+                WriteSize);
+            const auto Count = co_await Connection->async_write_some(
+                WriteWindow, WriteError);
+            if (WriteError || Count == 0 || Count > WriteSize)
             {
-                const auto n = co_await Conn->async_write_some(
-                    std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()), chunk.size()), ec);
-                if (ec || n == 0)
-                {
-                    break; // 断链：completed=0 门禁 FAIL，避免死循环挂死
-                }
-                Done += n;
+                State.Completed->store(false, std::memory_order_release);
+                break;
             }
-            if (Done < Total)
+            Done += Count;
+        }
+
+        Connection->Close();
+        const auto ServerCompleted = co_await WaitForServer(State);
+        State.Completed->store(
+            Done == State.Total && ServerCompleted,
+            std::memory_order_release);
+    }
+
+    [[nodiscard]] auto BenchSingle(
+        const std::size_t Total,
+        const std::size_t Block) -> std::int64_t
+    {
+        Net::io_context IoContext;
+        const auto Executor = IoContext.get_executor();
+        Net::ip::tcp::acceptor Acceptor(
+            IoContext,
+            Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        const auto Port = Acceptor.local_endpoint().port();
+        const auto Completed = std::make_shared<std::atomic_bool>(false);
+        const auto ServerDone =
+            std::make_shared<ServerDoneChannel>(Executor, 1);
+        const auto ServerExited =
+            std::make_shared<ServerExitedChannel>(Executor, 1);
+        const SessionState State{
+            Executor,
+            Acceptor,
+            Total,
+            Block,
+            MakeUuid(),
+            Completed,
+            ServerDone,
+            ServerExited};
+        const auto Start = NowNs();
+        auto ClientCompletion =
+            [Completed, &IoContext](std::exception_ptr Exception) -> void
+        {
+            if (Exception)
             {
-                completed = 0;
+                Completed->store(false, std::memory_order_release);
             }
-            Conn->Close();
-        }, [&](std::exception_ptr) { ioc.stop(); });
-        ioc.run();
-        if (completed == 0)
+            IoContext.stop();
+        };
+        Net::co_spawn(
+            Executor,
+            RunClient(State, Port),
+            std::move(ClientCompletion));
+        IoContext.run();
+        if (!Completed->load(std::memory_order_acquire))
         {
             return 0;
         }
-        return now_ns() - t0;
+        return NowNs() - Start;
     }
 
-    // 4 连接并发（每连接 Total/4）
-    auto bench_vmess_parallel4(const std::size_t Total, const std::size_t block) -> std::int64_t
+    [[nodiscard]] auto BenchParallel(
+        const std::size_t Total,
+        const std::size_t Block) -> std::int64_t
     {
-        using namespace Preview;
-        net::io_context ioc;
-        const auto uuid = std::array<std::uint8_t, 16>{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-                                                        0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
-        std::vector<std::uint8_t> chunk(block, 0x5A);
-        const auto per = Total / 4;
+        constexpr std::size_t ConnectionCount = 4;
+        const auto PerConnection = Total / ConnectionCount;
+        Net::io_context IoContext;
+        const auto Executor = IoContext.get_executor();
+        const auto Uuid = MakeUuid();
+        std::vector<std::unique_ptr<Net::ip::tcp::acceptor>> Acceptors;
+        std::vector<SessionState> States;
+        std::vector<std::shared_ptr<std::atomic_bool>> Completed;
+        Acceptors.reserve(ConnectionCount);
+        States.reserve(ConnectionCount);
+        Completed.reserve(ConnectionCount);
+        const auto Start = NowNs();
+        const auto CompletedCount =
+            std::make_shared<std::atomic_size_t>(0);
 
-        const std::int64_t t0 = now_ns();
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        for (std::size_t Index = 0; Index < ConnectionCount; ++Index)
         {
-            for (int c = 0; c < 4; ++c)
+            auto Acceptor = std::make_unique<Net::ip::tcp::acceptor>(
+                IoContext,
+                Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+            const auto Port = Acceptor->local_endpoint().port();
+            const auto StateCompleted =
+                std::make_shared<std::atomic_bool>(false);
+            const auto ServerDone =
+                std::make_shared<ServerDoneChannel>(Executor, 1);
+            const auto ServerExited =
+                std::make_shared<ServerExitedChannel>(Executor, 1);
+            Acceptors.push_back(std::move(Acceptor));
+            States.push_back(SessionState{
+                Executor,
+                *Acceptors.back(),
+                PerConnection,
+                Block,
+                Uuid,
+                StateCompleted,
+                ServerDone,
+                ServerExited});
+            Completed.push_back(StateCompleted);
+
+            auto ClientCompletion =
+                [StateCompleted,
+                 CompletedCount,
+                 &IoContext](std::exception_ptr Exception) -> void
             {
-                auto one = [&, c]() -> net::awaitable<void>
+                if (Exception)
                 {
-                    net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                    const auto port = acceptor.local_endpoint().port();
+                    StateCompleted->store(
+                        false, std::memory_order_release);
+                }
+                const auto Finished = CompletedCount->fetch_add(
+                    1, std::memory_order_acq_rel) + 1;
+                if (Finished == ConnectionCount)
+                {
+                    IoContext.stop();
+                }
+            };
+            Net::co_spawn(
+                Executor,
+                RunClient(States.back(), Port),
+                std::move(ClientCompletion));
+        }
 
-                    auto server_coro = [&, c]() -> net::awaitable<void>
-                    {
-                        net::ip::tcp::socket sock(ioc);
-                        co_await acceptor.async_accept(sock, net::use_awaitable);
-                        auto ss = std::make_shared<Transport::Reliable>(std::move(sock));
-                        Vmess::ServerConfig scfg;
-                        scfg.uuid = uuid;
-                        auto [err, req, Conn] = co_await Vmess::Accept(ss, scfg);
-                        if (err != Error::None || !Conn)
-                        {
-                            co_return;
-                        }
-                        std::vector<std::uint8_t> buf(block);
-                        std::error_code ec;
-                        std::size_t Done = 0;
-                        while (Done < per)
-                        {
-                            const auto n = co_await Conn->async_read_some(
-                                std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
-                            if (ec || n == 0)
-                            {
-                                break;
-                            }
-                            Done += n;
-                        }
-                        Conn->Close();
-                    };
-                    net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-
-                    auto ss = std::make_shared<Transport::Reliable>(ioc.get_executor());
-                    const auto ec2 = co_await ss->Connect(
-                        net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port));
-                    if (ec2)
-                    {
-                        co_return;
-                    }
-                    Vmess::ClientConfig ccfg;
-                    ccfg.uuid = uuid;
-                    auto [err, Conn] = co_await Vmess::Connect(
-                        ss, ccfg, Vmess::Address{Vmess::AddressType::Domain, "t.internal", 443});
-                    if (err != Error::None || !Conn)
-                    {
-                        co_return;
-                    }
-                    std::size_t Done = 0;
-                    std::error_code ec;
-                    while (Done < per)
-                    {
-                        const auto n = co_await Conn->async_write_some(
-                            std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data()),
-                                                       block),
-                            ec);
-                        Done += n;
-                    }
-                    Conn->Close();
-                };
-                net::co_spawn(ioc.get_executor(), one(), net::detached);
+        IoContext.run();
+        for (const auto &StateCompleted : Completed)
+        {
+            if (!StateCompleted->load(std::memory_order_acquire))
+            {
+                return 0;
             }
-        }, [&](std::exception_ptr) { ioc.stop(); });
-        ioc.run();
-        return now_ns() - t0;
+        }
+        return NowNs() - Start;
     }
 } // namespace
 
-int main()
+auto main() -> int
 {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
-    constexpr std::size_t kTotal = 256ULL * 1024 * 1024;
+    constexpr std::size_t Total = 256ULL * 1024 * 1024;
 
-    // vmess 单连接 3 次（不同外部块大小）
-    for (const auto block : {16384UL, 262144UL})
+    for (const auto Block : {16384UL, 262144UL})
     {
-        std::array<std::int64_t, 3> samples{};
-        for (int i = 0; i < 3; ++i)
+        std::array<std::int64_t, 3> SingleSamples{};
+        std::array<std::int64_t, 3> ParallelSamples{};
+        for (std::size_t SampleIndex = 0;
+             SampleIndex < SingleSamples.size();
+             ++SampleIndex)
         {
-            samples[i] = bench_vmess_single(kTotal, block);
+            SingleSamples[SampleIndex] = BenchSingle(Total, Block);
+            ParallelSamples[SampleIndex] = BenchParallel(Total, Block);
         }
-        std::sort(samples.begin(), samples.end());
-        const double mbps = (kTotal / 1024.0 / 1024.0) / (samples[1] / 1e9);
-        std::printf("vmess 单连接 外部块=%6zu: med=%7.2f ms  => %8.1f MB/s\n", block,
-                    samples[1] / 1e6, mbps);
-        if (std::any_of(samples.begin(), samples.end(), [](std::int64_t v) { return v <= 0; }) || mbps < 50.0)
+        std::sort(SingleSamples.begin(), SingleSamples.end());
+        std::sort(ParallelSamples.begin(), ParallelSamples.end());
+        const auto SingleMedianNs = SingleSamples[1];
+        const auto ParallelMedianNs = ParallelSamples[1];
+        if (SingleMedianNs <= 0 || ParallelMedianNs <= 0)
         {
-            std::printf("FAIL vmess 单连接 block=%zu: 存在数据面未完成运行或吞吐过低\n", block);
+            std::printf(
+                "FAIL vmess block=%zu: 数据面未完成运行\n",
+                Block);
+            return 1;
+        }
+
+        const double SingleMegabytesPerSecond =
+            (Total / 1024.0 / 1024.0) /
+            (static_cast<double>(SingleMedianNs) / 1e9);
+        const double ParallelMegabytesPerSecond =
+            (Total / 1024.0 / 1024.0) /
+            (static_cast<double>(ParallelMedianNs) / 1e9);
+        std::printf(
+            "vmess block=%6zu 单连接=%8.1f MB/s 四连接=%8.1f MB/s\n",
+            Block,
+            SingleMegabytesPerSecond,
+            ParallelMegabytesPerSecond);
+        if (SingleMegabytesPerSecond < 50.0 ||
+            ParallelMegabytesPerSecond < 50.0)
+        {
+            std::printf(
+                "FAIL vmess block=%zu: 吞吐低于门槛\n",
+                Block);
             return 1;
         }
     }
-
-    // vmess 4 连接并发（跳过：acceptor 动态创建死锁）
     std::printf("VmessDepth: ALL PASS\n");
     return 0;
 }

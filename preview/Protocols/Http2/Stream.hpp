@@ -35,26 +35,26 @@ namespace Preview::Http2
     {
         bool Ok{false};            ///< 是否成功
         std::int32_t StreamId{-1}; ///< 流 ID（失败为 -1）
-        std::error_code ec{};       ///< 错误码（成功为空）
+        std::error_code ErrorCode{}; ///< 错误码（成功为空）
 
         /**
          * @brief 快速构造成功结果
-         * @param sid 流 ID
+         * @param StreamId 流 ID
          * @return 成功结果
          */
-        [[nodiscard]] static auto MakeSuccess(std::int32_t Sid) noexcept -> StreamOpenResult
+        [[nodiscard]] static auto MakeSuccess(std::int32_t StreamId) noexcept -> StreamOpenResult
         {
-            return StreamOpenResult{true, Sid, {}};
+            return StreamOpenResult{true, StreamId, {}};
         }
 
         /**
          * @brief 快速构造失败结果
-         * @param err 错误码
+         * @param ErrorCode 错误码
          * @return 失败结果
          */
-        [[nodiscard]] static auto MakeFailure(std::error_code err) noexcept -> StreamOpenResult
+        [[nodiscard]] static auto MakeFailure(std::error_code ErrorCode) noexcept -> StreamOpenResult
         {
-            return StreamOpenResult{false, -1, err};
+            return StreamOpenResult{false, -1, ErrorCode};
         }
     };
 
@@ -111,18 +111,20 @@ namespace Preview::Http2
 
         /**
          * @brief 提交头到本流
-         * @param headers 头列表
+         * @param Headers 头列表
          * @param EndStream 是否结束流
          * @return 成功返回 0；会话失效返回 -1
          */
-        [[nodiscard]] auto SubmitHeaders(const HeaderList &headers, bool EndStream) -> std::int32_t
+        [[nodiscard]] auto SubmitHeaders(
+            const HeaderList &Headers,
+            bool EndStream) -> std::int32_t
         {
-            const auto S = Session();
-            if (!S)
+            const auto LockedSession = Session();
+            if (!LockedSession)
             {
                 return -1;
             }
-            return S->SubmitHeaders(StreamId_, headers, EndStream);
+            return LockedSession->SubmitHeaders(StreamId_, Headers, EndStream);
         }
 
         /**
@@ -131,14 +133,16 @@ namespace Preview::Http2
          * @param EndStream 是否结束流
          * @return 成功返回 0；会话失效返回 -1
          */
-        [[nodiscard]] auto Write(std::span<const std::byte> Data, bool EndStream) -> std::int32_t
+        [[nodiscard]] auto Write(
+            std::span<const std::byte> Data,
+            bool EndStream) -> std::int32_t
         {
-            const auto S = Session();
-            if (!S)
+            const auto LockedSession = Session();
+            if (!LockedSession)
             {
                 return -1;
             }
-            return S->SubmitData(StreamId_, Data, EndStream);
+            return LockedSession->SubmitData(StreamId_, Data, EndStream);
         }
 
         /**
@@ -148,12 +152,12 @@ namespace Preview::Http2
          */
         [[nodiscard]] auto Reset(std::uint32_t ErrorCode) -> std::int32_t
         {
-            const auto S = Session();
-            if (!S)
+            const auto LockedSession = Session();
+            if (!LockedSession)
             {
                 return -1;
             }
-            return S->ResetStream(StreamId_, ErrorCode);
+            return LockedSession->ResetStream(StreamId_, ErrorCode);
         }
 
         /**
@@ -163,12 +167,12 @@ namespace Preview::Http2
          */
         [[nodiscard]] auto Close() -> std::int32_t
         {
-            const auto S = Session();
-            if (!S)
+            const auto LockedSession = Session();
+            if (!LockedSession)
             {
                 return -1;
             }
-            return S->SubmitData(StreamId_, std::span<const std::byte>{}, true);
+            return LockedSession->SubmitData(StreamId_, std::span<const std::byte>{}, true);
         }
 
     private:
@@ -182,48 +186,52 @@ namespace Preview::Http2
     /**
      * @brief 在会话上打开新流并返回句柄
      * @param Session 目标会话
-     * @param headers 初始头（伪头 + 普通头）
+     * @param Headers 初始头（伪头 + 普通头）
      * @param EndStream 是否立即结束流
      * @return 打开结果（含句柄创建所需的流 ID）
      * @note 句柄由调用方通过 make_shared 包装；本函数仅返回
      *       打开结果，便于失败分支短路。
      */
-    [[nodiscard]] inline auto OpenStream(SharedH2Session Session, const HeaderList &headers,
-                                          bool EndStream) -> StreamOpenResult
+    [[nodiscard]] inline auto OpenStream(
+        SharedH2Session Session,
+        const HeaderList &Headers,
+        bool EndStream) -> StreamOpenResult
     {
         if (!Session)
         {
             return StreamOpenResult::MakeFailure(
                 std::make_error_code(std::errc::not_connected));
         }
-        const auto Sid = Session->OpenStream(headers, EndStream);
-        if (Sid < 0)
+        const auto StreamId = Session->OpenStream(Headers, EndStream);
+        if (StreamId < 0)
         {
             return StreamOpenResult::MakeFailure(
                 std::make_error_code(std::errc::protocol_error));
         }
-        return StreamOpenResult::MakeSuccess(Sid);
+        return StreamOpenResult::MakeSuccess(StreamId);
     }
 
     /**
      * @brief 打开新流并构造句柄（便捷组合）
      * @param Session 目标会话
-     * @param headers 初始头
+     * @param Headers 初始头
      * @param EndStream 是否立即结束流
      * @return 流句柄；打开失败返回 nullptr
      */
-    [[nodiscard]] inline auto OpenStreamHandle(SharedH2Session Session, const HeaderList &headers,
-                                                 bool EndStream) -> SharedStreamHandle
+    [[nodiscard]] inline auto OpenStreamHandle(
+        SharedH2Session Session,
+        const HeaderList &Headers,
+        bool EndStream) -> SharedStreamHandle
     {
         // 拷贝传参（refcount+1），成功路径再用 move 构造句柄，避免 use-after-move
-        const auto Result = OpenStream(Session, headers, EndStream);
+        const auto Result = OpenStream(Session, Headers, EndStream);
         if (!Result.Ok)
         {
             return nullptr;
         }
         auto Handle = std::make_shared<StreamHandle>(Result.StreamId, std::move(Session));
         // 成功路径断言：句柄内会话弱引用必须有效
-        assert(Handle->Session().lock() != nullptr);
+        assert(Handle->Session() != nullptr);
         return Handle;
     }
 

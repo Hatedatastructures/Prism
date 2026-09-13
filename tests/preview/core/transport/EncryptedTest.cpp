@@ -32,12 +32,12 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    namespace ssl = net::ssl;
-    using namespace psm::transport;
+    namespace Net = boost::asio;
+    namespace Ssl = Net::ssl;
+    namespace Transport = psm::transport;
     using Psm::Testing::ProductionMockTransport;
 
-    void load_self_signed_cert(ssl::context &ctx)
+    auto LoadSelfSignedCert(Ssl::context &Context) -> void
     {
         // 使用 RSA 2048 而非 Ed25519，避免 BoringSSL TLS 1.3
         // "NO_COMMON_SIGNATURE_ALGORITHMS" 错误
@@ -65,8 +65,8 @@ namespace
         X509_set_pubkey(x509, pkey);
         X509_sign(x509, pkey, EVP_sha256());
 
-        SSL_CTX_use_certificate(ctx.native_handle(), x509);
-        SSL_CTX_use_PrivateKey(ctx.native_handle(), pkey);
+        SSL_CTX_use_certificate(Context.native_handle(), x509);
+        SSL_CTX_use_PrivateKey(Context.native_handle(), pkey);
 
         X509_free(x509);
         EVP_PKEY_free(pkey);
@@ -77,19 +77,19 @@ namespace
 
 TEST(Encrypted, SslHandshakeNullInbound)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::atomic<bool> done{false};
-    std::tuple<psm::fault::code, encrypted::shared_stream, shared_transmission> result;
+    std::tuple<psm::fault::code, Transport::encrypted::shared_stream, Transport::shared_transmission> result;
 
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
-            ssl::context ctx(ssl::context::tls_server);
-            result = co_await encrypted::ssl_handshake(nullptr, ctx);
+            Ssl::context ctx(Ssl::context::tls_server);
+            result = co_await Transport::encrypted::ssl_handshake(nullptr, ctx);
             done = true;
         },
-        net::detached);
+        Net::detached);
 
     ioc.run();
     EXPECT_TRUE(done);
@@ -104,63 +104,64 @@ TEST(Encrypted, SslHandshakeNullInbound)
 
 TEST(Encrypted, SslHandshakeSuccess)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
 
-    net::ip::tcp::acceptor acceptor(ioc, {net::ip::tcp::v4(), 0});
+    Net::ip::tcp::acceptor acceptor(ioc, {Net::ip::tcp::v4(), 0});
     const auto server_port = acceptor.local_endpoint().port();
 
     std::atomic<bool> done{false};
-    std::tuple<psm::fault::code, encrypted::shared_stream, shared_transmission> result;
+    std::tuple<psm::fault::code, Transport::encrypted::shared_stream, Transport::shared_transmission> result;
 
     // 服务端协程：接受连接 → ssl_handshake
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
-            auto socket = co_await acceptor.async_accept(net::use_awaitable);
-            auto Inbound = std::make_shared<reliable>(std::move(socket));
+            auto socket = co_await acceptor.async_accept(Net::use_awaitable);
+            auto Inbound = std::make_shared<Transport::reliable>(std::move(socket));
 
-            ssl::context ctx(ssl::context::tls_server);
-            load_self_signed_cert(ctx);
+            Ssl::context ctx(Ssl::context::tls_server);
+            LoadSelfSignedCert(ctx);
 
             result =
-                co_await encrypted::ssl_handshake(std::shared_ptr<transmission>(std::move(Inbound)), ctx);
+                co_await Transport::encrypted::ssl_handshake(
+                    std::shared_ptr<Transport::transmission>(std::move(Inbound)), ctx);
             done = true;
         },
-        net::detached);
+        Net::detached);
 
     // 客户端协程：连接 → TLS 客户端握手
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
-            auto socket = net::ip::tcp::socket{ioc};
-            auto ep = net::ip::tcp::endpoint{net::ip::make_address("127.0.0.1"), server_port};
-            co_await socket.async_connect(ep, net::use_awaitable);
+            auto socket = Net::ip::tcp::socket{ioc};
+            auto ep = Net::ip::tcp::endpoint{Net::ip::make_address("127.0.0.1"), server_port};
+            co_await socket.async_connect(ep, Net::use_awaitable);
 
-            ssl::context ctx(ssl::context::tls_client);
-            ctx.set_verify_mode(ssl::context::verify_none);
+            Ssl::context ctx(Ssl::context::tls_client);
+            ctx.set_verify_mode(Ssl::context::verify_none);
 
-            ssl::stream<net::ip::tcp::socket> tls_stream{std::move(socket), ctx};
-            co_await tls_stream.async_handshake(ssl::stream_base::client, net::use_awaitable);
+            Ssl::stream<Net::ip::tcp::socket> TlsStream{std::move(socket), ctx};
+            co_await TlsStream.async_handshake(Ssl::stream_base::client, Net::use_awaitable);
         },
-        net::detached);
+        Net::detached);
 
     // 完成哨兵：done 或超时（2s）任一先到即停机
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
-            net::steady_timer t(ioc);
+            Net::steady_timer Timer(ioc);
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
             while (!done && std::chrono::steady_clock::now() < deadline)
             {
-                t.expires_after(std::chrono::milliseconds(1));
-                co_await t.async_wait(net::use_awaitable);
+                Timer.expires_after(std::chrono::milliseconds(1));
+                co_await Timer.async_wait(Net::use_awaitable);
             }
             ioc.stop();
         },
-        net::detached);
+        Net::detached);
 
     ioc.run();
     EXPECT_TRUE(done);
@@ -175,148 +176,149 @@ TEST(Encrypted, SslHandshakeSuccess)
 
 TEST(Encrypted, TransportTypeAndNextLayer)
 {
-    net::io_context ioc;
-    ssl::context SslCtx(ssl::context::tls_client);
+    Net::io_context ioc;
+    Ssl::context SslCtx(Ssl::context::tls_client);
 
     auto mock = std::make_shared<ProductionMockTransport>();
-    encrypted::connector_type conn(std::move(mock), {});
+    Transport::encrypted::connector_type Conn(std::move(mock), {});
 
-    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
-    encrypted enc(stream);
+    auto Stream = std::make_shared<Transport::encrypted::stream_type>(std::move(Conn), SslCtx);
+    Transport::encrypted Encrypted(Stream);
 
-    EXPECT_EQ(enc.transport_type(), transmission::type::tcp);
-    EXPECT_EQ(enc.next_layer(), nullptr);
+    EXPECT_EQ(Encrypted.transport_type(), Transport::transmission::type::tcp);
+    EXPECT_EQ(Encrypted.next_layer(), nullptr);
 
-    auto &s = enc.stream();
-    EXPECT_EQ(&s, stream.get());
+    auto &StreamReference = Encrypted.stream();
+    EXPECT_EQ(&StreamReference, Stream.get());
 
-    const auto &cs = std::as_const(enc).stream();
-    EXPECT_EQ(&cs, stream.get());
+    const auto &ConstStreamReference = std::as_const(Encrypted).stream();
+    EXPECT_EQ(&ConstStreamReference, Stream.get());
 }
 
 // ── encrypted: release 转移所有权 ──
 
 TEST(Encrypted, ReleaseOwnership)
 {
-    net::io_context ioc;
-    ssl::context SslCtx(ssl::context::tls_client);
+    Net::io_context ioc;
+    Ssl::context SslCtx(Ssl::context::tls_client);
 
     auto mock = std::make_shared<ProductionMockTransport>();
-    encrypted::connector_type conn(std::move(mock), {});
+    Transport::encrypted::connector_type Conn(std::move(mock), {});
 
-    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
-    encrypted enc(stream);
+    auto Stream = std::make_shared<Transport::encrypted::stream_type>(std::move(Conn), SslCtx);
+    Transport::encrypted Encrypted(Stream);
 
-    auto &s = enc.stream();
+    auto &StreamReference = Encrypted.stream();
     // stream() 返回引用，解引用 ssl_stream_ 后一定非空（否则 UB）
     // 验证引用有效：地址与 stream 相同
-    EXPECT_EQ(&s, stream.get()) << "encrypted::stream() returns reference to internal stream";
+    EXPECT_EQ(&StreamReference, Stream.get()) << "encrypted::stream() returns reference to internal stream";
 
-    auto released = enc.release();
-    EXPECT_EQ(released, stream);
+    auto Released = Encrypted.release();
+    EXPECT_EQ(Released, Stream);
 }
 
 // ── encrypted: close 和 cancel 传播（通过握手后的真实连接）──
 
 TEST(Encrypted, CloseAndCancelPropagation)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
 
-    net::ip::tcp::acceptor acceptor(ioc, {net::ip::tcp::v4(), 0});
+    Net::ip::tcp::acceptor acceptor(ioc, {Net::ip::tcp::v4(), 0});
     const auto port = acceptor.local_endpoint().port();
 
     std::atomic<bool> server_done{false};
-    encrypted::shared_stream server_stream;
-    net::co_spawn(
+    Transport::encrypted::shared_stream ServerStream;
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
-            auto socket = co_await acceptor.async_accept(net::use_awaitable);
-            auto Inbound = std::make_shared<reliable>(std::move(socket));
+            auto socket = co_await acceptor.async_accept(Net::use_awaitable);
+            auto Inbound = std::make_shared<Transport::reliable>(std::move(socket));
 
-            ssl::context ctx(ssl::context::tls_server);
-            load_self_signed_cert(ctx);
+            Ssl::context ctx(Ssl::context::tls_server);
+            LoadSelfSignedCert(ctx);
 
             auto [code, stream, recovered] =
-                co_await encrypted::ssl_handshake(std::shared_ptr<transmission>(std::move(Inbound)), ctx);
+                co_await Transport::encrypted::ssl_handshake(
+                    std::shared_ptr<Transport::transmission>(std::move(Inbound)), ctx);
             if (psm::fault::succeeded(code))
             {
-                server_stream = stream;
+                ServerStream = stream;
             }
             server_done = true;
         },
-        net::detached);
+        Net::detached);
 
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
-            auto socket = net::ip::tcp::socket{ioc};
-            co_await socket.async_connect(net::ip::tcp::endpoint{net::ip::make_address("127.0.0.1"), port},
-                                          net::use_awaitable);
+            auto socket = Net::ip::tcp::socket{ioc};
+            co_await socket.async_connect(Net::ip::tcp::endpoint{Net::ip::make_address("127.0.0.1"), port},
+                                          Net::use_awaitable);
 
-            ssl::context ctx(ssl::context::tls_client);
-            ctx.set_verify_mode(ssl::context::verify_none);
-            ssl::stream<net::ip::tcp::socket> tls_stream{std::move(socket), ctx};
-            co_await tls_stream.async_handshake(ssl::stream_base::client, net::use_awaitable);
+            Ssl::context ctx(Ssl::context::tls_client);
+            ctx.set_verify_mode(Ssl::context::verify_none);
+            Ssl::stream<Net::ip::tcp::socket> TlsStream{std::move(socket), ctx};
+            co_await TlsStream.async_handshake(Ssl::stream_base::client, Net::use_awaitable);
         },
-        net::detached);
+        Net::detached);
 
     // 完成哨兵：server_done 或超时（2s）任一先到即停机
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
-            net::steady_timer t(ioc);
+            Net::steady_timer Timer(ioc);
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
             while (!server_done && std::chrono::steady_clock::now() < deadline)
             {
-                t.expires_after(std::chrono::milliseconds(1));
-                co_await t.async_wait(net::use_awaitable);
+                Timer.expires_after(std::chrono::milliseconds(1));
+                co_await Timer.async_wait(Net::use_awaitable);
             }
             ioc.stop();
         },
-        net::detached);
+        Net::detached);
 
     ioc.run();
     ASSERT_TRUE(server_done);
-    ASSERT_TRUE(server_stream);
+    ASSERT_TRUE(ServerStream);
 
-    auto enc = make_encrypted(server_stream);
-    enc->cancel();
-    enc->close();
+    auto Encrypted = Transport::make_encrypted(ServerStream);
+    Encrypted->cancel();
+    Encrypted->close();
 }
 
 // ── encrypted: executor 返回有效执行器 ──
 
 TEST(Encrypted, ExecutorIsValid)
 {
-    net::io_context ioc;
-    ssl::context SslCtx(ssl::context::tls_client);
+    Net::io_context ioc;
+    Ssl::context SslCtx(Ssl::context::tls_client);
 
     auto mock = std::make_shared<ProductionMockTransport>();
-    encrypted::connector_type conn(std::move(mock), {});
+    Transport::encrypted::connector_type Conn(std::move(mock), {});
 
-    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
-    encrypted enc(stream);
+    auto Stream = std::make_shared<Transport::encrypted::stream_type>(std::move(Conn), SslCtx);
+    Transport::encrypted Encrypted(Stream);
 
-    auto ex = enc.executor();
-    EXPECT_TRUE(ex);
+    auto Executor = Encrypted.executor();
+    EXPECT_TRUE(Executor);
 }
 
 // ── make_encrypted 工厂函数 ──
 
 TEST(Encrypted, MakeEncryptedFactory)
 {
-    net::io_context ioc;
-    ssl::context SslCtx(ssl::context::tls_client);
+    Net::io_context ioc;
+    Ssl::context SslCtx(Ssl::context::tls_client);
 
     auto mock = std::make_shared<ProductionMockTransport>();
-    encrypted::connector_type conn(std::move(mock), {});
+    Transport::encrypted::connector_type Conn(std::move(mock), {});
 
-    auto stream = std::make_shared<encrypted::stream_type>(std::move(conn), SslCtx);
+    auto Stream = std::make_shared<Transport::encrypted::stream_type>(std::move(Conn), SslCtx);
 
-    shared_transmission t = make_encrypted(stream);
-    ASSERT_TRUE(t);
-    EXPECT_EQ(t->transport_type(), transmission::type::tcp);
+    Transport::shared_transmission Transmission = Transport::make_encrypted(Stream);
+    ASSERT_TRUE(Transmission);
+    EXPECT_EQ(Transmission->transport_type(), Transport::transmission::type::tcp);
 }

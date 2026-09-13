@@ -33,10 +33,17 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace ss = Preview::Shadowsocks2022;
-    namespace net = boost::asio;
-    using namespace boost::asio::experimental::awaitable_operators;
+    namespace Net = boost::asio;
+    namespace SS2022 = Preview::Shadowsocks2022;
+    namespace ss = SS2022;
+    namespace Shadowsocks2022 = SS2022;
+    using Net::experimental::awaitable_operators::operator&&;
+    using Preview::AsBytes;
+    using Preview::AsU8Span;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::Transmission;
 
     struct FactoryHandshakeResult
     {
@@ -48,7 +55,7 @@ namespace
 
     auto RunAcceptFactory(const std::shared_ptr<MemoryStream> &Endpoint,
                           ss::ServerConfig Config)
-        -> net::awaitable<std::tuple<Error, ss::Message, ss::SharedConn>>
+        -> Net::awaitable<std::tuple<Error, SS2022::Message, SS2022::SharedConn>>
     {
         auto KeepAlive = Endpoint;
         auto Result = co_await ss::Accept(Endpoint, Config);
@@ -61,17 +68,17 @@ namespace
 
     auto RunFactoryHandshake(const ss::ClientConfig &ClientConfig,
                              const ss::ServerConfig &ServerConfig)
-        -> net::awaitable<FactoryHandshakeResult>
+        -> Net::awaitable<FactoryHandshakeResult>
     {
-        auto [ClientRawValue, ServerRawValue] = MakeMemoryPair(co_await net::this_coro::executor);
+        auto [ClientRawValue, ServerRawValue] = MakeMemoryPair(co_await Net::this_coro::executor);
         auto ClientRaw = std::make_shared<MemoryStream>(std::move(ClientRawValue));
         auto ServerRaw = std::make_shared<MemoryStream>(std::move(ServerRawValue));
         const ss::Address Target{ss::AddressType::Domain, "example.com", 443};
 
-        auto ServerTask = net::co_spawn(
-            ServerRaw->Executor(), RunAcceptFactory(ServerRaw, ServerConfig), net::use_awaitable);
-        auto ClientTask = net::co_spawn(
-            ClientRaw->Executor(), ss::Connect(ClientRaw, ClientConfig, Target), net::use_awaitable);
+        auto ServerTask = Net::co_spawn(
+            ServerRaw->Executor(), RunAcceptFactory(ServerRaw, ServerConfig), Net::use_awaitable);
+        auto ClientTask = Net::co_spawn(
+            ClientRaw->Executor(), ss::Connect(ClientRaw, ClientConfig, Target), Net::use_awaitable);
         auto Combined = co_await (std::move(ServerTask) && std::move(ClientTask));
 
         FactoryHandshakeResult Result;
@@ -90,11 +97,11 @@ namespace
      * stopped 标志；对从未运行的 ioc 调用同样安全。
      */
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto run_coro(Net::io_context &ioc, A coro) -> void
     {
         ioc.restart();
         std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
+        Net::co_spawn(ioc, std::move(coro),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -183,9 +190,9 @@ namespace
         Server.UsePsk = true;
         Server.Psk = Psk;
 
-        net::io_context ioc;
+        Net::io_context ioc;
         FactoryHandshakeResult Result;
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        run_coro(ioc, [&]() -> Net::awaitable<void>
         {
             Result = co_await RunFactoryHandshake(Client, Server);
         }());
@@ -206,9 +213,9 @@ namespace
         Server.UsePsk = true;
         Server.Psk.fill(0x5A);
 
-        net::io_context ioc;
+        Net::io_context ioc;
         FactoryHandshakeResult Result;
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        run_coro(ioc, [&]() -> Net::awaitable<void>
         {
             Result = co_await RunFactoryHandshake(Client, Server);
         }());
@@ -225,9 +232,9 @@ namespace
         ss::ServerConfig Server;
         Server.password = Client.password;
 
-        net::io_context ioc;
+        Net::io_context ioc;
         FactoryHandshakeResult Result;
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        run_coro(ioc, [&]() -> Net::awaitable<void>
         {
             Result = co_await RunFactoryHandshake(Client, Server);
         }());
@@ -240,6 +247,16 @@ namespace
     TEST(Ss2022CodecDeep, ChunkCodecErrors)
     {
         std::array<std::uint8_t, 16> key{};
+
+        // AEAD 参数长度错误必须在调用 EVP 前拒绝，不能把越界读取后的结果当成密文。
+        const std::array<std::uint8_t, 15> short_key{};
+        const std::array<std::uint8_t, 12> nonce{};
+        const std::array<std::uint8_t, 11> short_nonce{};
+        std::vector<std::uint8_t> sealed;
+        EXPECT_EQ(ss::detail::AeadSeal(short_key, nonce, std::array<std::uint8_t, 1>{0x42}, sealed), 0U);
+        EXPECT_EQ(ss::detail::AeadSeal(key, short_nonce, std::array<std::uint8_t, 1>{0x42}, sealed), 0U);
+        EXPECT_TRUE(ss::ChunkCodec(short_key).Seal(std::array<std::uint8_t, 1>{0x42}).empty());
+
         // StartNonce > 0 → IncNonce 路径
         ss::ChunkCodec Codec(std::span<const std::uint8_t>(key), 3);
         ss::ChunkCodec dec(std::span<const std::uint8_t>(key), 3);
@@ -305,6 +322,18 @@ namespace
         std::vector<std::uint8_t> big_payload(20000, 0xAB);
         const auto big_wire = dec6.Seal(big_payload);
         EXPECT_TRUE(codec6.OpenLen(std::span<const std::uint8_t>(big_wire).first(18)).has_value());
+    }
+
+    TEST(Ss2022CodecDeep, SessionKeyOutputBufferMatchesVector)
+    {
+        const std::array<std::uint8_t, 16> Psk{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                                               0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
+        const std::array<std::uint8_t, 16> Salt{0x00, 0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99,
+                                                0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11};
+        const auto VectorResult = ss::SessionKey(Psk, Salt, 16);
+        std::array<std::uint8_t, 16> BufferResult{};
+        ss::SessionKey(Psk, Salt, std::span<std::uint8_t>(BufferResult));
+        EXPECT_EQ(std::vector<std::uint8_t>(BufferResult.begin(), BufferResult.end()), VectorResult);
     }
 
     TEST(Ss2022CodecDeep, SessionKeyAndUdp)
@@ -430,45 +459,45 @@ namespace
         ser.Reset(msg, 1000);
         std::array<std::uint8_t, 2048> buf{};
         std::error_code ec;
-        const auto n = ser.Get(boost::asio::buffer(buf.data(), buf.size()), ec);
+        const auto n = ser.Get(Net::buffer(buf.data(), buf.size()), ec);
         const auto wire = std::vector<std::uint8_t>(buf.begin(), buf.begin() + n);
 
         // Parser 成功
         ss::Parser p(psk);
-        EXPECT_EQ(p.Put(boost::asio::buffer(wire), ec), wire.size());
+        EXPECT_EQ(p.Put(Net::buffer(wire), ec), wire.size());
         EXPECT_TRUE(p.IsDone());
         EXPECT_EQ(p.Get().dst.Host, "8.8.8.8");
         EXPECT_EQ(p.Get().InitialPayload, "hello");
 
         // 数据不足
         p.Reset();
-        EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x01})), ec), 0u);
+        EXPECT_EQ(p.Put(Net::buffer(make_bytes({0x01})), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::NeedMore));
 
         // 固定头解密失败（篡改）→ auth_failed
         p.Reset();
         auto tampered = wire;
         tampered[30] ^= 0x01;
-        EXPECT_EQ(p.Put(boost::asio::buffer(tampered), ec), 0u);
+        EXPECT_EQ(p.Put(Net::buffer(tampered), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::AuthFailed));
 
         // 变长头不足（截断尾部）→ need_more
         p.Reset();
         const auto truncated = std::vector<std::uint8_t>(wire.begin(), wire.end() - 40);
-        EXPECT_EQ(p.Put(boost::asio::buffer(truncated), ec), 0u);
+        EXPECT_EQ(p.Put(Net::buffer(truncated), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::NeedMore));
 
         // 变长头解密失败 → auth_failed
         p.Reset();
         auto tampered2 = wire;
         tampered2[tampered2.size() - 1] ^= 0x01;
-        EXPECT_EQ(p.Put(boost::asio::buffer(tampered2), ec), 0u);
+        EXPECT_EQ(p.Put(Net::buffer(tampered2), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::AuthFailed));
     }
 
     TEST(Ss2022CodecDeep, ConnAndDgramDecorators)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto peer = std::make_shared<MemoryStream>(std::move(b));
         std::array<std::uint8_t, 16> key{};
@@ -491,7 +520,7 @@ namespace
         auto peer2 = std::make_shared<MemoryStream>(std::move(d));
         auto dg2 = std::make_shared<Shadowsocks2022::Dgram<>>(std::make_shared<MemoryStream>(std::move(c)), key);
         run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
                      ss::Address dst{};
                      dst.Type = ss::AddressType::Domain;
@@ -541,7 +570,7 @@ namespace
 
         // 未握手读写 → not_open
         run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
                      std::error_code ec;
                      std::array<std::byte, 4> buf{};
@@ -558,10 +587,10 @@ namespace
         // 服务端先读 salt，客户端握手后才有数据，串行驱动会互相等待
         // （server salt(16) + 裸块固定头：27B 明文 + 16B tag）
         run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
                      bool server_done = false;
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          std::array<std::uint8_t, 16 + 45 + 128> buf{};
                          std::error_code ec;
@@ -588,7 +617,7 @@ namespace
                          EXPECT_FALSE(werr3);
                          server_done = true;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      ss::Address Target{};
                      Target.Type = ss::AddressType::Domain;
@@ -618,12 +647,12 @@ namespace
                      EXPECT_NE(cn->Release(), nullptr);
 
                      // 等待服务端协程结束，保证 server_side 存活至 detached 协程退出
-                     net::steady_timer wait(ioc.get_executor());
+                     Net::steady_timer wait(ioc.get_executor());
                      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
                      while (!server_done && std::chrono::steady_clock::now() < deadline)
                      {
                          wait.expires_after(std::chrono::milliseconds(1));
-                         co_await wait.async_wait(net::use_awaitable);
+                         co_await wait.async_wait(Net::use_awaitable);
                      }
                  });
     }

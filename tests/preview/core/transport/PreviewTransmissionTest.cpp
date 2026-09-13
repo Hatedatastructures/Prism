@@ -31,16 +31,16 @@
 namespace
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /// 叶子传输：仅实现纯虚方法
-    class leaf_transmission final : public Preview::Transmission
+    class LeafTransmission final : public Preview::Transmission
     {
     public:
         using Preview::Transmission::async_read_some;
         using Preview::Transmission::async_write_some;
 
-        explicit leaf_transmission(net::any_io_executor ex) : Ex_(std::move(ex))
+        explicit LeafTransmission(Net::any_io_executor Ex) : Ex_(std::move(Ex))
         {
         }
 
@@ -50,7 +50,7 @@ namespace
         }
 
         auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             std::memset(Buffer.data(), 0, Buffer.size());
             ec.clear();
@@ -62,7 +62,7 @@ namespace
         }
 
         auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             (void)Buffer;
             ec.clear();
@@ -84,36 +84,36 @@ namespace
             return !Closed_;
         }
 
-        [[nodiscard]] auto closed() const -> bool
+        [[nodiscard]] auto Closed() const -> bool
         {
             return Closed_;
         }
 
-        [[nodiscard]] auto canceled() const -> bool
+        [[nodiscard]] auto Canceled() const -> bool
         {
             return Canceled_;
         }
 
-        void set_read_overreport(const bool Value)
+        void SetReadOverreport(const bool Value)
         {
             ReadOverreport_ = Value;
         }
 
     private:
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
         bool Closed_{false};
         bool Canceled_{false};
         bool ReadOverreport_{false};
     };
 
     /// 装饰器：包装内层传输，委托读写并暴露 NextLayer
-    class decorator final : public Preview::Transmission
+    class Decorator final : public Preview::Transmission
     {
     public:
         using Preview::Transmission::async_read_some;
         using Preview::Transmission::async_write_some;
 
-        explicit decorator(Preview::SharedTransmission Inner) : Inner_(std::move(Inner))
+        explicit Decorator(Preview::SharedTransmission Inner) : Inner_(std::move(Inner))
         {
         }
 
@@ -123,13 +123,13 @@ namespace
         }
 
         auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             co_return co_await Inner_->async_read_some(Buffer, ec);
         }
 
         auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             co_return co_await Inner_->async_write_some(Buffer, ec);
         }
@@ -159,173 +159,173 @@ namespace
     };
 
     /// 运行协程（co_spawn + ioc.Run 模式）
-    template <typename Coro>
-    static auto run_coro(net::io_context &ioc, Coro &&coro) -> void
+    template <typename Operation>
+    static auto RunCoro(Net::io_context &Ioc, Operation &&OperationFactory) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::forward<Coro>(coro)(), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(Ioc, std::forward<Operation>(OperationFactory)(), [&](std::exception_ptr Error)
+                      { Exception = Error; Ioc.stop(); });
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     TEST(PreviewTransmission, LeafReadWrite)
     {
-        net::io_context ioc;
-        auto leaf = std::make_shared<leaf_transmission>(ioc.get_executor());
+        Net::io_context Ioc;
+        auto Leaf = std::make_shared<LeafTransmission>(Ioc.get_executor());
 
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(Ioc, [&]() -> Net::awaitable<void>
                  {
-            std::array<std::byte, 16> buf{};
-            std::error_code ec;
-            const auto n = co_await leaf->async_read_some(buf, ec);
-            EXPECT_FALSE(ec);
-            EXPECT_EQ(n, 16U);
+            std::array<std::byte, 16> Buffer{};
+            std::error_code ErrorCode;
+            const auto Count = co_await Leaf->async_read_some(Buffer, ErrorCode);
+            EXPECT_FALSE(ErrorCode);
+            EXPECT_EQ(Count, 16U);
 
-            const auto w = co_await leaf->async_write_some(buf, ec);
-            EXPECT_FALSE(ec);
-            EXPECT_EQ(w, 16U); });
+            const auto Written = co_await Leaf->async_write_some(Buffer, ErrorCode);
+            EXPECT_FALSE(ErrorCode);
+            EXPECT_EQ(Written, 16U); });
     }
 
     TEST(PreviewTransmission, AsyncReadCombined)
     {
-        net::io_context ioc;
-        auto leaf = std::make_shared<leaf_transmission>(ioc.get_executor());
+        Net::io_context Ioc;
+        auto Leaf = std::make_shared<LeafTransmission>(Ioc.get_executor());
 
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(Ioc, [&]() -> Net::awaitable<void>
                  {
-            std::array<std::byte, 32> buf{};
-            std::error_code ec;
-            const auto n = co_await leaf->AsyncRead(buf, ec);
-            EXPECT_FALSE(ec);
-            EXPECT_EQ(n, 32U); });
+            std::array<std::byte, 32> Buffer{};
+            std::error_code ErrorCode;
+            const auto Count = co_await Leaf->AsyncRead(Buffer, ErrorCode);
+            EXPECT_FALSE(ErrorCode);
+            EXPECT_EQ(Count, 32U); });
     }
 
     TEST(PreviewTransmission, AsyncReadRejectsOverreportedProgress)
     {
-        net::io_context ioc;
-        auto leaf = std::make_shared<leaf_transmission>(ioc.get_executor());
-        leaf->set_read_overreport(true);
-        std::size_t done = 0;
-        std::error_code ec;
+        Net::io_context Ioc;
+        auto Leaf = std::make_shared<LeafTransmission>(Ioc.get_executor());
+        Leaf->SetReadOverreport(true);
+        std::size_t Done = 0;
+        std::error_code ErrorCode;
 
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(Ioc, [&]() -> Net::awaitable<void>
                  {
-                     std::array<std::byte, 8> buf{};
-                     done = co_await leaf->AsyncRead(buf, ec);
+                     std::array<std::byte, 8> Buffer{};
+                     Done = co_await Leaf->AsyncRead(Buffer, ErrorCode);
                  });
 
-        EXPECT_EQ(done, 0U);
-        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::BrokenPipe));
+        EXPECT_EQ(Done, 0U);
+        EXPECT_EQ(ErrorCode, Preview::make_error_code(Preview::Error::BrokenPipe));
     }
 
     TEST(PreviewTransmission, AsyncWriteCombined)
     {
-        net::io_context ioc;
-        auto leaf = std::make_shared<leaf_transmission>(ioc.get_executor());
+        Net::io_context Ioc;
+        auto Leaf = std::make_shared<LeafTransmission>(Ioc.get_executor());
 
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(Ioc, [&]() -> Net::awaitable<void>
                  {
-            std::array<std::byte, 32> buf{};
-            std::error_code ec;
-            const auto n = co_await leaf->AsyncWrite(buf, ec);
-            EXPECT_FALSE(ec);
-            EXPECT_EQ(n, 32U); });
+            std::array<std::byte, 32> Buffer{};
+            std::error_code ErrorCode;
+            const auto Count = co_await Leaf->AsyncWrite(Buffer, ErrorCode);
+            EXPECT_FALSE(ErrorCode);
+            EXPECT_EQ(Count, 32U); });
     }
 
     TEST(PreviewTransmission, AsyncWriteRejectsOverreportedProgress)
     {
-        net::io_context ioc;
-        auto transport = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
-        transport->OverreportWrite = true;
-        std::size_t done = 0;
-        std::error_code ec;
+        Net::io_context Ioc;
+        auto Transport = std::make_shared<Preview::PreviewMockTransport>(Ioc.get_executor());
+        Transport->OverreportWrite = true;
+        std::size_t Done = 0;
+        std::error_code ErrorCode;
 
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(Ioc, [&]() -> Net::awaitable<void>
                  {
-                     const std::array<std::byte, 8> buf{};
-                     done = co_await transport->AsyncWrite(buf, ec);
+                     const std::array<std::byte, 8> Buffer{};
+                     Done = co_await Transport->AsyncWrite(Buffer, ErrorCode);
                  });
 
-        EXPECT_EQ(done, 0U);
-        EXPECT_EQ(ec, Preview::make_error_code(Preview::Error::BrokenPipe));
-        EXPECT_TRUE(transport->Written.empty());
+        EXPECT_EQ(Done, 0U);
+        EXPECT_EQ(ErrorCode, Preview::make_error_code(Preview::Error::BrokenPipe));
+        EXPECT_TRUE(Transport->Written.empty());
     }
 
     TEST(PreviewTransmission, TransportTypeDelegate)
     {
-        net::io_context ioc;
-        auto leaf = std::make_shared<leaf_transmission>(ioc.get_executor());
+        Net::io_context Ioc;
+        auto Leaf = std::make_shared<LeafTransmission>(Ioc.get_executor());
         // 叶子默认 Tcp
-        EXPECT_EQ(leaf->TransportType(), Preview::Transmission::Type::Tcp);
+        EXPECT_EQ(Leaf->TransportType(), Preview::Transmission::Type::Tcp);
 
         // 装饰器委托到底层
-        auto dec = std::make_shared<decorator>(leaf);
-        EXPECT_EQ(dec->TransportType(), Preview::Transmission::Type::Tcp);
+        auto Decorated = std::make_shared<Decorator>(Leaf);
+        EXPECT_EQ(Decorated->TransportType(), Preview::Transmission::Type::Tcp);
     }
 
     TEST(PreviewTransmission, DecoratorChain)
     {
-        net::io_context ioc;
-        auto leaf = std::make_shared<leaf_transmission>(ioc.get_executor());
-        auto dec = std::make_shared<decorator>(leaf);
+        Net::io_context Ioc;
+        auto Leaf = std::make_shared<LeafTransmission>(Ioc.get_executor());
+        auto Decorated = std::make_shared<Decorator>(Leaf);
 
         // NextLayer 导航
-        EXPECT_EQ(dec->NextLayer(), leaf.get());
+        EXPECT_EQ(Decorated->NextLayer(), Leaf.get());
 
         // lowest_layer 直达链底
-        EXPECT_EQ(dec->lowest_layer<leaf_transmission>(), leaf.get());
-        EXPECT_EQ(dec->lowest_layer<decorator>(), nullptr);
+        EXPECT_EQ(Decorated->lowest_layer<LeafTransmission>(), Leaf.get());
+        EXPECT_EQ(Decorated->lowest_layer<Decorator>(), nullptr);
 
         // 读写经装饰器委托
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(Ioc, [&]() -> Net::awaitable<void>
                  {
-            std::array<std::byte, 8> buf{};
-            std::error_code ec;
-            const auto n = co_await dec->async_read_some(buf, ec);
-            EXPECT_FALSE(ec);
-            EXPECT_EQ(n, 8U); });
+            std::array<std::byte, 8> Buffer{};
+            std::error_code ErrorCode;
+            const auto Count = co_await Decorated->async_read_some(Buffer, ErrorCode);
+            EXPECT_FALSE(ErrorCode);
+            EXPECT_EQ(Count, 8U); });
     }
 
     TEST(PreviewTransmission, CloseCancel)
     {
-        net::io_context ioc;
-        auto leaf = std::make_shared<leaf_transmission>(ioc.get_executor());
-        EXPECT_TRUE(leaf->IsOpen());
+        Net::io_context Ioc;
+        auto Leaf = std::make_shared<LeafTransmission>(Ioc.get_executor());
+        EXPECT_TRUE(Leaf->IsOpen());
 
-        leaf->Cancel();
-        EXPECT_TRUE(leaf->canceled());
+        Leaf->Cancel();
+        EXPECT_TRUE(Leaf->Canceled());
 
-        leaf->Close();
-        EXPECT_FALSE(leaf->IsOpen());
-        EXPECT_TRUE(leaf->closed());
+        Leaf->Close();
+        EXPECT_FALSE(Leaf->IsOpen());
+        EXPECT_TRUE(Leaf->Closed());
     }
 
     TEST(PreviewTransmission, SharedPtrLifecycle)
     {
-        net::io_context ioc;
-        Preview::SharedTransmission t = std::make_shared<leaf_transmission>(ioc.get_executor());
-        ASSERT_NE(t, nullptr);
-        EXPECT_EQ(t.use_count(), 1L);
+        Net::io_context Ioc;
+        Preview::SharedTransmission Transmission = std::make_shared<LeafTransmission>(Ioc.get_executor());
+        ASSERT_NE(Transmission, nullptr);
+        EXPECT_EQ(Transmission.use_count(), 1L);
     }
 
     TEST(PreviewTransmission, ReleaseDefault)
     {
-        net::io_context ioc;
-        auto leaf = std::make_shared<leaf_transmission>(ioc.get_executor());
+        Net::io_context Ioc;
+        auto Leaf = std::make_shared<LeafTransmission>(Ioc.get_executor());
         // 基类默认 Release 返回空
-        const auto released = leaf->Release();
-        EXPECT_EQ(released, nullptr);
+        const auto Released = Leaf->Release();
+        EXPECT_EQ(Released, nullptr);
     }
 
     TEST(PreviewTransmission, Concept)
     {
         static_assert(Preview::TransmissionLike<Preview::Transmission>);
-        static_assert(Preview::TransmissionLike<leaf_transmission>);
-        static_assert(Preview::TransmissionLike<decorator>);
+        static_assert(Preview::TransmissionLike<LeafTransmission>);
+        static_assert(Preview::TransmissionLike<Decorator>);
     }
 
 } // namespace

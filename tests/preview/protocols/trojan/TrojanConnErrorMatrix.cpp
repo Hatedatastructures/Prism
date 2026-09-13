@@ -27,38 +27,46 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Trojan = Preview::Trojan;
+    using Preview::AsBytes;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
+                      {
+                          Exception = ErrorValue;
+                          IoContext.stop();
+                      });
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     TEST(TrojanConnErrorMatrix, BadCredential)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(ioc, [&]() -> Net::awaitable<void>
         {
             Trojan::ServerConfig cfg;
             cfg.password = "correct";
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
                 EXPECT_EQ(err, Error::BadAuth);
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto server_task = Net::co_spawn(ioc.get_executor(), server_coro(), Net::use_awaitable);
 
             // 错误凭据（56 hex）+ CRLF + 命令
             const std::string cred(56, '0');
@@ -72,20 +80,20 @@ namespace
 
     TEST(TrojanConnErrorMatrix, MissingCrlf)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(ioc, [&]() -> Net::awaitable<void>
         {
             Trojan::ServerConfig cfg;
             cfg.password = "prism";
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
                 EXPECT_EQ(err, Error::BadMagic); // 凭据后缺 CRLF
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto server_task = Net::co_spawn(ioc.get_executor(), server_coro(), Net::use_awaitable);
 
             // 正确凭据 + 缺 CRLF
             const auto cred = Trojan::Credential("prism");
@@ -99,20 +107,20 @@ namespace
 
     TEST(TrojanConnErrorMatrix, BadCommand)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(ioc, [&]() -> Net::awaitable<void>
         {
             Trojan::ServerConfig cfg;
             cfg.password = "prism";
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
                 EXPECT_EQ(err, Error::BadMessage); // 命令 0x99 不在白名单
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto server_task = Net::co_spawn(ioc.get_executor(), server_coro(), Net::use_awaitable);
 
             const auto cred = Trojan::Credential("prism");
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
@@ -125,20 +133,20 @@ namespace
 
     TEST(TrojanConnErrorMatrix, BadAddressType)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(ioc, [&]() -> Net::awaitable<void>
         {
             Trojan::ServerConfig cfg;
             cfg.password = "prism";
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
                 EXPECT_EQ(err, Error::BadMessage); // ATYP=9 非法
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto server_task = Net::co_spawn(ioc.get_executor(), server_coro(), Net::use_awaitable);
 
             const auto cred = Trojan::Credential("prism");
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());
@@ -151,20 +159,20 @@ namespace
 
     TEST(TrojanConnErrorMatrix, TruncatedHeader)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(ioc, [&]() -> Net::awaitable<void>
         {
             Trojan::ServerConfig cfg;
             cfg.password = "prism";
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto server_coro = [&]() -> Net::awaitable<void>
             {
                 auto [err, req, Conn] = co_await Trojan::Accept(
                     std::make_shared<MemoryStream>(std::move(b)), cfg);
                 EXPECT_EQ(err, Error::IoError); // 半包后 EOF
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto server_task = Net::co_spawn(ioc.get_executor(), server_coro(), Net::use_awaitable);
 
             const auto cred = Trojan::Credential("prism");
             std::vector<std::uint8_t> wire(cred.begin(), cred.end());

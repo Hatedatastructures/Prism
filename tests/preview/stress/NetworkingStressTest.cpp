@@ -3,7 +3,7 @@
  * @brief 网络层压力测试（T5-10 D7，smoke 版）
  * @details 覆盖：
  *          - TCP 连接风暴：并发 50 连接 × 10 轮，全部 echo 成功
- *          - UDP relay 长跑：1000 包双向往返
+ *          - UDP Relay 长跑：1000 包双向往返
  *          - stress helper：Gate 汇合 / LeakTracker 泄漏探测
  * @note smoke 参数（短时）；完整长跑在 CI/手动扩展轮次
  */
@@ -35,12 +35,11 @@
 namespace
 {
 
-    namespace net = boost::asio;
-    using Tcp = net::ip::tcp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    using Tcp = Net::ip::tcp;
 
     /// 长跑缩放因子：NGX_STRESS_DURATION=秒 → 轮次放大（默认 1 = smoke）
-    auto stress_scale() -> int
+    auto StressScale() -> int
     {
         const auto *env = std::getenv("NGX_STRESS_DURATION");
         if (!env)
@@ -56,21 +55,21 @@ namespace
     }
 
     /// TCP echo 服务器
-    auto TcpEchoServer(Tcp::socket sock) -> net::awaitable<void>
+    auto TcpEchoServer(Tcp::socket Socket) -> Net::awaitable<void>
     {
-        std::array<std::byte, 4096> buf{};
-        boost::system::error_code ec;
+        std::array<std::byte, 4096> Buffer{};
+        boost::system::error_code ErrorCode;
         while (true)
         {
-            const auto n = co_await sock.async_read_some(net::buffer(buf),
-                                                         net::redirect_error(net::use_awaitable, ec));
-            if (ec || n == 0)
+            const auto n = co_await Socket.async_read_some(Net::buffer(Buffer),
+                                                         Net::redirect_error(Net::use_awaitable, ErrorCode));
+            if (ErrorCode || n == 0)
             {
                 break;
             }
-            co_await sock.async_write_some(net::buffer(buf, n),
-                                           net::redirect_error(net::use_awaitable, ec));
-            if (ec)
+            co_await Socket.async_write_some(Net::buffer(Buffer, n),
+                                           Net::redirect_error(Net::use_awaitable, ErrorCode));
+            if (ErrorCode)
             {
                 break;
             }
@@ -79,217 +78,217 @@ namespace
 
     TEST(NetworkStress, TcpConnectionStorm)
     {
-        constexpr int conns_per_round = 50;
-        const auto rounds = 10 * stress_scale();
-        const auto Total = conns_per_round * rounds;
+        constexpr int ConnectionsPerRound = 50;
+        const auto rounds = 10 * StressScale();
+        const auto Total = ConnectionsPerRound * rounds;
 
-        net::io_context ioc;
-        std::exception_ptr ep;
-        net::co_spawn(
-            ioc,
-            [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        std::exception_ptr Exception;
+        Net::co_spawn(
+            IoContext,
+            [&]() -> Net::awaitable<void>
             {
-                Tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-                const auto port = acceptor.local_endpoint().port();
+                Tcp::acceptor Acceptor(IoContext, Tcp::endpoint(Tcp::v4(), 0));
+                const auto Port = Acceptor.local_endpoint().port();
 
-                net::co_spawn(
-                    ioc.get_executor(),
-                    [&]() -> net::awaitable<void>
+                Net::co_spawn(
+                    IoContext.get_executor(),
+                    [&]() -> Net::awaitable<void>
                     {
                         while (true)
                         {
-                            boost::system::error_code ec;
-                            auto sock = co_await acceptor.async_accept(
-                                net::redirect_error(net::use_awaitable, ec));
-                            if (ec)
+                            boost::system::error_code ErrorCode;
+                            auto Socket = co_await Acceptor.async_accept(
+                                Net::redirect_error(Net::use_awaitable, ErrorCode));
+                            if (ErrorCode)
                             {
                                 co_return;
                             }
-                            net::co_spawn(ioc.get_executor(), TcpEchoServer(std::move(sock)),
-                                          net::detached);
+                            Net::co_spawn(IoContext.get_executor(), TcpEchoServer(std::move(Socket)),
+                                          Net::detached);
                         }
                     },
-                    net::detached);
+                    Net::detached);
 
                 // 风暴：并发连接 × 多轮
                 std::atomic<int> Ok{0};
-                Preview::Stress::Gate g(ioc.get_executor(), Total);
-                for (int round = 0; round < rounds; ++round)
+                Preview::Stress::Gate GateValue(IoContext.get_executor(), Total);
+                for (int Round = 0; Round < rounds; ++Round)
                 {
-                    for (int i = 0; i < conns_per_round; ++i)
+                    for (int Index = 0; Index < ConnectionsPerRound; ++Index)
                     {
-                        net::co_spawn(
-                            ioc.get_executor(),
-                            [&, i]() -> net::awaitable<void>
+                        Net::co_spawn(
+                            IoContext.get_executor(),
+                            [&, Index]() -> Net::awaitable<void>
                             {
-                                std::error_code ec;
-                                Preview::Network::Dialer::Dialer d(ioc.get_executor());
-                                auto Conn = co_await d.Connect("127.0.0.1", port, ec);
-                                if (ec || !Conn)
+                                std::error_code ErrorCode;
+                                Preview::Network::Dialer::Dialer Dialer(IoContext.get_executor());
+                                auto Conn = co_await Dialer.Connect("127.0.0.1", Port, ErrorCode);
+                                if (ErrorCode || !Conn)
                                 {
-                                    g.Arrive();
+                                    GateValue.Arrive();
                                     co_return;
                                 }
-                                const std::string msg = "storm-" + std::to_string(i);
+                                const std::string Message = "storm-" + std::to_string(Index);
                                 co_await Conn->async_write_some(
                                     std::span<const std::byte>(
-                                        reinterpret_cast<const std::byte *>(msg.data()), msg.size()),
-                                    ec);
-                                std::array<std::byte, 64> buf{};
-                                const auto n = co_await Conn->async_read_some(buf, ec);
-                                if (!ec && std::string_view(reinterpret_cast<const char *>(buf.data()),
-                                                            n) == msg)
+                                        reinterpret_cast<const std::byte *>(Message.data()), Message.size()),
+                                    ErrorCode);
+                                std::array<std::byte, 64> Buffer{};
+                                const auto n = co_await Conn->async_read_some(Buffer, ErrorCode);
+                                if (!ErrorCode && std::string_view(reinterpret_cast<const char *>(Buffer.data()),
+                                                            n) == Message)
                                 {
                                     ++Ok;
                                 }
                                 Conn->Close();
-                                g.Arrive();
+                                GateValue.Arrive();
                             },
-                            net::detached);
+                            Net::detached);
                     }
                 }
-                co_await g.Wait();
+                co_await GateValue.Wait();
                 EXPECT_EQ(Ok, Total);
-                acceptor.close();
+                Acceptor.close();
             },
-            [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+            [&](std::exception_ptr e) { Exception = e; IoContext.stop(); });
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     TEST(NetworkStress, UdpRelayLongRun)
     {
-        const auto packets = 1000 * stress_scale();
-        net::io_context ioc;
+        const auto PacketCount = 1000 * StressScale();
+        Net::io_context IoContext;
 
-        auto a = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
-        auto b = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
-        boost::system::error_code oec;
-        a->NativeSocket().open(net::ip::udp::v4(), oec);
-        a->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
-        b->NativeSocket().open(net::ip::udp::v4(), oec);
-        b->NativeSocket().bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
+        auto a = std::make_shared<Preview::Transport::Unreliable>(IoContext.get_executor());
+        auto b = std::make_shared<Preview::Transport::Unreliable>(IoContext.get_executor());
+        boost::system::error_code OuterErrorCode;
+        a->NativeSocket().open(Net::ip::udp::v4(), OuterErrorCode);
+        a->NativeSocket().bind(Net::ip::udp::endpoint(Net::ip::make_address("127.0.0.1"), 0), OuterErrorCode);
+        b->NativeSocket().open(Net::ip::udp::v4(), OuterErrorCode);
+        b->NativeSocket().bind(Net::ip::udp::endpoint(Net::ip::make_address("127.0.0.1"), 0), OuterErrorCode);
 
-        net::co_spawn(
-            ioc.get_executor(),
-            [&]() -> net::awaitable<void>
+        Net::co_spawn(
+            IoContext.get_executor(),
+            [&]() -> Net::awaitable<void>
             {
-                Preview::Network::Udp::RelayOptions opts;
-                opts.IdleTimeout = std::chrono::milliseconds(5000);
-                Preview::Network::Udp::UdpRelay relay(a, b, opts);
-                co_await relay.Run();
+                Preview::Network::Udp::RelayOptions OptionsValue;
+                OptionsValue.IdleTimeout = std::chrono::milliseconds(5000);
+                Preview::Network::Udp::UdpRelay Relay(a, b, OptionsValue);
+                co_await Relay.Run();
             },
-            net::detached);
+            Net::detached);
 
         // 端 A/B 客户端（echo 型）
-        net::ip::udp::socket ca(ioc.get_executor());
-        net::ip::udp::socket cb(ioc.get_executor());
-        ca.open(net::ip::udp::v4(), oec);
-        ca.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
-        cb.open(net::ip::udp::v4(), oec);
-        cb.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), oec);
-        const auto ca_ep = ca.local_endpoint();
-        const auto cb_ep = cb.local_endpoint();
-        const auto a_ep = a->NativeSocket().local_endpoint();
-        const auto b_ep = b->NativeSocket().local_endpoint();
+        Net::ip::udp::socket ClientSocketA(IoContext.get_executor());
+        Net::ip::udp::socket ClientSocketB(IoContext.get_executor());
+        ClientSocketA.open(Net::ip::udp::v4(), OuterErrorCode);
+        ClientSocketA.bind(Net::ip::udp::endpoint(Net::ip::make_address("127.0.0.1"), 0), OuterErrorCode);
+        ClientSocketB.open(Net::ip::udp::v4(), OuterErrorCode);
+        ClientSocketB.bind(Net::ip::udp::endpoint(Net::ip::make_address("127.0.0.1"), 0), OuterErrorCode);
+        const auto ClientEndpoint = ClientSocketA.local_endpoint();
+        const auto ClientBEndpoint = ClientSocketB.local_endpoint();
+        const auto RelayEndpointA = a->NativeSocket().local_endpoint();
+        const auto RelayEndpointB = b->NativeSocket().local_endpoint();
 
-        std::exception_ptr ep;
-        net::co_spawn(
-            ioc,
-            [&]() -> net::awaitable<void>
+        std::exception_ptr Exception;
+        Net::co_spawn(
+            IoContext,
+            [&]() -> Net::awaitable<void>
             {
-                // 建立动态关联（ca/cb 各发首包配对）
-                const std::string learn = "l";
-                co_await ca.async_send_to(net::buffer(learn.data(), learn.size()), a_ep,
-                                          net::redirect_error(net::use_awaitable, oec));
-                co_await cb.async_send_to(net::buffer(learn.data(), learn.size()), b_ep,
-                                          net::redirect_error(net::use_awaitable, oec));
-                // 等配对后的学习包转发到 ca
+                // 建立动态关联（ClientSocketA/ClientSocketB 各发首包配对）
+                const std::string LearnPayload = "l";
+                co_await ClientSocketA.async_send_to(Net::buffer(LearnPayload.data(), LearnPayload.size()), RelayEndpointA,
+                                          Net::redirect_error(Net::use_awaitable, OuterErrorCode));
+                co_await ClientSocketB.async_send_to(Net::buffer(LearnPayload.data(), LearnPayload.size()), RelayEndpointB,
+                                          Net::redirect_error(Net::use_awaitable, OuterErrorCode));
+                // 等配对后的学习包转发到 ClientSocketA
                 {
-                    std::array<std::byte, 8> buf{};
-                    net::ip::udp::endpoint src;
-                    co_await ca.async_receive_from(net::buffer(buf), src,
-                                                   net::redirect_error(net::use_awaitable, oec));
+                    std::array<std::byte, 8> Buffer{};
+                    Net::ip::udp::endpoint Source;
+                    co_await ClientSocketA.async_receive_from(Net::buffer(Buffer), Source,
+                                                   Net::redirect_error(Net::use_awaitable, OuterErrorCode));
                 }
 
-                // cb 侧回显（收 B 中继数据 → 回发）
-                net::co_spawn(
-                    ioc.get_executor(),
-                    [&]() -> net::awaitable<void>
+                // ClientSocketB 侧回显（收 B 中继数据 → 回发）
+                Net::co_spawn(
+                    IoContext.get_executor(),
+                    [&]() -> Net::awaitable<void>
                     {
-                        for (int i = 0; i < packets; ++i)
+                        for (int Index = 0; Index < PacketCount; ++Index)
                         {
-                            std::array<std::byte, 64> buf{};
-                            net::ip::udp::endpoint src;
-                            boost::system::error_code ec;
-                            const auto n = co_await cb.async_receive_from(
-                                net::buffer(buf), src, net::redirect_error(net::use_awaitable, ec));
+                            std::array<std::byte, 64> Buffer{};
+                            Net::ip::udp::endpoint Source;
+                            boost::system::error_code ErrorCode;
+                            const auto n = co_await ClientSocketB.async_receive_from(
+                                Net::buffer(Buffer), Source, Net::redirect_error(Net::use_awaitable, ErrorCode));
                             if (n > 0)
                             {
-                                co_await cb.async_send_to(net::buffer(buf, n), src,
-                                                          net::redirect_error(net::use_awaitable, ec));
+                                co_await ClientSocketB.async_send_to(Net::buffer(Buffer, n), Source,
+                                                          Net::redirect_error(Net::use_awaitable, ErrorCode));
                             }
                         }
                     },
-                    net::detached);
+                    Net::detached);
 
-                // ca 侧：发 1000 包 → 等回显
-                int received = 0;
-                for (int i = 0; i < packets; ++i)
+                // ClientSocketA 侧：发 1000 包 → 等回显
+                int Received = 0;
+                for (int Index = 0; Index < PacketCount; ++Index)
                 {
-                    const std::string msg = "udp-" + std::to_string(i);
-                    co_await ca.async_send_to(net::buffer(msg.data(), msg.size()), a_ep,
-                                              net::redirect_error(net::use_awaitable, oec));
-                    std::array<std::byte, 64> buf{};
-                    net::ip::udp::endpoint src;
-                    const auto n = co_await ca.async_receive_from(
-                        net::buffer(buf), src, net::redirect_error(net::use_awaitable, oec));
-                    if (n == msg.size() &&
-                        std::string_view(reinterpret_cast<const char *>(buf.data()), n) == msg)
+                    const std::string Message = "udp-" + std::to_string(Index);
+                    co_await ClientSocketA.async_send_to(Net::buffer(Message.data(), Message.size()), RelayEndpointA,
+                                              Net::redirect_error(Net::use_awaitable, OuterErrorCode));
+                    std::array<std::byte, 64> Buffer{};
+                    Net::ip::udp::endpoint Source;
+                    const auto n = co_await ClientSocketA.async_receive_from(
+                        Net::buffer(Buffer), Source, Net::redirect_error(Net::use_awaitable, OuterErrorCode));
+                    if (n == Message.size() &&
+                        std::string_view(reinterpret_cast<const char *>(Buffer.data()), n) == Message)
                     {
-                        ++received;
+                        ++Received;
                     }
                 }
-                EXPECT_EQ(received, packets);
+                EXPECT_EQ(Received, PacketCount);
             },
-            [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+            [&](std::exception_ptr e) { Exception = e; IoContext.stop(); });
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     TEST(NetworkStress, LeakTrackerDetectsRelease)
     {
-        auto obj = std::make_shared<int>(42);
-        Preview::Stress::LeakTracker tracker;
-        tracker.Track(obj);
-        EXPECT_EQ(tracker.Total(), 1);
-        EXPECT_FALSE(tracker.AllReleased());
-        obj.reset();
-        EXPECT_TRUE(tracker.AllReleased());
+        auto Object = std::make_shared<int>(42);
+        Preview::Stress::LeakTracker Tracker;
+        Tracker.Track(Object);
+        EXPECT_EQ(Tracker.Total(), 1);
+        EXPECT_FALSE(Tracker.AllReleased());
+        Object.reset();
+        EXPECT_TRUE(Tracker.AllReleased());
     }
 
     TEST(NetworkStress, GateSynchronizes)
     {
-        net::io_context ioc;
-        Preview::Stress::Gate g(ioc.get_executor(), 3);
-        std::atomic<int> arrived{0};
+        Net::io_context IoContext;
+        Preview::Stress::Gate GateValue(IoContext.get_executor(), 3);
+        std::atomic<int> Arrived{0};
 
-        net::co_spawn(ioc,
-                      [&]() -> net::awaitable<void>
+        Net::co_spawn(IoContext,
+                      [&]() -> Net::awaitable<void>
                       {
-                          for (int i = 0; i < 3; ++i)
+                          for (int Index = 0; Index < 3; ++Index)
                           {
-                              ++arrived;
-                              g.Arrive();
+                              ++Arrived;
+                              GateValue.Arrive();
                           }
-                          co_await g.Wait();
-                          EXPECT_EQ(arrived, 3);
+                          co_await GateValue.Wait();
+                          EXPECT_EQ(Arrived, 3);
                       },
                       [&](std::exception_ptr e)
                       {
@@ -297,9 +296,9 @@ namespace
                           {
                               std::rethrow_exception(e);
                           }
-                          ioc.stop();
+                          IoContext.stop();
                       });
-        ioc.run();
+        IoContext.run();
     }
 
 } // namespace

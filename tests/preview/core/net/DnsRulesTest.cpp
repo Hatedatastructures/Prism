@@ -18,8 +18,9 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    using Preview::Error;
+    using Preview::make_error_code;
     using Preview::Network::Dns::AddressRule;
     using Preview::Network::Dns::CnameRule;
     using Preview::Network::Dns::Config;
@@ -27,36 +28,37 @@ namespace
     using Preview::Network::Dns::RulesOptions;
 
     template <typename A>
-    void RunCoro(net::io_context &ioc, A coro)
+    auto RunCoro(Net::io_context &Ioc, A Coro) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(Ioc, std::move(Coro), [&](std::exception_ptr Error)
+                      { Exception = Error; Ioc.stop(); });
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto MakeRule(const std::string &domain, std::vector<net::ip::address> ips,
-                  const bool negative = false) -> AddressRule
+    auto MakeRule(const std::string &Domain, std::vector<Net::ip::address> Addresses,
+                  const bool Negative = false) -> AddressRule
     {
-        AddressRule r;
-        r.Domain = domain;
-        r.Addresses = std::move(ips);
-        r.Negative = negative;
-        return r;
+        AddressRule Rule;
+        Rule.Domain = Domain;
+        Rule.Addresses = std::move(Addresses);
+        Rule.Negative = Negative;
+        return Rule;
     }
 
-    auto MakeRules(std::vector<AddressRule> addressRules = {},
-                   std::vector<CnameRule> cnameRules = {},
-                   std::vector<std::string> blacklist = {}) -> RulesOptions
+    auto MakeRules(std::vector<AddressRule> AddressRules = {},
+                   std::vector<CnameRule> CnameRules = {},
+                   std::vector<std::string> Blacklist = {}) -> RulesOptions
     {
-        RulesOptions options;
-        options.AddressRules = std::move(addressRules);
-        options.CnameRules = std::move(cnameRules);
-        options.Blacklist = std::move(blacklist);
-        return options;
+        RulesOptions Options;
+        Options.AddressRules = std::move(AddressRules);
+        Options.CnameRules = std::move(CnameRules);
+        Options.Blacklist = std::move(Blacklist);
+        return Options;
     }
 } // namespace
 
@@ -92,29 +94,29 @@ TEST(DnsRules, TestRootWildcard)
 TEST(DnsRules, TestExactWinsOverWildcard)
 {
     RulesEngine engine(MakeRules(
-        {MakeRule("*.example.com", {net::ip::make_address("9.9.9.9")}),
-         MakeRule("special.example.com", {net::ip::make_address("8.8.8.8")})},
+        {MakeRule("*.example.com", {Net::ip::make_address("9.9.9.9")}),
+         MakeRule("special.example.com", {Net::ip::make_address("8.8.8.8")})},
         {}, {}));
     auto special = engine.Match("special.example.com");
     ASSERT_TRUE(special.has_value());
     ASSERT_EQ(special->Addresses.size(), 1u);
-    EXPECT_EQ(special->Addresses[0], net::ip::make_address("8.8.8.8"));
+    EXPECT_EQ(special->Addresses[0], Net::ip::make_address("8.8.8.8"));
 
     auto normal = engine.Match("other.example.com");
     ASSERT_TRUE(normal.has_value());
     ASSERT_EQ(normal->Addresses.size(), 1u);
-    EXPECT_EQ(normal->Addresses[0], net::ip::make_address("9.9.9.9"));
+    EXPECT_EQ(normal->Addresses[0], Net::ip::make_address("9.9.9.9"));
 }
 
 TEST(DnsRules, TestDeeperWildcardWins)
 {
     RulesEngine engine(MakeRules(
-        {MakeRule("*.example.com", {net::ip::make_address("1.1.1.1")}),
-         MakeRule("*.www.example.com", {net::ip::make_address("2.2.2.2")})},
+        {MakeRule("*.example.com", {Net::ip::make_address("1.1.1.1")}),
+         MakeRule("*.www.example.com", {Net::ip::make_address("2.2.2.2")})},
         {}, {}));
     auto hit = engine.Match("cdn.www.example.com");
     ASSERT_TRUE(hit.has_value());
-    EXPECT_EQ(hit->Addresses[0], net::ip::make_address("2.2.2.2"));
+    EXPECT_EQ(hit->Addresses[0], Net::ip::make_address("2.2.2.2"));
 }
 
 TEST(DnsRules, TestEmptyAddressesMeansBlock)
@@ -128,7 +130,7 @@ TEST(DnsRules, TestEmptyAddressesMeansBlock)
 TEST(DnsRules, TestCnameMergeWithAddressRule)
 {
     // 同域地址规则与 CNAME 规则合并为一条 RuleResult
-    RulesEngine engine(MakeRules({MakeRule("dual.com", {net::ip::make_address("7.7.7.7")})},
+    RulesEngine engine(MakeRules({MakeRule("dual.com", {Net::ip::make_address("7.7.7.7")})},
                                  {CnameRule{"dual.com", "real.com"}}, {}));
     auto hit = engine.Match("dual.com");
     ASSERT_TRUE(hit.has_value());
@@ -150,7 +152,7 @@ TEST(DnsRules, TestBlacklist)
 
 TEST(DnsRules, TestResolverBlockRule)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Config cfg;
     cfg.CacheEnabled = false;
     cfg.AddressRules.push_back(MakeRule("blocked.test", {}));
@@ -158,7 +160,7 @@ TEST(DnsRules, TestResolverBlockRule)
 
     std::error_code ec;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 (void)co_await r.AsyncResolve("sub.blocked.test", ec);
             });
@@ -167,37 +169,37 @@ TEST(DnsRules, TestResolverBlockRule)
 
 TEST(DnsRules, TestResolverRewriteRule)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Config cfg;
     cfg.AddressRules.push_back(
-        MakeRule("app.test", {net::ip::make_address("10.0.0.42")}));
+        MakeRule("app.test", {Net::ip::make_address("10.0.0.42")}));
     Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
 
-    std::vector<net::ip::address> addrs;
+    std::vector<Net::ip::address> addrs;
     std::error_code ec;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 addrs = co_await r.AsyncResolve("app.test", ec);
             });
     EXPECT_FALSE(ec);
     ASSERT_EQ(addrs.size(), 1u);
-    EXPECT_EQ(addrs[0], net::ip::make_address("10.0.0.42"));
+    EXPECT_EQ(addrs[0], Net::ip::make_address("10.0.0.42"));
     // 改写结果入缓存
     EXPECT_EQ(r.Size(), 1u);
 }
 
 TEST(DnsRules, TestResolverNegativeRule)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Config cfg;
     cfg.AddressRules.push_back(MakeRule("null.test", {}, true));
     Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
 
-    std::vector<net::ip::address> addrs;
+    std::vector<Net::ip::address> addrs;
     std::error_code ec;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 addrs = co_await r.AsyncResolve("null.test", ec);
             });
@@ -209,14 +211,14 @@ TEST(DnsRules, TestResolverNegativeRule)
 
 TEST(DnsRules, TestResolverLiteralBlacklist)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Config cfg;
-    cfg.AddressBlacklist.push_back(net::ip::make_address("6.6.6.6"));
+    cfg.AddressBlacklist.push_back(Net::ip::make_address("6.6.6.6"));
     Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
 
     std::error_code ec;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 (void)co_await r.AsyncResolve("6.6.6.6", ec);
             });
@@ -227,18 +229,18 @@ TEST(DnsRules, TestResolverLiteralBlacklist)
 
 TEST(DnsRules, TestResolverDisableIpv6FiltersStaticResults)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Config cfg;
     cfg.DisableIpv6 = true;
     cfg.AddressRules.push_back(
-        MakeRule("v6-only.test", {net::ip::make_address("::1")}));
+        MakeRule("v6-only.test", {Net::ip::make_address("::1")}));
     Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
 
     std::error_code literalEc;
     std::error_code ruleEc;
-    std::vector<net::ip::address> ruleAddrs;
+    std::vector<Net::ip::address> ruleAddrs;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 (void)co_await r.AsyncResolve("::1", literalEc);
                 ruleAddrs = co_await r.AsyncResolve("v6-only.test", ruleEc);
@@ -251,20 +253,20 @@ TEST(DnsRules, TestResolverDisableIpv6FiltersStaticResults)
 
 TEST(DnsRules, TestResolverCnameRedirect)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Config cfg;
     cfg.CnameRules.push_back(CnameRule{"alias.test", "127.0.0.1"});
     Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
 
-    std::vector<net::ip::address> addrs;
+    std::vector<Net::ip::address> addrs;
     std::error_code ec;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 addrs = co_await r.AsyncResolve("alias.test", ec);
             });
     // CNAME 跳转到目标后按字面量快速路径解析
     EXPECT_FALSE(ec);
     ASSERT_EQ(addrs.size(), 1u);
-    EXPECT_EQ(addrs[0], net::ip::make_address("127.0.0.1"));
+    EXPECT_EQ(addrs[0], Net::ip::make_address("127.0.0.1"));
 }

@@ -32,6 +32,9 @@
 namespace Preview::Network::Dns
 {
 
+    namespace Net = boost::asio;
+    namespace Ssl = Net::ssl;
+
     /**
      * @struct DohOptions
      * @brief DoH 传输构造选项
@@ -40,9 +43,9 @@ namespace Preview::Network::Dns
      */
     struct DohOptions
     {
-        net::any_io_executor Executor;
+        Net::any_io_executor Executor;
         std::chrono::milliseconds Timeout;
-        std::shared_ptr<ssl::context> Context;
+        std::shared_ptr<Ssl::context> Context;
         std::string HttpPath;
         std::string HostHeader;
     };
@@ -58,44 +61,43 @@ namespace Preview::Network::Dns
          * @brief 构造 DoH 传输
          * @param options 执行器、超时、TLS 上下文和 HTTP 参数
          */
-        explicit DohTransport(DohOptions options)
-            : Tls_(std::move(options.Executor), options.Timeout, std::move(options.Context)),
-              HttpPath_(std::move(options.HttpPath)), HostHeader_(std::move(options.HostHeader))
+        explicit DohTransport(DohOptions Options)
+            : Tls_(std::move(Options.Executor), Options.Timeout, std::move(Options.Context)),
+              HttpPath_(std::move(Options.HttpPath)), HostHeader_(std::move(Options.HostHeader))
         {
         }
 
-        auto Connect(const net::ip::tcp::endpoint &ep, const Server &server)
-            -> net::awaitable<boost::system::error_code>
+        auto Connect(const Net::ip::tcp::endpoint &Endpoint, const Server &ServerConfig)
+            -> Net::awaitable<boost::system::error_code>
         {
-            co_return co_await Tls_.Connect(ep, server);
+            co_return co_await Tls_.Connect(Endpoint, ServerConfig);
         }
 
         /// 发送 HTTP/1.1 POST（头 + DNS 报文合并单次写：一个 TLS 记录）
-        auto Send(std::span<const std::uint8_t> wire) -> net::awaitable<boost::system::error_code>
+        auto Send(std::span<const std::uint8_t> Wire) -> Net::awaitable<boost::system::error_code>
         {
-            std::string request;
-            request.reserve(224 + HttpPath_.size() + HostHeader_.size() + wire.size());
-            request += "POST ";
-            request += HttpPath_;
-            request += " HTTP/1.1\r\nHost: ";
-            request += HostHeader_;
-            request += "\r\nContent-Type: application/dns-message\r\n";
-            request += "Accept: application/dns-message\r\nContent-Length: ";
-            request += std::to_string(wire.size());
-            request += "\r\nConnection: keep-alive\r\n\r\n";
-            request.append(reinterpret_cast<const char *>(wire.data()),
-                           static_cast<std::size_t>(wire.size()));
+            std::string Request;
+            Request.reserve(224 + HttpPath_.size() + HostHeader_.size() + Wire.size());
+            Request += "POST ";
+            Request += HttpPath_;
+            Request += " HTTP/1.1\r\nHost: ";
+            Request += HostHeader_;
+            Request += "\r\nContent-Type: application/dns-message\r\n";
+            Request += "Accept: application/dns-message\r\nContent-Length: ";
+            Request += std::to_string(Wire.size());
+            Request += "\r\nConnection: keep-alive\r\n\r\n";
+            Request.append(reinterpret_cast<const char *>(Wire.data()), Wire.size());
 
-            boost::system::error_code ec;
+            boost::system::error_code ErrorCode;
             Tls_.Arm();
-            co_await net::async_write(Tls_.Stream(), net::buffer(request),
-                                      net::redirect_error(net::use_awaitable, ec));
+            co_await Net::async_write(Tls_.Stream(), Net::buffer(Request),
+                                      Net::redirect_error(Net::use_awaitable, ErrorCode));
             Tls_.Disarm();
-            co_return ec;
+            co_return ErrorCode;
         }
 
         /// 读取并解析 HTTP 响应，剥离出 DNS 报文体的原始字节
-        auto Receive() -> net::awaitable<EcResult<std::vector<std::uint8_t>>>
+        auto Receive() -> Net::awaitable<EcResult<std::vector<std::uint8_t>>>
         {
             constexpr std::string_view Delim = "\r\n\r\n";
             constexpr std::size_t MaxHeaderBytes = 65536;
@@ -106,30 +108,30 @@ namespace Preview::Network::Dns
             };
 
             // ── 1. 读到头区结束（\r\n\r\n），累计上限 64KB ──
-            std::string raw;
-            boost::system::error_code ec;
-            while (raw.find(Delim) == std::string::npos)
+            std::string Raw;
+            boost::system::error_code ErrorCode;
+            while (Raw.find(Delim) == std::string::npos)
             {
-                std::array<std::uint8_t, 2048> buf{};
+                std::array<std::uint8_t, 2048> Buffer{};
                 Tls_.Arm();
-                const auto n = co_await Tls_.Stream().async_read_some(
-                    net::buffer(buf), net::redirect_error(net::use_awaitable, ec));
+                const auto Count = co_await Tls_.Stream().async_read_some(
+                    Net::buffer(Buffer), Net::redirect_error(Net::use_awaitable, ErrorCode));
                 Tls_.Disarm();
-                if (ec)
+                if (ErrorCode)
                 {
-                    co_return std::unexpected(ec);
+                    co_return std::unexpected(ErrorCode);
                 }
-                raw.append(reinterpret_cast<const char *>(buf.data()), n);
-                if (raw.size() > MaxHeaderBytes)
+                Raw.append(reinterpret_cast<const char *>(Buffer.data()), Count);
+                if (Raw.size() > MaxHeaderBytes)
                 {
                     co_return std::unexpected(Bad());
                 }
             }
 
             // ── 2. 状态码必须为 200 ──
-            const auto HeaderEnd = raw.find(Delim);
+            const auto HeaderEnd = Raw.find(Delim);
             const auto HeaderView =
-                std::string_view(raw).substr(0, HeaderEnd);
+                std::string_view(Raw).substr(0, HeaderEnd);
             if (!HeaderView.starts_with("HTTP/1.1 200") && !HeaderView.starts_with("HTTP/1.0 200"))
             {
                 co_return std::unexpected(Bad());
@@ -156,14 +158,15 @@ namespace Preview::Network::Dns
                 {
                     ++Start; // 跳过冒号后的空白
                 }
-                for (auto i = Start; i < Value.size(); ++i)
+                for (auto Index = Start; Index < Value.size(); ++Index)
                 {
-                    const auto ch = Value[i];
-                    if (ch < '0' || ch > '9')
+                    const auto Character = Value[Index];
+                    if (Character < '0' || Character > '9')
                     {
                         break;
                     }
-                    ContentLength = ContentLength * 10 + static_cast<std::size_t>(ch - '0');
+                    ContentLength = ContentLength * 10 +
+                                    static_cast<std::size_t>(Character - '0');
                     if (ContentLength > MaxBodyBytes)
                     {
                         co_return std::unexpected(Bad());
@@ -176,28 +179,28 @@ namespace Preview::Network::Dns
             }
 
             // ── 4. 头区后已到达的字节 + 补读剩余 ──
-            std::vector<std::uint8_t> body(
-                raw.begin() + static_cast<std::ptrdiff_t>(HeaderEnd + Delim.size()), raw.end());
-            if (body.size() > ContentLength)
+            std::vector<std::uint8_t> Body(
+                Raw.begin() + static_cast<std::ptrdiff_t>(HeaderEnd + Delim.size()), Raw.end());
+            if (Body.size() > ContentLength)
             {
-                body.resize(ContentLength);
+                Body.resize(ContentLength);
             }
-            while (body.size() < ContentLength)
+            while (Body.size() < ContentLength)
             {
-                std::array<std::uint8_t, 2048> buf{};
+                std::array<std::uint8_t, 2048> Buffer{};
                 Tls_.Arm();
-                const auto n = co_await Tls_.Stream().async_read_some(
-                    net::buffer(buf), net::redirect_error(net::use_awaitable, ec));
+                const auto Count = co_await Tls_.Stream().async_read_some(
+                    Net::buffer(Buffer), Net::redirect_error(Net::use_awaitable, ErrorCode));
                 Tls_.Disarm();
-                if (ec)
+                if (ErrorCode)
                 {
-                    co_return std::unexpected(ec);
+                    co_return std::unexpected(ErrorCode);
                 }
                 const auto Take = std::min<std::size_t>(
-                    n, ContentLength - body.size());
-                body.insert(body.end(), buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(Take));
+                    Count, ContentLength - Body.size());
+                Body.insert(Body.end(), Buffer.begin(), Buffer.begin() + static_cast<std::ptrdiff_t>(Take));
             }
-            co_return body;
+            co_return Body;
         }
 
         auto IsOpen() const -> bool

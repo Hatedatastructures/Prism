@@ -2,13 +2,13 @@
  * @file Conn.hpp
  * @brief SOCKS5 流连接对象（TCP，实现 Transmission）
  * @details 单条 SOCKS5 连接的完整协议状态：
- * - 客户端握手：WriteHandshake(req)（Greeting → 方法选择 → 认证 →
+ * - 客户端握手：WriteHandshake(RequestValue)（Greeting → 方法选择 → 认证 →
  *   请求 → 响应校验），成功后 BindEndpoint() 可取 BND 地址
- * - 服务端握手：ReadHandshake(cfg)（Greeting → 方法协商 → 认证 →
+ * - 服务端握手：ReadHandshake(Config)（Greeting → 方法协商 → 认证 →
  *   请求解析 → 响应），返回解析的请求
  * 握手后为纯字节流透传（预读缓冲优先）。UDP 数据面由 Dgram.hpp
  * 提供（独立包连接类型，嵌入本连接）。
- * @note 对齐 mihomo transport：TCP = net.Conn（纯流语义）。
+ * @note 对齐 mihomo transport：TCP 采用纯流传输语义。
  */
 
 #pragma once
@@ -20,11 +20,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -58,31 +59,36 @@ namespace Preview::Socks5
 
         /**
          * @brief 构造函数（工厂调用）
-         * @param upstream 上游传输（所有权移交）
+         * @param Upstream 上游传输（所有权移交）
          */
-        explicit Conn(SharedTransmission upstream) : NextLayer_(std::move(upstream))
+        explicit Conn(SharedTransmission Upstream) : NextLayer_(std::move(Upstream))
         {
         }
 
         /**
          * @brief 获取执行器
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
         /**
          * @brief 异步读取（预读缓冲优先）
          * @param Buffer 接收缓冲区
-         * @param ec 错误码输出参数
+         * @param ErrorCode 错误码输出参数
          * @return 实际读取字节数
          * @details 握手阶段预读的剩余字节先被消费，清空后透传底层。
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &Ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            Ec.clear();
+            ErrorCode.clear();
             if (Used_ > 0)
             {
                 const auto N = std::min(Buffer.size(), Used_);
@@ -98,22 +104,34 @@ namespace Preview::Socks5
                 Used_ -= N;
                 co_return N;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, Ec);
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 异步写入（透传）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &Ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_write_some(Buffer, Ec);
+            ErrorCode.clear();
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭传输层
          */
-        void Close() override
+        auto Close() -> void override
         {
             if (NextLayer_)
             {
@@ -124,7 +142,7 @@ namespace Preview::Socks5
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
             if (NextLayer_)
             {
@@ -142,8 +160,8 @@ namespace Preview::Socks5
         }
 
         /**
-         * @brief 获取底层传输引用（非拥有）
-         * @return 底层传输
+         * @brief 获取底层传输共享引用
+         * @return 底层传输共享指针；空连接返回空指针
          */
         [[nodiscard]] auto Underlying() noexcept -> SharedTransmission
         {
@@ -151,8 +169,8 @@ namespace Preview::Socks5
         }
 
         /**
-         * @brief 获取底层传输引用（const 版本）
-         * @return 底层传输
+         * @brief 获取底层传输共享引用（const 版本）
+         * @return 底层传输共享指针；空连接返回空指针
          */
         [[nodiscard]] auto Underlying() const noexcept -> SharedTransmission
         {
@@ -185,195 +203,222 @@ namespace Preview::Socks5
 
         /**
          * @brief 客户端握手：Greeting → 方法选择 → 认证 → 请求 → 响应
-         * @param req 目标请求（cmd + Target）
-         * @param EnableAuth 是否启用用户名/密码认证（RFC 1929）
-         * @param username 认证用户名（EnableAuth 为 true 时生效）
-         * @param password 认证密码（EnableAuth 为 true 时生效）
+         * @param RequestValue 目标请求（命令 + Target）
+         * @param Config 客户端认证配置
          * @return 错误码
          * @details 完整客户端流程（RFC 1928 + 1929）。成功后 BND
          * 地址可通过 BindEndpoint() 获取（UDP_ASSOCIATE 用）。
          */
-        [[nodiscard]] auto WriteHandshake(const Request &req, const ClientConfig &cfg)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto WriteHandshake(
+            const Request &RequestValue,
+            const ClientConfig &Config) -> Net::awaitable<Error>
         {
-            const auto &EnableAuth = cfg.EnableAuth;
-            const auto &username = cfg.username;
-            const auto &password = cfg.password;
+            const auto &EnableAuth = Config.EnableAuth;
+            const auto &Username = Config.username;
+            const auto &Password = Config.password;
             // 1. 发送 Greeting
-            Greeting g;
-            g.Ver = Version;
+            Greeting GreetingValue;
+            GreetingValue.Ver = Version;
             if (EnableAuth)
             {
-                g.Methods = std::vector<std::uint8_t>{static_cast<std::uint8_t>(AuthMethod::UserPass)};
+                GreetingValue.Methods =
+                    std::vector<std::uint8_t>{static_cast<std::uint8_t>(AuthMethod::UserPass)};
             }
             else
             {
-                g.Methods = std::vector<std::uint8_t>{static_cast<std::uint8_t>(AuthMethod::NoAuth)};
+                GreetingValue.Methods =
+                    std::vector<std::uint8_t>{static_cast<std::uint8_t>(AuthMethod::NoAuth)};
             }
-                BuildGreeting(g, TxWire_);
+            BuildGreeting(GreetingValue, TxWire_);
+            if (TxWire_.empty())
+            {
+                co_return Error::BadLength;
+            }
             if (co_await SendBytes(TxWire_))
             {
                 co_return Error::IoError;
             }
 
             // 2. 读取方法选择
-            std::array<std::uint8_t, 2> sel{};
-            if (co_await ReadExact(std::span<std::uint8_t>(sel)))
+            std::array<std::uint8_t, 2> Selection{};
+            if (co_await ReadExact(std::span<std::uint8_t>(Selection)))
             {
                 co_return Error::IoError;
             }
-            if (sel[0] != Version)
+            if (Selection[0] != Version)
             {
                 co_return Error::VersionMismatch;
             }
-            if (sel[1] == static_cast<std::uint8_t>(AuthMethod::NoAcceptable))
+            std::uint8_t ExpectedMethod;
+            if (EnableAuth)
             {
+                ExpectedMethod = static_cast<std::uint8_t>(AuthMethod::UserPass);
+            }
+            else
+            {
+                ExpectedMethod = static_cast<std::uint8_t>(AuthMethod::NoAuth);
+            }
+            if (Selection[1] != ExpectedMethod)
+            {
+                // 客户端只允许配置所声明的方法，禁止服务端把认证连接降级为 NOAUTH，
+                // 也不接受未声明的扩展方法。
                 co_return Error::NotSupported;
             }
 
             // 3. 认证（如需，RFC 1929）
-            if (sel[1] == static_cast<std::uint8_t>(AuthMethod::UserPass))
+            if (Selection[1] == static_cast<std::uint8_t>(AuthMethod::UserPass))
             {
-                BuildUserpass(username, password, TxWire_);
+                BuildUserpass(Username, Password, TxWire_);
+                if (TxWire_.empty())
+                {
+                    co_return Error::BadLength;
+                }
                 if (co_await SendBytes(TxWire_))
                 {
                     co_return Error::IoError;
                 }
-                std::array<std::uint8_t, 2> resp{};
-                if (co_await ReadExact(std::span<std::uint8_t>(resp)))
+                std::array<std::uint8_t, 2> Response{};
+                if (co_await ReadExact(std::span<std::uint8_t>(Response)))
                 {
                     co_return Error::IoError;
                 }
-                if (resp[0] != 0x01 || resp[1] != 0x00)
+                if (Response[0] != 0x01 || Response[1] != 0x00)
                 {
                     co_return Error::BadAuth;
                 }
             }
-            else if (sel[1] != static_cast<std::uint8_t>(AuthMethod::NoAuth) && !EnableAuth)
-            {
-                co_return Error::NotSupported;
-            }
 
             // 4. 发送请求
-            BuildRequest(req, TxWire_);
+            BuildRequest(RequestValue, TxWire_);
+            if (TxWire_.empty())
+            {
+                co_return Error::BadAddress;
+            }
             if (co_await SendBytes(TxWire_))
             {
                 co_return Error::IoError;
             }
 
             // 5. 读取响应并校验
-            Reply rep;
-            auto Err = co_await ReadReply(rep);
-            if (Err != Error::None)
+            Reply ReplyValue;
+            const auto ErrorCode = co_await ReadReply(ReplyValue);
+            if (ErrorCode != Error::None)
             {
-                co_return Err;
+                co_return ErrorCode;
             }
-            if (rep.Code != ReplyCode::Success)
+            if (ReplyValue.Code != ReplyCode::Success)
             {
                 co_return Error::BadAuth;
             }
-            Bind_ = rep.Bind;
+            Bind_ = ReplyValue.Bind;
             Handshaken_ = true;
             co_return Error::None;
         }
 
         /**
          * @brief 服务端握手：Greeting → 方法协商 → 认证 → 请求 → 响应
-         * @param EnableTcp 是否允许 CONNECT 命令（TCP 转发）
-         * @param EnableUdp 是否允许 UDP_ASSOCIATE 命令（UDP 中继）
-         * @param EnableAuth 是否启用用户名/密码认证（RFC 1929）
-         * @param username 认证用户名（EnableAuth 为 true 时生效）
-         * @param password 认证密码（EnableAuth 为 true 时生效）
+         * @param Config 服务端命令与认证配置
          * @return 错误码与解析的请求
          * @details 完整服务端流程（RFC 1928 + 1929）。失败时按协议
          * 发送对应错误响应。
          */
-        [[nodiscard]] auto ReadHandshake(const ServerConfig &cfg)
-            -> net::awaitable<std::pair<Error, Request>>
+        [[nodiscard]] auto ReadHandshake(const ServerConfig &Config)
+            -> Net::awaitable<std::pair<Error, Request>>
         {
-            const auto &EnableTcp = cfg.EnableTcp;
-            const auto &EnableUdp = cfg.EnableUdp;
-            const auto &EnableAuth = cfg.EnableAuth;
-            const auto &username = cfg.username;
-            const auto &password = cfg.password;
+            const auto &EnableTcp = Config.EnableTcp;
+            const auto &EnableUdp = Config.EnableUdp;
+            const auto &EnableAuth = Config.EnableAuth;
+            const auto &Username = Config.username;
+            const auto &Password = Config.password;
             // 1. 方法协商：读取 Greeting（2B 头 + 方法列表）
-            std::array<std::uint8_t, 2> head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(head)))
+            std::array<std::uint8_t, 2> Head{};
+            if (co_await ReadExact(std::span<std::uint8_t>(Head)))
             {
                 co_return std::pair{Error::IoError, Request{}};
             }
-            if (head[0] != Version)
+            if (Head[0] != Version)
             {
                 co_return std::pair{Error::VersionMismatch, Request{}};
             }
-            std::vector<std::uint8_t> Methods(head[1]);
+            std::vector<std::uint8_t> Methods(Head[1]);
             if (!Methods.empty() && co_await ReadExact(Methods))
             {
                 co_return std::pair{Error::IoError, Request{}};
             }
 
             // 2. 选择认证方法（检查客户端方法列表）
-            std::uint8_t Want;
+            std::uint8_t SelectedMethod;
             if (EnableAuth)
             {
-                Want = static_cast<std::uint8_t>(AuthMethod::UserPass);
+                SelectedMethod = static_cast<std::uint8_t>(AuthMethod::UserPass);
             }
             else
             {
-                Want = static_cast<std::uint8_t>(AuthMethod::NoAuth);
+                SelectedMethod = static_cast<std::uint8_t>(AuthMethod::NoAuth);
             }
-            const bool Acceptable = std::find(Methods.begin(), Methods.end(), Want) != Methods.end();
+            const bool Acceptable =
+                std::find(Methods.begin(), Methods.end(), SelectedMethod) != Methods.end();
             if (!Acceptable)
             {
-                co_await SendMethodReply(static_cast<std::uint8_t>(AuthMethod::NoAcceptable));
+                const auto ReplyError =
+                    co_await SendMethodReply(static_cast<std::uint8_t>(AuthMethod::NoAcceptable));
+                if (ReplyError != Error::None)
+                {
+                    co_return std::pair{ReplyError, Request{}};
+                }
                 co_return std::pair{Error::NotSupported, Request{}};
             }
 
             // 3. 发送方法选择
-            if (co_await SendMethodReply(Want) != Error::None)
+            if (co_await SendMethodReply(SelectedMethod) != Error::None)
             {
                 co_return std::pair{Error::IoError, Request{}};
             }
 
             // 4. 认证（如需）
-            if (Want == static_cast<std::uint8_t>(AuthMethod::UserPass))
+            if (SelectedMethod == static_cast<std::uint8_t>(AuthMethod::UserPass))
             {
-                const bool Ok = co_await UserpassAuth(username, password, cfg.Authenticator);
-                if (!Ok)
+                const auto AuthenticationError =
+                    co_await UserpassAuth(Username, Password, Config.ResolveAuthenticator());
+                if (AuthenticationError != Error::None)
                 {
-                    co_return std::pair{Error::BadAuth, Request{}};
+                    co_return std::pair{AuthenticationError, Request{}};
                 }
             }
 
             // 5. 解析请求
-            Request req;
-            auto Err = co_await ReadRequest(req);
-            if (Err != Error::None)
+            Request RequestValue;
+            const auto RequestError = co_await ReadRequest(RequestValue);
+            if (RequestError != Error::None)
             {
                 co_await SendReply(ReplyCode::GeneralFailure);
-                co_return std::pair{Err, Request{}};
+                co_return std::pair{RequestError, Request{}};
             }
 
             // 6. 命令检查
-            if (req.Cmd == Command::Connect && !EnableTcp)
+            if (RequestValue.Cmd == Command::Connect && !EnableTcp)
             {
                 co_await SendReply(ReplyCode::CommandNotSupported);
                 co_return std::pair{Error::NotSupported, Request{}};
             }
-            if (req.Cmd == Command::UdpAssociate && !EnableUdp)
+            if (RequestValue.Cmd == Command::UdpAssociate && !EnableUdp)
             {
                 co_await SendReply(ReplyCode::CommandNotSupported);
                 co_return std::pair{Error::NotSupported, Request{}};
             }
 
             // 7. CONNECT 应答（默认立即发送；defer 时由调用方拨号后发送）
-            if (!cfg.DeferConnectReply)
+            if (!Config.DeferConnectReply)
             {
-                co_await SendReply(ReplyCode::Success);
+                const auto ReplyError = co_await SendReply(ReplyCode::Success);
+                if (ReplyError != Error::None)
+                {
+                    co_return std::pair{ReplyError, Request{}};
+                }
             }
-            Req_ = req;
+            Req_ = RequestValue;
             Handshaken_ = true;
-            co_return std::pair{Error::None, std::move(req)};
+            co_return std::pair{Error::None, std::move(RequestValue)};
         }
 
         /**
@@ -395,14 +440,23 @@ namespace Preview::Socks5
         }
 
         /**
+         * @brief 转移协议认证产生的账户租约
+         * @return 已认证账户租约；无认证或静态认证时为空
+         */
+        [[nodiscard]] auto TakeAuthLease() -> std::optional<Preview::Account::Lease>
+        {
+            return std::move(AuthLease_);
+        }
+
+        /**
          * @brief 精确分段读取（供包连接复用预读缓冲）
-         * @param dst 目标缓冲区
+         * @param Buffer 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst) 
-            -> net::awaitable<bool>
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Buffer)
+            -> Net::awaitable<bool>
         {
-            return ReadExactImpl(dst);
+            return ReadExactImpl(Buffer);
         }
 
         /**
@@ -410,8 +464,8 @@ namespace Preview::Socks5
          * @param Code 响应码
          * @return 发送错误码
          */
-        [[nodiscard]] auto SendConnectReply(ReplyCode Code) const 
-            -> net::awaitable<Error>
+        [[nodiscard]] auto SendConnectReply(ReplyCode Code) const
+            -> Net::awaitable<Error>
         {
             co_return co_await SendReply(Code);
         }
@@ -422,8 +476,9 @@ namespace Preview::Socks5
          * @param Bind BND 地址（空 = 0.0.0.0:0）
          * @return 发送错误码
          */
-        [[nodiscard]] auto SendAssocReply(ReplyCode Code, const Address &Bind) const
-            -> net::awaitable<Error>
+        [[nodiscard]] auto SendAssocReply(
+            ReplyCode Code,
+            const Address &Bind) const -> Net::awaitable<Error>
         {
             co_return co_await SendReply(Code, Bind);
         }
@@ -432,10 +487,10 @@ namespace Preview::Socks5
         /**
          * @brief 发送方法选择回复
          */
-        [[nodiscard]] auto SendMethodReply(std::uint8_t Method) const -> net::awaitable<Error>
+        [[nodiscard]] auto SendMethodReply(std::uint8_t Method) const -> Net::awaitable<Error>
         {
-            const std::array<std::uint8_t, 2> wire{Version, Method};
-            if (co_await SendBytes(wire))
+            const std::array<std::uint8_t, 2> Wire{Version, Method};
+            if (co_await SendBytes(Wire))
             {
                 co_return Error::IoError;
             }
@@ -444,83 +499,103 @@ namespace Preview::Socks5
 
         /**
          * @brief RFC 1929 用户名/密码认证（服务端）
-         * @param username 期望用户名
-         * @param password 期望密码
+         * @param Username 期望用户名
+         * @param Password 期望密码
          * @param Auth 认证器（nullptr = 静态比对）
-         * @return 认证结果
+         * @return 错误码；凭据失败为 BadAuth，底层读写失败为 IoError
          */
-        [[nodiscard]] auto UserpassAuth(const std::string &username, const std::string &password,
-                                         const Preview::Authenticator *Auth) -> net::awaitable<bool>
+        [[nodiscard]] auto UserpassAuth(
+            const std::string &Username,
+            const std::string &Password,
+            const Preview::Authenticator *Auth) -> Net::awaitable<Error>
         {
-            std::array<std::uint8_t, 2> head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(head)))
+            std::array<std::uint8_t, 2> Head{};
+            if (co_await ReadExact(std::span<std::uint8_t>(Head)))
             {
-                co_return false;
+                co_return Error::IoError;
             }
-            if (head[0] != 0x01)
+            if (Head[0] != 0x01)
             {
-                co_return false;
+                co_return Error::BadAuth;
             }
-            std::vector<std::uint8_t> user(head[1]);
-            if (co_await ReadExact(user))
+            std::vector<std::uint8_t> UserBytes(Head[1]);
+            if (co_await ReadExact(UserBytes))
             {
-                co_return false;
+                co_return Error::IoError;
             }
-            std::array<std::uint8_t, 1> plen{};
-            if (co_await ReadExact(std::span<std::uint8_t>(plen)))
+            std::array<std::uint8_t, 1> PasswordLength{};
+            if (co_await ReadExact(std::span<std::uint8_t>(PasswordLength)))
             {
-                co_return false;
+                co_return Error::IoError;
             }
-            std::vector<std::uint8_t> pass(plen[0]);
-            if (co_await ReadExact(pass))
+            std::vector<std::uint8_t> PasswordBytes(PasswordLength[0]);
+            if (co_await ReadExact(PasswordBytes))
             {
-                co_return false;
+                co_return Error::IoError;
             }
-            const std::string UserStr(user.begin(), user.end());
-            const std::string PassStr(pass.begin(), pass.end());
-            bool Ok;
+            const std::string UserValue(UserBytes.begin(), UserBytes.end());
+            const std::string PasswordValue(PasswordBytes.begin(), PasswordBytes.end());
+            bool Authenticated;
             if (Auth)
             {
-                Ok = Auth->Check(UserStr, PassStr).Ok;
+                auto AuthenticationResult = Auth->Check(UserValue, PasswordValue);
+                Authenticated = AuthenticationResult.Ok;
+                if (Authenticated && AuthenticationResult.Lease)
+                {
+                    AuthLease_ = std::move(AuthenticationResult.Lease);
+                }
             }
             else
             {
-                Ok = (UserStr == username && PassStr == password);
+                const auto UserMatches = Preview::ConstantTimeEqual(UserValue, Username);
+                const auto PasswordMatches = Preview::ConstantTimeEqual(PasswordValue, Password);
+                Authenticated = UserMatches && PasswordMatches;
             }
-            std::uint8_t status;
-            if (Ok)
+            std::uint8_t Status;
+            if (Authenticated)
             {
-                status = std::uint8_t{0x00};
+                Status = std::uint8_t{0x00};
             }
             else
             {
-                status = std::uint8_t{0x01};
+                Status = std::uint8_t{0x01};
             }
-            const std::array<std::uint8_t, 2> resp{0x01, status};
-            co_await SendBytes(resp);
-            co_return Ok;
+            const std::array<std::uint8_t, 2> Response{0x01, Status};
+            if (co_await SendBytes(Response))
+            {
+                co_return Error::IoError;
+            }
+            if (!Authenticated)
+            {
+                co_return Error::BadAuth;
+            }
+            co_return Error::None;
         }
 
         /**
          * @brief 发送响应（Bind 空 = 0.0.0.0:0）
          */
         [[nodiscard]] auto SendReply(ReplyCode Code, const Address &Bind = {}) const
-            -> net::awaitable<Error>
+            -> Net::awaitable<Error>
         {
-            Reply rep;
-            rep.Ver = Version;
-            rep.Code = Code;
+            Reply ReplyValue;
+            ReplyValue.Ver = Version;
+            ReplyValue.Code = Code;
             if (Bind.Host.empty())
             {
-                rep.Bind.Type = AddressType::Ipv4;
-                rep.Bind.Host = "0.0.0.0";
-                rep.Bind.Port = 0;
+                ReplyValue.Bind.Type = AddressType::Ipv4;
+                ReplyValue.Bind.Host = "0.0.0.0";
+                ReplyValue.Bind.Port = 0;
             }
             else
             {
-                rep.Bind = Bind;
+                ReplyValue.Bind = Bind;
             }
-            BuildReply(rep, TxWire_);
+            BuildReply(ReplyValue, TxWire_);
+            if (TxWire_.empty())
+            {
+                co_return Error::BadAddress;
+            }
             if (co_await SendBytes(TxWire_))
             {
                 co_return Error::IoError;
@@ -531,44 +606,52 @@ namespace Preview::Socks5
         /**
          * @brief 读取并解析请求（命令 + 地址）
          */
-        [[nodiscard]] auto ReadRequest(Request &req) -> net::awaitable<Error>
+        [[nodiscard]] auto ReadRequest(Request &Output) -> Net::awaitable<Error>
         {
-            std::array<std::uint8_t, 4> head{};
-            auto Ec = co_await ReadExact(std::span<std::uint8_t>(head));
-            if (Ec)
+            std::array<std::uint8_t, 4> Head{};
+            const auto ErrorCode = co_await ReadExact(std::span<std::uint8_t>(Head));
+            if (ErrorCode)
             {
                 co_return Error::IoError;
             }
-            if (head[0] != Version)
+            if (Head[0] != Version)
             {
                 co_return Error::VersionMismatch;
             }
-            req.Cmd = static_cast<Command>(head[1]);
-            if (req.Cmd != Command::Connect && req.Cmd != Command::UdpAssociate)
+            Output.Cmd = static_cast<Command>(Head[1]);
+            if (Output.Cmd != Command::Connect && Output.Cmd != Command::UdpAssociate)
             {
                 co_return Error::NotSupported;
             }
-            req.Target.Type = static_cast<AddressType>(head[3]);
-            co_return co_await ReadAddress(req.Target);
+            if (Head[2] != 0)
+            {
+                co_return Error::BadMessage;
+            }
+            Output.Target.Type = static_cast<AddressType>(Head[3]);
+            co_return co_await ReadAddress(Output.Target);
         }
 
         /**
          * @brief 读取响应（Reply）
          */
-        [[nodiscard]] auto ReadReply(Reply &rep) -> net::awaitable<Error>
+        [[nodiscard]] auto ReadReply(Reply &Output) -> Net::awaitable<Error>
         {
-            std::array<std::uint8_t, 4> head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(head)))
+            std::array<std::uint8_t, 4> Head{};
+            if (co_await ReadExact(std::span<std::uint8_t>(Head)))
             {
                 co_return Error::IoError;
             }
-            if (head[0] != Version)
+            if (Head[0] != Version)
             {
                 co_return Error::VersionMismatch;
             }
-            rep.Code = static_cast<ReplyCode>(head[1]);
-            rep.Bind.Type = static_cast<AddressType>(head[3]);
-            co_return co_await ReadAddress(rep.Bind);
+            if (Head[2] != 0)
+            {
+                co_return Error::BadMessage;
+            }
+            Output.Code = static_cast<ReplyCode>(Head[1]);
+            Output.Bind.Type = static_cast<AddressType>(Head[3]);
+            co_return co_await ReadAddress(Output.Bind);
         }
 
         /**
@@ -576,37 +659,46 @@ namespace Preview::Socks5
          * @details 地址体委托统一实现（见 Protocol/common::ReadAddressBody），
          *          端口（2B BE）本地读取。
          */
-        [[nodiscard]] auto ReadAddress(Address &addr) -> net::awaitable<Error>
+        [[nodiscard]] auto ReadAddress(Address &Output) -> Net::awaitable<Error>
         {
-            auto Err = co_await Preview::Protocol::Common::ReadAddressBody(
-                addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return ReadExactImpl(dst); });
-            if (Err != Error::None)
+            const auto ErrorCode = co_await Preview::Protocol::Common::ReadAddressBody(
+                Output,
+                [this](std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
+                {
+                    return ReadExactImpl(Buffer);
+                });
+            if (ErrorCode != Error::None)
             {
-                co_return Err;
+                co_return ErrorCode;
             }
-            std::array<std::uint8_t, 2> port{};
-            if (co_await ReadExactImpl(std::span<std::uint8_t>(port)))
+            if (Output.Type == AddressType::Domain && Output.Host.empty())
+            {
+                co_return Error::BadMessage;
+            }
+            std::array<std::uint8_t, 2> Port{};
+            if (co_await ReadExactImpl(std::span<std::uint8_t>(Port)))
             {
                 co_return Error::IoError;
             }
-            addr.Port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
+            Output.Port = static_cast<std::uint16_t>(Port[0]) << 8 | Port[1];
             co_return Error::None;
         }
 
         /**
          * @brief 精确读取指定字节数（内部缓冲优先 + 底层补充）
-         * @param dst 目标缓冲区
+         * @param Buffer 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto ReadExactImpl(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto ReadExactImpl(std::span<std::uint8_t> Buffer)
+            -> Net::awaitable<bool>
         {
             std::size_t Done = 0;
-            while (Done < dst.size())
+            while (Done < Buffer.size())
             {
                 if (Used_ > 0)
                 {
-                    const auto N = std::min(dst.size() - Done, Used_);
-                    std::memcpy(dst.data() + Done, Buf_.data(), N);
+                    const auto N = std::min(Buffer.size() - Done, Used_);
+                    std::memcpy(Buffer.data() + Done, Buf_.data(), N);
                     if (N < Used_)
                     {
                         std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
@@ -620,15 +712,23 @@ namespace Preview::Socks5
                     Done += N;
                     continue;
                 }
-                std::array<std::uint8_t, 512> chunk{};
-                std::error_code Ec;
-                const auto N = co_await NextLayer_->async_read_some(
-                    std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()), Ec);
-                if (Ec || N == 0)
+                if (!NextLayer_)
                 {
                     co_return true;
                 }
-                Buf_.insert(Buf_.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
+                std::array<std::uint8_t, 512> Chunk{};
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_read_some(
+                    std::span<std::byte>(reinterpret_cast<std::byte *>(Chunk.data()), Chunk.size()), ErrorCode);
+                if (ErrorCode || N == 0)
+                {
+                    co_return true;
+                }
+                if (N > Chunk.size())
+                {
+                    co_return true;
+                }
+                Buf_.insert(Buf_.end(), Chunk.begin(), Chunk.begin() + static_cast<std::ptrdiff_t>(N));
                 Used_ += N;
             }
             co_return false;
@@ -639,23 +739,33 @@ namespace Preview::Socks5
          * @param Data 数据
          * @return true = 失败
          */
-        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const -> net::awaitable<bool>
+        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const
+            -> Net::awaitable<bool>
         {
             std::size_t Done = 0;
             while (Done < Data.size())
             {
-                std::error_code Ec;
+                if (!NextLayer_)
+                {
+                    co_return true;
+                }
+                std::error_code ErrorCode;
+                ErrorCode.clear();
                 const auto N = co_await NextLayer_->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data() + Done),
                                                Data.size() - Done),
-                    Ec);
-                if (Ec)
+                    ErrorCode);
+                if (ErrorCode)
                 {
                     co_return true;
                 }
                 if (N == 0)
                 {
                     co_return true; // 底层零字节写入，防死循环
+                }
+                if (N > Data.size() - Done)
+                {
+                    co_return true;
                 }
                 Done += N;
             }
@@ -665,6 +775,7 @@ namespace Preview::Socks5
         SharedTransmission NextLayer_; ///< 上游传输（独占所有权）
         Request Req_;                    ///< 服务端握手解析结果
         Address Bind_;                   ///< 客户端握手 BND 地址
+        std::optional<Preview::Account::Lease> AuthLease_{}; ///< 协议认证租约
         Memory Mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
         typename Memory::template Buffer<std::uint8_t> Buf_{Mem_.Arena()}; ///< 预读缓冲（隧道数据暂存）
         std::size_t Used_{0};            ///< 缓冲中有效字节数

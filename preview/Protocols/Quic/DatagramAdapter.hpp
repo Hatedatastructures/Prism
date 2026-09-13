@@ -21,7 +21,7 @@
 namespace Preview::Quic
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class DatagramProvider
@@ -37,35 +37,37 @@ namespace Preview::Quic
         /**
          * @brief 获取异步操作执行器
          */
-        [[nodiscard]] virtual auto Executor() const -> net::any_io_executor = 0;
+        [[nodiscard]] virtual auto Executor() const -> Net::any_io_executor = 0;
 
         /**
          * @brief 接收一个数据报
          * @param Buffer 接收缓冲区
-         * @param Ec 错误码输出
+         * @param ErrorCode 错误码输出
          * @return 实际接收字节数；数据报超过缓冲区时由实现定义截断策略
          */
-        [[nodiscard]] virtual auto Receive(std::span<std::byte> Buffer, std::error_code &Ec)
-            -> net::awaitable<std::size_t> = 0;
+        [[nodiscard]] virtual auto Receive(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> = 0;
 
         /**
          * @brief 发送一个数据报
          * @param Buffer 待发送数据报
-         * @param Ec 错误码输出
+         * @param ErrorCode 错误码输出
          * @return 实际发送字节数；返回值小于 Buffer.size() 时视为短写
          */
-        [[nodiscard]] virtual auto Send(std::span<const std::byte> Buffer, std::error_code &Ec)
-            -> net::awaitable<std::size_t> = 0;
+        [[nodiscard]] virtual auto Send(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> = 0;
 
         /**
          * @brief 关闭数据报提供者
          */
-        virtual void Close() = 0;
+        virtual auto Close() -> void = 0;
 
         /**
          * @brief 取消挂起的数据报操作
          */
-        virtual void Cancel() = 0;
+        virtual auto Cancel() -> void = 0;
 
         /**
          * @brief 查询提供者是否已关闭
@@ -97,7 +99,11 @@ namespace Preview::Quic
 
         [[nodiscard]] auto Executor() const -> ExecutorType override
         {
-            return Provider_ ? Provider_->Executor() : ExecutorType{};
+            if (Provider_)
+            {
+                return Provider_->Executor();
+            }
+            return ExecutorType{};
         }
 
         [[nodiscard]] auto TransportType() const noexcept -> Type override
@@ -105,34 +111,36 @@ namespace Preview::Quic
             return Type::Udp;
         }
 
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &Ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
             if (!Provider_)
             {
-                Ec = std::make_error_code(std::errc::bad_file_descriptor);
+                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await Provider_->Receive(Buffer, Ec);
+            co_return co_await Provider_->Receive(Buffer, ErrorCode);
         }
 
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &Ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
             if (!Provider_)
             {
-                Ec = std::make_error_code(std::errc::bad_file_descriptor);
+                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            const auto Written = co_await Provider_->Send(Buffer, Ec);
-            if (!Ec && Written != Buffer.size())
+            const auto Written = co_await Provider_->Send(Buffer, ErrorCode);
+            if (!ErrorCode && Written != Buffer.size())
             {
-                Ec = make_error_code(Error::IoError);
+                ErrorCode = make_error_code(Error::IoError);
             }
             co_return Written;
         }
 
-        void Close() override
+        auto Close() -> void override
         {
             if (Provider_)
             {
@@ -140,7 +148,7 @@ namespace Preview::Quic
             }
         }
 
-        void Cancel() override
+        auto Cancel() -> void override
         {
             if (Provider_)
             {

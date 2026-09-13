@@ -18,7 +18,7 @@
 namespace Preview::Recognition
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class SchemeExecutor
@@ -29,7 +29,7 @@ namespace Preview::Recognition
     {
     public:
         /// 方案包装函数：Inbound → 包装后传输（失败返回 nullptr）
-        using SchemeFn = std::function<net::awaitable<SharedTransmission>(SharedTransmission)>;
+        using SchemeFn = std::function<Net::awaitable<SharedTransmission>(SharedTransmission)>;
 
         /**
          * @brief 注册方案
@@ -37,28 +37,33 @@ namespace Preview::Recognition
          * @param fn 包装函数
          * @return 已存在返回 false
          */
-        auto RegisterScheme(std::string Name, SchemeFn fn) -> bool
+        auto RegisterScheme(std::string Name, SchemeFn Function) -> bool
         {
-            return Registry_.emplace(std::move(Name), std::move(fn)).second;
+            Name = Normalize(Name);
+            if (Name.empty() || !Function)
+            {
+                return false;
+            }
+            return Registry_.emplace(std::move(Name), std::move(Function)).second;
         }
 
         /**
          * @brief 执行方案包装
          * @param scheme 方案名（空表示不包装）
          * @param Inbound 待包装传输
-         * @return 包装后传输；scheme 为空或未注册返回原 Inbound；失败返回 nullptr
+         * @return 包装后传输；scheme 为空返回原 Inbound，未注册或执行失败返回 nullptr
          */
-        [[nodiscard]] auto Execute(std::string_view scheme, SharedTransmission Inbound)
-            -> net::awaitable<SharedTransmission>
+        [[nodiscard]] auto Execute(std::string_view Scheme, SharedTransmission Inbound)
+            -> Net::awaitable<SharedTransmission>
         {
-            if (scheme.empty() || !Inbound)
+            if (Scheme.empty() || !Inbound)
             {
                 co_return Inbound;
             }
-            const auto It = Registry_.find(std::string(scheme));
+            const auto It = Registry_.find(Normalize(Scheme));
             if (It == Registry_.end())
             {
-                co_return Inbound;
+                co_return SharedTransmission{};
             }
             co_return co_await It->second(std::move(Inbound));
         }
@@ -66,9 +71,9 @@ namespace Preview::Recognition
         /**
          * @brief 是否已注册某方案
          */
-        [[nodiscard]] auto Has(std::string_view scheme) const -> bool
+        [[nodiscard]] auto Has(std::string_view Scheme) const -> bool
         {
-            return Registry_.find(std::string(scheme)) != Registry_.end();
+            return Registry_.find(Normalize(Scheme)) != Registry_.end();
         }
 
         /**
@@ -80,6 +85,23 @@ namespace Preview::Recognition
         }
 
     private:
+        [[nodiscard]] static auto Normalize(std::string_view Value) -> std::string
+        {
+            std::string Result;
+            Result.reserve(Value.size());
+            for (const auto Character : Value)
+            {
+                const auto Byte = static_cast<unsigned char>(Character);
+                auto NormalizedByte = Byte;
+                if (Byte >= 'A' && Byte <= 'Z')
+                {
+                    NormalizedByte = static_cast<unsigned char>(Byte + ('a' - 'A'));
+                }
+                Result.push_back(static_cast<char>(NormalizedByte));
+            }
+            return Result;
+        }
+
         std::unordered_map<std::string, SchemeFn> Registry_;
     };
 

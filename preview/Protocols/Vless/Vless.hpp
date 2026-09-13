@@ -21,10 +21,10 @@
 #include <tuple>
 #include <utility>
 
+#include <preview/Foundation/Authenticator.hpp>
 #include <preview/Foundation/Error.hpp>
 #include <preview/Transport/Transmission.hpp>
 #include <preview/Protocols/Vless/Codec.hpp>
-#include <preview/Foundation/Authenticator.hpp>
 #include <preview/Protocols/Vless/Conn.hpp>
 #include <preview/Protocols/Vless/Dgram.hpp>
 #include <preview/Protocols/Vless/Types.hpp>
@@ -59,8 +59,25 @@ namespace Preview::Vless
         std::array<std::uint8_t, UuidLen> uuid{};
         /// 是否允许 UDP 命令（mux 连接除外）
         bool EnableUdp = true;
-        /// 认证器（非拥有；nullptr = 静态比对 uuid）
+        /// 认证器（旧兼容字段；优先使用 AuthenticatorOwner）
         const Preview::Authenticator *Authenticator{nullptr};
+        /// 认证器共享所有权；用于长期存活的 handler/Profile
+        Preview::SharedAuthenticator AuthenticatorOwner{};
+
+        /**
+         * @brief 获取服务端认证器
+         * @return 优先返回共享所有权中的认证器，否则返回兼容的非拥有指针
+         * @note 返回值不转移认证器所有权。
+         */
+        [[nodiscard]] auto ResolveAuthenticator() const noexcept
+            -> const Preview::Authenticator *
+        {
+            if (AuthenticatorOwner)
+            {
+                return AuthenticatorOwner.get();
+            }
+            return Authenticator;
+        }
     };
 
     /**
@@ -86,8 +103,12 @@ namespace Preview::Vless
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
+        if (!Params.Upstream)
+        {
+            co_return std::pair{Error::NotOpen, SharedConn{}};
+        }
         auto C = std::make_shared<Conn<>>(std::move(Params.Upstream), Params.Config.uuid);
         const auto Err = co_await C->WriteHandshake(Params.Target, Params.Cmd);
         SharedConn Conn;
@@ -109,9 +130,11 @@ namespace Preview::Vless
      * @param Target 目标地址（借用）
      * @return 错误码与协议连接
      */
-    [[nodiscard]] inline auto Connect(SharedTransmission Upstream, const ClientConfig &Config,
-                                      const Address &Target)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Connect(
+        SharedTransmission Upstream,
+        const ClientConfig &Config,
+        const Address &Target)
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
         auto Result = co_await Connect(ConnectParameters{std::move(Upstream), Config, Target});
         co_return Result;
@@ -119,36 +142,54 @@ namespace Preview::Vless
 
     /**
      * @brief 创建客户端 UDP 包连接并完成 udp 命令握手
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 客户端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 客户端配置
      * @param Target 目标地址
      * @return 错误码与包连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto ConnectPacket(SharedTransmission upstream, const ClientConfig &cfg,
-                                             const Address &Target)
-        -> net::awaitable<std::pair<Error, SharedDgram>>
+    [[nodiscard]] inline auto ConnectPacket(
+        SharedTransmission Upstream,
+        const ClientConfig &Config,
+        const Address &Target) -> Net::awaitable<std::pair<Error, SharedDgram>>
     {
-        (void)upstream;
-        (void)cfg;
-        (void)Target;
-        co_return std::pair{Error::NotSupported, SharedDgram{}};
+        if (!Upstream)
+        {
+            co_return std::pair{Error::NotOpen, SharedDgram{}};
+        }
+        auto C = std::make_shared<Conn<>>(std::move(Upstream), Config.uuid);
+        const auto Err = co_await C->WriteHandshake(Target, Command::Udp);
+        if (Err != Error::None)
+        {
+            co_return std::pair{Err, SharedDgram{}};
+        }
+        co_return std::pair{Error::None,
+                            std::make_shared<Dgram<>>(std::move(C), Target, true)};
     }
 
     /**
      * @brief 接收服务端流连接并完成握手（sing Service 语义）
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码、解析的请求与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, RequestHeader, SharedConn>>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Upstream,
+        const ServerConfig &Config) -> Net::awaitable<std::tuple<Error, RequestHeader, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.uuid, cfg.Authenticator);
+        if (!Upstream)
+        {
+            co_return std::tuple{Error::NotOpen, RequestHeader{}, SharedConn{}};
+        }
+        auto C = std::make_shared<Conn<>>(
+            std::move(Upstream),
+            Config.uuid,
+            Config.ResolveAuthenticator(),
+            Config.AuthenticatorOwner);
         // 流承载 UDP 的数据面由 UdpTunnel 按传输类型进行能力校验；
         // 握手阶段仍需保留命令信息，避免把不安全的裸流帧当作已建立会话。
-        auto [Err, req] = co_await C->ReadHandshake(true, cfg.EnableUdp, true);
+        auto [ErrorCode, RequestValue] = co_await C->ReadHandshake(true, Config.EnableUdp, true);
         SharedConn Conn;
-        if (Err == Error::None)
+        if (ErrorCode == Error::None)
         {
             Conn = SharedConn(std::move(C));
         }
@@ -156,21 +197,42 @@ namespace Preview::Vless
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{Err, std::move(req), std::move(Conn)};
+        co_return std::tuple{ErrorCode, std::move(RequestValue), std::move(Conn)};
     }
 
     /**
      * @brief 接收服务端 UDP 包连接（udp 命令）
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码、解析的请求与包连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, RequestHeader, SharedDgram>>
+    [[nodiscard]] inline auto AcceptPacket(
+        SharedTransmission Upstream,
+        const ServerConfig &Config)
+        -> Net::awaitable<std::tuple<Error, RequestHeader, SharedDgram>>
     {
-        (void)upstream;
-        (void)cfg;
-        co_return std::tuple{Error::NotSupported, RequestHeader{}, SharedDgram{}};
+        if (!Upstream)
+        {
+            co_return std::tuple{Error::NotOpen, RequestHeader{}, SharedDgram{}};
+        }
+        auto C = std::make_shared<Conn<>>(
+            std::move(Upstream),
+            Config.uuid,
+            Config.ResolveAuthenticator(),
+            Config.AuthenticatorOwner);
+        auto [ErrorCode, RequestValue] = co_await C->ReadHandshake(true, Config.EnableUdp, true);
+        if (ErrorCode != Error::None)
+        {
+            co_return std::tuple{ErrorCode, RequestHeader{}, SharedDgram{}};
+        }
+        if (RequestValue.Cmd != Command::Udp)
+        {
+            co_return std::tuple{Error::BadMessage, RequestHeader{}, SharedDgram{}};
+        }
+        co_return std::tuple{
+            Error::None,
+            RequestValue,
+            std::make_shared<Dgram<>>(std::move(C), RequestValue.Target, true)};
     }
 
 } // namespace Preview::Vless

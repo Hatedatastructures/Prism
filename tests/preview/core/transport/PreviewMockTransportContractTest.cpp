@@ -24,7 +24,7 @@
 namespace
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     struct ReadState
     {
@@ -35,13 +35,13 @@ namespace
         std::exception_ptr Failure;
     };
 
-    auto StartRead(net::io_context &Ioc,
+    auto StartRead(Net::io_context &Ioc,
                    const std::shared_ptr<Preview::PreviewMockTransport> &Transport,
                    ReadState &State) -> void
     {
-        net::co_spawn(
+        Net::co_spawn(
             Ioc,
-            [Transport, &State]() -> net::awaitable<void>
+            [Transport, &State]() -> Net::awaitable<void>
             {
                 State.Bytes = co_await Transport->async_read_some(State.Buffer, State.Error);
                 State.Completed = true;
@@ -51,11 +51,11 @@ namespace
 
     TEST(PreviewMockTransportContract, EmptyReadWakesOnInjectedData)
     {
-        net::io_context Ioc;
+        Net::io_context Ioc;
         auto Transport = std::make_shared<Preview::PreviewMockTransport>(Ioc.get_executor());
         ReadState State;
         StartRead(Ioc, Transport, State);
-        net::post(Ioc, [Transport]
+        Net::post(Ioc, [Transport]
                   { Transport->InjectRead({0x11U, 0x22U, 0x33U}); });
 
         Ioc.run();
@@ -70,11 +70,11 @@ namespace
 
     TEST(PreviewMockTransportContract, CloseWakesEmptyReadAsEof)
     {
-        net::io_context Ioc;
+        Net::io_context Ioc;
         auto Transport = std::make_shared<Preview::PreviewMockTransport>(Ioc.get_executor());
         ReadState State;
         StartRead(Ioc, Transport, State);
-        net::post(Ioc, [Transport] { Transport->Close(); });
+        Net::post(Ioc, [Transport] { Transport->Close(); });
 
         Ioc.run();
 
@@ -87,11 +87,11 @@ namespace
 
     TEST(PreviewMockTransportContract, CancelWakesEmptyReadWithCanceled)
     {
-        net::io_context Ioc;
+        Net::io_context Ioc;
         auto Transport = std::make_shared<Preview::PreviewMockTransport>(Ioc.get_executor());
         ReadState State;
         StartRead(Ioc, Transport, State);
-        net::post(Ioc, [Transport] { Transport->Cancel(); });
+        Net::post(Ioc, [Transport] { Transport->Cancel(); });
 
         Ioc.run();
 
@@ -103,21 +103,21 @@ namespace
 
     TEST(PreviewMockTransportContract, ShutdownPreservesWriteDirection)
     {
-        net::io_context Ioc;
+        Net::io_context Ioc;
         auto Transport = std::make_shared<Preview::PreviewMockTransport>(Ioc.get_executor());
         Transport->Shutdown();
         ReadState State;
         StartRead(Ioc, Transport, State);
         std::error_code WriteError;
         std::size_t Written = 0;
-        net::co_spawn(
+        Net::co_spawn(
             Ioc,
-            [Transport, &WriteError, &Written]() -> net::awaitable<void>
+            [Transport, &WriteError, &Written]() -> Net::awaitable<void>
             {
                 const std::array<std::byte, 2> Data{std::byte{0x41}, std::byte{0x42}};
                 Written = co_await Transport->async_write_some(Data, WriteError);
             },
-            net::detached);
+            Net::detached);
 
         Ioc.run();
 

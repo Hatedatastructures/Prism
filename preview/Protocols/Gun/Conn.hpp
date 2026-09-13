@@ -25,6 +25,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <span>
 #include <utility>
@@ -48,31 +49,40 @@ namespace Preview::Gun
 
         /**
          * @brief 构造函数
-         * @param upstream 底层传输（所有权移交）
+         * @param Upstream 底层传输（所有权移交）
          */
-        explicit Conn(SharedTransmission upstream)
-            : NextLayer_(std::move(upstream))
+        explicit Conn(SharedTransmission Upstream)
+            : NextLayer_(std::move(Upstream))
         {
         }
 
         /**
          * @brief 获取执行器（委托底层传输）
          */
-        [[nodiscard]] auto Executor() const 
-            -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
         /**
          * @brief 客户端握手：发送 CONNECT 帧（简化）
-         * @param host 目标主机
+         * @param Host 目标主机
          * @return 错误码
          */
-        [[nodiscard]] auto WriteHandshake(std::string_view host)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto WriteHandshake(std::string_view Host) -> Net::awaitable<Error>
         {
-            const std::string Header = "CONNECT " + std::string(host) + " HTTP/2\r\n\r\n";
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+            Handshaken_ = false;
+            PendingWire_.clear();
+            PendingOffset_ = 0;
+            const std::string Header = "CONNECT " + std::string(Host) + " HTTP/2\r\n\r\n";
             if (co_await SendBytes(AsU8Span(Header)))
                 co_return Error::IoError;
             Handshaken_ = true;
@@ -81,29 +91,45 @@ namespace Preview::Gun
 
         /**
          * @brief 服务端握手：解析 CONNECT 帧（简化）
-         * @param host 输出目标主机
+         * @param Host 输出目标主机
          * @return 错误码；bad_magic = 非 CONNECT 帧
          */
-        [[nodiscard]] auto ReadHandshake(std::string &host)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto ReadHandshake(std::string &Host) -> Net::awaitable<Error>
         {
-            std::array<std::uint8_t, 256> chunk{};
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+            Handshaken_ = false;
+            PendingWire_.clear();
+            PendingOffset_ = 0;
+            std::array<std::uint8_t, 256> Chunk{};
             std::string Header;
             for (int I = 0; I < 16; ++I)
             {
-                std::error_code ec;
+                std::error_code ErrorCode;
                 const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(std::span<std::uint8_t>(chunk)), ec);
-                if (ec || N == 0)
+                    AsBytes(std::span<std::uint8_t>(Chunk)),
+                    ErrorCode);
+                if (ErrorCode || N == 0)
                     break;
-                Header.append(reinterpret_cast<const char *>(chunk.data()), N);
+                if (N > Chunk.size())
+                    co_return Error::BadLength;
+                Header.append(reinterpret_cast<const char *>(Chunk.data()), N);
                 if (Header.find("\r\n\r\n") != std::string::npos)
                     break;
             }
-            if (Header.find("CONNECT ") != 0)
+            const auto HeaderEnd = Header.find("\r\n\r\n");
+            if (HeaderEnd == std::string::npos || Header.find("CONNECT ") != 0)
                 co_return Error::BadMagic;
             const auto FirstLineEnd = Header.find("\r\n");
-            host = Header.substr(8, FirstLineEnd - 8);
+            if (FirstLineEnd == std::string::npos || FirstLineEnd > HeaderEnd)
+                co_return Error::BadMagic;
+            const auto HostEnd = Header.find(' ', 8);
+            if (HostEnd == std::string::npos || HostEnd > FirstLineEnd || HostEnd == 8)
+                co_return Error::BadMagic;
+            Host = Header.substr(8, HostEnd - 8);
+            PreserveHandshakeTail(Header, HeaderEnd + 4);
             Handshaken_ = true;
             co_return Error::None;
         }
@@ -111,52 +137,77 @@ namespace Preview::Gun
         /**
          * @brief 透传读取（数据面原样）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            ErrorCode.clear();
+            if (Buffer.empty())
+            {
+                co_return 0;
+            }
+            if (PendingOffset_ < PendingWire_.size())
+            {
+                const auto Count = (std::min)(Buffer.size(), PendingWire_.size() - PendingOffset_);
+                std::memcpy(Buffer.data(), PendingWire_.data() + PendingOffset_, Count);
+                PendingOffset_ += Count;
+                if (PendingOffset_ == PendingWire_.size())
+                {
+                    PendingWire_.clear();
+                    PendingOffset_ = 0;
+                }
+                co_return Count;
+            }
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 透传写入（数据面原样）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭底层传输
          */
-        void Close() override
+        auto Close() -> void override
         {
-            NextLayer_->Close();
+            Handshaken_ = false;
+            if (NextLayer_)
+            {
+                NextLayer_->Close();
+            }
         }
 
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
-            NextLayer_->Cancel();
+            if (NextLayer_)
+            {
+                NextLayer_->Cancel();
+            }
         }
 
         /**
          * @brief 获取底层传输（装饰器链导航）
          */
-        [[nodiscard]] auto NextLayer() noexcept
-            -> Preview::Transmission * override
+        [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
             return NextLayer_.get();
         }
@@ -164,8 +215,7 @@ namespace Preview::Gun
         /**
          * @brief 获取底层传输（const 版本）
          */
-        [[nodiscard]] auto NextLayer() const noexcept 
-            -> const Preview::Transmission * override
+        [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
             return NextLayer_.get();
         }
@@ -173,9 +223,9 @@ namespace Preview::Gun
         /**
          * @brief 释放底层传输所有权
          */
-        [[nodiscard]] auto Release() 
-            -> SharedTransmission override
+        [[nodiscard]] auto Release() -> SharedTransmission override
         {
+            Handshaken_ = false;
             return std::move(NextLayer_);
         }
 
@@ -186,22 +236,43 @@ namespace Preview::Gun
          * @return true = 失败
          */
         [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const
-            -> net::awaitable<bool>
+            -> Net::awaitable<bool>
         {
+            if (!NextLayer_)
+            {
+                co_return true;
+            }
             std::size_t Done = 0;
             while (Done < Data.size())
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
-                if (ec)
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_write_some(
+                    AsBytes(Data.subspan(Done)),
+                    ErrorCode);
+                if (ErrorCode)
+                    co_return true;
+                if (N == 0 || N > Data.size() - Done)
                     co_return true;
                 Done += N;
             }
             co_return false;
         }
 
+        auto PreserveHandshakeTail(const std::string &Data, std::size_t Offset) -> void
+        {
+            PendingWire_.clear();
+            PendingOffset_ = 0;
+            if (Offset < Data.size())
+            {
+                const auto *Begin = reinterpret_cast<const std::byte *>(Data.data() + Offset);
+                PendingWire_.assign(Begin, Begin + (Data.size() - Offset));
+            }
+        }
+
         SharedTransmission NextLayer_;  ///< 底层传输（独占所有权）
         bool Handshaken_{false};          ///< 握手完成标志
+        std::vector<std::byte> PendingWire_; ///< 握手读取时回注的后续数据
+        std::size_t PendingOffset_{0};       ///< 回注数据消费位置
     };
 
     /// 流连接共享指针（默认内存策略）

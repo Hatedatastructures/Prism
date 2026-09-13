@@ -26,16 +26,32 @@ namespace
 {
 
     /// hex 字符串转字节
-    auto hex_to_bytes(const std::string &hex) -> std::vector<std::uint8_t>
+    auto HexToBytes(const std::string &Hex) -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> out;
-        for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+        std::vector<std::uint8_t> Output;
+        for (std::size_t Index = 0; Index + 1 < Hex.size(); Index += 2)
         {
-            const auto hi = hex[i] <= '9' ? hex[i] - '0' : hex[i] - 'a' + 10;
-            const auto lo = hex[i + 1] <= '9' ? hex[i + 1] - '0' : hex[i + 1] - 'a' + 10;
-            out.push_back(static_cast<std::uint8_t>((hi << 4) | lo));
+            int Hi = 0;
+            int Lo = 0;
+            if (Hex[Index] <= '9')
+            {
+                Hi = Hex[Index] - '0';
+            }
+            else
+            {
+                Hi = Hex[Index] - 'a' + 10;
+            }
+            if (Hex[Index + 1] <= '9')
+            {
+                Lo = Hex[Index + 1] - '0';
+            }
+            else
+            {
+                Lo = Hex[Index + 1] - 'a' + 10;
+            }
+            Output.push_back(static_cast<std::uint8_t>((Hi << 4) | Lo));
         }
-        return out;
+        return Output;
     }
 
     TEST(QpackInterop, DecodeGoEncodedAuthHeaders)
@@ -45,7 +61,7 @@ namespace
         //         hysteria-auth=password123, hysteria-cc-rx=0
         const std::string go_hex =
             "0000d451846076a67f50869fd2125b0c3f2f029fd2125b0c35876a6788ac684783d92044cf2f039fd2125b0c358845acf38107";
-        const auto Data = hex_to_bytes(go_hex);
+        const auto Data = HexToBytes(go_hex);
 
         auto mr = Preview::Memory::CurrentResource();
         const auto fields = Preview::Http3::Qpack::DecodeHeaderBlock(Data, mr);
@@ -214,6 +230,32 @@ namespace
         EXPECT_FALSE(Preview::Http3::ParseAuthRequest(
             std::span<const std::uint8_t>(Block.data(), Offset), Request,
             Preview::Memory::CurrentResource()));
+    }
+
+    TEST(QpackInterop, RejectsHeaderFieldCountBeyondBudget)
+    {
+        std::vector<std::uint8_t> Block(2, 0);
+        Block.insert(Block.end(), 129, 0xD4); // 静态表 :method=POST
+
+        EXPECT_TRUE(Preview::Http3::Qpack::DecodeHeaderBlock(
+                        Block, Preview::Memory::CurrentResource())
+                        .empty());
+    }
+
+    TEST(QpackInterop, RejectsOversizedLiteralValue)
+    {
+        const std::string Value(16 * 1024 + 1, 'x');
+        std::vector<std::uint8_t> Block(20 * 1024, 0);
+        auto Offset = Preview::Http3::Qpack::EncodePrefix(Block);
+        Offset += Preview::Http3::Qpack::EncodeLiteral(
+            "hysteria-auth", Value,
+            std::span<std::uint8_t>(Block.data() + Offset, Block.size() - Offset));
+        ASSERT_GT(Offset, 0u);
+
+        EXPECT_TRUE(Preview::Http3::Qpack::DecodeHeaderBlock(
+                        std::span<const std::uint8_t>(Block.data(), Offset),
+                        Preview::Memory::CurrentResource())
+                        .empty());
     }
 
 } // namespace

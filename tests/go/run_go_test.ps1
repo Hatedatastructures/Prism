@@ -12,10 +12,18 @@ Start-Sleep -Seconds 1
 
 $prism = $null
 try {
-    $log = Join-Path $env:TEMP ("prism_gotest_" + [System.Guid]::NewGuid().ToString("N") + ".log")
-    Write-Output "PRISM_LOG=$log"
-    $prism = Start-Process -FilePath $PrismExe -ArgumentList $Config -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError $log
-    # 轮询等待监听就绪（UDP 8081 由 Prism 绑定；以 TCP 监听为就绪信号）
+    $logRoot = Join-Path $env:TEMP ("prism_gotest_" + [System.Guid]::NewGuid().ToString("N"))
+    $stdoutLog = "$logRoot.stdout.log"
+    $stderrLog = "$logRoot.stderr.log"
+    Write-Output "PRISM_LOG=$stdoutLog"
+    Write-Output "PRISM_ERROR_LOG=$stderrLog"
+    $prism = Start-Process -FilePath $PrismExe -ArgumentList $Config -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+    $GoName = [System.IO.Path]::GetFileNameWithoutExtension($GoExe)
+    $RequiresTcp = $GoName -match 'vmess'
+    # 按 client 数据面等待对应 listener：VMess/Sing-VMess 使用 TCP，
+    # Hysteria2/TUIC 使用 QUIC gateway。Windows UDP netstat 行不稳定，
+    # QUIC client 使用 Prism 自己输出的 gateway-ready 日志作为就绪信号。
     $ready = $false
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Milliseconds 500
@@ -23,9 +31,13 @@ try {
             Write-Error "Prism exited early with code $($prism.ExitCode)"
             exit 1
         }
-        # 等待 QUIC gateway UDP 8081 就绪（netstat UDP 行无 LISTENING 标记，按进程 PID 匹配 UDP 行）
-        $udp = netstat -ano | Select-String "UDP" | Select-String "8081" | Select-String ($prism.Id.ToString())
-        if ($udp) {
+        $tcp = netstat -ano | Select-String "TCP" | Select-String ":8081" |
+            Select-String "LISTENING"
+        $GatewayReady = $false
+        if (Test-Path -LiteralPath $stdoutLog) {
+            $GatewayReady = (Get-Content -LiteralPath $stdoutLog -Raw -ErrorAction SilentlyContinue) -match 'quic gateway listening'
+        }
+        if (($RequiresTcp -and $tcp) -or (-not $RequiresTcp -and $GatewayReady)) {
             $ready = $true
             break
         }

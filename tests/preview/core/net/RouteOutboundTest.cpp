@@ -18,19 +18,20 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using Tcp = net::ip::tcp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    using Tcp = Net::ip::tcp;
+    using Preview::SharedTransmission;
 
     template <typename A>
-    void run_coro(net::io_context &ioc, A coro)
+    auto RunCoro(Net::io_context &Ioc, A Coro) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(Ioc, std::move(Coro), [&](std::exception_ptr Error)
+                      { Exception = Error; Ioc.stop(); });
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 } // namespace
@@ -81,8 +82,8 @@ TEST(RouteTable, SizeAndClear)
 
 TEST(Outbound, DialViaReverseRoute)
 {
-    net::io_context ioc;
-    net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+    Net::io_context ioc;
+    Net::ip::tcp::acceptor acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
     const auto real_port = acceptor.local_endpoint().port();
 
     auto routes = std::make_shared<Preview::Network::Route::RouteTable>();
@@ -91,17 +92,17 @@ TEST(Outbound, DialViaReverseRoute)
 
     std::error_code ec;
     SharedTransmission Conn;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
-                 net::co_spawn(
+                 Net::co_spawn(
                      ioc.get_executor(),
-                     [&]() -> net::awaitable<void>
+                     [&]() -> Net::awaitable<void>
                      {
-                         auto sock = co_await acceptor.async_accept(net::use_awaitable);
+                         auto sock = co_await acceptor.async_accept(Net::use_awaitable);
                          sock.close();
                      },
-                     net::detached);
+                     Net::detached);
                  Preview::Network::Outbound::Outbound ob(ioc.get_executor(), routes);
                  Conn = co_await ob.Dial(Preview::Network::Outbound::Target{"internal.example", 9999}, ec);
              });
@@ -112,24 +113,24 @@ TEST(Outbound, DialViaReverseRoute)
 
 TEST(Outbound, DialDirectTarget)
 {
-    net::io_context ioc;
-    net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+    Net::io_context ioc;
+    Net::ip::tcp::acceptor acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
     const auto port = acceptor.local_endpoint().port();
 
     auto routes = std::make_shared<Preview::Network::Route::RouteTable>();
     std::error_code ec;
     SharedTransmission Conn;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
-                 net::co_spawn(
+                 Net::co_spawn(
                      ioc.get_executor(),
-                     [&]() -> net::awaitable<void>
+                     [&]() -> Net::awaitable<void>
                      {
-                         auto sock = co_await acceptor.async_accept(net::use_awaitable);
+                         auto sock = co_await acceptor.async_accept(Net::use_awaitable);
                          sock.close();
                      },
-                     net::detached);
+                     Net::detached);
                  Preview::Network::Outbound::Outbound ob(ioc.get_executor(), routes);
                  Conn = co_await ob.Dial(Preview::Network::Outbound::Target{"127.0.0.1", port}, ec);
              });
@@ -139,12 +140,12 @@ TEST(Outbound, DialDirectTarget)
 
 TEST(Outbound, InvalidPortRejected)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto routes = std::make_shared<Preview::Network::Route::RouteTable>();
     std::error_code ec;
     SharedTransmission Conn;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  Preview::Network::Outbound::Outbound ob(ioc.get_executor(), routes);
                  Conn = co_await ob.Dial(Preview::Network::Outbound::Target{"127.0.0.1", 0}, ec);

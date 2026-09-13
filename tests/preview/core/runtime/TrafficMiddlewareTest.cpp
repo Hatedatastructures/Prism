@@ -34,44 +34,54 @@
 namespace
 {
 
-    namespace net = boost::asio;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::SharedTransmission;
 
     using Preview::Testing::RunCoro; // 公共样板（见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
 
-    using CompletionChannel = net::experimental::channel<void(boost::system::error_code)>;
+    using CompletionChannel = Net::experimental::channel<void(boost::system::error_code)>;
 
-    auto SpawnAndSignal(net::any_io_executor Executor, net::awaitable<void> Task)
+    auto SpawnAndSignal(Net::any_io_executor Executor, Net::awaitable<void> Task)
         -> std::shared_ptr<CompletionChannel>
     {
         auto Done = std::make_shared<CompletionChannel>(Executor, 1);
-        net::co_spawn(Executor, std::move(Task),
+        Net::co_spawn(Executor, std::move(Task),
                       [Done](std::exception_ptr Failure)
                       {
-                          Done->try_send(Failure ? boost::system::errc::make_error_code(
-                                                        boost::system::errc::io_error)
-                                                  : boost::system::error_code{});
+                          boost::system::error_code ErrorCode;
+                          if (Failure)
+                          {
+                              ErrorCode = boost::system::errc::make_error_code(
+                                  boost::system::errc::io_error);
+                          }
+                          Done->try_send(ErrorCode);
                       });
         return Done;
     }
 
-    auto SpawnAndSignal(net::any_io_executor Executor,
-                        net::awaitable<Preview::Fault::Code> Task)
+    auto SpawnAndSignal(Net::any_io_executor Executor,
+                        Net::awaitable<Preview::Fault::Code> Task)
         -> std::shared_ptr<CompletionChannel>
     {
         auto Done = std::make_shared<CompletionChannel>(Executor, 1);
-        net::co_spawn(Executor, std::move(Task),
+        Net::co_spawn(Executor, std::move(Task),
                       [Done](std::exception_ptr Failure, Preview::Fault::Code)
                       {
-                          Done->try_send(Failure ? boost::system::errc::make_error_code(
-                                                        boost::system::errc::io_error)
-                                                  : boost::system::error_code{});
+                          boost::system::error_code ErrorCode;
+                          if (Failure)
+                          {
+                              ErrorCode = boost::system::errc::make_error_code(
+                                  boost::system::errc::io_error);
+                          }
+                          Done->try_send(ErrorCode);
                       });
         return Done;
     }
 
     /// 回显上游
-    auto echo_upstream(SharedTransmission client_side) -> net::awaitable<void>
+    auto echo_upstream(SharedTransmission client_side) -> Net::awaitable<void>
     {
         std::array<std::byte, 4096> buf{};
         std::error_code ec;
@@ -96,7 +106,7 @@ namespace
         return std::string("\x05\x01\x00", 3);
     }
 
-    auto make_pair_shared(net::io_context &ioc)
+    auto make_pair_shared(Net::io_context &ioc)
         -> std::pair<std::shared_ptr<MemoryStream>, std::shared_ptr<MemoryStream>>
     {
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
@@ -124,6 +134,18 @@ namespace
         EXPECT_EQ(g.Down, 28);
     }
 
+    TEST(TrafficCounter, RejectsNewIdentitiesAfterConfiguredLimit)
+    {
+        Preview::Runtime::TrafficCounter counter(1);
+        counter.Report("first", 10, 20);
+        counter.Report("second", 30, 40);
+        counter.Report("first", 1, 2);
+
+        EXPECT_EQ(counter.IdentityCount(), 1u);
+        EXPECT_EQ(counter.Total("first").Up, 11u);
+        EXPECT_EQ(counter.Total("second").Up, 0u);
+    }
+
     TEST(TrafficCounter, UnknownIdentityZero)
     {
         Preview::Runtime::TrafficCounter counter;
@@ -146,7 +168,7 @@ namespace
 
     TEST(TrafficCounter, SessionPipelineIntegration)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [client_s, inbound_s] = make_pair_shared(ioc);
         auto [outbound_s, upstream_s] = make_pair_shared(ioc);
 
@@ -156,14 +178,14 @@ namespace
         opts.traffic = &counter;
         opts.RelayIdleTimeout = std::chrono::milliseconds(50);
         opts.Prepare = [](const Preview::Recognition::RecognizeResult &,
-                          Preview::Middleware::Context &ctx) -> net::awaitable<Preview::Fault::Code>
+                          Preview::Middleware::Context &ctx) -> Net::awaitable<Preview::Fault::Code>
         {
-            ctx.Target.positive = true;
+            ctx.Target.Positive = true;
             ctx.RawIdentity = "alice";
             ctx.RawSecret = "pw";
             co_return Preview::Fault::Code::Success;
         };
-        opts.Dial = [outbound_s](const Preview::Network::Target &) -> net::awaitable<
+        opts.Dial = [outbound_s](const Preview::Network::Target &) -> Net::awaitable<
             std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
         {
             co_return std::pair{Preview::Fault::Code::Success, outbound_s};
@@ -171,7 +193,7 @@ namespace
         Preview::Runtime::Session Session(opts);
 
         RunCoro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
                      auto session_done = SpawnAndSignal(ioc.get_executor(), Session.Run(inbound_s));
                      auto echo_done = SpawnAndSignal(ioc.get_executor(), echo_upstream(upstream_s));
@@ -188,9 +210,9 @@ namespace
                      EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(buf.data()), n), payload);
 
                      // 空闲超时 → relay 结束 → 上报
-                     net::steady_timer t(ioc);
+                     Net::steady_timer t(ioc);
                      t.expires_after(std::chrono::milliseconds(300));
-                     co_await t.async_wait(net::use_awaitable);
+                     co_await t.async_wait(Net::use_awaitable);
                      client_s->Close();
                      inbound_s->Close();
                      upstream_s->Close();
@@ -198,9 +220,9 @@ namespace
                      boost::system::error_code session_ec;
                      boost::system::error_code echo_ec;
                      co_await session_done->async_receive(
-                         net::redirect_error(net::use_awaitable, session_ec));
+                         Net::redirect_error(Net::use_awaitable, session_ec));
                      co_await echo_done->async_receive(
-                         net::redirect_error(net::use_awaitable, echo_ec));
+                         Net::redirect_error(Net::use_awaitable, echo_ec));
                      EXPECT_FALSE(session_ec);
                      EXPECT_FALSE(echo_ec);
                  });

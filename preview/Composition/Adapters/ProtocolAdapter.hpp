@@ -32,21 +32,21 @@
 namespace Preview::Runtime
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @brief 把对象式 ProtocolHandler 适配为 Session 的协议接入回调
      * @param h 协议处理器（共享所有权，随回调存活）
      * @return Session 协议接入回调
      * @details 成功后把 AcceptResult 装配进 Middleware::Context：
-     *          Target / identity / IsDgram / PostDial，并把数据面传输
+     *          Target / identity / ProtocolAuthenticated / AccountLease / IsDgram / PostDial，并把数据面传输
      *          替换到 Inbound。失败或无传输时统一走错误映射，不留下半状态。
      */
     [[nodiscard]] inline auto MakeProtocolAccept(std::shared_ptr<Handler::ProtocolHandler> h)
         -> SessionOptions::ProtocolAcceptFn
     {
         return [h = std::move(h)](SharedTransmission &in, Middleware::Context &ctx)
-            -> net::awaitable<Fault::Code>
+            -> Net::awaitable<Fault::Code>
         {
             auto R = co_await h->Accept(std::move(in));
             if (!R.Transmission)
@@ -64,6 +64,8 @@ namespace Preview::Runtime
             }
             ctx.Target = R.Target;
             ctx.identity = R.identity;
+            ctx.ProtocolAuthenticated = R.ProtocolAuthenticated;
+            ctx.AccountLease = std::move(R.AccountLease);
             ctx.IsDgram = R.IsDgram;
             if (R.PostDial)
             {

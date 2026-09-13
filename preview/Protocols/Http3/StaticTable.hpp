@@ -19,7 +19,7 @@ namespace Preview::Http3::Qpack::Detail
     struct StaticEntry
     {
         std::string_view Name;
-        std::string_view value;
+        std::string_view value; ///< 保留兼容公共字段名
     };
 
     /// QPACK 静态表（RFC 9204 附录 A，99 项）
@@ -126,7 +126,7 @@ namespace Preview::Http3::Qpack::Detail
     };
 
     /// HTTP/3 字段名必须遵守 RFC 9114 的全小写约束。
-    constexpr auto ValidateStaticTableNames() -> bool
+    [[nodiscard]] constexpr auto ValidateStaticTableNames() -> bool
     {
         for (const auto &Entry : StaticTable)
         {
@@ -146,7 +146,7 @@ namespace Preview::Http3::Qpack::Detail
     /// 编码器值条目（名称 → 值 → 静态表索引）
     struct EncoderValueEntry
     {
-        std::string_view value;
+        std::string_view value; ///< 保留兼容公共字段名
         std::uint8_t index;
     };
 
@@ -298,7 +298,7 @@ namespace Preview::Http3::Qpack::Detail
     };
 
     /// 编译期校验编码表与静态表语义一致
-    constexpr auto ValidateEncoderTables() -> bool
+    [[nodiscard]] constexpr auto ValidateEncoderTables() -> bool
     {
         for (const auto &Entry : EncoderNames)
         {

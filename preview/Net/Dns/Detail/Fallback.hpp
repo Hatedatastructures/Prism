@@ -31,24 +31,24 @@ namespace Preview::Network::Dns::Detail
      * @param start 查询开始时间
      * @return 规范化查询结果
      */
-    [[nodiscard]] inline auto BuildCheckedResult(const AnswerSet &scan, const std::string &addr,
-                                                  std::chrono::steady_clock::time_point start)
+    [[nodiscard]] inline auto BuildCheckedResult(const AnswerSet &Scan, const std::string &Address,
+                                                  std::chrono::steady_clock::time_point Start)
         -> QueryResult
     {
-        QueryResult out;
-        out.Response = scan;
-        out.ServerAddr = addr;
-        out.RttMs = static_cast<std::uint64_t>(
+        QueryResult Result;
+        Result.Response = Scan;
+        Result.ServerAddr = Address;
+        Result.RttMs = static_cast<std::uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now() - start)
+                std::chrono::steady_clock::now() - Start)
                 .count());
-        if (scan.Rcode != 0 && scan.Rcode != 3)
+        if (Scan.Rcode != 0 && Scan.Rcode != 3)
         {
-            out.Error = make_error_code(Error::ProtocolError);
-            return out;
+            Result.Error = make_error_code(Error::ProtocolError);
+            return Result;
         }
-        out.Ips.assign(scan.Ips.begin(), scan.Ips.end());
-        return out;
+        Result.Ips.assign(Scan.Ips.begin(), Scan.Ips.end());
+        return Result;
     }
 
     /**
@@ -57,13 +57,14 @@ namespace Preview::Network::Dns::Detail
      * @param ec 失败错误码
      * @return 带来源地址的失败结果
      */
-    [[nodiscard]] inline auto FailResult(const std::string &addr, boost::system::error_code ec)
+    [[nodiscard]] inline auto FailResult(const std::string &Address,
+                                         boost::system::error_code ErrorCode)
         -> QueryResult
     {
-        QueryResult out;
-        out.ServerAddr = addr;
-        out.Error = ec;
-        return out;
+        QueryResult Result;
+        Result.ServerAddr = Address;
+        Result.Error = ErrorCode;
+        return Result;
     }
 
     /**
@@ -83,20 +84,20 @@ namespace Preview::Network::Dns::Detail
                                               QueryFn queryFn, TimeoutFn timeoutFn)
         -> boost::asio::awaitable<QueryResult>
     {
-        QueryResult last;
-        for (const auto &server : Servers)
+        QueryResult Last;
+        for (const auto &ServerConfig : Servers)
         {
-            last = co_await timeoutFn(queryFn(server, query, qtNum), server);
-            if (!last.Error && (!last.Ips.empty() || last.Response.Rcode == 3))
+            Last = co_await timeoutFn(queryFn(ServerConfig, query, qtNum), ServerConfig);
+            if (!Last.Error && (!Last.Ips.empty() || Last.Response.Rcode == 3))
             {
-                co_return last;
+                co_return Last;
             }
         }
-        if (!last.Error)
+        if (!Last.Error)
         {
-            last.Error = make_error_code(Error::BadAddress);
+            Last.Error = make_error_code(Error::BadAddress);
         }
-        co_return last;
+        co_return Last;
     }
 
     /**
@@ -106,25 +107,25 @@ namespace Preview::Network::Dns::Detail
      */
     [[nodiscard]] inline auto SelectBest(std::vector<QueryResult> &Results) -> QueryResult
     {
-        QueryResult *best = nullptr;
-        for (auto &result : Results)
+        QueryResult *Best = nullptr;
+        for (auto &Result : Results)
         {
-            if (!result.Error && !result.Ips.empty() && (!best || result.RttMs < best->RttMs))
+            if (!Result.Error && !Result.Ips.empty() && (!Best || Result.RttMs < Best->RttMs))
             {
-                best = &result;
+                Best = &Result;
             }
         }
-        if (best)
+        if (Best)
         {
-            return std::move(*best);
+            return std::move(*Best);
         }
         if (!Results.empty())
         {
             return std::move(Results.front());
         }
-        QueryResult failed;
-        failed.Error = make_error_code(Error::BadAddress);
-        return failed;
+        QueryResult FailedResult;
+        FailedResult.Error = make_error_code(Error::BadAddress);
+        return FailedResult;
     }
 
 } // namespace Preview::Network::Dns::Detail

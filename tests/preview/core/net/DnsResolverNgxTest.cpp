@@ -30,24 +30,23 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace Preview;
+    namespace Net = boost::asio;
     using Preview::Network::Dns::Config;
 
     auto ResolveLifetimeProbe(
-        net::io_context &Ioc,
+        Net::io_context &Ioc,
         std::unique_ptr<Preview::Network::Dns::Resolver> &Owner,
         std::unique_ptr<std::string> &Input,
         std::error_code &Ec,
-        std::vector<net::ip::address> &Addresses,
+        std::vector<Net::ip::address> &Addresses,
         int &Completions,
-        bool &ExecutorDrained) -> net::awaitable<void>
+        bool &ExecutorDrained) -> Net::awaitable<void>
     {
         Addresses = co_await Owner->AsyncResolve(*Input, Ec);
         ++Completions;
         Owner.reset();
         Input.reset();
-        net::post(Ioc, [&ExecutorDrained] { ExecutorDrained = true; });
+        Net::post(Ioc, [&ExecutorDrained] { ExecutorDrained = true; });
         co_return;
     }
 
@@ -71,7 +70,7 @@ namespace
         {
         }
 
-        auto async_wait(auto) -> net::awaitable<void>
+        auto async_wait(auto) -> Net::awaitable<void>
         {
             co_return;
         }
@@ -94,44 +93,44 @@ namespace
             std::make_shared<MaintenanceProbeUpstream>();
     };
 
-    using MaintenanceFunction = net::awaitable<void> (*)(std::shared_ptr<MaintenanceProbeState>);
+    using MaintenanceFunction = Net::awaitable<void> (*)(std::shared_ptr<MaintenanceProbeState>);
     static_assert(std::is_same_v<decltype(&Preview::Network::Dns::Detail::MaintenanceLoop<MaintenanceProbeState>),
                                  MaintenanceFunction>,
                   "MaintenanceLoop must own its State shared_ptr by value");
 
     template <typename A>
-    void run_coro(net::io_context &ioc, A coro)
+    auto RunCoro(Net::io_context &Ioc, A Coro) -> void
     {
-        std::exception_ptr ep;
-        auto KeepAlive = std::make_shared<A>(std::move(coro));
-        net::co_spawn(
-            ioc,
-            [KeepAlive]() -> net::awaitable<void>
+        std::exception_ptr Exception;
+        auto KeepAlive = std::make_shared<A>(std::move(Coro));
+        Net::co_spawn(
+            Ioc,
+            [KeepAlive]() -> Net::awaitable<void>
             {
                 co_await (*KeepAlive)();
             },
             [&](std::exception_ptr e)
             {
-                ep = e;
-                ioc.stop();
+                Exception = e;
+                Ioc.stop();
             });
-        ioc.restart(); // 清除上一次 stop() 状态，使后续 run() 真正执行新协程
-        ioc.run();
-        if (ep)
+        Ioc.restart(); // 清除上一次 stop() 状态，使后续 run() 真正执行新协程
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 } // namespace
 
 TEST(DnsResolver, ResolveLoopback)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Preview::Network::Dns::Resolver r(ioc.get_executor());
     std::error_code ec;
-    std::vector<net::ip::address> addrs;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    std::vector<Net::ip::address> addrs;
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  addrs = co_await r.AsyncResolve("localhost", ec);
              });
@@ -143,14 +142,14 @@ TEST(DnsResolver, ResolveLoopback)
 
 TEST(DnsResolver, CacheHit)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Preview::Network::Dns::Resolver r(ioc.get_executor());
     std::error_code firstEc;
     std::error_code secondEc;
-    std::vector<net::ip::address> first;
-    std::vector<net::ip::address> second;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    std::vector<Net::ip::address> first;
+    std::vector<Net::ip::address> second;
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  first = co_await r.AsyncResolve("localhost", firstEc);
                  second = co_await r.AsyncResolve("localhost", secondEc);
@@ -165,15 +164,15 @@ TEST(DnsResolver, CacheHit)
 
 TEST(DnsResolver, NegativeCache)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Config cfg;
     cfg.MaxCacheEntries = 64;
     cfg.CacheTtl = std::chrono::seconds(60);
     cfg.NegativeTtl = std::chrono::seconds(10);
     Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
     std::error_code ec;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  (void)co_await r.AsyncResolve("nonexistent-host-prism-test.invalid", ec);
              });
@@ -184,15 +183,15 @@ TEST(DnsResolver, NegativeCache)
 
 TEST(DnsResolver, CacheExpiry)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     // 极短 TTL（1 秒）
     Config cfg;
     cfg.MaxCacheEntries = 64;
     cfg.CacheTtl = std::chrono::seconds(1);
     Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
     std::error_code ec;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  (void)co_await r.AsyncResolve("localhost", ec);
              });
@@ -201,8 +200,8 @@ TEST(DnsResolver, CacheExpiry)
 
     // 等待过期
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  (void)co_await r.AsyncResolve("localhost", ec);
              });
@@ -214,14 +213,14 @@ TEST(DnsResolver, CacheExpiry)
 
 TEST(DnsResolver, CacheCapacityBounded)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     // 容量 2
     Config cfg;
     cfg.MaxCacheEntries = 2;
     Preview::Network::Dns::Resolver r(ioc.get_executor(), cfg);
     std::error_code ec;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  (void)co_await r.AsyncResolve("localhost", ec);
                  (void)co_await r.AsyncResolve("127.0.0.1", ec);
@@ -233,11 +232,11 @@ TEST(DnsResolver, CacheCapacityBounded)
 
 TEST(DnsResolver, ClearCache)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Preview::Network::Dns::Resolver r(ioc.get_executor());
     std::error_code ec;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  (void)co_await r.AsyncResolve("localhost", ec);
              });
@@ -248,7 +247,7 @@ TEST(DnsResolver, ClearCache)
 
 TEST(DnsResolver, TimeoutLoserOwnsResolveInputs)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     Config cfg;
     cfg.CacheEnabled = false;
     cfg.DisableIpv6 = true;
@@ -257,13 +256,13 @@ TEST(DnsResolver, TimeoutLoserOwnsResolveInputs)
     auto owner = std::make_unique<Preview::Network::Dns::Resolver>(ioc.get_executor(), cfg);
     auto input = std::make_unique<std::string>("localhost");
     std::error_code ec;
-    std::vector<net::ip::address> addresses;
+    std::vector<Net::ip::address> addresses;
     int completions = 0;
     bool coroutineCompleted = false;
     bool executorDrained = false;
     std::exception_ptr exception;
 
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
         ResolveLifetimeProbe(ioc, owner, input, ec, addresses, completions, executorDrained),
         [&](std::exception_ptr error)
@@ -302,9 +301,9 @@ public:
         Silent,      ///< 收到查询不应答
     };
 
-    MiniDnsServer(net::io_context &ioc, const Behavior behavior, const std::uint32_t ttlSec = 60)
+    MiniDnsServer(Net::io_context &ioc, const Behavior behavior, const std::uint32_t ttlSec = 60)
         : Ex_(ioc.get_executor()), Behavior_(behavior), TtlSec_(ttlSec),
-          Udp_(ioc, net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0))
+          Udp_(ioc, Net::ip::udp::endpoint(Net::ip::make_address("127.0.0.1"), 0))
     {
     }
 
@@ -313,7 +312,7 @@ public:
         Port_ = Udp_.local_endpoint().port();
         Addr_ = Udp_.local_endpoint().address().to_string();
         auto self = shared_from_this();
-        net::co_spawn(Ex_, [self]() { return self->Loop(); }, net::detached);
+        Net::co_spawn(Ex_, [self]() { return self->Loop(); }, Net::detached);
     }
 
     /// 构造对应 Resolver 上游配置
@@ -352,15 +351,15 @@ private:
         out.push_back(static_cast<std::uint8_t>(v & 0xFF));
     }
 
-    auto Loop() -> net::awaitable<void>
+    auto Loop() -> Net::awaitable<void>
     {
         std::vector<std::uint8_t> buf(4096);
-        net::ip::udp::endpoint sender;
+        Net::ip::udp::endpoint sender;
         for (;;)
         {
             boost::system::error_code ec;
             const auto n = co_await Udp_.async_receive_from(
-                net::buffer(buf), sender, net::redirect_error(net::use_awaitable, ec));
+                Net::buffer(buf), sender, Net::redirect_error(Net::use_awaitable, ec));
             if (ec || Stopped_ || n < 12)
             {
                 co_return;
@@ -387,9 +386,19 @@ private:
             const bool Full = Behavior_ == Behavior::Answer || Behavior_ == Behavior::MixedAnswer;
             std::vector<std::uint8_t> out;
             PutU16(out, static_cast<std::uint16_t>((buf[0] << 8) | buf[1])); // 回显 Id
-            PutU16(out, 0x8180u | (Nx ? 0x0003u : 0u));                      // QR|RD|RA (+Rcode=3)
+            std::uint16_t ResponseFlags = 0x8180u;
+            if (Nx)
+            {
+                ResponseFlags |= 0x0003u;
+            }
+            PutU16(out, ResponseFlags); // QR|RD|RA (+Rcode=3)
             PutU16(out, 1);
-            PutU16(out, Full ? 1u : 0u);
+            std::uint16_t AnswerCount = 0;
+            if (Full)
+            {
+                AnswerCount = 1;
+            }
+            PutU16(out, AnswerCount);
             PutU16(out, 0);
             PutU16(out, 0);
             out.insert(out.end(), buf.begin() + 12,
@@ -397,11 +406,22 @@ private:
             if (Full)
             {
                 PutU16(out, 0xC00Cu); // 压缩指针指向问题段名字
-                PutU16(out, Aaaa ? 28 : 1); // type A / AAAA
+                std::uint16_t RecordType = 1;
+                if (Aaaa)
+                {
+                    RecordType = 28;
+                }
+                PutU16(out, RecordType); // type A / AAAA
                 PutU16(out, 1);       // class IN
-                const auto Ttl = Behavior_ == Behavior::MixedAnswer
-                                     ? (Aaaa ? 1u : 60u)
-                                     : TtlSec_;
+                std::uint32_t Ttl = TtlSec_;
+                if (Behavior_ == Behavior::MixedAnswer)
+                {
+                    Ttl = 60u;
+                    if (Aaaa)
+                    {
+                        Ttl = 1u;
+                    }
+                }
                 PutU32(out, Ttl);
                 if (Aaaa)
                 {
@@ -417,14 +437,14 @@ private:
                 }
             }
             (void)co_await Udp_.async_send_to(
-                net::buffer(out), sender, net::redirect_error(net::use_awaitable, ec));
+                Net::buffer(out), sender, Net::redirect_error(Net::use_awaitable, ec));
         }
     }
 
-    net::any_io_executor Ex_;
+    Net::any_io_executor Ex_;
     Behavior Behavior_;
     std::uint32_t TtlSec_{60};
-    net::ip::udp::socket Udp_;
+    Net::ip::udp::socket Udp_;
     std::uint16_t Port_{0};
     std::string Addr_;
     std::size_t QueryCount_{0};
@@ -434,7 +454,7 @@ private:
 TEST(DnsResolver, NxDomainNegativeCachedNoRetry)
 {
     // 1.3 端到端验证：NXDOMAIN 被负缓存；二次解析不再打上游
-    net::io_context ioc;
+    Net::io_context ioc;
     auto server = std::make_shared<MiniDnsServer>(ioc, MiniDnsServer::Behavior::NxDomain);
     server->Start();
 
@@ -444,9 +464,9 @@ TEST(DnsResolver, NxDomainNegativeCachedNoRetry)
     Resolver r(ioc.get_executor(), cfg);
 
     std::error_code ec;
-    std::vector<net::ip::address> addrs;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    std::vector<Net::ip::address> addrs;
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  addrs = co_await r.AsyncResolve("nx.local", ec);
              });
@@ -454,8 +474,8 @@ TEST(DnsResolver, NxDomainNegativeCachedNoRetry)
     EXPECT_TRUE(addrs.empty());
     EXPECT_EQ(r.Size(), 1u); // 负缓存已入
 
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  addrs = co_await r.AsyncResolve("nx.local", ec);
              });
@@ -466,7 +486,7 @@ TEST(DnsResolver, NxDomainNegativeCachedNoRetry)
 
 TEST(DnsResolver, CacheTtlUsesShortestAddressFamily)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto server = std::make_shared<MiniDnsServer>(ioc, MiniDnsServer::Behavior::MixedAnswer);
     server->Start();
 
@@ -475,9 +495,9 @@ TEST(DnsResolver, CacheTtlUsesShortestAddressFamily)
     Resolver r(ioc.get_executor(), cfg);
 
     std::error_code ec;
-    std::vector<net::ip::address> addrs;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    std::vector<Net::ip::address> addrs;
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  addrs = co_await r.AsyncResolve("ttl.local", ec);
              });
@@ -486,8 +506,8 @@ TEST(DnsResolver, CacheTtlUsesShortestAddressFamily)
     EXPECT_EQ(server->QueryCount(), 2u);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  addrs = co_await r.AsyncResolve("ttl.local", ec);
              });
@@ -500,7 +520,7 @@ TEST(DnsResolver, CacheTtlUsesShortestAddressFamily)
 TEST(DnsResolver, ConcurrentSingleFlight)
 {
     // 并发同域名解析：single-flight 使上游查询只发生一次（A 族 leader 唯一）
-    net::io_context ioc;
+    Net::io_context ioc;
     auto server = std::make_shared<MiniDnsServer>(ioc, MiniDnsServer::Behavior::Answer);
     server->Start();
 
@@ -510,14 +530,14 @@ TEST(DnsResolver, ConcurrentSingleFlight)
     Resolver r(ioc.get_executor(), cfg);
 
     constexpr int N = 4;
-    std::vector<std::vector<net::ip::address>> results(N);
+    std::vector<std::vector<Net::ip::address>> results(N);
     std::vector<std::error_code> ecs(N);
     std::exception_ptr ep;
     int done = 0;
     for (int i = 0; i < N; ++i)
     {
-        net::co_spawn(ioc,
-                      [&, i]() -> net::awaitable<void>
+        Net::co_spawn(ioc,
+                      [&, i]() -> Net::awaitable<void>
                       {
                           results[static_cast<std::size_t>(i)] =
                               co_await r.AsyncResolve("burst.local", ecs[static_cast<std::size_t>(i)]);
@@ -545,7 +565,7 @@ TEST(DnsResolver, ConcurrentSingleFlight)
     {
         EXPECT_FALSE(ecs[static_cast<std::size_t>(i)]);
         ASSERT_EQ(results[static_cast<std::size_t>(i)].size(), 1u);
-        EXPECT_EQ(results[static_cast<std::size_t>(i)][0], net::ip::make_address("1.2.3.4"));
+        EXPECT_EQ(results[static_cast<std::size_t>(i)][0], Net::ip::make_address("1.2.3.4"));
     }
     server->Close();
 }
@@ -553,7 +573,7 @@ TEST(DnsResolver, ConcurrentSingleFlight)
 TEST(DnsResolver, ServeStaleEndToEnd)
 {
     // serve-stale 端到端：缓存过期后仍返回旧数据，且不打上游
-    net::io_context ioc;
+    Net::io_context ioc;
     auto server = std::make_shared<MiniDnsServer>(ioc, MiniDnsServer::Behavior::Answer, 1);
     server->Start();
 
@@ -565,9 +585,9 @@ TEST(DnsResolver, ServeStaleEndToEnd)
     Resolver r(ioc.get_executor(), cfg);
 
     std::error_code ec;
-    std::vector<net::ip::address> addrs;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    std::vector<Net::ip::address> addrs;
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  addrs = co_await r.AsyncResolve("stale.local", ec);
              });
@@ -575,9 +595,9 @@ TEST(DnsResolver, ServeStaleEndToEnd)
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1100));
 
-    std::vector<net::ip::address> stale;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    std::vector<Net::ip::address> stale;
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  stale = co_await r.AsyncResolve("stale.local", ec);
              });

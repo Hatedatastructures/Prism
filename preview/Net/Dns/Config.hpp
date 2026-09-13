@@ -40,12 +40,12 @@ namespace Preview::Network::Dns
     {
         using is_transparent = void;
 
-        [[nodiscard]] auto operator()(const std::string_view value) const noexcept -> std::size_t
+        [[nodiscard]] auto operator()(const std::string_view Value) const noexcept -> std::size_t
         {
             std::size_t Hash = 14695981039346656037ull;
-            for (const auto ch : value)
+            for (const auto Character : Value)
             {
-                Hash ^= static_cast<std::uint8_t>(ch);
+                Hash ^= static_cast<std::uint8_t>(Character);
                 Hash *= 1099511628211ull;
             }
             return Hash;
@@ -60,10 +60,10 @@ namespace Preview::Network::Dns
     {
         using is_transparent = void;
 
-        [[nodiscard]] auto operator()(const std::string_view left,
-                                      const std::string_view right) const noexcept -> bool
+        [[nodiscard]] auto operator()(const std::string_view Left,
+                                      const std::string_view Right) const noexcept -> bool
         {
-            return left == right;
+            return Left == Right;
         }
     };
 
@@ -191,21 +191,21 @@ namespace Preview::Network::Dns
          * @param value 端口文本
          * @return 合法端口；非法或零端口返回空值
          */
-        [[nodiscard]] inline auto ParsePortValue(const std::string_view value)
+        [[nodiscard]] inline auto ParsePortValue(const std::string_view Value)
             -> std::optional<std::uint16_t>
         {
-            if (value.empty() || value.size() > 5)
+            if (Value.empty() || Value.size() > 5)
             {
                 return std::nullopt;
             }
-            std::uint32_t number = 0;
-            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), number);
-            if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
-                number == 0 || number > 65535)
+            std::uint32_t Number = 0;
+            const auto Parsed = std::from_chars(Value.data(), Value.data() + Value.size(), Number);
+            if (Parsed.ec != std::errc{} || Parsed.ptr != Value.data() + Value.size() ||
+                Number == 0 || Number > 65535)
             {
                 return std::nullopt;
             }
-            return static_cast<std::uint16_t>(number);
+            return static_cast<std::uint16_t>(Number);
         }
 
         /**
@@ -213,36 +213,36 @@ namespace Preview::Network::Dns
          * @param authority 不含 scheme 与 URL 路径的地址
          * @return 主机、端口及端口存在标志
          */
-        [[nodiscard]] inline auto SplitServerAuthority(const std::string_view authority)
+        [[nodiscard]] inline auto SplitServerAuthority(const std::string_view Authority)
             -> ServerAddressParts
         {
-            if (authority.starts_with('['))
+            if (Authority.starts_with('['))
             {
-                const auto close = authority.find(']');
-                if (close == std::string_view::npos)
+                const auto Close = Authority.find(']');
+                if (Close == std::string_view::npos)
                 {
-                    return {authority, 0, false};
+                    return {Authority, 0, false};
                 }
-                const auto host = authority.substr(1, close - 1);
-                if (close + 1 < authority.size() && authority[close + 1] == ':')
+                const auto Host = Authority.substr(1, Close - 1);
+                if (Close + 1 < Authority.size() && Authority[Close + 1] == ':')
                 {
-                    if (const auto port = ParsePortValue(authority.substr(close + 2)))
+                    if (const auto Port = ParsePortValue(Authority.substr(Close + 2)))
                     {
-                        return {host, *port, true};
+                        return {Host, *Port, true};
                     }
                 }
-                return {host, 0, false};
+                return {Host, 0, false};
             }
 
-            const auto colon = authority.rfind(':');
-            if (colon != std::string_view::npos && authority.find(':') == colon)
+            const auto Colon = Authority.rfind(':');
+            if (Colon != std::string_view::npos && Authority.find(':') == Colon)
             {
-                if (const auto port = ParsePortValue(authority.substr(colon + 1)))
+                if (const auto Port = ParsePortValue(Authority.substr(Colon + 1)))
                 {
-                    return {authority.substr(0, colon), *port, true};
+                    return {Authority.substr(0, Colon), *Port, true};
                 }
             }
-            return {authority, 0, false};
+            return {Authority, 0, false};
         }
     } // namespace Detail
 
@@ -258,9 +258,9 @@ namespace Preview::Network::Dns
      * @param input 原始地址字符串
      * @return 解析后的 Server 配置；无法识别的输入 Proto 保持 Udp
      */
-    [[nodiscard]] inline auto ParseServer(std::string_view input) -> Server
+    [[nodiscard]] inline auto ParseServer(std::string_view Input) -> Server
     {
-        Server s;
+        Server ServerConfig;
 
         struct SchemeMapping
         {
@@ -273,36 +273,36 @@ namespace Preview::Network::Dns
             {"tls://", Protocol::Tls, 853}, {"https://", Protocol::Https, 443},
         };
 
-        for (const auto &m : Mappings)
+        for (const auto &Mapping : Mappings)
         {
-            if (!input.starts_with(m.Prefix))
+            if (!Input.starts_with(Mapping.Prefix))
             {
                 continue;
             }
-            s.Proto = m.Proto;
-            s.Port = m.DefaultPort;
-            input.remove_prefix(m.Prefix.size());
+            ServerConfig.Proto = Mapping.Proto;
+            ServerConfig.Port = Mapping.DefaultPort;
+            Input.remove_prefix(Mapping.Prefix.size());
             break;
         }
 
         // DoH 地址可携带 URL 路径，其余协议只接受 authority。
-        if (s.Proto == Protocol::Https)
+        if (ServerConfig.Proto == Protocol::Https)
         {
-            if (const auto Slash = input.find('/'); Slash != std::string_view::npos)
+            if (const auto Slash = Input.find('/'); Slash != std::string_view::npos)
             {
-                s.HttpPath = std::string(input.substr(Slash));
-                input = input.substr(0, Slash);
+                ServerConfig.HttpPath = std::string(Input.substr(Slash));
+                Input = Input.substr(0, Slash);
             }
         }
 
-        const auto Parts = Detail::SplitServerAuthority(input);
-        s.Address = std::string(Parts.Host);
-        s.Hostname = s.Address;
+        const auto Parts = Detail::SplitServerAuthority(Input);
+        ServerConfig.Address = std::string(Parts.Host);
+        ServerConfig.Hostname = ServerConfig.Address;
         if (Parts.HasPort)
         {
-            s.Port = Parts.Port;
+            ServerConfig.Port = Parts.Port;
         }
-        return s;
+        return ServerConfig;
     }
 
 } // namespace Preview::Network::Dns

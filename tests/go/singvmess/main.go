@@ -136,15 +136,22 @@ func testUDP() error {
 }
 
 func main() {
-	if len(os.Args) > 1 {
-		serverAddr = os.Args[1]
+	tcpOnly := false
+	for _, arg := range os.Args[1:] {
+		if arg == "-tcp-only" {
+			tcpOnly = true
+			continue
+		}
+		serverAddr = arg
 	}
 	if err := testTCP(); err != nil {
 		fmt.Printf("FAIL: tcp: %v\n", err)
 		os.Exit(1)
 	}
-	if err := testUDP(); err != nil {
+	if !tcpOnly {
+		if err := testUDP(); err != nil {
 		fmt.Printf("FAIL: udp: %v\n", err)
 		os.Exit(1)
+		}
 	}
 }

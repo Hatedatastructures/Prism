@@ -24,7 +24,7 @@
 namespace Preview::Middleware::Builtin
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class MuxMiddleware
@@ -37,7 +37,7 @@ namespace Preview::Middleware::Builtin
     public:
         /// mux 引导函数签名（Inbound → 是否成功）
         using MuxFn =
-            std::function<net::awaitable<bool>(Preview::SharedTransmission &, Context &)>;
+            std::function<Net::awaitable<bool>(Preview::SharedTransmission &, Context &)>;
 
         /**
          * @brief 构造函数
@@ -62,7 +62,7 @@ namespace Preview::Middleware::Builtin
          * @return success = mux 已接管（管线终止）；not_supported = 未启用
          */
         auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
-            -> net::awaitable<Preview::Fault::Code> override
+            -> Net::awaitable<Preview::Fault::Code> override
         {
             if (!Mux_)
             {

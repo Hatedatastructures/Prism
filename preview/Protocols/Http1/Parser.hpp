@@ -21,6 +21,9 @@
 namespace Preview::Http11
 {
 
+    /// 最大 HTTP 头部大小（防慢速输入和解析阶段内存增长）
+    inline constexpr std::size_t MaxHdrSize = 65536;
+
     /**
      * @struct HttpRequest
      * @brief 解析后的 HTTP 请求（视图，不拷贝正文）
@@ -29,9 +32,9 @@ namespace Preview::Http11
     {
         std::string_view Method;        ///< 方法（CONNECT）
         std::string_view Target;        ///< 目标（host:port）
-        std::string_view version;       ///< 版本（HTTP/1.1）
-        std::string_view host;          ///< Host 头
-        std::string_view authorization; ///< Proxy-Authorization 头
+        std::string_view version;       ///< 版本（HTTP/1.1；保留兼容字段名）
+        std::string_view host;          ///< Host 头（保留兼容字段名）
+        std::string_view authorization; ///< Proxy-Authorization 头（保留兼容字段名）
         std::size_t LineEnd{0};        ///< 请求行结束偏移（\r\n 之后）
         std::size_t HdrEnd{0};         ///< 头块结束偏移（\r\n\r\n 之后）
     };
@@ -45,16 +48,16 @@ namespace Preview::Http11
         }
 
         /// @brief 大小写不敏感比较
-        [[nodiscard]] inline auto Iequals(std::string_view l, std::string_view r) noexcept
+        [[nodiscard]] inline auto Iequals(std::string_view Left, std::string_view Right) noexcept
             -> bool
         {
-            if (l.size() != r.size())
+            if (Left.size() != Right.size())
             {
                 return false;
             }
-            for (std::size_t I = 0; I < l.size(); ++I)
+            for (std::size_t Index = 0; Index < Left.size(); ++Index)
             {
-                if (ToLower(l[I]) != ToLower(r[I]))
+                if (ToLower(Left[Index]) != ToLower(Right[Index]))
                 {
                     return false;
                 }
@@ -62,90 +65,153 @@ namespace Preview::Http11
             return true;
         }
 
-        /// @brief 去除首尾空白
-        [[nodiscard]] inline auto Trim(std::string_view v) noexcept -> std::string_view
+        /// RFC 7230 tchar
+        [[nodiscard]] inline auto IsTokenChar(const char Character) noexcept -> bool
         {
-            auto S = v;
-            while (!S.empty() && (S.front() == ' ' || S.front() == '\t'))
+            const auto Byte = static_cast<unsigned char>(Character);
+            if ((Byte >= 'A' && Byte <= 'Z') || (Byte >= 'a' && Byte <= 'z') ||
+                (Byte >= '0' && Byte <= '9'))
             {
-                S.remove_prefix(1);
+                return true;
             }
-            while (!S.empty() && (S.back() == ' ' || S.back() == '\t'))
+            constexpr std::string_view Punctuation{"!#$%&'*+-.^_`|~"};
+            return Punctuation.find(Character) != std::string_view::npos;
+        }
+
+        /// RFC 7230 field-value 中允许的可见字符和 HTAB
+        [[nodiscard]] inline auto IsFieldValueChar(const char Character) noexcept -> bool
+        {
+            const auto Byte = static_cast<unsigned char>(Character);
+            return Byte == '\t' || Byte >= 0x20;
+        }
+
+        /// @brief 去除首尾空白
+        [[nodiscard]] inline auto Trim(std::string_view Value) noexcept -> std::string_view
+        {
+            auto Trimmed = Value;
+            while (!Trimmed.empty() && (Trimmed.front() == ' ' || Trimmed.front() == '\t'))
             {
-                S.remove_suffix(1);
+                Trimmed.remove_prefix(1);
             }
-            return S;
+            while (!Trimmed.empty() && (Trimmed.back() == ' ' || Trimmed.back() == '\t'))
+            {
+                Trimmed.remove_suffix(1);
+            }
+            return Trimmed;
         }
     } // namespace detail
 
     /**
      * @brief 解析 HTTP 请求
-     * @param raw 原始数据（含请求行 + 头块）
-     * @param out 解析结果
+     * @param Raw 原始数据（含请求行 + 头块）
+     * @param Request 解析结果
      * @return 成功或 parse_error
      */
-    [[nodiscard]] inline auto ParseRequest(std::string_view raw, HttpRequest &out) -> Fault::Code
+    [[nodiscard]] inline auto ParseRequest(
+        std::string_view Raw,
+        HttpRequest &Request) -> Fault::Code
     {
-        const auto LineEnd = raw.find("\r\n");
+        Request = {};
+        if (Raw.size() > MaxHdrSize)
+        {
+            return Fault::Code::ParseError;
+        }
+
+        const auto LineEnd = Raw.find("\r\n");
         if (LineEnd == std::string_view::npos)
         {
             return Fault::Code::ParseError;
         }
 
-        const auto FirstSpace = raw.find(' ');
+        const auto FirstSpace = Raw.find(' ');
         if (FirstSpace == std::string_view::npos || FirstSpace >= LineEnd)
         {
             return Fault::Code::ParseError;
         }
-        const auto SecondSpace = raw.find(' ', FirstSpace + 1);
+        const auto SecondSpace = Raw.find(' ', FirstSpace + 1);
         if (SecondSpace == std::string_view::npos || SecondSpace >= LineEnd)
         {
             return Fault::Code::ParseError;
         }
 
-        out.Method = raw.substr(0, FirstSpace);
-        out.Target = raw.substr(FirstSpace + 1, SecondSpace - FirstSpace - 1);
-        out.version = raw.substr(SecondSpace + 1, LineEnd - SecondSpace - 1);
-        out.LineEnd = LineEnd + 2;
+        Request.Method = Raw.substr(0, FirstSpace);
+        Request.Target = Raw.substr(FirstSpace + 1, SecondSpace - FirstSpace - 1);
+        Request.version = Raw.substr(SecondSpace + 1, LineEnd - SecondSpace - 1);
+        if (Request.Method != "CONNECT" || Request.Target.empty() || Request.version != "HTTP/1.1")
+        {
+            return Fault::Code::ParseError;
+        }
+        Request.LineEnd = LineEnd + 2;
 
-        const auto HeadersEnd = raw.find("\r\n\r\n", LineEnd);
+        const auto HeadersEnd = Raw.find("\r\n\r\n", LineEnd);
         if (HeadersEnd == std::string_view::npos)
         {
             return Fault::Code::ParseError;
         }
-        out.HdrEnd = HeadersEnd + 4;
+        Request.HdrEnd = HeadersEnd + 4;
 
         // 遍历头字段，提取 Host 与 Proxy-Authorization
-        std::string_view block = raw.substr(LineEnd + 2, HeadersEnd - LineEnd - 2);
-        while (!block.empty())
+        std::string_view HeaderBlock = Raw.substr(LineEnd + 2, HeadersEnd - LineEnd - 2);
+        bool HostSeen = false;
+        bool AuthorizationSeen = false;
+        while (!HeaderBlock.empty())
         {
-            const auto Next = block.find("\r\n");
-            std::string_view line;
+            const auto Next = HeaderBlock.find("\r\n");
+            std::string_view Line;
             if (Next == std::string_view::npos)
             {
-                line = block;
-                block = {};
+                Line = HeaderBlock;
+                HeaderBlock = {};
             }
             else
             {
-                line = block.substr(0, Next);
-                block = block.substr(Next + 2);
+                Line = HeaderBlock.substr(0, Next);
+                HeaderBlock = HeaderBlock.substr(Next + 2);
             }
 
-            const auto Colon = line.find(':');
-            if (Colon == std::string_view::npos)
+            if (Line.empty() || Line.front() == ' ' || Line.front() == '\t')
             {
-                continue;
+                return Fault::Code::ParseError;
             }
-            const auto Name = detail::Trim(line.substr(0, Colon));
-            const auto value = detail::Trim(line.substr(Colon + 1));
+            const auto Colon = Line.find(':');
+            if (Colon == std::string_view::npos || Colon == 0)
+            {
+                return Fault::Code::ParseError;
+            }
+            const auto Name = Line.substr(0, Colon);
+            for (const auto Character : Name)
+            {
+                if (!detail::IsTokenChar(Character))
+                {
+                    return Fault::Code::ParseError;
+                }
+            }
+            const auto RawValue = Line.substr(Colon + 1);
+            for (const auto Character : RawValue)
+            {
+                if (!detail::IsFieldValueChar(Character) || Character == '\x7F')
+                {
+                    return Fault::Code::ParseError;
+                }
+            }
+            const auto Value = detail::Trim(RawValue);
             if (detail::Iequals(Name, "host"))
             {
-                out.host = value;
+                if (HostSeen)
+                {
+                    return Fault::Code::ParseError;
+                }
+                HostSeen = true;
+                Request.host = Value;
             }
             else if (detail::Iequals(Name, "proxy-authorization"))
             {
-                out.authorization = value;
+                if (AuthorizationSeen)
+                {
+                    return Fault::Code::ParseError;
+                }
+                AuthorizationSeen = true;
+                Request.authorization = Value;
             }
         }
         return Fault::Code::Success;
@@ -153,56 +219,58 @@ namespace Preview::Http11
 
     /**
      * @brief 构造 CONNECT 请求
-     * @param host 目标主机
-     * @param port 目标端口
-     * @param authorization Basic 凭据（可选，为空则不含该头）
+     * @param Host 目标主机
+     * @param Port 目标端口
+     * @param Authorization Basic 凭据（可选，为空则不含该头）
      * @return 完整请求字节串
      */
-    [[nodiscard]] inline auto MakeConnectRequest(std::string_view host, const std::uint16_t port,
-                                                   const std::string_view authorization = {})
+    [[nodiscard]] inline auto MakeConnectRequest(
+        std::string_view Host,
+        const std::uint16_t Port,
+        const std::string_view Authorization = {})
         -> std::string
     {
-        std::string req;
-        req.reserve(64 + authorization.size());
-        req.append("CONNECT ").append(host).push_back(':');
-        req.append(std::to_string(port));
-        req.append(" HTTP/1.1\r\nHost: ").append(host).push_back(':');
-        req.append(std::to_string(port)).append("\r\n");
-        if (!authorization.empty())
+        std::string Request;
+        Request.reserve(64 + Authorization.size());
+        Request.append("CONNECT ").append(Host).push_back(':');
+        Request.append(std::to_string(Port));
+        Request.append(" HTTP/1.1\r\nHost: ").append(Host).push_back(':');
+        Request.append(std::to_string(Port)).append("\r\n");
+        if (!Authorization.empty())
         {
-            req.append("Proxy-Authorization: ").append(authorization).append("\r\n");
+            Request.append("Proxy-Authorization: ").append(Authorization).append("\r\n");
         }
-        req.append("\r\n");
-        return req;
+        Request.append("\r\n");
+        return Request;
     }
 
     /**
      * @brief 提取响应行状态码
-     * @param raw 响应头数据
+     * @param Raw 响应头数据
      * @return 状态码（解析失败返回 0）
      */
-    [[nodiscard]] inline auto ParseStatusCode(std::string_view raw) -> int
+    [[nodiscard]] inline auto ParseStatusCode(std::string_view Raw) -> int
     {
-        if (!raw.starts_with("HTTP/"))
+        if (!Raw.starts_with("HTTP/"))
         {
             return 0;
         }
-        const auto LineEnd = raw.find("\r\n");
+        const auto LineEnd = Raw.find("\r\n");
         if (LineEnd == std::string_view::npos)
         {
             return 0;
         }
-        const auto FirstSpace = raw.find(' ');
+        const auto FirstSpace = Raw.find(' ');
         if (FirstSpace == std::string_view::npos || FirstSpace + 1 >= LineEnd)
         {
             return 0;
         }
         int Code = 0;
-        for (std::size_t I = FirstSpace + 1; I < LineEnd && std::isdigit(
-                                                           static_cast<unsigned char>(raw[I]));
-             ++I)
+        for (std::size_t Index = FirstSpace + 1;
+             Index < LineEnd && std::isdigit(static_cast<unsigned char>(Raw[Index]));
+             ++Index)
         {
-            Code = Code * 10 + (raw[I] - '0');
+            Code = Code * 10 + (Raw[Index] - '0');
         }
         return Code;
     }

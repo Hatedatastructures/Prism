@@ -21,7 +21,7 @@
 namespace Preview::Recognition
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @struct ProbeResult
@@ -53,12 +53,14 @@ namespace Preview::Recognition
             return false;
         }
 
-        const auto StartsWith = [Data](std::span<const std::uint8_t> Prefix) {
+        const auto StartsWith = [Data](std::span<const std::uint8_t> Prefix)
+        {
             return Data.size() <= Prefix.size() &&
                    std::equal(Data.begin(), Data.end(), Prefix.begin());
         };
 
-        // TLS 与 Trojan 在出现不匹配字节后即可确定不是候选协议。
+        // TLS 在出现不匹配字节后即可确定不是候选协议；Trojan 没有稳定首包魔数，
+        // 必须由配置候选凭据校验，不能在 legacy probe 中等待 CRLF 序列。
         constexpr std::array<std::uint8_t, 2> TlsPrefix{0x16, 0x03};
         if (StartsWith(TlsPrefix))
         {
@@ -69,22 +71,10 @@ namespace Preview::Recognition
             return false;
         }
 
-        if (StartsWith(std::span<const std::uint8_t>(TrojanMagic)))
+        // SOCKS5 需要第二字节 NMETHODS 才能确认；非法方法数量立即停止等待。
+        if (Data[0] == 0x05)
         {
-            return true;
-        }
-        if (Data[0] == TrojanMagic[0])
-        {
-            return false;
-        }
-
-        if (StartsWith(std::span<const std::uint8_t>(VlessMagic)))
-        {
-            return true;
-        }
-        if (Data[0] == VlessMagic[0])
-        {
-            return false;
+            return Data.size() < 2;
         }
 
         // 结构化 VLESS 以版本 0 开始，需要固定头和受限附加字段才能校验。
@@ -101,7 +91,7 @@ namespace Preview::Recognition
 
         // HTTP 方法名是首包分片后仍可继续判定的文本前缀。
         constexpr std::string_view Methods[] = {
-            "GET ", "POST ", "CONNECT ", "PUT ", "DELETE ", "HEAD "};
+            "GET ", "POST ", "CONNECT ", "PUT ", "DELETE ", "HEAD ", "OPTIONS ", "TRACE ", "PATCH "};
         for (const auto Method : Methods)
         {
             if (Data.size() <= Method.size() &&
@@ -121,7 +111,7 @@ namespace Preview::Recognition
      * @details 预读数据保留在结果中，调用方可用 WrapWithPreview 回注。
      */
     [[nodiscard]] inline auto Probe(Transmission &transport, std::size_t MaxSize = MaxProbeSize)
-        -> net::awaitable<ProbeResult>
+        -> Net::awaitable<ProbeResult>
     {
         ProbeResult Result;
         const auto Peek = (std::min)(MaxSize, MaxProbeSize);
@@ -134,7 +124,7 @@ namespace Preview::Recognition
                 std::span<std::byte>(Result.PreRead.data() + Result.PreReadSize,
                                      Peek - Result.PreReadSize),
                 ec);
-            if (ec || N == 0 || N > Peek - Result.PreReadSize)
+            if (N > Peek - Result.PreReadSize)
             {
                 co_return Result;
             }
@@ -145,6 +135,10 @@ namespace Preview::Recognition
             }
             Result.PreReadSize += N;
             Result.Type = Detect(std::span<const std::uint8_t>(Bytes.data(), Result.PreReadSize));
+            if (ec || N == 0)
+            {
+                co_return Result;
+            }
             if (Result.Type != ProtocolType::Unknown)
             {
                 Result.success = true;

@@ -27,14 +27,15 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
 namespace Preview::Network::Dns
 {
 
-    namespace net = boost::asio;
-    namespace ssl = net::ssl;
+    namespace Net = boost::asio;
+    namespace Ssl = Net::ssl;
 
     /// 以 error_code 表达成败的结果类型（传输层不抛异常）
     template <typename T>
@@ -47,11 +48,11 @@ namespace Preview::Network::Dns
      *          Receive 返回剥离封装后的应答字节，Close 释放底层套接字
      */
     template <typename T>
-    concept TransportLink = requires(T link, std::span<const std::uint8_t> wire) {
-        link.Send(wire);
-        link.Receive();
-        link.Close();
-        link.IsOpen();
+    concept TransportLink = requires(T LinkObject, std::span<const std::uint8_t> Wire) {
+        LinkObject.Send(Wire);
+        LinkObject.Receive();
+        LinkObject.Close();
+        LinkObject.IsOpen();
     };
 
     /**
@@ -62,26 +63,33 @@ namespace Preview::Network::Dns
      */
     template <typename T>
     concept PoolableTransport =
-        TransportLink<T> && requires(T link, const net::ip::tcp::endpoint &ep, const Server &srv) {
-            link.Connect(ep, srv);
+        TransportLink<T> && requires(T LinkObject, const Net::ip::tcp::endpoint &Endpoint,
+                                     const Server &ServerConfig) {
+            LinkObject.Connect(Endpoint, ServerConfig);
         };
 
     namespace Detail
     {
+        /// 帧体长度上限（DNS over TCP 单帧 65535 字节上限）
+        constexpr std::size_t MaxFrameBytes = 65535;
+
         /// TCP/DoT 共享的 2 字节大端长度前缀封装
-        [[nodiscard]] inline auto MakeTcpFrame(std::span<const std::uint8_t> wire)
-            -> std::vector<std::uint8_t>
+        [[nodiscard]] inline auto MakeTcpFrame(std::span<const std::uint8_t> Wire)
+            -> EcResult<std::vector<std::uint8_t>>
         {
+            if (Wire.size() > MaxFrameBytes)
+            {
+                return std::unexpected(
+                    boost::system::errc::make_error_code(boost::system::errc::message_size));
+            }
             std::vector<std::uint8_t> frame;
-            frame.reserve(wire.size() + 2);
-            frame.push_back(static_cast<std::uint8_t>(wire.size() >> 8));
-            frame.push_back(static_cast<std::uint8_t>(wire.size() & 0xFF));
-            frame.insert(frame.end(), wire.begin(), wire.end());
+            frame.reserve(Wire.size() + 2);
+            frame.push_back(static_cast<std::uint8_t>(Wire.size() >> 8));
+            frame.push_back(static_cast<std::uint8_t>(Wire.size() & 0xFF));
+            frame.insert(frame.end(), Wire.begin(), Wire.end());
             return frame;
         }
 
-        /// 帧体长度上限（DNS over TCP 单帧 65535 字节上限）
-        constexpr std::size_t MaxFrameBytes = 65535;
     } // namespace Detail
 
     /**
@@ -91,46 +99,48 @@ namespace Preview::Network::Dns
     class UdpTransport
     {
     public:
-        UdpTransport(net::any_io_executor ex, const std::chrono::milliseconds timeout)
-            : Ex_(std::move(ex)), Timer_(Ex_), Timeout_(timeout)
+        UdpTransport(Net::any_io_executor Executor, const std::chrono::milliseconds Timeout)
+            : Ex_(std::move(Executor)), Timer_(Ex_), Timeout_(Timeout)
         {
         }
 
         /// 建立已连接 UDP 套接字（内核级过滤非对端数据报，防伪造）
-        auto Connect(const net::ip::udp::endpoint &ep, const Server & /*server*/)
-            -> net::awaitable<boost::system::error_code>
+        auto Connect(const Net::ip::udp::endpoint &Endpoint, const Server & /*ServerConfig*/)
+            -> Net::awaitable<boost::system::error_code>
         {
-            boost::system::error_code ec;
-            Sock_.emplace(Ex_, ep.protocol());
+            boost::system::error_code ErrorCode;
+            Sock_.emplace(Ex_, Endpoint.protocol());
             Arm();
-            co_await Sock_->async_connect(ep, net::redirect_error(net::use_awaitable, ec));
+            co_await Sock_->async_connect(Endpoint,
+                                          Net::redirect_error(Net::use_awaitable, ErrorCode));
             Disarm();
-            co_return ec;
+            co_return ErrorCode;
         }
 
-        auto Send(std::span<const std::uint8_t> wire) -> net::awaitable<boost::system::error_code>
+        auto Send(std::span<const std::uint8_t> Wire) -> Net::awaitable<boost::system::error_code>
         {
-            boost::system::error_code ec;
+            boost::system::error_code ErrorCode;
             Arm();
-            co_await Sock_->async_send(net::buffer(wire),
-                                       net::redirect_error(net::use_awaitable, ec));
+            co_await Sock_->async_send(Net::buffer(Wire),
+                                       Net::redirect_error(Net::use_awaitable, ErrorCode));
             Disarm();
-            co_return ec;
+            co_return ErrorCode;
         }
 
-        auto Receive() -> net::awaitable<EcResult<std::vector<std::uint8_t>>>
+        auto Receive() -> Net::awaitable<EcResult<std::vector<std::uint8_t>>>
         {
-            std::array<std::uint8_t, 4096> buf{};
-            boost::system::error_code ec;
+            std::array<std::uint8_t, 4096> Buffer{};
+            boost::system::error_code ErrorCode;
             Arm();
-            const auto n = co_await Sock_->async_receive(net::buffer(buf),
-                                                         net::redirect_error(net::use_awaitable, ec));
+            const auto Count = co_await Sock_->async_receive(Net::buffer(Buffer),
+                                                         Net::redirect_error(Net::use_awaitable, ErrorCode));
             Disarm();
-            if (ec)
+            if (ErrorCode)
             {
-                co_return std::unexpected(ec);
+                co_return std::unexpected(ErrorCode);
             }
-            co_return std::vector<std::uint8_t>(buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(n));
+            co_return std::vector<std::uint8_t>(Buffer.begin(),
+                                                Buffer.begin() + static_cast<std::ptrdiff_t>(Count));
         }
 
         auto IsOpen() const -> bool
@@ -143,8 +153,8 @@ namespace Preview::Network::Dns
             Timer_.cancel();
             if (Sock_)
             {
-                boost::system::error_code ec;
-                Sock_->close(ec);
+                boost::system::error_code CloseError;
+                Sock_->close(CloseError);
             }
         }
 
@@ -153,13 +163,14 @@ namespace Preview::Network::Dns
         void Arm()
         {
             Timer_.expires_after(Timeout_);
-            Timer_.async_wait([this](boost::system::error_code ec)
+            auto TimeoutOperation = [this](boost::system::error_code ErrorCode)
                               {
-                                  if (ec != net::error::operation_aborted && Sock_)
+                                  if (ErrorCode != Net::error::operation_aborted && Sock_)
                                   {
                                       boost::system::error_code ignore;
                                       Sock_->cancel(ignore);
-                                  } });
+                                  } };
+            Timer_.async_wait(std::move(TimeoutOperation));
         }
 
         /// 操作完成即解除定时器，防残留回调误伤后续操作
@@ -168,10 +179,10 @@ namespace Preview::Network::Dns
             Timer_.cancel();
         }
 
-        net::any_io_executor Ex_;
-        net::steady_timer Timer_;
+        Net::any_io_executor Ex_;
+        Net::steady_timer Timer_;
         std::chrono::milliseconds Timeout_;
-        std::optional<net::ip::udp::socket> Sock_;
+        std::optional<Net::ip::udp::socket> Sock_;
     };
 
     /// 帧级传输的共享实现骨架：定时器武装 + 帧编解码（Tcp/Tls 复用）
@@ -179,27 +190,32 @@ namespace Preview::Network::Dns
     class FrameTransportBase
     {
     public:
-        auto Send(std::span<const std::uint8_t> wire) -> net::awaitable<boost::system::error_code>
+        auto Send(std::span<const std::uint8_t> Wire) -> Net::awaitable<boost::system::error_code>
         {
-            const auto Frame = Detail::MakeTcpFrame(wire);
-            boost::system::error_code ec;
+            const auto FrameResult = Detail::MakeTcpFrame(Wire);
+            if (!FrameResult)
+            {
+                co_return FrameResult.error();
+            }
+            const auto &Frame = *FrameResult;
+            boost::system::error_code ErrorCode;
             Self().Arm();
-            co_await net::async_write(Self().Stream(), net::buffer(Frame),
-                                      net::redirect_error(net::use_awaitable, ec));
+            co_await Net::async_write(Self().Stream(), Net::buffer(Frame),
+                                      Net::redirect_error(Net::use_awaitable, ErrorCode));
             Self().Disarm();
-            co_return ec;
+            co_return ErrorCode;
         }
 
-        auto Receive() -> net::awaitable<EcResult<std::vector<std::uint8_t>>>
+        auto Receive() -> Net::awaitable<EcResult<std::vector<std::uint8_t>>>
         {
-            std::array<std::uint8_t, 2> lenBuf{};
-            boost::system::error_code ec;
+            std::array<std::uint8_t, 2> LengthBuffer{};
+            boost::system::error_code ErrorCode;
             Self().Arm();
-            co_await net::async_read(Self().Stream(), net::buffer(lenBuf),
-                                     net::redirect_error(net::use_awaitable, ec));
-            if (!ec)
+            co_await Net::async_read(Self().Stream(), Net::buffer(LengthBuffer),
+                                     Net::redirect_error(Net::use_awaitable, ErrorCode));
+            if (!ErrorCode)
             {
-                const auto Len = static_cast<std::size_t>((lenBuf[0] << 8) | lenBuf[1]);
+                const auto Len = static_cast<std::size_t>((LengthBuffer[0] << 8) | LengthBuffer[1]);
                 if (Len == 0 || Len > Detail::MaxFrameBytes)
                 {
                     Self().Disarm();
@@ -207,17 +223,17 @@ namespace Preview::Network::Dns
                         boost::system::errc::make_error_code(boost::system::errc::bad_message));
                 }
                 std::vector<std::uint8_t> body(Len);
-                co_await net::async_read(Self().Stream(), net::buffer(body),
-                                         net::redirect_error(net::use_awaitable, ec));
+                co_await Net::async_read(Self().Stream(), Net::buffer(body),
+                                         Net::redirect_error(Net::use_awaitable, ErrorCode));
                 Self().Disarm();
-                if (ec)
+                if (ErrorCode)
                 {
-                    co_return std::unexpected(ec);
+                    co_return std::unexpected(ErrorCode);
                 }
                 co_return body;
             }
             Self().Disarm();
-            co_return std::unexpected(ec);
+            co_return std::unexpected(ErrorCode);
         }
 
         auto IsOpen() const -> bool
@@ -249,22 +265,23 @@ namespace Preview::Network::Dns
     class TcpTransport : public FrameTransportBase<TcpTransport>
     {
     public:
-        TcpTransport(net::any_io_executor ex, const std::chrono::milliseconds timeout)
-            : Ex_(std::move(ex)), Timer_(Ex_), Timeout_(timeout), Sock_(Ex_)
+        TcpTransport(Net::any_io_executor Executor, const std::chrono::milliseconds Timeout)
+            : Ex_(std::move(Executor)), Timer_(Ex_), Timeout_(Timeout), Sock_(Ex_)
         {
         }
 
-        auto Connect(const net::ip::tcp::endpoint &ep, const Server & /*server*/)
-            -> net::awaitable<boost::system::error_code>
+        auto Connect(const Net::ip::tcp::endpoint &Endpoint, const Server & /*ServerConfig*/)
+            -> Net::awaitable<boost::system::error_code>
         {
-            boost::system::error_code ec;
+            boost::system::error_code ErrorCode;
             Arm();
-            co_await Sock_.async_connect(ep, net::redirect_error(net::use_awaitable, ec));
+            co_await Sock_.async_connect(Endpoint,
+                                         Net::redirect_error(Net::use_awaitable, ErrorCode));
             Disarm();
-            co_return ec;
+            co_return ErrorCode;
         }
 
-        [[nodiscard]] auto Stream() -> net::ip::tcp::socket &
+        [[nodiscard]] auto Stream() -> Net::ip::tcp::socket &
         {
             return Sock_;
         }
@@ -276,20 +293,21 @@ namespace Preview::Network::Dns
 
         auto CloseImpl() -> void
         {
-            boost::system::error_code ec;
-            Sock_.close(ec);
+            boost::system::error_code CloseError;
+            Sock_.close(CloseError);
         }
 
         void Arm()
         {
             Timer_.expires_after(Timeout_);
-            Timer_.async_wait([this](boost::system::error_code ec)
+            auto TimeoutOperation = [this](boost::system::error_code ErrorCode)
                               {
-                                  if (ec != net::error::operation_aborted)
+                                  if (ErrorCode != Net::error::operation_aborted)
                                   {
                                       boost::system::error_code ignore;
                                       Sock_.cancel(ignore);
-                                  } });
+                                  } };
+            Timer_.async_wait(std::move(TimeoutOperation));
         }
 
         void Disarm()
@@ -298,10 +316,10 @@ namespace Preview::Network::Dns
         }
 
     private:
-        net::any_io_executor Ex_;
-        net::steady_timer Timer_;
+        Net::any_io_executor Ex_;
+        Net::steady_timer Timer_;
         std::chrono::milliseconds Timeout_;
-        net::ip::tcp::socket Sock_;
+        Net::ip::tcp::socket Sock_;
     };
 
     /**
@@ -313,40 +331,44 @@ namespace Preview::Network::Dns
     class TlsTransport : public FrameTransportBase<TlsTransport>
     {
     public:
-        TlsTransport(net::any_io_executor ex, const std::chrono::milliseconds timeout,
-                     std::shared_ptr<ssl::context> ctx)
-            : Ex_(std::move(ex)), Timer_(Ex_), Timeout_(timeout), Ctx_(std::move(ctx))
+        TlsTransport(Net::any_io_executor Executor, const std::chrono::milliseconds Timeout,
+                     std::shared_ptr<Ssl::context> Context)
+            : Ex_(std::move(Executor)), Timer_(Ex_), Timeout_(Timeout), Ctx_(std::move(Context))
         {
         }
 
-        auto Connect(const net::ip::tcp::endpoint &ep, const Server &server)
-            -> net::awaitable<boost::system::error_code>
+        auto Connect(const Net::ip::tcp::endpoint &Endpoint, const Server &ServerConfig)
+            -> Net::awaitable<boost::system::error_code>
         {
-            boost::system::error_code ec;
+            boost::system::error_code ErrorCode;
             Stream_.emplace(Ex_, *Ctx_);
-            const auto sniName = !server.Hostname.empty() ? server.Hostname : server.Address;
-            SSL_set_tlsext_host_name(Stream_->native_handle(), sniName.c_str());
-            if (!server.SkipCertCheck)
+            std::string SniName = ServerConfig.Address;
+            if (!ServerConfig.Hostname.empty())
             {
-                Stream_->set_verify_callback(ssl::host_name_verification(sniName), ec);
-                if (ec)
+                SniName = ServerConfig.Hostname;
+            }
+            SSL_set_tlsext_host_name(Stream_->native_handle(), SniName.c_str());
+            if (!ServerConfig.SkipCertCheck)
+            {
+                Stream_->set_verify_callback(Ssl::host_name_verification(SniName), ErrorCode);
+                if (ErrorCode)
                 {
-                    co_return ec;
+                    co_return ErrorCode;
                 }
             }
             Arm();
             co_await Stream_->lowest_layer().async_connect(
-                ep, net::redirect_error(net::use_awaitable, ec));
-            if (!ec)
+                Endpoint, Net::redirect_error(Net::use_awaitable, ErrorCode));
+            if (!ErrorCode)
             {
-                co_await Stream_->async_handshake(ssl::stream_base::client,
-                                                  net::redirect_error(net::use_awaitable, ec));
+                co_await Stream_->async_handshake(Ssl::stream_base::client,
+                                                  Net::redirect_error(Net::use_awaitable, ErrorCode));
             }
             Disarm();
-            co_return ec;
+            co_return ErrorCode;
         }
 
-        [[nodiscard]] auto Stream() -> ssl::stream<net::ip::tcp::socket> &
+        [[nodiscard]] auto Stream() -> Ssl::stream<Net::ip::tcp::socket> &
         {
             return *Stream_;
         }
@@ -360,21 +382,22 @@ namespace Preview::Network::Dns
         {
             if (Stream_)
             {
-                boost::system::error_code ec;
-                Stream_->lowest_layer().close(ec);
+                boost::system::error_code CloseError;
+                Stream_->lowest_layer().close(CloseError);
             }
         }
 
         void Arm()
         {
             Timer_.expires_after(Timeout_);
-            Timer_.async_wait([this](boost::system::error_code ec)
+            auto TimeoutOperation = [this](boost::system::error_code ErrorCode)
                               {
-                                  if (ec != net::error::operation_aborted && Stream_)
+                                  if (ErrorCode != Net::error::operation_aborted && Stream_)
                                   {
                                       boost::system::error_code ignore;
                                       Stream_->lowest_layer().cancel(ignore);
-                                  } });
+                                  } };
+            Timer_.async_wait(std::move(TimeoutOperation));
         }
 
         void Disarm()
@@ -383,11 +406,11 @@ namespace Preview::Network::Dns
         }
 
     private:
-        net::any_io_executor Ex_;
-        net::steady_timer Timer_;
+        Net::any_io_executor Ex_;
+        Net::steady_timer Timer_;
         std::chrono::milliseconds Timeout_;
-        std::shared_ptr<ssl::context> Ctx_;
-        std::optional<ssl::stream<net::ip::tcp::socket>> Stream_;
+        std::shared_ptr<Ssl::context> Ctx_;
+        std::optional<Ssl::stream<Net::ip::tcp::socket>> Stream_;
     };
 
     // 编译期概念自检：三类传输均满足收发语义，Tcp/Tls 满足可池化语义

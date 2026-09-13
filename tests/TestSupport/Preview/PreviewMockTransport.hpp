@@ -5,6 +5,7 @@
  * - 注入读取字节流（ToRead，按需消费）
  * - 按调用次数注入读取错误（FailNextRead / ReadFailAt）
  * - 按调用次数注入写入错误（FailNextWrite / WriteFailAt）
+ * - 可注入读写 over-reporting，验证协议层不会推进越过目标窗口
  * - 限制单次写入返回长度（MaxWrite，模拟半包写）
  * - 捕获全部写入数据（Written）
  * - 空读通过外部执行器上的事件通知等待，不使用定时器轮询
@@ -48,7 +49,8 @@ namespace Preview
      * 读取/写入错误可指定在第 N 次调用
      * 触发（ReadFailAt / WriteFailAt，1 起）或单次触发
      * （FailNextRead / FailNextWrite）；MaxWrite 限制单次
-     * 写入返回字节数以模拟半包写。Close() 后读返回 EOF、写失败。
+     * 写入返回字节数以模拟半包写；OverreportRead/Write 模拟违反
+     * 传输契约的返回值。Close() 后读返回 EOF、写失败。
      */
     class PreviewMockTransport final : public Transmission
     {
@@ -123,6 +125,10 @@ namespace Preview
                 if (Shutdown_)
                 {
                     co_return 0;
+                }
+                if (OverreportRead)
+                {
+                    co_return Buffer.size() + 1;
                 }
                 if (ReadPos_ < ToRead.size())
                 {
@@ -248,6 +254,8 @@ namespace Preview
         bool ZeroWrite{false};
         /// 写入返回超过请求长度（用于验证完整写入层的防御性检查）
         bool OverreportWrite{false};
+        /// 读取返回超过请求长度（用于验证协议层的防御性检查）
+        bool OverreportRead{false};
         /// 底层传输类型（Dgram 测试设为 Udp，默认 Tcp）
         Type TransportKind{Type::Tcp};
         /// 有限注入流耗尽后返回 EOF；false 时空读事件驱动等待

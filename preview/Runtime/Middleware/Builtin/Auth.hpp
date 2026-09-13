@@ -27,7 +27,7 @@
 namespace Preview::Middleware::Builtin
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class AuthMiddleware
@@ -68,7 +68,7 @@ namespace Preview::Middleware::Builtin
          * @return success / auth_failed / not_supported
          */
         auto Handle(Preview::SharedTransmission & /*Inbound*/, Context &ctx)
-            -> net::awaitable<Preview::Fault::Code> override
+            -> Net::awaitable<Preview::Fault::Code> override
         {
             if (!Auth_ || !Cred_)
             {
@@ -87,7 +87,7 @@ namespace Preview::Middleware::Builtin
             {
                 co_return Preview::Fault::Code::AuthFailed;
             }
-            ctx.identity = std::move(Result.identity);
+            ctx.identity = std::move(Result.Identity);
             ctx.AccountLease = std::move(Result.Lease);
             co_return Preview::Fault::Code::Success;
         }

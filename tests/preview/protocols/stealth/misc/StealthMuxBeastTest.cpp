@@ -19,8 +19,17 @@
 
 namespace
 {
-    using namespace Preview;
-    using namespace Preview::Mux;
+    namespace Anytls = Preview::Anytls;
+    namespace Gun = Preview::Gun;
+    namespace H2Mux = Preview::Mux::H2Mux;
+    namespace Reality = Preview::Reality;
+    namespace Restls = Preview::Restls;
+    namespace Shadowtls = Preview::Shadowtls;
+    namespace Smux = Preview::Mux::Smux;
+    namespace Trusttunnel = Preview::Trusttunnel;
+    namespace Yamux = Preview::Mux::Yamux;
+    namespace Ws = Preview::Ws;
+    using Error = Preview::Error;
 
     TEST(RealityBeast, KeypairAndBase64)
     {
@@ -209,15 +218,21 @@ namespace
     TEST(MuxBeast, H2muxFrame)
     {
         const std::string payload = "h2mux Data";
-        const auto wire =
-            H2Mux::Build(static_cast<H2Mux::FrameType>(0x0A), 3,
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(payload.data()),
-                                                       payload.size()));
+        const auto wire = H2Mux::BuildData(
+            3, std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(payload.data()),
+                                             payload.size()));
         H2Mux::FrameHeader out{};
-        (void)H2Mux::ParseHeader(std::span<const std::uint8_t>(wire), out);
-        EXPECT_EQ(static_cast<std::uint8_t>(out.Type), 0x0A);
+        EXPECT_EQ(H2Mux::ParseHeader(std::span<const std::uint8_t>(wire), out), Error::None);
+        EXPECT_EQ(out.Type, H2Mux::FrameType::Data);
         EXPECT_EQ(out.StreamId, 3u);
         EXPECT_EQ(out.length, payload.size());
+
+        // 未知类型必须在帧头阶段拒绝（P-H02）
+        const auto BadWire = H2Mux::Build(
+            static_cast<H2Mux::FrameType>(0x0A), 3,
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(payload.data()),
+                                          payload.size()));
+        EXPECT_EQ(H2Mux::ParseHeader(std::span<const std::uint8_t>(BadWire), out), Error::BadMessage);
     }
 
 } // namespace

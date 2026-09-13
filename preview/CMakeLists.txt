@@ -105,6 +105,7 @@ target_sources(PreviewFoundation INTERFACE
         Foundation/Utility/Crypto/Block.hpp
         Foundation/Utility/Crypto/Crypto.hpp
         Foundation/Utility/Crypto/Hkdf.hpp
+        Foundation/Utility/Crypto/Random.hpp
         Foundation/Utility/Crypto/Sha224.hpp
         Foundation/Utility/Crypto/X25519.hpp
         Foundation/Utility/Diagnose/Context.hpp
@@ -191,6 +192,13 @@ target_sources(PreviewRuntime INTERFACE
         # Runtime recognition
         Runtime/Recognition/Protocol.hpp
         Runtime/Recognition/Probe.hpp
+        Runtime/Recognition/Types.hpp
+        Runtime/Recognition/ProbeBuffer.hpp
+        Runtime/Recognition/DecisionTable.hpp
+        Runtime/Recognition/Profile.hpp
+        Runtime/Recognition/ConfiguredMode.hpp
+        Runtime/Recognition/DeterministicMode.hpp
+        Runtime/Recognition/MixedTrialMode.hpp
         Runtime/Recognition/ProbeDefense.hpp
         Runtime/Recognition/Recognition.hpp
         Runtime/Recognition/Route.hpp
@@ -216,6 +224,12 @@ target_sources(PreviewComposition INTERFACE
         Composition/Adapters/Trojan.hpp
         Composition/Adapters/Vless.hpp
         Composition/Adapters/Vmess.hpp
+        Composition/Recognition/CandidateRegistry.hpp
+        Composition/Recognition/CandidateFactory.hpp
+        Composition/Recognition/ProfileBuilder.hpp
+        Composition/Recognition/SettingsBuilder.hpp
+        Composition/Recognition/TlsCandidateFactory.hpp
+        Composition/Recognition/LayeredCandidateFactory.hpp
         Composition/Api/ApiManager.hpp
         Composition/Settings/Json.hpp
         Composition/Settings/Loader.hpp
@@ -300,8 +314,11 @@ ConfigurePreviewTarget(PreviewProtocolHttp3)
 target_sources(PreviewProtocolHttp3 INTERFACE
         Protocols/Http3/Server.hpp
         Protocols/Http3/Session.hpp
+        Protocols/Http3/NativeServer.hpp
+        Protocols/Http3/NativeClient.hpp
 )
 LinkPreviewTargets(PreviewProtocolHttp3 PreviewProtocolHttp3Core)
+LinkPreviewTargets(PreviewProtocolHttp3 PreviewProtocolQuic)
 target_include_directories(PreviewProtocolHttp3 INTERFACE
         ${nghttp3_SOURCE_DIR}/lib/includes
         ${ngtcp2_SOURCE_DIR}/lib/includes
@@ -487,6 +504,7 @@ target_sources(PreviewProtocolShadowtls INTERFACE
         Protocols/Shadowtls/Codec.hpp
         Protocols/Shadowtls/Conn.hpp
         Protocols/Shadowtls/Shadowtls.hpp
+        Protocols/Shadowtls/Server.hpp
 )
 
 add_library(PreviewProtocolTrusttunnel INTERFACE)
@@ -495,6 +513,7 @@ target_sources(PreviewProtocolTrusttunnel INTERFACE
         Protocols/Trusttunnel/Types.hpp
         Protocols/Trusttunnel/Codec.hpp
         Protocols/Trusttunnel/Conn.hpp
+        Protocols/Trusttunnel/Http2.hpp
         Protocols/Trusttunnel/Dgram.hpp
         Protocols/Trusttunnel/Trusttunnel.hpp
 )
@@ -553,6 +572,7 @@ LinkPreviewTargets(PreviewProtocolHysteria2 PreviewProtocolsCommon PreviewProtoc
 LinkPreviewTargets(PreviewProtocolHysteria2 PreviewProtocolQuic)
 LinkPreviewTargets(PreviewProtocolTuic PreviewProtocolQuic)
 LinkPreviewTargets(PreviewProtocolXhttp PreviewProtocolHttp2)
+LinkPreviewTargets(PreviewProtocolTrusttunnel PreviewProtocolHttp2)
 
 LinkPreviewTargets(PreviewComposition
         PreviewProtocolsCommon

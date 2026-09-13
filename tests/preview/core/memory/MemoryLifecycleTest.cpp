@@ -29,135 +29,142 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /// 简单校验和（避免大哈希开销）
-    auto checksum(std::span<const std::uint8_t> Data) -> std::uint64_t
+    auto Checksum(std::span<const std::uint8_t> Data) -> std::uint64_t
     {
-        std::uint64_t sum = 0;
-        for (const auto b : Data)
+        std::uint64_t Sum = 0;
+        for (const auto Byte : Data)
         {
-            sum = sum * 31 + b;
+            Sum = Sum * 31 + Byte;
         }
-        return sum;
+        return Sum;
     }
 
     // ── 1. 单连接长跑：256MB 传输 + 复用缓冲稳定性 ──
 
     TEST(MemoryLifecycle, LongRunSingleConnTransfer)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        std::exception_ptr ep;
+        Net::io_context Ioc;
+        auto [ClientStream, ServerStream] = Preview::MakeMemoryPair(Ioc.get_executor());
+        std::exception_ptr Exception;
 
-        constexpr std::size_t kTotalMB = 256;
-        constexpr std::size_t kChunk = 65536;
-        constexpr std::size_t kTotal = kTotalMB * 1024 * 1024;
-        constexpr std::size_t kChunks = kTotal / kChunk;
+        constexpr std::size_t TotalMegabytes = 256;
+        constexpr std::size_t ChunkSize = 65536;
+        constexpr std::size_t TotalBytes = TotalMegabytes * 1024 * 1024;
+        constexpr std::size_t ChunkCount = TotalBytes / ChunkSize;
 
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        auto TransferCoro = [ClientStream = std::move(ClientStream), ServerStream = std::move(ServerStream),
+                             Executor = Ioc.get_executor()]() mutable -> Net::awaitable<void>
         {
             // 服务端：接收并回显校验和
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoro = [ServerStream = std::move(ServerStream)]() mutable -> Net::awaitable<void>
             {
-                auto [err, req, Conn] = co_await Socks5::Accept(
-                    std::make_shared<MemoryStream>(std::move(b)), Socks5::ServerConfig{});
-                if (err != Error::None || !Conn)
+                auto [AcceptError, Request, Connection] = co_await Preview::Socks5::Accept(
+                    std::make_shared<Preview::MemoryStream>(std::move(ServerStream)), Preview::Socks5::ServerConfig{});
+                if (AcceptError != Preview::Error::None || !Connection)
                 {
                     co_return;
                 }
-                std::array<std::uint8_t, kChunk> buf{};
+                std::array<std::uint8_t, ChunkSize> Buffer{};
                 std::uint64_t Total = 0;
                 std::size_t Done = 0;
-                while (Done < kTotal)
+                while (Done < TotalBytes)
                 {
-                    std::error_code ec;
-                    const auto n = co_await Conn->async_read_some(
-                        std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
-                    if (ec || n == 0)
+                    std::error_code ErrorCode;
+                    const auto Count = co_await Connection->async_read_some(
+                        std::span<std::byte>(reinterpret_cast<std::byte *>(Buffer.data()), Buffer.size()), ErrorCode);
+                    if (ErrorCode || Count == 0)
                     {
                         break;
                     }
-                    Total += checksum(std::span<const std::uint8_t>(buf).first(n));
-                    Done += n;
+                    Total += Checksum(std::span<const std::uint8_t>(Buffer).first(Count));
+                    Done += Count;
                 }
                 // 回显校验和（8 字节）
                 std::array<std::uint8_t, 8> Reply{};
-                for (std::size_t i = 0; i < 8; ++i)
+                for (std::size_t Index = 0; Index < 8; ++Index)
                 {
-                    Reply[i] = static_cast<std::uint8_t>((Total >> (i * 8)) & 0xFF);
+                    Reply[Index] = static_cast<std::uint8_t>((Total >> (Index * 8)) & 0xFF);
                 }
-                std::error_code ec;
-                co_await Conn->async_write_some(
+                std::error_code ErrorCode;
+                co_await Connection->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Reply.data()), Reply.size()),
-                    ec);
+                    ErrorCode);
             };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+            Net::co_spawn(Executor, std::move(ServerCoro)(), Net::detached);
 
             // 客户端：发送数据并收集校验和
-            auto [err, Conn] = co_await Socks5::Connect(
-                std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{},
-                Socks5::Address{Socks5::AddressType::Domain, "Target.example", 443});
+            auto [ConnectError, Connection] = co_await Preview::Socks5::Connect(
+                std::make_shared<Preview::MemoryStream>(std::move(ClientStream)), Preview::Socks5::ClientConfig{},
+                Preview::Socks5::Address{Preview::Socks5::AddressType::Domain, "Target.example", 443});
 
-            if (err != Error::None || !Conn)
+            if (ConnectError != Preview::Error::None || !Connection)
             {
                 ADD_FAILURE() << "Client Connect Failed";
                 co_return;
             }
 
-            std::vector<std::uint8_t> chunk(kChunk);
-            for (std::size_t i = 0; i < chunk.size(); ++i)
+            std::vector<std::uint8_t> Chunk(ChunkSize);
+            for (std::size_t Index = 0; Index < Chunk.size(); ++Index)
             {
-                chunk[i] = static_cast<std::uint8_t>(i * 7 + (i >> 8));
+                Chunk[Index] = static_cast<std::uint8_t>(Index * 7 + (Index >> 8));
             }
             std::uint64_t Total = 0;
-            for (std::size_t c = 0; c < kChunks; ++c)
+            for (std::size_t ChunkIndex = 0; ChunkIndex < ChunkCount; ++ChunkIndex)
             {
-                std::error_code ec;
-                std::size_t off = 0;
-                while (off < kChunk)
+                std::error_code ErrorCode;
+                std::size_t Offset = 0;
+                while (Offset < ChunkSize)
                 {
-                    const auto n = co_await Conn->async_write_some(
-                        std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data() + off),
-                                                   kChunk - off),
-                        ec);
-                    if (ec)
+                    const auto Count = co_await Connection->async_write_some(
+                        std::span<const std::byte>(reinterpret_cast<const std::byte *>(Chunk.data() + Offset),
+                                                   ChunkSize - Offset),
+                        ErrorCode);
+                    if (ErrorCode)
                     {
-                        ADD_FAILURE() << "Write Failed at chunk " << c;
+                        ADD_FAILURE() << "Write Failed at chunk " << ChunkIndex;
                         break;
                     }
-                    off += n;
+                    Offset += Count;
                 }
-                Total += checksum(chunk);
+                Total += Checksum(Chunk);
             }
 
             // 读取服务端回显的校验和
             std::array<std::uint8_t, 8> Reply{};
-            std::size_t got = 0;
-            std::error_code ec;
-            while (got < 8)
+            std::size_t Received = 0;
+            std::error_code ErrorCode;
+            while (Received < 8)
             {
-                const auto n = co_await Conn->async_read_some(
-                    std::span<std::byte>(reinterpret_cast<std::byte *>(Reply.data() + got), 8 - got), ec);
-                if (ec || n == 0)
+                const auto Count = co_await Connection->async_read_some(
+                    std::span<std::byte>(reinterpret_cast<std::byte *>(Reply.data() + Received), 8 - Received),
+                    ErrorCode);
+                if (ErrorCode || Count == 0)
                 {
                     break;
                 }
-                got += n;
+                Received += Count;
             }
-            std::uint64_t echo = 0;
-            for (std::size_t i = 0; i < 8; ++i)
+            std::uint64_t Echo = 0;
+            for (std::size_t Index = 0; Index < 8; ++Index)
             {
-                echo |= static_cast<std::uint64_t>(Reply[i]) << (i * 8);
+                Echo |= static_cast<std::uint64_t>(Reply[Index]) << (Index * 8);
             }
-            EXPECT_EQ(echo, Total) << "256MB 传输校验和不匹配";
-            Conn->Close();
-        }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+            EXPECT_EQ(Echo, Total) << "256MB 传输校验和不匹配";
+            Connection->Close();
+        };
+        Net::co_spawn(Ioc, std::move(TransferCoro),
+                      [&](std::exception_ptr ExceptionValue)
+                      {
+                          Exception = ExceptionValue;
+                          Ioc.stop();
+                      });
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
@@ -165,59 +172,57 @@ namespace
 
     TEST(MemoryLifecycle, LongRunFrameLoop)
     {
-        using namespace Preview::Socks5;
+        Preview::Socks5::Request Request;
+        Request.Ver = Preview::Socks5::Version;
+        Request.Cmd = Preview::Socks5::Command::Connect;
+        Request.Rsv = 0;
+        Request.Target.Type = Preview::Socks5::AddressType::Domain;
+        Request.Target.Host = "example.com";
+        Request.Target.Port = 443;
 
-        Request req;
-        req.Ver = Version;
-        req.Cmd = Command::Connect;
-        req.Rsv = 0;
-        req.Target.Type = AddressType::Domain;
-        req.Target.Host = "example.com";
-        req.Target.Port = 443;
-
-        Preview::Memory::SessionResource<> mem;
-        typename Preview::Memory::SessionResource<>::Buffer<std::uint8_t> tx(mem.Arena());
+        Preview::Memory::SessionResource<> Memory;
+        typename Preview::Memory::SessionResource<>::Buffer<std::uint8_t> TransmitBuffer(Memory.Arena());
 
         // 预热（首次扩容）
-        BuildRequest(req, tx);
-        const auto cap_first = tx.capacity();
-        ASSERT_GT(cap_first, 0U);
+        Preview::Socks5::BuildRequest(Request, TransmitBuffer);
+        const auto InitialCapacity = TransmitBuffer.capacity();
+        ASSERT_GT(InitialCapacity, 0U);
 
-        constexpr int kIters = 1000000;
-        std::size_t cap_max = cap_first;
+        constexpr int Iterations = 1000000;
+        std::size_t MaximumCapacity = InitialCapacity;
         std::size_t Total = 0;
-        for (int i = 0; i < kIters; ++i)
+        for (int Index = 0; Index < Iterations; ++Index)
         {
-            BuildRequest(req, tx);
-            cap_max = std::max(cap_max, tx.capacity());
-            Total += tx.size();
+            Preview::Socks5::BuildRequest(Request, TransmitBuffer);
+            MaximumCapacity = std::max(MaximumCapacity, TransmitBuffer.capacity());
+            Total += TransmitBuffer.size();
         }
-        EXPECT_EQ(cap_max, cap_first) << "100 万帧后复用缓冲发生再分配";
+        EXPECT_EQ(MaximumCapacity, InitialCapacity) << "100 万帧后复用缓冲发生再分配";
         // 每帧：[ver][cmd][rsv][ATYP][len][host 11B][port 2B] = 18 字节
-        EXPECT_EQ(Total, static_cast<std::size_t>(kIters) * 18);
+        EXPECT_EQ(Total, static_cast<std::size_t>(Iterations) * 18);
     }
 
     // ── 3. 会话回收循环：大量 Arena 创建/析构 ──
 
     TEST(MemoryLifecycle, SessionRecycleLoop)
     {
-        constexpr int kIters = 100000;
-        std::size_t peak_alloc = 0;
-        for (int i = 0; i < kIters; ++i)
+        constexpr int Iterations = 100000;
+        std::size_t PeakAllocation = 0;
+        for (int Index = 0; Index < Iterations; ++Index)
         {
-            Preview::Memory::SessionResource<> mem;
+            Preview::Memory::SessionResource<> Memory;
             // 分配 + 释放循环（Arena 随析构回收）
-            auto v = mem.MakeVector<std::uint8_t>();
-            v.resize(256 + (i % 64));
-            v[0] = static_cast<std::uint8_t>(i);
-            peak_alloc = std::max(peak_alloc, v.capacity());
+            auto Values = Memory.MakeVector<std::uint8_t>();
+            Values.resize(256 + (Index % 64));
+            Values[0] = static_cast<std::uint8_t>(Index);
+            PeakAllocation = std::max(PeakAllocation, Values.capacity());
             // 模拟 Conn 生命周期：成员缓冲 + 帧缓冲
-            typename Preview::Memory::SessionResource<>::Buffer<std::uint8_t> tx(mem.Arena());
-            tx.resize(4096);
-            tx[0] = 0xAB;
+            typename Preview::Memory::SessionResource<>::Buffer<std::uint8_t> TransmitBuffer(Memory.Arena());
+            TransmitBuffer.resize(4096);
+            TransmitBuffer[0] = 0xAB;
         }
         // 无崩溃即通过；Capacity 峰值 ≤ 单会话最大需求
-        EXPECT_LE(peak_alloc, 320U);
+        EXPECT_LE(PeakAllocation, 320U);
         SUCCEED();
     }
 
@@ -225,69 +230,78 @@ namespace
 
     TEST(MemoryLifecycle, MultiConnRecycleLoop)
     {
-        net::io_context ioc;
-        std::exception_ptr ep;
+        Net::io_context Ioc;
+        std::exception_ptr Exception;
 
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        auto RecycleCoro = [&Ioc]() -> Net::awaitable<void>
         {
-            constexpr int kConns = 200;
-            for (int i = 0; i < kConns; ++i)
+            constexpr int ConnectionCount = 200;
+            for (int Index = 0; Index < ConnectionCount; ++Index)
             {
-                auto [a, b] = MakeMemoryPair(ioc.get_executor());
+                auto [ClientStream, ServerStream] = Preview::MakeMemoryPair(Ioc.get_executor());
 
-                auto server_coro = [&]() -> net::awaitable<void>
+                auto ServerCoro = [ServerStream = std::move(ServerStream)]() mutable -> Net::awaitable<void>
                 {
-                    auto [err, req, Conn] = co_await Socks5::Accept(
-                        std::make_shared<MemoryStream>(std::move(b)), Socks5::ServerConfig{});
-                    if (err == Error::None && Conn)
+                    auto [AcceptError, Request, Connection] = co_await Preview::Socks5::Accept(
+                        std::make_shared<Preview::MemoryStream>(std::move(ServerStream)),
+                        Preview::Socks5::ServerConfig{});
+                    if (AcceptError == Preview::Error::None && Connection)
                     {
-                        std::array<std::uint8_t, 256> buf{};
-                        std::error_code ec;
+                        std::array<std::uint8_t, 256> Buffer{};
+                        std::error_code ErrorCode;
                         while (true)
                         {
-                            const auto n = co_await Conn->async_read_some(
-                                std::span<std::byte>(reinterpret_cast<std::byte *>(buf.data()), buf.size()), ec);
-                            if (ec || n == 0)
+                            const auto Count = co_await Connection->async_read_some(
+                                std::span<std::byte>(reinterpret_cast<std::byte *>(Buffer.data()), Buffer.size()),
+                                ErrorCode);
+                            if (ErrorCode || Count == 0)
                             {
                                 break;
                             }
                         }
                     }
                 };
-                net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                Net::co_spawn(Ioc.get_executor(), std::move(ServerCoro)(), Net::detached);
 
-                auto [err, Conn] = co_await Socks5::Connect(
-                    std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{},
-                    Socks5::Address{Socks5::AddressType::Ipv4, "10.0.0.1", 80});
-                if (err != Error::None || !Conn)
+                auto [ConnectError, Connection] = co_await Preview::Socks5::Connect(
+                    std::make_shared<Preview::MemoryStream>(std::move(ClientStream)),
+                    Preview::Socks5::ClientConfig{},
+                    Preview::Socks5::Address{Preview::Socks5::AddressType::Ipv4, "10.0.0.1", 80});
+                if (ConnectError != Preview::Error::None || !Connection)
                 {
-                    ADD_FAILURE() << "Conn " << i << " Connect Failed";
+                    ADD_FAILURE() << "Conn " << Index << " Connect Failed";
                     continue;
                 }
 
                 // 传输 16KB 后关闭
-                std::vector<std::uint8_t> chunk(16384, static_cast<std::uint8_t>(i));
-                std::error_code ec;
-                std::size_t off = 0;
-                while (off < chunk.size())
+                std::vector<std::uint8_t> Chunk(16384, static_cast<std::uint8_t>(Index));
+                std::error_code ErrorCode;
+                std::size_t Offset = 0;
+                while (Offset < Chunk.size())
                 {
-                    const auto n = co_await Conn->async_write_some(
-                        std::span<const std::byte>(reinterpret_cast<const std::byte *>(chunk.data() + off),
-                                                   chunk.size() - off),
-                        ec);
-                    if (ec)
+                    const auto Count = co_await Connection->async_write_some(
+                        std::span<const std::byte>(reinterpret_cast<const std::byte *>(Chunk.data() + Offset),
+                                                   Chunk.size() - Offset),
+                        ErrorCode);
+                    if (ErrorCode)
                     {
                         break;
                     }
-                    off += n;
+                    Offset += Count;
                 }
-                Conn->Close();
+                Connection->Close();
             }
-        }, [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        };
+        Net::co_spawn(Ioc, std::move(RecycleCoro),
+                      [&](std::exception_ptr ExceptionValue)
+                      {
+                          Exception = ExceptionValue;
+                          Ioc.stop();
+                      });
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
         SUCCEED();
     }

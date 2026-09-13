@@ -7,6 +7,9 @@
 
 #pragma once
 
+#include <memory>
+#include <utility>
+
 #include <preview/Protocols/Mux/Codec.hpp>
 #include <preview/Protocols/Mux/Session.hpp>
 #include <preview/Protocols/Mux/Smux/Codec.hpp>
@@ -25,15 +28,16 @@ namespace Preview::Mux::Smux
     /**
      * @brief 创建 smux 会话
      * @tparam Memory 会话内存策略（默认 8KB Arena）
-     * @param raw 底层传输（所有权移交）
-     * @param opt 会话选项
+     * @param Raw 底层传输（所有权移交）
+     * @param Options 会话选项
      * @return 会话实例
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    [[nodiscard]] inline auto MakeSession(SharedTransmission raw,
-                                           const SessionOptions &opt = {}) -> std::shared_ptr<Session<Memory>>
+    [[nodiscard]] inline auto MakeSession(
+        SharedTransmission Raw,
+        const SessionOptions &Options = {}) -> std::shared_ptr<Session<Memory>>
     {
-        return Session<Memory>::Create(std::move(raw), opt);
+        return Session<Memory>::Create(std::move(Raw), Options);
     }
 
 } // namespace Preview::Mux::Smux

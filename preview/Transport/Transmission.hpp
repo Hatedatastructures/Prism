@@ -7,7 +7,7 @@
  *          NextLayer() 返回被包装的内层传输，实现多协议无缝切换。
  *          调用方通过 SharedTransmission（shared_ptr）管理生命周期，
  *          Release() 可提前转移底层传输所有权。
- * @note 所有异步方法返回 net::awaitable，通过 ec 出参返回错误。
+ * @note 所有异步方法返回 Net::awaitable，通过 ec 出参返回错误。
  * @note 热路径零分配，span 视图直接传递，不拷贝数据。
  */
 
@@ -31,9 +31,9 @@
 namespace Preview
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
-    namespace detail
+    namespace Detail
     {
 
         /**
@@ -42,20 +42,21 @@ namespace Preview
          * @param ec 源错误码
          * @return 转换后的 boost 错误码
          */
-        [[nodiscard]] inline auto ToEc(const std::error_code &ec) noexcept -> boost::system::error_code
+        [[nodiscard]] inline auto ToEc(const std::error_code &ErrorValue) noexcept
+            -> boost::system::error_code
         {
-            if (!ec)
+            if (!ErrorValue)
             {
                 return {};
             }
-            if (ec.category() == ErrorCategory())
+            if (ErrorValue.category() == ErrorCategory())
             {
-                return make_error_code(static_cast<Error>(ec.value()));
+                return make_error_code(static_cast<Error>(ErrorValue.value()));
             }
-            return boost::system::error_code(ec.value(), boost::system::generic_category());
+            return boost::system::error_code(ErrorValue.value(), boost::system::generic_category());
         }
 
-    } // namespace detail
+    } // namespace Detail
 
     /**
      * @class Transmission
@@ -70,8 +71,8 @@ namespace Preview
     {
     public:
         /// 执行器类型
-        using ExecutorType = net::any_io_executor;
-        using executor_type = net::any_io_executor;
+        using ExecutorType = Net::any_io_executor;
+        using executor_type = Net::any_io_executor;
 
         /// 传输类型（Tcp / udp）
         enum class Type : std::uint8_t
@@ -123,8 +124,9 @@ namespace Preview
          * @param ec 错误码输出参数
          * @return 实际读取的字节数
          */
-        [[nodiscard]] virtual auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> = 0;
+        [[nodiscard]] virtual auto async_read_some(std::span<std::byte> Buffer,
+                                                   std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> = 0;
 
         /**
          * @brief 异步写入部分数据
@@ -133,8 +135,9 @@ namespace Preview
          * @param ec 错误码输出参数
          * @return 实际写入的字节数
          */
-        [[nodiscard]] virtual auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> = 0;
+        [[nodiscard]] virtual auto async_write_some(std::span<const std::byte> Buffer,
+                                                    std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> = 0;
 
         /**
          * @brief Completion-handler 风格异步读取
@@ -145,7 +148,7 @@ namespace Preview
          */
         virtual void
         async_read_some(std::span<std::byte> Buffer,
-                        net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+                        Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Handler)
         {
             std::shared_ptr<Transmission> Self;
             try
@@ -154,21 +157,31 @@ namespace Preview
             }
             catch (const std::bad_weak_ptr &)
             {
-                std::move(handler)(boost::system::errc::make_error_code(
+                std::move(Handler)(boost::system::errc::make_error_code(
                                        boost::system::errc::not_supported),
                                    0);
                 return;
             }
             auto Ex = Self->Executor();
-            net::co_spawn(
-                Ex,
-                [Self = std::move(Self), Buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
+            auto ReadOperation =
+                [Self = std::move(Self), Buffer, Handler = std::move(Handler)]() mutable -> Net::awaitable<void>
+            {
+                boost::system::error_code CompletionError;
+                std::size_t N = 0;
+                try
                 {
-                    std::error_code ec;
-                    const auto N = co_await Self->async_read_some(Buffer, ec);
-                    std::move(h)(detail::ToEc(ec), N);
-                },
-                net::detached);
+                    std::error_code ErrorCode;
+                    N = co_await Self->async_read_some(Buffer, ErrorCode);
+                    CompletionError = Detail::ToEc(ErrorCode);
+                }
+                catch (...)
+                {
+                    CompletionError = boost::system::errc::make_error_code(
+                        boost::system::errc::io_error);
+                }
+                std::move(Handler)(CompletionError, N);
+            };
+            Net::co_spawn(Ex, std::move(ReadOperation), Net::detached);
         }
 
         /**
@@ -178,7 +191,7 @@ namespace Preview
          */
         virtual void
         async_write_some(std::span<const std::byte> Buffer,
-                         net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler)
+                         Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Handler)
         {
             std::shared_ptr<Transmission> Self;
             try
@@ -187,21 +200,31 @@ namespace Preview
             }
             catch (const std::bad_weak_ptr &)
             {
-                std::move(handler)(boost::system::errc::make_error_code(
+                std::move(Handler)(boost::system::errc::make_error_code(
                                        boost::system::errc::not_supported),
                                    0);
                 return;
             }
             auto Ex = Self->Executor();
-            net::co_spawn(
-                Ex,
-                [Self = std::move(Self), Buffer, h = std::move(handler)]() mutable -> net::awaitable<void>
+            auto WriteOperation =
+                [Self = std::move(Self), Buffer, Handler = std::move(Handler)]() mutable -> Net::awaitable<void>
+            {
+                boost::system::error_code CompletionError;
+                std::size_t N = 0;
+                try
                 {
-                    std::error_code ec;
-                    const auto N = co_await Self->async_write_some(Buffer, ec);
-                    std::move(h)(detail::ToEc(ec), N);
-                },
-                net::detached);
+                    std::error_code ErrorCode;
+                    N = co_await Self->async_write_some(Buffer, ErrorCode);
+                    CompletionError = Detail::ToEc(ErrorCode);
+                }
+                catch (...)
+                {
+                    CompletionError = boost::system::errc::make_error_code(
+                        boost::system::errc::io_error);
+                }
+                std::move(Handler)(CompletionError, N);
+            };
+            Net::co_spawn(Ex, std::move(WriteOperation), Net::detached);
         }
 
         /**
@@ -212,14 +235,22 @@ namespace Preview
          * @details 循环调用 async_read_some 直至读满或 EOF/错误。
          * 默认实现基于虚接口组合，派生类可按需覆写优化。
          */
-        [[nodiscard]] auto AsyncRead(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+        [[nodiscard]] auto AsyncRead(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t>
         {
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
-                const auto N = co_await async_read_some(Buffer.subspan(Done), ec);
-                if (ec)
+                const auto N = co_await async_read_some(Buffer.subspan(Done), ErrorCode);
+                if (N > Buffer.size() - Done)
+                {
+                    ErrorCode = make_error_code(Error::BrokenPipe);
+                    co_return Done;
+                }
+                Done += N;
+                // 底层可以同时返回有效字节和错误；先保留这批字节，调用方才能
+                // 正确处理 EOF/半关前已经到达的帧尾。
+                if (ErrorCode)
                 {
                     co_return Done;
                 }
@@ -227,12 +258,6 @@ namespace Preview
                 {
                     co_return Done; // EOF / 半关 / 取消
                 }
-                if (N > Buffer.size() - Done)
-                {
-                    ec = make_error_code(Error::BrokenPipe);
-                    co_return Done;
-                }
-                Done += N;
             }
             co_return Done;
         }
@@ -245,28 +270,28 @@ namespace Preview
          * @details 循环调用 async_write_some 直至写满或错误。
          * 默认实现基于虚接口组合，派生类可按需覆写优化。
          */
-        [[nodiscard]] auto AsyncWrite(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+        [[nodiscard]] auto AsyncWrite(std::span<const std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t>
         {
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
-                const auto N = co_await async_write_some(Buffer.subspan(Done), ec);
-                if (ec)
+                const auto N = co_await async_write_some(Buffer.subspan(Done), ErrorCode);
+                if (N > Buffer.size() - Done)
+                {
+                    ErrorCode = make_error_code(Error::BrokenPipe);
+                    co_return Done;
+                }
+                Done += N;
+                if (ErrorCode)
                 {
                     co_return Done;
                 }
                 if (N == 0)
                 {
-                    ec = make_error_code(Error::BrokenPipe);
+                    ErrorCode = make_error_code(Error::BrokenPipe);
                     co_return Done;
                 }
-                if (N > Buffer.size() - Done)
-                {
-                    ec = make_error_code(Error::BrokenPipe);
-                    co_return Done;
-                }
-                Done += N;
             }
             co_return Done;
         }
@@ -302,11 +327,11 @@ namespace Preview
          * @details 默认实现沿装饰器链转发；叶子节点必须实现。
          * 超时后挂起的读以 operation_timed_out 完成。
          */
-        virtual void SetTimeout(std::chrono::milliseconds ms)
+        virtual void SetTimeout(std::chrono::milliseconds Timeout)
         {
             if (auto *N = NextLayer())
             {
-                N->SetTimeout(ms);
+                N->SetTimeout(Timeout);
             }
         }
 
@@ -353,12 +378,12 @@ namespace Preview
         template <typename T>
         [[nodiscard]] auto lowest_layer() noexcept -> T *
         {
-            auto *current = this;
-            while (auto *N = current->NextLayer())
+            auto *Current = this;
+            while (auto *N = Current->NextLayer())
             {
-                current = N;
+                Current = N;
             }
-            return dynamic_cast<T *>(current);
+            return dynamic_cast<T *>(Current);
         }
 
         /**
@@ -369,12 +394,12 @@ namespace Preview
         template <typename T>
         [[nodiscard]] auto lowest_layer() const noexcept -> const T *
         {
-            auto *current = this;
-            while (auto *N = current->NextLayer())
+            auto *Current = this;
+            while (auto *N = Current->NextLayer())
             {
-                current = N;
+                Current = N;
             }
-            return dynamic_cast<const T *>(current);
+            return dynamic_cast<const T *>(Current);
         }
 
         /**
@@ -400,15 +425,18 @@ namespace Preview
      */
     template <typename T>
     concept TransmissionLike =
-        requires(T &t, std::span<std::byte> buf, std::span<const std::byte> wbuf, std::error_code &ec) {
-            { t.async_read_some(buf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
-            { t.async_write_some(wbuf, ec) } -> std::same_as<net::awaitable<std::size_t>>;
-            { t.Close() } -> std::same_as<void>;
-            { t.Cancel() } -> std::same_as<void>;
-            { t.Shutdown() } -> std::same_as<void>;
-            { t.SetTimeout(std::chrono::milliseconds{0}) } -> std::same_as<void>;
-            { t.IsOpen() } -> std::same_as<bool>;
-            { t.Executor() } -> std::same_as<net::any_io_executor>;
+        requires(T &TransmissionObject, std::span<std::byte> ReadBuffer,
+                 std::span<const std::byte> WriteBuffer, std::error_code &ErrorCode) {
+            { TransmissionObject.async_read_some(ReadBuffer, ErrorCode) }
+                -> std::same_as<Net::awaitable<std::size_t>>;
+            { TransmissionObject.async_write_some(WriteBuffer, ErrorCode) }
+                -> std::same_as<Net::awaitable<std::size_t>>;
+            { TransmissionObject.Close() } -> std::same_as<void>;
+            { TransmissionObject.Cancel() } -> std::same_as<void>;
+            { TransmissionObject.Shutdown() } -> std::same_as<void>;
+            { TransmissionObject.SetTimeout(std::chrono::milliseconds{0}) } -> std::same_as<void>;
+            { TransmissionObject.IsOpen() } -> std::same_as<bool>;
+            { TransmissionObject.Executor() } -> std::same_as<Net::any_io_executor>;
         };
 
     static_assert(TransmissionLike<Transmission>);

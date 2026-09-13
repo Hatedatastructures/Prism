@@ -4,3 +4,6 @@ target_link_libraries(ShadowtlsConnSession PRIVATE PreviewTransport PreviewProto
 
 AddPreviewTest(ShadowtlsCodecDeep.cpp)
 target_link_libraries(ShadowtlsCodecDeep PRIVATE PreviewProtocolShadowtls PreviewTestSupport)
+
+AddPreviewTest(ShadowtlsRelay.cpp)
+target_link_libraries(ShadowtlsRelay PRIVATE PreviewProtocolShadowtls PreviewTransport PreviewTestSupport)

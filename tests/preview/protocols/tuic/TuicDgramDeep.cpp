@@ -26,41 +26,47 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Tuic = Preview::Tuic;
+    using Preview::AsBytes;
+    using Preview::AsU8Span;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::Transmission;
 
     /**
      * @brief 驱动协程运行
      */
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
         // 同一 io_context 可能被多次驱动，restart() 重置 stopped 标志
-        ioc.restart();
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        IoContext.restart();
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = ErrorValue;
+                          IoContext.stop();
                       });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     /**
      * @brief 构造 ipv4 目标地址
      */
-    auto make_dst() -> Tuic::Address
+    auto MakeDestination() -> Tuic::Address
     {
-        Tuic::Address dst{};
-        dst.Type = Tuic::AddressType::Ipv4;
-        dst.Host = "93.184.216.34";
-        dst.Port = 443;
-        return dst;
+        Tuic::Address Destination{};
+        Destination.Type = Tuic::AddressType::Ipv4;
+        Destination.Host = "93.184.216.34";
+        Destination.Port = 443;
+        return Destination;
     }
 
     TEST(TuicWireContract, UsesV5CommandAndAddressValues)
@@ -104,7 +110,7 @@ namespace
 
     TEST(TuicDgramProvider, MemoryProviderRoundtrip)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [ClientProvider, ServerProvider] =
             Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
         auto Client = Tuic::ConnectPacket(ClientProvider, Tuic::ClientConfig{});
@@ -112,12 +118,12 @@ namespace
         ASSERT_NE(Client, nullptr);
         ASSERT_NE(Server, nullptr);
 
-        const auto Target = make_dst();
+        const auto Target = MakeDestination();
         const auto Payload = AsU8Span(std::string_view{"tuic-provider"});
         Tuic::Address ReceivedTarget;
         std::vector<std::uint8_t> ReceivedPayload;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      EXPECT_EQ(co_await Client->AsyncSendTo(Target, Payload), Error::None);
                      EXPECT_EQ(co_await Server->AsyncReceiveFrom(ReceivedTarget, ReceivedPayload),
@@ -135,17 +141,17 @@ namespace
 
     TEST(TuicDgramProvider, ShortWriteAndCloseAreErrors)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [ClientProvider, ServerProvider] =
             Preview::Testing::MemoryDatagramProvider::MakePair(ioc.get_executor());
         auto Client = Tuic::ConnectPacket(ClientProvider, Tuic::ClientConfig{});
         auto Server = Tuic::AcceptPacket(ServerProvider, Tuic::ServerConfig{});
         ASSERT_NE(Client, nullptr);
         ASSERT_NE(Server, nullptr);
-        const auto Target = make_dst();
+        const auto Target = MakeDestination();
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      ClientProvider->MaxSend = 2;
                      EXPECT_EQ(co_await Client->AsyncSendTo(Target, AsU8Span(std::string_view{"short"})),
@@ -158,9 +164,58 @@ namespace
                  });
     }
 
+    TEST(TuicDgram, RejectsOverreportedUdpRead)
+    {
+        Net::io_context ioc;
+        auto raw = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        raw->TransportKind = Transmission::Type::Udp;
+        raw->OverreportRead = true;
+        auto Dgram = std::make_shared<Tuic::Dgram<>>(raw);
+
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     Tuic::Address Source;
+                     std::vector<std::uint8_t> Payload;
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Payload), Error::BadLength);
+                 });
+    }
+
+    TEST(TuicDgram, RejectsOverreportedStreamRead)
+    {
+        Net::io_context ioc;
+        auto raw = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        raw->OverreportRead = true;
+        auto Dgram = std::make_shared<Tuic::Dgram<>>(raw);
+
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     Tuic::Address Source;
+                     std::vector<std::uint8_t> Payload;
+                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Payload), Error::UnexpectedEof);
+                 });
+    }
+
+    TEST(TuicDgram, RejectsOverreportedWrite)
+    {
+        Net::io_context ioc;
+        auto raw = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        raw->OverreportWrite = true;
+        auto Dgram = std::make_shared<Tuic::Dgram<>>(raw);
+
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     EXPECT_EQ(co_await Dgram->AsyncSendTo(
+                                   MakeDestination(), AsU8Span(std::string_view{"overreport"})),
+                               Error::BadLength);
+                 });
+    }
+
     TEST(TuicDgram, DecoratorBasics)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto peer = std::make_shared<MemoryStream>(std::move(b));
         auto Dgram = std::make_shared<Tuic::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
@@ -174,8 +229,8 @@ namespace
         EXPECT_EQ(Dgram->lowest_layer<MemoryStream>(), Dgram->Stream().get());
 
         // 透传读写（双向）
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      std::error_code ec;
                      std::array<std::byte, 8> wbuf{std::byte{0x11}};
@@ -195,8 +250,8 @@ namespace
 
         Dgram->Cancel();
         Dgram->Close();
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      std::error_code ec;
                      std::array<std::byte, 8> rbuf{};
@@ -211,18 +266,18 @@ namespace
 
     TEST(TuicDgram, SendAndReceiveRoundtrip)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto peer = std::make_shared<MemoryStream>(std::move(b));
         auto Dgram = std::make_shared<Tuic::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 发送数据报（对端读取 wire 帧）
                      const std::string payload = "hello Dgram";
                      const auto serr =
-                         co_await Dgram->AsyncSendTo(make_dst(), AsU8Span(payload));
+                         co_await Dgram->AsyncSendTo(MakeDestination(), AsU8Span(payload));
                      EXPECT_EQ(serr, Error::None);
 
                      // 对端用 Codec 解析帧
@@ -246,7 +301,7 @@ namespace
                      Reply.Cmd = Tuic::CmdPacket;
                      Reply.AssocId = 7;
                       Reply.PktId = 1;
-                     Reply.dst = make_dst();
+                     Reply.dst = MakeDestination();
                      Reply.payload = "pong";
                     const auto wire = Tuic::Build(Reply);
                     const auto werr = co_await peer->WriteAll(wire);
@@ -268,7 +323,7 @@ namespace
         Message.PktId = 0x5678;
         Message.FragTotal = 2;
         Message.FragId = 0;
-        Message.dst = make_dst();
+        Message.dst = MakeDestination();
         Message.payload = "payload";
         const auto Wire = Tuic::Build(Message);
         ASSERT_GE(Wire.size(), 10u);
@@ -294,22 +349,22 @@ namespace
 
     TEST(TuicDgram, RawUdpDatagramKeepsFrameBoundary)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto RawServer = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
         auto RawClient = std::make_shared<Preview::Transport::Unreliable>(ioc.get_executor());
         boost::system::error_code OpenEc;
-        RawServer->NativeSocket().open(net::ip::udp::v4(), OpenEc);
-        RawServer->NativeSocket().bind({net::ip::address_v4::loopback(), 0}, OpenEc);
+        RawServer->NativeSocket().open(Net::ip::udp::v4(), OpenEc);
+        RawServer->NativeSocket().bind({Net::ip::address_v4::loopback(), 0}, OpenEc);
         EXPECT_FALSE(OpenEc);
         const auto ServerEndpoint = RawServer->NativeSocket().local_endpoint();
         EXPECT_TRUE(RawClient->Connect("127.0.0.1:" + std::to_string(ServerEndpoint.port())));
         auto Server = std::make_shared<Tuic::Dgram<>>(RawServer);
         auto Client = std::make_shared<Tuic::Dgram<>>(RawClient);
         const auto Payload = std::string("tuic-udp-payload");
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     const auto Sent = co_await Client->AsyncSendTo(make_dst(), AsU8Span(std::string_view(Payload)));
+                     const auto Sent = co_await Client->AsyncSendTo(MakeDestination(), AsU8Span(std::string_view(Payload)));
                      EXPECT_EQ(Sent, Error::None);
                      Tuic::Address Target;
                      std::vector<std::uint8_t> Received;
@@ -324,13 +379,13 @@ namespace
 
     TEST(TuicDgram, ReceiveIpv6AndDomain)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto peer = std::make_shared<MemoryStream>(std::move(b));
         auto Dgram = std::make_shared<Tuic::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // IPv6 地址（地址类型由首片 ATYP 字段携带）
                      Tuic::Message m6;
@@ -366,51 +421,68 @@ namespace
 
     TEST(TuicDgram, ReceiveErrorBranches)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        auto peer = std::make_shared<MemoryStream>(std::move(b));
-        auto Dgram = std::make_shared<Tuic::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     Tuic::Address src{};
-                     std::vector<std::uint8_t> out;
+                     // 每个错误分支使用独立的 memory pair，避免把已关闭端点当作
+                     // 后续 wire 注入器，保持半关闭写语义与真实 TCP 一致。
+                     {
+                         auto [a, b] = MakeMemoryPair(ioc.get_executor());
+                         auto Peer = std::make_shared<MemoryStream>(std::move(b));
+                         auto Dgram = std::make_shared<Tuic::Dgram<>>(
+                             std::make_shared<MemoryStream>(std::move(a)));
+                         Tuic::Address Source{};
+                         std::vector<std::uint8_t> Output;
+                         Peer->Close();
+                         EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Output), Error::UnexpectedEof);
+                     }
 
-                     // 底层 EOF → unexpected_eof（头部读失败）
-                     peer->Close();
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::UnexpectedEof);
+                     {
+                         auto [a, b] = MakeMemoryPair(ioc.get_executor());
+                         auto Peer = std::make_shared<MemoryStream>(std::move(b));
+                         auto Dgram = std::make_shared<Tuic::Dgram<>>(
+                             std::make_shared<MemoryStream>(std::move(a)));
+                         Tuic::Address Source{};
+                         std::vector<std::uint8_t> Output;
+                         const std::array<std::uint8_t, 11> BadAtypWire{
+                             0x05, 0x02, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x7F};
+                         const auto WriteError = co_await Peer->WriteAll(BadAtypWire);
+                         EXPECT_FALSE(WriteError);
+                         EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Output), Error::BadMessage);
+                     }
 
-                     // 非法地址类型 → bad_message（ReadAddressBody default 分支）
-                     Tuic::Message badatyp;
-                     badatyp.Cmd = Preview::Tuic::CmdPacket;
-                     badatyp.dst.Type = static_cast<Tuic::AddressType>(0x7F);
-                     const auto wb2 = co_await peer->WriteAll(Tuic::Build(badatyp));
-                     EXPECT_FALSE(wb2);
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::BadMessage);
-
-                     // 头部不足（< 10 字节）→ unexpected_eof
-                     const std::array<std::uint8_t, 5> short_head{0x05, 0x02, 0, 0, 0};
-                     const auto wb3 = co_await peer->WriteAll(short_head);
-                     EXPECT_FALSE(wb3);
-                     EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(src, out), Error::UnexpectedEof);
+                     {
+                         auto [a, b] = MakeMemoryPair(ioc.get_executor());
+                         auto Peer = std::make_shared<MemoryStream>(std::move(b));
+                         auto Dgram = std::make_shared<Tuic::Dgram<>>(
+                             std::make_shared<MemoryStream>(std::move(a)));
+                         Tuic::Address Source{};
+                         std::vector<std::uint8_t> Output;
+                         const std::array<std::uint8_t, 5> ShortHead{0x05, 0x02, 0, 0, 0};
+                         const auto WriteError = co_await Peer->WriteAll(ShortHead);
+                         EXPECT_FALSE(WriteError);
+                         Peer->Shutdown();
+                         EXPECT_EQ(co_await Dgram->AsyncReceiveFrom(Source, Output), Error::UnexpectedEof);
+                     }
                  });
     }
 
     TEST(TuicDgram, SendIoError)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto peer = std::make_shared<MemoryStream>(std::move(b));
         auto Dgram = std::make_shared<Tuic::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 对端全关 → 写入失败 → io_error
                      peer->Close();
                      const std::string_view one{"x"};
-                     const auto err = co_await Dgram->AsyncSendTo(make_dst(), AsU8Span(one));
+                     const auto err = co_await Dgram->AsyncSendTo(MakeDestination(), AsU8Span(one));
                      EXPECT_EQ(err, Error::IoError);
                  });
     }

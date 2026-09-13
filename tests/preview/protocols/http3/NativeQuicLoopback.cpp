@@ -14,6 +14,7 @@
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/udp.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/redirect_error.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -29,21 +30,23 @@
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <future>
 #include <memory>
 #include <span>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 #include <preview/Protocols/Quic/Native.hpp>
 
 namespace
 {
-    namespace net = boost::asio;
-    namespace ssl = net::ssl;
-    using namespace boost::asio::experimental::awaitable_operators;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Ssl = Net::ssl;
+    using boost::asio::experimental::awaitable_operators::operator&&;
 
-    auto LoadSelfSigned(ssl::context &Context) -> void
+    auto LoadSelfSigned(Ssl::context &Context) -> void
     {
         auto *KeyContext = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
         EVP_PKEY *Key = nullptr;
@@ -78,25 +81,25 @@ namespace
         EVP_PKEY_free(Key);
     }
 
-    auto RunLoopback(net::io_context &Ioc, auto Task, auto OnTimeout) -> void
+    auto RunLoopback(Net::io_context &Ioc, auto Task, auto OnTimeout) -> void
     {
-        auto Watchdog = std::make_shared<net::steady_timer>(Ioc);
+        auto Watchdog = std::make_shared<Net::steady_timer>(Ioc);
         Watchdog->expires_after(std::chrono::seconds(5));
-        net::co_spawn(
+        Net::co_spawn(
             Ioc,
-            [Watchdog, OnTimeout = std::move(OnTimeout), &Ioc]() -> net::awaitable<void>
+            [Watchdog, OnTimeout = std::move(OnTimeout), &Ioc]() -> Net::awaitable<void>
             {
                 boost::system::error_code ErrorCode;
-                co_await Watchdog->async_wait(net::redirect_error(net::use_awaitable, ErrorCode));
+                co_await Watchdog->async_wait(Net::redirect_error(Net::use_awaitable, ErrorCode));
                 if (!ErrorCode)
                 {
                     OnTimeout();
                     Ioc.stop();
                 }
             },
-            net::detached);
+            Net::detached);
         std::exception_ptr Failure;
-        net::co_spawn(Ioc, std::move(Task), [&](std::exception_ptr Ep)
+        Net::co_spawn(Ioc, std::move(Task), [&](std::exception_ptr Ep)
                       {
                           Failure = std::move(Ep);
                           Ioc.stop();
@@ -111,10 +114,63 @@ namespace
         }
     }
 
+    TEST(NativeQuicLoopback, RandomSourceFailureRejectsConnection)
+    {
+        Net::io_context Ioc;
+        Ssl::context ClientTls(Ssl::context::tlsv13_client);
+        auto ClientSocket = std::make_shared<Net::ip::udp::socket>(
+            Ioc, Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 0));
+        const Preview::Quic::RandomSource FailingRandom = [](std::uint8_t *, int) { return 0; };
+        auto Client = std::make_shared<Preview::Quic::Client>(Preview::Quic::ClientOptions{
+            Ioc.get_executor(), ClientSocket,
+            Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 1), ClientTls.native_handle(), "localhost",
+            FailingRandom});
+
+        RunLoopback(
+            Ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                Client->Start();
+                EXPECT_FALSE(co_await Client->WaitHandshake());
+                Client->Close();
+            },
+            [Client]() { Client->Close(); });
+    }
+
+    TEST(NativeQuicLoopback, CloseFromForeignExecutor)
+    {
+        Net::io_context ConnectionIoc;
+        Net::io_context CallerIoc;
+        Ssl::context ClientTls(Ssl::context::tlsv13_client);
+        auto Socket = std::make_shared<Net::ip::udp::socket>(
+            ConnectionIoc, Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 0));
+        auto Client = std::make_shared<Preview::Quic::Client>(Preview::Quic::ClientOptions{
+            ConnectionIoc.get_executor(), Socket,
+            Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 1), ClientTls.native_handle(), "localhost"});
+
+        std::promise<void> CloseCalled;
+        auto CloseCalledFuture = CloseCalled.get_future();
+        std::thread Caller([&CallerIoc, Client, &CloseCalled]() mutable
+                            {
+                                Net::post(CallerIoc,
+                                          [Client = std::move(Client), &CloseCalled]() mutable
+                                          {
+                                              Client->Close();
+                                              CloseCalled.set_value();
+                                          });
+                                CallerIoc.run();
+                            });
+
+        CloseCalledFuture.wait();
+        ConnectionIoc.run();
+        Caller.join();
+        EXPECT_FALSE(Socket->is_open());
+    }
+
     TEST(NativeQuicLoopback, HandshakeStreamAndDatagramRoundtrip)
     {
-        net::io_context Ioc;
-        ssl::context ServerTls(ssl::context::tlsv13_server);
+        Net::io_context Ioc;
+        Ssl::context ServerTls(Ssl::context::tlsv13_server);
         LoadSelfSigned(ServerTls);
         static constexpr unsigned char H3Alpn[] = {0x02, 'h', '3'};
         SSL_CTX_set_alpn_select_cb(
@@ -131,14 +187,14 @@ namespace
                 return SSL_TLSEXT_ERR_ALERT_FATAL;
             },
             nullptr);
-        ssl::context ClientTls(ssl::context::tlsv13_client);
-        ClientTls.set_verify_mode(ssl::verify_none);
+        Ssl::context ClientTls(Ssl::context::tlsv13_client);
+        ClientTls.set_verify_mode(Ssl::verify_none);
         ASSERT_EQ(SSL_CTX_set_alpn_protos(ClientTls.native_handle(), H3Alpn, sizeof(H3Alpn)), 0);
 
-        auto ServerSocket = std::make_shared<net::ip::udp::socket>(
-            Ioc, net::ip::udp::endpoint(net::ip::address_v4::loopback(), 0));
-        auto ClientSocket = std::make_shared<net::ip::udp::socket>(
-            Ioc, net::ip::udp::endpoint(net::ip::address_v4::loopback(), 0));
+        auto ServerSocket = std::make_shared<Net::ip::udp::socket>(
+            Ioc, Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 0));
+        auto ClientSocket = std::make_shared<Net::ip::udp::socket>(
+            Ioc, Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 0));
         const auto ServerEndpoint = ServerSocket->local_endpoint();
 
         auto Server = std::make_shared<Preview::Quic::Server>(Preview::Quic::ServerOptions{
@@ -148,7 +204,7 @@ namespace
 
         RunLoopback(
             Ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 Server->Start();
                 Client->Start();
@@ -171,59 +227,66 @@ namespace
                     co_return;
                 }
 
-                std::vector<std::byte> Message(4096, std::byte{0x5A});
-                std::error_code Ec;
-                EXPECT_EQ(co_await ClientStream->Write(Message, Ec), Message.size());
-                EXPECT_FALSE(Ec);
-
-                auto ServerStream = co_await Server->AcceptBidirectionalStream();
-                EXPECT_NE(ServerStream, nullptr);
-                if (!ServerStream)
+                std::vector<std::byte> Message(128 * 1024, std::byte{0x5A});
+                auto ReadExact = [](Preview::Quic::SharedStreamProvider Stream,
+                                    std::span<std::byte> Buffer) -> Net::awaitable<std::size_t>
                 {
-                    Client->Close();
-                    Server->Close();
-                    co_return;
-                }
+                    std::size_t Done = 0;
+                    while (Done < Buffer.size())
+                    {
+                        std::error_code ReadError;
+                        const auto Count = co_await Stream->Read(Buffer.subspan(Done), ReadError);
+                        if (ReadError || Count == 0 || Count > Buffer.size() - Done)
+                        {
+                            co_return Done;
+                        }
+                        Done += Count;
+                    }
+                    co_return Done;
+                };
 
                 std::vector<std::byte> Received(Message.size());
-                std::size_t ReceivedLength = 0;
-                while (ReceivedLength < Received.size())
+                auto AcceptAndRead = [&]() -> Net::awaitable<std::pair<Preview::Quic::SharedStreamProvider,
+                                                                         std::size_t>>
                 {
-                    const auto Length = co_await ServerStream->Read(
-                        std::span<std::byte>(Received).subspan(ReceivedLength), Ec);
-                    if (Ec || Length == 0)
+                    auto Stream = co_await Server->AcceptBidirectionalStream();
+                    if (!Stream)
                     {
-                        break;
+                        co_return std::pair<Preview::Quic::SharedStreamProvider, std::size_t>{nullptr, 0};
                     }
-                    ReceivedLength += Length;
-                }
-                EXPECT_FALSE(Ec);
+                    const auto Count = co_await ReadExact(Stream, std::span<std::byte>(Received));
+                    co_return std::pair{std::move(Stream), Count};
+                };
+
+                std::error_code ClientWriteError;
+                const auto [ClientWritten, ReceiveResult] =
+                    co_await (ClientStream->Write(Message, ClientWriteError) && AcceptAndRead());
+                auto ServerStream = std::move(ReceiveResult.first);
+                const auto ReceivedLength = ReceiveResult.second;
+                EXPECT_NE(ServerStream, nullptr);
+                EXPECT_EQ(ClientWritten, Message.size());
+                EXPECT_FALSE(ClientWriteError);
                 EXPECT_EQ(ReceivedLength, Received.size());
                 EXPECT_EQ(Received, Message);
-                if (Ec || ReceivedLength != Received.size())
+                if (ClientWriteError || ClientWritten != Message.size() || ReceivedLength != Received.size())
                 {
                     Client->Close();
                     Server->Close();
                     co_return;
                 }
+                ClientStream->ShutdownWrite();
 
-                EXPECT_EQ(co_await ServerStream->Write(Received, Ec), Received.size());
-                EXPECT_FALSE(Ec);
                 std::vector<std::byte> Echo(Message.size());
-                std::size_t EchoLength = 0;
-                while (EchoLength < Echo.size())
-                {
-                    const auto Length = co_await ClientStream->Read(
-                        std::span<std::byte>(Echo).subspan(EchoLength), Ec);
-                    if (Ec || Length == 0)
-                    {
-                        break;
-                    }
-                    EchoLength += Length;
-                }
-                EXPECT_FALSE(Ec);
+                std::error_code ServerWriteError;
+                const auto [ServerWritten, EchoLength] =
+                    co_await (ServerStream->Write(Received, ServerWriteError) &&
+                              ReadExact(ClientStream, std::span<std::byte>(Echo)));
+                EXPECT_EQ(ServerWritten, Received.size());
+                EXPECT_FALSE(ServerWriteError);
                 EXPECT_EQ(EchoLength, Echo.size());
                 EXPECT_EQ(Echo, Message);
+
+                std::error_code Ec;
 
                 auto ClientDatagram = Client->Datagram();
                 auto ServerDatagram = Server->Datagram();
@@ -247,6 +310,131 @@ namespace
 
                 ClientStream->Close();
                 ServerStream->Close();
+                Client->Close();
+                Server->Close();
+            },
+            [Client, Server]()
+            {
+                Client->Close();
+                Server->Close();
+            });
+    }
+
+    TEST(NativeQuicLoopback, UnidirectionalStreamsRoundtrip)
+    {
+        Net::io_context Ioc;
+        Ssl::context ServerTls(Ssl::context::tlsv13_server);
+        LoadSelfSigned(ServerTls);
+        static constexpr unsigned char H3Alpn[] = {0x02, 'h', '3'};
+        SSL_CTX_set_alpn_select_cb(
+            ServerTls.native_handle(),
+            [](SSL *, const unsigned char **Out, unsigned char *OutLength, const unsigned char *In,
+               unsigned int InLength, void *) -> int
+            {
+                static constexpr unsigned char H3[] = {0x02, 'h', '3'};
+                if (SSL_select_next_proto(const_cast<unsigned char **>(Out), OutLength, H3, sizeof(H3), In,
+                                          InLength) == OPENSSL_NPN_NEGOTIATED)
+                {
+                    return SSL_TLSEXT_ERR_OK;
+                }
+                return SSL_TLSEXT_ERR_ALERT_FATAL;
+            },
+            nullptr);
+        Ssl::context ClientTls(Ssl::context::tlsv13_client);
+        ClientTls.set_verify_mode(Ssl::verify_none);
+        ASSERT_EQ(SSL_CTX_set_alpn_protos(ClientTls.native_handle(), H3Alpn, sizeof(H3Alpn)), 0);
+
+        auto ServerSocket = std::make_shared<Net::ip::udp::socket>(
+            Ioc, Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 0));
+        auto ClientSocket = std::make_shared<Net::ip::udp::socket>(
+            Ioc, Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 0));
+        const auto ServerEndpoint = ServerSocket->local_endpoint();
+        auto Server = std::make_shared<Preview::Quic::Server>(Preview::Quic::ServerOptions{
+            Ioc.get_executor(), ServerSocket, ServerTls.native_handle()});
+        auto Client = std::make_shared<Preview::Quic::Client>(Preview::Quic::ClientOptions{
+            Ioc.get_executor(), ClientSocket, ServerEndpoint, ClientTls.native_handle(), "localhost"});
+
+        RunLoopback(
+            Ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                Server->Start();
+                Client->Start();
+                const auto Handshake = co_await (Client->WaitHandshake() && Server->WaitHandshake());
+                EXPECT_TRUE(std::get<0>(Handshake));
+                EXPECT_TRUE(std::get<1>(Handshake));
+                if (!std::get<0>(Handshake) || !std::get<1>(Handshake))
+                {
+                    Client->Close();
+                    Server->Close();
+                    co_return;
+                }
+
+                const std::array<std::uint8_t, 16> Label{
+                    0x12, 0x3E, 0x45, 0x67, 0xE8, 0x9B, 0x12, 0xD3,
+                    0xA4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00};
+                std::array<std::uint8_t, 32> ClientExport{};
+                std::array<std::uint8_t, 32> ServerExport{};
+                EXPECT_TRUE(Client->ExportKeyingMaterial(ClientExport, Label, "tuic_password"));
+                EXPECT_TRUE(Server->ExportKeyingMaterial(ServerExport, Label, "tuic_password"));
+                EXPECT_EQ(ClientExport, ServerExport);
+
+                auto ClientUni = co_await Client->OpenUnidirectionalStream();
+                EXPECT_NE(ClientUni, nullptr);
+                if (!ClientUni)
+                {
+                    Client->Close();
+                    Server->Close();
+                    co_return;
+                }
+                std::error_code Ec;
+                const std::array<std::byte, 3> ClientMessage{
+                    std::byte{0x03}, std::byte{0x01}, std::byte{0x02}};
+                EXPECT_EQ(co_await ClientUni->Write(ClientMessage, Ec), ClientMessage.size());
+                EXPECT_FALSE(Ec);
+                auto ServerUni = co_await Server->AcceptUnidirectionalStream();
+                EXPECT_NE(ServerUni, nullptr);
+                if (!ServerUni)
+                {
+                    Client->Close();
+                    Server->Close();
+                    co_return;
+                }
+                std::array<std::byte, 8> ServerBuffer{};
+                const auto ServerRead = co_await ServerUni->Read(ServerBuffer, Ec);
+                EXPECT_FALSE(Ec);
+                EXPECT_EQ(ServerRead, ClientMessage.size());
+                EXPECT_TRUE(std::equal(ClientMessage.begin(), ClientMessage.end(), ServerBuffer.begin()));
+
+                auto ServerCreated = co_await Server->OpenUnidirectionalStream();
+                EXPECT_NE(ServerCreated, nullptr);
+                if (!ServerCreated)
+                {
+                    Client->Close();
+                    Server->Close();
+                    co_return;
+                }
+                const std::array<std::byte, 2> ServerMessage{std::byte{0xA5}, std::byte{0x5A}};
+                EXPECT_EQ(co_await ServerCreated->Write(ServerMessage, Ec), ServerMessage.size());
+                EXPECT_FALSE(Ec);
+                auto ClientReceived = co_await Client->AcceptUnidirectionalStream();
+                EXPECT_NE(ClientReceived, nullptr);
+                if (!ClientReceived)
+                {
+                    Client->Close();
+                    Server->Close();
+                    co_return;
+                }
+                std::array<std::byte, 8> ClientBuffer{};
+                const auto ClientRead = co_await ClientReceived->Read(ClientBuffer, Ec);
+                EXPECT_FALSE(Ec);
+                EXPECT_EQ(ClientRead, ServerMessage.size());
+                EXPECT_TRUE(std::equal(ServerMessage.begin(), ServerMessage.end(), ClientBuffer.begin()));
+
+                ClientUni->Close();
+                ServerUni->Close();
+                ServerCreated->Close();
+                ClientReceived->Close();
                 Client->Close();
                 Server->Close();
             },

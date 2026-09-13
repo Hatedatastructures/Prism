@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <chrono>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -25,141 +26,218 @@
 
 namespace
 {
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Vmess = Preview::Vmess;
+    using Preview::Error;
+    using Preview::make_error_code;
 
     /**
      * @brief 构造 16 字节 UUID
      */
-    auto make_uuid() -> std::array<std::uint8_t, 16>
+    auto MakeUuid() -> std::array<std::uint8_t, 16>
     {
-        std::array<std::uint8_t, 16> u{};
-        u.fill(0x33);
-        return u;
+        std::array<std::uint8_t, 16> Uuid{};
+        Uuid.fill(0x33);
+        return Uuid;
     }
 
     TEST(VmessCodecDeep, AesGcmOpenShortCipher)
     {
-        std::array<std::uint8_t, 16> key{};
+        std::array<std::uint8_t, 16> Key{};
         std::array<std::uint8_t, 12> Nonce{};
-        std::array<std::uint8_t, 8> cipher{};
-        const auto plain = Vmess::detail::AesGcmOpen(
-            Vmess::detail::OpenInput{std::span<const std::uint8_t, 16>(key), std::span<const std::uint8_t, 12>(Nonce), cipher, std::span<const std::uint8_t>{}});
-        EXPECT_TRUE(plain.empty());
+        std::array<std::uint8_t, 8> Cipher{};
+        const auto Plain = Vmess::detail::AesGcmOpen(
+            Vmess::detail::OpenInput{std::span<const std::uint8_t, 16>(Key), std::span<const std::uint8_t, 12>(Nonce), Cipher, std::span<const std::uint8_t>{}});
+        EXPECT_TRUE(Plain.empty());
+    }
+
+    TEST(VmessCodecDeep, AesGcmSealRejectsInvalidParameters)
+    {
+        const std::array<std::uint8_t, 15> ShortKey{};
+        const std::array<std::uint8_t, 12> Nonce{};
+        const std::array<std::uint8_t, 11> ShortNonce{};
+        const std::array<std::uint8_t, 1> Plain{0x42};
+
+        EXPECT_TRUE(Vmess::detail::AesGcmSeal(
+                        Vmess::detail::SealInput{ShortKey, Nonce, Plain, {}})
+                        .empty());
+        EXPECT_TRUE(Vmess::detail::AesGcmSeal(
+                        Vmess::detail::SealInput{std::span<const std::uint8_t>{}, Nonce, Plain, {}})
+                        .empty());
+        EXPECT_TRUE(Vmess::detail::AesGcmSeal(
+                        Vmess::detail::SealInput{std::array<std::uint8_t, 16>{}, ShortNonce, Plain, {}})
+                        .empty());
     }
 
     TEST(VmessCodecDeep, BuildHeaderAddressBranches)
     {
-        Vmess::RequestHeader hdr{};
-        std::array<std::uint8_t, 16> iv{};
-        std::array<std::uint8_t, 16> key{};
-        Vmess::RequestMeta meta{std::span<const std::uint8_t, 16>(iv), std::span<const std::uint8_t, 16>(key)};
-        meta.v = 0x42;
-        meta.p = 3;
+        Vmess::RequestHeader Header{};
+        std::array<std::uint8_t, 16> Iv{};
+        std::array<std::uint8_t, 16> Key{};
+        Vmess::RequestMeta Meta{std::span<const std::uint8_t, 16>(Iv), std::span<const std::uint8_t, 16>(Key)};
+        Meta.v = 0x42;
+        Meta.p = 3;
 
         // ipv4 正常
-        hdr.Target.Type = Vmess::AddressType::Ipv4;
-        hdr.Target.Host = "10.0.0.1";
-        hdr.Target.Port = 443;
-        const auto Ok = Vmess::BuildRequestHeader(hdr, meta);
+        Header.Target.Type = Vmess::AddressType::Ipv4;
+        Header.Target.Host = "10.0.0.1";
+        Header.Target.Port = 443;
+        const auto Ok = Vmess::BuildRequestHeader(Header, Meta);
         EXPECT_GT(Ok.size(), 40u);
 
         // ipv4 段过多
-        hdr.Target.Host = "1.2.3.4.5";
-        EXPECT_TRUE(Vmess::BuildRequestHeader(hdr, meta).empty());
+        Header.Target.Host = "1.2.3.4.5";
+        EXPECT_TRUE(Vmess::BuildRequestHeader(Header, Meta).empty());
 
         // ipv4 段超 255
-        hdr.Target.Host = "300.1.1.1";
-        EXPECT_TRUE(Vmess::BuildRequestHeader(hdr, meta).empty());
+        Header.Target.Host = "300.1.1.1";
+        EXPECT_TRUE(Vmess::BuildRequestHeader(Header, Meta).empty());
 
         // ipv4 段数不足
-        hdr.Target.Host = "1.2.3";
-        EXPECT_TRUE(Vmess::BuildRequestHeader(hdr, meta).empty());
+        Header.Target.Host = "1.2.3";
+        EXPECT_TRUE(Vmess::BuildRequestHeader(Header, Meta).empty());
 
         // ipv6 编码
-        hdr.Target.Type = Vmess::AddressType::Ipv6;
-        hdr.Target.Host.assign(16, 'w');
-        const auto v6 = Vmess::BuildRequestHeader(hdr, meta);
-        EXPECT_EQ(v6.size(), 41u + 16u + meta.p + 4u);
+        Header.Target.Type = Vmess::AddressType::Ipv6;
+        Header.Target.Host.assign(16, 'w');
+        const auto V6 = Vmess::BuildRequestHeader(Header, Meta);
+        EXPECT_EQ(V6.size(), 41u + 16u + Meta.p + 4u);
+
+        Header.Target.Type = static_cast<Vmess::AddressType>(0xFF);
+        EXPECT_TRUE(Vmess::BuildRequestHeader(Header, Meta).empty());
+
+        Header.Target.Type = Vmess::AddressType::Domain;
+        Header.Target.Host.assign(256, 'd');
+        EXPECT_TRUE(Vmess::BuildRequestHeader(Header, Meta).empty());
+
+        Header.Target.Type = Vmess::AddressType::Ipv6;
+        Header.Target.Host = "not-an-ipv6";
+        EXPECT_TRUE(Vmess::BuildRequestHeader(Header, Meta).empty());
     }
 
     TEST(VmessCodecDeep, ParseHeaderBranches)
     {
-        Vmess::RequestHeader hdr{};
-        Vmess::RequestMetaOut meta{};
-        std::array<std::uint8_t, 16> iv{};
-        std::array<std::uint8_t, 16> key{};
-        std::array<std::uint8_t, 16> iv2{};
-        std::array<std::uint8_t, 16> key2{};
+        Vmess::RequestHeader Header{};
+        Vmess::RequestMetaOut MetaOut{};
+        std::array<std::uint8_t, 16> Iv{};
+        std::array<std::uint8_t, 16> Key{};
 
         // ipv4 截断
         std::vector<std::uint8_t> v4(41, 0);
         v4[0] = 0x01;
         v4[40] = 0x01; // ipv4
-        EXPECT_EQ(Vmess::ParseRequestHeader(v4, hdr, meta), Error::NeedMore);
+        EXPECT_EQ(Vmess::ParseRequestHeader(v4, Header, MetaOut), Error::NeedMore);
 
         // ipv6 截断
         std::vector<std::uint8_t> v6(41, 0);
         v6[0] = 0x01;
-        v6[40] = 0x04; // ipv6
-        EXPECT_EQ(Vmess::ParseRequestHeader(v6, hdr, meta), Error::NeedMore);
+        v6[40] = static_cast<std::uint8_t>(Vmess::AddressType::Ipv6); // ipv6
+        EXPECT_EQ(Vmess::ParseRequestHeader(v6, Header, MetaOut), Error::NeedMore);
 
         // ipv6 成功（Build 后回解析）
-        Vmess::RequestHeader src{};
-        src.Cmd = static_cast<std::uint8_t>(Vmess::Command::Udp);
-        src.Target.Type = Vmess::AddressType::Ipv6;
-        src.Target.Host.assign(16, 'z');
-        src.Target.Port = 53;
-        Vmess::RequestMeta m{std::span<const std::uint8_t, 16>(iv), std::span<const std::uint8_t, 16>(key)};
-        const auto wire = Vmess::BuildRequestHeader(src, m);
-        EXPECT_EQ(Vmess::ParseRequestHeader(wire, hdr, meta), Error::None);
-        EXPECT_EQ(hdr.Target.Type, Vmess::AddressType::Ipv6);
-        EXPECT_EQ(hdr.Target.Host, std::string(16, 'z'));
-        EXPECT_EQ(hdr.Target.Port, 53u);
+        Vmess::RequestHeader Source{};
+        Source.Cmd = static_cast<std::uint8_t>(Vmess::Command::Udp);
+        Source.Target.Type = Vmess::AddressType::Ipv6;
+        Source.Target.Host.assign(16, 'z');
+        Source.Target.Port = 53;
+        Vmess::RequestMeta Meta{std::span<const std::uint8_t, 16>(Iv), std::span<const std::uint8_t, 16>(Key)};
+        const auto Wire = Vmess::BuildRequestHeader(Source, Meta);
+        EXPECT_EQ(Vmess::ParseRequestHeader(Wire, Header, MetaOut), Error::None);
+        EXPECT_EQ(Header.Target.Type, Vmess::AddressType::Ipv6);
+        EXPECT_EQ(Header.Target.Host, std::string(16, 'z'));
+        EXPECT_EQ(Header.Target.Port, 53u);
 
         // FNV1a 校验失败
-        auto tampered = wire;
-        tampered.back() ^= 0x01;
-        EXPECT_EQ(Vmess::ParseRequestHeader(tampered, hdr, meta), Error::BadAuth);
+        auto Tampered = Wire;
+        Tampered.back() ^= 0x01;
+        EXPECT_EQ(Vmess::ParseRequestHeader(Tampered, Header, MetaOut), Error::BadAuth);
+
+        std::vector<std::uint8_t> UnknownAddress(46, 0);
+        UnknownAddress[0] = Vmess::ProtocolVersion;
+        UnknownAddress[40] = 0xFF;
+        const auto UnknownHash = Vmess::detail::Fnv1a32(
+            std::span<const std::uint8_t>(UnknownAddress).first(42));
+        UnknownAddress[42] = static_cast<std::uint8_t>(UnknownHash >> 24);
+        UnknownAddress[43] = static_cast<std::uint8_t>(UnknownHash >> 16);
+        UnknownAddress[44] = static_cast<std::uint8_t>(UnknownHash >> 8);
+        UnknownAddress[45] = static_cast<std::uint8_t>(UnknownHash);
+        EXPECT_EQ(Vmess::ParseRequestHeader(UnknownAddress, hdr, meta), Error::BadMessage);
     }
 
     TEST(VmessCodecDeep, ChunkDecryptorErrors)
     {
-        std::array<std::uint8_t, 16> key{};
+        std::array<std::uint8_t, 16> Key{};
         std::array<std::uint8_t, 12> Nonce{};
-        Vmess::ChunkDecryptor dec{std::span<const std::uint8_t, 16>(key), std::span<const std::uint8_t, 12>(Nonce)};
+        Vmess::ChunkDecryptor Decoder{std::span<const std::uint8_t, 16>(Key), std::span<const std::uint8_t, 12>(Nonce)};
 
         // 头部不足
-        std::array<std::uint8_t, 10> short_head{};
-        const auto r1 = dec.OpenLen(std::span<const std::uint8_t>(short_head));
-        EXPECT_FALSE(r1);
-        EXPECT_EQ(r1.error(), Error::NeedMore);
+        std::array<std::uint8_t, 10> ShortHead{};
+        const auto Result1 = Decoder.OpenLen(std::span<const std::uint8_t>(ShortHead));
+        EXPECT_FALSE(Result1);
+        EXPECT_EQ(Result1.error(), Error::NeedMore);
 
         // 坏密文（tag 篡改）
-        std::array<std::uint8_t, 18> bad_head{};
-        bad_head[17] = 0xFF;
-        const auto r2 = dec.OpenLen(std::span<const std::uint8_t>(bad_head));
-        EXPECT_FALSE(r2);
-        EXPECT_EQ(r2.error(), Error::BadAuth);
+        std::array<std::uint8_t, 18> BadHead{};
+        BadHead[17] = 0xFF;
+        const auto Result2 = Decoder.OpenLen(std::span<const std::uint8_t>(BadHead));
+        EXPECT_FALSE(Result2);
+        EXPECT_EQ(Result2.error(), Error::BadAuth);
 
         // 超长（> max_chunk_len）
-        Vmess::ChunkEncryptor enc{std::span<const std::uint8_t, 16>(key), std::span<const std::uint8_t, 12>(Nonce)};
-        std::array<std::uint8_t, 34> len_enc{};
-        const auto n1 = enc.Seal({}, len_enc); // 空块：长度 0
-        (void)n1;
-        const auto r3 = dec.OpenLen(std::span<const std::uint8_t>(len_enc).first(18));
-        ASSERT_TRUE(r3);
-        EXPECT_EQ(*r3, 0u);
+        Vmess::ChunkEncryptor Encoder{std::span<const std::uint8_t, 16>(Key), std::span<const std::uint8_t, 12>(Nonce)};
+        std::array<std::uint8_t, 34> LengthEncoded{};
+        const auto BytesWritten = Encoder.Seal({}, LengthEncoded); // 空块：长度 0
+        (void)BytesWritten;
+        const auto Result3 = Decoder.OpenLen(std::span<const std::uint8_t>(LengthEncoded).first(18));
+        ASSERT_TRUE(Result3);
+        EXPECT_EQ(*Result3, 0u);
 
         // 超长长度字段（> max_chunk_len → bad_length）
-        Vmess::ChunkEncryptor enc2{std::span<const std::uint8_t, 16>(key), std::span<const std::uint8_t, 12>(Nonce)};
-        std::vector<std::uint8_t> big_payload(20000, 0xAB);
-        std::vector<std::uint8_t> big_wire(big_payload.size() + 34);
-        const auto nb = enc2.Seal(big_payload, big_wire);
-        EXPECT_EQ(nb, big_payload.size() + 34);
-        Vmess::ChunkDecryptor dec2{std::span<const std::uint8_t, 16>(key), std::span<const std::uint8_t, 12>(Nonce)};
-        const auto r4 = dec2.OpenLen(std::span<const std::uint8_t>(big_wire).first(18));
-        EXPECT_FALSE(r4);
-        EXPECT_EQ(r4, Error::BadLength);
+        Vmess::ChunkEncryptor Encoder2{std::span<const std::uint8_t, 16>(Key), std::span<const std::uint8_t, 12>(Nonce)};
+        std::vector<std::uint8_t> BigPayload(20000, 0xAB);
+        std::vector<std::uint8_t> BigWire(BigPayload.size() + 34);
+        const auto BigBytesWritten = Encoder2.Seal(BigPayload, BigWire);
+        EXPECT_EQ(BigBytesWritten, BigPayload.size() + 34);
+        Vmess::ChunkDecryptor Decoder2{std::span<const std::uint8_t, 16>(Key), std::span<const std::uint8_t, 12>(Nonce)};
+        const auto Result4 = Decoder2.OpenLen(std::span<const std::uint8_t>(BigWire).first(18));
+        EXPECT_FALSE(Result4);
+        EXPECT_EQ(Result4, Error::BadLength);
+    }
+
+    TEST(VmessCodecDeep, StandardChunkMaskingRoundtrip)
+    {
+        std::array<std::uint8_t, 16> key{};
+        std::array<std::uint8_t, 16> nonce{};
+        key.fill(0x31);
+        nonce.fill(0x72);
+        constexpr auto Options = static_cast<std::uint8_t>(Vmess::Option::ChunkStream) |
+                                  static_cast<std::uint8_t>(Vmess::Option::ChunkMasking);
+        const std::string Payload = "standard vmess chunk masking";
+
+        Vmess::ChunkEncryptor Encoder{std::span<const std::uint8_t, 16>(key),
+                                      std::span<const std::uint8_t, 16>(nonce), Options};
+        std::array<std::uint8_t, 256> Wire{};
+        const auto Written = Encoder.Seal(
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(Payload.data()),
+                                           Payload.size()),
+            Wire);
+        EXPECT_EQ(Written, Payload.size() + 18u);
+        const auto MaskedLength = static_cast<std::uint16_t>(Wire[0]) << 8 | Wire[1];
+        EXPECT_EQ(MaskedLength,
+                  (static_cast<std::uint16_t>(Payload.size() + 16u) ^ std::uint16_t{0xFD02}));
+
+        Vmess::ChunkDecryptor Decoder{std::span<const std::uint8_t, 16>(key),
+                                      std::span<const std::uint8_t, 16>(nonce), Options};
+        const auto Length = Decoder.OpenLen(std::span<const std::uint8_t>(Wire).first(2));
+        ASSERT_TRUE(Length);
+        EXPECT_EQ(*Length, Payload.size() + 16u);
+        std::vector<std::uint8_t> Plain(Payload.size());
+        EXPECT_EQ(Decoder.OpenPayload(std::span<const std::uint8_t>(Wire).subspan(2, Written - 2), Plain),
+                  Error::None);
+        EXPECT_EQ(std::string(reinterpret_cast<const char *>(Plain.data()), Plain.size()), Payload);
+
+        std::array<std::uint8_t, 256> Finish{};
+        EXPECT_EQ(Encoder.Finish(Finish), 2u);
     }
 
     TEST(VmessCodecDeep, ChunkOpenEndAndErrors)
@@ -187,8 +265,8 @@ namespace
 
     TEST(VmessCodecDeep, ParserErrorPropagation)
     {
-        const auto uuid = make_uuid();
-        const auto cmd_key = Vmess::CmdKeyFromUuid(uuid);
+        const auto Uuid = MakeUuid();
+        const auto CommandKey = Vmess::CmdKeyFromUuid(Uuid);
         std::array<std::uint8_t, 4> random{0x11, 0x22, 0x33, 0x44};
 
         // 合法 body（ipv4）
@@ -205,28 +283,28 @@ namespace
                                   std::chrono::system_clock::now().time_since_epoch())
                                   .count();
         const auto wire =
-            Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{body, time_sec, random});
+            Vmess::SealAuthHeader(CommandKey, Vmess::AuthHeaderInput{body, time_sec, random});
 
-        Vmess::Parser p(uuid);
+        Vmess::Parser Parser(Uuid);
         std::error_code ec;
 
         // 数据不足
-        EXPECT_EQ(p.Put(boost::asio::buffer(std::array<std::uint8_t, 30>{}), ec), 0u);
+        EXPECT_EQ(Parser.Put(boost::asio::buffer(std::array<std::uint8_t, 30>{}), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::NeedMore));
-        p.Reset();
+        Parser.Reset();
 
         // 总长不足（截断 wire 尾部）
         const auto truncated = std::vector<std::uint8_t>(wire.begin(), wire.end() - 20);
-        EXPECT_EQ(p.Put(boost::asio::buffer(truncated), ec), 0u);
+        EXPECT_EQ(Parser.Put(boost::asio::buffer(truncated), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::NeedMore));
-        p.Reset();
+        Parser.Reset();
 
         // 认证头解密失败（篡改 hdr_enc 区）
         auto tampered = wire;
         tampered.back() ^= 0x01;
-        EXPECT_EQ(p.Put(boost::asio::buffer(tampered), ec), 0u);
+        EXPECT_EQ(Parser.Put(boost::asio::buffer(tampered), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::BadAuth));
-        p.Reset();
+        Parser.Reset();
 
         // 头解析失败（版本错误 body）
         Vmess::RequestHeader bad_hdr{};
@@ -235,19 +313,19 @@ namespace
         bad_hdr.Target.Host = "x.com";
         const auto bad_body = Vmess::BuildRequestHeader(bad_hdr, m);
         const auto bad_wire =
-            Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{bad_body, time_sec, random});
-        EXPECT_EQ(p.Put(boost::asio::buffer(bad_wire), ec), 0u);
+            Vmess::SealAuthHeader(CommandKey, Vmess::AuthHeaderInput{bad_body, time_sec, random});
+        EXPECT_EQ(Parser.Put(boost::asio::buffer(bad_wire), ec), 0u);
         EXPECT_EQ(ec, make_error_code(Error::BadMagic));
-        p.Reset();
+        Parser.Reset();
 
         // 成功解析
-        EXPECT_EQ(p.Put(boost::asio::buffer(wire), ec), wire.size());
-        EXPECT_TRUE(p.IsDone());
-        EXPECT_EQ(p.Get().dst.Host, "8.8.8.8");
-        EXPECT_EQ(p.Get().Cmd, 0x01u);
+        EXPECT_EQ(Parser.Put(boost::asio::buffer(wire), ec), wire.size());
+        EXPECT_TRUE(Parser.IsDone());
+        EXPECT_EQ(Parser.Get().dst.Host, "8.8.8.8");
+        EXPECT_EQ(Parser.Get().Cmd, 0x01u);
         // Done 后再 Put → 返回累积字节数
         std::error_code ec2;
-        EXPECT_EQ(p.Put(boost::asio::buffer(std::array<std::uint8_t, 4>{}), ec2), wire.size());
+        EXPECT_EQ(Parser.Put(boost::asio::buffer(std::array<std::uint8_t, 4>{}), ec2), wire.size());
         EXPECT_FALSE(ec2);
     }
 

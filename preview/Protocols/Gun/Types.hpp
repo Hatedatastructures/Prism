@@ -6,6 +6,8 @@
  *          写：[0x00 压缩标志][u32 BE 长度][0x0A protobuf field1][uvarint][payload]
  *          读：跳过 [0x00][u32 BE][0x0A] 6 字节 → 读 uvarint → 读 payload
  *          本测试库实现纯逻辑帧编解码。
+ * @note HeaderFixedLen、MaxPayloadLen 和 MaxVarintLen 是 Codec 的公共边界契约，
+ *       保持名称和值兼容。
  * @note 参考 gun-lite 协议规范。
  */
 

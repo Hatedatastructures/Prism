@@ -15,11 +15,14 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <span>
 #include <string_view>
 #include <vector>
 
 #include <blake3.h>
+
+#include <preview/Foundation/Error.hpp>
 
 namespace Preview::Crypto
 {
@@ -33,8 +36,8 @@ namespace Preview::Crypto
      * @param material 输入密钥材料
      * @param out 输出缓冲区，其大小决定派生密钥长度
      */
-    void DeriveKey(std::string_view Context, std::span<const std::uint8_t> material,
-                    std::span<std::uint8_t> out);
+    void DeriveKey(std::string_view Context, std::span<const std::uint8_t> Material,
+                   std::span<std::uint8_t> Output);
 
     /**
      * @brief BLAKE3 密钥派生（返回 vector 版本）
@@ -45,7 +48,7 @@ namespace Preview::Crypto
      * @param OutLen 输出密钥长度
      * @return 派生出的密钥字节
      */
-    [[nodiscard]] auto DeriveKey(std::string_view Context, std::span<const std::uint8_t> material,
+    [[nodiscard]] auto DeriveKey(std::string_view Context, std::span<const std::uint8_t> Material,
                                   std::size_t OutLen) -> std::vector<std::uint8_t>;
 
     /**
@@ -57,7 +60,8 @@ namespace Preview::Crypto
      * @param key 密钥，必须恰好 32 字节（BLAKE3_KEY_LEN）
      * @return 已初始化的 blake3_hasher（值类型，可直接使用）
      */
-    [[nodiscard]] auto KeyedHasher(std::span<const std::uint8_t> key) -> blake3_hasher;
+    [[nodiscard]] auto KeyedHasher(std::span<const std::uint8_t> Key)
+        -> std::expected<blake3_hasher, Preview::Error>;
 
     /**
      * @brief BLAKE3 密钥化哈希（便捷函数）
@@ -67,8 +71,8 @@ namespace Preview::Crypto
      * @param Data 待哈希数据
      * @return 32 字节哈希值
      */
-    [[nodiscard]] auto KeyedHash(std::span<const std::uint8_t> key, std::span<const std::uint8_t> Data)
-        -> std::array<std::uint8_t, 32>;
+    [[nodiscard]] auto KeyedHash(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
+        -> std::expected<std::array<std::uint8_t, 32>, Preview::Error>;
 
     /**
      * @brief BLAKE3 普通哈希
@@ -80,49 +84,58 @@ namespace Preview::Crypto
 
 
 
-    inline void DeriveKey(std::string_view Context, std::span<const std::uint8_t> material,
-                            const std::span<std::uint8_t> out)
+    inline void DeriveKey(std::string_view Context, std::span<const std::uint8_t> Material,
+                          const std::span<std::uint8_t> Output)
     {
-        blake3_hasher hasher;
-        blake3_hasher_init_derive_key_raw(&hasher, Context.data(), Context.size());
-        blake3_hasher_update(&hasher, material.data(), material.size());
-        blake3_hasher_finalize(&hasher, out.data(), out.size());
+        blake3_hasher Hasher;
+        blake3_hasher_init_derive_key_raw(&Hasher, Context.data(), Context.size());
+        blake3_hasher_update(&Hasher, Material.data(), Material.size());
+        blake3_hasher_finalize(&Hasher, Output.data(), Output.size());
     }
 
-    inline auto DeriveKey(std::string_view Context, std::span<const std::uint8_t> material,
+    inline auto DeriveKey(std::string_view Context, std::span<const std::uint8_t> Material,
                             const std::size_t OutLen) -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> out(OutLen);
-        DeriveKey(Context, material, out);
-        return out;
+        std::vector<std::uint8_t> Output(OutLen);
+        DeriveKey(Context, Material, Output);
+        return Output;
     }
 
-    inline auto KeyedHasher(std::span<const std::uint8_t> key) -> blake3_hasher
+    inline auto KeyedHasher(std::span<const std::uint8_t> Key)
+        -> std::expected<blake3_hasher, Preview::Error>
     {
-        blake3_hasher hasher;
-        blake3_hasher_init_keyed(&hasher, key.data());
-        return hasher;
+        if (Key.size() != BLAKE3_KEY_LEN)
+        {
+            return std::unexpected(Preview::Error::BadLength);
+        }
+        blake3_hasher Hasher{};
+        blake3_hasher_init_keyed(&Hasher, Key.data());
+        return Hasher;
     }
 
-    inline auto KeyedHash(std::span<const std::uint8_t> key, std::span<const std::uint8_t> Data)
-        -> std::array<std::uint8_t, 32>
+    inline auto KeyedHash(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
+        -> std::expected<std::array<std::uint8_t, 32>, Preview::Error>
     {
-        blake3_hasher hasher;
-        blake3_hasher_init_keyed(&hasher, key.data());
-        blake3_hasher_update(&hasher, Data.data(), Data.size());
-        std::array<std::uint8_t, 32> out;
-        blake3_hasher_finalize(&hasher, out.data(), out.size());
-        return out;
+        auto Hasher = KeyedHasher(Key);
+        if (!Hasher)
+        {
+            return std::unexpected(Hasher.error());
+        }
+        auto &HasherContext = *Hasher;
+        blake3_hasher_update(&HasherContext, Data.data(), Data.size());
+        std::array<std::uint8_t, 32> Output{};
+        blake3_hasher_finalize(&HasherContext, Output.data(), Output.size());
+        return Output;
     }
 
     inline auto Hash(std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, 32>
     {
-        blake3_hasher hasher;
-        blake3_hasher_init(&hasher);
-        blake3_hasher_update(&hasher, Data.data(), Data.size());
-        std::array<std::uint8_t, 32> out;
-        blake3_hasher_finalize(&hasher, out.data(), out.size());
-        return out;
+        blake3_hasher Hasher;
+        blake3_hasher_init(&Hasher);
+        blake3_hasher_update(&Hasher, Data.data(), Data.size());
+        std::array<std::uint8_t, 32> Output;
+        blake3_hasher_finalize(&Hasher, Output.data(), Output.size());
+        return Output;
     }
 
 

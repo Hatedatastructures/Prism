@@ -23,14 +23,15 @@ namespace Preview::Network
      * @brief 构造目标对象
      * @param mr 内存资源指针
      */
-        explicit Target(Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource()) : Host(mr), Port(mr)
+        explicit Target(Preview::Memory::ResourcePointer Resource = Preview::Memory::CurrentResource())
+            : Host(Resource), Port(Resource)
         {
             Port.assign("80");
         }
 
         Preview::Memory::String Host;
         Preview::Memory::String Port;
-        bool positive{false};
+        bool Positive{false};
     };
 
 } // namespace Preview::Network

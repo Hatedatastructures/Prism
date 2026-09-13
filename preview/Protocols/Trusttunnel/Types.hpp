@@ -19,6 +19,24 @@
 namespace Preview::Trusttunnel
 {
 
+    /// TrustTunnel 客户端认证配置
+    struct ClientConfig
+    {
+        /// HTTP Basic Auth 用户名；保留空字符串默认值
+        std::string username;
+        /// HTTP Basic Auth 密码；保留空字符串默认值
+        std::string password;
+    };
+
+    /// TrustTunnel 服务端认证配置
+    struct ServerConfig
+    {
+        /// HTTP Basic Auth 用户名；保留空字符串默认值
+        std::string username;
+        /// HTTP Basic Auth 密码；保留空字符串默认值
+        std::string password;
+    };
+
     /// Basic Auth 前缀
     inline constexpr std::string_view BasicPrefix = "Basic ";
 

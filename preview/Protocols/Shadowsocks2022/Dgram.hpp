@@ -28,6 +28,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -43,7 +44,7 @@
 namespace Preview::Shadowsocks2022
 {
 
-    namespace ss = Preview::Shadowsocks2022;
+    namespace Net = boost::asio;
 
     /**
      * @class Dgram
@@ -59,12 +60,14 @@ namespace Preview::Shadowsocks2022
     public:
         /**
          * @brief 构造函数（工厂调用）
-         * @param upstream 底层数据报传输（已 Connect/Bind，所有权移交）
-         * @param key 16 字节 UDP 密钥（PSK 派生）
+         * @param Upstream 底层数据报传输（已 Connect/Bind，所有权移交）
+         * @param Key 16 字节 UDP 密钥（PSK 派生）
          */
-        explicit Dgram(SharedTransmission upstream, std::array<std::uint8_t, 16> key,
-                       UdpRole Role = UdpRole::Client)
-            : NextLayer_(std::move(upstream)), Key_(key), Role_(Role)
+        explicit Dgram(
+            SharedTransmission Upstream,
+            std::array<std::uint8_t, 16> Key,
+            UdpRole Role = UdpRole::Client)
+            : NextLayer_(std::move(Upstream)), Key_(Key), Role_(Role)
         {
             SessionIdReady_ = RAND_bytes(LocalSessionId_.data(), static_cast<int>(LocalSessionId_.size())) == 1;
         }
@@ -72,8 +75,12 @@ namespace Preview::Shadowsocks2022
         /**
          * @brief 获取执行器（委托底层传输）
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
@@ -87,12 +94,13 @@ namespace Preview::Shadowsocks2022
 
         /**
          * @brief 发送一个 UDP 数据报（WriteTo 语义，逐包 AEAD）
-         * @param dest 目标地址（内嵌于包）
-         * @param payload 载荷
+         * @param Target 目标地址（内嵌于包）
+         * @param Payload 载荷
          * @return 错误码
          */
-        [[nodiscard]] auto AsyncSendTo(const ss::Address &dest, std::span<const std::uint8_t> payload)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncSendTo(
+            const Address &Target,
+            std::span<const std::uint8_t> Payload) -> Net::awaitable<Error>
         {
             if (!NextLayer_ || !NextLayer_->IsOpen() || !SessionIdReady_)
             {
@@ -102,32 +110,64 @@ namespace Preview::Shadowsocks2022
             {
                 co_return Error::BadMessage;
             }
-            const auto Type = Role_ == UdpRole::Server ? HeaderTypeServer : HeaderTypeClient;
-            const auto Peer = Role_ == UdpRole::Server
-                                  ? std::span<const std::uint8_t>(PeerSessionId_)
-                                  : std::span<const std::uint8_t>{};
+            std::uint8_t PacketType = HeaderTypeClient;
+            std::span<const std::uint8_t> PeerSession;
+            if (Role_ == UdpRole::Server)
+            {
+                PacketType = HeaderTypeServer;
+                PeerSession = std::span<const std::uint8_t>(PeerSessionId_);
+            }
             const auto PacketId = NextPacketId_;
-            if (!ss::BuildUdpPacket(
-                    ss::UdpBuildInput{Key_, PacketId, &dest, payload, LocalSessionId_, 0, Peer, Type}, TxWire_))
+            if (!BuildUdpPacket(
+                    UdpBuildInput{
+                        Key_, PacketId, &Target, Payload, LocalSessionId_, 0, PeerSession, PacketType},
+                    TxWire_))
             {
                 co_return Error::BadLength;
             }
-            std::error_code ec;
-            std::size_t N = 0;
-            if (auto *Udp = dynamic_cast<Preview::Transport::Unreliable *>(NextLayer_.get());
-                Udp != nullptr && PeerEndpoint_.has_value())
+            std::error_code ErrorCode;
+            if (auto *Udp = dynamic_cast<Preview::Transport::Unreliable *>(NextLayer_.get()); Udp != nullptr)
             {
-                N = co_await Udp->AsyncSendTo(
-                    AsBytes(std::span<const std::uint8_t>(TxWire_)), *PeerEndpoint_, ec);
+                std::size_t Sent = 0;
+                if (PeerEndpoint_.has_value())
+                {
+                    Sent = co_await Udp->AsyncSendTo(
+                        AsBytes(std::span<const std::uint8_t>(TxWire_)), *PeerEndpoint_, ErrorCode);
+                }
+                else
+                {
+                    Sent = co_await NextLayer_->async_write_some(
+                        AsBytes(std::span<const std::uint8_t>(TxWire_)), ErrorCode);
+                }
+                if (ErrorCode)
+                {
+                    co_return Error::IoError;
+                }
+                if (Sent > TxWire_.size())
+                {
+                    co_return Error::BadLength;
+                }
+                if (Sent != TxWire_.size())
+                {
+                    co_return Error::IoError;
+                }
             }
             else
             {
-                N = co_await NextLayer_->async_write_some(
-                    AsBytes(std::span<const std::uint8_t>(TxWire_)), ec);
-            }
-            if (ec || N != TxWire_.size())
-            {
-                co_return Error::IoError;
+                const auto Sent = co_await NextLayer_->async_write_some(
+                    AsBytes(std::span<const std::uint8_t>(TxWire_)), ErrorCode);
+                if (ErrorCode)
+                {
+                    co_return Error::IoError;
+                }
+                if (Sent > TxWire_.size())
+                {
+                    co_return Error::BadLength;
+                }
+                if (Sent != TxWire_.size())
+                {
+                    co_return Error::IoError;
+                }
             }
             ++NextPacketId_;
             co_return Error::None;
@@ -135,64 +175,94 @@ namespace Preview::Shadowsocks2022
 
         /**
          * @brief 接收一个 UDP 数据报（ReadFrom 语义，逐包 AEAD）
-         * @param src 输出源地址（包内目标）
-         * @param payload 输出载荷
+         * @param Source 输出源地址（包内目标）
+         * @param Payload 输出载荷
          * @return 错误码
          */
-        [[nodiscard]] auto AsyncReceiveFrom(ss::Address &src, std::vector<std::uint8_t> &payload)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncReceiveFrom(
+            Address &Source,
+            std::vector<std::uint8_t> &Payload) -> Net::awaitable<Error>
         {
-            std::array<std::uint8_t, 64 * 1024> buf{};
-            std::error_code ec;
-            std::size_t N = 0;
+            if (!NextLayer_ || !SessionIdReady_)
+            {
+                co_return Error::NotOpen;
+            }
+            constexpr std::size_t MaxAddressWireSize = 1 + 1 + 0xFF + 2;
+            constexpr std::size_t MaxWireSize =
+                SeparateHdrLen + 1 + UdpTsLen + MaxAddressWireSize + 2 + MaxUdpPayload + AeadTagLen;
+            std::array<std::uint8_t, MaxWireSize> Buffer{};
+            std::error_code ErrorCode;
+            std::size_t Received = 0;
             std::optional<Preview::Transport::Unreliable::EndpointType> SenderEndpoint;
             if (auto *Udp = dynamic_cast<Preview::Transport::Unreliable *>(NextLayer_.get());
                 Udp != nullptr)
             {
                 Preview::Transport::Unreliable::EndpointType Sender;
-                N = co_await Udp->AsyncReceiveFrom(
-                    AsBytes(std::span<std::uint8_t>(buf)), Sender, ec);
-                if (!ec)
+                ErrorCode.clear();
+                Received = co_await Udp->AsyncReceiveFrom(
+                    AsBytes(std::span<std::uint8_t>(Buffer)), Sender, ErrorCode);
+                if (!ErrorCode)
                 {
                     SenderEndpoint = Sender;
                 }
             }
             else
             {
-                N = co_await NextLayer_->async_read_some(
-                    AsBytes(std::span<std::uint8_t>(buf)), ec);
+                ErrorCode.clear();
+                Received = co_await NextLayer_->async_read_some(
+                    AsBytes(std::span<std::uint8_t>(Buffer)), ErrorCode);
             }
-            if (ec)
+            if (ErrorCode)
             {
                 co_return Error::IoError;
             }
-            if (N == 0)
+            if (Received == 0)
             {
                 co_return Error::UnexpectedEof;
+            }
+            if (Received > Buffer.size())
+            {
+                co_return Error::BadLength;
             }
             std::array<std::uint8_t, SessionIdLen> PacketSessionId{};
             std::array<std::uint8_t, SessionIdLen> RemoteSessionId{};
             std::uint64_t PacketId = 0;
             std::uint64_t Timestamp = 0;
-            std::uint8_t Type = 0;
-            const auto Err = ss::ParseUdpPacket(ss::UdpParseInput{
-                Key_, std::span<const std::uint8_t>(buf.data(), N), &src, &payload,
-                &PacketSessionId, &PacketId, &Timestamp, &Type, &RemoteSessionId});
-            if (Err != Error::None)
+            std::uint8_t PacketType = 0;
+            const auto ParseError = ParseUdpPacket(UdpParseInput{
+                Key_,
+                std::span<const std::uint8_t>(Buffer.data(), Received),
+                &Source,
+                &Payload,
+                &PacketSessionId,
+                &PacketId,
+                &Timestamp,
+                &PacketType,
+                &RemoteSessionId});
+            if (ParseError != Error::None)
             {
-                co_return Err;
+                co_return ParseError;
             }
-            const auto Now = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
-                                                              std::chrono::system_clock::now().time_since_epoch())
-                                                              .count());
-            const auto Diff = Now >= Timestamp ? Now - Timestamp : Timestamp - Now;
-            if (Diff > 30)
+            const auto Now = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+            std::uint64_t Difference = 0;
+            if (Now >= Timestamp)
+            {
+                Difference = Now - Timestamp;
+            }
+            else
+            {
+                Difference = Timestamp - Now;
+            }
+            if (Difference > 30)
             {
                 co_return Error::BadMessage;
             }
             if (Role_ == UdpRole::Server)
             {
-                if (Type != HeaderTypeClient)
+                if (PacketType != HeaderTypeClient)
                 {
                     co_return Error::BadMessage;
                 }
@@ -205,7 +275,7 @@ namespace Preview::Shadowsocks2022
             }
             else
             {
-                if (Type != HeaderTypeServer || RemoteSessionId != LocalSessionId_)
+                if (PacketType != HeaderTypeServer || RemoteSessionId != LocalSessionId_)
                 {
                     co_return Error::BadMessage;
                 }
@@ -232,35 +302,55 @@ namespace Preview::Shadowsocks2022
         /**
          * @brief 透传读取（底层数据报原样）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            ErrorCode.clear();
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 透传写入（底层数据报原样）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            ErrorCode.clear();
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭底层传输
          */
-        void Close() override
+        auto Close() -> void override
         {
-            NextLayer_->Close();
+            if (NextLayer_)
+            {
+                NextLayer_->Close();
+            }
         }
 
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
-            NextLayer_->Cancel();
+            if (NextLayer_)
+            {
+                NextLayer_->Cancel();
+            }
         }
 
         /**
@@ -351,7 +441,14 @@ namespace Preview::Shadowsocks2022
             if (PacketId > HighestPacketId_)
             {
                 const auto Shift = PacketId - HighestPacketId_;
-                ReplayBits_ = Shift >= 64 ? 1ULL : (ReplayBits_ << Shift) | 1ULL;
+                if (Shift >= 64)
+                {
+                    ReplayBits_ = 1ULL;
+                }
+                else
+                {
+                    ReplayBits_ = (ReplayBits_ << Shift) | 1ULL;
+                }
                 HighestPacketId_ = PacketId;
                 return true;
             }

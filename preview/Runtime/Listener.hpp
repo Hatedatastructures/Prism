@@ -23,6 +23,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <atomic>
 #include <memory>
 #include <string_view>
 #include <utility>
@@ -35,7 +36,7 @@
 namespace Preview::Runtime
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class AffinityBalancer
@@ -108,15 +109,20 @@ namespace Preview::Runtime
          */
         struct Lifetime
         {
-            Lifetime(net::any_io_executor ex, SessionFactory factory, const std::size_t WorkerCount)
-                : Ex(std::move(ex)), Factory(std::move(factory)), Balancer(WorkerCount), Acceptor(Ex)
+            Lifetime(Net::any_io_executor ex, SessionFactory factory, const std::size_t WorkerCount,
+                     const std::size_t MaxConnections)
+                : Ex(std::move(ex)), Factory(std::move(factory)), Balancer(WorkerCount),
+                  MaxConnections(MaxConnections), Acceptor(Ex)
             {
             }
 
-            net::any_io_executor Ex;
+            Net::any_io_executor Ex;
             SessionFactory Factory;
             AffinityBalancer Balancer;
-            net::ip::tcp::acceptor Acceptor;
+            std::size_t MaxConnections{0};
+            std::atomic<std::size_t> ActiveConnections{0};
+            Net::ip::tcp::acceptor Acceptor;
+            std::atomic<bool> Stopped{false}; ///< Stop/析构后禁止新会话进入工厂
         };
 
     public:
@@ -127,9 +133,27 @@ namespace Preview::Runtime
          * @param factory 会话工厂
          * @param WorkerCount worker 数（用于分发）
          */
-        TcpListener(net::any_io_executor ex, SessionFactory factory, std::size_t WorkerCount = 1)
-            : State_(std::make_shared<Lifetime>(std::move(ex), std::move(factory), WorkerCount))
+        TcpListener(Net::any_io_executor ex, SessionFactory factory, std::size_t WorkerCount = 1,
+                    std::size_t MaxConnections = 0)
+            : State_(std::make_shared<Lifetime>(std::move(ex), std::move(factory), WorkerCount,
+                                                 MaxConnections))
         {
+        }
+
+        TcpListener(const TcpListener &) = delete;
+        auto operator=(const TcpListener &) -> TcpListener & = delete;
+        TcpListener(TcpListener &&) = delete;
+        auto operator=(TcpListener &&) -> TcpListener & = delete;
+
+        /**
+         * @brief 析构即停止监听（RAII）
+         * @details 不依赖调用方显式 Stop()：关闭 acceptor 让 Accept 循环退出；
+         *          detached 循环持有的共享状态在取消完成后自行释放。
+         * @note 必须在执行器线程调用（与单 executor 约束一致）。
+         */
+        ~TcpListener()
+        {
+            Stop();
         }
 
         /**
@@ -137,14 +161,19 @@ namespace Preview::Runtime
          * @param BindEp 绑定端点（端口 0 = 随机）
          * @return 成功或 io_error
          */
-        [[nodiscard]] auto Start(const net::ip::tcp::endpoint &BindEp) -> net::awaitable<Preview::Fault::Code>
+        [[nodiscard]] auto Start(const Net::ip::tcp::endpoint &BindEp)
+            -> Net::awaitable<Preview::Fault::Code>
         {
             const auto State = State_;
+            if (State->Stopped.load(std::memory_order_acquire))
+            {
+                co_return Preview::Fault::Code::InvalidArgument; // 已停止：不允许重新启动
+            }
             boost::system::error_code ec;
             State->Acceptor.open(BindEp.protocol(), ec);
             if (!ec)
             {
-                State->Acceptor.set_option(net::ip::tcp::acceptor::reuse_address(true), ec);
+                State->Acceptor.set_option(Net::ip::tcp::acceptor::reuse_address(true), ec);
             }
             if (!ec)
             {
@@ -152,16 +181,18 @@ namespace Preview::Runtime
             }
             if (!ec)
             {
-                State->Acceptor.listen(net::socket_base::max_listen_connections, ec);
+                State->Acceptor.listen(Net::socket_base::max_listen_connections, ec);
             }
             if (ec)
             {
+                boost::system::error_code CloseError;
+                State->Acceptor.close(CloseError);
                 co_return Preview::Fault::Code::IoError;
             }
-            net::co_spawn(
+            Net::co_spawn(
                 State->Ex,
-                [State]() -> net::awaitable<void> { co_await TcpListener::AcceptLoop(State); },
-                net::detached);
+                [State]() -> Net::awaitable<void> { co_await TcpListener::AcceptLoop(State); },
+                Net::detached);
             co_return Preview::Fault::Code::Success;
         }
 
@@ -170,6 +201,10 @@ namespace Preview::Runtime
          */
         void Stop()
         {
+            if (State_->Stopped.exchange(true, std::memory_order_acq_rel))
+            {
+                return; // 幂等
+            }
             boost::system::error_code ec;
             State_->Acceptor.close(ec);
         }
@@ -177,9 +212,18 @@ namespace Preview::Runtime
         /**
          * @brief 本地端点
          */
-        [[nodiscard]] auto LocalEndpoint() const -> net::ip::tcp::endpoint
+        [[nodiscard]] auto LocalEndpoint() const -> Net::ip::tcp::endpoint
         {
             return State_->Acceptor.local_endpoint();
+        }
+
+        /**
+         * @brief 返回连接并发上限
+         * @return 0 表示不限制，否则为允许保持的活动 Session 数
+         */
+        [[nodiscard]] auto MaxConnections() const noexcept -> std::size_t
+        {
+            return State_->MaxConnections;
         }
 
     private:
@@ -187,34 +231,119 @@ namespace Preview::Runtime
          * @brief Accept 循环：接受 → 亲和性分发 → 启动会话
          */
         [[nodiscard]] static auto AcceptLoop(const std::shared_ptr<Lifetime> &State)
-            -> net::awaitable<void>
+            -> Net::awaitable<void>
         {
             while (true)
             {
                 boost::system::error_code ec;
                 auto Sock = co_await State->Acceptor.async_accept(
-                    net::redirect_error(net::use_awaitable, ec));
+                    Net::redirect_error(Net::use_awaitable, ec));
                 if (ec)
                 {
                     co_return; // 停止或错误
                 }
+                if (State->Stopped.load(std::memory_order_acquire))
+                {
+                    // 析构/Stop 后已接受的连接不再进入工厂
+                    boost::system::error_code CloseError;
+                    Sock.close(CloseError);
+                    co_return;
+                }
+                if (!TryAcquireConnection(State))
+                {
+                    boost::system::error_code CloseError;
+                    Sock.close(CloseError);
+                    continue;
+                }
                 boost::system::error_code pec;
                 const auto Remote = Sock.remote_endpoint(pec);
-                const auto Peer = pec ? std::string{"unknown"} : Remote.address().to_string();
+                std::string Peer;
+                if (pec)
+                {
+                    Peer = "unknown";
+                }
+                else
+                {
+                    Peer = Remote.address().to_string();
+                }
                 const auto Worker = State->Balancer.Select(Peer);
                 auto Transport = Preview::Transport::MakeReliable(std::move(Sock));
-                if (State->Factory)
+                if (!State->Factory || State->Stopped.load(std::memory_order_acquire))
                 {
-                    auto Sess = State->Factory(Transport, Worker);
-                    if (Sess)
+                    CloseAcceptedTransport(Transport);
+                    ReleaseConnection(State);
+                    if (State->Stopped.load(std::memory_order_acquire))
                     {
-                        // 按值捕获 shared_ptr 保持会话存活（协程生命周期独立于 Accept 循环）
-                        net::co_spawn(State->Ex,
-                                      [Sess, Transport]() -> net::awaitable<void>
-                                      { co_await Sess->Run(Transport); },
-                                      net::detached);
+                        co_return;
                     }
+                    continue;
                 }
+
+                std::shared_ptr<Session> Sess;
+                try
+                {
+                    Sess = State->Factory(Transport, Worker);
+                }
+                catch (...)
+                {
+                    CloseAcceptedTransport(Transport);
+                    ReleaseConnection(State);
+                    continue;
+                }
+                if (!Sess)
+                {
+                    CloseAcceptedTransport(Transport);
+                    ReleaseConnection(State);
+                    continue;
+                }
+
+                // 按值捕获 shared_ptr 保持会话存活（协程生命周期独立于 Accept 循环）
+                Net::co_spawn(State->Ex,
+                              [Sess, Transport, State]() -> Net::awaitable<void>
+                              {
+                                  try
+                                  {
+                                      (void)co_await Sess->Run(Transport);
+                                  }
+                                  catch (...)
+                                  {
+                                  }
+                                  CloseAcceptedTransport(Transport);
+                                  ReleaseConnection(State);
+                              },
+                              Net::detached);
+            }
+        }
+
+        static auto CloseAcceptedTransport(const Preview::SharedTransmission &Transport) -> void
+        {
+            if (Transport && Transport->IsOpen())
+            {
+                Transport->Cancel();
+                Transport->Close();
+            }
+        }
+
+        [[nodiscard]] static auto TryAcquireConnection(const std::shared_ptr<Lifetime> &State) noexcept -> bool
+        {
+            if (State->MaxConnections == 0)
+            {
+                return true;
+            }
+            auto Current = State->ActiveConnections.load(std::memory_order_relaxed);
+            while (Current < State->MaxConnections &&
+                   !State->ActiveConnections.compare_exchange_weak(
+                       Current, Current + 1, std::memory_order_acquire, std::memory_order_relaxed))
+            {
+            }
+            return Current < State->MaxConnections;
+        }
+
+        static auto ReleaseConnection(const std::shared_ptr<Lifetime> &State) noexcept -> void
+        {
+            if (State->MaxConnections != 0)
+            {
+                State->ActiveConnections.fetch_sub(1, std::memory_order_release);
             }
         }
 

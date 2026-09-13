@@ -33,16 +33,20 @@
 namespace
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Fault = Preview::Fault;
+    namespace MiddlewareNamespace = Preview::Middleware;
+    using Preview::SharedTransmission;
+    using Preview::Transmission;
 
     /// 最小叶子传输（供管线入站）
-    class stub_transmission final : public Preview::Transmission
+    class StubTransmission final : public Transmission
     {
     public:
         using Preview::Transmission::async_read_some;
         using Preview::Transmission::async_write_some;
 
-        explicit stub_transmission(net::any_io_executor ex) : Ex_(std::move(ex))
+        explicit StubTransmission(Net::any_io_executor Executor) : Ex_(std::move(Executor))
         {
         }
 
@@ -51,19 +55,19 @@ namespace
             return Ex_;
         }
 
-        auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             std::memset(Buffer.data(), 0, Buffer.size());
-            ec.clear();
+            ErrorCode.clear();
             co_return Buffer.size();
         }
 
-        auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             (void)Buffer;
-            ec.clear();
+            ErrorCode.clear();
             co_return Buffer.size();
         }
 
@@ -76,123 +80,127 @@ namespace
         }
 
     private:
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
     };
 
     /// 记录型中间件：记录调用顺序，返回指定错误码
-    class recording_middleware final : public Preview::Middleware::Middleware
+    class RecordingMiddleware final : public MiddlewareNamespace::Middleware
     {
     public:
-        recording_middleware(std::string_view Name, Preview::Fault::Code Result, std::vector<std::string> &log)
-            : name_(Name), result_(Result), log_(log)
+        RecordingMiddleware(std::string_view Name, Fault::Code Result, std::vector<std::string> &Log)
+            : Name_(Name), Result_(Result), Log_(Log)
         {
         }
 
         [[nodiscard]] auto Name() const -> std::string_view override
         {
-            return name_;
+            return Name_;
         }
 
-        auto Handle(Preview::SharedTransmission &Inbound, Preview::Middleware::Context &ctx)
-            -> net::awaitable<Preview::Fault::Code> override
+        auto Handle(SharedTransmission &Inbound, MiddlewareNamespace::Context &Context)
+            -> Net::awaitable<Fault::Code> override
         {
             (void)Inbound;
-            (void)ctx;
-            log_.push_back(std::string(name_));
-            co_return result_;
+            (void)Context;
+            Log_.push_back(std::string(Name_));
+            co_return Result_;
         }
 
     private:
-        std::string_view name_;
-        Preview::Fault::Code result_;
-        std::vector<std::string> &log_;
+        std::string_view Name_;
+        Fault::Code Result_;
+        std::vector<std::string> &Log_;
     };
 
-    /// 运行协程（co_spawn + ioc.Run 模式）
+    /// 运行协程（co_spawn + IoContext.Run 模式）
     template <typename Coro>
-    static auto run_coro(net::io_context &ioc, Coro &&coro) -> void
+    static auto RunCoroutine(Net::io_context &IoContext, Coro &&Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::forward<Coro>(coro)(), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::forward<Coro>(Coroutine)(),
+                      [&](std::exception_ptr ErrorValue)
+                      {
+                          Exception = ErrorValue;
+                          IoContext.stop();
+                      });
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     TEST(PreviewMiddleware, OrderedExecution)
     {
-        net::io_context ioc;
-        std::vector<std::string> log;
-        Preview::Middleware::Pipeline pipe;
-        pipe.Add(std::make_shared<recording_middleware>("a", Preview::Fault::Code::Success, log));
-        pipe.Add(std::make_shared<recording_middleware>("b", Preview::Fault::Code::Success, log));
+        Net::io_context IoContext;
+        std::vector<std::string> Log;
+        MiddlewareNamespace::Pipeline Pipeline;
+        Pipeline.Add(std::make_shared<RecordingMiddleware>("a", Fault::Code::Success, Log));
+        Pipeline.Add(std::make_shared<RecordingMiddleware>("b", Fault::Code::Success, Log));
 
-        auto Inbound = std::make_shared<stub_transmission>(ioc.get_executor());
-        Preview::Middleware::Context ctx;
+        auto Inbound = std::make_shared<StubTransmission>(IoContext.get_executor());
+        MiddlewareNamespace::Context MiddlewareContext;
 
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
                  {
-            const auto ec = co_await pipe.Run(Inbound, ctx);
-            EXPECT_EQ(ec, Preview::Fault::Code::Success); });
+            const auto ErrorCode = co_await Pipeline.Run(Inbound, MiddlewareContext);
+            EXPECT_EQ(ErrorCode, Fault::Code::Success); });
 
-        ASSERT_EQ(log.size(), 2U);
-        EXPECT_EQ(log[0], "a");
-        EXPECT_EQ(log[1], "b");
+        ASSERT_EQ(Log.size(), 2U);
+        EXPECT_EQ(Log[0], "a");
+        EXPECT_EQ(Log[1], "b");
     }
 
     TEST(PreviewMiddleware, StopOnFailure)
     {
-        net::io_context ioc;
-        std::vector<std::string> log;
-        Preview::Middleware::Pipeline pipe;
-        pipe.Add(std::make_shared<recording_middleware>("a", Preview::Fault::Code::Success, log));
-        pipe.Add(std::make_shared<recording_middleware>("b", Preview::Fault::Code::AuthFailed, log));
-        pipe.Add(std::make_shared<recording_middleware>("c", Preview::Fault::Code::Success, log));
+        Net::io_context IoContext;
+        std::vector<std::string> Log;
+        MiddlewareNamespace::Pipeline Pipeline;
+        Pipeline.Add(std::make_shared<RecordingMiddleware>("a", Fault::Code::Success, Log));
+        Pipeline.Add(std::make_shared<RecordingMiddleware>("b", Fault::Code::AuthFailed, Log));
+        Pipeline.Add(std::make_shared<RecordingMiddleware>("c", Fault::Code::Success, Log));
 
-        auto Inbound = std::make_shared<stub_transmission>(ioc.get_executor());
-        Preview::Middleware::Context ctx;
+        auto Inbound = std::make_shared<StubTransmission>(IoContext.get_executor());
+        MiddlewareNamespace::Context MiddlewareContext;
 
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
                  {
-            const auto ec = co_await pipe.Run(Inbound, ctx);
-            EXPECT_EQ(ec, Preview::Fault::Code::AuthFailed); });
+            const auto ErrorCode = co_await Pipeline.Run(Inbound, MiddlewareContext);
+            EXPECT_EQ(ErrorCode, Fault::Code::AuthFailed); });
 
         // b 失败后 c 不执行
-        ASSERT_EQ(log.size(), 2U);
-        EXPECT_EQ(log[0], "a");
-        EXPECT_EQ(log[1], "b");
+        ASSERT_EQ(Log.size(), 2U);
+        EXPECT_EQ(Log[0], "a");
+        EXPECT_EQ(Log[1], "b");
     }
 
     TEST(PreviewMiddleware, ContextState)
     {
-        net::io_context ioc;
-        Preview::Middleware::Pipeline pipe;
+        Net::io_context IoContext;
+        MiddlewareNamespace::Pipeline Pipeline;
 
         // 写 identity 的中间件
-        struct identity_writer final : public Preview::Middleware::Middleware
+        struct IdentityWriter final : public MiddlewareNamespace::Middleware
         {
             [[nodiscard]] auto Name() const -> std::string_view override
             {
                 return "identity-writer";
             }
 
-            auto Handle(Preview::SharedTransmission &, Preview::Middleware::Context &ctx)
-                -> net::awaitable<Preview::Fault::Code> override
+            auto Handle(SharedTransmission &, MiddlewareNamespace::Context &MiddlewareContext)
+                -> Net::awaitable<Fault::Code> override
             {
-                ctx.identity = "alice";
-                co_return Preview::Fault::Code::Success;
+                MiddlewareContext.identity = "alice";
+                co_return Fault::Code::Success;
             }
         };
 
         // 读 identity 的中间件
-        struct identity_reader final : public Preview::Middleware::Middleware
+        struct IdentityReader final : public MiddlewareNamespace::Middleware
         {
-            std::string *out;
+            std::string *Output;
 
-            explicit identity_reader(std::string *o) : out(o)
+            explicit IdentityReader(std::string *Output) : Output(Output)
             {
             }
 
@@ -201,41 +209,41 @@ namespace
                 return "identity-reader";
             }
 
-            auto Handle(Preview::SharedTransmission &, Preview::Middleware::Context &ctx)
-                -> net::awaitable<Preview::Fault::Code> override
+            auto Handle(SharedTransmission &, MiddlewareNamespace::Context &MiddlewareContext)
+                -> Net::awaitable<Fault::Code> override
             {
-                *out = ctx.identity;
-                co_return Preview::Fault::Code::Success;
+                *Output = MiddlewareContext.identity;
+                co_return Fault::Code::Success;
             }
         };
 
-        std::string seen;
-        pipe.Add(std::make_shared<identity_writer>());
-        pipe.Add(std::make_shared<identity_reader>(&seen));
+        std::string Seen;
+        Pipeline.Add(std::make_shared<IdentityWriter>());
+        Pipeline.Add(std::make_shared<IdentityReader>(&Seen));
 
-        auto Inbound = std::make_shared<stub_transmission>(ioc.get_executor());
-        Preview::Middleware::Context ctx;
+        auto Inbound = std::make_shared<StubTransmission>(IoContext.get_executor());
+        MiddlewareNamespace::Context MiddlewareContext;
 
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
                  {
-            const auto ec = co_await pipe.Run(Inbound, ctx);
-            EXPECT_EQ(ec, Preview::Fault::Code::Success); });
+            const auto ErrorCode = co_await Pipeline.Run(Inbound, MiddlewareContext);
+            EXPECT_EQ(ErrorCode, Fault::Code::Success); });
 
-        EXPECT_EQ(seen, "alice");
-        EXPECT_EQ(ctx.identity, "alice");
+        EXPECT_EQ(Seen, "alice");
+        EXPECT_EQ(MiddlewareContext.identity, "alice");
     }
 
     TEST(PreviewMiddleware, ContextDefaults)
     {
-        Preview::Middleware::Context ctx;
-        EXPECT_EQ(ctx.Inbound, nullptr);
-        EXPECT_EQ(ctx.Outbound, nullptr);
-        EXPECT_EQ(ctx.detected, 0U);
-        EXPECT_TRUE(ctx.identity.empty());
-        EXPECT_EQ(ctx.BufferSize, 16384U);
-        EXPECT_EQ(ctx.timeout, std::chrono::milliseconds{0});
-        EXPECT_EQ(ctx.pad, nullptr);
-        EXPECT_EQ(ctx.traffic, nullptr);
+        MiddlewareNamespace::Context MiddlewareContext;
+        EXPECT_EQ(MiddlewareContext.Inbound, nullptr);
+        EXPECT_EQ(MiddlewareContext.Outbound, nullptr);
+        EXPECT_EQ(MiddlewareContext.detected, 0U);
+        EXPECT_TRUE(MiddlewareContext.identity.empty());
+        EXPECT_EQ(MiddlewareContext.BufferSize, 16384U);
+        EXPECT_EQ(MiddlewareContext.timeout, std::chrono::milliseconds{0});
+        EXPECT_EQ(MiddlewareContext.pad, nullptr);
+        EXPECT_EQ(MiddlewareContext.traffic, nullptr);
     }
 
 } // namespace

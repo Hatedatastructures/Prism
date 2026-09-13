@@ -71,7 +71,7 @@ jobs:
       - name: Run Tests
         shell: pwsh
         run: |
-          $ctestArgs = @('--test-dir', 'build', '--no-tests=error', '--output-on-failure', '--timeout', '60', '-j', '2', '-LE', 'perf|stress')
+          $ctestArgs = @('--test-dir', 'build', '--no-tests=error', '--output-on-failure', '--timeout', '60', '-j', '2', '-LE', 'perf|stress|interop')
           & ctest @ctestArgs
           $parallelExit = $LASTEXITCODE
           if ($parallelExit -ne 0) {
@@ -134,7 +134,7 @@ jobs:
       - name: Run Tests
         run: |
           set +e
-          ctest --test-dir build --no-tests=error --output-on-failure --timeout 60 -j 2 -LE 'perf|stress'
+          ctest --test-dir build --no-tests=error --output-on-failure --timeout 60 -j 2 -LE 'perf|stress|interop'
           parallel_exit=$?
           if [ "$parallel_exit" -ne 0 ]; then
             echo "Parallel CTest failed with exit code $parallel_exit; rerunning only failed tests serially."

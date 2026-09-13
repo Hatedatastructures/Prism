@@ -30,7 +30,7 @@
 namespace Preview::Transport
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class Reliable
@@ -40,7 +40,7 @@ namespace Preview::Transport
      * 核心职责包括传输抽象，继承 Transmission 接口实现 TCP 传输层；
      * 协程设计，所有异步操作返回 net::awaitable 简化调用；
      * 错误码映射，自动映射 Boost.System 错误码到项目错误码；
-     * 智能指针支持，通过 std::enable_shared_from_this 管理生命周期。
+     * 智能指针支持，通过 Transmission 的共享所有权管理生命周期。
      * 设计特性包括可靠传输，TCP 保证数据有序送达不丢失不重复；
      * 流式语义，提供流式读写接口支持部分读写；原生访问，
      * 提供 NativeSocket 方法直接访问底层 socket；
@@ -50,10 +50,10 @@ namespace Preview::Transport
      * @warning 关闭后传输层对象不再可用，不应再调用其任何方法。
      * @throws std::bad_alloc 如果内存分配失败
      */
-    class Reliable final : public Transmission, public std::enable_shared_from_this<Reliable>
+    class Reliable final : public Transmission
     {
     public:
-        using SocketType = net::ip::tcp::socket;
+        using SocketType = Net::ip::tcp::socket;
 
         /**
          * @brief 构造函数
@@ -61,7 +61,7 @@ namespace Preview::Transport
          * 不打开，需要在后续调用 Open 或 Accept 后才能使用。
          * @param Executor 执行器，用于初始化 socket
          */
-        explicit Reliable(net::any_io_executor Executor) : Socket_(Executor)
+        explicit Reliable(Net::any_io_executor Executor) : Socket_(Executor)
         {
         }
 
@@ -71,7 +71,7 @@ namespace Preview::Transport
          * Socket 必须已打开并连接。
          * @param socket 已构造的 TCP socket
          */
-        explicit Reliable(SocketType socket) : Socket_(std::move(socket))
+        explicit Reliable(SocketType Socket) : Socket_(std::move(Socket))
         {
         }
 
@@ -81,28 +81,44 @@ namespace Preview::Transport
          * @param timeout 连接超时（0 = 禁用）
          * @return 错误码（timeout = 连接超时）
          */
-        auto Connect(const net::ip::tcp::endpoint &ep,
-                     std::chrono::milliseconds timeout = std::chrono::milliseconds{5000})
-            -> net::awaitable<boost::system::error_code>
+        auto Connect(const Net::ip::tcp::endpoint &Endpoint,
+                     std::chrono::milliseconds Timeout = std::chrono::milliseconds{5000})
+            -> Net::awaitable<boost::system::error_code>
         {
-            using namespace boost::asio::experimental::awaitable_operators;
+            using boost::asio::experimental::awaitable_operators::operator||;
 
-            if (timeout.count() > 0)
+            if (Timeout.count() > 0)
             {
-                net::steady_timer timer(Socket_->get_executor());
-                timer.expires_after(timeout);
-                auto Result = co_await (Socket_->async_connect(ep, net::use_awaitable) ||
-                                        timer.async_wait(net::use_awaitable));
+                Net::steady_timer Timer(Socket_->get_executor());
+                Timer.expires_after(Timeout);
+                boost::system::error_code ConnectError;
+                auto Result = co_await (Socket_->async_connect(
+                                            Endpoint, Net::redirect_error(Net::use_awaitable, ConnectError)) ||
+                                        Timer.async_wait(Net::use_awaitable));
                 if (Result.index() == 1)
                 {
-                    boost::system::error_code ec;
-                    Socket_->close(ec);
+                    boost::system::error_code CloseError;
+                    Socket_->close(CloseError);
                     co_return boost::system::errc::make_error_code(boost::system::errc::timed_out);
+                }
+                if (ConnectError)
+                {
+                    boost::system::error_code CloseError;
+                    Socket_->close(CloseError);
+                    co_return ConnectError;
                 }
             }
             else
             {
-                co_await Socket_->async_connect(ep, net::use_awaitable);
+                boost::system::error_code ConnectError;
+                co_await Socket_->async_connect(
+                    Endpoint, Net::redirect_error(Net::use_awaitable, ConnectError));
+                if (ConnectError)
+                {
+                    boost::system::error_code CloseError;
+                    Socket_->close(CloseError);
+                    co_return ConnectError;
+                }
             }
             co_return boost::system::error_code{};
         }
@@ -153,14 +169,32 @@ namespace Preview::Transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回读取的字节数
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
+            if (Timeout_.count() > 0)
+            {
+                using boost::asio::experimental::awaitable_operators::operator||;
+                boost::system::error_code SysEc;
+                Net::steady_timer Timer(Socket_->get_executor());
+                Timer.expires_after(Timeout_);
+                auto Result = co_await (NativeSocket().async_read_some(
+                                            Net::buffer(Buffer.data(), Buffer.size()),
+                                            Net::redirect_error(Net::use_awaitable, SysEc)) ||
+                                        Timer.async_wait(Net::use_awaitable));
+                if (Result.index() == 1)
+                {
+                    ErrorCode = std::make_error_code(std::errc::timed_out);
+                    co_return 0;
+                }
+                ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
+                co_return std::get<0>(Result);
+            }
             boost::system::error_code SysEc;
-            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            auto Token = Net::redirect_error(Net::use_awaitable, SysEc);
             const auto N =
-                co_await NativeSocket().async_read_some(net::buffer(Buffer.data(), Buffer.size()), Token);
-            ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
+                co_await NativeSocket().async_read_some(Net::buffer(Buffer.data(), Buffer.size()), Token);
+            ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
             co_return N;
         }
 
@@ -173,9 +207,60 @@ namespace Preview::Transport
          */
         void async_read_some(
             std::span<std::byte> Buffer,
-            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
+            Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Handler) override
         {
-            NativeSocket().async_read_some(net::buffer(Buffer.data(), Buffer.size()), std::move(handler));
+            if (Timeout_.count() <= 0)
+            {
+                NativeSocket().async_read_some(Net::buffer(Buffer.data(), Buffer.size()), std::move(Handler));
+                return;
+            }
+
+            // 超时竞速：定时器先到则取消挂起的 socket 读，并等待该读操作真正
+            // 完成后再以 timed_out 调用用户 handler，保证缓冲区生命周期不越过
+            // socket 操作；socket 读先完成时取消定时器并原样返回结果。
+            struct RaceState
+            {
+                RaceState(Net::any_io_executor Ex,
+                          Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Completion)
+                    : Handler(std::move(Completion)), Timer(std::move(Ex))
+                {
+                }
+
+                Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Handler;
+                Net::steady_timer Timer;
+                bool TimedOut{false};
+                bool Completed{false};
+            };
+
+            auto *Socket = &NativeSocket();
+            auto State = std::make_shared<RaceState>(Socket->get_executor(), std::move(Handler));
+            State->Timer.expires_after(Timeout_);
+            auto ReadCompletion =
+                [State](const boost::system::error_code Ec, const std::size_t N)
+                {
+                    if (State->TimedOut)
+                    {
+                        State->Timer.cancel();
+                        std::move(State->Handler)(Net::error::timed_out, 0);
+                        return;
+                    }
+                    State->Completed = true;
+                    State->Timer.cancel();
+                    std::move(State->Handler)(Ec, N);
+                };
+            Socket->async_read_some(Net::buffer(Buffer.data(), Buffer.size()), std::move(ReadCompletion));
+            auto TimeoutCompletion =
+                [State, Socket](const boost::system::error_code Ec)
+                {
+                    if (Ec || State->Completed)
+                    {
+                        return;
+                    }
+                    State->TimedOut = true;
+                    boost::system::error_code Ignored;
+                    Socket->cancel(Ignored);
+                };
+            State->Timer.async_wait(std::move(TimeoutCompletion));
         }
 
         /**
@@ -187,9 +272,9 @@ namespace Preview::Transport
          */
         void async_write_some(
             std::span<const std::byte> Buffer,
-            net::any_completion_handler<void(boost::system::error_code, std::size_t)> handler) override
+            Net::any_completion_handler<void(boost::system::error_code, std::size_t)> Handler) override
         {
-            NativeSocket().async_write_some(net::buffer(Buffer.data(), Buffer.size()), std::move(handler));
+            NativeSocket().async_write_some(Net::buffer(Buffer.data(), Buffer.size()), std::move(Handler));
         }
 
         /**
@@ -201,14 +286,15 @@ namespace Preview::Transport
          * @param ec 错误码输出参数
          * @return net::awaitable<std::size_t> 异步操作，完成后返回写入的字节数
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
+                                            std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             boost::system::error_code SysEc;
-            auto Token = net::redirect_error(net::use_awaitable, SysEc);
+            auto Token = Net::redirect_error(Net::use_awaitable, SysEc);
             const auto N =
-                co_await NativeSocket().async_write_some(net::buffer(Buffer.data(), Buffer.size()), Token);
-            ec = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
+                co_await NativeSocket().async_write_some(Net::buffer(Buffer.data(), Buffer.size()), Token);
+            ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
             co_return N;
         }
 
@@ -222,8 +308,8 @@ namespace Preview::Transport
         {
             if (Socket_)
             {
-                boost::system::error_code ec;
-                Socket_->close(ec);
+                boost::system::error_code CloseError;
+                Socket_->close(CloseError);
             }
         }
 
@@ -246,8 +332,8 @@ namespace Preview::Transport
         {
             if (Socket_)
             {
-                boost::system::error_code ec;
-                NativeSocket().shutdown(SocketType::shutdown_send, ec);
+                boost::system::error_code ShutdownError;
+                NativeSocket().shutdown(SocketType::shutdown_send, ShutdownError);
             }
         }
 
@@ -262,14 +348,22 @@ namespace Preview::Transport
         }
 
         /**
+         * @brief 设置读超时（0 = 禁用）
+         */
+        void SetTimeout(std::chrono::milliseconds ms) override
+        {
+            Timeout_ = ms;
+        }
+
+        /**
          * @brief 取消所有未完成的异步操作
          * @details 取消当前所有挂起的异步读写操作。
          * 被取消的操作将返回 operation_canceled 错误。
          */
         void Cancel() override
         {
-            boost::system::error_code ec;
-            NativeSocket().cancel(ec);
+            boost::system::error_code CancelError;
+            NativeSocket().cancel(CancelError);
         }
 
         /**
@@ -317,6 +411,7 @@ namespace Preview::Transport
 
     private:
         std::optional<SocketType> Socket_; // socket 存储
+        std::chrono::milliseconds Timeout_{0}; // 读超时（0 = 禁用）
     };
 
     /**
@@ -326,7 +421,7 @@ namespace Preview::Transport
      * @param Executor 执行器
      * @return SharedTransmission 创建的 Reliable 实例
      */
-    [[nodiscard]] inline SharedTransmission MakeReliable(const net::any_io_executor &Executor)
+    [[nodiscard]] inline SharedTransmission MakeReliable(const Net::any_io_executor &Executor)
     {
         return std::make_shared<Reliable>(Executor);
     }
@@ -338,9 +433,9 @@ namespace Preview::Transport
      * @param socket TCP socket
      * @return SharedTransmission 创建的 Reliable 实例
      */
-    [[nodiscard]] inline SharedTransmission MakeReliable(net::ip::tcp::socket socket)
+    [[nodiscard]] inline SharedTransmission MakeReliable(Net::ip::tcp::socket Socket)
     {
-        return std::make_shared<Reliable>(std::move(socket));
+        return std::make_shared<Reliable>(std::move(Socket));
     }
 
 } // namespace Preview::Transport

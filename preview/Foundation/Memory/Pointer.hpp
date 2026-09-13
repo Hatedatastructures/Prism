@@ -15,7 +15,10 @@
 #pragma once
 
 #include <cstddef>
+#include <concepts>
+#include <cstdint>
 #include <memory>
+#include <string_view>
 #include <system_error>
 #include <memory_resource>
 
@@ -35,19 +38,19 @@ namespace Preview::Memory
      * 使 Conn 不耦合具体分配器实现。
      */
     template <typename Memory>
-    concept Restrict = requires(Memory mem)
+    concept Restrict = requires(Memory Instance)
     {
         // 容器类型别名
         typename Memory::template Buffer<std::uint8_t>;
         typename Memory::DynamicString;
 
         // 分配接口（返回类型精确匹配）
-        { mem.Arena() } -> std::same_as<ResourcePointer>;
-        { mem.template MakeBuffer<std::uint8_t>(std::size_t{0}) }
+        { Instance.Arena() } -> std::same_as<ResourcePointer>;
+        { Instance.template MakeBuffer<std::uint8_t>(std::size_t{0}) }
             -> std::same_as<typename Memory::template Buffer<std::uint8_t>>;
-        { mem.template MakeVector<std::uint8_t>() }
+        { Instance.template MakeVector<std::uint8_t>() }
             -> std::same_as<typename Memory::template Buffer<std::uint8_t>>;
-        { mem.MakeString(std::string_view{}) }
+        { Instance.MakeString(std::string_view{}) }
             -> std::same_as<typename Memory::DynamicString>;
     };
 
@@ -200,10 +203,10 @@ namespace Preview::Memory
          * @param str 源字符串
          * @return 竞技场分配的字符串（会话生命周期）
          */
-        [[nodiscard]] auto MakeString(std::string_view str)
+        [[nodiscard]] auto MakeString(std::string_view Source)
             -> DynamicString
         {
-            return DynamicString(str, Arena_.Get());
+            return DynamicString(Source, Arena_.Get());
         }
 
         /**
@@ -231,10 +234,14 @@ namespace Preview::Memory
             -> std::pmr::vector<Type>
         {
             const bool FitsArena = sizeof(Type) != 0 && Count <= ArenaSize / sizeof(Type);
-            auto *Resource = FitsArena ? Arena_.Get() : System::LocalPool();
-            std::pmr::vector<Type> buf(Resource);
-            buf.resize(Count);
-            return buf;
+            ResourcePointer Resource = System::LocalPool();
+            if (FitsArena)
+            {
+                Resource = Arena_.Get();
+            }
+            std::pmr::vector<Type> Buffer(Resource);
+            Buffer.resize(Count);
+            return Buffer;
         }
 
     private:

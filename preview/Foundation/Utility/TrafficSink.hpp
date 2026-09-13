@@ -28,8 +28,10 @@ namespace Preview::Foundation
          * @param Up 上行字节数
          * @param Down 下行字节数
          */
-        virtual auto Report(std::string_view Identity, std::size_t Up,
-                            std::size_t Down) -> void = 0;
+        virtual auto Report(
+            std::string_view Identity,
+            std::size_t Up,
+            std::size_t Down) -> void = 0;
     };
 
 } // namespace Preview::Foundation

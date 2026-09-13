@@ -24,56 +24,63 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Vmess = Preview::Vmess;
+    using Preview::AsBytes;
+    using Preview::BenchOptions;
+    using Preview::BenchReport;
+    using Preview::BenchThroughputTx;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = ErrorValue;
+                          IoContext.stop();
                       });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto make_uuid() -> std::array<std::uint8_t, 16>
+    auto MakeUuid() -> std::array<std::uint8_t, 16>
     {
-        std::array<std::uint8_t, 16> u{};
-        u.fill(0x42);
-        return u;
+        std::array<std::uint8_t, 16> Uuid{};
+        Uuid.fill(0x42);
+        return Uuid;
     }
 
-    auto make_dst() -> Vmess::Address
+    auto MakeDestination() -> Vmess::Address
     {
-        Vmess::Address dst{};
-        dst.Type = Vmess::AddressType::Ipv4;
-        dst.Host = "93.184.216.34";
-        dst.Port = 443;
-        return dst;
+        Vmess::Address Destination{};
+        Destination.Type = Vmess::AddressType::Ipv4;
+        Destination.Host = "93.184.216.34";
+        Destination.Port = 443;
+        return Destination;
     }
 
     /// 传输完整性测试（Client 写 Server 读）
-    auto run_transfer(net::io_context &ioc, const std::size_t Total) -> void
+    auto RunTransfer(Net::io_context &IoContext, const std::size_t Total) -> void
     {
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto [a, b] = MakeMemoryPair(IoContext.get_executor());
 
         constexpr std::size_t kBlock = 64 * 1024;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto [err, msg, srv] =
                              co_await Vmess::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                    Vmess::ServerConfig{make_uuid()});
+                                                    Vmess::ServerConfig{MakeUuid()});
                          if (err != Error::None)
                          {
                              EXPECT_TRUE(false) << "Accept Failed";
@@ -95,11 +102,11 @@ namespace
                          EXPECT_EQ(got, Total);
                          srv->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                    Net::co_spawn(IoContext.get_executor(), server_coro(), Net::detached);
 
                      auto [herr, cli] =
                          co_await Vmess::Connect(std::make_shared<MemoryStream>(std::move(a)),
-                                                 Vmess::ClientConfig{make_uuid()}, make_dst());
+                                                 Vmess::ClientConfig{MakeUuid()}, MakeDestination());
                      if (herr != Error::None || !cli)
                      {
                          EXPECT_TRUE(false) << "Connect Failed";
@@ -112,7 +119,7 @@ namespace
                      {
                          if ((++yield_cnt % 16) == 0)
                          {
-                             co_await net::post(ioc.get_executor(), net::use_awaitable);
+                             co_await Net::post(IoContext.get_executor(), Net::use_awaitable);
                          }
                          const auto n = std::min(kBlock, Total - sent);
                          std::size_t Done = 0;
@@ -142,32 +149,32 @@ namespace
 
     TEST(VmessClientServer, Transfer100MB)
     {
-        net::io_context ioc;
-        run_transfer(ioc, 100 * 1024 * 1024);
+        Net::io_context ioc;
+        RunTransfer(ioc, 100 * 1024 * 1024);
     }
 
     TEST(VmessClientServer, Transfer1GB)
     {
-        net::io_context ioc;
-        run_transfer(ioc, 1024 * 1024 * 1024);
+        Net::io_context ioc;
+        RunTransfer(ioc, 1024 * 1024 * 1024);
     }
 
     TEST(VmessClientServer, ThroughputLatency)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a1, b1] = MakeMemoryPair(ioc.get_executor());
 
         BenchReport tp{};
         BenchReport lat{};
-        run_coro(
+        RunCoroutine(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 // 连接 1：吞吐（回环服务端）
-                auto server_coro1 = [&]() -> net::awaitable<void>
+                auto server_coro1 = [&]() -> Net::awaitable<void>
                 {
                     auto [err, msg, srv] = co_await Vmess::Accept(
-                        std::make_shared<MemoryStream>(std::move(b1)), Vmess::ServerConfig{make_uuid()});
+                        std::make_shared<MemoryStream>(std::move(b1)), Vmess::ServerConfig{MakeUuid()});
                     if (err != Error::None)
                     {
                         co_return;
@@ -185,10 +192,10 @@ namespace
                     }
                     srv->Close();
                 };
-                net::co_spawn(ioc.get_executor(), server_coro1(), net::detached);
+                Net::co_spawn(ioc.get_executor(), server_coro1(), Net::detached);
 
                 auto [herr, cli] = co_await Vmess::Connect(std::make_shared<MemoryStream>(std::move(a1)),
-                                                           Vmess::ClientConfig{make_uuid()}, make_dst());
+                                                           Vmess::ClientConfig{MakeUuid()}, MakeDestination());
                 if (herr != Error::None || !cli)
                 {
                     co_return;
@@ -201,10 +208,10 @@ namespace
 
                 // 连接 2：延迟（回环小包 RTT）
                 auto [a2, b2] = MakeMemoryPair(ioc.get_executor());
-                auto server_coro2 = [&]() -> net::awaitable<void>
+                auto server_coro2 = [&]() -> Net::awaitable<void>
                 {
                     auto [err, msg, srv] = co_await Vmess::Accept(
-                        std::make_shared<MemoryStream>(std::move(b2)), Vmess::ServerConfig{make_uuid()});
+                        std::make_shared<MemoryStream>(std::move(b2)), Vmess::ServerConfig{MakeUuid()});
                     if (err != Error::None)
                     {
                         co_return;
@@ -222,9 +229,9 @@ namespace
                     }
                     srv->Close();
                 };
-                net::co_spawn(ioc.get_executor(), server_coro2(), net::detached);
+                Net::co_spawn(ioc.get_executor(), server_coro2(), Net::detached);
                 auto [herr2, cli2] = co_await Vmess::Connect(std::make_shared<MemoryStream>(std::move(a2)),
-                                                             Vmess::ClientConfig{make_uuid()}, make_dst());
+                                                             Vmess::ClientConfig{MakeUuid()}, MakeDestination());
                 if (herr2 != Error::None || !cli2)
                 {
                     co_return;

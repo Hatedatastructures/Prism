@@ -50,19 +50,30 @@ namespace Preview::Mux
 
         /**
          * @brief 绑定底层传输并启动会话
-         * @param raw 底层传输（所有权移交）
-         * @param opt 会话选项（Role 强制服务端）
+         * @param Raw 底层传输（所有权移交）
+         * @param Options 会话选项（Role 强制服务端）
          * @return 是否成功
          */
-        auto Accept(SharedTransmission raw, const SessionOptions &opt = {}) -> bool
+        auto Accept(SharedTransmission Raw, const SessionOptions &Options = {}) -> bool
         {
-            if (!raw)
+            if (!Raw)
             {
                 return false;
             }
-            auto O = opt;
-            O.Role = Preview::Role::Server;
-            Session_ = SessionType::Create(std::move(raw), O);
+            if (Session_)
+            {
+                auto PreviousSession = std::move(Session_);
+                Net::co_spawn(
+                    PreviousSession->Executor(),
+                    [PreviousSession]() -> Net::awaitable<void>
+                    {
+                        co_await PreviousSession->Close();
+                    },
+                    Net::detached);
+            }
+            auto OptionsValue = Options;
+            OptionsValue.Role = Preview::Role::Server;
+            Session_ = SessionType::Create(std::move(Raw), OptionsValue);
             return Session_ != nullptr;
         }
 
@@ -70,7 +81,7 @@ namespace Preview::Mux
          * @brief 接受新流（阻塞直到新流到达或会话关闭）
          * @return 包装后的流传输；nullptr = 会话关闭
          */
-        auto AcceptStream() -> net::awaitable<SharedTransmission>
+        auto AcceptStream() -> Net::awaitable<SharedTransmission>
         {
             if (!Session_)
             {
@@ -96,9 +107,10 @@ namespace Preview::Mux
             {
                 return;
             }
-            net::co_spawn(
-                Session->Executor(), [Session]() -> net::awaitable<void> { co_await Session->Close(); },
-                net::detached);
+            Net::co_spawn(
+                Session->Executor(),
+                [Session]() -> Net::awaitable<void> { co_await Session->Close(); },
+                Net::detached);
         }
 
         /**
@@ -131,17 +143,19 @@ namespace Preview::Mux
      * @brief 创建服务端会话并绑定底层传输（工厂）
      * @tparam C 帧编解码（FrameCodec concept）
      * @tparam Memory 会话内存策略（默认 8KB Arena）
-     * @param upstream 上游传输（所有权移交）
-     * @param opt 会话选项
+     * @param Upstream 上游传输（所有权移交）
+     * @param Options 会话选项
      * @return 服务端会话容器
      */
-    template <typename C, Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const SessionOptions &opt = {})
-        -> Server<C, Memory>
+    template <typename C,
+              Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Upstream,
+        const SessionOptions &Options = {}) -> Server<C, Memory>
     {
-        Server<C, Memory> s;
-        s.Accept(std::move(upstream), opt);
-        return s;
+        Server<C, Memory> ServerValue;
+        ServerValue.Accept(std::move(Upstream), Options);
+        return ServerValue;
     }
 
 } // namespace Preview::Mux

@@ -37,9 +37,14 @@
 namespace
 {
 
-    namespace net = boost::asio;
-    using Tcp = net::ip::tcp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Runtime = Preview::Runtime;
+    namespace Network = Preview::Network;
+    namespace Vmess = Preview::Vmess;
+    namespace Fault = Preview::Fault;
+    using Preview::Error;
+    using Preview::SharedTransmission;
+    using Tcp = Net::ip::tcp;
     using Preview::Runtime::MakeAcceptVmess;
 
     // 公共样板（RunCoro/echo 上游/TailReadGuarded 等见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
@@ -52,7 +57,7 @@ namespace
     using Preview::Testing::TcpEchoServer;
     using Preview::Testing::ToHex;
 
-    using namespace boost::asio::experimental::awaitable_operators;
+    using boost::asio::experimental::awaitable_operators::operator||;
 
     /// VMess 纵向测试共享状态（复用公共 Preview::Testing::ChainState）
     using vmess_chain_state = Preview::Testing::ChainState;
@@ -67,7 +72,7 @@ namespace
     auto dial_vmess_upstream(
         const std::shared_ptr<vmess_chain_state> &State,
         const Network::Target &Target)
-        -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+        -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
     {
         co_return co_await Preview::Testing::DialUpstream(State, Target);
     }
@@ -79,14 +84,14 @@ namespace
         -> ConnectResult
     {
         ConnectResult out;
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto StateObj = std::make_shared<vmess_chain_state>(
             vmess_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -103,7 +108,7 @@ namespace
                 Runtime::SessionOptions opts;
                 opts.AcceptProtocol = MakeAcceptVmess(scfg);
                 opts.Dial = [StateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vmess_upstream(StateObj, t);
                 };
@@ -112,10 +117,10 @@ namespace
 
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listen.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 if (start_rc != Fault::Code::Success)
                 {
                      out.Err = Preview::Error::IoError;
@@ -219,7 +224,7 @@ namespace
 
     TEST(TcpListener, VmessTcpConnectDialRefused)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Runtime::TcpListener listen(
             ioc.get_executor(),
             [](SharedTransmission, std::size_t)
@@ -229,7 +234,7 @@ namespace
                 opts.AcceptProtocol = MakeAcceptVmess(
                     Vmess::ServerConfig{test_uuid()});
                 opts.Dial = [](const Network::Target &)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return std::pair{
                         Fault::Code::ConnectionRefused,
@@ -241,10 +246,10 @@ namespace
         bool saw_close = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listen.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listen.LocalEndpoint().port();
 
@@ -275,13 +280,13 @@ namespace
 
     TEST(TcpListener, VmessTcpConnectHalfCloseClient)
     {
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto StateObj = std::make_shared<vmess_chain_state>(
             vmess_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [upstream_ep](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -299,7 +304,7 @@ namespace
                 opts.AcceptProtocol = MakeAcceptVmess(
                     Vmess::ServerConfig{test_uuid()});
                 opts.Dial = [StateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vmess_upstream(StateObj, t);
                 };
@@ -309,10 +314,10 @@ namespace
         bool clean_eof = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listen.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listen.LocalEndpoint().port();
 
@@ -372,13 +377,13 @@ namespace
 
     TEST(TcpListener, VmessTcpConnectIdleTimeout)
     {
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto StateObj = std::make_shared<vmess_chain_state>(
             vmess_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [upstream_ep](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -397,7 +402,7 @@ namespace
                     Vmess::ServerConfig{test_uuid()});
                 opts.RelayIdleTimeout = std::chrono::milliseconds(150);
                 opts.Dial = [StateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vmess_upstream(StateObj, t);
                 };
@@ -407,10 +412,10 @@ namespace
         bool closed = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listen.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listen.LocalEndpoint().port();
 
@@ -430,8 +435,8 @@ namespace
                     listen.Stop();
                     co_return;
                 }
-                net::steady_timer timer(ioc.get_executor(), std::chrono::milliseconds(400));
-                co_await timer.async_wait(net::use_awaitable);
+                Net::steady_timer timer(ioc.get_executor(), std::chrono::milliseconds(400));
+                co_await timer.async_wait(Net::use_awaitable);
                 std::array<std::byte, 8> buf{};
                 const auto n = co_await proxy->async_read_some(buf, ec);
                 closed = (n == 0 || ec);
@@ -445,8 +450,8 @@ namespace
 
     TEST(TcpListener, VmessTrafficIdentity)
     {
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto StateObj = std::make_shared<vmess_chain_state>(
             vmess_chain_state{ioc.get_executor(), echo_port});
@@ -454,7 +459,7 @@ namespace
         auto recorder = std::make_shared<Preview::Testing::TrafficRecorder>();
 
         auto upstream_ep = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [upstream_ep](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -473,7 +478,7 @@ namespace
                     Vmess::ServerConfig{test_uuid()});
                 opts.traffic = recorder.get();
                 opts.Dial = [StateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vmess_upstream(StateObj, t);
                 };
@@ -482,10 +487,10 @@ namespace
 
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listen.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listen.LocalEndpoint().port();
 
@@ -525,13 +530,13 @@ namespace
                 }
                 proxy->Close();
                 // 有界轮询等待流量上报落账（替代固定 sleep，避免慢机 flaky）
-                net::steady_timer timer(ioc.get_executor());
+                Net::steady_timer timer(ioc.get_executor());
                 const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
                 while ((recorder->Up == 0u || recorder->Down == 0u) &&
                        std::chrono::steady_clock::now() < deadline)
                 {
                     timer.expires_after(std::chrono::milliseconds(5));
-                    co_await timer.async_wait(net::use_awaitable);
+                    co_await timer.async_wait(Net::use_awaitable);
                 }
                 listen.Stop();
                 boost::system::error_code close_ec;

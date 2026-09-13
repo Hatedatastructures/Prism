@@ -24,18 +24,18 @@ namespace Preview::Crypto
      * @param input 输入字符串
      * @return 56 字节的十六进制哈希字符串
      */
-    [[nodiscard]] inline auto Sha224(std::string_view input) -> std::string
+    [[nodiscard]] inline auto Sha224(std::string_view Input) -> std::string
     {
         std::array<std::uint8_t, SHA224_DIGEST_LENGTH> Hash{};
-        SHA224(reinterpret_cast<const std::uint8_t *>(input.data()), input.size(), Hash.data());
+        SHA224(reinterpret_cast<const std::uint8_t *>(Input.data()), Input.size(), Hash.data());
 
         std::string Result;
         Result.reserve(56);
-        for (const auto byte : Hash)
+        for (const auto Byte : Hash)
         {
             constexpr char HexChars[] = "0123456789abcdef";
-            Result.push_back(HexChars[(byte >> 4) & 0x0F]);
-            Result.push_back(HexChars[byte & 0x0F]);
+            Result.push_back(HexChars[(Byte >> 4) & 0x0F]);
+            Result.push_back(HexChars[Byte & 0x0F]);
         }
         return Result;
     }
@@ -45,11 +45,11 @@ namespace Preview::Crypto
      * @param str 输入字符串
      * @return 如果字符串只包含十六进制字符则返回 true
      */
-    [[nodiscard]] inline auto IsHex(std::string_view str) -> bool
+    [[nodiscard]] inline auto IsHex(std::string_view Text) -> bool
     {
-        for (const auto c : str)
+        for (const auto Character : Text)
         {
-            if (!std::isxdigit(static_cast<std::uint8_t>(c)))
+            if (!std::isxdigit(static_cast<std::uint8_t>(Character)))
             {
                 return false;
             }

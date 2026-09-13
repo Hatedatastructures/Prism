@@ -20,136 +20,136 @@
 
 namespace
 {
-    using namespace Preview;
-    using namespace Preview::Mux;
+    namespace Yamux = Preview::Mux::Yamux;
+    using Error = Preview::Error;
 
     TEST(YamuxCodecError, ParseHeaderEmpty)
     {
-        std::span<const std::uint8_t> Empty;
-        Yamux::FrameHeader out{};
-        EXPECT_EQ(Yamux::ParseHeader(Empty, out), Error::NeedMore);
+        const std::span<const std::uint8_t> Empty;
+        Yamux::FrameHeader Output{};
+        EXPECT_EQ(Yamux::ParseHeader(Empty, Output), Error::NeedMore);
     }
 
     TEST(YamuxCodecError, ParseHeaderTooShort)
     {
         // 帧头 12 字节，仅 4 字节（半帧）
-        const std::array<std::uint8_t, 4> short_buf{0x00, 0x01, 0x00, 0x00};
-        Yamux::FrameHeader out{};
-        EXPECT_EQ(Yamux::ParseHeader(short_buf, out), Error::NeedMore);
+        const std::array<std::uint8_t, 4> ShortBuffer{0x00, 0x01, 0x00, 0x00};
+        Yamux::FrameHeader Output{};
+        EXPECT_EQ(Yamux::ParseHeader(ShortBuffer, Output), Error::NeedMore);
     }
 
     TEST(YamuxCodecError, ParseHeaderBadVersion)
     {
-        auto wire = Yamux::BuildSyn(1, std::span<const std::uint8_t>{});
-        wire[0] = 0x01; // 非法版本（协议仅 0x00）
-        Yamux::FrameHeader out{};
-        EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::BadMagic);
+        auto Wire = Yamux::BuildSyn(1, std::span<const std::uint8_t>{});
+        Wire[0] = 0x01; // 非法版本（协议仅 0x00）
+        Yamux::FrameHeader Output{};
+        EXPECT_EQ(Yamux::ParseHeader(Wire, Output), Error::BadMagic);
     }
 
     TEST(YamuxCodecError, ParseHeaderUnknownType)
     {
-        auto wire = Yamux::BuildSyn(1, std::span<const std::uint8_t>{});
-        wire[1] = 0x09; // 未知类型（合法区间 0..3）
-        Yamux::FrameHeader out{};
-        EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::BadMessage);
+        auto Wire = Yamux::BuildSyn(1, std::span<const std::uint8_t>{});
+        Wire[1] = 0x09; // 未知类型（合法区间 0..3）
+        Yamux::FrameHeader Output{};
+        EXPECT_EQ(Yamux::ParseHeader(Wire, Output), Error::BadMessage);
     }
 
     TEST(YamuxCodecError, ParseHeaderTypeBoundary)
     {
         // 0..3 = Data/winupd/ping/go_away 全部合法
-        for (int t = 0; t <= 3; ++t)
+        for (int TypeValue = 0; TypeValue <= 3; ++TypeValue)
         {
             const Yamux::FrameHeader hdr{
-                .Type = static_cast<Yamux::MessageType>(t), .flag = Yamux::Flags::None, .StreamId = 1};
-            const auto wire = Yamux::Build(hdr);
-            Yamux::FrameHeader out{};
-            EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::None) << "Type " << t << " 合法";
+                .Type = static_cast<Yamux::MessageType>(TypeValue), .flag = Yamux::Flags::None, .StreamId = 1};
+            const auto Wire = Yamux::Build(hdr);
+            Yamux::FrameHeader Output{};
+            EXPECT_EQ(Yamux::ParseHeader(Wire, Output), Error::None) << "Type " << TypeValue << " 合法";
         }
         // 4（go_away 后第一个非法值）→ bad_message
         {
-            const Yamux::FrameHeader hdr{
+            const Yamux::FrameHeader Header{
                 .Type = static_cast<Yamux::MessageType>(4), .flag = Yamux::Flags::None, .StreamId = 1};
-            const auto wire = Yamux::Build(hdr);
-            Yamux::FrameHeader out{};
-            EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::BadMessage);
+            const auto Wire = Yamux::Build(Header);
+            Yamux::FrameHeader Output{};
+            EXPECT_EQ(Yamux::ParseHeader(Wire, Output), Error::BadMessage);
         }
     }
 
     TEST(YamuxCodecError, StreamIdBoundary)
     {
         // 0 与 0xFFFFFFFF 均可解析（yamux 无流 ID 保留位校验）
-        for (const auto sid : {0u, 0xFFFFFFFFu})
+        for (const auto StreamId : {0u, 0xFFFFFFFFu})
         {
-            const Yamux::FrameHeader hdr{.flag = Yamux::Flags::None, .StreamId = sid};
-            const auto wire = Yamux::Build(hdr);
-            Yamux::FrameHeader out{};
-            EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::None);
-            EXPECT_EQ(out.StreamId, sid);
+            const Yamux::FrameHeader Header{.flag = Yamux::Flags::None, .StreamId = StreamId};
+            const auto Wire = Yamux::Build(Header);
+            Yamux::FrameHeader Output{};
+            EXPECT_EQ(Yamux::ParseHeader(Wire, Output), Error::None);
+            EXPECT_EQ(Output.StreamId, StreamId);
         }
     }
 
     TEST(YamuxCodecError, LengthBoundary)
     {
         // 帧头 length 字段 0 与 0xFFFFFFFF 往返（BuildHeader 不自动填）
-        for (const auto len : {0u, 0xFFFFFFFFu})
+        for (const auto Length : {0u, 0xFFFFFFFFu})
         {
-            Yamux::FrameHeader hdr{.Type = Yamux::MessageType::Data,
+            Yamux::FrameHeader Header{.Type = Yamux::MessageType::Data,
                                     .flag = Yamux::Flags::None,
                                     .StreamId = 1,
-                                    .length = len};
-            const auto wire = Yamux::BuildHeader(hdr);
-            Yamux::FrameHeader out{};
-            EXPECT_EQ(Yamux::ParseHeader(wire, out), Error::None);
-            EXPECT_EQ(out.length, len);
+                                    .length = Length};
+            const auto Wire = Yamux::BuildHeader(Header);
+            Yamux::FrameHeader Output{};
+            EXPECT_EQ(Yamux::ParseHeader(Wire, Output), Error::None);
+            EXPECT_EQ(Output.length, Length);
         }
     }
 
     TEST(YamuxCodecError, SynFinRoundtrip)
     {
-        const auto syn = Yamux::BuildSyn(7, std::span<const std::uint8_t>{});
-        Yamux::FrameHeader out{};
-        EXPECT_EQ(Yamux::ParseHeader(syn, out), Error::None);
-        EXPECT_EQ(out.Type, Yamux::MessageType::Data);
-        EXPECT_TRUE(Yamux::HasFlag(out.flag, Yamux::Flags::Syn));
-        EXPECT_EQ(out.StreamId, 7u);
+        const auto Syn = Yamux::BuildSyn(7, std::span<const std::uint8_t>{});
+        Yamux::FrameHeader Output{};
+        EXPECT_EQ(Yamux::ParseHeader(Syn, Output), Error::None);
+        EXPECT_EQ(Output.Type, Yamux::MessageType::Data);
+        EXPECT_TRUE(Yamux::HasFlag(Output.flag, Yamux::Flags::Syn));
+        EXPECT_EQ(Output.StreamId, 7u);
 
-        const auto fin = Yamux::BuildFin(7);
-        EXPECT_EQ(Yamux::ParseHeader(fin, out), Error::None);
-        EXPECT_TRUE(Yamux::HasFlag(out.flag, Yamux::Flags::Fin));
-        EXPECT_EQ(out.StreamId, 7u);
+        const auto Fin = Yamux::BuildFin(7);
+        EXPECT_EQ(Yamux::ParseHeader(Fin, Output), Error::None);
+        EXPECT_TRUE(Yamux::HasFlag(Output.flag, Yamux::Flags::Fin));
+        EXPECT_EQ(Output.StreamId, 7u);
     }
 
     TEST(YamuxCodecError, PingAndWindowUpdateRoundtrip)
     {
         // ping（请求标志）
-        auto ping = Yamux::Build(Yamux::FrameHeader{.Type = Yamux::MessageType::Ping,
+        const auto Ping = Yamux::Build(Yamux::FrameHeader{.Type = Yamux::MessageType::Ping,
                                                      .flag = Yamux::Flags::Syn,
                                                      .StreamId = 0,
                                                      .length = 4});
-        Yamux::FrameHeader out{};
-        EXPECT_EQ(Yamux::ParseHeader(ping, out), Error::None);
-        EXPECT_EQ(out.Type, Yamux::MessageType::Ping);
-        EXPECT_TRUE(Yamux::HasFlag(out.flag, Yamux::Flags::Syn));
+        Yamux::FrameHeader Output{};
+        EXPECT_EQ(Yamux::ParseHeader(Ping, Output), Error::None);
+        EXPECT_EQ(Output.Type, Yamux::MessageType::Ping);
+        EXPECT_TRUE(Yamux::HasFlag(Output.flag, Yamux::Flags::Syn));
 
         // window Update（ack 标志）
-        const auto win = Yamux::Build(Yamux::FrameHeader{.Type = Yamux::MessageType::WindowUpdate,
+        const auto Window = Yamux::Build(Yamux::FrameHeader{.Type = Yamux::MessageType::WindowUpdate,
                                                           .flag = Yamux::Flags::Ack,
                                                           .StreamId = 3,
                                                           .length = 4});
-        EXPECT_EQ(Yamux::ParseHeader(win, out), Error::None);
-        EXPECT_EQ(out.Type, Yamux::MessageType::WindowUpdate);
-        EXPECT_EQ(out.StreamId, 3u);
-        EXPECT_EQ(out.length, 4u);
+        EXPECT_EQ(Yamux::ParseHeader(Window, Output), Error::None);
+        EXPECT_EQ(Output.Type, Yamux::MessageType::WindowUpdate);
+        EXPECT_EQ(Output.StreamId, 3u);
+        EXPECT_EQ(Output.length, 4u);
     }
 
     TEST(YamuxCodecError, ParsePayloadAlwaysNone)
     {
         // yamux 负载无额外校验
-        Yamux::FrameHeader hdr{};
-        const std::array<std::uint8_t, 3> payload{1, 2, 3};
-        EXPECT_EQ(Yamux::ParsePayload(hdr, payload), Error::None);
+        Yamux::FrameHeader Header{};
+        const std::array<std::uint8_t, 3> Payload{1, 2, 3};
+        EXPECT_EQ(Yamux::ParsePayload(Header, Payload), Error::None);
         const std::array<std::uint8_t, 0> Empty{};
-        EXPECT_EQ(Yamux::ParsePayload(hdr, Empty), Error::None);
+        EXPECT_EQ(Yamux::ParsePayload(Header, Empty), Error::None);
     }
 
 } // namespace

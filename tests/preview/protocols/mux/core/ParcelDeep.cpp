@@ -21,7 +21,7 @@
 
 using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 #include <gtest/gtest.h>
 
@@ -38,7 +38,7 @@ namespace
         {
         }
 
-        auto send(std::uint32_t, psm::memory::vector<std::byte>) -> net::awaitable<void> override
+        auto send(std::uint32_t, psm::memory::vector<std::byte>) -> Net::awaitable<void> override
         {
             send_data_called_ = true;
             co_return;
@@ -50,12 +50,12 @@ namespace
         }
 
     protected:
-        auto run() -> net::awaitable<void> override
+        auto run() -> Net::awaitable<void> override
         {
             co_return;
         }
 
-        auto write_frame(outbound_frame) -> net::awaitable<void> override
+        auto write_frame(outbound_frame) -> Net::awaitable<void> override
         {
             co_return;
         }
@@ -68,7 +68,7 @@ namespace
     struct ParcelFixture
     {
         std::shared_ptr<ProductionMockTransport> mux_transport;
-        std::unique_ptr<net::io_context> ioc;
+        std::unique_ptr<Net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<TestCore> core_obj;
         std::shared_ptr<multiplex::datagram> datagram_obj;
@@ -77,7 +77,7 @@ namespace
                                multiplex::addr_mode mode = multiplex::addr_mode::length_prefixed)
         {
             mux_transport = std::make_shared<ProductionMockTransport>();
-            ioc = std::make_unique<net::io_context>(1);
+            ioc = std::make_unique<Net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
@@ -91,13 +91,13 @@ namespace
             dopts.egress = core_obj;
             dopts.resolve =
                 [](std::string_view,
-                   std::string_view) -> net::awaitable<std::pair<psm::fault::code, net::ip::udp::endpoint>>
+                   std::string_view) -> Net::awaitable<std::pair<psm::fault::code, Net::ip::udp::endpoint>>
             {
                 co_return std::make_pair(psm::fault::code::success,
-                                         net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 53));
+                                         Net::ip::udp::endpoint(Net::ip::make_address("127.0.0.1"), 53));
             };
             dopts.emit = [](std::string_view, std::uint16_t,
-                            std::span<const std::byte>) -> net::awaitable<void> { co_return; };
+                            std::span<const std::byte>) -> Net::awaitable<void> { co_return; };
             dopts.mr = psm::memory::current_resource();
             datagram_obj = multiplex::make_datagram(std::move(dopts));
         }
@@ -124,7 +124,7 @@ namespace
     TEST(ParcelDeep, ConstructorWithMr)
     {
         auto mux_t = std::make_shared<ProductionMockTransport>();
-        auto ioc = std::make_unique<net::io_context>(1);
+        auto ioc = std::make_unique<Net::io_context>(1);
         psm::dns::config dns_cfg;
         psm::connect::dialer_options ropts{*ioc, dns_cfg};
         auto router = std::make_unique<psm::connect::dialer>(std::move(ropts));

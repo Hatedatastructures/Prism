@@ -18,57 +18,65 @@
 #include <array>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <preview/Transport/MemoryStream.hpp>
 #include <preview/Protocols/Trojan/Trojan.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Trojan = Preview::Trojan;
+    using Preview::AsBytes;
+    using Preview::AsU8Span;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::PreviewMockTransport;
 
     /// 运行协程直至完成（异常重抛）
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = ErrorValue;
+                          IoContext.stop();
                       });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     /// 构造 trojan 目标地址
-    auto make_addr(Trojan::AddressType Type, std::string host, std::uint16_t port)
+    auto MakeAddress(Trojan::AddressType Type, std::string Host, std::uint16_t Port)
         -> Trojan::Address
     {
-        Trojan::Address addr{};
-        addr.Type = Type;
-        addr.Host = std::move(host);
-        addr.Port = port;
-        return addr;
+        Trojan::Address Address{};
+        Address.Type = Type;
+        Address.Host = std::move(Host);
+        Address.Port = Port;
+        return Address;
     }
 
     TEST(TrojanConnSession, ConnectAcceptEcho)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         const std::string payload = "trojan echo payload";
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：Accept 握手 → 预读缓冲读取 → 回显
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Trojan::ServerConfig cfg;
                          cfg.password = "pw123456";
@@ -93,13 +101,13 @@ namespace
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      // 原始客户端：请求头 + 载荷一次写入（触发服务端预读缓冲）
                      const auto cred = Trojan::Credential("pw123456");
                      const auto Header =
                          Trojan::BuildRequest(cred, Trojan::Command::Connect,
-                                                      make_addr(Trojan::AddressType::Domain,
+                                                      MakeAddress(Trojan::AddressType::Domain,
                                                                 "example.com", 443));
                      std::vector<std::uint8_t> wire = Header;
                      wire.insert(wire.end(), payload.begin(), payload.end());
@@ -125,13 +133,13 @@ namespace
 
     TEST(TrojanConnSession, FactoryConnectAcceptIpv4)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
@@ -146,11 +154,11 @@ namespace
                          EXPECT_EQ(req.Target.Port, 80u);
                          Conn->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      auto [herr, cli] = co_await Trojan::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
-                         make_addr(Trojan::AddressType::Ipv4, "1.2.3.4", 80));
+                         MakeAddress(Trojan::AddressType::Ipv4, "1.2.3.4", 80));
                      EXPECT_EQ(herr, Error::None);
                      if (cli)
                      {
@@ -161,14 +169,14 @@ namespace
 
     TEST(TrojanConnSession, UdpDgramRoundtrip)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：AcceptPacket 完成 udp_associate 握手 → Dgram 收包回发
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Trojan::ServerConfig cfg;
                          cfg.password = "pw";
@@ -202,17 +210,25 @@ namespace
                                  EXPECT_EQ(src.Host, "8.8.8.8");
                                  EXPECT_EQ(src.Port, 443u);
                              }
-                             EXPECT_EQ(std::string(payload.begin(), payload.end()),
-                                       i == 0 ? "dns query" : "second pkt");
+                             std::string ExpectedPayload;
+                             if (i == 0)
+                             {
+                                 ExpectedPayload = "dns query";
+                             }
+                             else
+                             {
+                                 ExpectedPayload = "second pkt";
+                             }
+                             EXPECT_EQ(std::string(payload.begin(), payload.end()), ExpectedPayload);
                          }
                          EXPECT_TRUE(dg->Stream());
                          dg->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      auto [herr, dg] = co_await Trojan::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
-                         make_addr(Trojan::AddressType::Domain, "example.com", 53));
+                         MakeAddress(Trojan::AddressType::Domain, "example.com", 53));
                      EXPECT_EQ(herr, Error::None);
                      if (!dg)
                      {
@@ -220,13 +236,13 @@ namespace
                      }
                      const std::string p1 = "dns query";
                      auto serr = co_await dg->AsyncSendTo(
-                         make_addr(Trojan::AddressType::Domain, "example.com", 53),
+                         MakeAddress(Trojan::AddressType::Domain, "example.com", 53),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p1.data()),
                                                        p1.size()));
                      EXPECT_EQ(serr, Error::None);
                      const std::string p2 = "second pkt";
                      serr = co_await dg->AsyncSendTo(
-                         make_addr(Trojan::AddressType::Ipv4, "8.8.8.8", 443),
+                         MakeAddress(Trojan::AddressType::Ipv4, "8.8.8.8", 443),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p2.data()),
                                                        p2.size()));
                      EXPECT_EQ(serr, Error::None);
@@ -236,13 +252,13 @@ namespace
 
     TEST(TrojanConnSession, BadAuthRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
@@ -251,11 +267,11 @@ namespace
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      auto [herr, cli] = co_await Trojan::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"wrong-pw"},
-                         make_addr(Trojan::AddressType::Domain, "example.com", 443));
+                         MakeAddress(Trojan::AddressType::Domain, "example.com", 443));
                      EXPECT_EQ(herr, Error::None); // 客户端只发送，不感知认证结果
                      if (cli)
                      {
@@ -266,14 +282,14 @@ namespace
 
     TEST(TrojanConnSession, BadMagicCrlfRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：凭据正确但 CRLF 分隔符错误 → bad_magic
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
@@ -282,7 +298,7 @@ namespace
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      const auto cred = Trojan::Credential("pw");
                      std::vector<std::uint8_t> wire(cred.begin(), cred.end());
@@ -296,14 +312,14 @@ namespace
 
     TEST(TrojanConnSession, BadCommandRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：非法命令 → bad_message
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
@@ -312,7 +328,7 @@ namespace
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      const auto cred = Trojan::Credential("pw");
                      std::vector<std::uint8_t> wire(cred.begin(), cred.end());
@@ -325,13 +341,13 @@ namespace
 
     TEST(TrojanConnSession, TcpDisabledRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Trojan::ServerConfig cfg;
                          cfg.password = "pw";
@@ -342,11 +358,11 @@ namespace
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      auto [herr, cli] = co_await Trojan::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
-                         make_addr(Trojan::AddressType::Domain, "example.com", 443));
+                         MakeAddress(Trojan::AddressType::Domain, "example.com", 443));
                      EXPECT_EQ(herr, Error::None);
                      if (cli)
                      {
@@ -357,13 +373,13 @@ namespace
 
     TEST(TrojanConnSession, UdpDisabledRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Trojan::ServerConfig cfg;
                          cfg.password = "pw";
@@ -375,11 +391,11 @@ namespace
                          EXPECT_FALSE(dg);
                          (void)req;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      auto [herr, dg] = co_await Trojan::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
-                         make_addr(Trojan::AddressType::Domain, "example.com", 53));
+                         MakeAddress(Trojan::AddressType::Domain, "example.com", 53));
                      EXPECT_EQ(herr, Error::None); // 客户端只发送 udp_associate 头
                      if (dg)
                      {
@@ -390,14 +406,14 @@ namespace
 
     TEST(TrojanConnSession, BadAtypRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：非法 ATYP → bad_message
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
@@ -406,7 +422,7 @@ namespace
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      const auto cred = Trojan::Credential("pw");
                      std::vector<std::uint8_t> wire(cred.begin(), cred.end());
@@ -419,14 +435,14 @@ namespace
 
     TEST(TrojanConnSession, BadTailCrlfRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：地址体后的尾部 CRLF 错误 → bad_magic
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
@@ -435,7 +451,7 @@ namespace
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      const auto cred = Trojan::Credential("pw");
                      std::vector<std::uint8_t> wire(cred.begin(), cred.end());
@@ -452,14 +468,14 @@ namespace
 
     TEST(TrojanConnSession, TruncatedHeaderEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：头部截断 → io_error
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto [err, req, Conn] =
                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
@@ -468,7 +484,7 @@ namespace
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      const auto cred = Trojan::Credential("pw");
                      std::vector<std::uint8_t> wire(cred.begin(), cred.end());
@@ -481,28 +497,53 @@ namespace
 
     TEST(TrojanConnSession, WriteToClosedPeer)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      b.Close(); // 对端已全关 → 写失败 → io_error
                      auto [err, cli] = co_await Trojan::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), Trojan::ClientConfig{"pw"},
-                         make_addr(Trojan::AddressType::Ipv4, "1.1.1.1", 80));
+                         MakeAddress(Trojan::AddressType::Ipv4, "1.1.1.1", 80));
                      EXPECT_EQ(err, Error::IoError);
                      EXPECT_FALSE(cli);
                  });
     }
 
+    TEST(TrojanConnSession, RejectsOverreportedCompositeReadWrite)
+    {
+        Net::io_context IoContext;
+        auto Raw = std::make_shared<PreviewMockTransport>(IoContext.get_executor());
+        auto Connection = std::make_shared<Trojan::Conn<>>(Raw, "pw123456");
+
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     std::array<std::byte, 2> Buffer{};
+                     std::error_code ErrorCode;
+                     Raw->OverreportRead = true;
+                     const auto Read = co_await Connection->AsyncRead(Buffer, ErrorCode);
+                     EXPECT_EQ(Read, 0U);
+                     EXPECT_EQ(ErrorCode, Preview::make_error_code(Error::BrokenPipe));
+
+                     Raw->OverreportRead = false;
+                     Raw->OverreportWrite = true;
+                     ErrorCode.clear();
+                     const auto Written = co_await Connection->AsyncWrite(Buffer, ErrorCode);
+                     EXPECT_EQ(Written, 0U);
+                     EXPECT_EQ(ErrorCode, Preview::make_error_code(Error::BrokenPipe));
+                 });
+    }
+
     TEST(TrojanConnSession, DecoratorChain)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      auto c = std::make_shared<Trojan::Conn<>>(std::make_shared<MemoryStream>(std::move(a)),
                                                              "pw");
@@ -536,17 +577,17 @@ namespace
 
     TEST(TrojanDgramSession, SendToClosedPeer)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      auto dg = std::make_shared<Trojan::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
                      b.Close(); // 对端关闭 → 写失败 → io_error
                      const std::string p = "x";
                      const auto err = co_await dg->AsyncSendTo(
-                         make_addr(Trojan::AddressType::Domain, "example.com", 53),
+                         MakeAddress(Trojan::AddressType::Domain, "example.com", 53),
                          std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
                                                        p.size()));
                      EXPECT_EQ(err, Error::IoError);
@@ -556,14 +597,14 @@ namespace
 
     TEST(TrojanDgramSession, BadCrlfRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：LEN 头后 CRLF 错误 → bad_magic
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto dg = std::make_shared<Trojan::Dgram<>>(
                              std::make_shared<MemoryStream>(std::move(b)));
@@ -573,7 +614,7 @@ namespace
                          EXPECT_EQ(err, Error::BadMagic);
                          dg->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      std::vector<std::uint8_t> wire{0x01, 1, 2, 3, 4, 0x00, 0x50};
                      wire.push_back(0x00);
@@ -589,14 +630,14 @@ namespace
 
     TEST(TrojanDgramSession, BadAtypRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：非法 ATYP → bad_message
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto dg = std::make_shared<Trojan::Dgram<>>(
                              std::make_shared<MemoryStream>(std::move(b)));
@@ -606,7 +647,7 @@ namespace
                          EXPECT_EQ(err, Error::BadMessage);
                          dg->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      const std::array<std::uint8_t, 1> atyp{0x99};
                      std::error_code ec;
@@ -617,14 +658,14 @@ namespace
 
     TEST(TrojanDgramSession, LenExceedsRemaining)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：帧头声称 len=500，实际载荷不足 → io_error
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto dg = std::make_shared<Trojan::Dgram<>>(
                              std::make_shared<MemoryStream>(std::move(b)));
@@ -634,7 +675,7 @@ namespace
                          EXPECT_EQ(err, Error::IoError);
                          dg->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      std::vector<std::uint8_t> wire{0x01, 1, 2, 3, 4, 0x00, 0x50};
                      wire.push_back(0x01);
@@ -650,11 +691,11 @@ namespace
 
     TEST(TrojanDgramSession, PeerClosedEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      auto dg = std::make_shared<Trojan::Dgram<>>(std::make_shared<MemoryStream>(std::move(b)));
                      EXPECT_TRUE(dg->Executor());
@@ -678,6 +719,40 @@ namespace
                      EXPECT_NE(const_dg->NextLayer(), nullptr);
                      auto released = dg->Release();
                      EXPECT_TRUE(released);
+        });
+    }
+
+    TEST(TrojanDgramSession, RejectsOverreportedWrite)
+    {
+        Net::io_context IoContext;
+        auto Raw = std::make_shared<PreviewMockTransport>(IoContext.get_executor());
+        Raw->OverreportWrite = true;
+        auto Datagram = std::make_shared<Trojan::Dgram<>>(Raw);
+
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     const auto ErrorCode = co_await Datagram->AsyncSendTo(
+                         MakeAddress(Trojan::AddressType::Domain, "example.com", 443),
+                         AsU8Span(std::string_view{"overreport"}));
+                     EXPECT_EQ(ErrorCode, Error::BadLength);
+                 });
+    }
+
+    TEST(TrojanDgramSession, RejectsOverreportedRead)
+    {
+        Net::io_context IoContext;
+        auto Raw = std::make_shared<PreviewMockTransport>(IoContext.get_executor());
+        Raw->OverreportRead = true;
+        auto Datagram = std::make_shared<Trojan::Dgram<>>(Raw);
+
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     Trojan::Address Source;
+                     std::vector<std::uint8_t> Payload;
+                     const auto ErrorCode = co_await Datagram->AsyncReceiveFrom(Source, Payload);
+                     EXPECT_EQ(ErrorCode, Error::BadLength);
                  });
     }
 

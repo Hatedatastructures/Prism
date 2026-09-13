@@ -1,13 +1,10 @@
 /**
  * @file GatewayCommon.hpp
- * @brief QUIC 网关公共骨架（首字节分流 + 连接表）
- * @details QUIC 网关对未知协议流的分流逻辑：认证/数据流的首帧
- *          使用协议版本或帧类型做最小分流：
- *          0x01 = HTTP/3 HEADERS（hysteria2 认证）
- *          0x05 = TUIC v5 协议版本
+ * @brief QUIC 网关公共骨架（连接绑定 + 连接表）
+ * @details QUIC 连接在登记时绑定 ALPN/协议，后续数据流只使用该绑定，
+ *          不从每条流的首字节重新猜测协议。
  * 与生产实现 src/prism/runtime/front/quic_gateway.cpp 的
- * 分流逻辑对齐，本文件提供测试可注入的骨架：
- * - GuessProtocol：纯函数首字节判定，可单测
+ * 连接状态语义对齐，本文件提供测试可注入的骨架：
  * - GatewayCommon：连接表（ConnKey → 连接状态）+ 分发钩子，
  *   子类重写 OnH3Stream / OnTuicStream 实现具体协议接入
  * @note 仅骨架，不依赖 ngtcp2/nghttp3，测试可独立编译。
@@ -18,51 +15,38 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 
 namespace Preview::Quic
 {
 
     /**
-     * @enum ProtocolGuess
-     * @brief QUIC 上层协议猜测结果
-     * @details 仅用于选择后续解析器；完整认证仍由对应协议状态机执行。
-     * 不符合已知首帧契约的数据必须返回 Unknown。
+     * @enum ConnectionProtocol
+     * @brief QUIC 连接级上层协议绑定
      */
-    enum class ProtocolGuess : std::uint8_t
+    enum class ConnectionProtocol : std::uint8_t
     {
-        Hysteria2, ///< Hysteria2（HTTP/3 认证）
-        Tuic,      ///< TUIC v5
-        Unknown,   ///< 无法判定
+        Unknown,
+        H3,
+        Hysteria2 = H3,
+        Tuic,
     };
 
+    /// 兼容旧名称；新代码应使用 ConnectionProtocol
+    using ProtocolGuess = ConnectionProtocol;
+
     /**
-     * @brief 按首字节猜测 QUIC 上层协议
-     * @param FirstBytes 流的首字节（至少 1 字节）
-     * @return 协议猜测结果
-     * @details 分流规则：
-     * - 0x01 = HTTP/3 HEADERS 帧 → hysteria2
-     * - 0x05 = TUIC v5 版本字节 → tuic
-     * - 其余 / 空输入 → unknown
+     * @brief 保留的兼容接口；QUIC stream 不再按首字节猜测
+     * @param FirstBytes 流首字节
+     * @return 始终返回 Unknown
      */
     [[nodiscard]] inline auto GuessProtocol(std::span<const std::byte> FirstBytes) noexcept
         -> ProtocolGuess
     {
-        if (FirstBytes.empty())
-        {
-            return ProtocolGuess::Unknown;
-        }
-        const auto Fb = std::to_integer<std::uint8_t>(FirstBytes.front());
-        // Hysteria2 认证首帧为 HTTP/3 HEADERS。
-        if (Fb == 0x01)
-        {
-            return ProtocolGuess::Hysteria2;
-        }
-        // TUIC v5 消息首字节携带协议版本。
-        if (Fb == 0x05)
-        {
-            return ProtocolGuess::Tuic;
-        }
+        (void)FirstBytes;
         return ProtocolGuess::Unknown;
     }
 
@@ -74,8 +58,10 @@ namespace Preview::Quic
      */
     struct ConnectionState
     {
-        ProtocolGuess Type{ProtocolGuess::Unknown}; ///< 已判定的协议类型
-        bool authenticated{false};                    ///< 是否认证通过
+        ConnectionProtocol Type{ConnectionProtocol::Unknown}; ///< 连接绑定协议
+        std::string Alpn;                             ///< 连接绑定 ALPN
+        std::uint64_t PeerSource{0};                  ///< 最近接受的数据源标识
+        bool authenticated{false};                    ///< 是否认证通过（保留兼容字段）
         std::uint64_t StreamCount{0};                ///< 已分发数据流数
     };
 
@@ -83,7 +69,7 @@ namespace Preview::Quic
      * @class GatewayCommon
      * @brief QUIC 网关公共骨架
      * @details 维护连接表（ConnKey → ConnectionState），
-     * 提供统一的分发入口 Dispatch()：按首字节判定协议并
+     * 提供统一的分发入口 Dispatch()：按连接绑定协议
      * 转发到对应虚钩子。子类重写 OnH3Stream / OnTuicStream
      * 接入具体协议处理；默认实现为空操作。
      * @note 单线程使用（io_context 线程），无需加锁。
@@ -102,52 +88,73 @@ namespace Preview::Quic
 
         /**
          * @brief 登记新连接
-         * @param key 连接键
+         * @param Key 连接键
          * @return 是否新增成功（已存在返回 false）
          */
-        [[nodiscard]] auto RegisterConnection(ConnKey key) -> bool
+        [[nodiscard]] auto RegisterConnection(
+            ConnKey Key,
+            ConnectionProtocol Protocol,
+            std::string_view Alpn = {}) -> bool
         {
-            return Conns_.emplace(key, ConnectionState{}).second;
+            ConnectionState State;
+            State.Type = Protocol;
+            State.Alpn = Alpn;
+            const auto Inserted = Conns_.emplace(Key, std::move(State)).second;
+            if (Inserted)
+            {
+                ConnectionGenerations_[Key] = NextConnectionGeneration_++;
+            }
+            return Inserted;
+        }
+
+        [[nodiscard]] auto RegisterConnection(ConnKey Key) -> bool
+        {
+            return RegisterConnection(Key, ConnectionProtocol::Unknown);
         }
 
         /**
          * @brief 移除连接
-         * @param key 连接键
+         * @param Key 连接键
          * @return 是否存在并移除
          */
-        auto EraseConnection(ConnKey key) -> bool
+        auto EraseConnection(ConnKey Key) -> bool
         {
-            return Conns_.erase(key) != 0;
+            const auto Erased = Conns_.erase(Key) != 0;
+            if (Erased)
+            {
+                ConnectionGenerations_.erase(Key);
+            }
+            return Erased;
         }
 
         /**
          * @brief 查询连接状态
-         * @param key 连接键
+         * @param Key 连接键
          * @return 状态指针；不存在返回 nullptr
          */
-        [[nodiscard]] auto Lookup(ConnKey key) noexcept -> ConnectionState *
+        [[nodiscard]] auto Lookup(ConnKey Key) noexcept -> ConnectionState *
         {
-            const auto It = Conns_.find(key);
-            if (It == Conns_.end())
+            const auto Iterator = Conns_.find(Key);
+            if (Iterator == Conns_.end())
             {
                 return nullptr;
             }
-            return &It->second;
+            return &Iterator->second;
         }
 
         /**
          * @brief 查询连接状态（只读）
-         * @param key 连接键
+         * @param Key 连接键
          * @return 状态指针；不存在返回 nullptr
          */
-        [[nodiscard]] auto Lookup(ConnKey key) const noexcept -> const ConnectionState *
+        [[nodiscard]] auto Lookup(ConnKey Key) const noexcept -> const ConnectionState *
         {
-            const auto It = Conns_.find(key);
-            if (It == Conns_.end())
+            const auto Iterator = Conns_.find(Key);
+            if (Iterator == Conns_.end())
             {
                 return nullptr;
             }
-            return &It->second;
+            return &Iterator->second;
         }
 
         /**
@@ -160,61 +167,119 @@ namespace Preview::Quic
         }
 
         /**
-         * @brief 分发新数据流（首字节分流入口）
-         * @param key 连接键
-         * @param FirstBytes 流首字节（至少 1 字节）
-         * @return 是否成功分发给已知协议（unknown 返回 false）
-         * @details 判定成功后写入连接状态并调用对应虚钩子；
-         * 未知协议返回 false 由调用方关闭连接。
+         * @brief 按连接绑定分发新数据流
+         * @param Key 连接键
+         * @param FirstBytes 流数据前缀（仅作为回调数据，不用于协议猜测）
+         * @return 是否成功分发给已绑定协议
          */
-        auto Dispatch(ConnKey key, std::span<const std::byte> FirstBytes) -> bool
+        auto Dispatch(ConnKey Key, std::span<const std::byte> FirstBytes) -> bool
         {
-            auto *State = Lookup(key);
+            return DispatchBound(Key, FirstBytes);
+        }
+
+        /**
+         * @brief 校验 source 并按连接绑定分发数据流
+         * @param Key 连接键
+         * @param Source 数据源标识；非零值可表示 NAT rebinding 后的新来源
+         * @param FirstBytes 流数据前缀
+         * @return source 合法且连接已绑定时返回 true
+         */
+        auto Dispatch(
+            ConnKey Key,
+            std::uint64_t Source,
+            std::span<const std::byte> FirstBytes) -> bool
+        {
+            auto *State = Lookup(Key);
+            if (!State || Source == 0)
+            {
+                return false;
+            }
+            State->PeerSource = Source;
+            return DispatchBound(Key, FirstBytes);
+        }
+
+    protected:
+        auto DispatchBound(ConnKey Key, std::span<const std::byte> FirstBytes) -> bool
+        {
+            auto *State = Lookup(Key);
             if (!State)
             {
                 return false;
             }
-            const auto Guess = GuessProtocol(FirstBytes);
-            State->Type = Guess;
-            switch (Guess)
+            const auto GenerationIterator = ConnectionGenerations_.find(Key);
+            if (GenerationIterator == ConnectionGenerations_.end())
             {
-            case ProtocolGuess::Hysteria2:
-                OnH3Stream(key, FirstBytes);
+                return false;
+            }
+            const auto Protocol = State->Type;
+            const auto Generation = GenerationIterator->second;
+            switch (Protocol)
+            {
+            case ConnectionProtocol::H3:
+                OnH3Stream(Key, FirstBytes);
+                if (auto *CurrentState = LookupCurrent(Key, Protocol, Generation))
+                {
+                    ++CurrentState->StreamCount;
+                }
                 return true;
-            case ProtocolGuess::Tuic:
-                OnTuicStream(key, FirstBytes);
+            case ConnectionProtocol::Tuic:
+                OnTuicStream(Key, FirstBytes);
+                if (auto *CurrentState = LookupCurrent(Key, Protocol, Generation))
+                {
+                    ++CurrentState->StreamCount;
+                }
                 return true;
             default:
                 return false;
             }
         }
 
-    protected:
         /**
          * @brief hysteria2 流分发钩子（默认空操作）
-         * @param key 连接键
+         * @param Key 连接键
          * @param FirstBytes 流首字节
          * @details 子类重写：将流接入 nghttp3 认证流程。
          */
-        virtual auto OnH3Stream(ConnKey key, std::span<const std::byte> FirstBytes) -> void
+        virtual auto OnH3Stream(ConnKey Key, std::span<const std::byte> FirstBytes) -> void
         {
-            (void)key;
+            (void)Key;
             (void)FirstBytes;
         }
 
         /**
          * @brief tuic 流分发钩子（默认空操作）
-         * @param key 连接键
+         * @param Key 连接键
          * @param FirstBytes 流首字节
          * @details 子类重写：将流接入 tuic 认证/数据流程。
          */
-        virtual auto OnTuicStream(ConnKey key, std::span<const std::byte> FirstBytes) -> void
+        virtual auto OnTuicStream(ConnKey Key, std::span<const std::byte> FirstBytes) -> void
         {
-            (void)key;
+            (void)Key;
             (void)FirstBytes;
         }
 
     private:
+        [[nodiscard]] auto LookupCurrent(
+            ConnKey Key,
+            ConnectionProtocol Protocol,
+            std::uint64_t Generation) noexcept -> ConnectionState *
+        {
+            const auto GenerationIterator = ConnectionGenerations_.find(Key);
+            if (GenerationIterator == ConnectionGenerations_.end() ||
+                GenerationIterator->second != Generation)
+            {
+                return nullptr;
+            }
+            auto *State = Lookup(Key);
+            if (!State || State->Type != Protocol)
+            {
+                return nullptr;
+            }
+            return State;
+        }
+
+        std::uint64_t NextConnectionGeneration_{1}; ///< 连接代次分配器
+        std::unordered_map<ConnKey, std::uint64_t> ConnectionGenerations_; ///< 活跃连接代次
         std::unordered_map<ConnKey, ConnectionState> Conns_; ///< 连接表
     };
 

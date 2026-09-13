@@ -1,220 +1,356 @@
 /**
  * @file Ss2022ClientServerPerf.cpp
- * @brief SS2022 客户端/服务端封装测试（握手 + 传输 + 性能）
+ * @brief SS2022 客户端/服务端封装测试（握手、完整传输与性能）
  */
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <exception>
 #include <memory>
+#include <span>
 #include <string>
+#include <system_error>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include <TestSupport/Benchmark/Bench.hpp>
-#include <preview/Transport/MemoryStream.hpp>
-#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 #include <gtest/gtest.h>
+#include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+
+namespace Net = boost::asio;
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Shadowsocks = Preview::Shadowsocks2022;
 
-    template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    using Address = Shadowsocks::Address;
+    using AddressType = Shadowsocks::AddressType;
+    using BenchOptions = Preview::BenchOptions;
+    using BenchReport = Preview::BenchReport;
+    using ClientConfig = Shadowsocks::ClientConfig;
+    using Error = Preview::Error;
+    using MemoryStream = Preview::MemoryStream;
+    using ServerConfig = Shadowsocks::ServerConfig;
+    using SharedTransmission = Preview::SharedTransmission;
+    using CompletionChannel =
+        Net::experimental::channel<void(boost::system::error_code, bool)>;
+
+    struct ServerOptions
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        SharedTransmission Transport;
+        ServerConfig Config;
+        std::size_t ExpectedBytes;
+        bool Echo;
+        std::shared_ptr<CompletionChannel> Completion;
+    };
+
+    template <typename Awaitable>
+    auto RunCoroutine(
+        Net::io_context &IoContext,
+        Awaitable Coroutine) -> void
+    {
+        std::exception_ptr Exception;
+        auto Completion =
+            [&Exception, &IoContext](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(
+            IoContext,
+            std::move(Coroutine),
+            std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto make_dst() -> Shadowsocks2022::Address
+    [[nodiscard]] auto MakeDestination() -> Address
     {
-        Shadowsocks2022::Address dst{};
-        dst.Type = Shadowsocks2022::AddressType::Ipv4;
-        dst.Host = "93.184.216.34";
-        dst.Port = 443;
-        return dst;
+        Address Destination;
+        Destination.Type = AddressType::Ipv4;
+        Destination.Host = "93.184.216.34";
+        Destination.Port = 443;
+        return Destination;
+    }
+
+    auto RunServer(ServerOptions Options) -> Net::awaitable<void>
+    {
+        const auto AcceptResult = co_await Shadowsocks::Accept(
+            std::move(Options.Transport),
+            Options.Config);
+        const auto HandshakeError = std::get<0>(AcceptResult);
+        const auto &Request = std::get<1>(AcceptResult);
+        const auto &Connection = std::get<2>(AcceptResult);
+        (void)Request;
+        if (HandshakeError != Error::None || !Connection)
+        {
+            (void)Options.Completion->try_send(
+                boost::system::error_code{}, false);
+            co_return;
+        }
+
+        std::array<std::byte, 128 * 1024> Buffer{};
+        std::size_t Done = 0;
+        std::error_code ReadError;
+        while (Done < Options.ExpectedBytes)
+        {
+            const auto ReadSize =
+                std::min(Buffer.size(), Options.ExpectedBytes - Done);
+            auto ReadWindow = std::span<std::byte>(
+                Buffer.data(),
+                ReadSize);
+            const auto Count =
+                co_await Connection->async_read_some(ReadWindow, ReadError);
+            if (ReadError || Count == 0 || Count > ReadSize)
+            {
+                break;
+            }
+            Done += Count;
+            if (Options.Echo)
+            {
+                std::error_code WriteError;
+                auto WriteWindow = std::span<const std::byte>(
+                    Buffer.data(),
+                    Count);
+                const auto Written = co_await Connection->async_write_some(
+                    WriteWindow,
+                    WriteError);
+                if (WriteError || Written != Count)
+                {
+                    break;
+                }
+            }
+        }
+
+        Connection->Close();
+        const bool Completed = Done == Options.ExpectedBytes;
+        (void)Options.Completion->try_send(
+            boost::system::error_code{},
+            Completed);
+    }
+
+    auto SpawnServer(
+        Net::io_context &IoContext,
+        ServerOptions Options) -> void
+    {
+        auto ServerCompletion =
+            [Completion = Options.Completion](std::exception_ptr Exception)
+            -> void
+        {
+            if (Exception)
+            {
+                (void)Completion->try_send(
+                    boost::system::error_code{}, false);
+            }
+        };
+        Net::co_spawn(
+            IoContext.get_executor(),
+            RunServer(std::move(Options)),
+            std::move(ServerCompletion));
+    }
+
+    [[nodiscard]] auto MakeServerConfig() -> ServerConfig
+    {
+        ServerConfig Config;
+        Config.password = "perf-Secret";
+        return Config;
+    }
+
+    [[nodiscard]] auto MakeClientConfig() -> ClientConfig
+    {
+        ClientConfig Config;
+        Config.password = "perf-Secret";
+        return Config;
     }
 
     TEST(Ss2022ClientServer, HandshakeAndTransfer100MB)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientInput, ServerInput] =
+            Preview::MakeMemoryPair(IoContext.get_executor());
 
-        constexpr std::size_t kTotal = 100 * 1024 * 1024;
-        constexpr std::size_t kBlock = 64 * 1024;
-        run_coro(
-            ioc,
-            [&]() -> net::awaitable<void>
+        constexpr std::size_t Total = 100 * 1024 * 1024;
+        constexpr std::size_t Block = 64 * 1024;
+        const auto Completion =
+            std::make_shared<CompletionChannel>(
+                IoContext.get_executor(),
+                1);
+        ServerOptions Options{
+            std::make_shared<MemoryStream>(std::move(ServerInput)),
+            MakeServerConfig(),
+            Total,
+            false,
+            Completion};
+        SpawnServer(IoContext, std::move(Options));
+
+        auto Coroutine = [&]() -> Net::awaitable<void>
+        {
+            auto ClientResult = co_await Shadowsocks::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientInput)),
+                MakeClientConfig(),
+                MakeDestination());
+            const auto HandshakeError = std::get<0>(ClientResult);
+            auto Client = std::get<1>(std::move(ClientResult));
+            EXPECT_EQ(HandshakeError, Error::None);
+            EXPECT_NE(Client, nullptr);
+            if (HandshakeError != Error::None || !Client)
             {
-                auto server_coro = [&]() -> net::awaitable<void>
-                {
-                    auto [err, req, srv] = co_await Preview::Shadowsocks2022::Accept(
-                        std::make_shared<MemoryStream>(std::move(b)),
-                        Preview::Shadowsocks2022::ServerConfig{"perf-Secret"});
-                    if (err != Error::None)
-                    {
-                        EXPECT_TRUE(false) << "handshake Failed";
-                        co_return;
-                    }
-                    EXPECT_EQ(req.dst.Port, 443u);
-                    std::array<std::byte, kBlock> buf{};
-                    std::size_t got = 0;
-                    while (got < kTotal)
-                    {
-                        std::error_code ec;
-                        const auto n = co_await srv->async_read_some(std::span<std::byte>(buf), ec);
-                        if (ec || n == 0)
-                        {
-                            break;
-                        }
-                        got += n;
-                    }
-                    EXPECT_EQ(got, kTotal);
-                    srv->Close();
-                };
-                net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                co_return;
+            }
 
-                auto [cerr, cli] = co_await Preview::Shadowsocks2022::Connect(
-                    std::make_shared<MemoryStream>(std::move(a)),
-                    Preview::Shadowsocks2022::ClientConfig{"perf-Secret"}, make_dst());
-                if (cerr != Error::None)
+            std::vector<std::uint8_t> Payload(Block, 0x6E);
+            std::size_t Sent = 0;
+            while (Sent < Total)
+            {
+                const auto WriteSize = std::min(Block, Total - Sent);
+                auto WriteWindow = std::span<const std::byte>(
+                    reinterpret_cast<const std::byte *>(Payload.data()),
+                    WriteSize);
+                std::error_code WriteError;
+                const auto Written = co_await Client->async_write_some(
+                    WriteWindow,
+                    WriteError);
+                if (WriteError || Written == 0 || Written > WriteSize)
                 {
-                    EXPECT_TRUE(false) << "Connect Failed";
-                    co_return;
+                    break;
                 }
-                std::vector<std::uint8_t> payload(kBlock, 0x6E);
-                std::size_t sent = 0;
-                std::size_t block_idx = 0;
-                while (sent < kTotal)
+                Sent += Written;
+                if (((Sent / Block) & 0x0F) == 0)
                 {
-                    const auto n = std::min(kBlock, kTotal - sent);
-                    std::error_code ec;
-                    const auto w = co_await cli->async_write_some(
-                        std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), n),
-                        ec);
-                    if (ec || w == 0)
-                    {
-                        break;
-                    }
-                    sent += w;
-                    // 让出调度：MemoryStream 写同步完成，不 yield 会饿死对端协程
-                    if ((++block_idx & 0x0F) == 0)
-                    {
-                        co_await net::post(ioc.get_executor(), net::use_awaitable);
-                    }
+                    const auto PostToken = Net::use_awaitable;
+                    co_await Net::post(
+                        IoContext.get_executor(),
+                        PostToken);
                 }
-                EXPECT_EQ(sent, kTotal);
-                cli->Close();
-            });
+            }
+            EXPECT_EQ(Sent, Total);
+            Client->Close();
+
+            const auto ServerCompleted =
+                co_await Completion->async_receive(Net::use_awaitable);
+            EXPECT_TRUE(ServerCompleted);
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
     }
 
     TEST(Ss2022ClientServer, ThroughputLatency)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        BenchReport ThroughputReport;
+        BenchReport LatencyReport;
+        auto Coroutine = [&]() -> Net::awaitable<void>
+        {
+            auto [ClientInput, ServerInput] =
+                Preview::MakeMemoryPair(IoContext.get_executor());
+            constexpr std::size_t ThroughputTotal = 64 * 1024 * 1024;
+            const auto ThroughputCompletion =
+                std::make_shared<CompletionChannel>(
+                    IoContext.get_executor(),
+                    1);
+            ServerOptions ThroughputServer{
+                std::make_shared<MemoryStream>(std::move(ServerInput)),
+                MakeServerConfig(),
+                ThroughputTotal,
+                true,
+                ThroughputCompletion};
+            SpawnServer(IoContext, std::move(ThroughputServer));
 
-        BenchReport tp{};
-        BenchReport lat{};
-        run_coro(
-            ioc,
-            [&]() -> net::awaitable<void>
+            auto ClientResult = co_await Shadowsocks::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientInput)),
+                MakeClientConfig(),
+                MakeDestination());
+            const auto HandshakeError = std::get<0>(ClientResult);
+            auto Client = std::get<1>(std::move(ClientResult));
+            EXPECT_EQ(HandshakeError, Error::None);
+            EXPECT_NE(Client, nullptr);
+            if (HandshakeError != Error::None || !Client)
             {
-                auto server_coro = [&]() -> net::awaitable<void>
-                {
-                    auto [err, req, srv] = co_await Preview::Shadowsocks2022::Accept(
-                        std::make_shared<MemoryStream>(std::move(b)),
-                        Preview::Shadowsocks2022::ServerConfig{"perf-Secret"});
-                    if (err != Error::None)
-                    {
-                        co_return;
-                    }
-                    std::array<std::byte, 128 * 1024> buf{};
-                    while (true)
-                    {
-                        std::error_code ec;
-                        const auto n = co_await srv->async_read_some(std::span<std::byte>(buf), ec);
-                        if (ec || n == 0)
-                        {
-                            break;
-                        }
-                        ec.clear();
-                        (void)co_await srv->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
-                    }
-                    srv->Close();
-                };
-                net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                co_return;
+            }
 
-                auto [err, cli] = co_await Preview::Shadowsocks2022::Connect(
-                    std::make_shared<MemoryStream>(std::move(a)),
-                    Preview::Shadowsocks2022::ClientConfig{"perf-Secret"}, make_dst());
-                if (err != Error::None || !cli)
-                {
-                    co_return;
-                }
-                BenchOptions opt;
-                opt.Total = 64 * 1024 * 1024;
-                opt.Block = 64 * 1024;
-                tp = co_await BenchThroughputTx(*cli, *cli, opt);
-                // 延迟用新连接（回环小包 RTT）
-                auto [a2, b2] = MakeMemoryPair(ioc.get_executor());
-                auto server_coro2 = [&]() -> net::awaitable<void>
-                {
-                    auto [err, req, srv2] = co_await Preview::Shadowsocks2022::Accept(
-                        std::make_shared<MemoryStream>(std::move(b2)),
-                        Preview::Shadowsocks2022::ServerConfig{"perf-Secret"});
-                    if (err != Error::None)
-                    {
-                        co_return;
-                    }
-                    std::array<std::byte, 128 * 1024> buf{};
-                    while (true)
-                    {
-                        std::error_code ec;
-                        const auto n = co_await srv2->async_read_some(std::span<std::byte>(buf), ec);
-                        if (ec || n == 0)
-                        {
-                            break;
-                        }
-                        ec.clear();
-                        (void)co_await srv2->async_write_some(std::span<const std::byte>(buf.data(), n), ec);
-                    }
-                    srv2->Close();
-                };
-                net::co_spawn(ioc.get_executor(), server_coro2(), net::detached);
-                auto [err2, cli2] = co_await Preview::Shadowsocks2022::Connect(
-                    std::make_shared<MemoryStream>(std::move(a2)),
-                    Preview::Shadowsocks2022::ClientConfig{"perf-Secret"}, make_dst());
-                if (err2 != Error::None || !cli2)
-                {
-                    co_return;
-                }
-                BenchOptions lopt;
-                lopt.Total = 1000 * 4 * 1024;
-                lopt.Block = 4 * 1024;
-                lat = co_await BenchThroughputTx(*cli2, *cli2, lopt);
-                cli2->Close();
-            });
+            BenchOptions ThroughputOptions;
+            ThroughputOptions.Total = ThroughputTotal;
+            ThroughputOptions.Block = 64 * 1024;
+            ThroughputReport = co_await Preview::BenchThroughputTx(
+                *Client,
+                *Client,
+                ThroughputOptions);
+            EXPECT_EQ(ThroughputReport.Bytes, ThroughputOptions.Total);
+            Client->Close();
+            const auto ThroughputCompleted = co_await ThroughputCompletion->async_receive(
+                Net::use_awaitable);
+            EXPECT_TRUE(ThroughputCompleted);
 
-        std::printf("ss2022 throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min "
-                    "%.3f max %.3f) samples=%zu\n",
-                    tp.Mbps, lat.LatencyAvg, lat.LatencyP50, lat.LatencyP95, lat.LatencyP99,
-                    lat.LatencyMin, lat.LatencyMax, lat.Samples);
+            auto [LatencyClientInput, LatencyServerInput] =
+                Preview::MakeMemoryPair(IoContext.get_executor());
+            constexpr std::size_t LatencyTotal = 1000 * 4 * 1024;
+            const auto LatencyCompletion =
+                std::make_shared<CompletionChannel>(
+                    IoContext.get_executor(),
+                    1);
+            ServerOptions LatencyServer{
+                std::make_shared<MemoryStream>(std::move(LatencyServerInput)),
+                MakeServerConfig(),
+                LatencyTotal,
+                true,
+                LatencyCompletion};
+            SpawnServer(IoContext, std::move(LatencyServer));
+
+            auto LatencyClientResult = co_await Shadowsocks::Connect(
+                std::make_shared<MemoryStream>(std::move(LatencyClientInput)),
+                MakeClientConfig(),
+                MakeDestination());
+            const auto LatencyHandshakeError =
+                std::get<0>(LatencyClientResult);
+            auto LatencyClient =
+                std::get<1>(std::move(LatencyClientResult));
+            EXPECT_EQ(LatencyHandshakeError, Error::None);
+            EXPECT_NE(LatencyClient, nullptr);
+            if (LatencyHandshakeError != Error::None || !LatencyClient)
+            {
+                co_return;
+            }
+
+            BenchOptions LatencyOptions;
+            LatencyOptions.Total = LatencyTotal;
+            LatencyOptions.Block = 4 * 1024;
+            LatencyReport = co_await Preview::BenchThroughputTx(
+                *LatencyClient,
+                *LatencyClient,
+                LatencyOptions);
+            EXPECT_EQ(LatencyReport.Bytes, LatencyOptions.Total);
+            LatencyClient->Close();
+            const auto LatencyCompleted = co_await LatencyCompletion->async_receive(
+                Net::use_awaitable);
+            EXPECT_TRUE(LatencyCompleted);
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
+
+        EXPECT_GT(ThroughputReport.Mbps, 0.0);
+        EXPECT_GT(LatencyReport.Samples, 0u);
+        std::printf(
+            "ss2022 throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f "
+            "p95 %.3f p99 %.3f (min %.3f max %.3f) samples=%zu\n",
+            ThroughputReport.Mbps,
+            LatencyReport.LatencyAvg,
+            LatencyReport.LatencyP50,
+            LatencyReport.LatencyP95,
+            LatencyReport.LatencyP99,
+            LatencyReport.LatencyMin,
+            LatencyReport.LatencyMax,
+            LatencyReport.Samples);
     }
-
 } // namespace

@@ -23,7 +23,7 @@
 namespace Preview::Middleware::Builtin
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class DialMiddleware
@@ -36,7 +36,7 @@ namespace Preview::Middleware::Builtin
     public:
         /// 拨号函数签名（host:port → 传输）
         using DialFn =
-            std::function<net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>(
+            std::function<Net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>(
                 const Preview::Network::Target &)>;
 
         /**
@@ -62,7 +62,7 @@ namespace Preview::Middleware::Builtin
          * @return 拨号结果码
          */
         auto Handle(Preview::SharedTransmission & /*Inbound*/, Context &ctx)
-            -> net::awaitable<Preview::Fault::Code> override
+            -> Net::awaitable<Preview::Fault::Code> override
         {
             if (!Dial_)
             {
@@ -71,7 +71,16 @@ namespace Preview::Middleware::Builtin
             auto [ec, Outbound] = co_await Dial_(ctx.Target);
             if (Preview::Fault::Failed(ec) || !Outbound)
             {
-                co_return ec;
+                if (Outbound)
+                {
+                    Outbound->Cancel();
+                    Outbound->Close();
+                }
+                if (Preview::Fault::Failed(ec))
+                {
+                    co_return ec;
+                }
+                co_return Preview::Fault::Code::BadGateway;
             }
             ctx.Outbound = std::move(Outbound);
             co_return Preview::Fault::Code::Success;

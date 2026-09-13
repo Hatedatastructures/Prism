@@ -40,18 +40,18 @@ namespace Preview::Network::Route
          * @param host 域名键
          * @param ep 目标端点
          */
-        void AddReverse(std::string_view host, Endpoint ep)
+        void AddReverse(std::string_view Host, Endpoint EndpointValue)
         {
-            Reverse_[std::string(host)] = std::move(ep);
+            Reverse_[std::string(Host)] = std::move(EndpointValue);
         }
 
         /**
          * @brief 设置正向端点
          * @param ep 正向端点（可空）
          */
-        void SetPositive(std::optional<Endpoint> ep)
+        void SetPositive(std::optional<Endpoint> EndpointValue)
         {
-            Positive_ = std::move(ep);
+            Positive_ = std::move(EndpointValue);
         }
 
         /**
@@ -60,9 +60,9 @@ namespace Preview::Network::Route
          * @return 路由端点；未命中返回 std::nullopt
          * @details 优先反向映射，其次正向端点。
          */
-        [[nodiscard]] auto Lookup(std::string_view host) const -> std::optional<Endpoint>
+        [[nodiscard]] auto Lookup(std::string_view Host) const -> std::optional<Endpoint>
         {
-            if (const auto It = Reverse_.find(std::string(host)); It != Reverse_.end())
+            if (const auto It = Reverse_.find(std::string(Host)); It != Reverse_.end())
             {
                 return It->second;
             }
@@ -74,9 +74,9 @@ namespace Preview::Network::Route
          * @param host 目标域名
          * @return 命中返回 true
          */
-        [[nodiscard]] auto IsReverse(std::string_view host) const -> bool
+        [[nodiscard]] auto IsReverse(std::string_view Host) const -> bool
         {
-            return Reverse_.contains(std::string(host));
+            return Reverse_.contains(std::string(Host));
         }
 
         /**

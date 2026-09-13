@@ -1,220 +1,360 @@
 /**
  * @file TrojanClientServerPerf.cpp
- * @brief Trojan 客户端/服务端封装测试（传输 + 性能）
+ * @brief Trojan 客户端/服务端封装测试（完整传输与性能）
  */
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <atomic>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <exception>
 #include <memory>
-#include <string>
+#include <span>
+#include <stdexcept>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include <TestSupport/Benchmark/Bench.hpp>
-#include <preview/Transport/MemoryStream.hpp>
-#include <preview/Protocols/Trojan/Trojan.hpp>
 #include <gtest/gtest.h>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+
+namespace Net = boost::asio;
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Trojan = Preview::Trojan;
 
-    template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    using Address = Trojan::Address;
+    using AddressType = Trojan::AddressType;
+    using BenchOptions = Preview::BenchOptions;
+    using BenchReport = Preview::BenchReport;
+    using ClientConfig = Trojan::ClientConfig;
+    using Error = Preview::Error;
+    using ExecutorType = Net::any_io_executor;
+    using MemoryStream = Preview::MemoryStream;
+    using ServerConfig = Trojan::ServerConfig;
+    struct ServerOptions
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        std::size_t ExpectedBytes;
+        std::size_t BlockSize;
+        bool Echo;
+    };
+
+    template <typename Awaitable>
+    auto RunCoroutine(
+        Net::io_context &IoContext,
+        Awaitable Coroutine) -> void
+    {
+        std::exception_ptr Exception;
+        auto Completion =
+            [&Exception, &IoContext](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(
+            IoContext,
+            std::move(Coroutine),
+            std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto make_dst() -> Trojan::Address
+    [[nodiscard]] auto MakeDestination() -> Address
     {
-        Trojan::Address dst{};
-        dst.Type = Trojan::AddressType::Ipv4;
-        dst.Host = "93.184.216.34";
-        dst.Port = 443;
-        return dst;
+        Address Destination;
+        Destination.Type = AddressType::Ipv4;
+        Destination.Host = "93.184.216.34";
+        Destination.Port = 443;
+        return Destination;
+    }
+
+    [[nodiscard]] auto MakeServerConfig() -> ServerConfig
+    {
+        return ServerConfig{"pw123456"};
+    }
+
+    [[nodiscard]] auto MakeClientConfig() -> ClientConfig
+    {
+        return ClientConfig{"pw123456"};
+    }
+
+    auto RunServer(
+        std::shared_ptr<MemoryStream> Stream,
+        ServerOptions Options) -> Net::awaitable<void>
+    {
+        const auto ServerConfigValue = MakeServerConfig();
+        auto [ErrorValue, Request, Connection] = co_await Trojan::Accept(
+            std::move(Stream),
+            ServerConfigValue);
+        (void)Request;
+        if (ErrorValue != Error::None || !Connection)
+        {
+            throw std::runtime_error("Trojan server handshake failed");
+        }
+        std::vector<std::byte> Buffer(Options.BlockSize);
+        std::size_t Received = 0;
+        while (Received < Options.ExpectedBytes)
+        {
+            const auto ReadSize = std::min(
+                Options.BlockSize,
+                Options.ExpectedBytes - Received);
+            auto ReadWindow = std::span<std::byte>(
+                Buffer.data(),
+                ReadSize);
+            std::error_code ReadError;
+            const auto Count = co_await Connection->async_read_some(
+                ReadWindow,
+                ReadError);
+            if (ReadError || Count == 0 || Count > ReadSize)
+            {
+                throw std::runtime_error("Trojan server read failed");
+            }
+            if (Options.Echo)
+            {
+                std::error_code WriteError;
+                const auto WriteWindow = std::span<const std::byte>(
+                    Buffer.data(),
+                    Count);
+                const auto Written = co_await Connection->async_write_some(
+                    WriteWindow,
+                    WriteError);
+                if (WriteError || Written != Count)
+                {
+                    throw std::runtime_error("Trojan server echo failed");
+                }
+            }
+            Received += Count;
+        }
+        Connection->Close();
+        if (Received != Options.ExpectedBytes)
+        {
+            throw std::runtime_error("Trojan server received incomplete data");
+        }
+    }
+
+    auto SpawnServer(
+        ExecutorType Executor,
+        Net::awaitable<void> Operation,
+        const std::shared_ptr<std::atomic_bool> &Completed) -> void
+    {
+        auto Completion =
+            [Completed](std::exception_ptr Exception) -> void
+        {
+            Completed->store(
+                Exception == nullptr,
+                std::memory_order_release);
+        };
+        Net::co_spawn(
+            Executor,
+            std::move(Operation),
+            std::move(Completion));
+    }
+
+    [[nodiscard]] auto WaitForFlag(
+        ExecutorType Executor,
+        const std::shared_ptr<std::atomic_bool> &Flag)
+        -> Net::awaitable<bool>
+    {
+        Net::steady_timer Timer(Executor);
+        const auto Deadline =
+            std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (!Flag->load(std::memory_order_acquire) &&
+               std::chrono::steady_clock::now() < Deadline)
+        {
+            Timer.expires_after(std::chrono::milliseconds(1));
+            co_await Timer.async_wait(Net::use_awaitable);
+        }
+        co_return Flag->load(std::memory_order_acquire);
     }
 
     TEST(TrojanClientServer, Transfer100MB)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-
-        constexpr std::size_t kTotal = 100 * 1024 * 1024;
-        constexpr std::size_t kBlock = 64 * 1024;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto [err, req, Conn] =
-                             co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                     Trojan::ServerConfig{"pw123456"});
-                         if (err != Error::None)
-                         {
-                             EXPECT_TRUE(false) << "Accept Failed";
-                             co_return;
-                         }
-                         EXPECT_EQ(req.Target.Port, 443u);
-                         std::array<std::byte, kBlock> buf{};
-                         std::size_t got = 0;
-                         while (got < kTotal)
-                         {
-                             std::error_code ec;
-                             const auto n = co_await Conn->async_read_some(buf, ec);
-                             if (ec || n == 0)
-                             {
-                                 break;
-                             }
-                             got += n;
-                         }
-                         EXPECT_EQ(got, kTotal);
-                         Conn->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-
-                     auto [herr, cli] =
-                         co_await Trojan::Connect(std::make_shared<MemoryStream>(std::move(a)),
-                                                  Trojan::ClientConfig{"pw123456"}, make_dst());
-                     if (herr != Error::None || !cli)
-                     {
-                         EXPECT_TRUE(false) << "Connect Failed";
-                         co_return;
-                     }
-                     std::vector<std::uint8_t> payload(kBlock, 0x4D);
-                     std::size_t sent = 0;
-                     std::size_t yield_cnt = 0;
-                     while (sent < kTotal)
-                     {
-                         if ((++yield_cnt % 16) == 0)
-                         {
-                             co_await net::post(ioc.get_executor(), net::use_awaitable);
-                         }
-                         const auto n = std::min(kBlock, kTotal - sent);
-                         std::size_t Done = 0;
-                         while (Done < n)
-                         {
-                             std::error_code ec;
-                             const auto w = co_await cli->async_write_some(
-                                 std::span<const std::byte>(
-                                     reinterpret_cast<const std::byte *>(payload.data() + Done), n - Done),
-                                 ec);
-                             if (ec || w == 0)
-                             {
-                                 break;
-                             }
-                             Done += w;
-                         }
-                         if (Done < n)
-                         {
-                             break;
-                         }
-                         sent += n;
-                     }
-                     EXPECT_EQ(sent, kTotal);
-                     cli->Close();
-                 });
+        Net::io_context IoContext;
+        auto [ClientStream, ServerStream] =
+            Preview::MakeMemoryPair(IoContext.get_executor());
+        constexpr std::size_t TotalBytes = 100 * 1024 * 1024;
+        constexpr std::size_t BlockSize = 64 * 1024;
+        auto Coroutine = [&]() -> Net::awaitable<void>
+        {
+            const auto ServerCompleted =
+                std::make_shared<std::atomic_bool>(false);
+            SpawnServer(
+                IoContext.get_executor(),
+                RunServer(
+                    std::make_shared<MemoryStream>(std::move(ServerStream)),
+                    ServerOptions{
+                        TotalBytes,
+                        BlockSize,
+                        false}),
+                ServerCompleted);
+            const auto ClientConfigValue = MakeClientConfig();
+            const auto Destination = MakeDestination();
+            auto ClientResult = co_await Trojan::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientStream)),
+                ClientConfigValue,
+                Destination);
+            const auto HandshakeError = std::get<0>(ClientResult);
+            auto Client = std::get<1>(std::move(ClientResult));
+            EXPECT_EQ(HandshakeError, Error::None);
+            EXPECT_NE(Client, nullptr);
+            if (HandshakeError != Error::None || !Client)
+            {
+                co_return;
+            }
+            std::vector<std::uint8_t> Payload(BlockSize, 0x4D);
+            std::size_t Sent = 0;
+            while (Sent < TotalBytes)
+            {
+                const auto WriteSize = std::min(BlockSize, TotalBytes - Sent);
+                auto WriteWindow = std::span<const std::byte>(
+                    reinterpret_cast<const std::byte *>(Payload.data()),
+                    WriteSize);
+                std::error_code WriteError;
+                const auto Written = co_await Client->async_write_some(
+                    WriteWindow,
+                    WriteError);
+                if (WriteError || Written == 0 || Written > WriteSize)
+                {
+                    break;
+                }
+                Sent += Written;
+                const auto PostToken = Net::use_awaitable;
+                co_await Net::post(
+                    IoContext.get_executor(),
+                    PostToken);
+            }
+            EXPECT_EQ(Sent, TotalBytes);
+            const auto Done = co_await WaitForFlag(
+                IoContext.get_executor(),
+                ServerCompleted);
+            EXPECT_TRUE(Done);
+            EXPECT_TRUE(ServerCompleted->load(std::memory_order_acquire));
+            Client->Close();
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
     }
 
     TEST(TrojanClientServer, ThroughputLatency)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-
-        BenchReport tp{};
-        BenchReport lat{};
-        run_coro(
-            ioc,
-            [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        BenchReport ThroughputReport;
+        BenchReport LatencyReport;
+        auto Coroutine = [&]() -> Net::awaitable<void>
+        {
+            auto [ClientStream, ServerStream] =
+                Preview::MakeMemoryPair(IoContext.get_executor());
+            constexpr std::size_t ThroughputTotal = 64 * 1024 * 1024;
+            const auto ThroughputServerCompleted =
+                std::make_shared<std::atomic_bool>(false);
+            SpawnServer(
+                IoContext.get_executor(),
+                RunServer(
+                    std::make_shared<MemoryStream>(std::move(ServerStream)),
+                    ServerOptions{
+                        ThroughputTotal,
+                        64 * 1024,
+                        true}),
+                ThroughputServerCompleted);
+            const auto ClientConfigValue = MakeClientConfig();
+            const auto Destination = MakeDestination();
+            auto ClientResult = co_await Trojan::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientStream)),
+                ClientConfigValue,
+                Destination);
+            const auto HandshakeError = std::get<0>(ClientResult);
+            auto Client = std::get<1>(std::move(ClientResult));
+            EXPECT_EQ(HandshakeError, Error::None);
+            EXPECT_NE(Client, nullptr);
+            if (HandshakeError != Error::None || !Client)
             {
-                auto server_coro = [&]() -> net::awaitable<void>
-                {
-                    auto [err, req, Conn] = co_await Trojan::Accept(
-                        std::make_shared<MemoryStream>(std::move(b)), Trojan::ServerConfig{"pw123456"});
-                    if (err != Error::None)
-                    {
-                        co_return;
-                    }
-                    std::array<std::byte, 128 * 1024> buf{};
-                    while (true)
-                    {
-                        std::error_code ec;
-                        const auto n = co_await Conn->async_read_some(buf, ec);
-                        if (ec || n == 0)
-                        {
-                            break;
-                        }
-                        co_await Conn->async_write_some(std::span(buf.data(), n), ec);
-                    }
-                    Conn->Close();
-                };
-                net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                co_return;
+            }
+            BenchOptions ThroughputOptions;
+            ThroughputOptions.Total = ThroughputTotal;
+            ThroughputOptions.Block = 64 * 1024;
+            ThroughputReport = co_await Preview::BenchThroughputTx(
+                *Client,
+                *Client,
+                ThroughputOptions);
+            EXPECT_EQ(ThroughputReport.Bytes, ThroughputOptions.Total);
+            Client->Close();
+            const auto ThroughputDone = co_await WaitForFlag(
+                IoContext.get_executor(),
+                ThroughputServerCompleted);
+            EXPECT_TRUE(ThroughputDone);
+            EXPECT_TRUE(ThroughputServerCompleted->load(
+                std::memory_order_acquire));
 
-                auto [herr, cli] = co_await Trojan::Connect(std::make_shared<MemoryStream>(std::move(a)),
-                                                            Trojan::ClientConfig{"pw123456"}, make_dst());
-                if (herr != Error::None || !cli)
-                {
-                    co_return;
-                }
-                BenchOptions opt;
-                opt.Total = 64 * 1024 * 1024;
-                opt.Block = 64 * 1024;
-                tp = co_await BenchThroughputTx(*cli, *cli, opt);
-                // 延迟用新连接（回环小包 RTT）
-                auto [a2, b2] = MakeMemoryPair(ioc.get_executor());
-                auto server_coro2 = [&]() -> net::awaitable<void>
-                {
-                    auto [err, req, Conn] = co_await Trojan::Accept(
-                        std::make_shared<MemoryStream>(std::move(b2)), Trojan::ServerConfig{"pw123456"});
-                    if (err != Error::None)
-                    {
-                        co_return;
-                    }
-                    std::array<std::byte, 128 * 1024> buf{};
-                    while (true)
-                    {
-                        std::error_code ec;
-                        const auto n = co_await Conn->async_read_some(buf, ec);
-                        if (ec || n == 0)
-                        {
-                            break;
-                        }
-                        co_await Conn->async_write_some(std::span(buf.data(), n), ec);
-                    }
-                    Conn->Close();
-                };
-                net::co_spawn(ioc.get_executor(), server_coro2(), net::detached);
-                auto [herr2, cli2] = co_await Trojan::Connect(std::make_shared<MemoryStream>(std::move(a2)),
-                                                              Trojan::ClientConfig{"pw123456"}, make_dst());
-                if (herr2 != Error::None || !cli2)
-                {
-                    co_return;
-                }
-                BenchOptions lopt;
-                lopt.Total = 1000 * 4 * 1024;
-                lopt.Block = 4 * 1024;
-                lat = co_await BenchThroughputTx(*cli2, *cli2, lopt);
-                cli2->Close();
-            });
-
-        std::printf("trojan throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min "
-                    "%.3f max %.3f) samples=%zu\n",
-                    tp.Mbps, lat.LatencyAvg, lat.LatencyP50, lat.LatencyP95, lat.LatencyP99,
-                    lat.LatencyMin, lat.LatencyMax, lat.Samples);
+            auto [LatencyClientStream, LatencyServerStream] =
+                Preview::MakeMemoryPair(IoContext.get_executor());
+            constexpr std::size_t LatencyTotal = 1000 * 4 * 1024;
+            const auto LatencyServerCompleted =
+                std::make_shared<std::atomic_bool>(false);
+            SpawnServer(
+                IoContext.get_executor(),
+                RunServer(
+                    std::make_shared<MemoryStream>(std::move(LatencyServerStream)),
+                    ServerOptions{
+                        LatencyTotal,
+                        4 * 1024,
+                        true}),
+                LatencyServerCompleted);
+            const auto LatencyClientConfig = MakeClientConfig();
+            const auto LatencyDestination = MakeDestination();
+            auto LatencyResult = co_await Trojan::Connect(
+                std::make_shared<MemoryStream>(std::move(LatencyClientStream)),
+                LatencyClientConfig,
+                LatencyDestination);
+            const auto LatencyHandshakeError = std::get<0>(LatencyResult);
+            auto LatencyClient = std::get<1>(std::move(LatencyResult));
+            EXPECT_EQ(LatencyHandshakeError, Error::None);
+            EXPECT_NE(LatencyClient, nullptr);
+            if (LatencyHandshakeError != Error::None || !LatencyClient)
+            {
+                co_return;
+            }
+            BenchOptions LatencyOptions;
+            LatencyOptions.Total = LatencyTotal;
+            LatencyOptions.Block = 4 * 1024;
+            LatencyReport = co_await Preview::BenchThroughputTx(
+                *LatencyClient,
+                *LatencyClient,
+                LatencyOptions);
+            EXPECT_EQ(LatencyReport.Bytes, LatencyOptions.Total);
+            LatencyClient->Close();
+            const auto LatencyDone = co_await WaitForFlag(
+                IoContext.get_executor(),
+                LatencyServerCompleted);
+            EXPECT_TRUE(LatencyDone);
+            EXPECT_TRUE(LatencyServerCompleted->load(
+                std::memory_order_acquire));
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
+        EXPECT_GT(ThroughputReport.Mbps, 0.0);
+        EXPECT_GT(LatencyReport.Samples, 0u);
+        std::printf(
+            "trojan throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f "
+            "p95 %.3f p99 %.3f (min %.3f max %.3f) samples=%zu\n",
+            ThroughputReport.Mbps,
+            LatencyReport.LatencyAvg,
+            LatencyReport.LatencyP50,
+            LatencyReport.LatencyP95,
+            LatencyReport.LatencyP99,
+            LatencyReport.LatencyMin,
+            LatencyReport.LatencyMax,
+            LatencyReport.Samples);
     }
-
 } // namespace

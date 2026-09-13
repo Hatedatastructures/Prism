@@ -4,6 +4,7 @@
  * @details 定义 VMess 常量、命令、安全类型与地址结构。
  *          VMess AEAD 认证头：AuthID(16) + Length(2) + Nonce(8) + Tag(16)，
  *          请求头经 AES-128-GCM 加密，数据采用 AEAD 分块。
+ * @note RequestHeader/ResponseHeader 中的历史字段名属于公共 codec 兼容面，保持现有名称和值。
  * @note 参考 mihomo transport/vmess/Conn.go 与主库 include/prism/Protocol/vmess/。
  */
 

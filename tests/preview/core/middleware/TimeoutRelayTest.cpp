@@ -2,7 +2,7 @@
  * @file TimeoutRelayTest.cpp
  * @brief 管线超时/背压测试（T4-5 / D9）
  * @details 覆盖：
- *          - 空闲超时关闭隧道（可配 + ctx.timeout 优先）
+ *          - 空闲超时关闭隧道（可配 + Context.timeout 优先）
  *          - 持续活动不关闭
  *          - 0 = 禁用超时
  *          - 背压：写失败（对端关闭）→ 隧道立即终止
@@ -30,272 +30,272 @@
 
 namespace
 {
+    namespace Net = boost::asio;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
-    namespace net = boost::asio;
-    using namespace Preview;
-
-    auto run_coro(net::io_context &ioc, auto coro)
+    auto RunCoroutine(Net::io_context &IoContext, auto CoroutineValue)
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(CoroutineValue), [&](std::exception_ptr e) { Exception = e; IoContext.stop(); });
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto make_pair_shared(net::io_context &ioc)
+    auto MakePairShared(Net::io_context &IoContext)
         -> std::pair<std::shared_ptr<MemoryStream>, std::shared_ptr<MemoryStream>>
     {
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        return {std::make_shared<MemoryStream>(std::move(a)),
-                std::make_shared<MemoryStream>(std::move(b))};
+        auto [Input, Output] = MakeMemoryPair(IoContext.get_executor());
+        return {std::make_shared<MemoryStream>(std::move(Input)),
+                std::make_shared<MemoryStream>(std::move(Output))};
     }
 
     TEST(TimeoutRelay, IdleTimeoutClosesTunnel)
     {
-        net::io_context ioc;
-        auto [a1, a2] = make_pair_shared(ioc);
-        auto [b1, b2] = make_pair_shared(ioc);
+        Net::io_context IoContext;
+        auto [InputA, RelayInput] = MakePairShared(IoContext);
+        auto [RelayOutput, OutputPeer] = MakePairShared(IoContext);
 
-        // relay 结束标志
+        // Relay 结束标志
         bool RelayDone = false;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
                  {
-                     net::co_spawn(
-                         ioc.get_executor(),
-                         [&]() -> net::awaitable<void>
+                     Net::co_spawn(
+                         IoContext.get_executor(),
+                         [&]() -> Net::awaitable<void>
                          {
-                             Preview::Middleware::Context ctx;
-                             ctx.Inbound = a2;
-                             ctx.Outbound = b1;
-                             Preview::Middleware::Builtin::RelayMiddleware relay(nullptr,
+                             Preview::Middleware::Context Context;
+                             Context.Inbound = RelayInput;
+                             Context.Outbound = RelayOutput;
+                             Preview::Middleware::Builtin::RelayMiddleware Relay(nullptr,
                                                                                   std::chrono::milliseconds(50));
-                             auto tmp = ctx.Inbound;
-                             co_await relay.Handle(tmp, ctx);
+                             auto Temporary = Context.Inbound;
+                             co_await Relay.Handle(Temporary, Context);
                              RelayDone = true;
                          },
-                         net::detached);
+                         Net::detached);
                      // 50ms 空闲超时必须在兜底关闭前生效（10ms 步进有界轮询，200ms 截止）
-                     for (int i = 0; i < 20 && !RelayDone; ++i)
+                     for (int Index = 0; Index < 20 && !RelayDone; ++Index)
                      {
-                         net::steady_timer poll_t(ioc);
-                         poll_t.expires_after(std::chrono::milliseconds(10));
-                         co_await poll_t.async_wait(net::use_awaitable);
+                         Net::steady_timer PollTimer(IoContext);
+                         PollTimer.expires_after(std::chrono::milliseconds(10));
+                         co_await PollTimer.async_wait(Net::use_awaitable);
                      }
                      EXPECT_TRUE(RelayDone); // 超时机制失效时此处失败，而非被兜底掩蔽
-                     a1->Close();
+                     InputA->Close();
                  });
         EXPECT_TRUE(RelayDone);
     }
 
     TEST(TimeoutRelay, NoTimeoutWhenActive)
     {
-        net::io_context ioc;
-        auto [a1, a2] = make_pair_shared(ioc);
-        auto [b1, b2] = make_pair_shared(ioc);
+        Net::io_context IoContext;
+        auto [InputA, RelayInput] = MakePairShared(IoContext);
+        auto [RelayOutput, OutputPeer] = MakePairShared(IoContext);
 
         bool RelayDone = false;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
                  {
-                     net::co_spawn(
-                         ioc.get_executor(),
-                         [&]() -> net::awaitable<void>
+                     Net::co_spawn(
+                         IoContext.get_executor(),
+                         [&]() -> Net::awaitable<void>
                          {
-                             Preview::Middleware::Context ctx;
-                             ctx.Inbound = a2;
-                             ctx.Outbound = b1;
-                             Preview::Middleware::Builtin::RelayMiddleware relay(nullptr,
+                             Preview::Middleware::Context Context;
+                             Context.Inbound = RelayInput;
+                             Context.Outbound = RelayOutput;
+                             Preview::Middleware::Builtin::RelayMiddleware Relay(nullptr,
                                                                                   std::chrono::milliseconds(100));
-                             auto tmp = ctx.Inbound;
-                             co_await relay.Handle(tmp, ctx);
+                             auto Temporary = Context.Inbound;
+                             co_await Relay.Handle(Temporary, Context);
                              RelayDone = true;
                          },
-                         net::detached);
+                         Net::detached);
 
-                     // 立即首包（relay 启动后马上有活动，避免初始超时窗口）
-                     const std::string first = "first";
-                     std::error_code wec;
-                     co_await a1->async_write_some(
-                         std::span<const std::byte>(reinterpret_cast<const std::byte *>(first.data()),
-                                                    first.size()),
-                         wec);
-                     std::array<std::byte, 64> buf{};
-                     std::error_code rec;
-                     const auto n0 = co_await b2->async_read_some(std::span<std::byte>(buf), rec);
-                     EXPECT_GT(n0, 0);
+                     // 立即首包（Relay 启动后马上有活动，避免初始超时窗口）
+                     const std::string FirstMessage = "FirstMessage";
+                     std::error_code WriteError;
+                     co_await InputA->async_write_some(
+                         std::span<const std::byte>(reinterpret_cast<const std::byte *>(FirstMessage.data()),
+                                                    FirstMessage.size()),
+                         WriteError);
+                     std::array<std::byte, 64> Buffer{};
+                     std::error_code ReadError;
+                     const auto InitialCount = co_await OutputPeer->async_read_some(std::span<std::byte>(Buffer), ReadError);
+                     EXPECT_GT(InitialCount, 0);
 
                      // 持续活动（每 20ms 发一次，共 160ms > 超时 100ms）
-                     for (int i = 0; i < 8; ++i)
+                     for (int Index = 0; Index < 8; ++Index)
                      {
-                         const std::string msg = "keepalive-" + std::to_string(i);
-                         co_await a1->async_write_some(
-                             std::span<const std::byte>(reinterpret_cast<const std::byte *>(msg.data()),
-                                                        msg.size()),
-                             wec);
-                         const auto n = co_await b2->async_read_some(std::span<std::byte>(buf), rec);
-                         EXPECT_GT(n, 0);
-                         net::steady_timer t(ioc);
-                         t.expires_after(std::chrono::milliseconds(20));
-                         co_await t.async_wait(net::use_awaitable);
+                         const std::string Message = "keepalive-" + std::to_string(Index);
+                         co_await InputA->async_write_some(
+                             std::span<const std::byte>(reinterpret_cast<const std::byte *>(Message.data()),
+                                                        Message.size()),
+                             WriteError);
+                         const auto Count = co_await OutputPeer->async_read_some(std::span<std::byte>(Buffer), ReadError);
+                         EXPECT_GT(Count, 0);
+                         Net::steady_timer Timer(IoContext);
+                         Timer.expires_after(std::chrono::milliseconds(20));
+                         co_await Timer.async_wait(Net::use_awaitable);
                      }
                      EXPECT_FALSE(RelayDone); // 活动期间不关闭
-                     a1->Close();
-                     b2->Close();
-                     // 给 relay 收尾时间
-                     net::steady_timer t2(ioc);
-                     t2.expires_after(std::chrono::milliseconds(100));
-                     co_await t2.async_wait(net::use_awaitable);
+                     InputA->Close();
+                     OutputPeer->Close();
+                     // 给 Relay 收尾时间
+                     Net::steady_timer EndTimer(IoContext);
+                     EndTimer.expires_after(std::chrono::milliseconds(100));
+                     co_await EndTimer.async_wait(Net::use_awaitable);
                  });
-        // 结束后 relay 才关闭
+        // 结束后 Relay 才关闭
         EXPECT_TRUE(RelayDone);
     }
 
     TEST(TimeoutRelay, ZeroDisablesTimeout)
     {
-        net::io_context ioc;
-        auto [a1, a2] = make_pair_shared(ioc);
-        auto [b1, b2] = make_pair_shared(ioc);
+        Net::io_context IoContext;
+        auto [InputA, RelayInput] = MakePairShared(IoContext);
+        auto [RelayOutput, OutputPeer] = MakePairShared(IoContext);
 
         bool RelayDone = false;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
                  {
-                     net::co_spawn(
-                         ioc.get_executor(),
-                         [&]() -> net::awaitable<void>
+                     Net::co_spawn(
+                         IoContext.get_executor(),
+                         [&]() -> Net::awaitable<void>
                          {
-                             Preview::Middleware::Context ctx;
-                             ctx.Inbound = a2;
-                             ctx.Outbound = b1;
-                             Preview::Middleware::Builtin::RelayMiddleware relay(nullptr,
+                             Preview::Middleware::Context Context;
+                             Context.Inbound = RelayInput;
+                             Context.Outbound = RelayOutput;
+                             Preview::Middleware::Builtin::RelayMiddleware Relay(nullptr,
                                                                                   std::chrono::milliseconds(0));
-                             auto tmp = ctx.Inbound;
-                             co_await relay.Handle(tmp, ctx);
+                             auto Temporary = Context.Inbound;
+                             co_await Relay.Handle(Temporary, Context);
                              RelayDone = true;
                          },
-                         net::detached);
+                         Net::detached);
                      // 等 200ms（若超时未禁用，已关闭）
-                     net::steady_timer t(ioc);
-                     t.expires_after(std::chrono::milliseconds(200));
-                     co_await t.async_wait(net::use_awaitable);
+                     Net::steady_timer Timer(IoContext);
+                     Timer.expires_after(std::chrono::milliseconds(200));
+                     co_await Timer.async_wait(Net::use_awaitable);
                      EXPECT_FALSE(RelayDone); // 0 = 禁用 → 未关闭
-                     a1->Close(); // 显式关闭入站发送方向
-                     b2->Close(); // 显式关闭出站发送方向
-                     net::steady_timer t2(ioc);
-                     t2.expires_after(std::chrono::milliseconds(50));
-                     co_await t2.async_wait(net::use_awaitable);
+                     InputA->Close(); // 显式关闭入站发送方向
+                     OutputPeer->Close(); // 显式关闭出站发送方向
+                     Net::steady_timer EndTimer(IoContext);
+                     EndTimer.expires_after(std::chrono::milliseconds(50));
+                     co_await EndTimer.async_wait(Net::use_awaitable);
                  });
         EXPECT_TRUE(RelayDone);
     }
 
     TEST(TimeoutRelay, ContextTimeoutTakesPriority)
     {
-        net::io_context ioc;
-        auto [a1, a2] = make_pair_shared(ioc);
-        auto [b1, b2] = make_pair_shared(ioc);
+        Net::io_context IoContext;
+        auto [InputA, RelayInput] = MakePairShared(IoContext);
+        auto [RelayOutput, OutputPeer] = MakePairShared(IoContext);
 
         bool RelayDone = false;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
                  {
-                     net::co_spawn(
-                         ioc.get_executor(),
-                         [&]() -> net::awaitable<void>
+                     Net::co_spawn(
+                         IoContext.get_executor(),
+                         [&]() -> Net::awaitable<void>
                          {
-                             Preview::Middleware::Context ctx;
-                             ctx.Inbound = a2;
-                             ctx.Outbound = b1;
-                             ctx.timeout = std::chrono::milliseconds(40); // ctx 优先（构造为 300s）
-                             Preview::Middleware::Builtin::RelayMiddleware relay(
+                             Preview::Middleware::Context Context;
+                             Context.Inbound = RelayInput;
+                             Context.Outbound = RelayOutput;
+                             Context.timeout = std::chrono::milliseconds(40); // Context 优先（构造为 300s）
+                             Preview::Middleware::Builtin::RelayMiddleware Relay(
                                  nullptr, std::chrono::seconds(300));
-                             auto tmp = ctx.Inbound;
-                             co_await relay.Handle(tmp, ctx);
+                             auto Temporary = Context.Inbound;
+                             co_await Relay.Handle(Temporary, Context);
                              RelayDone = true;
                          },
-                         net::detached);
-                     // ctx.timeout(40ms) 必须先于兜底关闭生效（10ms 步进有界轮询，200ms 截止）
-                     for (int i = 0; i < 20 && !RelayDone; ++i)
+                         Net::detached);
+                     // Context.timeout(40ms) 必须先于兜底关闭生效（10ms 步进有界轮询，200ms 截止）
+                     for (int Index = 0; Index < 20 && !RelayDone; ++Index)
                      {
-                         net::steady_timer poll_t(ioc);
-                         poll_t.expires_after(std::chrono::milliseconds(10));
-                         co_await poll_t.async_wait(net::use_awaitable);
+                         Net::steady_timer PollTimer(IoContext);
+                         PollTimer.expires_after(std::chrono::milliseconds(10));
+                         co_await PollTimer.async_wait(Net::use_awaitable);
                      }
-                     EXPECT_TRUE(RelayDone); // ctx.timeout 未优先生效时此处失败，而非被兜底掩蔽
-                     a1->Close();
+                     EXPECT_TRUE(RelayDone); // Context.timeout 未优先生效时此处失败，而非被兜底掩蔽
+                     InputA->Close();
                  });
         EXPECT_TRUE(RelayDone);
     }
 
     TEST(TimeoutRelay, WriteFailureTerminatesTunnel)
     {
-        net::io_context ioc;
-        auto [a1, a2] = make_pair_shared(ioc);
-        auto [b1, b2] = make_pair_shared(ioc);
+        Net::io_context IoContext;
+        auto [InputA, RelayInput] = MakePairShared(IoContext);
+        auto [RelayOutput, OutputPeer] = MakePairShared(IoContext);
 
         bool RelayDone = false;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
                  {
-                     net::co_spawn(
-                         ioc.get_executor(),
-                         [&]() -> net::awaitable<void>
+                     Net::co_spawn(
+                         IoContext.get_executor(),
+                         [&]() -> Net::awaitable<void>
                          {
-                             Preview::Middleware::Context ctx;
-                             ctx.Inbound = a2;
-                             ctx.Outbound = b1;
-                             Preview::Middleware::Builtin::RelayMiddleware relay(
+                             Preview::Middleware::Context Context;
+                             Context.Inbound = RelayInput;
+                             Context.Outbound = RelayOutput;
+                             Preview::Middleware::Builtin::RelayMiddleware Relay(
                                  nullptr, std::chrono::milliseconds(0));
-                             auto tmp = ctx.Inbound;
-                             co_await relay.Handle(tmp, ctx);
+                             auto Temporary = Context.Inbound;
+                             co_await Relay.Handle(Temporary, Context);
                              RelayDone = true;
                          },
-                         net::detached);
+                         Net::detached);
 
-                     // 关闭 Outbound 对端（b2）→ relay 写 b1 失败 → 隧道终止
-                     b2->Close();
-                     const std::string msg = "to-dead-peer";
-                     std::error_code wec;
-                     co_await a1->async_write_some(
-                         std::span<const std::byte>(reinterpret_cast<const std::byte *>(msg.data()),
-                                                    msg.size()),
-                         wec);
+                     // 关闭 Outbound 对端（OutputPeer）→ Relay 写 RelayOutput 失败 → 隧道终止
+                     OutputPeer->Close();
+                     const std::string Message = "to-dead-peer";
+                     std::error_code WriteError;
+                     co_await InputA->async_write_some(
+                         std::span<const std::byte>(reinterpret_cast<const std::byte *>(Message.data()),
+                                                    Message.size()),
+                         WriteError);
                      // 写失败必须在兜底关闭前终止隧道（10ms 步进有界轮询，200ms 截止）
-                     for (int i = 0; i < 20 && !RelayDone; ++i)
+                     for (int Index = 0; Index < 20 && !RelayDone; ++Index)
                      {
-                         net::steady_timer poll_t(ioc);
-                         poll_t.expires_after(std::chrono::milliseconds(10));
-                         co_await poll_t.async_wait(net::use_awaitable);
+                         Net::steady_timer PollTimer(IoContext);
+                         PollTimer.expires_after(std::chrono::milliseconds(10));
+                         co_await PollTimer.async_wait(Net::use_awaitable);
                      }
                      EXPECT_TRUE(RelayDone); // 写失败未终止时此处失败，而非被兜底掩蔽
-                     a1->Close();
+                     InputA->Close();
                  });
         EXPECT_TRUE(RelayDone);
     }
 
     TEST(TimeoutRelay, WriteFailureReturnsIoError)
     {
-        net::io_context ioc;
-        auto Inbound = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
-        auto Outbound = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        Net::io_context IoContext;
+        auto Inbound = std::make_shared<Preview::PreviewMockTransport>(IoContext.get_executor());
+        auto Outbound = std::make_shared<Preview::PreviewMockTransport>(IoContext.get_executor());
         Outbound->FailNextWrite = true;
         Preview::Fault::Code Result = Preview::Fault::Code::Success;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(IoContext,
+                 [&]() -> Net::awaitable<void>
                  {
-                     net::post(ioc, [Inbound]
+                     Net::post(IoContext, [Inbound]
                                { Inbound->InjectRead({0x01U, 0x02U, 0x03U}); });
-                     Preview::Middleware::Context ctx;
-                     ctx.Inbound = Inbound;
-                     ctx.Outbound = Outbound;
-                     Preview::Middleware::Builtin::RelayMiddleware relay(
+                     Preview::Middleware::Context Context;
+                     Context.Inbound = Inbound;
+                     Context.Outbound = Outbound;
+                     Preview::Middleware::Builtin::RelayMiddleware Relay(
                          nullptr, std::chrono::milliseconds(0));
-                     auto Input = ctx.Inbound;
-                     Result = co_await relay.Handle(Input, ctx);
+                     auto Input = Context.Inbound;
+                     Result = co_await Relay.Handle(Input, Context);
                  });
 
         EXPECT_EQ(Result, Preview::Fault::Code::IoError);
@@ -305,173 +305,173 @@ namespace
 
     TEST(TimeoutRelay, ConcurrentBidirectionalTransfer)
     {
-        net::io_context ioc;
-        auto [Client, Inbound] = make_pair_shared(ioc);
-        auto [Outbound, Server] = make_pair_shared(ioc);
+        Net::io_context IoContext;
+        auto [Client, Inbound] = MakePairShared(IoContext);
+        auto [Outbound, Server] = MakePairShared(IoContext);
         bool RelayDone = false;
-        std::exception_ptr relay_ep;
+        std::exception_ptr RelayException;
 
-        auto test = [&]()
-            -> net::awaitable<void>
+        auto TestCoroutine = [&]()
+            -> Net::awaitable<void>
         {
-            auto async_relay = [Inbound, Outbound]()
-                -> net::awaitable<void>
+            auto AsyncRelay = [Inbound, Outbound]()
+                -> Net::awaitable<void>
             {
-                Preview::Middleware::Context ctx;
-                ctx.Inbound = Inbound;
-                ctx.Outbound = Outbound;
-                Preview::Middleware::Builtin::RelayMiddleware relay(
+                Preview::Middleware::Context Context;
+                Context.Inbound = Inbound;
+                Context.Outbound = Outbound;
+                Preview::Middleware::Builtin::RelayMiddleware Relay(
                     nullptr, std::chrono::milliseconds(0));
-                auto tmp = ctx.Inbound;
-                co_await relay.Handle(tmp, ctx);
+                auto Temporary = Context.Inbound;
+                co_await Relay.Handle(Temporary, Context);
             };
-            auto on_error = [&RelayDone, &relay_ep](const std::exception_ptr &ep)
+            auto OnError = [&RelayDone, &RelayException](const std::exception_ptr &Exception)
             {
-                relay_ep = ep;
+                RelayException = Exception;
                 RelayDone = true;
             };
-            net::co_spawn(ioc.get_executor(), std::move(async_relay), std::move(on_error));
+            Net::co_spawn(IoContext.get_executor(), std::move(AsyncRelay), std::move(OnError));
 
-            const std::string uplink = "uplink payload with a different length";
-            const std::string downlink = "downlink";
+            const std::string Uplink = "Uplink payload with Input different length";
+            const std::string Downlink = "Downlink";
             std::error_code write_ec;
             co_await Client->async_write_some(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(uplink.data()),
-                                           uplink.size()),
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Uplink.data()),
+                                           Uplink.size()),
                 write_ec);
             co_await Server->async_write_some(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(downlink.data()),
-                                           downlink.size()),
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Downlink.data()),
+                                           Downlink.size()),
                 write_ec);
             EXPECT_FALSE(write_ec);
 
-            std::string received_uplink(uplink.size(), '\0');
-            std::string received_downlink(downlink.size(), '\0');
+            std::string ReceivedUplink(Uplink.size(), '\0');
+            std::string ReceivedDownlink(Downlink.size(), '\0');
             std::error_code ReadEc;
             const auto uplink_n = co_await Server->AsyncRead(
-                std::span<std::byte>(reinterpret_cast<std::byte *>(received_uplink.data()),
-                                     received_uplink.size()),
+                std::span<std::byte>(reinterpret_cast<std::byte *>(ReceivedUplink.data()),
+                                     ReceivedUplink.size()),
                 ReadEc);
             EXPECT_FALSE(ReadEc);
-            EXPECT_EQ(uplink_n, uplink.size());
-            EXPECT_EQ(received_uplink, uplink);
+            EXPECT_EQ(uplink_n, Uplink.size());
+            EXPECT_EQ(ReceivedUplink, Uplink);
 
             const auto downlink_n = co_await Client->AsyncRead(
-                std::span<std::byte>(reinterpret_cast<std::byte *>(received_downlink.data()),
-                                     received_downlink.size()),
+                std::span<std::byte>(reinterpret_cast<std::byte *>(ReceivedDownlink.data()),
+                                     ReceivedDownlink.size()),
                 ReadEc);
             EXPECT_FALSE(ReadEc);
-            EXPECT_EQ(downlink_n, downlink.size());
-            EXPECT_EQ(received_downlink, downlink);
+            EXPECT_EQ(downlink_n, Downlink.size());
+            EXPECT_EQ(ReceivedDownlink, Downlink);
 
             Client->Close();
             Server->Close();
-            net::steady_timer done_wait(ioc);
-            done_wait.expires_after(std::chrono::milliseconds(20));
-            co_await done_wait.async_wait(net::use_awaitable);
+            Net::steady_timer CompletionTimer(IoContext);
+            CompletionTimer.expires_after(std::chrono::milliseconds(20));
+            co_await CompletionTimer.async_wait(Net::use_awaitable);
         };
 
-        net::co_spawn(ioc, std::move(test), [&](const std::exception_ptr &ep)
+        Net::co_spawn(IoContext, std::move(TestCoroutine), [&](const std::exception_ptr &Exception)
                       {
-                          if (ep)
+                          if (Exception)
                           {
-                              relay_ep = ep;
+                              RelayException = Exception;
                           }
-                          ioc.stop();
+                          IoContext.stop();
                       });
-        ioc.run();
-        ASSERT_FALSE(relay_ep);
+        IoContext.run();
+        ASSERT_FALSE(RelayException);
         EXPECT_TRUE(RelayDone);
     }
 
     TEST(TimeoutRelay, HalfCloseKeepsReverseDirection)
     {
-        net::io_context ioc;
-        auto [Client, Inbound] = make_pair_shared(ioc);
-        auto [Outbound, Server] = make_pair_shared(ioc);
+        Net::io_context IoContext;
+        auto [Client, Inbound] = MakePairShared(IoContext);
+        auto [Outbound, Server] = MakePairShared(IoContext);
         bool RelayDone = false;
-        std::exception_ptr relay_ep;
-        std::exception_ptr direction_ep;
+        std::exception_ptr RelayException;
+        std::exception_ptr DirectionException;
 
-        auto test = [&]()
-            -> net::awaitable<void>
+        auto TestCoroutine = [&]()
+            -> Net::awaitable<void>
         {
-            auto async_relay = [Inbound, Outbound, &direction_ep]()
-                -> net::awaitable<void>
+            auto AsyncRelay = [Inbound, Outbound, &DirectionException]()
+                -> Net::awaitable<void>
             {
-                Preview::Middleware::Context ctx;
-                ctx.Inbound = Inbound;
-                ctx.Outbound = Outbound;
-                Preview::Middleware::Builtin::RelayMiddleware relay(
+                Preview::Middleware::Context Context;
+                Context.Inbound = Inbound;
+                Context.Outbound = Outbound;
+                Preview::Middleware::Builtin::RelayMiddleware Relay(
                     nullptr, std::chrono::milliseconds(0));
-                auto tmp = ctx.Inbound;
-                co_await relay.Handle(tmp, ctx);
-                direction_ep = relay.LastDirectionError();
+                auto Temporary = Context.Inbound;
+                co_await Relay.Handle(Temporary, Context);
+                DirectionException = Relay.LastDirectionError();
             };
-            auto on_error = [&RelayDone, &relay_ep](const std::exception_ptr &ep)
+            auto OnError = [&RelayDone, &RelayException](const std::exception_ptr &Exception)
             {
-                relay_ep = ep;
+                RelayException = Exception;
                 RelayDone = true;
             };
-            net::co_spawn(ioc.get_executor(), std::move(async_relay), std::move(on_error));
+            Net::co_spawn(IoContext.get_executor(), std::move(AsyncRelay), std::move(OnError));
 
             const std::string Request = "Request before half Close";
             const std::string response = "response after half Close";
-            std::error_code ec;
+            std::error_code ErrorCode;
             co_await Client->async_write_some(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(Request.data()),
                                            Request.size()),
-                ec);
+                ErrorCode);
             Client->Shutdown();
 
             std::string received_request(Request.size(), '\0');
-            const auto request_n = co_await Server->AsyncRead(
+            const auto RequestCount = co_await Server->AsyncRead(
                 std::span<std::byte>(reinterpret_cast<std::byte *>(received_request.data()),
                                      received_request.size()),
-                ec);
-            EXPECT_FALSE(ec);
-            EXPECT_EQ(request_n, Request.size());
+                ErrorCode);
+            EXPECT_FALSE(ErrorCode);
+            EXPECT_EQ(RequestCount, Request.size());
             EXPECT_EQ(received_request, Request);
 
             co_await Server->async_write_some(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(response.data()),
                                            response.size()),
-                ec);
+                ErrorCode);
             Server->Shutdown();
 
             std::string received_response(response.size(), '\0');
-            const auto response_n = co_await Client->AsyncRead(
+            const auto ResponseCount = co_await Client->AsyncRead(
                 std::span<std::byte>(reinterpret_cast<std::byte *>(received_response.data()),
                                      received_response.size()),
-                ec);
-            EXPECT_FALSE(ec);
-            EXPECT_EQ(response_n, response.size());
+                ErrorCode);
+            EXPECT_FALSE(ErrorCode);
+            EXPECT_EQ(ResponseCount, response.size());
             EXPECT_EQ(received_response, response);
 
             std::array<std::byte, 1> eof_buffer{};
-            const auto eof_n = co_await Client->async_read_some(eof_buffer, ec);
-            EXPECT_FALSE(ec);
+            const auto eof_n = co_await Client->async_read_some(eof_buffer, ErrorCode);
+            EXPECT_FALSE(ErrorCode);
             EXPECT_EQ(eof_n, 0U);
 
-            net::steady_timer done_wait(ioc);
-            done_wait.expires_after(std::chrono::milliseconds(20));
-            co_await done_wait.async_wait(net::use_awaitable);
+            Net::steady_timer CompletionTimer(IoContext);
+            CompletionTimer.expires_after(std::chrono::milliseconds(20));
+            co_await CompletionTimer.async_wait(Net::use_awaitable);
 
             // 正常半关闭路径：两个方向协程均无异常残留
-            // （置于收尾等待之后，确保 relay.Handle 已返回并落盘诊断状态）
-            EXPECT_FALSE(direction_ep);
+            // （置于收尾等待之后，确保 Relay.Handle 已返回并落盘诊断状态）
+            EXPECT_FALSE(DirectionException);
         };
 
-        net::co_spawn(ioc, std::move(test), [&](const std::exception_ptr &ep)
+        Net::co_spawn(IoContext, std::move(TestCoroutine), [&](const std::exception_ptr &Exception)
                       {
-                          if (ep)
+                          if (Exception)
                           {
-                              relay_ep = ep;
+                              RelayException = Exception;
                           }
-                          ioc.stop();
+                          IoContext.stop();
                       });
-        ioc.run();
-        ASSERT_FALSE(relay_ep);
+        IoContext.run();
+        ASSERT_FALSE(RelayException);
         EXPECT_TRUE(RelayDone);
     }
 

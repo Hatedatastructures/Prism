@@ -145,7 +145,11 @@ namespace Preview::Network::Dns
         /// 读取结果槽；leader 尚未完成时为 nullptr
         [[nodiscard]] auto PeekResult() const -> const Result *
         {
-            return Result_ ? &*Result_ : nullptr;
+            if (Result_)
+            {
+                return &*Result_;
+            }
+            return nullptr;
         }
 
         /// 清空结果槽（FlushCleanup 删除 flight 时调用，防悬空引用）

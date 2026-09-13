@@ -20,9 +20,7 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/dispatch.hpp>
-#include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/experimental/channel.hpp>
-#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <algorithm>
@@ -30,14 +28,14 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <deque>
+#include <limits>
 #include <map>
 #include <memory>
 #include <span>
+#include <utility>
 #include <vector>
 
-#include <preview/Foundation/ByteSpan.hpp>
 #include <preview/Foundation/Utility/Diagnose/Log.hpp>
 #include <preview/Foundation/Error.hpp>
 #include <preview/Foundation/Memory/Container.hpp>
@@ -45,7 +43,6 @@
 #include <preview/Foundation/Role.hpp>
 #include <preview/Foundation/SessionBase.hpp>
 #include <preview/Transport/Transmission.hpp>
-#include <preview/Transport/Stream.hpp>
 #include <preview/Protocols/Mux/Codec.hpp>
 #include <preview/Protocols/Mux/SessionReadLoop.hpp>
 #include <preview/Protocols/Mux/StreamState.hpp>
@@ -67,6 +64,12 @@ namespace Preview::Mux
         std::size_t MaxStreams{256};
         /// 读超时（0 = 禁用）
         std::chrono::milliseconds timeout{0};
+        /// 每流接收队列字节预算（0 = 不限）；超限关闭会话
+        std::size_t MaxStreamRxBytes{4 * 1024 * 1024};
+        /// 会话接收队列总字节预算（0 = 不限）；超限关闭会话
+        std::size_t MaxSessionRxBytes{16 * 1024 * 1024};
+        /// 待发送帧总字节预算（0 = 不限）；超限只拒绝本次写入
+        std::size_t MaxPendingWriteBytes{32 * 1024 * 1024};
     };
 
     /**
@@ -79,8 +82,10 @@ namespace Preview::Mux
      *          分别对应服务端/客户端开流视角；Cancel() 可唤醒挂起
      *          的 AcceptStream 而不关闭会话。
      */
-    template <typename C, Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    class Session : public SessionIface, public std::enable_shared_from_this<Session<C, Memory>>
+    template <typename C,
+              Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
+    class Session : public SessionIface,
+                    public std::enable_shared_from_this<Session<C, Memory>>
     {
     public:
         using FrameType = typename C::FrameType;
@@ -90,14 +95,19 @@ namespace Preview::Mux
 
         /**
          * @brief 创建会话（同时启动帧循环）
-         * @param raw 底层传输（类型擦除）
-         * @param opt 会话选项
+         * @param Raw 底层传输（类型擦除）
+         * @param Options 会话选项
          * @return 会话实例
          */
-        static auto Create(SharedTransmission raw, const SessionOptions &opt)
+        static auto Create(SharedTransmission Raw, const SessionOptions &Options)
             -> std::shared_ptr<Session<C, Memory>>
         {
-            auto Self = std::shared_ptr<Session<C, Memory>>(new Session<C, Memory>(std::move(raw), opt));
+            if (!Raw)
+            {
+                return {};
+            }
+            auto Self = std::shared_ptr<Session<C, Memory>>(
+                new Session<C, Memory>(std::move(Raw), Options));
             Self->Start();
             return Self;
         }
@@ -107,18 +117,24 @@ namespace Preview::Mux
          * @return 流句柄；nullptr = 会话已关闭 / 流数达上限
          * @details 分配流 ID（奇偶随角色）并发送开流帧。
          */
-        auto OpenStream() -> net::awaitable<std::shared_ptr<StreamHandle<Memory>>>
+        auto OpenStream() -> Net::awaitable<std::shared_ptr<StreamHandle<Memory>>>
         {
-            if (!Raw_ || !Raw_->IsOpen())
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
+            if (SessionClosed_ || !Raw_ || !Raw_->IsOpen())
             {
                 co_return nullptr;
             }
             const auto Id = AllocateId();
             if (Id == 0)
             {
+                if (StreamIdExhausted_)
+                {
+                    ProtocolErrorTeardown();
+                }
                 co_return nullptr;
             }
-            auto Handle = std::make_shared<StreamHandle<Memory>>(Id, this->shared_from_this(), Ex_);
+            auto Handle = std::make_shared<StreamHandle<Memory>>(Id, this->shared_from_this(), Ex_,
+                                                                 Opt_.MaxStreamRxBytes);
             Streams_[Id] = Handle;
             if (co_await RawWrite(C::BuildOpen(Id)))
             {
@@ -133,8 +149,9 @@ namespace Preview::Mux
          * @return 流句柄；nullptr = 会话关闭 / Cancel() 唤醒
          * @details 经 Cancel() 唤醒后返回 nullptr（一次性，可再次调用）。
          */
-        auto AcceptStream() -> net::awaitable<std::shared_ptr<StreamHandle<Memory>>>
+        auto AcceptStream() -> Net::awaitable<std::shared_ptr<StreamHandle<Memory>>>
         {
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             while (Raw_ && Raw_->IsOpen())
             {
                 if (Canceled_)
@@ -153,7 +170,7 @@ namespace Preview::Mux
                     co_return nullptr;
                 }
                 AcceptNotify_.reset();
-                co_await AcceptNotify_.async_receive(net::use_awaitable);
+                co_await AcceptNotify_.async_receive(Net::use_awaitable);
             }
             co_return nullptr;
         }
@@ -167,25 +184,26 @@ namespace Preview::Mux
          * 无此限制，块大小 = MaxPayloadLen）。
          */
         auto PushData(std::uint32_t StreamId, std::span<const std::uint8_t> Data)
-            -> net::awaitable<ProtocolEc> override
+            -> Net::awaitable<ProtocolEc> override
         {
-            if (!Raw_ || !Raw_->IsOpen())
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
+            if (SessionClosed_ || !Raw_ || !Raw_->IsOpen())
             {
                 co_return make_error_code(Error::BrokenPipe);
             }
-            std::size_t chunk;
+            std::size_t Chunk;
             if (C::MaxPayloadLen > 0)
             {
-                chunk = C::MaxPayloadLen;
+                Chunk = C::MaxPayloadLen;
             }
             else
             {
-                chunk = Data.size();
+                Chunk = Data.size();
             }
             std::size_t Done = 0;
             while (Done < Data.size())
             {
-                const auto N = std::min(chunk, Data.size() - Done);
+                const auto N = std::min(Chunk, Data.size() - Done);
                 const auto Ec = co_await RawWrite(C::BuildData(StreamId, Data.subspan(Done, N)));
                 if (Ec)
                 {
@@ -201,8 +219,9 @@ namespace Preview::Mux
          * @brief 发送 FIN（StreamHandle 回调）
          * @param StreamId 流标识符
          */
-        auto SendFin(std::uint32_t StreamId) -> net::awaitable<void> override
+        auto SendFin(std::uint32_t StreamId) -> Net::awaitable<void> override
         {
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             // 关闭路径 best-effort：写失败不阻塞半关（会话拆除由帧循环/底层关闭兜底）
             if (Raw_ && Raw_->IsOpen())
             {
@@ -215,8 +234,9 @@ namespace Preview::Mux
          * @brief 发送 RST（StreamHandle 回调）
          * @param StreamId 流标识符
          */
-        auto SendRst(std::uint32_t StreamId) -> net::awaitable<void> override
+        auto SendRst(std::uint32_t StreamId) -> Net::awaitable<void> override
         {
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             // 重置路径 best-effort：写失败不阻塞流销毁（本端已丢弃该流）
             if (Raw_ && Raw_->IsOpen())
             {
@@ -244,10 +264,21 @@ namespace Preview::Mux
         }
 
         /**
+         * @brief 流消费接收队列字节后的预算归还
+         * @param StreamId 流标识符（会话级预算不区分流）
+         * @param Bytes 已消费/释放的字节数
+         */
+        void OnStreamRxConsumed(std::uint32_t StreamId, std::size_t Bytes) noexcept override
+        {
+            (void)StreamId;
+            SessionRxBytes_ -= std::min(SessionRxBytes_, Bytes);
+        }
+
+        /**
          * @brief 获取执行器
          * @return 会话执行器
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
             return Ex_;
         }
@@ -266,8 +297,9 @@ namespace Preview::Mux
          * @details 置 SessionClosed_，唤醒挂起 AcceptStream 与
          * 全部流（对端半关语义），清空流表并关闭底层。
          */
-        auto Close() -> net::awaitable<void>
+        auto Close() -> Net::awaitable<void>
         {
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             Teardown();
             if (Raw_)
             {
@@ -283,55 +315,68 @@ namespace Preview::Mux
          */
         auto Cancel() -> void
         {
-            Canceled_ = true;
-            AcceptNotify_.try_send(boost::system::error_code{});
+            auto Self = this->shared_from_this();
+            Net::dispatch(Ex_, [Self]()
+            {
+                Self->Canceled_ = true;
+                Self->AcceptNotify_.try_send(boost::system::error_code{});
+            });
         }
 
     private:
         /**
          * @struct WriteRequest
          * @brief 单一 writer 队列中的帧请求
-         * @details 请求节点由 Session 持有；完成与消费确认通过 channel
-         *          传递，队列按会话执行器访问，不需要锁或额外共享指针。
+         * @details 请求节点由 producer 与 writer 共享所有权；完成通过 channel
+         *          传递，writer 不依赖 producer 的二次确认即可推进队列。
          */
         struct WriteRequest
         {
-            explicit WriteRequest(net::any_io_executor Ex, std::vector<std::uint8_t> frame)
-                : Frame(std::move(frame)), Completion(Ex, 1), Consumed(Ex, 1)
+            explicit WriteRequest(Net::any_io_executor Ex, std::vector<std::uint8_t> FrameValue)
+                : Frame(std::move(FrameValue)), Completion(Ex, 1)
             {
             }
 
             std::vector<std::uint8_t> Frame;
-            net::experimental::channel<void(boost::system::error_code, ProtocolEc)> Completion;
-            net::experimental::channel<void(boost::system::error_code)> Consumed;
-            bool InFlight{false};
+            Net::experimental::channel<void(boost::system::error_code, ProtocolEc)> Completion;
             bool Canceled{false};
+            bool BudgetReleased{false};
         };
 
         /**
-         * @brief 底层写入（Transmission 适配：u8 视图 + ec 转错误码）
+         * @brief 底层写入（Transmission 适配：u8 视图和错误码转换）
          * @param Frame 待写数据
          * @return 错误码（成功 = 空）
          */
-        auto RawWrite(std::vector<std::uint8_t> Frame) -> net::awaitable<ProtocolEc>
+        auto RawWrite(std::vector<std::uint8_t> Frame) -> Net::awaitable<ProtocolEc>
         {
-            co_await net::dispatch(Ex_, net::use_awaitable);
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             if (SessionClosed_ || !Raw_ || !Raw_->IsOpen())
             {
                 co_return make_error_code(Error::BrokenPipe);
             }
-            auto &Request = PendingWrites_.emplace_back(Ex_, std::move(Frame));
+            if (Opt_.MaxPendingWriteBytes != 0)
+            {
+                const auto Used = (std::min)(PendingWriteBytes_, Opt_.MaxPendingWriteBytes);
+                if (Frame.size() > Opt_.MaxPendingWriteBytes - Used)
+                {
+                    co_return make_error_code(Error::BadLength);
+                }
+            }
+            auto Request = std::make_shared<WriteRequest>(Ex_, std::move(Frame));
+            PendingWrites_.push_back(Request);
+            if (Opt_.MaxPendingWriteBytes != 0)
+            {
+                PendingWriteBytes_ += Request->Frame.size();
+            }
             StartWriter();
             try
             {
-                const auto Ec = co_await Request.Completion.async_receive(net::use_awaitable);
-                (void)Request.Consumed.try_send(boost::system::error_code{});
-                co_return Ec;
+                co_return co_await Request->Completion.async_receive(Net::use_awaitable);
             }
             catch (...)
             {
-                Request.Canceled = true;
-                (void)Request.Consumed.try_send(boost::system::error_code{});
+                Request->Canceled = true;
                 throw;
             }
         }
@@ -342,18 +387,18 @@ namespace Preview::Mux
          * @return 错误码
          */
         template <std::size_t Size>
-        auto RawWrite(std::array<std::uint8_t, Size> Frame) -> net::awaitable<ProtocolEc>
+        auto RawWrite(std::array<std::uint8_t, Size> Frame) -> Net::awaitable<ProtocolEc>
         {
             co_return co_await RawWrite(std::vector<std::uint8_t>(Frame.begin(), Frame.end()));
         }
 
         /**
          * @brief 构造（私有，经 Create 创建）
-         * @param raw 底层传输
-         * @param opt 会话选项
+         * @param Raw 底层传输
+         * @param Options 会话选项
          */
-        Session(SharedTransmission raw, const SessionOptions &opt)
-            : Raw_(std::move(raw)), Opt_(opt), Ex_(Raw_->Executor()), AcceptNotify_(Ex_, 1)
+        Session(SharedTransmission Raw, const SessionOptions &Options)
+            : Raw_(std::move(Raw)), Opt_(Options), Ex_(Raw_->Executor()), AcceptNotify_(Ex_, 1)
         {
             if (Raw_ && Opt_.timeout > std::chrono::milliseconds::zero())
             {
@@ -368,8 +413,10 @@ namespace Preview::Mux
         auto Start() -> void
         {
             auto Self = this->shared_from_this();
-            net::co_spawn(
-                Ex_, [Self]() -> net::awaitable<void> { co_await Self->FrameLoop(); }, net::detached);
+            Net::co_spawn(
+                Ex_,
+                [Self]() -> Net::awaitable<void> { co_await Self->FrameLoop(); },
+                Net::detached);
         }
 
         /**
@@ -385,8 +432,10 @@ namespace Preview::Mux
             }
             WriterRunning_ = true;
             auto Self = this->shared_from_this();
-            net::co_spawn(
-                Ex_, [Self]() -> net::awaitable<void> { co_await Self->WriteLoop(); }, net::detached);
+            Net::co_spawn(
+                Ex_,
+                [Self]() -> Net::awaitable<void> { co_await Self->WriteLoop(); },
+                Net::detached);
         }
 
         /**
@@ -394,23 +443,22 @@ namespace Preview::Mux
          * @details 底层 AsyncWrite 处理 partial write；写错时先关闭会话，
          *          再以同一错误唤醒当前和排队中的 producer。
          */
-        auto WriteLoop() -> net::awaitable<void>
+        auto WriteLoop() -> Net::awaitable<void>
         {
             while (!PendingWrites_.empty())
             {
-                auto &Request = PendingWrites_.front();
-                if (Request.Canceled)
+                auto Request = PendingWrites_.front();
+                PendingWrites_.pop_front();
+                if (Request->Canceled)
                 {
-                    PendingWrites_.pop_front();
+                    ReleasePendingWriteBudget(Request);
                     continue;
                 }
-                Request.InFlight = true;
                 ProtocolEc Ec = make_error_code(Error::BrokenPipe);
                 if (!SessionClosed_ && Raw_ && Raw_->IsOpen())
                 {
-                    Ec = co_await Detail::WriteFrame(Raw_, Request.Frame);
+                    Ec = co_await Detail::WriteFrame(Raw_, Request->Frame);
                 }
-                Request.InFlight = false;
                 if (Ec && !SessionClosed_)
                 {
                     Teardown();
@@ -419,16 +467,12 @@ namespace Preview::Mux
                         Raw_->Close();
                     }
                 }
-                if (!Request.Canceled)
-                {
-                    (void)Request.Completion.try_send(boost::system::error_code{}, Ec);
-                    (void)co_await Request.Consumed.async_receive(net::use_awaitable);
-                }
-                PendingWrites_.pop_front();
                 if (Ec)
                 {
                     SessionClosed_ = true;
                 }
+                ReleasePendingWriteBudget(Request);
+                (void)Request->Completion.try_send(boost::system::error_code{}, Ec);
             }
             WriterRunning_ = false;
             co_return;
@@ -440,10 +484,10 @@ namespace Preview::Mux
          * 解析成功后经 Dispatch 分发；底层关闭时置
          * SessionClosed_ 并唤醒挂起 AcceptStream。
          */
-        auto FrameLoop() -> net::awaitable<void>
+        auto FrameLoop() -> Net::awaitable<void>
         {
             std::vector<std::uint8_t> Header(C::HeaderLen);
-            std::vector<std::uint8_t> payload;
+            std::vector<std::uint8_t> Payload;
 
             while (Raw_ && Raw_->IsOpen() && !SessionClosed_)
             {
@@ -452,6 +496,10 @@ namespace Preview::Mux
                         Raw_, std::span<std::uint8_t>(Header.data(), C::HeaderLen)))
                 {
                     Teardown();
+                    if (Raw_)
+                    {
+                        Raw_->Close();
+                    }
                     co_return;
                 }
 
@@ -483,19 +531,23 @@ namespace Preview::Mux
                     ProtocolErrorTeardown();
                     co_return;
                 }
-                payload.resize(Len);
-                if (!co_await Detail::ReadExact(Raw_, std::span<std::uint8_t>(payload.data(), Len)))
+                Payload.resize(Len);
+                if (!co_await Detail::ReadExact(Raw_, std::span<std::uint8_t>(Payload.data(), Len)))
                 {
                     Teardown();
+                    if (Raw_)
+                    {
+                        Raw_->Close();
+                    }
                     co_return;
                 }
-                if (C::ParsePayload(Frame, payload) != Error::None)
+                if (C::ParsePayload(Frame, Payload) != Error::None)
                 {
                     Diagnose::Warn("mux Frame payload Parse Failed; closing Session");
                     ProtocolErrorTeardown();
                     co_return;
                 }
-                Dispatch(Frame, payload);
+                Dispatch(Frame, Payload);
             }
             Teardown();
             co_return;
@@ -504,12 +556,12 @@ namespace Preview::Mux
         /**
          * @brief 分发帧到流 / 控制逻辑
          * @param Frame 已解析帧头
-         * @param payload 负载数据
+         * @param Payload 负载数据
          * @details Open：登记新流并排入入向队列；Data：投递到流，
          * 未知流隐式开流（h2mux 无 SYN 帧）；fin：置对端
          * 半关；rst：唤醒流并移除；控制帧忽略。
          */
-        auto Dispatch(const FrameType &Frame, std::span<const std::uint8_t> payload) -> void
+        auto Dispatch(const FrameType &Frame, std::span<const std::uint8_t> Payload) -> void
         {
             // 会话级控制帧（心跳/窗口/GO_AWAY）：忽略（测试库不实现流控）
             if (C::IsControl(Frame))
@@ -530,13 +582,18 @@ namespace Preview::Mux
                     ProtocolErrorTeardown();
                     break;
                 }
-                auto Handle = std::make_shared<StreamHandle<Memory>>(Id, this->shared_from_this(), Ex_);
+                auto Handle = std::make_shared<StreamHandle<Memory>>(
+                    Id, this->shared_from_this(), Ex_, Opt_.MaxStreamRxBytes);
                 Streams_[Id] = Handle;
                 Incoming_.push_back(Handle);
                 AcceptNotify_.try_send(boost::system::error_code{});
-                if (!payload.empty())
+                if (!Payload.empty())
                 {
-                    Handle->PushRx(payload);
+                    if (!DeliverRx(Handle, Payload))
+                    {
+                        Diagnose::Warn("mux receive queue budget exceeded; closing Session");
+                        ProtocolErrorTeardown();
+                    }
                 }
                 break;
             }
@@ -545,7 +602,11 @@ namespace Preview::Mux
                 const auto It = Streams_.find(Id);
                 if (It != Streams_.end() && It->second)
                 {
-                    It->second->PushRx(payload);
+                    if (!DeliverRx(It->second, Payload))
+                    {
+                        Diagnose::Warn("mux receive queue budget exceeded; closing Session");
+                        ProtocolErrorTeardown();
+                    }
                     break;
                 }
                 // 隐式开流（h2mux 无 SYN 帧：首数据帧即开流）
@@ -558,13 +619,18 @@ namespace Preview::Mux
                     ProtocolErrorTeardown();
                     break;
                 }
-                auto Handle = std::make_shared<StreamHandle<Memory>>(Id, this->shared_from_this(), Ex_);
+                auto Handle = std::make_shared<StreamHandle<Memory>>(
+                    Id, this->shared_from_this(), Ex_, Opt_.MaxStreamRxBytes);
                 Streams_[Id] = Handle;
                 Incoming_.push_back(Handle);
                 AcceptNotify_.try_send(boost::system::error_code{});
-                if (!payload.empty())
+                if (!Payload.empty())
                 {
-                    Handle->PushRx(payload);
+                    if (!DeliverRx(Handle, Payload))
+                    {
+                        Diagnose::Warn("mux receive queue budget exceeded; closing Session");
+                        ProtocolErrorTeardown();
+                    }
                 }
                 break;
             }
@@ -603,40 +669,29 @@ namespace Preview::Mux
                 return 0;
             }
             const bool Odd = Opt_.Role == Preview::Role::Client;
-            for (std::size_t I = 0; I < 65536; ++I)
+            constexpr auto MaxId = (std::numeric_limits<std::uint32_t>::max)();
+            const auto FirstId = std::uint32_t{1} + static_cast<std::uint32_t>(!Odd);
+            const auto ExpectedParity = static_cast<std::uint32_t>(Odd);
+            if (NextId_ == 0)
             {
-                if (NextId_ == 0)
-                {
-                    if (Odd)
-                    {
-                        NextId_ = 1u;
-                    }
-                    else
-                    {
-                        NextId_ = 2u;
-                    }
-                }
-                else
-                {
-                    NextId_ = NextId_ + 2;
-                }
-                if (NextId_ == 0 || NextId_ > 65535)
-                {
-                    if (Odd)
-                    {
-                        NextId_ = 1u;
-                    }
-                    else
-                    {
-                        NextId_ = 2u;
-                    }
-                }
-                if (!Streams_.contains(NextId_))
-                {
-                    return NextId_;
-                }
+                NextId_ = FirstId;
             }
-            return 0;
+            else
+            {
+                // 32 位流 ID 单调递增，耗尽前禁止无符号回绕复用旧 ID。
+                if (NextId_ > MaxId - 2U)
+                {
+                    StreamIdExhausted_ = true;
+                    return 0;
+                }
+                NextId_ += 2U;
+            }
+            if (NextId_ == 0 || (NextId_ & 1U) != ExpectedParity || Streams_.contains(NextId_))
+            {
+                StreamIdExhausted_ = true;
+                return 0;
+            }
+            return NextId_;
         }
 
         /**
@@ -660,7 +715,19 @@ namespace Preview::Mux
         auto Teardown() -> void
         {
             SessionClosed_ = true;
+            SessionRxBytes_ = 0;
             AcceptNotify_.try_send(boost::system::error_code{});
+            for (const auto &Request : PendingWrites_)
+            {
+                if (Request)
+                {
+                    Request->Canceled = true;
+                    ReleasePendingWriteBudget(Request);
+                    (void)Request->Completion.try_send(boost::system::error_code{},
+                                                       make_error_code(Error::BrokenPipe));
+                }
+            }
+            PendingWrites_.clear();
             for (auto &[Id, Handle] : Streams_)
             {
                 if (Handle)
@@ -673,9 +740,59 @@ namespace Preview::Mux
         }
 
         /**
+         * @brief 归还发送队列预算
+         * @param Request 已完成、取消或从队列清理的写请求
+         * @details 预算覆盖当前 writer 正在处理的请求；释放操作幂等，
+         *          以便 Teardown 与 writer 错误路径不会重复扣减。
+         */
+        auto ReleasePendingWriteBudget(
+            const std::shared_ptr<WriteRequest> &Request) noexcept -> void
+        {
+            if (!Request || Request->BudgetReleased || Opt_.MaxPendingWriteBytes == 0)
+            {
+                return;
+            }
+            PendingWriteBytes_ -= (std::min)(PendingWriteBytes_, Request->Frame.size());
+            Request->BudgetReleased = true;
+        }
+
+        /**
+         * @brief 投递接收数据并执行每流/会话字节预算
+         * @param Handle 目标流句柄
+         * @param Payload 待投递负载
+         * @return true = 已入队；false = 超出预算（调用方关闭会话）
+         * @details 先校验会话级预算，再交由流句柄校验每流预算；
+         *          预算随 ReadSome 消费和关流/RST 释放而归还。
+         */
+        [[nodiscard]] auto DeliverRx(const std::shared_ptr<StreamHandle<Memory>> &Handle,
+                                     std::span<const std::uint8_t> Payload) -> bool
+        {
+            if (Payload.empty())
+            {
+                return true;
+            }
+            if (!Handle || Handle->IsClosed() || Handle->IsPeerEof())
+            {
+                return true;
+            }
+            const auto Used = (std::min)(SessionRxBytes_, Opt_.MaxSessionRxBytes);
+            if (Opt_.MaxSessionRxBytes != 0 &&
+                Payload.size() > Opt_.MaxSessionRxBytes - Used)
+            {
+                return false;
+            }
+            if (!Handle->PushRx(Payload))
+            {
+                return false;
+            }
+            SessionRxBytes_ += Payload.size();
+            return true;
+        }
+
+        /**
          * @brief 处理会话级协议错误并关闭底层传输
-         * @details 帧头、长度或 payload 校验失败后无法安全定位下一帧，
-         *          必须同时清理会话状态并关闭 raw，不能继续读取造成永久失步。
+         * @details 帧头、长度或负载校验失败后无法安全定位下一帧，
+         *          必须同时清理会话状态并关闭底层传输，不能继续读取造成永久失步。
          */
         auto ProtocolErrorTeardown() -> void
         {
@@ -686,17 +803,20 @@ namespace Preview::Mux
             }
         }
 
-        SharedTransmission Raw_;                                                     ///< 底层传输
-        SessionOptions Opt_;                                                               ///< 会话选项
-        net::any_io_executor Ex_;                                                           ///< 执行器
-        boost::asio::experimental::channel<void(boost::system::error_code)> AcceptNotify_; ///< 新流通知
+        SharedTransmission Raw_; ///< 底层传输
+        SessionOptions Opt_; ///< 会话选项
+        Net::any_io_executor Ex_; ///< 执行器
+        Net::experimental::channel<void(boost::system::error_code)> AcceptNotify_; ///< 新流通知
         std::map<std::uint32_t, std::shared_ptr<StreamHandle<Memory>>> Streams_; ///< 流表（ID → 句柄）
-        std::deque<std::shared_ptr<StreamHandle<Memory>>> Incoming_;             ///< 入向流队列（待 Accept）
-        std::deque<WriteRequest> PendingWrites_;                                 ///< 唯一 writer 队列
-        std::uint32_t NextId_{0};                                        ///< 下一个流 ID 候选
-        bool SessionClosed_{false};                                      ///< 会话已关闭
-        bool Canceled_{false};                                            ///< Accept 被取消（一次性）
-        bool WriterRunning_{false};                                      ///< writer 协程已运行
+        std::deque<std::shared_ptr<StreamHandle<Memory>>> Incoming_; ///< 入向流队列（待 Accept）
+        std::deque<std::shared_ptr<WriteRequest>> PendingWrites_; ///< 唯一 writer 队列
+        std::uint32_t NextId_{0}; ///< 下一个流 ID 候选
+        bool StreamIdExhausted_{false}; ///< 32 位流 ID 已耗尽
+        std::size_t SessionRxBytes_{0}; ///< 会话接收队列当前总字节数
+        std::size_t PendingWriteBytes_{0}; ///< 当前未完成写请求总字节数
+        bool SessionClosed_{false}; ///< 会话已关闭
+        bool Canceled_{false}; ///< Accept 被取消（一次性）
+        bool WriterRunning_{false}; ///< writer 协程已运行
     };
 
 } // namespace Preview::Mux

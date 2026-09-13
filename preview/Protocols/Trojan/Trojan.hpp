@@ -23,11 +23,11 @@
 #include <tuple>
 #include <utility>
 
-#include <preview/Foundation/Error.hpp>
 #include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Error.hpp>
+#include <preview/Foundation/Authenticator.hpp>
 #include <preview/Transport/Transmission.hpp>
 #include <preview/Protocols/Trojan/Codec.hpp>
-#include <preview/Foundation/Authenticator.hpp>
 #include <preview/Protocols/Trojan/Conn.hpp>
 #include <preview/Protocols/Trojan/Dgram.hpp>
 #include <preview/Protocols/Trojan/Types.hpp>
@@ -64,8 +64,25 @@ namespace Preview::Trojan
         bool EnableTcp = true;
         /// 是否允许 UDP_ASSOCIATE 命令（UDP 中继）
         bool EnableUdp = false;
-        /// 认证器（非拥有；nullptr = 静态比对 password）
+        /// 认证器（旧兼容字段；优先使用 AuthenticatorOwner）
         const Preview::Authenticator *Authenticator{nullptr};
+        /// 认证器共享所有权；用于长期存活的 handler/Profile
+        Preview::SharedAuthenticator AuthenticatorOwner{};
+
+        /**
+         * @brief 获取服务端认证器
+         * @return 优先返回共享所有权中的认证器，否则返回兼容的非拥有指针
+         * @note 返回值不转移认证器所有权。
+         */
+        [[nodiscard]] auto ResolveAuthenticator() const noexcept
+            -> const Preview::Authenticator *
+        {
+            if (AuthenticatorOwner)
+            {
+                return AuthenticatorOwner.get();
+            }
+            return Authenticator;
+        }
     };
 
     /**
@@ -90,8 +107,12 @@ namespace Preview::Trojan
      * 请求头（握手对调用方透明）。成功后连接持有 upstream。
      */
     [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
+        if (!Params.Upstream)
+        {
+            co_return std::pair{Error::NotOpen, SharedConn{}};
+        }
         auto C = std::make_shared<Conn<>>(std::move(Params.Upstream), Params.Config.password);
         const auto Err = co_await C->WriteHandshake(Params.Target, Params.Cmd);
         SharedConn Conn;
@@ -113,9 +134,11 @@ namespace Preview::Trojan
      * @param Target 目标地址（借用）
      * @return 错误码与协议连接
      */
-    [[nodiscard]] inline auto Connect(SharedTransmission Upstream, const ClientConfig &Config,
-                                      const Address &Target)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Connect(
+        SharedTransmission Upstream,
+        const ClientConfig &Config,
+        const Address &Target)
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
         auto Result = co_await Connect(ConnectParameters{std::move(Upstream), Config, Target});
         co_return Result;
@@ -124,43 +147,57 @@ namespace Preview::Trojan
     /**
      * @brief 创建客户端 UDP 包连接并完成 udp_associate 握手
      * @tparam T 传输类型（TransmissionLike 约束）
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 客户端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 客户端配置
      * @param Target 目标地址
      * @return 错误码与包连接（失败时连接为空）
      * @details 先经 Connect 完成 udp_associate 握手，再包装为
      * 包连接（对齐 mihomo ListenPacketContext：握手后 NewPacketConn）。
      */
-    [[nodiscard]] inline auto ConnectPacket(SharedTransmission upstream, const ClientConfig &cfg,
-                                             const Address &Target)
-        -> net::awaitable<std::pair<Error, SharedDgram>>
+    [[nodiscard]] inline auto ConnectPacket(
+        SharedTransmission Upstream,
+        const ClientConfig &Config,
+        const Address &Target)
+        -> Net::awaitable<std::pair<Error, SharedDgram>>
     {
-        auto [Err, Conn] = co_await Connect(
-            ConnectParameters{std::move(upstream), cfg, Target, Command::UdpAssociate});
-        if (Err != Error::None)
+        auto [ErrorCode, Connection] = co_await Connect(
+            ConnectParameters{std::move(Upstream), Config, Target, Command::UdpAssociate});
+        if (ErrorCode != Error::None)
         {
-            co_return std::pair{Err, SharedDgram{}};
+            co_return std::pair{ErrorCode, SharedDgram{}};
         }
-        co_return std::pair{Error::None, std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::pair{
+            Error::None,
+            std::make_shared<Dgram<>>(std::move(Connection))};
     }
 
     /**
      * @brief 接收服务端流连接并完成握手（sing Service 语义）
      * @tparam T 传输类型（TransmissionLike 约束）
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码、解析的请求与协议连接（失败时连接为空）
      * @details 内部流程：创建 Conn → 注入凭据 → ReadHandshake 解析
      * 请求头（凭据/CRLF/命令开关/atyp/尾部校验）。认证失败不发送
      * 响应，静默断开。
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, RequestHeader, SharedConn>>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Upstream,
+        const ServerConfig &Config)
+        -> Net::awaitable<std::tuple<Error, RequestHeader, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password, cfg.Authenticator);
-        auto [Err, req] = co_await C->ReadHandshake(cfg.EnableTcp, cfg.EnableUdp);
+        if (!Upstream)
+        {
+            co_return std::tuple{Error::NotOpen, RequestHeader{}, SharedConn{}};
+        }
+        auto C = std::make_shared<Conn<>>(
+            std::move(Upstream),
+            Config.password,
+            Config.ResolveAuthenticator(),
+            Config.AuthenticatorOwner);
+        auto [ErrorCode, RequestValue] = co_await C->ReadHandshake(Config.EnableTcp, Config.EnableUdp);
         SharedConn Conn;
-        if (Err == Error::None)
+        if (ErrorCode == Error::None)
         {
             Conn = SharedConn(std::move(C));
         }
@@ -168,26 +205,31 @@ namespace Preview::Trojan
         {
             Conn = SharedConn{};
         }
-        co_return std::tuple{Err, std::move(req), std::move(Conn)};
+        co_return std::tuple{ErrorCode, std::move(RequestValue), std::move(Conn)};
     }
 
     /**
      * @brief 接收服务端 UDP 包连接（UDP_ASSOCIATE 命令）
      * @tparam T 传输类型（TransmissionLike 约束）
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码、解析的请求与包连接（失败时连接为空）
      * @details 先经 Accept 完成流握手解析，再包装为包连接。
      */
-    [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, RequestHeader, SharedDgram>>
+    [[nodiscard]] inline auto AcceptPacket(
+        SharedTransmission Upstream,
+        const ServerConfig &Config)
+        -> Net::awaitable<std::tuple<Error, RequestHeader, SharedDgram>>
     {
-        auto [Err, req, Conn] = co_await Accept(std::move(upstream), cfg);
-        if (Err != Error::None)
+        auto [ErrorCode, RequestValue, Connection] = co_await Accept(std::move(Upstream), Config);
+        if (ErrorCode != Error::None)
         {
-            co_return std::tuple{Err, std::move(req), SharedDgram{}};
+            co_return std::tuple{ErrorCode, std::move(RequestValue), SharedDgram{}};
         }
-        co_return std::tuple{Error::None, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::tuple{
+            Error::None,
+            std::move(RequestValue),
+            std::make_shared<Dgram<>>(std::move(Connection))};
     }
 
 } // namespace Preview::Trojan

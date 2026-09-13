@@ -27,7 +27,7 @@
 
 using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 #include <gtest/gtest.h>
 
@@ -44,7 +44,7 @@ namespace
         {
         }
 
-        auto send(std::uint32_t, psm::memory::vector<std::byte>) -> net::awaitable<void> override
+        auto send(std::uint32_t, psm::memory::vector<std::byte>) -> Net::awaitable<void> override
         {
             send_data_called_ = true;
             co_return;
@@ -56,12 +56,12 @@ namespace
         }
 
     protected:
-        auto run() -> net::awaitable<void> override
+        auto run() -> Net::awaitable<void> override
         {
             co_return;
         }
 
-        auto write_frame(outbound_frame) -> net::awaitable<void> override
+        auto write_frame(outbound_frame) -> Net::awaitable<void> override
         {
             co_return;
         }
@@ -75,7 +75,7 @@ namespace
     {
         std::shared_ptr<ProductionMockTransport> mux_transport;
         std::shared_ptr<ProductionMockTransport> target_transport;
-        std::unique_ptr<net::io_context> ioc;
+        std::unique_ptr<Net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<TestCore> core_obj;
         std::shared_ptr<multiplex::stream> duct_obj;
@@ -84,7 +84,7 @@ namespace
         {
             mux_transport = std::make_shared<ProductionMockTransport>();
             target_transport = std::make_shared<ProductionMockTransport>();
-            ioc = std::make_unique<net::io_context>(1);
+            ioc = std::make_unique<Net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
@@ -136,7 +136,7 @@ namespace
     {
         auto mux_t = std::make_shared<ProductionMockTransport>();
         auto tgt_t = std::make_shared<ProductionMockTransport>();
-        auto ioc = std::make_unique<net::io_context>(1);
+        auto ioc = std::make_unique<Net::io_context>(1);
         psm::dns::config dns_cfg;
         psm::connect::dialer_options ropts{*ioc, dns_cfg};
         auto router = std::make_unique<psm::connect::dialer>(std::move(ropts));
@@ -233,7 +233,7 @@ namespace
         DuctFixture fx;
         fx.duct_obj->close();
         auto &mock_ioc = fx.target_transport->GetIoContext();
-        net::co_spawn(mock_ioc, fx.duct_obj->on_data(psm::memory::vector<std::byte>{}),
+        Net::co_spawn(mock_ioc, fx.duct_obj->on_data(psm::memory::vector<std::byte>{}),
                       [&](std::exception_ptr) {});
         mock_ioc.restart();
         mock_ioc.run_one();

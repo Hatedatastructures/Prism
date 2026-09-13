@@ -27,7 +27,7 @@
 namespace Preview::Middleware::Builtin
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class ThrottleMiddleware
@@ -62,7 +62,7 @@ namespace Preview::Middleware::Builtin
          * @return success / blocked / not_supported
          */
         auto Handle(Preview::SharedTransmission & /*Inbound*/, Context & /*ctx*/)
-            -> net::awaitable<Preview::Fault::Code> override
+            -> Net::awaitable<Preview::Fault::Code> override
         {
             if (!Bucket_)
             {
@@ -126,7 +126,7 @@ namespace Preview::Middleware::Builtin
          * @return success / blocked
          */
         auto Handle(Preview::SharedTransmission & /*Inbound*/, Context &ctx)
-            -> net::awaitable<Preview::Fault::Code> override
+            -> Net::awaitable<Preview::Fault::Code> override
         {
             std::string key = "unknown";
             if (!ctx.RawIdentity.empty())

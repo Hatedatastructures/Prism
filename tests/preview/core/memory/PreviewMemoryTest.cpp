@@ -11,11 +11,14 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
+#include <preview/Foundation/FlatBuffer.hpp>
 #include <preview/Foundation/Memory/Container.hpp>
 #include <preview/Foundation/Memory/Pointer.hpp>
 #include <preview/Foundation/Memory/Pool.hpp>
@@ -120,6 +123,28 @@ namespace
 
         Preview::Memory::FrameArena Arena;
         EXPECT_EQ(Preview::Memory::EffectiveMr(Arena.Get()), Arena.Get());
+    }
+
+    TEST(FlatBuffer, HonorsConfiguredInitialSizeAfterShrink)
+    {
+        Preview::FlatBuffer buffer(8);
+        const std::vector<std::uint8_t> payload(32, 0xA5);
+
+        ASSERT_EQ(buffer.Append(payload), payload.size());
+        buffer.Consume(buffer.Size());
+        buffer.ShrinkToFit();
+
+        EXPECT_EQ(buffer.Capacity(), 8u);
+    }
+
+    TEST(FlatBuffer, RejectsPrepareSizeOverflow)
+    {
+        Preview::FlatBuffer buffer(1);
+        const std::array<std::uint8_t, 1> byte{0x01};
+        ASSERT_EQ(buffer.Append(byte), 1u);
+
+        EXPECT_TRUE(buffer.Prepare(std::numeric_limits<std::size_t>::max()).empty());
+        EXPECT_EQ(buffer.Size(), 1u);
     }
 
 } // namespace

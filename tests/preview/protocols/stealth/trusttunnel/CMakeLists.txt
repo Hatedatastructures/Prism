@@ -4,3 +4,6 @@ target_link_libraries(TrusttunnelDgramSession PRIVATE PreviewTransport PreviewPr
 
 AddPreviewTest(TrusttunnelCodecDeep.cpp)
 target_link_libraries(TrusttunnelCodecDeep PRIVATE PreviewProtocolTrusttunnel PreviewTestSupport)
+
+AddPreviewTest(TrusttunnelHttp2Transport.cpp)
+target_link_libraries(TrusttunnelHttp2Transport PRIVATE PreviewProtocolTrusttunnel PreviewTestSupport)

@@ -28,11 +28,14 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
 namespace Preview::Anytls
 {
+
+    namespace Net = boost::asio;
 
     /**
      * @class Conn
@@ -49,20 +52,23 @@ namespace Preview::Anytls
 
         /**
          * @brief 构造函数
-         * @param upstream 底层传输（所有权移交）
-         * @param password 认证密码
+         * @param Upstream 底层传输（所有权移交）
+         * @param Password 认证密码
          */
-        explicit Conn(SharedTransmission upstream, std::string password)
-            : NextLayer_(std::move(upstream)), Password_(std::move(password))
+        explicit Conn(SharedTransmission Upstream, std::string Password)
+            : NextLayer_(std::move(Upstream)), Password_(std::move(Password))
         {
         }
 
         /**
          * @brief 获取执行器（委托底层传输）
          */
-        [[nodiscard]] auto Executor() const 
-            -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
@@ -72,14 +78,23 @@ namespace Preview::Anytls
          * @return 错误码
          */
         [[nodiscard]] auto WriteHandshake(std::uint16_t PadLen = 16)
-            -> net::awaitable<Error>
+            -> Net::awaitable<Error>
         {
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+            Handshaken_ = false;
             std::string Frame;
             auto Err = BuildAuthFrame(Password_, PadLen, Frame);
             if (Err != Error::None)
+            {
                 co_return Err;
+            }
             if (co_await SendBytes(AsU8Span(Frame)))
+            {
                 co_return Error::IoError;
+            }
             Handshaken_ = true;
             co_return Error::None;
         }
@@ -89,24 +104,35 @@ namespace Preview::Anytls
          * @return 错误码；bad_auth = 密码哈希不匹配
          */
         [[nodiscard]] auto ReadHandshake()
-            -> net::awaitable<Error>
+            -> Net::awaitable<Error>
         {
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+            Handshaken_ = false;
             // 头：Hash(32) + PadLen(2 BE)
-            std::array<std::uint8_t, AuthFrameHdrlen> head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(head)))
+            std::array<std::uint8_t, AuthFrameHdrlen> Header{};
+            if (co_await ReadExact(std::span<std::uint8_t>(Header)))
+            {
                 co_return Error::UnexpectedEof;
+            }
             std::array<std::uint8_t, PasswordHashLen> Hash{};
-            std::memcpy(Hash.data(), head.data(), PasswordHashLen);
-            const auto PadLen = static_cast<std::uint16_t>(head[PasswordHashLen]) << 8 |
-                                 head[PasswordHashLen + 1];
+            std::memcpy(Hash.data(), Header.data(), PasswordHashLen);
+            const auto PadLen = static_cast<std::uint16_t>(Header[PasswordHashLen]) << 8 |
+                                 Header[PasswordHashLen + 1];
             if (PadLen > 0)
             {
-                std::vector<std::uint8_t> padding(PadLen);
-                if (co_await ReadExact(padding))
+                std::vector<std::uint8_t> Padding(PadLen);
+                if (co_await ReadExact(Padding))
+                {
                     co_return Error::UnexpectedEof;
+                }
             }
             if (!VerifyAuth(Password_, Hash))
+            {
                 co_return Error::BadAuth;
+            }
             Handshaken_ = true;
             co_return Error::None;
         }
@@ -114,52 +140,61 @@ namespace Preview::Anytls
         /**
          * @brief 透传读取（数据面原样）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            ErrorCode.clear();
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 透传写入（数据面原样）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            ErrorCode.clear();
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭底层传输
          */
-        void Close() override
+        auto Close() -> void override
         {
-            NextLayer_->Close();
+            if (NextLayer_)
+            {
+                NextLayer_->Close();
+            }
         }
 
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
-            NextLayer_->Cancel();
+            if (NextLayer_)
+            {
+                NextLayer_->Cancel();
+            }
         }
 
         /**
          * @brief 获取底层传输（装饰器链导航）
          */
-        [[nodiscard]] auto NextLayer() noexcept 
-            -> Preview::Transmission * override
+        [[nodiscard]] auto NextLayer() noexcept -> Preview::Transmission * override
         {
             return NextLayer_.get();
         }
@@ -167,8 +202,7 @@ namespace Preview::Anytls
         /**
          * @brief 获取底层传输（const 版本）
          */
-        [[nodiscard]] auto NextLayer() const noexcept
-             -> const Preview::Transmission * override
+        [[nodiscard]] auto NextLayer() const noexcept -> const Preview::Transmission * override
         {
             return NextLayer_.get();
         }
@@ -176,8 +210,7 @@ namespace Preview::Anytls
         /**
          * @brief 释放底层传输所有权
          */
-        [[nodiscard]] auto Release() 
-            -> SharedTransmission override
+        [[nodiscard]] auto Release() -> SharedTransmission override
         {
             return std::move(NextLayer_);
         }
@@ -185,19 +218,31 @@ namespace Preview::Anytls
     private:
         /**
          * @brief 精确读取指定字节数
-         * @param dst 目标缓冲区
+         * @param Buffer 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst)
-            -> net::awaitable<bool>
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Buffer)
+            -> Net::awaitable<bool>
         {
-            std::size_t Done = 0;
-            while (Done < dst.size())
+            if (!NextLayer_)
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
-                if (ec || N == 0)
+                co_return true;
+            }
+            std::size_t Done = 0;
+            while (Done < Buffer.size())
+            {
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_read_some(
+                    AsBytes(Buffer.subspan(Done)),
+                    ErrorCode);
+                if (ErrorCode || N == 0)
+                {
                     co_return true;
+                }
+                if (N > Buffer.size() - Done)
+                {
+                    co_return true;
+                }
                 Done += N;
             }
             co_return false;
@@ -209,15 +254,23 @@ namespace Preview::Anytls
          * @return true = 失败
          */
         [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const
-            -> net::awaitable<bool>
+            -> Net::awaitable<bool>
         {
+            if (!NextLayer_)
+            {
+                co_return true;
+            }
             std::size_t Done = 0;
             while (Done < Data.size())
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
-                if (ec)
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_write_some(
+                    AsBytes(Data.subspan(Done)),
+                    ErrorCode);
+                if (ErrorCode || N == 0 || N > Data.size() - Done)
+                {
                     co_return true;
+                }
                 Done += N;
             }
             co_return false;

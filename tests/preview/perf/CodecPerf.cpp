@@ -1,22 +1,17 @@
 /**
  * @file CodecPerf.cpp
  * @brief 协议编解码性能基准（纯热路径，无服务器）
- * @details 测量 7 个代理协议的核心编解码/加密路径：
- * - socks5:   地址编码 + CONNECT 请求构建
- * - trojan:   握手头构建
- * - vless:    握手头构建
- * - vmess:    AEAD chunk 加密（16KB）
- * - ss2022:   AEAD chunk 加密（16KB）
- * - hysteria2:UDP 帧构建
- * - tuic:     消息帧构建
- * @note 验收标准：各指标不得低于 Go 对照（tests/go/perfcmp）。
- * Release 编译（-O3）下运行，避免 Debug 失真。
+ * @details 测量 7 个代理协议的核心编解码/加密路径，并在编码结果为空
+ *          时失败，避免无效输入把基准误报为通过。
  */
 
+#include <array>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <preview/Protocols/Hysteria2/Codec.hpp>
@@ -27,185 +22,245 @@
 #include <preview/Protocols/Vless/Codec.hpp>
 #include <preview/Protocols/Vmess/Codec.hpp>
 
-using clk = std::chrono::steady_clock;
-
 namespace
 {
-    auto now_ns() -> std::int64_t
+    using Clock = std::chrono::steady_clock;
+
+    [[nodiscard]] auto NowNs() -> std::int64_t
     {
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                   Clock::now().time_since_epoch())
+            .count();
     }
 
-    template <typename Fn>
-    auto bench(const char *Name, const int iters, Fn &&fn) -> void
+    template <typename Operation>
+    [[nodiscard]] auto Bench(
+        const char *Name,
+        const int Iterations,
+        Operation &&OperationValue) -> bool
     {
-        volatile std::size_t sink = 0;
-        const auto t0 = now_ns();
-        for (int i = 0; i < iters; ++i)
+        std::size_t Sink = 0;
+        const auto Start = NowNs();
+        for (int Iteration = 0; Iteration < Iterations; ++Iteration)
         {
-            sink += fn();
+            Sink += OperationValue();
         }
-        const auto t1 = now_ns();
-        std::printf("%-28s %8d iters %10.2f ns/op (sink=%zu)\n", Name, iters,
-                    static_cast<double>(t1 - t0) / iters, static_cast<std::size_t>(sink));
+        const auto End = NowNs();
+        std::printf(
+            "%-28s %8d iters %10.2f ns/op (sink=%zu)\n",
+            Name,
+            Iterations,
+            static_cast<double>(End - Start) /
+                static_cast<double>(Iterations),
+            Sink);
+        if (Sink == 0)
+        {
+            std::printf("FAIL %s: 编码结果为空\n", Name);
+            return false;
+        }
+        return true;
     }
 
-    auto make_domain_addr(Preview::Socks5::Address &a) -> void
+    auto MakeDomainAddress(Preview::Socks5::Address &AddressValue) -> void
     {
-        a.Type = Preview::Socks5::AddressType::Domain;
-        a.Host = "example.com";
-        a.Port = 443;
+        AddressValue.Type = Preview::Socks5::AddressType::Domain;
+        AddressValue.Host = "example.com";
+        AddressValue.Port = 443;
     }
 } // namespace
 
-int main()
+auto main() -> int
 {
-    // ── socks5 ──
-    {
-        using namespace Preview::Socks5;
-        Address addr;
-        make_domain_addr(addr);
-        Request req;
-        req.Ver = Version;
-        req.Cmd = Command::Connect;
-        req.Rsv = 0;
-        req.Target = addr;
-        std::vector<std::uint8_t> buf;
+    bool AllPassed = true;
 
-        bench("socks5 EncodeAddress", 200000, [&]()
-              {
-                  buf.clear();
-                  EncodeAddress(addr, buf);
-                  return buf.size();
-              });
-        bench("socks5 BuildRequest", 200000, [&]()
-              {
-                  buf.clear();
-                  BuildRequest(req, buf);
-                  return buf.size();
-              });
+    {
+        using Address = Preview::Socks5::Address;
+        using Command = Preview::Socks5::Command;
+        using Request = Preview::Socks5::Request;
+        using Preview::Socks5::BuildRequest;
+        using Preview::Socks5::EncodeAddress;
+
+        Address AddressValue;
+        MakeDomainAddress(AddressValue);
+        Request RequestValue;
+        RequestValue.Ver = Preview::Socks5::Version;
+        RequestValue.Cmd = Command::Connect;
+        RequestValue.Rsv = 0;
+        RequestValue.Target = AddressValue;
+        std::vector<std::uint8_t> Buffer;
+
+        auto EncodeAddressOperation = [&]() -> std::size_t
+        {
+            Buffer.clear();
+            EncodeAddress(AddressValue, Buffer);
+            return Buffer.size();
+        };
+        AllPassed =
+            Bench("socks5 EncodeAddress", 200000, EncodeAddressOperation) &&
+            AllPassed;
+
+        auto BuildRequestOperation = [&]() -> std::size_t
+        {
+            Buffer.clear();
+            BuildRequest(RequestValue, Buffer);
+            return Buffer.size();
+        };
+        AllPassed =
+            Bench("socks5 BuildRequest", 200000, BuildRequestOperation) &&
+            AllPassed;
     }
 
-    // ── trojan ──
     {
-        using namespace Preview::Trojan;
-        Address addr;
-        addr.Type = AddressType::Domain;
-        addr.Host = "example.com";
-        addr.Port = 443;
-        const std::string pass = "prism";
-        std::vector<std::uint8_t> buf;
+        using Address = Preview::Trojan::Address;
+        using AddressType = Preview::Trojan::AddressType;
+        using Command = Preview::Trojan::Command;
+        using RequestParameters = Preview::Trojan::RequestParameters;
+        using Preview::Trojan::BuildRequest;
 
-        bench("trojan BuildRequest", 200000, [&]()
-              {
-                  buf.clear();
-                  BuildRequest({pass, Command::Connect, addr}, buf);
-                  return buf.size();
-              });
+        Address AddressValue;
+        AddressValue.Type = AddressType::Domain;
+        AddressValue.Host = "example.com";
+        AddressValue.Port = 443;
+        const std::string Password(56, 'p');
+        const RequestParameters Parameters{
+            Password,
+            Command::Connect,
+            AddressValue};
+        std::vector<std::uint8_t> Buffer;
+        auto BuildRequestOperation = [&]() -> std::size_t
+        {
+            Buffer.clear();
+            BuildRequest(Parameters, Buffer);
+            return Buffer.size();
+        };
+        AllPassed =
+            Bench("trojan BuildRequest", 200000, BuildRequestOperation) &&
+            AllPassed;
     }
 
-    // ── vless ──
     {
-        using namespace Preview::Vless;
-        RequestHeader hdr;
-        hdr.Version = ProtocolVersion;
-        hdr.Uuid.fill(0xAB);
-        hdr.Cmd = Command::Tcp;
-        hdr.Target.Type = AddressType::Domain;
-        hdr.Target.Host = "example.com";
-        hdr.Target.Port = 443;
-        std::vector<std::uint8_t> buf;
+        using AddressType = Preview::Vless::AddressType;
+        using Command = Preview::Vless::Command;
+        using RequestHeader = Preview::Vless::RequestHeader;
+        using Preview::Vless::BuildRequest;
 
-        bench("vless BuildRequest", 200000, [&]()
-              {
-                  buf.clear();
-                  BuildRequest(hdr, buf);
-                  return buf.size();
-              });
+        RequestHeader Header;
+        Header.Version = Preview::Vless::ProtocolVersion;
+        Header.Uuid.fill(0xAB);
+        Header.Cmd = Command::Tcp;
+        Header.Target.Type = AddressType::Domain;
+        Header.Target.Host = "example.com";
+        Header.Target.Port = 443;
+        std::vector<std::uint8_t> Buffer;
+        auto BuildRequestOperation = [&]() -> std::size_t
+        {
+            Buffer.clear();
+            BuildRequest(Header, Buffer);
+            return Buffer.size();
+        };
+        AllPassed =
+            Bench("vless BuildRequest", 200000, BuildRequestOperation) &&
+            AllPassed;
     }
 
-    // ── vmess AEAD chunk ──
     {
-        using namespace Preview::Vmess;
-        const auto key = std::array<std::uint8_t, 16>{};
+        using ChunkEncryptor = Preview::Vmess::ChunkEncryptor;
+
+        const auto Key = std::array<std::uint8_t, 16>{};
         const auto Nonce = std::array<std::uint8_t, 12>{};
-        ChunkEncryptor enc(key, Nonce);
-        std::vector<std::uint8_t> plain(16384);
-        for (std::size_t i = 0; i < plain.size(); ++i)
+        ChunkEncryptor Encryptor(Key, Nonce);
+        std::vector<std::uint8_t> Plain(16384);
+        for (std::size_t Index = 0; Index < Plain.size(); ++Index)
         {
-            plain[i] = static_cast<std::uint8_t>(i);
+            Plain[Index] = static_cast<std::uint8_t>(Index);
         }
-        std::vector<std::uint8_t> wire;
-        wire.resize(plain.size() + ChunkEncryptor::Overhead);
-
-        bench("vmess chunk Seal 16KB", 10000, [&]()
-              {
-                  const auto n = enc.Seal(plain, wire);
-                  return n;
-              });
-    }
-
-    // ── ss2022 AEAD chunk ──
-    {
-        using namespace Preview::Shadowsocks2022;
-        const auto key = std::array<std::uint8_t, 16>{};
-        ChunkCodec Codec(key);
-        std::vector<std::uint8_t> plain(16384);
-        for (std::size_t i = 0; i < plain.size(); ++i)
+        std::vector<std::uint8_t> Wire(
+            Plain.size() + ChunkEncryptor::Overhead);
+        auto SealOperation = [&]() -> std::size_t
         {
-            plain[i] = static_cast<std::uint8_t>(i);
+            return Encryptor.Seal(Plain, Wire);
+        };
+        AllPassed =
+            Bench("vmess chunk Seal 16KB", 10000, SealOperation) &&
+            AllPassed;
+    }
+
+    {
+        using ChunkCodec = Preview::Shadowsocks2022::ChunkCodec;
+
+        const auto Key = std::array<std::uint8_t, 16>{};
+        ChunkCodec Codec(Key);
+        std::vector<std::uint8_t> Plain(16384);
+        for (std::size_t Index = 0; Index < Plain.size(); ++Index)
+        {
+            Plain[Index] = static_cast<std::uint8_t>(Index);
         }
-
-        bench("ss2022 chunk Seal 16KB", 10000, [&]()
-              {
-                  const auto wire = Codec.Seal(plain);
-                  return wire.size();
-              });
+        auto SealOperation = [&]() -> std::size_t
+        {
+            const auto Wire = Codec.Seal(Plain);
+            return Wire.size();
+        };
+        AllPassed =
+            Bench("ss2022 chunk Seal 16KB", 10000, SealOperation) &&
+            AllPassed;
     }
 
-    // ── hysteria2 UDP 帧 ──
     {
-        using namespace Preview::Hysteria2;
-        Address addr;
-        addr.Type = AddressType::Domain;
-        addr.Host = "example.com";
-        addr.Port = 443;
-        std::vector<std::uint8_t> payload(128, 0xAB);
-        UdpFrameInput in;
-        in.SessionId = 1;
-        in.PacketId = 2;
-        in.dst = &addr;
-        in.payload = payload;
-        std::vector<std::uint8_t> buf;
+        using Address = Preview::Hysteria2::Address;
+        using AddressType = Preview::Hysteria2::AddressType;
+        using UdpFrameInput = Preview::Hysteria2::UdpFrameInput;
+        using Preview::Hysteria2::BuildUdp;
 
-        bench("hysteria2 BuildUdp", 100000, [&]()
-              {
-                  buf.clear();
-                  BuildUdp(in, buf);
-                  return buf.size();
-              });
+        Address AddressValue;
+        AddressValue.Type = AddressType::Domain;
+        AddressValue.Host = "example.com";
+        AddressValue.Port = 443;
+        std::vector<std::uint8_t> Payload(128, 0xAB);
+        UdpFrameInput Input;
+        Input.SessionId = 1;
+        Input.PacketId = 2;
+        Input.dst = &AddressValue;
+        Input.payload = Payload;
+        std::vector<std::uint8_t> Buffer;
+        auto BuildUdpOperation = [&]() -> std::size_t
+        {
+            Buffer.clear();
+            BuildUdp(Input, Buffer);
+            return Buffer.size();
+        };
+        AllPassed =
+            Bench("hysteria2 BuildUdp", 100000, BuildUdpOperation) &&
+            AllPassed;
     }
 
-    // ── tuic 帧 ──
     {
-        using namespace Preview::Tuic;
-        Message msg;
-        msg.Cmd = CmdPacket;
-        msg.AssocId = 1;
-        msg.PktId = 2;
-        msg.dst.Type = AddressType::Domain;
-        msg.dst.Host = "example.com";
-        msg.dst.Port = 443;
-        msg.payload.assign(128, static_cast<char>(0xCD));
-        std::vector<std::uint8_t> buf;
+        using AddressType = Preview::Tuic::AddressType;
+        using Message = Preview::Tuic::Message;
+        using Preview::Tuic::Build;
 
-        bench("tuic Build packet", 100000, [&]()
-              {
-                  buf.clear();
-                  Build(msg, buf);
-                  return buf.size();
-              });
+        Message MessageValue;
+        MessageValue.Cmd = Preview::Tuic::CmdPacket;
+        MessageValue.AssocId = 1;
+        MessageValue.PktId = 2;
+        MessageValue.dst.Type = AddressType::Domain;
+        MessageValue.dst.Host = "example.com";
+        MessageValue.dst.Port = 443;
+        MessageValue.payload.assign(128, static_cast<char>(0xCD));
+        std::vector<std::uint8_t> Buffer;
+        auto BuildPacketOperation = [&]() -> std::size_t
+        {
+            Buffer.clear();
+            Build(MessageValue, Buffer);
+            return Buffer.size();
+        };
+        AllPassed =
+            Bench("tuic Build packet", 100000, BuildPacketOperation) &&
+            AllPassed;
     }
 
+    if (!AllPassed)
+    {
+        return 1;
+    }
     return 0;
 }

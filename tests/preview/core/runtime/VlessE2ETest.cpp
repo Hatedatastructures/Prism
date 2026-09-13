@@ -38,9 +38,15 @@
 namespace
 {
 
-    namespace net = boost::asio;
-    using Tcp = net::ip::tcp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Runtime = Preview::Runtime;
+    namespace Network = Preview::Network;
+    namespace Vless = Preview::Vless;
+    namespace Fault = Preview::Fault;
+    namespace Transport = Preview::Transport;
+    using Preview::Error;
+    using Preview::SharedTransmission;
+    using Tcp = Net::ip::tcp;
 
     // 公共样板（RunCoro/echo 上游/tail_read_guarded 等见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::AcceptAndClose;
@@ -75,7 +81,7 @@ namespace
     auto dial_vless_upstream(
         const std::shared_ptr<vless_chain_state> &State,
         const Network::Target &Target)
-        -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+        -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
     {
         co_return co_await Preview::Testing::DialUpstream(State, Target);
     }
@@ -87,14 +93,14 @@ namespace
         -> ConnectResult
     {
         ConnectResult out;
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto ChainStateObj = std::make_shared<vless_chain_state>(
             vless_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -111,7 +117,7 @@ namespace
                 Runtime::SessionOptions opts;
                 opts.AcceptProtocol = MakeAcceptVless(scfg);
                 opts.Dial = [ChainStateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vless_upstream(ChainStateObj, t);
                 };
@@ -120,10 +126,10 @@ namespace
 
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listener.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 if (start_rc != Fault::Code::Success)
                 {
                     out.Err = Preview::Error::IoError;
@@ -179,8 +185,8 @@ namespace
 
     TEST(TcpListener, VlessTcpConnectFullChain)
     {
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto ChainStateObj = std::make_shared<vless_chain_state>(
             vless_chain_state{ioc.get_executor(), echo_port});
@@ -193,7 +199,7 @@ namespace
                 *upstream_ep = ep;
             }
         };
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       std::move(on_upstream_error));
 
         Runtime::TcpListener listener(
@@ -206,7 +212,7 @@ namespace
                 scfg.uuid = test_uuid();
                 opts.AcceptProtocol = MakeAcceptVless(scfg);
                 opts.Dial = [ChainStateObj](const Network::Target &Target)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vless_upstream(ChainStateObj, Target);
                 };
@@ -218,10 +224,10 @@ namespace
         std::string echo_back;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listener.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
@@ -295,7 +301,7 @@ namespace
 
     TEST(TcpListener, VlessTcpConnectDialRefused)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Runtime::TcpListener listener(
             ioc.get_executor(),
             [](SharedTransmission, std::size_t)
@@ -308,7 +314,7 @@ namespace
                 // 上游永远连接被拒：VLESS 无错误应答机制，
                 // 拨号失败后会话终止，客户端应读到 EOF
                 opts.Dial = [](const Network::Target &)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return std::pair{
                         Fault::Code::ConnectionRefused,
@@ -320,10 +326,10 @@ namespace
         bool saw_close = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listener.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
@@ -383,14 +389,14 @@ namespace
 
     TEST(TcpListener, VlessTcpConnectHalfCloseClient)
     {
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto ChainStateObj = std::make_shared<vless_chain_state>(
             vless_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -408,7 +414,7 @@ namespace
                 scfg.uuid = test_uuid();
                 opts.AcceptProtocol = MakeAcceptVless(scfg);
                 opts.Dial = [ChainStateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vless_upstream(ChainStateObj, t);
                 };
@@ -418,9 +424,9 @@ namespace
         std::string echo_back;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
-                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                co_await listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 const auto port = listener.LocalEndpoint().port();
                 std::error_code ec;
                 Network::Dialer::Dialer d(ioc.get_executor());
@@ -447,7 +453,7 @@ namespace
                         payload.size()),
                     ec);
                 // 半关闭客户端写方向（底层 Reliable），下行仍可读
-                co_await net::post(ioc, net::use_awaitable);
+                co_await Net::post(ioc, Net::use_awaitable);
                 if (auto rel = std::dynamic_pointer_cast<Transport::Reliable>(
                         proxy->Underlying()))
                 {
@@ -477,14 +483,14 @@ namespace
 
     TEST(TcpListener, VlessTcpConnectIdleTimeout)
     {
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto ChainStateObj = std::make_shared<vless_chain_state>(
             vless_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -502,7 +508,7 @@ namespace
                 scfg.uuid = test_uuid();
                 opts.AcceptProtocol = MakeAcceptVless(scfg);
                 opts.Dial = [ChainStateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vless_upstream(ChainStateObj, t);
                 };
@@ -513,9 +519,9 @@ namespace
         bool closed = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
-                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                co_await listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 const auto port = listener.LocalEndpoint().port();
                 std::error_code ec;
                 Network::Dialer::Dialer d(ioc.get_executor());
@@ -549,14 +555,14 @@ namespace
 
     TEST(TcpListener, VlessTrafficReport)
     {
-        net::io_context ioc;
-        Tcp::acceptor echo_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor echo_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto echo_port = echo_acceptor.local_endpoint().port();
         auto ChainStateObj = std::make_shared<vless_chain_state>(
             vless_chain_state{ioc.get_executor(), echo_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -575,7 +581,7 @@ namespace
                 scfg.uuid = test_uuid();
                 opts.AcceptProtocol = MakeAcceptVless(scfg);
                 opts.Dial = [ChainStateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vless_upstream(ChainStateObj, t);
                 };
@@ -585,9 +591,9 @@ namespace
 
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
-                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                co_await listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 const auto port = listener.LocalEndpoint().port();
                 std::error_code ec;
                 Network::Dialer::Dialer d(ioc.get_executor());
@@ -617,11 +623,11 @@ namespace
                 const auto n = co_await proxy->async_read_some(buf, ec);
                 proxy->Close();
                 // 等待 relay 收尾并上报流量
-                net::steady_timer t(ioc);
+                Net::steady_timer t(ioc);
                 for (int i = 0; i < 300 && recorder.Calls == 0; ++i)
                 {
                     t.expires_after(std::chrono::milliseconds(10));
-                    co_await t.async_wait(net::use_awaitable);
+                    co_await t.async_wait(Net::use_awaitable);
                 }
                 listener.Stop();
                 boost::system::error_code close_ec;
@@ -636,14 +642,14 @@ namespace
 
     TEST(TcpListener, VlessTcpConnectUpstreamAbort)
     {
-        net::io_context ioc;
-        Tcp::acceptor up_acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+        Net::io_context ioc;
+        Tcp::acceptor up_acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
         const auto up_port = up_acceptor.local_endpoint().port();
         auto ChainStateObj = std::make_shared<vless_chain_state>(
             vless_chain_state{ioc.get_executor(), up_port});
         auto upstream_ep = std::make_shared<std::exception_ptr>();
         auto eph = upstream_ep;
-        net::co_spawn(ioc.get_executor(), AcceptAndClose(up_acceptor),
+        Net::co_spawn(ioc.get_executor(), AcceptAndClose(up_acceptor),
                       [eph](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -661,7 +667,7 @@ namespace
                 scfg.uuid = test_uuid();
                 opts.AcceptProtocol = MakeAcceptVless(scfg);
                 opts.Dial = [ChainStateObj](const Network::Target &t)
-                    -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                    -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
                     co_return co_await dial_vless_upstream(ChainStateObj, t);
                 };
@@ -671,9 +677,9 @@ namespace
         bool saw_close = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
-                co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                co_await listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 const auto port = listener.LocalEndpoint().port();
                 std::error_code ec;
                 Network::Dialer::Dialer d(ioc.get_executor());

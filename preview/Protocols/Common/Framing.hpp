@@ -12,6 +12,7 @@
 #include <preview/Foundation/Fault/Code.hpp>
 #include <preview/Protocols/Common/Address.hpp>
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
 #include <span>
@@ -32,9 +33,9 @@ namespace Preview::Protocol::Common::Framing
         {
             return {Fault::Code::BadMessage, {}};
         }
-        Ipv4Address addr{};
-        std::memcpy(addr.Bytes.data(), Buffer.data(), 4);
-        return {Fault::Code::Success, addr};
+        Ipv4Address AddressValue{};
+        std::memcpy(AddressValue.Bytes.data(), Buffer.data(), 4);
+        return {Fault::Code::Success, AddressValue};
     }
 
     /**
@@ -49,9 +50,9 @@ namespace Preview::Protocol::Common::Framing
         {
             return {Fault::Code::BadMessage, {}};
         }
-        Ipv6Address addr{};
-        std::memcpy(addr.Bytes.data(), Buffer.data(), 16);
-        return {Fault::Code::Success, addr};
+        Ipv6Address AddressValue{};
+        std::memcpy(AddressValue.Bytes.data(), Buffer.data(), 16);
+        return {Fault::Code::Success, AddressValue};
     }
 
     /**
@@ -71,14 +72,14 @@ namespace Preview::Protocol::Common::Framing
         {
             return {Fault::Code::BadMessage, {}};
         }
-        DomainAddress addr{};
-        if (Len > addr.value.size())
+        DomainAddress AddressValue{};
+        if (Len > AddressValue.value.size())
         {
             return {Fault::Code::BadMessage, {}};
         }
-        addr.length = Len;
-        std::memcpy(addr.value.data(), Buffer.data() + 1, Len);
-        return {Fault::Code::Success, addr};
+        AddressValue.length = Len;
+        std::memcpy(AddressValue.value.data(), Buffer.data() + 1, Len);
+        return {Fault::Code::Success, AddressValue};
     }
 
     /**
@@ -93,8 +94,8 @@ namespace Preview::Protocol::Common::Framing
         {
             return {Fault::Code::BadMessage, 0};
         }
-        std::uint16_t Port =
-            static_cast<std::uint16_t>(Buffer[0]) << 8 | static_cast<std::uint16_t>(Buffer[1]);
+        const auto Port = static_cast<std::uint16_t>(Buffer[0]) << 8 |
+                          static_cast<std::uint16_t>(Buffer[1]);
         return {Fault::Code::Success, Port};
     }
 } // namespace Preview::Protocol::Common::Framing

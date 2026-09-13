@@ -58,23 +58,23 @@ namespace Preview::Socks5
      * 完整握手（Greeting/方法选择/认证/请求/响应）。
      */
     [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
         Request req;
         req.Cmd = Params.Cmd;
         req.Target = Params.Target;
-        auto C = std::make_shared<Conn<>>(std::move(Params.Upstream));
-        const auto Err = co_await C->WriteHandshake(req, Params.Config);
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(std::move(Params.Upstream));
+        const auto ErrorCode = co_await Connection->WriteHandshake(req, Params.Config);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{ErrorCode, std::move(Result)};
     }
 
     /**
@@ -84,9 +84,10 @@ namespace Preview::Socks5
      * @param Target 目标地址（借用）
      * @return 错误码与协议连接
      */
-    [[nodiscard]] inline auto Connect(SharedTransmission Upstream, const ClientConfig &Config,
-                                      const Address &Target)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Connect(
+        SharedTransmission Upstream,
+        const ClientConfig &Config,
+        const Address &Target) -> Net::awaitable<std::pair<Error, SharedConn>>
     {
         auto Result = co_await Connect(ConnectParameters{std::move(Upstream), Config, Target});
         co_return Result;
@@ -94,64 +95,70 @@ namespace Preview::Socks5
 
     /**
      * @brief 创建客户端 UDP 包连接并完成 udp_associate 握手
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 客户端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 客户端配置
      * @param Target 目标地址
      * @return 错误码与包连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto ConnectPacket(SharedTransmission upstream, const ClientConfig &cfg,
-                                             const Address &Target)
-        -> net::awaitable<std::pair<Error, SharedDgram>>
+    [[nodiscard]] inline auto ConnectPacket(
+        SharedTransmission Upstream,
+        const ClientConfig &Config,
+        const Address &Target) -> Net::awaitable<std::pair<Error, SharedDgram>>
     {
-        auto [Err, Conn] = co_await Connect(
-            ConnectParameters{std::move(upstream), cfg, Target, Command::UdpAssociate});
-        if (Err != Error::None)
+        auto [ErrorCode, Connection] = co_await Connect(
+            ConnectParameters{std::move(Upstream), Config, Target, Command::UdpAssociate});
+        if (ErrorCode != Error::None)
         {
-            co_return std::pair{Err, SharedDgram{}};
+            co_return std::pair{ErrorCode, SharedDgram{}};
         }
-        co_return std::pair{Error::None, std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::pair{Error::None, std::make_shared<Dgram<>>(std::move(Connection))};
     }
 
     /**
      * @brief 接收服务端流连接并完成握手（sing Service 语义）
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码、解析的请求与协议连接（失败时连接为空）
      * @details 内部流程：创建 Conn → ReadHandshake 完成服务端
      * 完整握手（Greeting/方法协商/认证/请求/响应）。
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, Request, SharedConn>>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Upstream,
+        const ServerConfig &Config) -> Net::awaitable<std::tuple<Error, Request, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream));
-        auto [Err, req] = co_await C->ReadHandshake(cfg);
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream));
+        auto [ErrorCode, Request] = co_await Connection->ReadHandshake(Config);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::tuple{Err, std::move(req), std::move(Conn)};
+        co_return std::tuple{ErrorCode, std::move(Request), std::move(Result)};
     }
 
     /**
      * @brief 接收服务端 UDP 包连接（UDP_ASSOCIATE 命令）
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码、解析的请求与包连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, Request, SharedDgram>>
+    [[nodiscard]] inline auto AcceptPacket(
+        SharedTransmission Upstream,
+        const ServerConfig &Config) -> Net::awaitable<std::tuple<Error, Request, SharedDgram>>
     {
-        auto [Err, req, Conn] = co_await Accept(std::move(upstream), cfg);
-        if (Err != Error::None)
+        auto [ErrorCode, Request, Connection] = co_await Accept(std::move(Upstream), Config);
+        if (ErrorCode != Error::None)
         {
-            co_return std::tuple{Err, std::move(req), SharedDgram{}};
+            co_return std::tuple{ErrorCode, std::move(Request), SharedDgram{}};
         }
-        co_return std::tuple{Error::None, std::move(req), std::make_shared<Dgram<>>(std::move(Conn))};
+        co_return std::tuple{
+            Error::None,
+            std::move(Request),
+            std::make_shared<Dgram<>>(std::move(Connection))};
     }
 
 } // namespace Preview::Socks5

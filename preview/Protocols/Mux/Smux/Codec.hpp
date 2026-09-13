@@ -25,25 +25,26 @@ namespace Preview::Mux::Smux
 
     /**
      * @brief 构造 smux 帧字节序列
-     * @param hdr 帧头
-     * @param payload 负载数据
+     * @param Header 帧头
+     * @param Payload 负载数据
      * @return 完整帧（帧头 + 负载）
      */
-    [[nodiscard]] inline auto Build(const FrameHeader &hdr, std::span<const std::uint8_t> payload = {})
-        -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto Build(
+        const FrameHeader &Header,
+        std::span<const std::uint8_t> Payload = {}) -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> out;
-        out.reserve(FrameHdrsize + payload.size());
-        out.push_back(hdr.version);
-        out.push_back(static_cast<std::uint8_t>(hdr.cmd));
-        out.push_back(static_cast<std::uint8_t>(hdr.length & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((hdr.length >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(hdr.StreamId & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((hdr.StreamId >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((hdr.StreamId >> 16) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((hdr.StreamId >> 24) & 0xFF));
-        out.insert(out.end(), payload.begin(), payload.end());
-        return out;
+        std::vector<std::uint8_t> Output;
+        Output.reserve(FrameHdrsize + Payload.size());
+        Output.push_back(Header.version);
+        Output.push_back(static_cast<std::uint8_t>(Header.cmd));
+        Output.push_back(static_cast<std::uint8_t>(Header.length & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>((Header.length >> 8) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>(Header.StreamId & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>((Header.StreamId >> 8) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>((Header.StreamId >> 16) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>((Header.StreamId >> 24) & 0xFF));
+        Output.insert(Output.end(), Payload.begin(), Payload.end());
+        return Output;
     }
 
     /**
@@ -51,13 +52,14 @@ namespace Preview::Mux::Smux
      * @param StreamId 流标识符
      * @return 8 字节帧
      */
-    [[nodiscard]] inline auto BuildSyn(std::uint32_t StreamId) -> std::array<std::uint8_t, FrameHdrsize>
+    [[nodiscard]] inline auto BuildSyn(std::uint32_t StreamId)
+        -> std::array<std::uint8_t, FrameHdrsize>
     {
-        const FrameHeader hdr{.cmd = Command::Syn, .StreamId = StreamId};
-        const auto Frame = Build(hdr);
-        std::array<std::uint8_t, FrameHdrsize> out{};
-        std::memcpy(out.data(), Frame.data(), FrameHdrsize);
-        return out;
+        const FrameHeader Header{.cmd = Command::Syn, .StreamId = StreamId};
+        const auto Frame = Build(Header);
+        std::array<std::uint8_t, FrameHdrsize> Output{};
+        std::memcpy(Output.data(), Frame.data(), FrameHdrsize);
+        return Output;
     }
 
     /**
@@ -65,74 +67,99 @@ namespace Preview::Mux::Smux
      * @param StreamId 流标识符
      * @return 8 字节帧
      */
-    [[nodiscard]] inline auto BuildFin(std::uint32_t StreamId) -> std::array<std::uint8_t, FrameHdrsize>
+    [[nodiscard]] inline auto BuildFin(std::uint32_t StreamId)
+        -> std::array<std::uint8_t, FrameHdrsize>
     {
-        const FrameHeader hdr{.cmd = Command::Fin, .StreamId = StreamId};
-        const auto Frame = Build(hdr);
-        std::array<std::uint8_t, FrameHdrsize> out{};
-        std::memcpy(out.data(), Frame.data(), FrameHdrsize);
-        return out;
+        const FrameHeader Header{.cmd = Command::Fin, .StreamId = StreamId};
+        const auto Frame = Build(Header);
+        std::array<std::uint8_t, FrameHdrsize> Output{};
+        std::memcpy(Output.data(), Frame.data(), FrameHdrsize);
+        return Output;
     }
 
     /**
      * @brief 构造 PSH（数据）帧
      * @param StreamId 流标识符
-     * @param payload 负载
+     * @param Payload 负载
      * @return 完整帧
      */
-    [[nodiscard]] inline auto BuildPush(std::uint32_t StreamId, std::span<const std::uint8_t> payload)
-        -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto BuildPush(
+        std::uint32_t StreamId,
+        std::span<const std::uint8_t> Payload) -> std::vector<std::uint8_t>
     {
-        const FrameHeader hdr{
+        if (Payload.size() > MaxFrameLength)
+        {
+            return {};
+        }
+        const FrameHeader Header{
             .cmd = Command::Push,
-            .length = static_cast<std::uint16_t>(payload.size()),
+            .length = static_cast<std::uint16_t>(Payload.size()),
             .StreamId = StreamId,
         };
-        return Build(hdr, payload);
+        return Build(Header, Payload);
     }
 
     /**
      * @brief 解析 8 字节帧头
      * @param Data 至少 8 字节
-     * @param out 输出帧头
-     * @return 错误码（bad_magic = 版本/命令非法）
+     * @param Output 输出帧头
+     * @return 错误码（版本非法返回 BadMagic，命令非法返回 BadMessage）
      */
-    [[nodiscard]] inline auto ParseHeader(std::span<const std::uint8_t> Data, FrameHeader &out) -> Error
+    [[nodiscard]] inline auto ParseHeader(
+        std::span<const std::uint8_t> Data,
+        FrameHeader &Output) -> Error
     {
         if (Data.size() < FrameHdrsize)
         {
             return Error::NeedMore;
         }
-        out.version = Data[0];
-        if (out.version != ProtocolVersion)
+        Output.version = Data[0];
+        if (Output.version != ProtocolVersion)
         {
             return Error::BadMagic;
         }
-        out.cmd = static_cast<Command>(Data[1]);
-        switch (out.cmd)
+        Output.cmd = static_cast<Command>(Data[1]);
+        switch (Output.cmd)
         {
         case Command::Syn:
         case Command::Fin:
         case Command::Push:
-        case Command::Nop: break;
-        default: return Error::BadMessage;
+        case Command::Nop:
+            break;
+        default:
+            return Error::BadMessage;
         }
-        out.length = static_cast<std::uint16_t>(Data[2]) | static_cast<std::uint16_t>(Data[3]) << 8;
-        if (out.length > MaxFrameLength)
+        Output.length = static_cast<std::uint16_t>(Data[2]) |
+                        static_cast<std::uint16_t>(Data[3]) << 8;
+        if (Output.length > MaxFrameLength)
         {
             return Error::BadLength;
         }
-        out.StreamId = static_cast<std::uint32_t>(Data[4]) | static_cast<std::uint32_t>(Data[5]) << 8 |
-                        static_cast<std::uint32_t>(Data[6]) << 16 | static_cast<std::uint32_t>(Data[7]) << 24;
+        Output.StreamId = static_cast<std::uint32_t>(Data[4]) |
+                          static_cast<std::uint32_t>(Data[5]) << 8 |
+                          static_cast<std::uint32_t>(Data[6]) << 16 |
+                          static_cast<std::uint32_t>(Data[7]) << 24;
         return Error::None;
     }
 
     /**
-     * @brief 校验负载（smux 无额外校验，直接返回 none）
-     * @return 恒为 Error::None
+     * @brief 校验负载长度（smux 无额外负载内容校验）
+     * @param Frame 帧头
+     * @param Data 负载数据
+     * @return 长度不足返回 NeedMore，超报返回 BadLength，否则返回 None
      */
-    [[nodiscard]] inline auto ParsePayload(FrameHeader &, std::span<const std::uint8_t>) -> Error
+    [[nodiscard]] inline auto ParsePayload(
+        FrameHeader &Frame,
+        std::span<const std::uint8_t> Data) -> Error
     {
+        if (Data.size() < Frame.length)
+        {
+            return Error::NeedMore;
+        }
+        if (Data.size() > Frame.length)
+        {
+            return Error::BadLength;
+        }
         return Error::None;
     }
 
@@ -166,19 +193,21 @@ namespace Preview::Mux::Smux
         /**
          * @brief 解析帧头
          * @param Data 帧头字节
-         * @param out 输出帧头
+         * @param Output 输出帧头
          * @return 错误码
          */
-        static auto ParseHeader(std::span<const std::uint8_t> Data, FrameType &out) -> Error
+        static auto ParseHeader(
+            std::span<const std::uint8_t> Data,
+            FrameType &Output) -> Error
         {
-            return Smux::ParseHeader(Data, out);
+            return Smux::ParseHeader(Data, Output);
         }
 
         /**
          * @brief 解析负载
          * @param Frame 帧头
          * @param Data 负载字节
-         * @return 错误码（恒为 none）
+         * @return 长度不足返回 NeedMore，超报返回 BadLength，否则返回 None
          */
         static auto ParsePayload(FrameType &Frame, std::span<const std::uint8_t> Data) -> Error
         {
@@ -194,10 +223,14 @@ namespace Preview::Mux::Smux
         {
             switch (Frame.cmd)
             {
-            case Command::Syn: return Mux::StreamEvent::Open;
-            case Command::Fin: return Mux::StreamEvent::Fin;
-            case Command::Push: return Mux::StreamEvent::Data;
-            default: return Mux::StreamEvent::Rst; // nop 忽略
+            case Command::Syn:
+                return Mux::StreamEvent::Open;
+            case Command::Fin:
+                return Mux::StreamEvent::Fin;
+            case Command::Push:
+                return Mux::StreamEvent::Data;
+            default:
+                return Mux::StreamEvent::Rst; // nop 忽略
             }
         }
 

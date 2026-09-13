@@ -39,6 +39,7 @@ namespace Preview::Http3
     struct ServerOptions
     {
         Preview::Memory::ResourcePointer mr{nullptr}; ///< 内存资源（nullptr = 当前默认资源）
+        bool EnableUdp{false}; ///< 认证响应是否声明启用 QUIC DATAGRAM
         /**
          * @brief 认证回调
          * @param Method 请求方法（:method）
@@ -46,15 +47,21 @@ namespace Preview::Http3
          * @param Auth 认证凭据（Hysteria-Auth 头）
          * @return 通过返回 true
          */
-        std::function<bool(std::string_view Method, std::string_view Path, std::string_view Auth)>
+        std::function<bool(
+            std::string_view Method,
+            std::string_view Path,
+            std::string_view Auth)>
             authenticate;
         /**
          * @brief 数据回调（预留，认证阶段不触发）
          * @param StreamId 流 ID
          * @param Data 载荷
-         * @param fin 流是否结束
+         * @param Fin 流是否结束
          */
-        std::function<void(std::int64_t StreamId, std::span<const std::byte> Data, bool fin)> OnData;
+        std::function<void(
+            std::int64_t StreamId,
+            std::span<const std::byte> Data,
+            bool Fin)> OnData;
     };
 
     /// nghttp3 输出包（目标 QUIC 流 + 待发字节，对齐后端类型）
@@ -104,33 +111,36 @@ namespace Preview::Http3
          * @brief 喂入流数据（QUIC 流 → nghttp3）
          * @param StreamId 流 ID
          * @param Data 明文数据
-         * @param fin 是否为流末尾
+         * @param Fin 是否为流末尾
          * @return 协议处理是否成功（失败即连接错误，应断开）
          */
-        [[nodiscard]] auto Feed(std::int64_t StreamId, std::span<const std::byte> Data, bool fin)
+        [[nodiscard]] auto Feed(
+            std::int64_t StreamId,
+            std::span<const std::byte> Data,
+            bool Fin)
             -> Fault::Code
         {
-            return Inner_.Feed(StreamId, Data, fin);
+            return Inner_.Feed(StreamId, Data, Fin);
         }
 
         /**
          * @brief 收集待发数据（nghttp3 → QUIC 流）
-         * @param out 输出包集合（PumpOutput 内部已消费写偏移，直接写回 QUIC）
+         * @param Output 输出包集合（PumpOutput 内部已消费写偏移，直接写回 QUIC）
          * @return 是否成功
          */
-        [[nodiscard]] auto PumpOutput(std::vector<OutPacket> &out) -> bool
+        [[nodiscard]] auto PumpOutput(std::vector<OutPacket> &Output) -> bool
         {
-            return Inner_.PumpOutput(out);
+            return Inner_.PumpOutput(Output);
         }
 
         /**
          * @brief 告知 nghttp3 某流已写回字节数
          * @param StreamId 流 ID
-         * @param len 已写回字节数
+         * @param Written 已写回字节数
          */
-        void AddWriteOffset(std::int64_t StreamId, std::size_t len)
+        auto AddWriteOffset(std::int64_t StreamId, std::size_t Written) -> void
         {
-            Inner_.AddWriteOffset(StreamId, len);
+            Inner_.AddWriteOffset(StreamId, Written);
         }
 
         /**
@@ -195,13 +205,14 @@ namespace Preview::Http3
          */
         [[nodiscard]] auto SubmitAuthResponse() -> Fault::Code
         {
+            Inner_.SetUdpEnabled(Options_.EnableUdp);
             return Inner_.SubmitAuthResponse();
         }
 
         /**
          * @brief 释放 nghttp3 连接状态
          */
-        void Close()
+        auto Close() -> void
         {
             Inner_.Close();
         }

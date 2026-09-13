@@ -21,132 +21,136 @@
 #include <preview/Protocols/Socks5/Codec.hpp>
 #include <preview/Protocols/Socks5/Types.hpp>
 
-using clk = std::chrono::steady_clock;
+using Clock = std::chrono::steady_clock;
 
 namespace
 {
-    auto now_ns() -> std::int64_t
+    namespace Net = boost::asio;
+    namespace Socks5 = Preview::Socks5;
+
+    auto NowNs() -> std::int64_t
     {
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                   Clock::now().time_since_epoch())
+            .count();
     }
 
     // ── 每线程任务：N 次帧构建 ──
-    auto worker_arena(const int iters, volatile std::size_t &g) -> std::vector<std::int64_t>
+    auto WorkerArena(const int Iterations, volatile std::size_t &TotalBytes) -> std::vector<std::int64_t>
     {
-        using namespace Preview::Socks5;
-        Request req;
-        req.Ver = Version;
-        req.Cmd = Command::Connect;
-        req.Rsv = 0;
-        req.Target.Type = AddressType::Domain;
-        req.Target.Host = "example.com";
-        req.Target.Port = 443;
+        Socks5::Request RequestValue;
+        RequestValue.Ver = Socks5::Version;
+        RequestValue.Cmd = Socks5::Command::Connect;
+        RequestValue.Rsv = 0;
+        RequestValue.Target.Type = Socks5::AddressType::Domain;
+        RequestValue.Target.Host = "example.com";
+        RequestValue.Target.Port = 443;
 
         Preview::Memory::SessionResource<> mem;
-        typename Preview::Memory::SessionResource<>::Buffer<std::uint8_t> buf(mem.Arena());
-        std::vector<std::int64_t> lat;
-        lat.reserve(iters);
-        for (int i = 0; i < iters; ++i)
+        typename Preview::Memory::SessionResource<>::Buffer<std::uint8_t> Buffer(mem.Arena());
+        std::vector<std::int64_t> Latencies;
+        Latencies.reserve(Iterations);
+        for (int Index = 0; Index < Iterations; ++Index)
         {
-            const auto t0 = now_ns();
-            BuildRequest(req, buf); g += buf.size();
-            const auto d = now_ns() - t0;
-            if (i % 1000 == 0)
+            const auto Start = NowNs();
+            Socks5::BuildRequest(RequestValue, Buffer);
+            TotalBytes += Buffer.size();
+            const auto Duration = NowNs() - Start;
+            if (Index % 1000 == 0)
             {
-                lat.push_back(d);
+                Latencies.push_back(Duration);
             }
         }
-        return lat;
+        return Latencies;
     }
 
-    auto worker_malloc(const int iters, volatile std::size_t &g) -> std::vector<std::int64_t>
+    auto WorkerMalloc(const int Iterations, volatile std::size_t &TotalBytes) -> std::vector<std::int64_t>
     {
-        using namespace Preview::Socks5;
-        Request req;
-        req.Ver = Version;
-        req.Cmd = Command::Connect;
-        req.Rsv = 0;
-        req.Target.Type = AddressType::Domain;
-        req.Target.Host = "example.com";
-        req.Target.Port = 443;
+        Socks5::Request RequestValue;
+        RequestValue.Ver = Socks5::Version;
+        RequestValue.Cmd = Socks5::Command::Connect;
+        RequestValue.Rsv = 0;
+        RequestValue.Target.Type = Socks5::AddressType::Domain;
+        RequestValue.Target.Host = "example.com";
+        RequestValue.Target.Port = 443;
 
-        std::vector<std::int64_t> lat;
-        lat.reserve(iters);
-        for (int i = 0; i < iters; ++i)
+        std::vector<std::int64_t> Latencies;
+        Latencies.reserve(Iterations);
+        for (int Index = 0; Index < Iterations; ++Index)
         {
-            const auto t0 = now_ns();
-            const auto wire = BuildRequest(req); // 返回式：每帧 malloc
-            g += wire.size();
-            const auto d = now_ns() - t0;
-            if (i % 1000 == 0)
+            const auto Start = NowNs();
+            const auto Wire = Socks5::BuildRequest(RequestValue); // 返回式：每帧 malloc
+            TotalBytes += Wire.size();
+            const auto Duration = NowNs() - Start;
+            if (Index % 1000 == 0)
             {
-                lat.push_back(d);
+                Latencies.push_back(Duration);
             }
         }
-        return lat;
+        return Latencies;
     }
 
-    auto Percentile(std::vector<std::int64_t> &v, const double p) -> std::int64_t
+    auto Percentile(std::vector<std::int64_t> &Values, const double Probability) -> std::int64_t
     {
-        std::sort(v.begin(), v.end());
-        return v[static_cast<std::size_t>(v.size() * p)];
+        std::sort(Values.begin(), Values.end());
+        return Values[static_cast<std::size_t>(Values.size() * Probability)];
     }
 } // namespace
 
-int main()
+auto main() -> int
 {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
-    constexpr int kThreads = 8;
-    constexpr int kIters = 500000; // 每线程 50 万次
+    constexpr int ThreadCount = 8;
+    constexpr int IterationCount = 500000; // 每线程 50 万次
 
     // ── Arena 复用（资源指针）──
     {
-        std::vector<std::thread> ts;
-        std::vector<std::vector<std::int64_t>> lats(kThreads);
-        volatile std::size_t sink = 0;
-        const auto t0 = now_ns();
-        for (int t = 0; t < kThreads; ++t)
+        std::vector<std::thread> Threads;
+        std::vector<std::vector<std::int64_t>> Latencies(ThreadCount);
+        volatile std::size_t Sink = 0;
+        const auto Start = NowNs();
+        for (int Thread = 0; Thread < ThreadCount; ++Thread)
         {
-            ts.emplace_back([&, t]() { lats[t] = worker_arena(kIters, sink); });
+            Threads.emplace_back([&, Thread]() { Latencies[Thread] = WorkerArena(IterationCount, Sink); });
         }
-        for (auto &th : ts)
+        for (auto &ThreadValue : Threads)
         {
-            th.join();
+            ThreadValue.join();
         }
-        const auto Total = now_ns() - t0;
+        const auto Total = NowNs() - Start;
         std::vector<std::int64_t> All;
-        for (auto &l : lats)
+        for (auto &ThreadLatencies : Latencies)
         {
-            All.insert(All.end(), l.begin(), l.end());
+            All.insert(All.end(), ThreadLatencies.begin(), ThreadLatencies.end());
         }
         std::printf("Arena 复用  8线程 x %d次: 总 %8.2f ms  P50=%5.1f ns  P99=%6.1f ns  P999=%7.1f ns\n",
-                     kIters, Total / 1e6, static_cast<double>(Percentile(All, 0.5)),
+                     IterationCount, Total / 1e6, static_cast<double>(Percentile(All, 0.5)),
                      static_cast<double>(Percentile(All, 0.99)),
                      static_cast<double>(Percentile(All, 0.999)));
     }
 
     // ── 每帧 malloc（无资源指针）──
     {
-        std::vector<std::thread> ts;
-        std::vector<std::vector<std::int64_t>> lats(kThreads);
-        volatile std::size_t sink = 0;
-        const auto t0 = now_ns();
-        for (int t = 0; t < kThreads; ++t)
+        std::vector<std::thread> Threads;
+        std::vector<std::vector<std::int64_t>> Latencies(ThreadCount);
+        volatile std::size_t Sink = 0;
+        const auto Start = NowNs();
+        for (int Thread = 0; Thread < ThreadCount; ++Thread)
         {
-            ts.emplace_back([&, t]() { lats[t] = worker_malloc(kIters, sink); });
+            Threads.emplace_back([&, Thread]() { Latencies[Thread] = WorkerMalloc(IterationCount, Sink); });
         }
-        for (auto &th : ts)
+        for (auto &ThreadValue : Threads)
         {
-            th.join();
+            ThreadValue.join();
         }
-        const auto Total = now_ns() - t0;
+        const auto Total = NowNs() - Start;
         std::vector<std::int64_t> All;
-        for (auto &l : lats)
+        for (auto &ThreadLatencies : Latencies)
         {
-            All.insert(All.end(), l.begin(), l.end());
+            All.insert(All.end(), ThreadLatencies.begin(), ThreadLatencies.end());
         }
         std::printf("每帧 malloc 8线程 x %d次: 总 %8.2f ms  P50=%5.1f ns  P99=%6.1f ns  P999=%7.1f ns\n",
-                     kIters, Total / 1e6, static_cast<double>(Percentile(All, 0.5)),
+                     IterationCount, Total / 1e6, static_cast<double>(Percentile(All, 0.5)),
                      static_cast<double>(Percentile(All, 0.99)),
                      static_cast<double>(Percentile(All, 0.999)));
     }

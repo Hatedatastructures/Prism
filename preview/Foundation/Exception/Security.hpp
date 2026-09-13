@@ -35,9 +35,9 @@ namespace Preview::Exception
          * @param err 安全错误码
          * @param loc 源码位置，默认自动获取
          */
-        explicit Security(::Preview::Fault::Code err,
-                          const std::source_location &loc = std::source_location::current())
-            : Deviant(::Preview::Fault::make_error_code(err), {}, loc)
+        explicit Security(::Preview::Fault::Code ErrorCode,
+                          const std::source_location &SourceLocation = std::source_location::current())
+            : Deviant(::Preview::Fault::make_error_code(ErrorCode), {}, SourceLocation)
         {
         }
 
@@ -47,9 +47,9 @@ namespace Preview::Exception
          * @param desc 额外描述信息
          * @param loc 源码位置，默认自动获取
          */
-        explicit Security(Preview::Fault::Code err, std::string_view desc,
-                          const std::source_location &loc = std::source_location::current())
-            : Deviant(Preview::Fault::make_error_code(err), desc, loc)
+        explicit Security(Preview::Fault::Code ErrorCode, std::string_view Description,
+                          const std::source_location &SourceLocation = std::source_location::current())
+            : Deviant(Preview::Fault::make_error_code(ErrorCode), Description, SourceLocation)
         {
         }
 
@@ -60,9 +60,9 @@ namespace Preview::Exception
          * @details 将字符串转换为 generic_error 错误码，
          * 建议迁移到错误码构造函数。
          */
-        explicit Security(const std::string &msg,
-                          const std::source_location &loc = std::source_location::current())
-            : Deviant(msg, loc)
+        explicit Security(const std::string &Message,
+                          const std::source_location &SourceLocation = std::source_location::current())
+            : Deviant(Message, SourceLocation)
         {
         }
 
@@ -75,8 +75,8 @@ namespace Preview::Exception
          * 建议迁移到错误码构造函数。
          */
         template <typename... Args>
-        explicit Security(std::format_string<Args...> fmt, Args &&...args)
-            : Deviant(std::source_location::current(), fmt, std::forward<Args>(args)...)
+        explicit Security(std::format_string<Args...> Format, Args &&...Arguments)
+            : Deviant(std::source_location::current(), Format, std::forward<Args>(Arguments)...)
         {
         }
 
@@ -90,8 +90,9 @@ namespace Preview::Exception
          * 建议迁移到错误码构造函数。
          */
         template <typename... Args>
-        explicit Security(const std::source_location &loc, std::format_string<Args...> fmt, Args &&...args)
-            : Deviant(loc, fmt, std::forward<Args>(args)...)
+        explicit Security(const std::source_location &SourceLocation, std::format_string<Args...> Format,
+                          Args &&...Arguments)
+            : Deviant(SourceLocation, Format, std::forward<Args>(Arguments)...)
         {
         }
 

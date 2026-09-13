@@ -17,6 +17,7 @@
 #include <string>
 #include <expected>
 #include <system_error>
+#include <type_traits>
 
 namespace Preview
 {
@@ -62,9 +63,11 @@ namespace Preview
         Unsupported,
         /// I/O 错误（底层传输失败）
         IoError,
+        /// 密码学操作失败
+        CryptoError,
     };
 
-    namespace detail
+    namespace Detail
     {
         /// 协议库错误分类器（Boost.System 接入点）
         class ProtocolCategory final : public boost::system::error_category
@@ -75,9 +78,9 @@ namespace Preview
                 return "prism.protocol";
             }
 
-            [[nodiscard]] auto message(int ev) const -> std::string override
+            [[nodiscard]] auto message(int ErrorValue) const -> std::string override
             {
-                switch (static_cast<Error>(ev))
+                switch (static_cast<Error>(ErrorValue))
                 {
                 case Error::None: return "no Error";
                 case Error::NeedMore: return "need more Data";
@@ -98,11 +101,12 @@ namespace Preview
                 case Error::KdfError: return "key derivation Failed";
                 case Error::Unsupported: return "unsupported feature";
                 case Error::IoError: return "io Error";
+                case Error::CryptoError: return "cryptographic operation failed";
                 }
                 return "unknown Protocol Error";
             }
         };
-    } // namespace detail
+    } // namespace Detail
 
     /**
      * @brief 获取协议库错误分类器
@@ -111,7 +115,7 @@ namespace Preview
     [[nodiscard]] inline auto ErrorCategory() noexcept 
         -> const boost::system::error_category &
     {
-        static const detail::ProtocolCategory Category;
+        static const Detail::ProtocolCategory Category;
         return Category;
     }
 
@@ -120,10 +124,10 @@ namespace Preview
      * @param e 协议错误枚举值
      * @return 对应的 boost::system::error_code
      */
-    [[nodiscard]] inline auto make_error_code(Error e) noexcept 
+    [[nodiscard]] inline auto make_error_code(Error ErrorValue) noexcept
         -> boost::system::error_code
     {
-        return {static_cast<int>(e), ErrorCategory()};
+        return {static_cast<int>(ErrorValue), ErrorCategory()};
     }
 
     /// 协议错误码别名（协程返回值常用）
@@ -152,27 +156,27 @@ namespace Preview
     ///        （ADL 经 Preview 命名空间命中，供 EXPECT_EQ/EXPECT_NE 直接使用）。
     ///        engaged（成功态）不等于任何错误码；errored 态按 error() 值比较。
     template <typename T>
-    [[nodiscard]] auto operator==(const std::expected<T, Error>& e, Error code) -> bool
+    [[nodiscard]] auto operator==(const std::expected<T, Error> &Expected, Error ErrorCode) -> bool
     {
-        return !e.has_value() && e.error() == code;
+        return !Expected.has_value() && Expected.error() == ErrorCode;
     }
 
     template <typename T>
-    [[nodiscard]] auto operator!=(const std::expected<T, Error>& e, Error code) -> bool
+    [[nodiscard]] auto operator!=(const std::expected<T, Error> &Expected, Error ErrorCode) -> bool
     {
-        return !(e == code);
+        return !(Expected == ErrorCode);
     }
 
     template <typename T>
-    [[nodiscard]] auto operator==(Error code, const std::expected<T, Error>& e) -> bool
+    [[nodiscard]] auto operator==(Error ErrorCode, const std::expected<T, Error> &Expected) -> bool
     {
-        return e == code;
+        return Expected == ErrorCode;
     }
 
     template <typename T>
-    [[nodiscard]] auto operator!=(Error code, const std::expected<T, Error>& e) -> bool
+    [[nodiscard]] auto operator!=(Error ErrorCode, const std::expected<T, Error> &Expected) -> bool
     {
-        return !(e == code);
+        return !(Expected == ErrorCode);
     }
 
     // g++-13 的 std::operator==(const expected<_Tp,_Er>&, const _Up&) 约束过松，
@@ -180,27 +184,27 @@ namespace Preview
     // 非模板精确重载在重载决议中必胜模板，跨编译器确定性地消除歧义。
     // 当前测试断言使用的值类型均为 std::size_t（Parse*/Decode*/Read* 的已消费字节数）；
     // 若未来引入其他 T 值，需照此追加对应实例。
-    [[nodiscard]] inline auto operator==(const std::expected<std::size_t, Error>& e,
-                                         Error code) noexcept -> bool
+    [[nodiscard]] inline auto operator==(const std::expected<std::size_t, Error> &Expected,
+                                         Error ErrorCode) noexcept -> bool
     {
-        return !e.has_value() && e.error() == code;
+        return !Expected.has_value() && Expected.error() == ErrorCode;
     }
 
-    [[nodiscard]] inline auto operator!=(const std::expected<std::size_t, Error>& e,
-                                         Error code) noexcept -> bool
+    [[nodiscard]] inline auto operator!=(const std::expected<std::size_t, Error> &Expected,
+                                         Error ErrorCode) noexcept -> bool
     {
-        return !(!e.has_value() && e.error() == code);
+        return !(!Expected.has_value() && Expected.error() == ErrorCode);
     }
 
-    [[nodiscard]] inline auto operator==(Error code,
-                                         const std::expected<std::size_t, Error>& e) noexcept -> bool
+    [[nodiscard]] inline auto operator==(Error ErrorCode,
+                                         const std::expected<std::size_t, Error> &Expected) noexcept -> bool
     {
-        return !e.has_value() && e.error() == code;
+        return !Expected.has_value() && Expected.error() == ErrorCode;
     }
 
-    [[nodiscard]] inline auto operator!=(Error code,
-                                         const std::expected<std::size_t, Error>& e) noexcept -> bool
+    [[nodiscard]] inline auto operator!=(Error ErrorCode,
+                                         const std::expected<std::size_t, Error> &Expected) noexcept -> bool
     {
-        return !(!e.has_value() && e.error() == code);
+        return !(!Expected.has_value() && Expected.error() == ErrorCode);
     }
 } // namespace Preview

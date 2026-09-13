@@ -36,7 +36,7 @@
 namespace Preview::Http11
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @brief 标准响应（无 body）
@@ -52,25 +52,23 @@ namespace Preview::Http11
         constexpr std::string_view BadGateway = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
     } // namespace Status
 
-    /// @brief 最大 HTTP 头部大小（防慢速 OOM 攻击）
-    inline constexpr std::size_t MaxHdrSize = 65536;
-
     /**
      * @brief 校验 Basic 认证头
-     * @param authorization Proxy-Authorization 值（"Basic <base64>"）
+     * @param Authorization Proxy-Authorization 值（"Basic <base64>"）
      * @param Auth 认证器
      * @return 认证结果（Ok + identity）
      */
-    [[nodiscard]] inline auto CheckBasic(std::string_view authorization,
-                                          const Preview::Authenticator &Auth) -> Preview::AuthResult
+    [[nodiscard]] inline auto CheckBasic(
+        std::string_view Authorization,
+        const Preview::Authenticator &Auth) -> Preview::AuthResult
     {
         constexpr std::string_view BasicPrefix = "Basic ";
-        if (authorization.size() <= BasicPrefix.size() ||
-            !authorization.starts_with(BasicPrefix))
+        if (Authorization.size() <= BasicPrefix.size() ||
+            !Authorization.starts_with(BasicPrefix))
         {
             return {false, {}};
         }
-        const auto Decoded = Preview::Crypto::Base64Decode(authorization.substr(BasicPrefix.size()));
+        const auto Decoded = Preview::Crypto::Base64Decode(Authorization.substr(BasicPrefix.size()));
         const auto Colon = Decoded.find(':');
         if (Colon == std::string_view::npos || Colon == Decoded.size() - 1)
         {
@@ -92,19 +90,19 @@ namespace Preview::Http11
     public:
         /**
          * @brief 构造
-         * @param transport 底层传输
+         * @param Transport 底层传输
          */
-        explicit ServerConn(SharedTransmission transport) : Transport_(std::move(transport))
+        explicit ServerConn(SharedTransmission Transport) : Transport_(std::move(Transport))
         {
             Buffer_.resize(4096);
         }
 
         /**
          * @brief 读取并解析完整请求头
-         * @param out 解析结果
+         * @param Request 解析结果
          * @return 成功或 io_error/parse_error
          */
-        [[nodiscard]] auto ReadRequest(HttpRequest &out) -> net::awaitable<Fault::Code>
+        [[nodiscard]] auto ReadRequest(HttpRequest &Request) -> Net::awaitable<Fault::Code>
         {
             std::size_t Used = 0;
             while (true)
@@ -113,8 +111,8 @@ namespace Preview::Http11
                 const auto HeadersEnd = Sv.find("\r\n\r\n");
                 if (HeadersEnd != std::string_view::npos)
                 {
-                    const auto Rc = ParseRequest(Sv, out);
-                    if (Rc == Fault::Code::Success)
+                    const auto Result = ParseRequest(Sv, Request);
+                    if (Result == Fault::Code::Success)
                     {
                         const auto BodyOffset = HeadersEnd + 4;
                         if (BodyOffset < Used)
@@ -135,28 +133,32 @@ namespace Preview::Http11
                     }
                     Buffer_.resize(Buffer_.size() * 2);
                 }
-                std::error_code ec;
-                const auto N = co_await Transport_->async_read_some(
-                    AsBytesSpan(std::span(Buffer_.data() + Used, Buffer_.size() - Used)), ec);
-                if (ec || N == 0)
+                std::error_code ErrorCode;
+                const auto Count = co_await Transport_->async_read_some(
+                    AsBytesSpan(std::span(Buffer_.data() + Used, Buffer_.size() - Used)), ErrorCode);
+                if (ErrorCode || Count == 0)
                 {
                     co_return Fault::Code::IoError;
                 }
-                Used += N;
+                if (Count > Buffer_.size() - Used)
+                {
+                    co_return Fault::Code::IoError;
+                }
+                Used += Count;
             }
         }
 
         /**
          * @brief 发送标准响应
-         * @param body 响应字节
+         * @param Body 响应字节
          * @return 成功或 io_error
          */
-        [[nodiscard]] auto SendResponse(std::string_view body) -> net::awaitable<Fault::Code>
+        [[nodiscard]] auto SendResponse(std::string_view Body) -> Net::awaitable<Fault::Code>
         {
-            std::error_code ec;
-            const auto span = AsBytesSpan(body);
-            co_await Transport_->AsyncWrite(span, ec);
-            if (ec)
+            std::error_code ErrorCode;
+            const auto Bytes = AsBytesSpan(Body);
+            co_await Transport_->AsyncWrite(Bytes, ErrorCode);
+            if (ErrorCode)
             {
                 co_return Fault::Code::IoError;
             }
@@ -202,13 +204,13 @@ namespace Preview::Http11
      * @return 成功或 io_error
      */
     [[nodiscard]] inline auto SendConnect(ConnectParameters Params)
-        -> net::awaitable<Fault::Code>
+        -> Net::awaitable<Fault::Code>
     {
         const auto Req = MakeConnectRequest(Params.Host, Params.Port, Params.Authorization);
-        std::error_code ec;
-        const auto span = AsBytesSpan(Req);
-        co_await Params.Transport->AsyncWrite(span, ec);
-        if (ec)
+        std::error_code ErrorCode;
+        const auto Bytes = AsBytesSpan(Req);
+        co_await Params.Transport->AsyncWrite(Bytes, ErrorCode);
+        if (ErrorCode)
         {
             co_return Fault::Code::IoError;
         }
@@ -222,9 +224,10 @@ namespace Preview::Http11
      * @param Port 目标端口
      * @return 成功或 io_error
      */
-    [[nodiscard]] inline auto SendConnect(SharedTransmission Transport, std::string_view Host,
-                                           std::uint16_t Port)
-        -> net::awaitable<Fault::Code>
+    [[nodiscard]] inline auto SendConnect(
+        SharedTransmission Transport,
+        std::string_view Host,
+        std::uint16_t Port) -> Net::awaitable<Fault::Code>
     {
         auto Result = co_await SendConnect(ConnectParameters{std::move(Transport), Host, Port, {}});
         co_return Result;
@@ -232,47 +235,53 @@ namespace Preview::Http11
 
     /**
      * @brief 客户端读取响应并返回状态码
-     * @param transport 底层传输
-     * @param ec 错误码
+     * @param Transport 底层传输
+     * @param ErrorCode 错误码
      * @return 状态码（0 = 读失败）
      */
-    [[nodiscard]] inline auto ReadResponse(SharedTransmission &transport, std::error_code &ec)
-        -> net::awaitable<int>
+    [[nodiscard]] inline auto ReadResponse(
+        SharedTransmission &Transport,
+        std::error_code &ErrorCode) -> Net::awaitable<int>
     {
-        std::string buf;
-        buf.resize(1024);
+        std::string Buffer;
+        Buffer.resize(1024);
         std::size_t Used = 0;
         while (true)
         {
-            const auto Sv = std::string_view(buf.data(), Used);
-            const auto HeadersEnd = Sv.find("\r\n\r\n");
+            const auto DataView = std::string_view(Buffer.data(), Used);
+            const auto HeadersEnd = DataView.find("\r\n\r\n");
             if (HeadersEnd != std::string_view::npos)
             {
                 const auto BodyOffset = HeadersEnd + 4;
                 if (BodyOffset < Used)
                 {
-                    transport = Preview::Transport::WrapWithPreview(
-                        std::move(transport), AsBytesSpan(std::string_view(buf.data() + BodyOffset,
-                                                                            Used - BodyOffset)));
+                    Transport = Preview::Transport::WrapWithPreview(
+                        std::move(Transport),
+                        AsBytesSpan(std::string_view(Buffer.data() + BodyOffset, Used - BodyOffset)));
                 }
-                co_return ParseStatusCode(Sv);
+                co_return ParseStatusCode(DataView);
             }
-            if (Used >= buf.size())
+            if (Used >= Buffer.size())
             {
-                if (buf.size() >= MaxHdrSize)
+                if (Buffer.size() >= MaxHdrSize)
                 {
-                    ec = std::make_error_code(std::errc::message_size);
+                    ErrorCode = std::make_error_code(std::errc::message_size);
                     co_return 0; // 响应头超限（防恶意响应 OOM，与 Server 端一致）
                 }
-                buf.resize(buf.size() * 2);
+                Buffer.resize(Buffer.size() * 2);
             }
-            const auto N = co_await transport->async_read_some(
-                    AsBytesSpan(std::span(buf.data() + Used, buf.size() - Used)), ec);
-            if (ec || N == 0)
+            const auto Count = co_await Transport->async_read_some(
+                AsBytesSpan(std::span(Buffer.data() + Used, Buffer.size() - Used)), ErrorCode);
+            if (ErrorCode || Count == 0)
             {
                 co_return 0;
             }
-            Used += N;
+            if (Count > Buffer.size() - Used)
+            {
+                ErrorCode = std::make_error_code(std::errc::value_too_large);
+                co_return 0;
+            }
+            Used += Count;
         }
     }
 

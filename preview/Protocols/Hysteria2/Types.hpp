@@ -5,6 +5,8 @@
  *          - 认证：HTTP/3 风格 HEADERS 帧（:method POST, :path /auth, authorization）
  *          - TCP/UDP 数据：可变长帧，UDP 携带 SessionId + PacketId
  *          本测试库实现纯逻辑帧编解码（不含 QUIC 传输）。
+ * @note AddressType/Message::Kind 的数值属于 wire 契约；Message::dst 与
+ *       Message::payload 字段名称保留以兼容现有 Codec/调用方。
  * @note 参考 hysteria2 协议规范。
  */
 
@@ -54,13 +56,13 @@ namespace Preview::Hysteria2
 
         /// 消息类型
         Kind Type{Kind::Tcp};
-        /// UDP 会话 ID（Type == udp）
+        /// UDP 会话 ID（Type == Udp）
         std::uint32_t SessionId{0};
-        /// UDP 包 ID（Type == udp）
+        /// UDP 包 ID（Type == Udp）
         std::uint32_t PacketId{0};
-        /// 目标地址
+        /// 目标地址（字段名称保持公共兼容）
         Address dst;
-        /// 载荷
+        /// 载荷（字段名称保持公共兼容）
         std::string payload;
     };
 

@@ -3,7 +3,7 @@
  * @brief VMess UDP 包连接对象（Transmission 装饰器）
  * @details UDP 数据面连接：将底层流连接（Vmess::Conn，chunk 即包
  * 边界）包装为包级 API。包级 API 无地址参数（目标固定来自指令头）。
- * 一次 AsyncSendTo = 加密并发送一个数据分块（长度密文 + 载荷
+ * 一次 AsyncSendTo = 加密并发送一个数据分块（长度掩码 + 载荷
  * 密文）；AsyncReceiveFrom 读到该分块即完整数据报。
  * @note 继承 Preview::Transmission，构造函数传入底层流连接（相当于
  * socket 收发的持有者），对齐 Conn 的装饰器链模式。
@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -49,8 +50,12 @@ namespace Preview::Vmess
         /**
          * @brief 获取执行器（委托底层流连接）
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
@@ -64,56 +69,78 @@ namespace Preview::Vmess
 
         /**
          * @brief 发送一个 UDP 数据报（加密一个 chunk）
-         * @param payload 数据报载荷
+         * @param Payload 数据报载荷
          * @return 错误码
          */
-        [[nodiscard]] auto AsyncSendTo(std::span<const std::uint8_t> payload) -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncSendTo(
+            std::span<const std::uint8_t> Payload) -> Net::awaitable<Error>
         {
-            return AsyncSendDatagramImpl(payload);
+            return AsyncSendDatagramImpl(Payload);
         }
 
         /**
          * @brief 接收一个 UDP 数据报（解密一个 chunk）
-         * @param payload 输出数据报载荷
+         * @param Payload 输出数据报载荷
          * @return 错误码
          */
-        [[nodiscard]] auto AsyncReceiveFrom(std::vector<std::uint8_t> &payload) -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncReceiveFrom(
+            std::vector<std::uint8_t> &Payload) -> Net::awaitable<Error>
         {
-            return AsyncReceiveDatagramImpl(payload);
+            return AsyncReceiveDatagramImpl(Payload);
         }
 
         /**
          * @brief 透传读取（底层流原样）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            ErrorCode.clear();
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 透传写入（底层流原样）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            ErrorCode.clear();
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭底层流连接
          */
-        void Close() override
+        auto Close() -> void override
         {
-            NextLayer_->Close();
+            if (NextLayer_)
+            {
+                NextLayer_->Close();
+            }
         }
 
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
-            NextLayer_->Cancel();
+            if (NextLayer_)
+            {
+                NextLayer_->Cancel();
+            }
         }
 
         /**
@@ -152,29 +179,37 @@ namespace Preview::Vmess
         /**
          * @brief 转调底层数据报发送（chunk 加密）
          */
-        [[nodiscard]] auto AsyncSendDatagramImpl(std::span<const std::uint8_t> payload)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncSendDatagramImpl(
+            std::span<const std::uint8_t> Payload) -> Net::awaitable<Error>
         {
-            auto *c = dynamic_cast<Conn<Memory> *>(NextLayer_.get());
-            if (!c)
+            if (!NextLayer_)
             {
                 co_return Error::NotOpen;
             }
-            co_return co_await c->AsyncSendDatagram(payload);
+            auto *Connection = dynamic_cast<Conn<Memory> *>(NextLayer_.get());
+            if (!Connection)
+            {
+                co_return Error::NotOpen;
+            }
+            co_return co_await Connection->AsyncSendDatagram(Payload);
         }
 
         /**
          * @brief 转调底层数据报接收（chunk 解密）
          */
-        [[nodiscard]] auto AsyncReceiveDatagramImpl(std::vector<std::uint8_t> &payload)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncReceiveDatagramImpl(
+            std::vector<std::uint8_t> &Payload) -> Net::awaitable<Error>
         {
-            auto *c = dynamic_cast<Conn<Memory> *>(NextLayer_.get());
-            if (!c)
+            if (!NextLayer_)
             {
                 co_return Error::NotOpen;
             }
-            co_return co_await c->AsyncReceiveDatagram(payload);
+            auto *Connection = dynamic_cast<Conn<Memory> *>(NextLayer_.get());
+            if (!Connection)
+            {
+                co_return Error::NotOpen;
+            }
+            co_return co_await Connection->AsyncReceiveDatagram(Payload);
         }
 
         SharedTransmission NextLayer_; ///< 底层流连接（嵌入，同一条 TCP）

@@ -31,7 +31,7 @@ namespace
     TEST(CoreFault, DescribeEveryCode)
     {
         // 遍历全部枚举值，确保每个 case 分支都有非空描述
-        constexpr int Count = static_cast<int>(Preview::Fault::Code::_count);
+        constexpr int Count = static_cast<int>(Preview::Fault::Code::Count);
         for (int i = 0; i < Count; ++i)
         {
             const auto c = static_cast<Preview::Fault::Code>(i);
@@ -81,7 +81,7 @@ namespace
     TEST(CoreFault, CachedMessageValid)
     {
         // 缓存消息与 Describe 完全一致（首次调用触发静态数组构造）
-        constexpr int Count = static_cast<int>(Preview::Fault::Code::_count);
+        constexpr int Count = static_cast<int>(Preview::Fault::Code::Count);
         for (int i = 0; i < Count; ++i)
         {
             const auto c = static_cast<Preview::Fault::Code>(i);
@@ -92,7 +92,7 @@ namespace
     TEST(CoreFault, CachedMessageOutOfRange)
     {
         // 越界索引（>= _count 或负数）返回 "unknown"
-        EXPECT_EQ(Preview::Fault::CachedMessage(static_cast<Preview::Fault::Code>(Preview::Fault::Code::_count)), "unknown");
+        EXPECT_EQ(Preview::Fault::CachedMessage(static_cast<Preview::Fault::Code>(Preview::Fault::Code::Count)), "unknown");
         EXPECT_EQ(Preview::Fault::CachedMessage(static_cast<Preview::Fault::Code>(-5)), "unknown");
         EXPECT_EQ(Preview::Fault::CachedMessage(static_cast<Preview::Fault::Code>(100000)), "unknown");
     }
@@ -109,7 +109,7 @@ namespace
 
         // Message(int) 委托 CachedMessage：有效码返回描述、越界返回 unknown
         EXPECT_EQ(cat.message(static_cast<int>(Preview::Fault::Code::Eof)), "eof");
-        EXPECT_EQ(cat.message(static_cast<int>(Preview::Fault::Code::_count)), "unknown");
+        EXPECT_EQ(cat.message(static_cast<int>(Preview::Fault::Code::Count)), "unknown");
     }
 
     TEST(CoreFault, make_error_codeStd)
@@ -148,7 +148,7 @@ namespace
 
         // Message(int) 委托 CachedMessage
         EXPECT_EQ(cat.message(static_cast<int>(Preview::Fault::Code::Eof)), "eof");
-        EXPECT_EQ(cat.message(static_cast<int>(Preview::Fault::Code::_count)), "unknown");
+        EXPECT_EQ(cat.message(static_cast<int>(Preview::Fault::Code::Count)), "unknown");
     }
 
     TEST(CoreFault, make_error_codeBoost)

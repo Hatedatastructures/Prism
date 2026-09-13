@@ -14,6 +14,7 @@
 
 #include <array>
 #include <charconv>
+#include <cstddef>
 
 #include <preview/Foundation/Memory/Container.hpp>
 #include <preview/Protocols/Http3/Qpack.hpp>
@@ -32,15 +33,17 @@ namespace Preview::Http3 {
 
     /**
      * @brief 写入 HTTP/3 varint（RFC 9000 §16：高 2 位为长度码，其余大端）
-     * @param out 输出缓冲区
-     * @param[in,out] N 写入偏移，成功后推进实际写入字节数
+     * @param Output 输出缓冲区
+     * @param[in,out] Offset 写入偏移，成功后推进实际写入字节数
      * @param Value 待编码值
      * @return 是否写入成功（缓冲不足或值溢出返回 false）
      * @note 与 HPACK/QPACK 整数编码不同：H3 帧头 varint 首字节高 2 位是长度码，
      *       裸写 ≥0x40 的单字节会被对端误读为多字节 varint
      */
-    [[nodiscard]] inline auto WriteFrameVarint(std::span<std::byte> out, std::size_t &N,
-                                               const std::uint64_t Value) -> bool
+    [[nodiscard]] inline auto WriteFrameVarint(
+        std::span<std::byte> Output,
+        std::size_t &Offset,
+        const std::uint64_t Value) -> bool
     {
         std::size_t Need = 1;
         std::uint8_t Tag = 0x00;
@@ -67,7 +70,7 @@ namespace Preview::Http3 {
         {
             return false;
         }
-        if (out.size() < N + Need)
+        if (Offset > Output.size() || Need > Output.size() - Offset)
         {
             return false;
         }
@@ -79,7 +82,7 @@ namespace Preview::Http3 {
             {
                 Byte |= Tag;
             }
-            out[N++] = static_cast<std::byte>(Byte);
+            Output[Offset++] = static_cast<std::byte>(Byte);
         }
         return true;
     }
@@ -96,7 +99,11 @@ namespace Preview::Http3 {
         Preview::Memory::String Auth;   ///< Hysteria-Auth 头
         std::uint64_t Rx{0};            ///< Hysteria-CC-RX 头
 
-        explicit AuthRequest(Preview::Memory::ResourcePointer mr) : Method(mr), Host(mr), Path(mr), Auth(mr)
+        explicit AuthRequest(Preview::Memory::ResourcePointer MemoryResource)
+            : Method(MemoryResource),
+              Host(MemoryResource),
+              Path(MemoryResource),
+              Auth(MemoryResource)
         {
         }
     };
@@ -116,19 +123,18 @@ namespace Preview::Http3 {
     /**
      * @brief 解析认证请求 HEADERS 帧载荷（QPACK 块 → 头字段）
      * @param Data HEADERS 帧载荷（QPACK 编码头块）
-     * @param out 输出认证请求
-     * @param mr 内存资源
+     * @param Output 输出认证请求
+     * @param MemoryResource 内存资源
      * @return 是否成功（含 :method POST / :path /auth 校验）
      */
-    [[nodiscard]] auto ParseAuthRequest(std::span<const std::uint8_t> Data, AuthRequest &out,
-                                          Preview::Memory::ResourcePointer mr) -> bool;
+    [[nodiscard]] auto ParseAuthRequest(
+        std::span<const std::uint8_t> Data,
+        AuthRequest &Output,
+        Preview::Memory::ResourcePointer MemoryResource) -> bool;
 
     /**
      * @brief 编码认证响应 HEADERS 帧（含帧头 + QPACK 块）
-     * @param status 状态码（233）
-     * @param UdpEnabled 是否启用 UDP
-     * @param Rx 拥塞控制接收速率（0 = 无限制）
-     * @param out 输出缓冲区
+     * @param Params 响应状态、UDP 开关、接收速率与输出缓冲区
      * @return 写入字节数，0 失败
      * @details 输出完整 HTTP/3 HEADERS 帧：
      *          [Frame Type varint=1][length varint][QPACK 块]
@@ -141,18 +147,19 @@ namespace Preview::Http3 {
     {
         /**
          * @brief 查找头字段
-         * @param fields 头字段列表
+         * @param Fields 头字段列表
          * @param Name 目标字段名
          * @return 匹配的字段值，未找到返回空视图
          */
-        [[nodiscard]] auto FindHeader(const Preview::Memory::Vector<Qpack::HeaderField> &Fields,
-                                       const std::string_view Name) -> std::string_view
+        [[nodiscard]] auto FindHeader(
+            const Preview::Memory::Vector<Qpack::HeaderField> &Fields,
+            const std::string_view Name) -> std::string_view
         {
-            for (const auto &f : Fields)
+            for (const auto &Field : Fields)
             {
-                if (f.Name == Name)
+                if (Field.Name == Name)
                 {
-                    return std::string_view(f.value.data(), f.value.size());
+                    return std::string_view(Field.value.data(), Field.value.size());
                 }
             }
             return {};
@@ -171,8 +178,15 @@ namespace Preview::Http3 {
         std::size_t PathCount = 0;
         std::size_t AuthorityCount = 0;
         std::size_t SchemeCount = 0;
+        std::size_t AuthCount = 0;
+        std::size_t RxCount = 0;
+        bool SeenRegularField = false;
         for (const auto &Field : Fields)
         {
+            if (Field.Name.empty())
+            {
+                return false;
+            }
             for (const auto Character : Field.Name)
             {
                 if (Character >= 'A' && Character <= 'Z')
@@ -180,9 +194,22 @@ namespace Preview::Http3 {
                     return false;
                 }
             }
-            if (Field.Name.empty() || Field.Name.front() != ':')
+            if (Field.Name.front() != ':')
             {
+                SeenRegularField = true;
+                if (Field.Name == "hysteria-auth")
+                {
+                    ++AuthCount;
+                }
+                else if (Field.Name == "hysteria-cc-rx")
+                {
+                    ++RxCount;
+                }
                 continue;
+            }
+            if (SeenRegularField)
+            {
+                return false;
             }
             if (Field.Name == ":method")
             {
@@ -205,46 +232,112 @@ namespace Preview::Http3 {
                 return false;
             }
         }
-        return MethodCount == 1 && PathCount == 1 && AuthorityCount <= 1 && SchemeCount <= 1;
+        return MethodCount == 1 && PathCount == 1 && AuthorityCount <= 1 &&
+               SchemeCount <= 1 && AuthCount == 1 && RxCount <= 1;
     }
 
-    inline auto ParseAuthRequest(std::span<const std::uint8_t> Data, AuthRequest &out,
-                                   const Preview::Memory::ResourcePointer mr) -> bool
+    inline auto ParseAuthRequest(
+        std::span<const std::uint8_t> Data,
+        AuthRequest &Output,
+        const Preview::Memory::ResourcePointer MemoryResource) -> bool
     {
-        auto Fields = Qpack::DecodeHeaderBlock(Data, mr);
+        Output.Method.clear();
+        Output.Host.clear();
+        Output.Path.clear();
+        Output.Auth.clear();
+        Output.Rx = 0;
+        auto Fields = Qpack::DecodeHeaderBlock(Data, MemoryResource);
         if (!ValidateAuthRequestFields(Fields))
         {
             return false;
         }
 
-        out.Method.assign(FindHeader(Fields, ":method"));
-        out.Host.assign(FindHeader(Fields, ":authority"));
-        out.Path.assign(FindHeader(Fields, ":path"));
-        out.Auth.assign(FindHeader(Fields, "hysteria-auth"));
+        Output.Method.assign(FindHeader(Fields, ":method"));
+        Output.Host.assign(FindHeader(Fields, ":authority"));
+        Output.Path.assign(FindHeader(Fields, ":path"));
+        Output.Auth.assign(FindHeader(Fields, "hysteria-auth"));
 
         const auto RxStr = FindHeader(Fields, "hysteria-cc-rx");
-        out.Rx = 0;
         if (!RxStr.empty())
         {
-            std::from_chars(RxStr.data(), RxStr.data() + RxStr.size(), out.Rx);
+            const auto ParseResult = std::from_chars(
+                RxStr.data(), RxStr.data() + RxStr.size(), Output.Rx);
+            if (ParseResult.ec != std::errc{} ||
+                ParseResult.ptr != RxStr.data() + RxStr.size())
+            {
+                return false;
+            }
         }
 
         // 认证请求必须匹配 POST https://hysteria/auth
-        return out.Method == "POST" && out.Path == "/auth" && !out.Auth.empty();
+        return Output.Method == "POST" && Output.Path == "/auth" && !Output.Auth.empty();
     }
+
+    namespace
+    {
+        struct ResponseEncoder
+        {
+            explicit ResponseEncoder(std::span<std::uint8_t> OutputValue)
+                : Output(OutputValue)
+            {
+            }
+
+            [[nodiscard]] auto AppendLiteral(
+                std::string_view Name,
+                std::string_view Value) -> bool
+            {
+                if (Offset > Output.size())
+                {
+                    return false;
+                }
+                const auto Remaining = Output.size() - Offset;
+                const auto OutputWindow = Output.subspan(Offset);
+                const auto EncodedLength = Qpack::EncodeLiteral(
+                    Name,
+                    Value,
+                    OutputWindow);
+                if (EncodedLength == 0 || EncodedLength > Remaining)
+                {
+                    return false;
+                }
+                Offset += EncodedLength;
+                return true;
+            }
+
+            std::span<std::uint8_t> Output;
+            std::size_t Offset{0};
+        };
+    } // namespace
 
     inline auto EncodeAuthResponse(const AuthResponseParameters &Params) -> std::size_t
     {
         // QPACK 块：前缀 + :status + Hysteria-UDP + Hysteria-CC-RX + Hysteria-Padding
-        std::array<std::uint8_t, 512> block{};
-        std::size_t Offset = Qpack::EncodePrefix(block);
+        std::array<std::uint8_t, 512> Block{};
+        const auto BlockSpan = std::span<std::uint8_t>(Block);
+        ResponseEncoder Encoder{BlockSpan};
+        Encoder.Offset = Qpack::EncodePrefix(Block);
+        if (Encoder.Offset == 0)
+        {
+            return 0;
+        }
 
         // :status 字段（静态表无 233 条目，用字面量）
-        char StatusBuf[4];
-        const auto [se, sec] = std::to_chars(StatusBuf, StatusBuf + sizeof(StatusBuf), Params.Status);
-        const auto StatusStr = std::string_view(StatusBuf, static_cast<std::size_t>(se - StatusBuf));
-        Offset += Qpack::EncodeLiteral(
-            ":status", StatusStr, std::span<std::uint8_t>(block.data() + Offset, block.size() - Offset));
+        char StatusBuffer[5];
+        const auto StatusResult = std::to_chars(
+            StatusBuffer,
+            StatusBuffer + sizeof(StatusBuffer),
+            Params.Status);
+        if (StatusResult.ec != std::errc{})
+        {
+            return 0;
+        }
+        const auto StatusValue = std::string_view(
+            StatusBuffer,
+            static_cast<std::size_t>(StatusResult.ptr - StatusBuffer));
+        if (!Encoder.AppendLiteral(":status", StatusValue))
+        {
+            return 0;
+        }
 
         // Hysteria-UDP: true
         const char *UdpValue = "false";
@@ -252,34 +345,46 @@ namespace Preview::Http3 {
         {
             UdpValue = "true";
         }
-        Offset +=
-            Qpack::EncodeLiteral("hysteria-udp", UdpValue,
-                                  std::span<std::uint8_t>(block.data() + Offset, block.size() - Offset));
+        if (!Encoder.AppendLiteral("hysteria-udp", UdpValue))
+        {
+            return 0;
+        }
 
         // Hysteria-CC-RX: <Rx>
-        char RxBuf[24];
-        const auto [re, rec] = std::to_chars(RxBuf, RxBuf + sizeof(RxBuf), Params.Rx);
-        const auto RxStr = std::string_view(RxBuf, static_cast<std::size_t>(re - RxBuf));
-        Offset += Qpack::EncodeLiteral(
-            "hysteria-cc-rx", RxStr, std::span<std::uint8_t>(block.data() + Offset, block.size() - Offset));
+        char RxBuffer[24];
+        const auto RxResult = std::to_chars(RxBuffer, RxBuffer + sizeof(RxBuffer), Params.Rx);
+        if (RxResult.ec != std::errc{})
+        {
+            return 0;
+        }
+        const auto RxValue = std::string_view(
+            RxBuffer,
+            static_cast<std::size_t>(RxResult.ptr - RxBuffer));
+        if (!Encoder.AppendLiteral("hysteria-cc-rx", RxValue))
+        {
+            return 0;
+        }
 
         // Hysteria-Padding: 0（客户端解析用，填 0 表示无 padding）
-        Offset += Qpack::EncodeLiteral(
-            "hysteria-padding", "0", std::span<std::uint8_t>(block.data() + Offset, block.size() - Offset));
+        if (!Encoder.AppendLiteral("hysteria-padding", "0"))
+        {
+            return 0;
+        }
 
         // HTTP/3 帧头：Type=HEADERS(1) + length varint（RFC 9000 §16 格式）
-        std::size_t N = 0;
-        if (!WriteFrameVarint(Params.Out, N, FrameHeaders) ||
-            !WriteFrameVarint(Params.Out, N, Offset))
+        std::size_t FrameOffset = 0;
+        if (!WriteFrameVarint(Params.Out, FrameOffset, FrameHeaders) ||
+            !WriteFrameVarint(Params.Out, FrameOffset, Encoder.Offset))
         {
             return 0;
         }
-        if (Params.Out.size() < N + Offset)
+        if (FrameOffset > Params.Out.size() ||
+            Encoder.Offset > Params.Out.size() - FrameOffset)
         {
             return 0;
         }
-        std::memcpy(Params.Out.data() + N, block.data(), Offset);
-        return N + Offset;
+        std::memcpy(Params.Out.data() + FrameOffset, Block.data(), Encoder.Offset);
+        return FrameOffset + Encoder.Offset;
     }
 
 

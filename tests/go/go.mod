@@ -3,6 +3,7 @@ module prism-tests-go
 go 1.25.0
 
 require (
+	github.com/gobwas/ws v1.4.0
 	github.com/metacubex/blake3 v0.1.0
 	github.com/metacubex/mihomo v1.19.30
 	github.com/metacubex/quic-go v0.61.1-0.20260727080200-2548683b76f4
@@ -10,6 +11,7 @@ require (
 	github.com/metacubex/sing-quic v0.0.0-20260726014900-38b0e9295f51
 	github.com/metacubex/sing-vmess v0.2.5
 	github.com/metacubex/tls v0.1.8
+	github.com/metacubex/wireguard-go v0.0.0-20250820062549-a6cecdd7f57f
 )
 
 require (
@@ -25,7 +27,6 @@ require (
 	github.com/gaukas/godicttls v0.0.4 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
-	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/gofrs/uuid/v5 v5.4.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/metacubex/ascon v0.1.0 // indirect

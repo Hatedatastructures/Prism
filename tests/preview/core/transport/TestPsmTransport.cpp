@@ -38,38 +38,38 @@
 
 namespace
 {
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
     
 
     /**
      * @brief 驱动协程运行
      */
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoro(Net::io_context &Ioc, A Coro) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        std::exception_ptr Exception;
+        Net::co_spawn(Ioc, std::move(Coro),
+                      [&](std::exception_ptr Error)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = Error;
+                          Ioc.stop();
                       });
-        ioc.run();
-        if (ep)
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     /**
      * @brief Preview::Transport::Transmission 测试替身（叶子节点）
      */
-    class mock_transport final : public Preview::Transmission
+    class MockTransport final : public Preview::Transmission
     {
     public:
-        explicit mock_transport(net::any_io_executor ex,
-                                std::error_code ReadEc = {}, std::size_t read_n = 0)
-            : Ex_(std::move(ex)), read_ec_(ReadEc), read_n_(read_n)
+        explicit MockTransport(Net::any_io_executor Executor,
+                               std::error_code ReadError = {}, std::size_t ReadCount = 0)
+            : Ex_(std::move(Executor)), read_ec_(ReadError), read_n_(ReadCount)
         {
         }
 
@@ -79,14 +79,14 @@ namespace
         }
 
         [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             ec = read_ec_;
             co_return read_n_;
         }
 
         [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             if (write_calls_++ == 0 && write_first_ok_)
             {
@@ -114,15 +114,15 @@ namespace
         std::size_t write_calls_{0};
 
     private:
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
         std::error_code read_ec_;
         std::size_t read_n_;
     };
 
     TEST(PsmTransmission, BasicAccessors)
     {
-        net::io_context ioc;
-        mock_transport t(ioc.get_executor());
+        Net::io_context ioc;
+        MockTransport t(ioc.get_executor());
 
         // 叶子节点 TransportType → Tcp
         EXPECT_EQ(t.TransportType(), Preview::Transmission::Type::Tcp);
@@ -130,19 +130,19 @@ namespace
         const auto *ct = &t;
         EXPECT_EQ(ct->NextLayer(), nullptr);
         EXPECT_EQ(t.get_executor(), t.Executor());
-        EXPECT_EQ(t.lowest_layer<mock_transport>(), &t);
-        EXPECT_EQ(ct->lowest_layer<const mock_transport>(), ct);
-        EXPECT_EQ(t.lowest_layer<net::io_context>(), nullptr);
+        EXPECT_EQ(t.lowest_layer<MockTransport>(), &t);
+        EXPECT_EQ(ct->lowest_layer<const MockTransport>(), ct);
+        EXPECT_EQ(t.lowest_layer<Net::io_context>(), nullptr);
 
     }
 
     TEST(PsmTransmission, DelegatedTransportType)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         // 子节点覆写 TransportType 返回 udp，验证委托路径
-        struct udp_like final : public Preview::Transmission
+        struct UdpLike final : public Preview::Transmission
         {
-            explicit udp_like(net::any_io_executor ex) : Ex_(std::move(ex))
+            explicit UdpLike(Net::any_io_executor Executor) : Ex_(std::move(Executor))
             {
             }
             [[nodiscard]] auto TransportType() const noexcept -> Type override
@@ -154,12 +154,12 @@ namespace
                 return Ex_;
             }
             [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec)
-                -> net::awaitable<std::size_t> override
+                -> Net::awaitable<std::size_t> override
             {
                 co_return 0;
             }
             [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec)
-                -> net::awaitable<std::size_t> override
+                -> Net::awaitable<std::size_t> override
             {
                 co_return 0;
             }
@@ -169,15 +169,15 @@ namespace
             void Cancel() override
             {
             }
-            net::any_io_executor Ex_;
+            Net::any_io_executor Ex_;
         };
-        udp_like leaf(ioc.get_executor());
-        EXPECT_EQ(leaf.TransportType(), Preview::Transmission::Type::Udp);
+        UdpLike Leaf(ioc.get_executor());
+        EXPECT_EQ(Leaf.TransportType(), Preview::Transmission::Type::Udp);
 
         // 装饰器：NextLayer 非空 → 委托
-        struct wrapper final : public Preview::Transmission
+        struct Wrapper final : public Preview::Transmission
         {
-            explicit wrapper(Preview::Transmission *n) : n_(n)
+            explicit Wrapper(Preview::Transmission *Inner) : n_(Inner)
             {
             }
             [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
@@ -193,12 +193,12 @@ namespace
                 return n_->Executor();
             }
             [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &ec)
-                -> net::awaitable<std::size_t> override
+                -> Net::awaitable<std::size_t> override
             {
                 co_return 0;
             }
             [[nodiscard]] auto async_write_some(std::span<const std::byte>, std::error_code &ec)
-                -> net::awaitable<std::size_t> override
+                -> Net::awaitable<std::size_t> override
             {
                 co_return 0;
             }
@@ -210,16 +210,16 @@ namespace
             }
             Preview::Transmission *n_;
         };
-        wrapper w(&leaf);
-        EXPECT_EQ(w.TransportType(), Preview::Transmission::Type::Udp);
-        EXPECT_EQ(w.lowest_layer<udp_like>(), &leaf);
-        EXPECT_EQ(w.NextLayer(), &leaf);
+        Wrapper Wrapped(&Leaf);
+        EXPECT_EQ(Wrapped.TransportType(), Preview::Transmission::Type::Udp);
+        EXPECT_EQ(Wrapped.lowest_layer<UdpLike>(), &Leaf);
+        EXPECT_EQ(Wrapped.NextLayer(), &Leaf);
     }
 
     TEST(PsmTransmission, CompletionHandlerBridges)
     {
-        net::io_context ioc;
-        auto t = std::make_shared<mock_transport>(
+        Net::io_context ioc;
+        auto t = std::make_shared<MockTransport>(
             ioc.get_executor(), std::make_error_code(std::errc::io_error), 0);
 
         // completion-handler 风格读（默认 co_spawn 桥接）
@@ -232,8 +232,8 @@ namespace
         EXPECT_EQ(rn, 0u);
 
         // completion-handler 风格写（独立 io_context）
-        net::io_context ioc2;
-        auto t2 = std::make_shared<mock_transport>(ioc2.get_executor());
+        Net::io_context ioc2;
+        auto t2 = std::make_shared<MockTransport>(ioc2.get_executor());
         std::promise<std::pair<boost::system::error_code, std::size_t>> done_w;
         auto fw = done_w.get_future();
         std::array<std::byte, 4> buf{};
@@ -245,16 +245,16 @@ namespace
 
     TEST(PsmTransmission, FreeAsyncWriteRead)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         std::array<std::byte, 8> buf{};
         std::error_code ec;
 
         // AsyncWrite：单次写满
-        mock_transport Ok(ioc.get_executor());
+        MockTransport Ok(ioc.get_executor());
         Ok.write_first_ok_ = true;
         Ok.write_n_ = 8;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoro(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      const auto n = co_await Ok.AsyncWrite(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(n, 8u);
@@ -262,12 +262,12 @@ namespace
                  });
 
         // AsyncWrite：部分写入后错误中断
-        mock_transport err(ioc.get_executor());
+        MockTransport err(ioc.get_executor());
         err.write_first_ok_ = true;
         err.write_n_ = 4;
         err.write_ec_ = std::make_error_code(std::errc::io_error);
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoro(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      const auto n = co_await err.AsyncWrite(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(n, 4u);
@@ -276,10 +276,10 @@ namespace
 
         // AsyncWrite：n==0 表示对端关闭 → broken_pipe
         ec.clear();
-        mock_transport zero(ioc.get_executor());
+        MockTransport zero(ioc.get_executor());
         zero.write_n_ = 0;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoro(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      const auto n = co_await zero.AsyncWrite(std::span<const std::byte>(buf), ec);
                      EXPECT_EQ(n, 0u);
@@ -287,9 +287,9 @@ namespace
                  });
 
         // AsyncRead：错误中断
-        mock_transport rerr(ioc.get_executor(), std::make_error_code(std::errc::io_error), 0);
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        MockTransport rerr(ioc.get_executor(), std::make_error_code(std::errc::io_error), 0);
+        RunCoro(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      const auto n = co_await rerr.AsyncRead(std::span<std::byte>(buf), ec);
                      EXPECT_EQ(n, 0u);
@@ -301,8 +301,8 @@ namespace
     {
         // 空错误码 → 空 boost ec（经 completion-handler 桥接触发 ToEc）
         {
-            net::io_context ioc;
-            auto Ok = std::make_shared<mock_transport>(ioc.get_executor());
+            Net::io_context ioc;
+            auto Ok = std::make_shared<MockTransport>(ioc.get_executor());
             std::promise<boost::system::error_code> done1;
             auto f1 = done1.get_future();
             Ok->async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
@@ -313,9 +313,9 @@ namespace
 
         // fault 分类错误 → boost 协议分类（Fault::Category() 匹配）
         {
-            net::io_context ioc;
+            Net::io_context ioc;
             const auto fault_ec = Preview::Fault::make_error_code(Preview::Fault::Code::Eof);
-            auto ft = std::make_shared<mock_transport>(ioc.get_executor(), fault_ec, 0);
+            auto ft = std::make_shared<MockTransport>(ioc.get_executor(), fault_ec, 0);
             std::promise<boost::system::error_code> done2;
             auto f2 = done2.get_future();
             ft->async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
@@ -326,9 +326,9 @@ namespace
 
         // generic 分类错误 → generic boost ec
         {
-            net::io_context ioc;
+            Net::io_context ioc;
             const auto gen_ec = std::make_error_code(std::errc::connection_reset);
-            auto gt = std::make_shared<mock_transport>(ioc.get_executor(), gen_ec, 0);
+            auto gt = std::make_shared<MockTransport>(ioc.get_executor(), gen_ec, 0);
             std::promise<boost::system::error_code> done3;
             auto f3 = done3.get_future();
             gt->async_read_some(std::span<std::byte>{}, [&](boost::system::error_code ec, std::size_t)
@@ -341,28 +341,28 @@ namespace
 
     TEST(SocketStream, LoopbackTransfer)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Preview::Transport::Reliable server_sock(ioc.get_executor());
         Preview::Transport::Reliable client_sock(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoro(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      const auto acceptor_ep =
-                         net::ip::tcp::endpoint(net::ip::address_v4::loopback(), 0);
-                     net::ip::tcp::acceptor acceptor(ioc.get_executor(), acceptor_ep);
+                         Net::ip::tcp::endpoint(Net::ip::address_v4::loopback(), 0);
+                     Net::ip::tcp::acceptor acceptor(ioc.get_executor(), acceptor_ep);
                      const auto ep = acceptor.local_endpoint();
 
-                     auto accept_coro = [&]() -> net::awaitable<void>
+                     auto accept_coro = [&]() -> Net::awaitable<void>
                      {
-                         co_await acceptor.async_accept(server_sock.NativeSocket(), net::use_awaitable);
+                         co_await acceptor.async_accept(server_sock.NativeSocket(), Net::use_awaitable);
                          co_return;
                      };
-                     net::co_spawn(ioc.get_executor(), accept_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), accept_coro(), Net::detached);
 
                      const auto cerr = co_await client_sock.Connect(ep);
                      EXPECT_FALSE(cerr);
-                     co_await net::post(ioc.get_executor(), net::use_awaitable);
+                     co_await Net::post(ioc.get_executor(), Net::use_awaitable);
                      EXPECT_TRUE(client_sock.IsOpen());
 
                     // 写 → 读
@@ -385,16 +385,16 @@ namespace
 
     TEST(UdpTransmission, LoopbackDatagram)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Preview::Transport::Unreliable Client(ioc.get_executor());
         Preview::Transport::Unreliable Server(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoro(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // Unreliable 构造后 socket 未打开，需先 Open
                      boost::system::error_code oec;
-                     Server.NativeSocket().open(net::ip::udp::v4(), oec);
+                    Server.NativeSocket().open(Net::ip::udp::v4(), oec);
                      if (oec)
                      {
                          EXPECT_TRUE(false) << "Open Failed: " << oec.message();
@@ -405,17 +405,19 @@ namespace
                          EXPECT_TRUE(false) << "Bind Failed";
                          co_return;
                      }
-                     Client.NativeSocket().open(net::ip::udp::v4(), oec);
+                    Client.NativeSocket().open(Net::ip::udp::v4(), oec);
                      if (oec)
                      {
                          EXPECT_TRUE(false) << "Client Open Failed";
                          co_return;
                      }
                      const auto local = Server.NativeSocket().local_endpoint();
-                     const auto local_addr = local.address().is_unspecified()
-                                                 ? std::string("127.0.0.1")
-                                                 : local.address().to_string();
-                     if (!Client.Connect(local_addr + ":" + std::to_string(local.port())))
+                     std::string LocalAddress = local.address().to_string();
+                     if (local.address().is_unspecified())
+                     {
+                         LocalAddress = "127.0.0.1";
+                     }
+                     if (!Client.Connect(LocalAddress + ":" + std::to_string(local.port())))
                      {
                          EXPECT_TRUE(false) << "Connect Failed";
                          co_return;
@@ -440,7 +442,7 @@ namespace
 
     TEST(UdpTransmission, ConnectRejectsMalformedHostPort)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         const std::array<std::string_view, 9> Invalid{
             "", ":443", "example.com:", "example.com:not-a-port", "example.com:1x",
             "example.com:65536", "[::1", "[::1]443", "2001:db8::1:443"};
@@ -454,7 +456,7 @@ namespace
 
     TEST(UdpTransmission, ConnectAcceptsIpv4Ipv6AndDomain)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         const std::array<std::string_view, 3> Valid{
             "127.0.0.1:443", "[::1]:443", "example.com:443"};
 

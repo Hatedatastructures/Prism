@@ -12,7 +12,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <ctime>
 #include <span>
 #include <string>
 #include <vector>
@@ -47,76 +46,107 @@ namespace Preview::Vmess
     /**
      * @brief 密封响应头
      * @param RespKey 16 字节响应密钥
-     * @param in 输入（iv + v + AuthId）
+     * @param Input 输入（iv + v + AuthId）
      * @return 响应头密文（4 + 16 tag）
      */
-    [[nodiscard]] inline auto SealResponseHeader(std::span<const std::uint8_t, 16> RespKey,
-                                                   const RespHeaderInput &in) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto SealResponseHeader(
+        std::span<const std::uint8_t, 16> RespKey,
+        const RespHeaderInput &Input) -> std::vector<std::uint8_t>
     {
-        return detail::AesGcmSeal(detail::SealInput{RespKey, in.iv, in.v, in.AuthId});
+        // 标准 VMess AEAD 响应头不使用 AuthID 作为 AAD；字段保留在
+        // 输入结构中仅为兼容旧调用方，避免把认证头语义带入响应方向。
+        (void)Input.AuthId;
+        return detail::AesGcmSeal(detail::SealInput{RespKey, Input.iv, Input.v, {}});
     }
 
     /**
      * @brief 打开响应头
      * @param RespKey 16 字节响应密钥
-     * @param in 输入（iv + Data + AuthId）
-     * @param out 输出响应头
+     * @param Input 输入（iv + Data + AuthId）
+     * @param Output 输出响应头
      * @return 错误码
      */
-    [[nodiscard]] inline auto OpenResponseHeader(std::span<const std::uint8_t, 16> RespKey,
-                                                   const RespHeaderParseInput &in, ResponseHeader &out)
+    [[nodiscard]] inline auto OpenResponseHeader(
+        std::span<const std::uint8_t, 16> RespKey,
+        const RespHeaderParseInput &Input,
+        ResponseHeader &Output)
         -> Error
     {
-        const auto Plain = detail::AesGcmOpen(detail::OpenInput{RespKey, in.iv, in.Data, in.AuthId});
-        if (Plain.size() < 4)
+        constexpr auto AeadTagLength = std::size_t{16};
+        if (Input.Data.size() < AeadTagLength)
+        {
+            return Error::NeedMore;
+        }
+        (void)Input.AuthId;
+        const auto Plain = detail::AesGcmOpen(detail::OpenInput{RespKey, Input.iv, Input.Data, {}});
+        if (Plain.empty())
         {
             return Error::BadAuth;
         }
-        out.Version = Plain[0];
-        std::memcpy(out.v.data(), Plain.data(), 4);
+        if (Plain.size() != 4)
+        {
+            return Error::BadLength;
+        }
+        Output.Version = Plain[0];
+        std::memcpy(Output.v.data(), Plain.data(), 4);
         return Error::None;
     }
 
     /**
      * @brief 构造 VMess AEAD 响应头
-     * @param msg 请求消息（RequestKey / RequestNonce / RespHeader）
-     * @param resp 输出响应字节
+     * @param MessageValue 请求消息（RequestKey / RequestNonce / RespHeader）
+     * @param Response 输出响应字节
      * @return false = 成功（保留历史 API 语义）
      */
-    [[nodiscard]] inline auto MakeResponse(const Message &msg, std::string &resp) -> bool
+    [[nodiscard]] inline auto MakeResponse(
+        const Message &MessageValue,
+        std::string &Response) -> bool
     {
-        const auto RespBodyKey = detail::Sha256(msg.RequestKey);
-        const auto RespBodyIv = detail::Sha256(msg.RequestNonce);
-        std::array<std::uint8_t, 16> RespKey16{};
-        std::memcpy(RespKey16.data(), RespBodyKey.data(), 16);
-        std::array<std::uint8_t, 16> RespIv16{};
-        std::memcpy(RespIv16.data(), RespBodyIv.data(), 16);
+        Response.clear();
+        const auto RespBodyKey = detail::Sha256(MessageValue.RequestKey);
+        const auto RespBodyIv = detail::Sha256(MessageValue.RequestNonce);
+        std::array<std::uint8_t, 16> ResponseKey{};
+        std::memcpy(ResponseKey.data(), RespBodyKey.data(), 16);
+        std::array<std::uint8_t, 16> ResponseIv{};
+        std::memcpy(ResponseIv.data(), RespBodyIv.data(), 16);
 
-        const auto AuthId = std::span<const std::uint8_t, AuthHeaderLen>(msg.AuthId);
+        const auto AuthId = std::span<const std::uint8_t, AuthHeaderLen>(MessageValue.AuthId);
 
-        const std::array<std::uint8_t, 4> v_plain{msg.RespHeader, 0, 0, 0};
-        const auto RespKey = Kdf(RespKey16, KdfRespKey);
-        const auto RespIv = Kdf(RespIv16, KdfRespIv);
-        std::array<std::uint8_t, 16> rk{};
-        std::memcpy(rk.data(), RespKey.data(), 16);
-        std::array<std::uint8_t, 12> riv{};
-        std::memcpy(riv.data(), RespIv.data(), 12);
-        const auto RespEnc = SealResponseHeader(rk, RespHeaderInput{riv, v_plain, AuthId});
+        const std::array<std::uint8_t, 4> ResponsePlain{MessageValue.RespHeader, MessageValue.Option, 0, 0};
+        const auto ResponseKeyPath = Kdf(ResponseKey, KdfRespKey);
+        const auto ResponseIvPath = Kdf(ResponseIv, KdfRespIv);
+        std::array<std::uint8_t, 16> ResponseKeyBytes{};
+        std::memcpy(ResponseKeyBytes.data(), ResponseKeyPath.data(), 16);
+        std::array<std::uint8_t, 12> ResponseIvBytes{};
+        std::memcpy(ResponseIvBytes.data(), ResponseIvPath.data(), 12);
+        const auto ResponseEncrypted = SealResponseHeader(
+            ResponseKeyBytes,
+            RespHeaderInput{ResponseIvBytes, ResponsePlain, AuthId});
+        if (ResponseEncrypted.size() != 20)
+        {
+            return true;
+        }
 
-        const auto RespLenKey = Kdf(RespKey16, KdfRespLenKey);
-        const auto RespLenIv = Kdf(RespIv16, KdfRespLenIv);
-        std::array<std::uint8_t, 16> rlk{};
-        std::memcpy(rlk.data(), RespLenKey.data(), 16);
-        std::array<std::uint8_t, 12> rliv{};
-        std::memcpy(rliv.data(), RespLenIv.data(), 12);
-        const std::array<std::uint8_t, 2> resp_LenPlain{static_cast<std::uint8_t>(RespEnc.size() >> 8),
-                                                         static_cast<std::uint8_t>(RespEnc.size() & 0xFF)};
-        const auto LenEnc = detail::AesGcmSeal(detail::SealInput{rlk, rliv, resp_LenPlain, AuthId});
+        const auto ResponseLengthKey = Kdf(ResponseKey, KdfRespLenKey);
+        const auto ResponseLengthIv = Kdf(ResponseIv, KdfRespLenIv);
+        std::array<std::uint8_t, 16> ResponseLengthKeyBytes{};
+        std::memcpy(ResponseLengthKeyBytes.data(), ResponseLengthKey.data(), 16);
+        std::array<std::uint8_t, 12> ResponseLengthIvBytes{};
+        std::memcpy(ResponseLengthIvBytes.data(), ResponseLengthIv.data(), 12);
+        const std::array<std::uint8_t, 2> ResponseLengthPlain{0, 4};
+        const auto LengthEncrypted = detail::AesGcmSeal(detail::SealInput{
+            ResponseLengthKeyBytes,
+            ResponseLengthIvBytes,
+            ResponseLengthPlain,
+            {}});
+        if (LengthEncrypted.size() != 18)
+        {
+            return true;
+        }
 
-        resp.clear();
-        resp.reserve(LenEnc.size() + RespEnc.size());
-        resp.insert(resp.end(), LenEnc.begin(), LenEnc.end());
-        resp.insert(resp.end(), RespEnc.begin(), RespEnc.end());
+        Response.reserve(LengthEncrypted.size() + ResponseEncrypted.size());
+        Response.insert(Response.end(), LengthEncrypted.begin(), LengthEncrypted.end());
+        Response.insert(Response.end(), ResponseEncrypted.begin(), ResponseEncrypted.end());
         return false;
     }
 

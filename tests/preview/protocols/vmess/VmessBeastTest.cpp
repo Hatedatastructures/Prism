@@ -5,105 +5,140 @@
 
 #include <ctime>
 
+#include <boost/asio/buffer.hpp>
+
+#include <cstdint>
+#include <span>
+#include <string>
+#include <string_view>
+
 #include <preview/Protocols/Vmess/Vmess.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Vmess = Preview::Vmess;
+    using Preview::Error;
+    using Preview::make_error_code;
 
-    constexpr std::array<std::uint8_t, 16> kUuid{0x12, 0x3E, 0x45, 0x67, 0xE8, 0x9B, 0x12, 0xD3,
-                                                 0xA4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00};
+    constexpr std::array<std::uint8_t, 16> Uuid{0x12, 0x3E, 0x45, 0x67, 0xE8, 0x9B, 0x12, 0xD3,
+                                                0xA4, 0x56, 0x42, 0x66, 0x14, 0x17, 0x40, 0x00};
 
     TEST(VmessBeast, HandshakeRoundtrip)
     {
-        Vmess::Message msg;
-        msg.uuid = kUuid;
-        msg.RequestNonce.fill(0x11);
-        msg.RequestKey.fill(0x22);
-        msg.Cmd = Vmess::CmdTcp;
-        msg.dst.Type = Vmess::AddressType::Ipv4;
-        msg.dst.Host = "127.0.0.1";
-        msg.dst.Port = 8080;
+        Vmess::Message Message;
+        Message.uuid = Uuid;
+        Message.RequestNonce.fill(0x11);
+        Message.RequestKey.fill(0x22);
+        Message.Cmd = Vmess::CmdTcp;
+        Message.dst.Type = Vmess::AddressType::Ipv4;
+        Message.dst.Host = "127.0.0.1";
+        Message.dst.Port = 8080;
 
-        Vmess::Serializer s(kUuid);
-        s.Reset(msg, static_cast<std::uint64_t>(std::time(nullptr)));
-        std::error_code ec;
-        std::array<std::uint8_t, 256> wire{};
-        const auto Total = s.Get(net::mutable_buffer(wire.data(), wire.size()), ec);
-        EXPECT_FALSE(ec);
-        EXPECT_TRUE(s.IsDone());
+        Vmess::Serializer Serializer(Uuid);
+        Serializer.Reset(Message, static_cast<std::uint64_t>(std::time(nullptr)));
+        std::error_code ErrorCode;
+        std::array<std::uint8_t, 256> Wire{};
+        const auto Total = Serializer.Get(Net::mutable_buffer(Wire.data(), Wire.size()), ErrorCode);
+        EXPECT_FALSE(ErrorCode);
+        EXPECT_TRUE(Serializer.IsDone());
 
-        Vmess::Parser p(kUuid);
-        const auto n = p.Put(net::const_buffer(wire.data(), Total), ec);
-        EXPECT_FALSE(ec);
-        EXPECT_EQ(n, Total);
-        EXPECT_TRUE(p.IsDone());
-        EXPECT_EQ(p.Get().Cmd, Vmess::CmdTcp);
-        EXPECT_EQ(p.Get().dst.Host, "127.0.0.1");
-        EXPECT_EQ(p.Get().dst.Port, 8080);
+        Vmess::Parser Parser(Uuid);
+        const auto Parsed = Parser.Put(Net::const_buffer(Wire.data(), Total), ErrorCode);
+        EXPECT_FALSE(ErrorCode);
+        EXPECT_EQ(Parsed, Total);
+        EXPECT_TRUE(Parser.IsDone());
+        EXPECT_EQ(Parser.Get().Cmd, Vmess::CmdTcp);
+        EXPECT_EQ(Parser.Get().dst.Host, "127.0.0.1");
+        EXPECT_EQ(Parser.Get().dst.Port, 8080);
+    }
+
+    TEST(VmessBeast, SerializerReportsRandomSourceFailure)
+    {
+        Vmess::Message Message;
+        Message.uuid = Uuid;
+        Message.Cmd = Vmess::CmdTcp;
+        Message.dst.Type = Vmess::AddressType::Ipv4;
+        Message.dst.Host = "127.0.0.1";
+        Message.dst.Port = 8080;
+        Vmess::Serializer SerializerInstance(Uuid, [](std::uint8_t *, int) { return 0; });
+        SerializerInstance.Reset(Message, static_cast<std::uint64_t>(std::time(nullptr)));
+        std::array<std::uint8_t, 256> Wire{};
+        std::error_code ErrorCode;
+        EXPECT_EQ(SerializerInstance.Get(Net::mutable_buffer(Wire.data(), Wire.size()), ErrorCode), 0U);
+        EXPECT_EQ(ErrorCode, make_error_code(Error::IoError));
+        EXPECT_FALSE(SerializerInstance.IsDone());
     }
 
     TEST(VmessBeast, WrongUuidRejected)
     {
-        constexpr std::array<std::uint8_t, 16> other{0x11, 0x11, 0x11, 0x11, 0x22, 0x22, 0x22, 0x22,
-                                                     0x33, 0x33, 0x33, 0x33, 0x44, 0x44, 0x44, 0x44};
-        Vmess::Message msg;
-        msg.uuid = other;
-        msg.RequestNonce.fill(0x11);
-        msg.RequestKey.fill(0x22);
-        msg.Cmd = static_cast<std::uint8_t>(static_cast<std::uint8_t>(Vmess::Command::Tcp));
-        msg.dst.Type = Vmess::AddressType::Ipv4;
-        msg.dst.Host = "127.0.0.1";
-        msg.dst.Port = 8080;
+        constexpr std::array<std::uint8_t, 16> OtherUuid{0x11, 0x11, 0x11, 0x11, 0x22, 0x22, 0x22, 0x22,
+                                                         0x33, 0x33, 0x33, 0x33, 0x44, 0x44, 0x44, 0x44};
+        Vmess::Message Message;
+        Message.uuid = OtherUuid;
+        Message.RequestNonce.fill(0x11);
+        Message.RequestKey.fill(0x22);
+        Message.Cmd = static_cast<std::uint8_t>(static_cast<std::uint8_t>(Vmess::Command::Tcp));
+        Message.dst.Type = Vmess::AddressType::Ipv4;
+        Message.dst.Host = "127.0.0.1";
+        Message.dst.Port = 8080;
 
-        Vmess::Serializer s(other);
-        s.Reset(msg, static_cast<std::uint64_t>(std::time(nullptr)));
-        std::error_code ec;
-        std::array<std::uint8_t, 256> wire{};
-        const auto Total = s.Get(net::mutable_buffer(wire.data(), wire.size()), ec);
+        Vmess::Serializer Serializer(OtherUuid);
+        Serializer.Reset(Message, static_cast<std::uint64_t>(std::time(nullptr)));
+        std::error_code ErrorCode;
+        std::array<std::uint8_t, 256> Wire{};
+        const auto Total = Serializer.Get(Net::mutable_buffer(Wire.data(), Wire.size()), ErrorCode);
 
-        Vmess::Parser p(kUuid);
-        p.Put(net::const_buffer(wire.data(), Total), ec);
-        EXPECT_EQ(ec, Error::AuthFailed);
+        Vmess::Parser Parser(Uuid);
+        Parser.Put(Net::const_buffer(Wire.data(), Total), ErrorCode);
+        EXPECT_EQ(ErrorCode, Error::AuthFailed);
+    }
+
+    TEST(VmessBeast, ParseUuidRejectsMisplacedSeparators)
+    {
+        // 保持 36 字符和 32 个十六进制字符，但破坏标准 8-4-4-4-12 分组。
+        constexpr std::string_view Malformed = "123456-789abc-def012-345678-9abcdef0";
+        std::array<std::uint8_t, 16> ParsedUuid{};
+        EXPECT_FALSE(Vmess::ParseUuid(Malformed, ParsedUuid));
     }
 
     TEST(VmessBeast, ChunkStreamRoundtrip)
     {
-        std::array<std::uint8_t, 16> key{};
-        key.fill(0x11);
-        std::array<std::uint8_t, 16> iv{};
-        iv.fill(0x22);
+        std::array<std::uint8_t, 16> Key{};
+        Key.fill(0x11);
+        std::array<std::uint8_t, 16> Iv{};
+        Iv.fill(0x22);
 
-        Vmess::ChunkStream enc;
-        enc.Init(key, iv);
-        Vmess::ChunkStream dec;
-        dec.Init(key, iv);
+        Vmess::ChunkStream Encoder;
+        Encoder.Init(Key, Iv);
+        Vmess::ChunkStream Decoder;
+        Decoder.Init(Key, Iv);
 
-        const std::string payload = "vmess chunk payload";
-        std::string wire;
-        EXPECT_FALSE(enc.Encrypt(std::span<const std::uint8_t>(
-                                     reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()),
-                                 wire));
+        const std::string Payload = "vmess chunk payload";
+        std::string Wire;
+        EXPECT_FALSE(Encoder.Encrypt(std::span<const std::uint8_t>(
+                                         reinterpret_cast<const std::uint8_t *>(Payload.data()), Payload.size()),
+                                     Wire));
 
-        std::string plain;
-        const auto r = dec.Decrypt(
-            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(wire.data()), wire.size()),
-            plain);
-        EXPECT_FALSE(r.Ec);
-        EXPECT_EQ(r.Consumed, wire.size());
-        EXPECT_EQ(plain, payload);
+        std::string Plain;
+        const auto Result = Decoder.Decrypt(
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(Wire.data()), Wire.size()),
+            Plain);
+        EXPECT_FALSE(Result.Ec);
+        EXPECT_EQ(Result.Consumed, Wire.size());
+        EXPECT_EQ(Plain, Payload);
     }
 
     TEST(VmessBeast, ResponseHeader)
     {
-        Vmess::Message msg{};
-        msg.RequestKey.fill(0x11);
-        msg.RequestNonce.fill(0x22);
-        msg.RespHeader = 0x77;
-        std::string resp;
-        EXPECT_FALSE(Vmess::MakeResponse(msg, resp));
-        EXPECT_EQ(resp.size(), 38);
+        Vmess::Message Message{};
+        Message.RequestKey.fill(0x11);
+        Message.RequestNonce.fill(0x22);
+        Message.RespHeader = 0x77;
+        std::string Response;
+        EXPECT_FALSE(Vmess::MakeResponse(Message, Response));
+        EXPECT_EQ(Response.size(), 38);
     }
 
 } // namespace

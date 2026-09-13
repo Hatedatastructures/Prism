@@ -9,8 +9,6 @@
 #pragma once
 
 #include <boost/asio/buffer.hpp>
-#include <openssl/rand.h>
-
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -18,6 +16,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <functional>
+#include <limits>
 #include <random>
 #include <span>
 #include <string>
@@ -25,6 +25,7 @@
 #include <vector>
 
 #include <preview/Foundation/Error.hpp>
+#include <preview/Foundation/Utility/Crypto/Random.hpp>
 #include <preview/Protocols/Common/Address.hpp>
 #include <preview/Protocols/Shadowsocks2022/ChunkCodec.hpp>
 #include <preview/Protocols/Shadowsocks2022/KeyDerivation.hpp>
@@ -40,19 +41,21 @@ namespace Preview::Shadowsocks2022
      * @param VarLen 变长头长度
      * @return 11 字节明文
      */
-    [[nodiscard]] inline auto ParseFixedHeader(std::uint8_t Type, std::uint64_t TimeSec,
-                                                 std::uint16_t VarLen)
+    [[nodiscard]] inline auto ParseFixedHeader(
+        std::uint8_t Type,
+        std::uint64_t TimeSec,
+        std::uint16_t VarLen)
         -> std::array<std::uint8_t, FixedHdrPlain>
     {
-        std::array<std::uint8_t, FixedHdrPlain> Out{};
-        Out[0] = Type;
+        std::array<std::uint8_t, FixedHdrPlain> Output{};
+        Output[0] = Type;
         for (std::size_t I = 0; I < 8; ++I)
         {
-            Out[1 + I] = static_cast<std::uint8_t>((TimeSec >> (56 - I * 8)) & 0xFF);
+            Output[1 + I] = static_cast<std::uint8_t>((TimeSec >> (56 - I * 8)) & 0xFF);
         }
-        Out[9] = static_cast<std::uint8_t>((VarLen >> 8) & 0xFF);
-        Out[10] = static_cast<std::uint8_t>(VarLen & 0xFF);
-        return Out;
+        Output[9] = static_cast<std::uint8_t>((VarLen >> 8) & 0xFF);
+        Output[10] = static_cast<std::uint8_t>(VarLen & 0xFF);
+        return Output;
     }
 
     /**
@@ -71,19 +74,21 @@ namespace Preview::Shadowsocks2022
      * @param Out 输出固定头字段
      * @return 错误码
      */
-    [[nodiscard]] inline auto ParseFixedHeader(std::span<const std::uint8_t> Data, FixedHeader &Out) -> Error
+    [[nodiscard]] inline auto ParseFixedHeader(
+        std::span<const std::uint8_t> Data,
+        FixedHeader &Output) -> Error
     {
         if (Data.size() < FixedHdrPlain)
         {
             return Error::NeedMore;
         }
-        Out.Type = Data[0];
-        Out.TimeSec = 0;
+        Output.Type = Data[0];
+        Output.TimeSec = 0;
         for (std::size_t I = 0; I < 8; ++I)
         {
-            Out.TimeSec = (Out.TimeSec << 8) | Data[1 + I];
+            Output.TimeSec = (Output.TimeSec << 8) | Data[1 + I];
         }
-        Out.VarLen = static_cast<std::uint16_t>(Data[9]) << 8 | Data[10];
+        Output.VarLen = static_cast<std::uint16_t>(Data[9]) << 8 | Data[10];
         return Error::None;
     }
 
@@ -93,9 +98,11 @@ namespace Preview::Shadowsocks2022
      * @param Out 输出缓冲（追加到末尾）
      */
     template <typename Alloc>
-    inline auto EncodeAddress(const Address &Addr, std::vector<std::uint8_t, Alloc> &Out) -> void
+    inline auto EncodeAddress(
+        const Address &AddressValue,
+        std::vector<std::uint8_t, Alloc> &Output) -> bool
     {
-        Preview::Protocol::Common::EncodeAddress(Addr, Out);
+        return Preview::Protocol::Common::EncodeAddress(AddressValue, Output);
     }
 
     /**
@@ -103,134 +110,171 @@ namespace Preview::Shadowsocks2022
      * @param Addr 目标地址
      * @return 编码后的地址
      */
-    [[nodiscard]] inline auto EncodeAddress(const Address &Addr) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto EncodeAddress(const Address &AddressValue)
+        -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> Out;
-        EncodeAddress(Addr, Out);
-        return Out;
+        std::vector<std::uint8_t> Output;
+        if (!EncodeAddress(AddressValue, Output))
+        {
+            return {};
+        }
+        return Output;
     }
 
     /**
      * @brief 解析地址字节
      * @param Data 完整缓冲区
-     * @param Addr 输出目标地址
-     * @param Off 输入起始偏移，输出结束偏移
+     * @param Output 输出目标地址
+     * @param Offset 输入起始偏移，输出结束偏移
      * @return 错误码
      */
-    [[nodiscard]] inline auto ParseAddress(std::span<const std::uint8_t> Data, Address &Addr,
-                                             std::size_t &Off) -> Error
+    [[nodiscard]] inline auto ParseAddress(
+        std::span<const std::uint8_t> Data,
+        Address &Output,
+        std::size_t &Offset) -> Error
     {
-        if (Off >= Data.size())
+        if (Offset >= Data.size())
         {
             return Error::NeedMore;
         }
-        Addr.Type = static_cast<AddressType>(Data[Off++]);
-        switch (Addr.Type)
+        Output.Type = static_cast<AddressType>(Data[Offset++]);
+        switch (Output.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < Off + 4)
+            if (Data.size() - Offset < 4)
             {
                 return Error::NeedMore;
             }
-            std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
-                          Data[Off + 3]);
-            Addr.Host = buf.data();
-            Off += 4;
+            std::array<char, 16> Buffer{};
+            std::snprintf(
+                Buffer.data(),
+                Buffer.size(),
+                "%u.%u.%u.%u",
+                static_cast<unsigned int>(Data[Offset]),
+                static_cast<unsigned int>(Data[Offset + 1]),
+                static_cast<unsigned int>(Data[Offset + 2]),
+                static_cast<unsigned int>(Data[Offset + 3]));
+            Output.Host = Buffer.data();
+            Offset += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < Off + 16)
+            if (Data.size() - Offset < 16)
             {
                 return Error::NeedMore;
             }
-            Addr.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
-            Off += 16;
+            Output.Host.assign(reinterpret_cast<const char *>(Data.data() + Offset), 16);
+            Offset += 16;
             break;
         }
         case AddressType::Domain: {
-            if (Off >= Data.size())
+            if (Offset >= Data.size())
             {
                 return Error::NeedMore;
             }
-            const auto Len = Data[Off++];
-            if (Data.size() < Off + Len)
+            const auto Length = Data[Offset++];
+            if (Length == 0)
+            {
+                return Error::BadAddress;
+            }
+            if (Data.size() - Offset < Length)
             {
                 return Error::NeedMore;
             }
-            Addr.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
-            Off += Len;
+            Output.Host.assign(reinterpret_cast<const char *>(Data.data() + Offset), Length);
+            Offset += Length;
             break;
         }
         default: return Error::BadAddress;
         }
-        if (Data.size() < Off + 2)
+        if (Data.size() - Offset < 2)
         {
             return Error::NeedMore;
         }
-        Addr.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
-        Off += 2;
+        Output.Port = static_cast<std::uint16_t>(Data[Offset]) << 8 | Data[Offset + 1];
+        Offset += 2;
         return Error::None;
     }
 
     /**
      * @brief 构造变长头明文（地址 + padding + 初始载荷）
-     * @param Addr 目标地址
-     * @param PadLen padding 长度
-     * @param payload 初始载荷（可空）
+     * @param AddressValue 目标地址
+     * @param PaddingLength padding 长度
+     * @param Payload 初始载荷（可空）
      * @return 变长头明文
      */
-    [[nodiscard]] inline auto BuildVarHeader(const Address &Addr, std::uint16_t PadLen,
-                                               std::span<const std::uint8_t> payload = {})
+    [[nodiscard]] inline auto BuildVarHeader(
+        const Address &AddressValue,
+        std::uint16_t PaddingLength,
+        std::span<const std::uint8_t> Payload = {})
         -> std::vector<std::uint8_t>
     {
-        auto Out = EncodeAddress(Addr);
-        Out.push_back(static_cast<std::uint8_t>((PadLen >> 8) & 0xFF));
-        Out.push_back(static_cast<std::uint8_t>(PadLen & 0xFF));
-        for (std::uint16_t I = 0; I < PadLen; ++I)
+        auto Output = EncodeAddress(AddressValue);
+        if (Output.empty())
         {
-            Out.push_back(0);
+            return {};
         }
-        Out.insert(Out.end(), payload.begin(), payload.end());
-        return Out;
+        constexpr auto MaxVarHeaderLength = (std::numeric_limits<std::uint16_t>::max)();
+        if (PaddingLength > MaxVarHeaderLength - 2 ||
+            Output.size() > MaxVarHeaderLength - 2 - PaddingLength ||
+            Payload.size() > MaxVarHeaderLength - 2 - PaddingLength - Output.size())
+        {
+            return {};
+        }
+        Output.push_back(static_cast<std::uint8_t>((PaddingLength >> 8) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>(PaddingLength & 0xFF));
+        for (std::uint16_t I = 0; I < PaddingLength; ++I)
+        {
+            Output.push_back(0);
+        }
+        Output.insert(Output.end(), Payload.begin(), Payload.end());
+        return Output;
     }
 
     /**
      * @brief 解析变长头明文
      * @param Data 变长头明文
-     * @param Addr 输出目标地址
-     * @param payload 输出剩余载荷
+     * @param Output 输出目标地址
+     * @param Payload 输出剩余载荷
      * @return 错误码
      */
-    [[nodiscard]] inline auto ParseVarHeader(std::span<const std::uint8_t> Data, Address &Addr,
-                                               std::span<const std::uint8_t> &payload) -> Error
+    [[nodiscard]] inline auto ParseVarHeader(
+        std::span<const std::uint8_t> Data,
+        Address &Output,
+        std::span<const std::uint8_t> &Payload) -> Error
     {
         if (Data.size() < 2)
         {
             return Error::NeedMore;
         }
-        Addr.Type = static_cast<AddressType>(Data[0]);
+        Output.Type = static_cast<AddressType>(Data[0]);
         std::size_t Off = 1;
-        switch (Addr.Type)
+        switch (Output.Type)
         {
         case AddressType::Ipv4: {
-            if (Data.size() < Off + 4)
+            if (Data.size() - Off < 4)
             {
                 return Error::NeedMore;
             }
-            std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", Data[Off], Data[Off + 1], Data[Off + 2],
-                          Data[Off + 3]);
-            Addr.Host = buf.data();
+            std::array<char, 16> Buffer{};
+            std::snprintf(
+                Buffer.data(),
+                Buffer.size(),
+                "%u.%u.%u.%u",
+                static_cast<unsigned int>(Data[Off]),
+                static_cast<unsigned int>(Data[Off + 1]),
+                static_cast<unsigned int>(Data[Off + 2]),
+                static_cast<unsigned int>(Data[Off + 3]));
+            Output.Host = Buffer.data();
             Off += 4;
             break;
         }
         case AddressType::Ipv6: {
-            if (Data.size() < Off + 16)
+            if (Data.size() - Off < 16)
             {
                 return Error::NeedMore;
             }
-            Addr.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
+            Output.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), 16);
             Off += 16;
             break;
         }
@@ -239,35 +283,39 @@ namespace Preview::Shadowsocks2022
             {
                 return Error::NeedMore;
             }
-            const auto Len = Data[Off++];
-            if (Data.size() < Off + Len)
+            const auto Length = Data[Off++];
+            if (Length == 0)
+            {
+                return Error::BadAddress;
+            }
+            if (Data.size() - Off < Length)
             {
                 return Error::NeedMore;
             }
-            Addr.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Len);
-            Off += Len;
+            Output.Host.assign(reinterpret_cast<const char *>(Data.data() + Off), Length);
+            Off += Length;
             break;
         }
         default: return Error::BadAddress;
         }
-        if (Data.size() < Off + 2)
+        if (Data.size() - Off < 2)
         {
             return Error::NeedMore;
         }
-        Addr.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
+        Output.Port = static_cast<std::uint16_t>(Data[Off]) << 8 | Data[Off + 1];
         Off += 2;
-        if (Data.size() < Off + 2)
+        if (Data.size() - Off < 2)
         {
             return Error::NeedMore;
         }
-        const auto PadLen = static_cast<std::size_t>(Data[Off]) << 8 | Data[Off + 1];
+        const auto PaddingLength = static_cast<std::size_t>(Data[Off]) << 8 | Data[Off + 1];
         Off += 2;
-        if (Data.size() < Off + PadLen)
+        if (Data.size() - Off < PaddingLength)
         {
             return Error::NeedMore;
         }
-        Off += PadLen;
-        payload = Data.subspan(Off);
+        Off += PaddingLength;
+        Payload = Data.subspan(Off);
         return Error::None;
     }
 
@@ -286,60 +334,109 @@ namespace Preview::Shadowsocks2022
     class Serializer
     {
     public:
+        using RandomSource = std::function<int(std::uint8_t *, int)>;
         /**
          * @brief 构造
-         * @param psk 预共享密钥（16 字节）
+         * @param Psk 预共享密钥（16 字节）
          */
-        explicit Serializer(const std::array<std::uint8_t, 16> &psk) : Psk_(psk)
+        explicit Serializer(
+            const std::array<std::uint8_t, 16> &Psk,
+            RandomSource Source = {})
+            : Psk_(Psk), Source_(std::move(Source))
         {
         }
 
         /**
          * @brief 重置并绑定消息
-         * @param msg 消息
+         * @param MessageValue 消息
          * @param TimeSec UTC 秒
          */
-        auto Reset(const Message &msg, std::uint64_t TimeSec) -> void
+        auto Reset(const Message &MessageValue, std::uint64_t TimeSec) -> void
         {
+            Wire_.clear();
+            Offset_ = 0;
+            Ready_ = false;
+            Failed_ = false;
             std::array<std::uint8_t, 16> Salt{};
-            RAND_bytes(Salt.data(), static_cast<int>(Salt.size()));
-            const auto key = SessionKey(Psk_, Salt, 16);
-
-            std::random_device rd;
-            const auto PadLen = static_cast<std::uint16_t>(1 + rd() % 16);
-            std::vector<std::uint8_t> var;
-            const auto Addr = EncodeAddress(msg.dst);
-            var.insert(var.end(), Addr.begin(), Addr.end());
-            var.push_back(static_cast<std::uint8_t>((PadLen >> 8) & 0xFF));
-            var.push_back(static_cast<std::uint8_t>(PadLen & 0xFF));
-            for (std::uint16_t I = 0; I < PadLen; ++I)
+            bool Filled;
+            if (Source_)
             {
-                var.push_back(static_cast<std::uint8_t>(rd() & 0xFF));
+                Filled = Preview::Crypto::FillRandom(std::span<std::uint8_t>(Salt), Source_);
             }
-            var.insert(var.end(), msg.InitialPayload.begin(), msg.InitialPayload.end());
+            else
+            {
+                Filled = Preview::Crypto::FillRandom(std::span<std::uint8_t>(Salt));
+            }
+            if (!Filled)
+            {
+                Failed_ = true;
+                return;
+            }
+            const auto SessionKeyValue = SessionKey(Psk_, Salt, 16);
 
-            const auto Fixed = ParseFixedHeader(HeaderTypeClient, TimeSec, static_cast<std::uint16_t>(var.size()));
-            ChunkCodec Codec(key);
-            const auto FixedEnc = Codec.SealRaw(Fixed);
-            const auto VarEnc = Codec.SealRaw(var);
+            std::random_device RandomDevice;
+            const auto PaddingLength = static_cast<std::uint16_t>(1 + RandomDevice() % 16);
+            std::vector<std::uint8_t> VariableHeader;
+            const auto AddressBytes = EncodeAddress(MessageValue.dst);
+            if (AddressBytes.empty())
+            {
+                Failed_ = true;
+                return;
+            }
+            VariableHeader.insert(VariableHeader.end(), AddressBytes.begin(), AddressBytes.end());
+            VariableHeader.push_back(static_cast<std::uint8_t>((PaddingLength >> 8) & 0xFF));
+            VariableHeader.push_back(static_cast<std::uint8_t>(PaddingLength & 0xFF));
+            for (std::uint16_t I = 0; I < PaddingLength; ++I)
+            {
+                VariableHeader.push_back(static_cast<std::uint8_t>(RandomDevice() & 0xFF));
+            }
+            VariableHeader.insert(
+                VariableHeader.end(),
+                MessageValue.InitialPayload.begin(),
+                MessageValue.InitialPayload.end());
+            if (VariableHeader.size() > (std::numeric_limits<std::uint16_t>::max)())
+            {
+                Failed_ = true;
+                return;
+            }
+
+            const auto Fixed = ParseFixedHeader(
+                HeaderTypeClient,
+                TimeSec,
+                static_cast<std::uint16_t>(VariableHeader.size()));
+            ChunkCodec Codec(SessionKeyValue);
+            const auto FixedEncrypted = Codec.SealRaw(Fixed);
+            const auto VariableEncrypted = Codec.SealRaw(VariableHeader);
+            if (FixedEncrypted.empty() || VariableEncrypted.empty())
+            {
+                Failed_ = true;
+                return;
+            }
 
             Wire_.clear();
-            Wire_.reserve(Salt.size() + FixedEnc.size() + VarEnc.size());
+            Wire_.reserve(Salt.size() + FixedEncrypted.size() + VariableEncrypted.size());
             Wire_.insert(Wire_.end(), Salt.begin(), Salt.end());
-            Wire_.insert(Wire_.end(), FixedEnc.begin(), FixedEnc.end());
-            Wire_.insert(Wire_.end(), VarEnc.begin(), VarEnc.end());
-            Offset_ = 0;
+            Wire_.insert(Wire_.end(), FixedEncrypted.begin(), FixedEncrypted.end());
+            Wire_.insert(Wire_.end(), VariableEncrypted.begin(), VariableEncrypted.end());
+            Ready_ = !Wire_.empty();
         }
 
         /**
          * @brief 增量输出
          * @param Buffer 输出缓冲区
-         * @param ec 错误码
+         * @param ErrorCode 错误码
          * @return 实际写入字节数
          */
-        auto Get(boost::asio::mutable_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Get(
+            boost::asio::mutable_buffer Buffer,
+            std::error_code &ErrorCode) -> std::size_t
         {
-            ec.clear();
+            ErrorCode.clear();
+            if (!Ready_)
+            {
+                ErrorCode = make_error_code(Error::IoError);
+                return 0;
+            }
             const auto N = std::min(Buffer.size(), Wire_.size() - Offset_);
             std::memcpy(Buffer.data(), Wire_.data() + Offset_, N);
             Offset_ += N;
@@ -352,13 +449,16 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] auto IsDone() const -> bool
         {
-            return Offset_ >= Wire_.size();
+            return !Failed_ && Ready_ && Offset_ >= Wire_.size();
         }
 
     private:
         std::array<std::uint8_t, 16> Psk_;
+        RandomSource Source_;
         std::vector<std::uint8_t> Wire_;
         std::size_t Offset_{0};
+        bool Ready_{false};
+        bool Failed_{false};
     };
 
     /**
@@ -369,77 +469,95 @@ namespace Preview::Shadowsocks2022
     public:
         /**
          * @brief 构造
-         * @param psk 预共享密钥（16 字节）
+         * @param Psk 预共享密钥（16 字节）
          */
-        explicit Parser(const std::array<std::uint8_t, 16> &psk) : Psk_(psk)
+        explicit Parser(const std::array<std::uint8_t, 16> &Psk) : Psk_(Psk)
         {
         }
 
         /**
          * @brief 增量喂入
          * @param Buffer 输入缓冲区
-         * @param ec 错误码
+         * @param ErrorCode 错误码
          * @return 已累积缓冲字节数
          */
-        auto Put(boost::asio::const_buffer Buffer, std::error_code &ec) -> std::size_t
+        auto Put(
+            boost::asio::const_buffer Buffer,
+            std::error_code &ErrorCode) -> std::size_t
         {
-            ec.clear();
+            ErrorCode.clear();
+            if (Done_)
+            {
+                return 0;
+            }
             const auto Data = std::span<const std::uint8_t>(static_cast<const std::uint8_t *>(Buffer.data()),
                                                             Buffer.size());
             Buf_.insert(Buf_.end(), Data.begin(), Data.end());
             if (Buf_.size() < 16 + FixedHdrPlain + AeadTagLen)
             {
-                ec = make_error_code(Error::NeedMore);
+                ErrorCode = make_error_code(Error::NeedMore);
                 return 0;
             }
 
             const auto Salt = std::span<const std::uint8_t>(Buf_).first(16);
-            const auto key = SessionKey(Psk_, Salt, 16);
-            ChunkCodec Codec(key);
+            const auto SessionKeyValue = SessionKey(Psk_, Salt, 16);
+            ChunkCodec Codec(SessionKeyValue);
             auto FixedPlain = Codec.OpenRaw(std::span<const std::uint8_t>(Buf_).subspan(
                                                    16, FixedHdrPlain + AeadTagLen));
             if (FixedPlain.size() != FixedHdrPlain || FixedPlain[0] != HeaderTypeClient)
             {
-                ec = make_error_code(Error::AuthFailed);
+                ErrorCode = make_error_code(Error::AuthFailed);
                 return 0;
             }
-            const auto VarLen = static_cast<std::size_t>(FixedPlain[9]) << 8 | FixedPlain[10];
-            if (Buf_.size() < 16 + FixedHdrPlain + AeadTagLen + VarLen + AeadTagLen)
+            FixedHeader FixedHeaderValue;
+            if (ParseFixedHeader(FixedPlain, FixedHeaderValue) != Error::None)
             {
-                ec = make_error_code(Error::NeedMore);
+                ErrorCode = make_error_code(Error::BadMessage);
                 return 0;
             }
-            auto VarPlain = Codec.OpenRaw(std::span<const std::uint8_t>(Buf_).subspan(
-                                                 16 + FixedHdrPlain + AeadTagLen,
-                                                 VarLen + AeadTagLen));
-            if (VarPlain.empty())
+            TimeSec_ = FixedHeaderValue.TimeSec;
+            const auto VariableLength = static_cast<std::size_t>(FixedHeaderValue.VarLen);
+            if (Buf_.size() < 16 + FixedHdrPlain + AeadTagLen + VariableLength + AeadTagLen)
             {
-                ec = make_error_code(Error::AuthFailed);
+                ErrorCode = make_error_code(Error::NeedMore);
+                return 0;
+            }
+            auto VariablePlain = Codec.OpenRaw(std::span<const std::uint8_t>(Buf_).subspan(
+                                                       16 + FixedHdrPlain + AeadTagLen,
+                                                       VariableLength + AeadTagLen));
+            if (VariablePlain.empty())
+            {
+                ErrorCode = make_error_code(Error::AuthFailed);
                 return 0;
             }
 
-            std::size_t Off = 0;
-            auto Err = ParseAddress(std::span<const std::uint8_t>(VarPlain).subspan(Off), Msg_.dst, Off);
-            if (Err != Error::None)
+            std::size_t Offset = 0;
+            const auto AddressError = ParseAddress(
+                std::span<const std::uint8_t>(VariablePlain).subspan(Offset),
+                Msg_.dst,
+                Offset);
+            if (AddressError != Error::None)
             {
-                ec = make_error_code(Err);
+                ErrorCode = make_error_code(AddressError);
                 return 0;
             }
-            if (VarPlain.size() < Off + 2)
+            if (VariablePlain.size() - Offset < 2)
             {
-                ec = make_error_code(Error::BadMessage);
+                ErrorCode = make_error_code(Error::BadMessage);
                 return 0;
             }
-            const auto PadLen = static_cast<std::size_t>(VarPlain[Off]) << 8 | VarPlain[Off + 1];
-            Off += 2;
-            if (VarPlain.size() < Off + PadLen)
+            const auto PaddingLength =
+                static_cast<std::size_t>(VariablePlain[Offset]) << 8 | VariablePlain[Offset + 1];
+            Offset += 2;
+            if (VariablePlain.size() - Offset < PaddingLength)
             {
-                ec = make_error_code(Error::BadMessage);
+                ErrorCode = make_error_code(Error::BadMessage);
                 return 0;
             }
-            Off += PadLen;
-            Msg_.InitialPayload.assign(reinterpret_cast<const char *>(VarPlain.data() + Off),
-                                        VarPlain.size() - Off);
+            Offset += PaddingLength;
+            Msg_.InitialPayload.assign(
+                reinterpret_cast<const char *>(VariablePlain.data() + Offset),
+                VariablePlain.size() - Offset);
             Done_ = true;
             return Buf_.size();
         }
@@ -463,12 +581,45 @@ namespace Preview::Shadowsocks2022
         }
 
         /**
+         * @brief 获取握手固定头时间戳
+         * @return 客户端握手时间戳（UTC 秒）
+         */
+        [[nodiscard]] auto TimeSec() const noexcept -> std::uint64_t
+        {
+            return TimeSec_;
+        }
+
+        /**
+         * @brief 校验握手时间戳是否在允许窗口内
+         * @param TimeWindow 允许的绝对误差（秒）
+         * @return 时间戳有效返回 true
+         */
+        [[nodiscard]] auto IsTimestampFresh(std::uint64_t TimeWindow) const noexcept -> bool
+        {
+            const auto Now = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+            std::uint64_t Difference;
+            if (Now >= TimeSec_)
+            {
+                Difference = Now - TimeSec_;
+            }
+            else
+            {
+                Difference = TimeSec_ - Now;
+            }
+            return Difference <= TimeWindow;
+        }
+
+        /**
          * @brief 重置解析状态
          */
         auto Reset() -> void
         {
             Buf_.clear();
             Msg_ = Message{};
+            TimeSec_ = 0;
             Done_ = false;
         }
 
@@ -476,6 +627,7 @@ namespace Preview::Shadowsocks2022
         std::array<std::uint8_t, 16> Psk_;
         std::vector<std::uint8_t> Buf_;
         Message Msg_{};
+        std::uint64_t TimeSec_{0};
         bool Done_{false};
     };
 

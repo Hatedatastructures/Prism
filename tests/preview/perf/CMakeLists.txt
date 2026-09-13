@@ -8,6 +8,9 @@ if(NOT PRISM_ENABLE_BENCHMARK)
 endif()
 
 set(_PERF_TIMEOUT 600)
+# RecognitionPerf 对每个确定性/试探候选集合执行完整的 1000/7/10000 矩阵；
+# 保留完整样本数，并给较慢或降频主机足够的墙钟时间。
+set(_RECOGNITION_PERF_TIMEOUT 1800)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     set(_perf_compile_options -g1 -Os)
@@ -81,6 +84,14 @@ target_compile_options(DnsPerf PRIVATE ${_perf_compile_options})
 target_link_libraries(DnsPerf PRIVATE PreviewNet PreviewTestSupport)
 add_test(NAME Perf_Dns COMMAND DnsPerf)
 set_tests_properties(Perf_Dns PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
+add_executable(RecognitionPerf RecognitionPerf.cpp)
+target_compile_options(RecognitionPerf PRIVATE ${_perf_compile_options})
+target_link_libraries(RecognitionPerf PRIVATE PreviewFoundation PreviewTransport PreviewRuntime PreviewComposition PreviewProtocolHttp PreviewProtocolVless PreviewProtocolVmess PreviewTestSupport)
+add_test(NAME Perf_Recognition COMMAND RecognitionPerf)
+# RecognitionPerf intentionally performs a large warmup/sample matrix; allow
+# extra wall time for slower or contended CI hosts without relaxing other perf tests.
+set_tests_properties(Perf_Recognition PROPERTIES LABELS perf TIMEOUT ${_RECOGNITION_PERF_TIMEOUT})
 
 # Domain-level benchmark entry points. These depend on existing focused
 # executables and are intentionally excluded from the default build.

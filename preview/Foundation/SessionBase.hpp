@@ -28,6 +28,8 @@
 namespace Preview
 {
 
+    namespace Net = boost::asio;
+
     /// 会话抽象基类
     class SessionBase
     {
@@ -38,23 +40,23 @@ namespace Preview
          * @brief 读取最多 buf.size() 字节（解包后的明文数据）
          * @return 实际读取字节数；0 = 对端关闭
          */
-        virtual auto ReadSome(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t> = 0;
+        virtual auto ReadSome(std::span<std::uint8_t> Buffer) -> Net::awaitable<std::size_t> = 0;
 
         /**
          * @brief 写入全部 buf 字节（加密封包后发送）
          * @return 错误码（成功 = 空）
          */
-        virtual auto WriteAll(std::span<const std::uint8_t> buf) -> net::awaitable<ProtocolEc> = 0;
+        virtual auto WriteAll(std::span<const std::uint8_t> Buffer) -> Net::awaitable<ProtocolEc> = 0;
 
         /**
          * @brief 优雅半关（发送 FIN，仍可读对端数据）
          */
-        virtual auto Shutdown() -> net::awaitable<void> = 0;
+        virtual auto Shutdown() -> Net::awaitable<void> = 0;
 
         /**
          * @brief 立即关闭（读写均不可用）
          */
-        virtual auto Close() -> net::awaitable<void> = 0;
+        virtual auto Close() -> Net::awaitable<void> = 0;
 
         /**
          * @brief 取消挂起操作
@@ -64,7 +66,7 @@ namespace Preview
         /**
          * @brief 设置读超时（0 = 禁用）
          */
-        virtual auto SetTimeout(std::chrono::milliseconds ms) -> void = 0;
+        virtual auto SetTimeout(std::chrono::milliseconds Milliseconds) -> void = 0;
 
         /**
          * @brief 流是否打开
@@ -76,7 +78,7 @@ namespace Preview
          * @brief 获取执行器
          * @return 关联的执行器
          */
-        [[nodiscard]] virtual auto Executor() const -> net::any_io_executor = 0;
+        [[nodiscard]] virtual auto Executor() const -> Net::any_io_executor = 0;
     };
 
 } // namespace Preview

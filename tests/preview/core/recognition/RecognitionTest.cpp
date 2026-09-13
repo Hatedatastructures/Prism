@@ -16,36 +16,60 @@
 #include <preview/Runtime/Recognition/SchemeExecutor.hpp>
 #include <preview/Runtime/Recognition/Tls.hpp>
 #include <preview/Transport/MemoryStream.hpp>
+#include "RecognitionWire.hpp"
 
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/any_io_executor.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <thread>
 
 #include <gtest/gtest.h>
 
 namespace
 {
+    namespace Net = boost::asio;
     namespace rec = Preview::Recognition;
-    using namespace Preview;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::SharedTransmission;
 
     /// 构造首包字节
-    auto bytes_of(std::initializer_list<std::uint8_t> List) -> std::vector<std::uint8_t>
+    auto BytesOf(std::initializer_list<std::uint8_t> List) -> std::vector<std::uint8_t>
     {
         return {List};
     }
 
     template <typename A>
-    void run_coro(net::io_context &ioc, A coro)
+    auto RunCoro(Net::io_context &Ioc, A Coro) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(Ioc, std::move(Coro), [&](std::exception_ptr ErrorValue)
+                      { Exception = ErrorValue; Ioc.stop(); });
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
+    }
+
+    auto WaitForRecognitionEvent(Net::any_io_executor Executor, std::chrono::milliseconds Delay,
+                                 rec::RecognitionControlEvent Event)
+        -> Net::awaitable<rec::RecognitionControlEvent>
+    {
+        Net::steady_timer Timer(Executor);
+        Timer.expires_after(Delay);
+        co_await Timer.async_wait(Net::use_awaitable);
+        co_return Event;
     }
 } // namespace
 
@@ -53,19 +77,26 @@ namespace
 
 TEST(RecognitionProtocol, Socks5Detect)
 {
-    EXPECT_EQ(rec::Detect(bytes_of({0x05})), rec::ProtocolType::Socks5);
+    EXPECT_EQ(rec::Detect(BytesOf({0x05})), rec::ProtocolType::Unknown);
+    EXPECT_EQ(rec::Detect(BytesOf({0x05, 0x01})), rec::ProtocolType::Socks5);
+    EXPECT_EQ(rec::Detect(BytesOf({0x05, 0x10})), rec::ProtocolType::Socks5);
+    EXPECT_EQ(rec::Detect(BytesOf({0x05, 0x00})), rec::ProtocolType::Unknown);
+    EXPECT_EQ(rec::Detect(BytesOf({0x05, 0x11})), rec::ProtocolType::Unknown);
+    EXPECT_TRUE(rec::CouldBeProtocolPrefix(BytesOf({0x05})));
+    EXPECT_FALSE(rec::CouldBeProtocolPrefix(BytesOf({0x05, 0x00})));
+    EXPECT_FALSE(rec::CouldBeProtocolPrefix(BytesOf({0x05, 0x11})));
 }
 
 TEST(RecognitionProtocol, TlsDetect)
 {
-    EXPECT_EQ(rec::Detect(bytes_of({0x16, 0x03})), rec::ProtocolType::Tls);
-    EXPECT_EQ(rec::Detect(bytes_of({0x16, 0x01})), rec::ProtocolType::Unknown);
+    EXPECT_EQ(rec::Detect(BytesOf({0x16, 0x03})), rec::ProtocolType::Tls);
+    EXPECT_EQ(rec::Detect(BytesOf({0x16, 0x01})), rec::ProtocolType::Unknown);
 }
 
 TEST(RecognitionProtocol, VlessDetect)
 {
-    EXPECT_EQ(rec::Detect(bytes_of({0x56, 0x4C, 0x45, 0x53, 0x53})), rec::ProtocolType::Vless);
-    EXPECT_EQ(rec::Detect(bytes_of({0x56, 0x4C})), rec::ProtocolType::Unknown);
+    EXPECT_EQ(rec::Detect(BytesOf({0x56, 0x4C, 0x45, 0x53, 0x53})), rec::ProtocolType::Unknown);
+    EXPECT_EQ(rec::Detect(BytesOf({0x56, 0x4C})), rec::ProtocolType::Unknown);
     // 结构化识别：version 0x00 + AddnlLen 0 + cmd Tcp + atyp domain
     std::vector<std::uint8_t> wire = {
         0x00, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, // version + uuid
@@ -93,7 +124,7 @@ TEST(RecognitionProtocol, VlessDetect)
     bad3[21] = 0x09;
     EXPECT_EQ(rec::Detect(bad3), rec::ProtocolType::Unknown);
     // 不足 22 字节 → 不识别
-    EXPECT_EQ(rec::Detect(bytes_of({0x00, 1, 2, 3})), rec::ProtocolType::Unknown);
+    EXPECT_EQ(rec::Detect(BytesOf({0x00, 1, 2, 3})), rec::ProtocolType::Unknown);
     // 21 字节（边界下沿）→ 不识别
     std::vector<std::uint8_t> boundary(21, 0x00);
     boundary[0] = 0x00;
@@ -103,25 +134,31 @@ TEST(RecognitionProtocol, VlessDetect)
     EXPECT_EQ(rec::Detect(boundary), rec::ProtocolType::Unknown);
 }
 
-TEST(RecognitionProtocol, TrojanDetect)
+TEST(RecognitionProtocol, TrojanDetectDoesNotGuessCrlfPrefix)
 {
-    EXPECT_EQ(rec::Detect(bytes_of({0x0D, 0x0A, 0x0D, 0x0A})), rec::ProtocolType::Trojan);
+    EXPECT_EQ(rec::Detect(BytesOf({0x0D, 0x0A, 0x0D, 0x0A})), rec::ProtocolType::Unknown);
+    EXPECT_FALSE(rec::CouldBeProtocolPrefix(BytesOf({0x0D, 0x0A, 0x0D, 0x0A})));
 }
 
-TEST(RecognitionProtocol, VmessDetect)
+TEST(RecognitionProtocol, VmessDetectDoesNotGuessRandomPrefix)
 {
-    EXPECT_EQ(rec::Detect(bytes_of({0x01})), rec::ProtocolType::Vmess);
+    EXPECT_EQ(rec::Detect(BytesOf({0x01})), rec::ProtocolType::Unknown);
+    EXPECT_EQ(rec::Detect(BytesOf({0x01, 0x00, 0x00, 0x00, 0x00, 0x42})),
+              rec::ProtocolType::Unknown);
 }
 
 TEST(RecognitionProtocol, HttpDetect)
 {
-    EXPECT_EQ(rec::Detect(bytes_of({'G', 'E', 'T', ' '})), rec::ProtocolType::Http);
-    EXPECT_EQ(rec::Detect(bytes_of({'C', 'O', 'N', 'N', 'E', 'C', 'T', ' '})), rec::ProtocolType::Http);
+    EXPECT_EQ(rec::Detect(BytesOf({'G', 'E', 'T', ' '})), rec::ProtocolType::Http);
+    EXPECT_EQ(rec::Detect(BytesOf({'C', 'O', 'N', 'N', 'E', 'C', 'T', ' '})), rec::ProtocolType::Http);
+    EXPECT_EQ(rec::Detect(BytesOf({'O', 'P', 'T', 'I', 'O', 'N', 'S', ' '})), rec::ProtocolType::Http);
+    EXPECT_EQ(rec::Detect(BytesOf({'T', 'R', 'A', 'C', 'E', ' '})), rec::ProtocolType::Http);
+    EXPECT_EQ(rec::Detect(BytesOf({'P', 'A', 'T', 'C', 'H', ' '})), rec::ProtocolType::Http);
 }
 
 TEST(RecognitionProtocol, UnknownDetect)
 {
-    EXPECT_EQ(rec::Detect(bytes_of({0xAA, 0xBB})), rec::ProtocolType::Unknown);
+    EXPECT_EQ(rec::Detect(BytesOf({0xAA, 0xBB})), rec::ProtocolType::Unknown);
     EXPECT_EQ(rec::Detect({}), rec::ProtocolType::Unknown);
 }
 
@@ -129,13 +166,13 @@ TEST(RecognitionProtocol, UnknownDetect)
 
 TEST(RecognitionProbe, ProbeAndRewind)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [a, b] = MakeMemoryPair(ioc.get_executor());
     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  // 写入 TLS 首包
                  std::array<std::byte, 4> tls{std::byte{0x16}, std::byte{0x03}, std::byte{0x01}, std::byte{0x00}};
@@ -149,7 +186,7 @@ TEST(RecognitionProbe, ProbeAndRewind)
                  // 回注后仍可读完整数据
                  auto rewound = rec::WrapPreread(sa, std::span<const std::byte>(probe_res.PreRead.data(),
                                                                                  probe_res.PreReadSize));
-                 std::array<std::byte, 8> buf{};
+                 std::array<std::byte, 22> buf{};
                  const auto n = co_await rewound->async_read_some(buf, ec);
                  EXPECT_EQ(n, 4u);
                  EXPECT_EQ(buf[0], std::byte{0x16});
@@ -158,14 +195,14 @@ TEST(RecognitionProbe, ProbeAndRewind)
 
 TEST(RecognitionProbe, ReadsUntilProtocolCanBeClassified)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [a, b] = MakeMemoryPair(ioc.get_executor());
     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
-        [sb]() -> net::awaitable<void>
+        [sb]() -> Net::awaitable<void>
         {
             const std::array<std::byte, 4> tls{
                 std::byte{0x16}, std::byte{0x03}, std::byte{0x01}, std::byte{0x00}};
@@ -174,20 +211,83 @@ TEST(RecognitionProbe, ReadsUntilProtocolCanBeClassified)
                 std::error_code ec;
                 const std::array<std::byte, 1> one{Byte};
                 co_await sb->async_write_some(one, ec);
-                co_await net::post(sb->Executor(), net::use_awaitable);
+                co_await Net::post(sb->Executor(), Net::use_awaitable);
             }
         },
-        net::detached);
+        Net::detached);
 
     rec::ProbeResult result;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  result = co_await rec::Probe(*sa);
              });
 
     EXPECT_EQ(result.Type, rec::ProtocolType::Tls);
     EXPECT_GE(result.PreReadSize, 2U);
+}
+
+TEST(RecognitionProbe, ReadsFragmentedSocks5GreetingBeforeClassification)
+{
+    Net::io_context ioc;
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+
+    Net::co_spawn(
+        ioc,
+        [sb]() -> Net::awaitable<void>
+        {
+            std::error_code ec;
+            const std::array<std::byte, 1> Version{std::byte{0x05}};
+            co_await sb->async_write_some(Version, ec);
+            co_await Net::post(sb->Executor(), Net::use_awaitable);
+            const std::array<std::byte, 1> MethodCount{std::byte{0x01}};
+            co_await sb->async_write_some(MethodCount, ec);
+        },
+        Net::detached);
+
+    rec::ProbeResult result;
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
+             {
+                 result = co_await rec::Probe(*sa);
+             });
+
+    EXPECT_EQ(result.Type, rec::ProtocolType::Socks5);
+    EXPECT_EQ(result.PreReadSize, 2U);
+}
+
+TEST(RecognitionProbe, ReadsFragmentedOptionsBeforeHttpClassification)
+{
+    Net::io_context ioc;
+    auto [a, b] = MakeMemoryPair(ioc.get_executor());
+    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+
+    Net::co_spawn(
+        ioc,
+        [sb]() -> Net::awaitable<void>
+        {
+            std::error_code ec;
+            const std::array<std::byte, 3> Prefix{std::byte{'O'}, std::byte{'P'}, std::byte{'T'}};
+            co_await sb->async_write_some(Prefix, ec);
+            co_await Net::post(sb->Executor(), Net::use_awaitable);
+            const std::array<std::byte, 5> Suffix{
+                std::byte{'I'}, std::byte{'O'}, std::byte{'N'}, std::byte{'S'}, std::byte{' '}};
+            co_await sb->async_write_some(Suffix, ec);
+        },
+        Net::detached);
+
+    rec::ProbeResult result;
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
+             {
+                 result = co_await rec::Probe(*sa);
+             });
+
+    EXPECT_EQ(result.Type, rec::ProtocolType::Http);
+    EXPECT_EQ(result.PreReadSize, 8U);
 }
 
 // ── SNI 路由表 ──
@@ -246,12 +346,73 @@ TEST(RecognitionRoute, WildcardMatchesSingleLabelOnly)
 TEST(RecognitionRoute, LookupEntryCarriesProtocolAndFallback)
 {
     rec::SniRouteTable routes;
-    routes.Add("api.example.com", "native", rec::ProtocolType::Vless, true);
-    const auto *entry = routes.LookupEntry("API.EXAMPLE.COM.");
-    ASSERT_NE(entry, nullptr);
+    routes.Add("api.example.com", "native", rec::RouteOptions{rec::ProtocolType::Vless, true});
+    const auto entry = routes.LookupEntry("API.EXAMPLE.COM.");
+    ASSERT_TRUE(entry.has_value());
     EXPECT_EQ(entry->Scheme, "native");
     EXPECT_EQ(entry->Protocol, rec::ProtocolType::Vless);
     EXPECT_TRUE(entry->AllowFallback);
+}
+
+TEST(RecognitionRoute, LookupEntryReturnsOwnedValue)
+{
+    rec::SniRouteTable routes;
+    routes.Add("example.com", "native");
+
+    const auto entry = routes.LookupEntry("example.com");
+    ASSERT_TRUE(entry.has_value());
+    routes.Clear();
+
+    EXPECT_EQ(entry->Scheme, "native");
+}
+
+TEST(RecognitionRoute, ConcurrentLookupAndMutationUsesStableSnapshots)
+{
+    rec::SniRouteTable routes;
+    routes.Add("*.example.com", "initial");
+    std::atomic<bool> failed{false};
+
+    std::thread writer([&]
+                       {
+                           for (int I = 0; I < 500; ++I)
+                           {
+                               const char *CandidateName = "second";
+                               if (I % 2 == 0)
+                               {
+                                   CandidateName = "first";
+                               }
+                               routes.Add("*.example.com", CandidateName);
+                               routes.SetDefault(CandidateName);
+                               if (I % 3 == 0)
+                               {
+                                   routes.ClearDefault();
+                               }
+                           }
+                       });
+    std::array<std::thread, 4> readers;
+    for (auto &reader : readers)
+    {
+        reader = std::thread([&]
+                             {
+                                 for (int I = 0; I < 1000; ++I)
+                                 {
+                                     const auto Value = routes.LookupValue("node.example.com");
+                                     if (Value && Value->Scheme != "initial" && Value->Scheme != "first" &&
+                                         Value->Scheme != "second")
+                                     {
+                                         failed = true;
+                                     }
+                                 }
+                             });
+    }
+    writer.join();
+    for (auto &reader : readers)
+    {
+        reader.join();
+    }
+
+    EXPECT_FALSE(failed.load());
+    EXPECT_EQ(routes.Size(), 1u);
 }
 
 TEST(RecognitionTls, ParsesClientHelloSniAndVersion)
@@ -314,7 +475,7 @@ TEST(RecognitionTls, ParsesClientHelloSniAndVersion)
 
 TEST(RecognitionTls, ReadsRecordAfterPrereadPrefix)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [a, b] = MakeMemoryPair(ioc.get_executor());
     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
@@ -323,18 +484,18 @@ TEST(RecognitionTls, ReadsRecordAfterPrereadPrefix)
     const std::array<std::byte, 2> Prefix{
         static_cast<std::byte>(Record[0]), static_cast<std::byte>(Record[1])};
 
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
-        [sb, Record]() -> net::awaitable<void>
+        [sb, Record]() -> Net::awaitable<void>
         {
             std::error_code ec;
             co_await sb->async_write_some(
                 std::span<const std::byte>(reinterpret_cast<const std::byte *>(Record.data() + 2), 7), ec);
         },
-        net::detached);
+        Net::detached);
 
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  const auto [Err, Got] = co_await rec::ReadTlsRecord(*sa, Prefix);
                  EXPECT_EQ(Err, Error::None);
@@ -360,6 +521,18 @@ TEST(RecognitionTls, RejectsNonHandshakeAndTruncatedRecords)
     const auto [TruncatedError, unusedTruncated] = rec::ParseClientHello(Truncated);
     (void)unusedTruncated;
     EXPECT_EQ(TruncatedError, Error::BadMessage);
+
+    auto InvalidRecordVersion = Preview::Testing::RecognitionWire::MakeTlsClientHello("invalid-version.example");
+    InvalidRecordVersion[1] = std::byte{0x02};
+    std::vector<std::uint8_t> InvalidVersionBytes;
+    InvalidVersionBytes.reserve(InvalidRecordVersion.size());
+    for (const auto Byte : InvalidRecordVersion)
+    {
+        InvalidVersionBytes.push_back(std::to_integer<std::uint8_t>(Byte));
+    }
+    const auto [VersionError, unusedVersion] = rec::ParseClientHello(InvalidVersionBytes);
+    (void)unusedVersion;
+    EXPECT_EQ(VersionError, Error::BadMessage);
 }
 
 TEST(RecognitionPipeline, RoutesTlsClientHelloToScheme)
@@ -402,30 +575,31 @@ TEST(RecognitionPipeline, RoutesTlsClientHelloToScheme)
     PushU24(Record, Body.size());
     Record.insert(Record.end(), Body.begin(), Body.end());
 
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [a, b] = MakeMemoryPair(ioc.get_executor());
     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
     rec::SniRouteTable routes;
-    routes.Add("example.com", "reality", rec::ProtocolType::Trojan);
+    routes.Add("example.com", "reality", rec::RouteOptions{rec::ProtocolType::Trojan, false});
     rec::SchemeExecutor executor;
     auto called = std::make_shared<bool>(false);
     executor.RegisterScheme("reality", [called](SharedTransmission Inbound)
-                            -> net::awaitable<SharedTransmission>
+                            -> Net::awaitable<SharedTransmission>
     {
         *called = true;
         co_return Inbound;
     });
     rec::Pipeline pipe(&routes, &executor);
 
-    run_coro(ioc,
-             [sa, sb, Record, Pipe = &pipe, called]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [sa, sb, Record, Pipe = &pipe, called]() -> Net::awaitable<void>
              {
                  std::error_code ec;
                  co_await sb->async_write_some(
                      std::span<const std::byte>(reinterpret_cast<const std::byte *>(Record.data()), Record.size()), ec);
                  auto Result = co_await Pipe->Recognize(sa);
                  EXPECT_TRUE(Result.success);
+                 EXPECT_EQ(Result.preread.size(), Record.size());
                  EXPECT_EQ(Result.detected, rec::ProtocolType::Trojan);
                  EXPECT_EQ(Result.scheme, "reality");
                  EXPECT_TRUE(*called);
@@ -434,6 +608,34 @@ TEST(RecognitionPipeline, RoutesTlsClientHelloToScheme)
                  EXPECT_EQ(N, replay.size());
                  EXPECT_EQ(replay[0], std::byte{0x16});
              });
+}
+
+TEST(RecognitionPipeline, NormalizesSchemeCaseAcrossRouteAndExecutor)
+{
+    Net::io_context Io;
+    auto [a, b] = MakeMemoryPair(Io.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto Peer = std::make_shared<Preview::MemoryStream>(std::move(b));
+    const auto Wire = Preview::Testing::RecognitionWire::MakeTlsClientHello("case.example");
+
+    rec::SniRouteTable Routes;
+    Routes.Add("case.example", "NATIVE", rec::RouteOptions{rec::ProtocolType::Tls, false});
+    rec::SchemeExecutor Executor;
+    Executor.RegisterScheme("native", [](SharedTransmission Inbound) -> Net::awaitable<SharedTransmission>
+                            { co_return Inbound; });
+    rec::Pipeline Pipeline(&Routes, &Executor);
+    rec::RecognizeResult Result;
+
+    RunCoro(Io, [Client, Peer, Wire, &Pipeline, &Result]() -> Net::awaitable<void>
+              {
+                  std::error_code Error;
+                  co_await Peer->async_write_some(Wire, Error);
+                  Result = co_await Pipeline.Recognize(Client);
+              });
+
+    EXPECT_TRUE(Result.success);
+    EXPECT_EQ(Result.preread.size(), Wire.size());
+    EXPECT_EQ(Result.scheme, "native");
 }
 
 TEST(RecognitionPipeline, RejectsUnknownTlsSni)
@@ -445,17 +647,17 @@ TEST(RecognitionPipeline, RejectsUnknownTlsSni)
         0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42, 0x42,
         0x42, 0x42, 0x42, 0x42, 0x00, 0x00, 0x02, 0x13, 0x01,
         0x01, 0x00};
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [a, b] = MakeMemoryPair(ioc.get_executor());
     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
     rec::SniRouteTable routes;
-    routes.Add("known.example", "reality", rec::ProtocolType::Trojan);
+    routes.Add("known.example", "reality", rec::RouteOptions{rec::ProtocolType::Trojan, false});
     rec::SchemeExecutor executor;
     rec::Pipeline pipe(&routes, &executor);
 
-    run_coro(ioc,
-             [sa, sb, Record, Pipe = &pipe]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [sa, sb, Record, Pipe = &pipe]() -> Net::awaitable<void>
              {
                  std::error_code ec;
                  co_await sb->async_write_some(
@@ -484,19 +686,19 @@ TEST(RecognitionPipeline, RewindsTransportWhenSchemeFails)
         static_cast<std::uint8_t>((Body.size() >> 8) & 0xFF),
         static_cast<std::uint8_t>(Body.size() & 0xFF)};
     Record.insert(Record.end(), Body.begin(), Body.end());
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [a, b] = MakeMemoryPair(ioc.get_executor());
     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
     rec::SniRouteTable routes;
-    routes.Add("example.com", "reject", rec::ProtocolType::Trojan);
+    routes.Add("example.com", "reject", rec::RouteOptions{rec::ProtocolType::Trojan, false});
     rec::SchemeExecutor executor;
-    executor.RegisterScheme("reject", [](SharedTransmission) -> net::awaitable<SharedTransmission>
+    executor.RegisterScheme("reject", [](SharedTransmission) -> Net::awaitable<SharedTransmission>
                             { co_return nullptr; });
     rec::Pipeline pipe(&routes, &executor);
 
-    run_coro(ioc,
-             [sa, sb, Record, Pipe = &pipe]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [sa, sb, Record, Pipe = &pipe]() -> Net::awaitable<void>
              {
                  std::error_code ec;
                  co_await sb->async_write_some(
@@ -515,46 +717,145 @@ TEST(RecognitionPipeline, RewindsTransportWhenSchemeFails)
              });
 }
 
+TEST(RecognitionPipeline, ConvertsSchemeExceptionToReplayableFailure)
+{
+    const auto Record = Preview::Testing::RecognitionWire::MakeTlsClientHello("example.com");
+    Net::io_context Ioc;
+    auto [a, b] = MakeMemoryPair(Ioc.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto Peer = std::make_shared<Preview::MemoryStream>(std::move(b));
+    rec::SniRouteTable Routes;
+    Routes.Add("example.com", "throwing", rec::RouteOptions{rec::ProtocolType::Tls, false});
+    rec::SchemeExecutor Executor;
+    ASSERT_TRUE(Executor.RegisterScheme(
+        "throwing", [](SharedTransmission) -> Net::awaitable<SharedTransmission>
+        {
+            throw std::runtime_error("scheme failure");
+            co_return nullptr;
+        }));
+    rec::Pipeline Pipeline(&Routes, &Executor);
+    rec::RecognizeResult Result;
+    std::exception_ptr Failure;
+    std::array<std::byte, 5> ReplayedPrefix{};
+    std::size_t Replayed = 0;
+
+    Net::co_spawn(
+        Ioc,
+        [Peer, Client, &Pipeline, &Result, &Ioc, &ReplayedPrefix, &Replayed, Record]() -> Net::awaitable<void>
+        {
+            std::error_code Error;
+            co_await Peer->async_write_some(Record, Error);
+            Result = co_await Pipeline.Recognize(Client);
+            if (Result.transport)
+            {
+                Replayed = co_await Result.transport->async_read_some(ReplayedPrefix, Error);
+            }
+            Ioc.stop();
+        },
+        [&Failure, &Ioc](std::exception_ptr Error)
+        {
+            Failure = std::move(Error);
+            Ioc.stop();
+        });
+    Ioc.run();
+
+    EXPECT_EQ(Failure, nullptr);
+    EXPECT_FALSE(Result.success);
+    ASSERT_NE(Result.transport, nullptr);
+    EXPECT_EQ(Replayed, ReplayedPrefix.size());
+    EXPECT_EQ(ReplayedPrefix.front(), std::byte{0x16});
+}
+
+TEST(RecognitionPipeline, ClosesTransportWhenSchemeExceptionFollowsWrite)
+{
+    const auto Record = Preview::Testing::RecognitionWire::MakeTlsClientHello("example.com");
+    Net::io_context Ioc;
+    auto [a, b] = MakeMemoryPair(Ioc.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(a));
+    auto Peer = std::make_shared<Preview::MemoryStream>(std::move(b));
+    rec::SniRouteTable Routes;
+    Routes.Add("example.com", "write-throw", rec::RouteOptions{rec::ProtocolType::Tls, false});
+    rec::SchemeExecutor Executor;
+    ASSERT_TRUE(Executor.RegisterScheme(
+        "write-throw", [](SharedTransmission Inbound) -> Net::awaitable<SharedTransmission>
+        {
+            std::array<std::byte, 1> Byte{std::byte{0xA5}};
+            std::error_code Error;
+            (void)co_await Inbound->async_write_some(Byte, Error);
+            throw std::runtime_error("scheme write failure");
+            co_return nullptr;
+        }));
+    rec::Pipeline Pipeline(&Routes, &Executor);
+    rec::RecognizeResult Result;
+    std::exception_ptr Failure;
+
+    Net::co_spawn(
+        Ioc,
+        [Peer, Client, &Pipeline, &Result, &Ioc, Record]() -> Net::awaitable<void>
+        {
+            std::error_code Error;
+            co_await Peer->async_write_some(Record, Error);
+            Result = co_await Pipeline.Recognize(Client);
+            Ioc.stop();
+        },
+        [&Failure, &Ioc](std::exception_ptr Error)
+        {
+            Failure = std::move(Error);
+            Ioc.stop();
+        });
+    Ioc.run();
+
+    EXPECT_EQ(Failure, nullptr);
+    EXPECT_FALSE(Result.success);
+    EXPECT_EQ(Result.transport, nullptr);
+    EXPECT_FALSE(Client->IsOpen());
+}
+
 // ── Pipeline ──
 
 TEST(RecognitionPipeline, DetectAndRewind)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [a, b] = MakeMemoryPair(ioc.get_executor());
     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
     rec::Pipeline pipe;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
-                 std::array<std::byte, 5> vless{std::byte{0x56}, std::byte{0x4C}, std::byte{0x45},
-                                                std::byte{0x53}, std::byte{0x53}};
+                 std::array<std::byte, 22> vless{};
+                 vless[0] = std::byte{0x00};
+                 vless[17] = std::byte{0x00};
+                 vless[18] = std::byte{0x01};
+                 vless[19] = std::byte{0x01};
+                 vless[20] = std::byte{0xBB};
+                 vless[21] = std::byte{0x02};
                  std::error_code ec;
                  co_await sb->async_write_some(vless, ec);
 
                  auto Result = co_await pipe.Recognize(sa);
                  EXPECT_TRUE(Result.success);
                  EXPECT_EQ(Result.detected, rec::ProtocolType::Vless);
-                 EXPECT_EQ(Result.preread.size(), 5u);
+                 EXPECT_EQ(Result.preread.size(), vless.size());
 
                  // 回注后可读完整 vless 头
-                 std::array<std::byte, 8> buf{};
+                 std::array<std::byte, 22> buf{};
                  const auto n = co_await Result.transport->async_read_some(buf, ec);
-                 EXPECT_EQ(n, 5u);
+                 EXPECT_EQ(n, vless.size());
              });
 }
 
 TEST(RecognitionPipeline, UnknownPassthrough)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [a, b] = MakeMemoryPair(ioc.get_executor());
     auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
     auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
 
     rec::Pipeline pipe;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  std::array<std::byte, 3> unknown{std::byte{0xAA}, std::byte{0xBB}, std::byte{0xCC}};
                  std::error_code ec;
@@ -566,4 +867,99 @@ TEST(RecognitionPipeline, UnknownPassthrough)
                  // 预读数据回注（unknown 也回注，保持数据完整）
                  EXPECT_GE(Result.preread.size(), 1u);
              });
+}
+
+TEST(RecognitionPipeline, LegacySuccessReportsAcceptedStatus)
+{
+    Net::io_context Io;
+    auto [A, B] = MakeMemoryPair(Io.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto Peer = std::make_shared<Preview::MemoryStream>(std::move(B));
+    rec::Pipeline Pipeline;
+    rec::RecognizeResult Result;
+
+    RunCoro(Io,
+             [Client, Peer, &Pipeline, &Result]() -> Net::awaitable<void>
+             {
+                 const auto Wire = Preview::Testing::RecognitionWire::MakeHttp();
+                 std::error_code Error;
+                 co_await Peer->async_write_some(Wire, Error);
+                 Result = co_await Pipeline.Recognize(Client);
+             });
+
+    EXPECT_TRUE(Result.success);
+    EXPECT_EQ(Result.Status, rec::RecognitionStatus::Accepted);
+}
+
+TEST(RecognitionPipeline, LegacyPathHonorsPreCancelledControl)
+{
+    Net::io_context Io;
+    auto [A, B] = MakeMemoryPair(Io.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto Peer = std::make_shared<Preview::MemoryStream>(std::move(B));
+
+    rec::Pipeline Pipeline;
+    rec::ProbeBuffer Buffer(rec::MaxTlsClientHelloBytes);
+    rec::RecognitionControl Control;
+    bool CancelCalled = false;
+    Control.Cancelled = [] { return true; };
+    Control.CancelTransport = [&CancelCalled] { CancelCalled = true; };
+
+    RunCoro(Io,
+             [Client, Peer, &Pipeline, &Buffer, &Control]() -> Net::awaitable<void>
+             {
+                 const std::array<std::byte, 2> Greeting{std::byte{0x05}, std::byte{0x01}};
+                 std::error_code Error;
+                 co_await Peer->async_write_some(Greeting, Error);
+                 auto Result = co_await Pipeline.Recognize(Client, Buffer, std::move(Control));
+                 EXPECT_FALSE(Result.success);
+                 EXPECT_TRUE(Result.Cancelled);
+                 EXPECT_EQ(Result.Status, rec::RecognitionStatus::IoError);
+             });
+
+    EXPECT_TRUE(CancelCalled);
+}
+
+TEST(RecognitionPipeline, LegacyPathPreservesPartialPrefixOnCancellation)
+{
+    Net::io_context Io;
+    auto [A, B] = MakeMemoryPair(Io.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto Peer = std::make_shared<Preview::MemoryStream>(std::move(B));
+
+    rec::Pipeline Pipeline;
+    rec::ProbeBuffer Buffer(rec::MaxTlsClientHelloBytes);
+    rec::RecognitionControl Control;
+    Control.Wait = [Executor = Io.get_executor()]
+    {
+        return WaitForRecognitionEvent(Executor, std::chrono::milliseconds(1),
+                                       rec::RecognitionControlEvent::Cancelled);
+    };
+    Control.WaitCancellationSafe = true;
+    Control.CancelTransport = [Client] { Client->Cancel(); };
+
+    rec::RecognizeResult Result;
+    std::array<std::byte, 1> Replayed{};
+    std::size_t ReplayedCount = 0;
+    RunCoro(Io,
+             [Client, Peer, &Pipeline, &Buffer, &Control, &Result, &Replayed, &ReplayedCount]()
+                 -> Net::awaitable<void>
+             {
+                 const std::array<std::byte, 1> Prefix{std::byte{0x05}};
+                 std::error_code Error;
+                 co_await Peer->async_write_some(Prefix, Error);
+                 Result = co_await Pipeline.Recognize(Client, Buffer, std::move(Control));
+                 if (Result.transport)
+                 {
+                     ReplayedCount = co_await Result.transport->async_read_some(Replayed, Error);
+                 }
+             });
+
+    EXPECT_FALSE(Result.success);
+    EXPECT_TRUE(Result.Cancelled);
+    ASSERT_EQ(Result.preread.size(), 1U);
+    EXPECT_EQ(Result.preread.front(), std::byte{0x05});
+    ASSERT_NE(Result.transport, nullptr);
+    EXPECT_EQ(ReplayedCount, 1U);
+    EXPECT_EQ(Replayed.front(), std::byte{0x05});
 }

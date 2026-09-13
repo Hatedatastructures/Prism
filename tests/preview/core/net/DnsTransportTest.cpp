@@ -12,6 +12,7 @@
  */
 
 #include <preview/Net/Dns/Format.hpp>
+#include <preview/Net/Dns/Transport.hpp>
 #include <preview/Net/Dns/Upstream.hpp>
 #include <TestSupport/Tls/MockTlsServer.hpp>
 
@@ -38,8 +39,7 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace Preview;
+    namespace Net = boost::asio;
     using Preview::Network::Dns::Message;
     using Preview::Network::Dns::Mode;
     using Preview::Network::Dns::Protocol;
@@ -49,63 +49,68 @@ namespace
     using Preview::Network::Dns::Upstream;
     using Preview::Network::Dns::UpstreamOptions;
 
-    using net::ip::tcp;
-    using net::ip::udp;
+    using Net::ip::tcp;
+    using Net::ip::udp;
 
-    void PutU16(std::vector<std::uint8_t> &out, const std::uint16_t v)
+    auto PutU16(std::vector<std::uint8_t> &Output, const std::uint16_t Value) -> void
     {
-        out.push_back(static_cast<std::uint8_t>(v >> 8));
-        out.push_back(static_cast<std::uint8_t>(v & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>(Value >> 8));
+        Output.push_back(static_cast<std::uint8_t>(Value & 0xFF));
     }
 
-    void PutU32(std::vector<std::uint8_t> &out, const std::uint32_t v)
+    auto PutU32(std::vector<std::uint8_t> &Output, const std::uint32_t Value) -> void
     {
-        out.push_back(static_cast<std::uint8_t>(v >> 24));
-        out.push_back(static_cast<std::uint8_t>((v >> 16) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((v >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(v & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>(Value >> 24));
+        Output.push_back(static_cast<std::uint8_t>((Value >> 16) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>((Value >> 8) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>(Value & 0xFF));
     }
 
     /// 定位查询报文问题段结束偏移（QNAME + QTYPE + QCLASS）
-    auto QuestionEnd(std::span<const std::uint8_t> query) -> std::size_t
+    auto QuestionEnd(std::span<const std::uint8_t> Query) -> std::size_t
     {
-        std::size_t off = 12;
-        while (off < query.size() && query[off] != 0)
+        std::size_t Offset = 12;
+        while (Offset < Query.size() && Query[Offset] != 0)
         {
-            off += static_cast<std::size_t>(query[off]) + 1;
+            Offset += static_cast<std::size_t>(Query[Offset]) + 1;
         }
-        return off + 5;
+        return Offset + 5;
     }
 
     /// 构造应答（回显问题段 + 固定 A 记录 1.2.3.4 / 可配 Rcode）
-    auto BuildResponse(std::span<const std::uint8_t> query, const std::uint8_t rcode = 0)
+    auto BuildResponse(std::span<const std::uint8_t> Query, const std::uint8_t Rcode = 0)
         -> std::vector<std::uint8_t>
     {
-        const auto QEnd = QuestionEnd(query);
-        if (QEnd > query.size())
+        const auto QEnd = QuestionEnd(Query);
+        if (QEnd > Query.size())
         {
             return {};
         }
-        const bool Full = rcode == 0;
-        std::vector<std::uint8_t> out;
-        PutU16(out, static_cast<std::uint16_t>((query[0] << 8) | query[1]));
-        PutU16(out, 0x8180u | rcode);
-        PutU16(out, 1);
-        PutU16(out, Full ? 1u : 0u);
-        PutU16(out, 0);
-        PutU16(out, 0);
-        out.insert(out.end(), query.begin() + 12,
-                   query.begin() + static_cast<std::ptrdiff_t>(QEnd));
+        const bool Full = Rcode == 0;
+        std::vector<std::uint8_t> Output;
+        PutU16(Output, static_cast<std::uint16_t>((Query[0] << 8) | Query[1]));
+        PutU16(Output, 0x8180u | Rcode);
+        PutU16(Output, 1);
+        std::uint16_t AnswerCount = 0;
         if (Full)
         {
-            PutU16(out, 0xC00Cu);
-            PutU16(out, 1);
-            PutU16(out, 1);
-            PutU32(out, 60);
-            PutU16(out, 4);
-            out.insert(out.end(), {1, 2, 3, 4});
+            AnswerCount = 1;
         }
-        return out;
+        PutU16(Output, AnswerCount);
+        PutU16(Output, 0);
+        PutU16(Output, 0);
+        Output.insert(Output.end(), Query.begin() + 12,
+                      Query.begin() + static_cast<std::ptrdiff_t>(QEnd));
+        if (Full)
+        {
+            PutU16(Output, 0xC00Cu);
+            PutU16(Output, 1);
+            PutU16(Output, 1);
+            PutU32(Output, 60);
+            PutU16(Output, 4);
+            Output.insert(Output.end(), {1, 2, 3, 4});
+        }
+        return Output;
     }
 
     /**
@@ -121,17 +126,17 @@ namespace
             OneShot, ///< 一连接只答一次后关闭（模拟对端关闭 keep-alive 连接）
         };
 
-        FrameTcpServer(net::io_context &ioc, const Mode mode = Mode::Loop)
-            : Ex_(ioc.get_executor()), Mode_(mode),
-              Acceptor_(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0))
+        FrameTcpServer(Net::io_context &Ioc, const Mode ServerMode = Mode::Loop)
+            : Ex_(Ioc.get_executor()), Mode_(ServerMode),
+              Acceptor_(Ioc, tcp::endpoint(Net::ip::make_address("127.0.0.1"), 0))
         {
         }
 
         auto Start() -> void
         {
             Port_ = Acceptor_.local_endpoint().port();
-            auto self = shared_from_this();
-            net::co_spawn(Ex_, [self]() { return self->AcceptLoop(); }, net::detached);
+            auto Self = shared_from_this();
+            Net::co_spawn(Ex_, [Self]() { return Self->AcceptLoop(); }, Net::detached);
         }
 
         [[nodiscard]] auto Port() const -> std::uint16_t
@@ -161,39 +166,39 @@ namespace
         }
 
     private:
-        auto AcceptLoop() -> net::awaitable<void>
+        auto AcceptLoop() -> Net::awaitable<void>
         {
-            auto self = shared_from_this();
+            auto Self = shared_from_this();
             for (;;)
             {
                 boost::system::error_code ec;
-                auto sock = std::make_shared<tcp::socket>(
-                    co_await Acceptor_.async_accept(net::redirect_error(net::use_awaitable, ec)));
+                auto Socket = std::make_shared<tcp::socket>(
+                    co_await Acceptor_.async_accept(Net::redirect_error(Net::use_awaitable, ec)));
                 if (ec)
                 {
                     co_return;
                 }
                 ++ConnCount_;
-                net::co_spawn(Ex_, [self, sock]() { return self->ConnLoop(sock); }, net::detached);
+                Net::co_spawn(Ex_, [Self, Socket]() { return Self->ConnLoop(Socket); }, Net::detached);
             }
         }
 
-        auto ConnLoop(std::shared_ptr<tcp::socket> sock) -> net::awaitable<void>
+        auto ConnLoop(std::shared_ptr<tcp::socket> Socket) -> Net::awaitable<void>
         {
             for (;;)
             {
                 std::array<std::uint8_t, 2> lenBuf{};
                 boost::system::error_code ec;
-                co_await net::async_read(*sock, net::buffer(lenBuf),
-                                         net::redirect_error(net::use_awaitable, ec));
+                co_await Net::async_read(*Socket, Net::buffer(lenBuf),
+                                         Net::redirect_error(Net::use_awaitable, ec));
                 if (ec)
                 {
                     co_return;
                 }
                 const auto Len = static_cast<std::size_t>((lenBuf[0] << 8) | lenBuf[1]);
                 std::vector<std::uint8_t> body(Len);
-                co_await net::async_read(*sock, net::buffer(body),
-                                         net::redirect_error(net::use_awaitable, ec));
+                co_await Net::async_read(*Socket, Net::buffer(body),
+                                         Net::redirect_error(Net::use_awaitable, ec));
                 if (ec)
                 {
                     co_return;
@@ -202,8 +207,8 @@ namespace
                 std::vector<std::uint8_t> frame;
                 PutU16(frame, static_cast<std::uint16_t>(resp.size()));
                 frame.insert(frame.end(), resp.begin(), resp.end());
-                co_await net::async_write(*sock, net::buffer(frame),
-                                          net::redirect_error(net::use_awaitable, ec));
+                co_await Net::async_write(*Socket, Net::buffer(frame),
+                                          Net::redirect_error(Net::use_awaitable, ec));
                 if (ec || Mode_ == Mode::OneShot)
                 {
                     co_return; // OneShot：应答后立即关闭，制造"池中连接已死"
@@ -211,7 +216,7 @@ namespace
             }
         }
 
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
         Mode Mode_;
         tcp::acceptor Acceptor_;
         std::uint16_t Port_{0};
@@ -225,17 +230,17 @@ namespace
     class RawUdpServer : public std::enable_shared_from_this<RawUdpServer>
     {
     public:
-        RawUdpServer(net::io_context &ioc, const std::uint8_t rcode)
-            : Ex_(ioc.get_executor()), Rcode_(rcode),
-              Udp_(ioc, udp::endpoint(net::ip::make_address("127.0.0.1"), 0))
+        RawUdpServer(Net::io_context &Ioc, const std::uint8_t Rcode)
+            : Ex_(Ioc.get_executor()), Rcode_(Rcode),
+              Udp_(Ioc, udp::endpoint(Net::ip::make_address("127.0.0.1"), 0))
         {
         }
 
         auto Start() -> void
         {
             Port_ = Udp_.local_endpoint().port();
-            auto self = shared_from_this();
-            net::co_spawn(Ex_, [self]() { return self->Loop(); }, net::detached);
+            auto Self = shared_from_this();
+            Net::co_spawn(Ex_, [Self]() { return Self->Loop(); }, Net::detached);
         }
 
         [[nodiscard]] auto MakeConfig() const -> Server
@@ -254,44 +259,45 @@ namespace
         }
 
     private:
-        auto Loop() -> net::awaitable<void>
+        auto Loop() -> Net::awaitable<void>
         {
             std::vector<std::uint8_t> buf(4096);
             udp::endpoint sender;
             for (;;)
             {
                 boost::system::error_code ec;
-                const auto n = co_await Udp_.async_receive_from(
-                    net::buffer(buf), sender, net::redirect_error(net::use_awaitable, ec));
-                if (ec || n < 12)
+                const auto Count = co_await Udp_.async_receive_from(
+                    Net::buffer(buf), sender, Net::redirect_error(Net::use_awaitable, ec));
+                if (ec || Count < 12)
                 {
                     co_return;
                 }
-                auto resp = BuildResponse({buf.data(), n}, Rcode_);
-                if (resp.empty())
+                auto Response = BuildResponse({buf.data(), Count}, Rcode_);
+                if (Response.empty())
                 {
                     continue;
                 }
-                co_await Udp_.async_send_to(net::buffer(resp), sender,
-                                            net::redirect_error(net::use_awaitable, ec));
+                co_await Udp_.async_send_to(Net::buffer(Response), sender,
+                                            Net::redirect_error(Net::use_awaitable, ec));
             }
         }
 
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
         std::uint8_t Rcode_;
         udp::socket Udp_;
         std::uint16_t Port_{0};
     };
 
     template <typename A>
-    void RunCoro(net::io_context &ioc, A coro)
+    auto RunCoro(Net::io_context &Ioc, A Coro) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(Ioc, std::move(Coro), [&](std::exception_ptr Error)
+                      { Exception = Error; Ioc.stop(); });
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 } // namespace
@@ -299,7 +305,7 @@ namespace
 TEST(DnsTransport, TestTcpPoolReusesConnection)
 {
     // 同一服务器连续查询共享一条 TCP 连接（keep-alive 默认开启）
-    net::io_context ioc;
+Net::io_context ioc;
     auto server = std::make_shared<FrameTcpServer>(ioc, FrameTcpServer::Mode::Loop);
     server->Start();
 
@@ -307,7 +313,7 @@ TEST(DnsTransport, TestTcpPoolReusesConnection)
     QueryResult first;
     QueryResult second;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+[&]() -> Net::awaitable<void>
             {
                 first = co_await up.Resolve("one.example.com", QType::A);
                 second = co_await up.Resolve("two.example.com", QType::A);
@@ -320,10 +326,25 @@ TEST(DnsTransport, TestTcpPoolReusesConnection)
     EXPECT_EQ(up.IdleConnCount(), 1u);  // 用毕归还池中
 }
 
+TEST(DnsTransport, RejectsOversizedTcpFrameBeforeLengthEncoding)
+{
+    const std::vector<std::uint8_t> Maximum(Preview::Network::Dns::Detail::MaxFrameBytes, 0xA5);
+    const std::vector<std::uint8_t> Oversized(Preview::Network::Dns::Detail::MaxFrameBytes + 1, 0xA5);
+
+    const auto MaxFrame = Preview::Network::Dns::Detail::MakeTcpFrame(Maximum);
+    ASSERT_TRUE(MaxFrame.has_value());
+    EXPECT_EQ(MaxFrame->size(), Maximum.size() + 2);
+
+    const auto OversizedFrame = Preview::Network::Dns::Detail::MakeTcpFrame(Oversized);
+    ASSERT_FALSE(OversizedFrame.has_value());
+    EXPECT_EQ(OversizedFrame.error(),
+              boost::system::errc::make_error_code(boost::system::errc::message_size));
+}
+
 TEST(DnsTransport, TestKeepAliveOffDisablesPool)
 {
     // KeepAlive=false：每查询新建连接，不入池
-    net::io_context ioc;
+Net::io_context ioc;
     auto server = std::make_shared<FrameTcpServer>(ioc, FrameTcpServer::Mode::Loop);
     server->Start();
 
@@ -331,7 +352,7 @@ TEST(DnsTransport, TestKeepAliveOffDisablesPool)
     cfg.KeepAlive = false;
     Upstream up(ioc.get_executor(), {cfg});
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+[&]() -> Net::awaitable<void>
             {
                 (void)co_await up.Resolve("one.example.com", QType::A);
                 (void)co_await up.Resolve("two.example.com", QType::A);
@@ -345,7 +366,7 @@ TEST(DnsTransport, TestKeepAliveOffDisablesPool)
 TEST(DnsTransport, TestPoolCapacityEviction)
 {
     // MaxConnsPerServer=1：并发两查询各建一连接，归还后仅保留 1 条闲置
-    net::io_context ioc;
+Net::io_context ioc;
     auto server = std::make_shared<FrameTcpServer>(ioc, FrameTcpServer::Mode::Loop);
     server->Start();
 
@@ -357,16 +378,16 @@ TEST(DnsTransport, TestPoolCapacityEviction)
     Upstream up(ioc.get_executor(), std::move(options));
     std::exception_ptr ep;
     int done = 0;
-    net::co_spawn(ioc,
-                  [&]() -> net::awaitable<void>
+Net::co_spawn(ioc,
+[&]() -> Net::awaitable<void>
                   { (void)co_await up.Resolve("a.example.com", QType::A); },
                   [&](std::exception_ptr e)
                   {
                       if (e) { ep = e; }
                       if (++done == 2) { ioc.stop(); }
                   });
-    net::co_spawn(ioc,
-                  [&]() -> net::awaitable<void>
+Net::co_spawn(ioc,
+[&]() -> Net::awaitable<void>
                   { (void)co_await up.Resolve("b.example.com", QType::A); },
                   [&](std::exception_ptr e)
                   {
@@ -388,7 +409,7 @@ TEST(DnsTransport, TestStalePoolConnRetriedOnce)
 {
     // OneShot 服务器：首次查询后关闭连接；第二次查询从池中取到"已死"连接，
     // 复用失败自动新建重试一次并最终成功
-    net::io_context ioc;
+Net::io_context ioc;
     auto server = std::make_shared<FrameTcpServer>(ioc, FrameTcpServer::Mode::OneShot);
     server->Start();
 
@@ -396,7 +417,7 @@ TEST(DnsTransport, TestStalePoolConnRetriedOnce)
     QueryResult first;
     QueryResult second;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+[&]() -> Net::awaitable<void>
             {
                 first = co_await up.Resolve("one.example.com", QType::A);
                 second = co_await up.Resolve("two.example.com", QType::A);
@@ -412,10 +433,10 @@ TEST(DnsTransport, TestTlsPoolReuse)
 {
     // MockTlsServer 限制 MaxConnections=1：若第二次查询未复用连接，
     // 服务器已退出 accept → 必失败；两查询均成功即证明池化复用
-    net::io_context ioc;
-    tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+Net::io_context ioc;
+    tcp::acceptor acceptor(ioc, tcp::endpoint(Net::ip::make_address("127.0.0.1"), 0));
     const auto Port = acceptor.local_endpoint().port();
-    net::co_spawn(ioc, Preview::Testing::Tls::MockTlsServer::Run(acceptor, 1), net::detached);
+    Net::co_spawn(ioc, Preview::Testing::Tls::MockTlsServer::Run(acceptor, 1), Net::detached);
 
     Preview::Network::Dns::Server cfg;
     cfg.Address = "127.0.0.1";
@@ -429,7 +450,7 @@ TEST(DnsTransport, TestTlsPoolReuse)
     QueryResult first;
     QueryResult second;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+[&]() -> Net::awaitable<void>
             {
                 first = co_await up.Resolve("one.example.com", QType::A);
                 second = co_await up.Resolve("two.example.com", QType::A);
@@ -444,13 +465,13 @@ TEST(DnsTransport, TestDohStatus200WithResponder)
 {
     // Responder 工厂回真实 HTTP 200 + DNS 应答体：状态码校验、
     // Content-Length 头区解析、报文体收满全链路
-    net::io_context ioc;
-    tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+Net::io_context ioc;
+    tcp::acceptor acceptor(ioc, tcp::endpoint(Net::ip::make_address("127.0.0.1"), 0));
     const auto Port = acceptor.local_endpoint().port();
-    net::co_spawn(ioc,
+Net::co_spawn(ioc,
                   Preview::Testing::Tls::MockTlsServer::Run(
                       acceptor, 2, Preview::Testing::Tls::MakeDohResponder("HTTP/1.1 200 OK")),
-                  net::detached);
+                  Net::detached);
 
     Preview::Network::Dns::Server cfg;
     cfg.Address = "127.0.0.1";
@@ -463,7 +484,7 @@ TEST(DnsTransport, TestDohStatus200WithResponder)
     Upstream up(ioc.get_executor(), {cfg});
     QueryResult result;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+[&]() -> Net::awaitable<void>
             {
                 result = co_await up.Resolve("doh.example.com", QType::A);
                 acceptor.close();
@@ -477,13 +498,13 @@ TEST(DnsTransport, TestDohStatus200WithResponder)
 TEST(DnsTransport, TestDohStatusRejection)
 {
     // HTTP 404 → BadMessage，不当作有效应答
-    net::io_context ioc;
-    tcp::acceptor acceptor(ioc, tcp::endpoint(net::ip::make_address("127.0.0.1"), 0));
+Net::io_context ioc;
+    tcp::acceptor acceptor(ioc, tcp::endpoint(Net::ip::make_address("127.0.0.1"), 0));
     const auto Port = acceptor.local_endpoint().port();
-    net::co_spawn(ioc,
+Net::co_spawn(ioc,
                   Preview::Testing::Tls::MockTlsServer::Run(
                       acceptor, 1, Preview::Testing::Tls::MakeDohResponder("HTTP/1.1 404 Not Found")),
-                  net::detached);
+                  Net::detached);
 
     Preview::Network::Dns::Server cfg;
     cfg.Address = "127.0.0.1";
@@ -496,7 +517,7 @@ TEST(DnsTransport, TestDohStatusRejection)
     Upstream up(ioc.get_executor(), {cfg});
     QueryResult result;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+[&]() -> Net::awaitable<void>
             {
                 result = co_await up.Resolve("doh.example.com", QType::A);
                 acceptor.close();
@@ -509,7 +530,7 @@ TEST(DnsTransport, TestDohStatusRejection)
 TEST(DnsTransport, TestServfailFallsThroughInFallbackMode)
 {
     // SERVFAIL（Rcode=2）为明确拒绝：Fallback 跳过它继续下一个上游
-    net::io_context ioc;
+Net::io_context ioc;
     auto servfail = std::make_shared<RawUdpServer>(ioc, 2);
     auto good = std::make_shared<RawUdpServer>(ioc, 0);
     servfail->Start();
@@ -519,7 +540,7 @@ TEST(DnsTransport, TestServfailFallsThroughInFallbackMode)
                 {servfail->MakeConfig(), good->MakeConfig()}, Mode::Fallback);
     QueryResult result;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+[&]() -> Net::awaitable<void>
             {
                 result = co_await up.Resolve("sf.example.com", QType::A);
                 servfail->Close();
@@ -528,20 +549,20 @@ TEST(DnsTransport, TestServfailFallsThroughInFallbackMode)
 
     EXPECT_FALSE(result.Error);
     ASSERT_EQ(result.Ips.size(), 1u);
-    EXPECT_EQ(result.Ips[0], net::ip::make_address_v4("1.2.3.4"));
+    EXPECT_EQ(result.Ips[0], Net::ip::make_address_v4("1.2.3.4"));
 }
 
 TEST(DnsTransport, TestServfailAloneIsError)
 {
     // 单 SERVFAIL 上游：结果为错误（不冒充"成功+空"进负缓存语义）
-    net::io_context ioc;
+Net::io_context ioc;
     auto servfail = std::make_shared<RawUdpServer>(ioc, 2);
     servfail->Start();
 
     Upstream up(ioc.get_executor(), {servfail->MakeConfig()}, Mode::Fallback);
     QueryResult result;
     RunCoro(ioc,
-            [&]() -> net::awaitable<void>
+[&]() -> Net::awaitable<void>
             {
                 result = co_await up.Resolve("sf.example.com", QType::A);
                 servfail->Close();

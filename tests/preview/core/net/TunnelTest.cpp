@@ -31,13 +31,14 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace psm::connect;
+    namespace Net = boost::asio;
     using Psm::Testing::ProductionMockTransport;
-    using namespace psm::transport;
+    using psm::connect::tunnel;
+    using psm::connect::tunnel_options;
+    using psm::connect::write_policy;
 
     // 辅助：创建最小会话资源
-    auto make_minimal_session(net::io_context &ioc, uint32_t buffer_size = 4096)
+    auto MakeMinimalSession(Net::io_context &Ioc, uint32_t BufferSize = 4096)
         -> std::shared_ptr<psm::resource::session>
     {
         auto cfg = std::make_shared<psm::settings>();
@@ -45,40 +46,40 @@ namespace
         auto proc = std::make_shared<psm::resource::process>(std::move(proc_opts));
         auto wrk_opts = psm::resource::worker::options{proc, psm::memory::system::global_pool()};
         auto wrk = std::make_shared<psm::resource::worker>(std::move(wrk_opts));
-        auto ses_opts = psm::resource::session::options{wrk, 1, buffer_size, nullptr, {}, nullptr, nullptr};
+        auto ses_opts = psm::resource::session::options{wrk, 1, BufferSize, nullptr, {}, nullptr, nullptr};
         return std::make_shared<psm::resource::session>(std::move(ses_opts));
     }
 
     // 辅助：看门狗定时器，超时强制停机防止测试挂死
-    void spawn_watchdog(net::io_context &ioc)
+    auto SpawnWatchdog(Net::io_context &Ioc) -> void
     {
-        net::co_spawn(
-            ioc,
-            [&]() -> net::awaitable<void>
+        Net::co_spawn(
+            Ioc,
+            [&]() -> Net::awaitable<void>
             {
-                net::steady_timer t(ioc);
-                t.expires_after(std::chrono::seconds(2));
-                co_await t.async_wait(net::use_awaitable);
-                ioc.stop();
+                Net::steady_timer Timer(Ioc);
+                Timer.expires_after(std::chrono::seconds(2));
+                co_await Timer.async_wait(Net::use_awaitable);
+                Ioc.stop();
             },
-            net::detached);
+            Net::detached);
     }
 
     // 辅助：延迟关闭两端传输，唤醒挂起读使 tunnel 返回
-    void spawn_closer(net::io_context &ioc, const std::shared_ptr<ProductionMockTransport> &Inbound,
+    auto SpawnCloser(Net::io_context &Ioc, const std::shared_ptr<ProductionMockTransport> &Inbound,
                       const std::shared_ptr<ProductionMockTransport> &Outbound)
     {
-        net::co_spawn(
-            ioc,
-            [&]() -> net::awaitable<void>
+        Net::co_spawn(
+            Ioc,
+            [&]() -> Net::awaitable<void>
             {
-                net::steady_timer t(ioc);
-                t.expires_after(std::chrono::milliseconds(50));
-                co_await t.async_wait(net::use_awaitable);
+                Net::steady_timer Timer(Ioc);
+                Timer.expires_after(std::chrono::milliseconds(50));
+                co_await Timer.async_wait(Net::use_awaitable);
                 Inbound->close();
                 Outbound->close();
             },
-            net::detached);
+            Net::detached);
     }
 } // anonymous namespace
 
@@ -86,7 +87,7 @@ namespace
 
 TEST(Tunnel, BasicBidirectionalForward)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::atomic<bool> Done{false};
 
     auto Inbound = std::make_shared<ProductionMockTransport>();
@@ -98,14 +99,14 @@ TEST(Tunnel, BasicBidirectionalForward)
     Inbound->InjectRead(upload_data.data(), upload_data.size());
     Outbound->InjectRead(download_data.data(), download_data.size());
 
-    auto sess = make_minimal_session(ioc, 4096);
+    auto sess = MakeMinimalSession(ioc, 4096);
 
     std::exception_ptr Ep;
-    spawn_closer(ioc, Inbound, Outbound);
-    spawn_watchdog(ioc);
-    net::co_spawn(
+    SpawnCloser(ioc, Inbound, Outbound);
+    SpawnWatchdog(ioc);
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
@@ -132,7 +133,7 @@ TEST(Tunnel, BasicBidirectionalForward)
 
 TEST(Tunnel, PartialWritePolicy)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::atomic<bool> Done{false};
 
     auto Inbound = std::make_shared<ProductionMockTransport>();
@@ -142,14 +143,14 @@ TEST(Tunnel, PartialWritePolicy)
     Inbound->InjectRead(Data.data(), Data.size());
     // Outbound 读端空，会挂起
 
-    auto sess = make_minimal_session(ioc, 4096);
+    auto sess = MakeMinimalSession(ioc, 4096);
 
     std::exception_ptr Ep;
-    spawn_closer(ioc, Inbound, Outbound);
-    spawn_watchdog(ioc);
-    net::co_spawn(
+    SpawnCloser(ioc, Inbound, Outbound);
+    SpawnWatchdog(ioc);
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::partial};
             co_await tunnel(std::move(opts));
@@ -170,7 +171,7 @@ TEST(Tunnel, PartialWritePolicy)
 
 TEST(Tunnel, EmptyDataImmediateClose)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::atomic<bool> Done{false};
 
     auto Inbound = std::make_shared<ProductionMockTransport>();
@@ -180,13 +181,13 @@ TEST(Tunnel, EmptyDataImmediateClose)
     Inbound->close();
     Outbound->close();
 
-    auto sess = make_minimal_session(ioc, 4096);
+    auto sess = MakeMinimalSession(ioc, 4096);
 
     std::exception_ptr Ep;
-    spawn_watchdog(ioc);
-    net::co_spawn(
+    SpawnWatchdog(ioc);
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
@@ -204,7 +205,7 @@ TEST(Tunnel, EmptyDataImmediateClose)
 
 TEST(Tunnel, ReadErrorTerminatesTunnel)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::atomic<bool> Done{false};
 
     auto Inbound = std::make_shared<ProductionMockTransport>();
@@ -213,13 +214,13 @@ TEST(Tunnel, ReadErrorTerminatesTunnel)
     // 设置 Inbound 读错误
     Inbound->SetReadError(std::make_error_code(std::errc::connection_reset));
 
-    auto sess = make_minimal_session(ioc, 4096);
+    auto sess = MakeMinimalSession(ioc, 4096);
 
     std::exception_ptr Ep;
-    spawn_watchdog(ioc);
-    net::co_spawn(
+    SpawnWatchdog(ioc);
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
@@ -237,7 +238,7 @@ TEST(Tunnel, ReadErrorTerminatesTunnel)
 
 TEST(Tunnel, WriteErrorTerminatesTunnel)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::atomic<bool> Done{false};
 
     auto Inbound = std::make_shared<ProductionMockTransport>();
@@ -248,13 +249,13 @@ TEST(Tunnel, WriteErrorTerminatesTunnel)
     Inbound->InjectRead(Data.data(), Data.size());
     Outbound->SetWriteError(std::make_error_code(std::errc::broken_pipe));
 
-    auto sess = make_minimal_session(ioc, 4096);
+    auto sess = MakeMinimalSession(ioc, 4096);
 
     std::exception_ptr Ep;
-    spawn_watchdog(ioc);
-    net::co_spawn(
+    SpawnWatchdog(ioc);
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
@@ -272,7 +273,7 @@ TEST(Tunnel, WriteErrorTerminatesTunnel)
 
 TEST(Tunnel, MinimalBufferSize)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::atomic<bool> Done{false};
 
     auto Inbound = std::make_shared<ProductionMockTransport>();
@@ -283,14 +284,14 @@ TEST(Tunnel, MinimalBufferSize)
     Inbound->InjectRead(Data.data(), Data.size());
 
     // buffer_size=2 → 每半边 1 字节
-    auto sess = make_minimal_session(ioc, 2);
+    auto sess = MakeMinimalSession(ioc, 2);
 
     std::exception_ptr Ep;
-    spawn_closer(ioc, Inbound, Outbound);
-    spawn_watchdog(ioc);
-    net::co_spawn(
+    SpawnCloser(ioc, Inbound, Outbound);
+    SpawnWatchdog(ioc);
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));
@@ -311,33 +312,33 @@ TEST(Tunnel, MinimalBufferSize)
 
 TEST(Tunnel, CancelPropagation)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::atomic<bool> Done{false};
 
     auto Inbound = std::make_shared<ProductionMockTransport>();
     auto Outbound = std::make_shared<ProductionMockTransport>();
 
-    auto sess = make_minimal_session(ioc, 4096);
+    auto sess = MakeMinimalSession(ioc, 4096);
 
     std::exception_ptr Ep;
     // 触发器：稍候取消并关闭两端，触发退出
-    net::co_spawn(
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
-            net::steady_timer t(ioc);
+            Net::steady_timer t(ioc);
             t.expires_after(std::chrono::milliseconds(50));
-            co_await t.async_wait(net::use_awaitable);
+            co_await t.async_wait(Net::use_awaitable);
             Inbound->cancel();
             Inbound->close();
             Outbound->cancel();
             Outbound->close();
         },
-        net::detached);
-    spawn_watchdog(ioc);
-    net::co_spawn(
+        Net::detached);
+    SpawnWatchdog(ioc);
+    Net::co_spawn(
         ioc,
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             auto opts = tunnel_options{Inbound, Outbound, sess->buffer, write_policy::complete};
             co_await tunnel(std::move(opts));

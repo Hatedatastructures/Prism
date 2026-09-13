@@ -11,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -24,85 +25,95 @@ namespace Preview::Mux::Yamux
 
     /**
      * @brief 编码帧头为 12 字节大端序数组
-     * @param hdr 帧头
+     * @param Header 帧头
      * @return 编码后的字节数组
      */
-    [[nodiscard]] inline auto BuildHeader(const FrameHeader &hdr) noexcept
+    [[nodiscard]] inline auto BuildHeader(const FrameHeader &Header) noexcept
         -> std::array<std::uint8_t, FrameHdrsize>
     {
-        std::array<std::uint8_t, FrameHdrsize> out{};
-        out[0] = hdr.version;
-        out[1] = static_cast<std::uint8_t>(hdr.Type);
-        out[2] = static_cast<std::uint8_t>((static_cast<std::uint16_t>(hdr.flag) >> 8) & 0xFF);
-        out[3] = static_cast<std::uint8_t>(static_cast<std::uint16_t>(hdr.flag) & 0xFF);
-        out[4] = static_cast<std::uint8_t>((hdr.StreamId >> 24) & 0xFF);
-        out[5] = static_cast<std::uint8_t>((hdr.StreamId >> 16) & 0xFF);
-        out[6] = static_cast<std::uint8_t>((hdr.StreamId >> 8) & 0xFF);
-        out[7] = static_cast<std::uint8_t>(hdr.StreamId & 0xFF);
-        out[8] = static_cast<std::uint8_t>((hdr.length >> 24) & 0xFF);
-        out[9] = static_cast<std::uint8_t>((hdr.length >> 16) & 0xFF);
-        out[10] = static_cast<std::uint8_t>((hdr.length >> 8) & 0xFF);
-        out[11] = static_cast<std::uint8_t>(hdr.length & 0xFF);
-        return out;
+        std::array<std::uint8_t, FrameHdrsize> Output{};
+        Output[0] = Header.version;
+        Output[1] = static_cast<std::uint8_t>(Header.Type);
+        Output[2] = static_cast<std::uint8_t>(
+            (static_cast<std::uint16_t>(Header.flag) >> 8) & 0xFF);
+        Output[3] = static_cast<std::uint8_t>(static_cast<std::uint16_t>(Header.flag) & 0xFF);
+        Output[4] = static_cast<std::uint8_t>((Header.StreamId >> 24) & 0xFF);
+        Output[5] = static_cast<std::uint8_t>((Header.StreamId >> 16) & 0xFF);
+        Output[6] = static_cast<std::uint8_t>((Header.StreamId >> 8) & 0xFF);
+        Output[7] = static_cast<std::uint8_t>(Header.StreamId & 0xFF);
+        Output[8] = static_cast<std::uint8_t>((Header.length >> 24) & 0xFF);
+        Output[9] = static_cast<std::uint8_t>((Header.length >> 16) & 0xFF);
+        Output[10] = static_cast<std::uint8_t>((Header.length >> 8) & 0xFF);
+        Output[11] = static_cast<std::uint8_t>(Header.length & 0xFF);
+        return Output;
     }
 
     /**
      * @brief 构造完整帧（帧头 + 载荷）
-     * @param hdr 帧头（length 自动填充）
-     * @param payload 载荷
+     * @param Header 帧头（Data 的 length 自动填充）
+     * @param Payload 载荷
      * @return 完整帧
      */
-    [[nodiscard]] inline auto Build(const FrameHeader &hdr, std::span<const std::uint8_t> payload = {})
-        -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto Build(
+        const FrameHeader &Header,
+        std::span<const std::uint8_t> Payload = {}) -> std::vector<std::uint8_t>
     {
-        auto HdrCopy = hdr;
-        if (HdrCopy.Type == MessageType::Data)
+        constexpr auto MaxUint32 = (std::numeric_limits<std::uint32_t>::max)();
+        if (Payload.size() > MaxUint32)
         {
-            HdrCopy.length = static_cast<std::uint32_t>(payload.size());
+            return {};
         }
-        const auto Header = BuildHeader(HdrCopy);
-        std::vector<std::uint8_t> out;
-        out.reserve(FrameHdrsize + payload.size());
-        out.insert(out.end(), Header.begin(), Header.end());
-        out.insert(out.end(), payload.begin(), payload.end());
-        return out;
+        auto HeaderCopy = Header;
+        if (HeaderCopy.Type == MessageType::Data)
+        {
+            HeaderCopy.length = static_cast<std::uint32_t>(Payload.size());
+        }
+        const auto EncodedHeader = BuildHeader(HeaderCopy);
+        std::vector<std::uint8_t> Output;
+        Output.reserve(FrameHdrsize + Payload.size());
+        Output.insert(Output.end(), EncodedHeader.begin(), EncodedHeader.end());
+        Output.insert(Output.end(), Payload.begin(), Payload.end());
+        return Output;
     }
 
     /**
      * @brief 构造 WindowUpdate 帧（SYN/ACK 打开/确认流）
-     * @param f 标志位
+     * @param FlagsValue 标志位
      * @param StreamId 流标识符
-     * @param delta 窗口增量
+     * @param Delta 窗口增量
      * @return 12 字节帧
      */
-    [[nodiscard]] inline auto BuildWinupd(Flags f, std::uint32_t StreamId, std::uint32_t delta) noexcept
+    [[nodiscard]] inline auto BuildWinupd(
+        Flags FlagsValue,
+        std::uint32_t StreamId,
+        std::uint32_t Delta) noexcept
         -> std::array<std::uint8_t, FrameHdrsize>
     {
-        const FrameHeader hdr{
+        const FrameHeader Header{
             .Type = MessageType::WindowUpdate,
-            .flag = f,
+            .flag = FlagsValue,
             .StreamId = StreamId,
-            .length = delta,
+            .length = Delta,
         };
-        return BuildHeader(hdr);
+        return BuildHeader(Header);
     }
 
     /**
      * @brief 构造 Ping 帧
-     * @param f 标志位（SYN 请求 / ACK 响应）
+     * @param FlagsValue 标志位（SYN 请求 / ACK 响应）
      * @param PingId 心跳标识
      * @return 12 字节帧
      */
-    [[nodiscard]] inline auto BuildPing(Flags f, std::uint32_t PingId) noexcept
+    [[nodiscard]] inline auto BuildPing(Flags FlagsValue, std::uint32_t PingId) noexcept
         -> std::array<std::uint8_t, FrameHdrsize>
     {
-        const FrameHeader hdr{
+        const FrameHeader Header{
             .Type = MessageType::Ping,
-            .flag = f,
+            .flag = FlagsValue,
             .StreamId = 0,
             .length = PingId,
         };
-        return BuildHeader(hdr);
+        return BuildHeader(Header);
     }
 
     /**
@@ -110,47 +121,51 @@ namespace Preview::Mux::Yamux
      * @param Code 终止原因码
      * @return 12 字节帧
      */
-    [[nodiscard]] inline auto BuildGoaway(AwayCode Code) noexcept -> std::array<std::uint8_t, FrameHdrsize>
+    [[nodiscard]] inline auto BuildGoaway(AwayCode Code) noexcept
+        -> std::array<std::uint8_t, FrameHdrsize>
     {
-        const FrameHeader hdr{
+        const FrameHeader Header{
             .Type = MessageType::GoAway,
             .flag = Flags::None,
             .StreamId = 0,
             .length = static_cast<std::uint32_t>(Code),
         };
-        return BuildHeader(hdr);
+        return BuildHeader(Header);
     }
 
     /**
      * @brief 构造 Data 帧
-     * @param f 标志位（none/SYN/FIN/RST）
+     * @param FlagsValue 标志位（none/SYN/FIN/RST）
      * @param StreamId 流标识符
-     * @param payload 载荷
+     * @param Payload 载荷
      * @return 完整帧
      */
-    [[nodiscard]] inline auto BuildData(Flags f, std::uint32_t StreamId,
-                                         std::span<const std::uint8_t> payload) noexcept
+    [[nodiscard]] inline auto BuildData(
+        Flags FlagsValue,
+        std::uint32_t StreamId,
+        std::span<const std::uint8_t> Payload) noexcept
         -> std::vector<std::uint8_t>
     {
-        const FrameHeader hdr{
+        const FrameHeader Header{
             .Type = MessageType::Data,
-            .flag = f,
+            .flag = FlagsValue,
             .StreamId = StreamId,
         };
-        return Build(hdr, payload);
+        return Build(Header, Payload);
     }
 
     /**
      * @brief 构造 Data(SYN) 帧（sing-mux 兼容新流创建）
      * @param StreamId 流标识符
-     * @param payload 载荷
+     * @param Payload 载荷
      * @return 完整帧
      */
-    [[nodiscard]] inline auto BuildSyn(std::uint32_t StreamId,
-                                        std::span<const std::uint8_t> payload) noexcept
+    [[nodiscard]] inline auto BuildSyn(
+        std::uint32_t StreamId,
+        std::span<const std::uint8_t> Payload) noexcept
         -> std::vector<std::uint8_t>
     {
-        return BuildData(Flags::Syn, StreamId, payload);
+        return BuildData(Flags::Syn, StreamId, Payload);
     }
 
     /**
@@ -161,54 +176,60 @@ namespace Preview::Mux::Yamux
     [[nodiscard]] inline auto BuildFin(std::uint32_t StreamId) noexcept
         -> std::array<std::uint8_t, FrameHdrsize>
     {
-        const FrameHeader hdr{
+        const FrameHeader Header{
             .Type = MessageType::Data,
             .flag = Flags::Fin,
             .StreamId = StreamId,
         };
-        return BuildHeader(hdr);
+        return BuildHeader(Header);
     }
 
     /**
      * @brief 解析 12 字节帧头
      * @param Data 至少 12 字节
-     * @param out 输出帧头
+     * @param Output 输出帧头
      * @return 错误码
      */
-    [[nodiscard]] inline auto ParseHeader(std::span<const std::uint8_t> Data, FrameHeader &out) noexcept
-        -> Error
+    [[nodiscard]] inline auto ParseHeader(
+        std::span<const std::uint8_t> Data,
+        FrameHeader &Output) noexcept -> Error
     {
         if (Data.size() < FrameHdrsize)
         {
             return Error::NeedMore;
         }
-        out.version = Data[0];
-        if (out.version != ProtocolVersion)
+        Output.version = Data[0];
+        if (Output.version != ProtocolVersion)
         {
             return Error::BadMagic;
         }
-        out.Type = static_cast<MessageType>(Data[1]);
-        switch (out.Type)
+        Output.Type = static_cast<MessageType>(Data[1]);
+        switch (Output.Type)
         {
         case MessageType::Data:
         case MessageType::WindowUpdate:
         case MessageType::Ping:
-        case MessageType::GoAway: break;
-        default: return Error::BadMessage;
+        case MessageType::GoAway:
+            break;
+        default:
+            return Error::BadMessage;
         }
-        out.flag = static_cast<Flags>(static_cast<std::uint16_t>(Data[2]) << 8 |
-                                      static_cast<std::uint16_t>(Data[3]));
-        out.StreamId = static_cast<std::uint32_t>(Data[4]) << 24 |
-                        static_cast<std::uint32_t>(Data[5]) << 16 | static_cast<std::uint32_t>(Data[6]) << 8 |
-                        static_cast<std::uint32_t>(Data[7]);
-        out.length = static_cast<std::uint32_t>(Data[8]) << 24 | static_cast<std::uint32_t>(Data[9]) << 16 |
-                     static_cast<std::uint32_t>(Data[10]) << 8 | static_cast<std::uint32_t>(Data[11]);
+        Output.flag = static_cast<Flags>(static_cast<std::uint16_t>(Data[2]) << 8 |
+                                         static_cast<std::uint16_t>(Data[3]));
+        Output.StreamId = static_cast<std::uint32_t>(Data[4]) << 24 |
+                          static_cast<std::uint32_t>(Data[5]) << 16 |
+                          static_cast<std::uint32_t>(Data[6]) << 8 |
+                          static_cast<std::uint32_t>(Data[7]);
+        Output.length = static_cast<std::uint32_t>(Data[8]) << 24 |
+                        static_cast<std::uint32_t>(Data[9]) << 16 |
+                        static_cast<std::uint32_t>(Data[10]) << 8 |
+                        static_cast<std::uint32_t>(Data[11]);
         return Error::None;
     }
 
     /**
-     * @brief 校验负载（yamux 无额外校验）
-     * @return 错误码（恒为 none）
+     * @brief 校验负载（yamux 不执行额外负载内容校验）
+     * @return 始终返回 None；帧长度预算由共享 Session/Parser 处理
      */
     [[nodiscard]] inline auto ParsePayload(FrameHeader &, std::span<const std::uint8_t>) -> Error
     {
@@ -250,19 +271,21 @@ namespace Preview::Mux::Yamux
         /**
          * @brief 解析帧头
          * @param Data 帧头字节
-         * @param out 输出帧头
+         * @param Output 输出帧头
          * @return 错误码
          */
-        static auto ParseHeader(std::span<const std::uint8_t> Data, FrameType &out) -> Error
+        static auto ParseHeader(
+            std::span<const std::uint8_t> Data,
+            FrameType &Output) -> Error
         {
-            return Yamux::ParseHeader(Data, out);
+            return Yamux::ParseHeader(Data, Output);
         }
 
         /**
          * @brief 解析负载
          * @param Frame 帧头
          * @param Data 负载字节
-         * @return 错误码（恒为 none）
+         * @return 始终返回 None；帧长度预算由共享 Session/Parser 处理
          */
         static auto ParsePayload(FrameType &Frame, std::span<const std::uint8_t> Data) -> Error
         {

@@ -9,285 +9,410 @@
  */
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
-#include <array>
-#include <atomic>
-#include <chrono>
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <tuple>
+#include <utility>
 #include <vector>
 
-#include <preview/Transport/MemoryStream.hpp>
-#include <preview/Protocols/Hysteria2/Hysteria2.hpp>
 #include <gtest/gtest.h>
+#include <preview/Protocols/Hysteria2/Hysteria2.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+
+namespace Net = boost::asio;
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Hysteria2 = Preview::Hysteria2;
 
-    constexpr const char *kPassword = "stress-pw";
+    using CompletionChannel =
+        Net::experimental::channel<void(boost::system::error_code, bool)>;
+    using Error = Preview::Error;
+    using ExecutorType = Net::any_io_executor;
+    using MemoryStream = Preview::MemoryStream;
 
-    template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    constexpr std::string_view Password = "stress-pw";
+    constexpr std::size_t ConcurrentConnectionCount = 16;
+
+    struct ServerOptions
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        MemoryStream Stream;
+        std::size_t TotalBytes;
+        std::size_t BlockSize;
+        bool Echo;
+        std::shared_ptr<CompletionChannel> Completion;
+    };
+
+    struct SessionState
+    {
+        ExecutorType Executor;
+        MemoryStream ClientStream;
+        MemoryStream ServerStream;
+        std::vector<std::byte> Payload;
+        std::size_t TotalBytes;
+        std::size_t BlockSize;
+        bool Echo;
+    };
+
+    template <typename Awaitable>
+    auto RunCoroutine(
+        Net::io_context &IoContext,
+        Awaitable Coroutine) -> void
+    {
+        std::exception_ptr Exception;
+        auto Completion =
+            [&Exception, &IoContext](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(
+            IoContext,
+            std::move(Coroutine),
+            std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto make_domain_addr(const std::string &host, std::uint16_t port) -> Hysteria2::Address
+    [[nodiscard]] auto MakeAddress(
+        std::string_view Host,
+        const std::uint16_t Port) -> Hysteria2::Address
     {
-        Hysteria2::Address addr{};
-        addr.Type = Hysteria2::AddressType::Domain;
-        addr.Host = host;
-        addr.Port = port;
-        return addr;
+        Hysteria2::Address AddressValue{};
+        AddressValue.Type = Hysteria2::AddressType::Domain;
+        AddressValue.Host = Host;
+        AddressValue.Port = Port;
+        return AddressValue;
     }
 
-    /// 单次会话：握手 + 回显往返
-    auto one_session(net::io_context &ioc, const std::string &payload) -> bool
+    [[nodiscard]] auto MakePayload(std::string_view Text)
+        -> std::vector<std::byte>
     {
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        bool Ok = false;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 服务端：Accept + 回显
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto [err, msg, Conn] =
-                             co_await Hysteria2::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                        Hysteria2::ServerConfig{kPassword});
-                         if (err != Error::None || !Conn)
-                         {
-                             co_return;
-                         }
-                         std::array<std::byte, 4096> buf{};
-                         std::error_code ec;
-                         while (true)
-                         {
-                             const auto n = co_await Conn->async_read_some(buf, ec);
-                             if (ec || n == 0)
-                             {
-                                 break;
-                             }
-                             co_await Conn->async_write_some(
-                                 std::span<const std::byte>(buf.data(), n), ec);
-                         }
-                         Conn->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-
-                     // 客户端：Connect + 写入 + 读回显
-                     auto Stream = std::make_shared<MemoryStream>(std::move(a));
-                     auto [herr, cli] = co_await Hysteria2::Connect(
-                         Stream, Hysteria2::ClientConfig{kPassword},
-                         make_domain_addr("example.com", 443));
-                     if (herr != Error::None || !cli)
-                     {
-                         co_return;
-                     }
-                     std::error_code wec;
-                     co_await cli->async_write_some(
-                         std::span<const std::byte>(
-                             reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
-                         wec);
-                     std::array<std::byte, 4096> echo{};
-                     std::error_code rec;
-                     std::size_t Total = 0;
-                     while (Total < payload.size())
-                     {
-                         const auto n = co_await cli->async_read_some(
-                             std::span<std::byte>(echo.data() + Total, echo.size() - Total), rec);
-                         if (rec || n == 0)
-                         {
-                             break;
-                         }
-                         Total += n;
-                     }
-                     Ok = (Total == payload.size());
-                     cli->Close();
-                 });
-        return Ok;
+        const auto *Begin = reinterpret_cast<const std::byte *>(Text.data());
+        return {Begin, Begin + Text.size()};
     }
 
-    // ── 1. 200 次连接循环 ──
+    auto RunServer(ServerOptions Options) -> Net::awaitable<void>
+    {
+        const auto AcceptResult = co_await Hysteria2::Accept(
+            std::make_shared<MemoryStream>(std::move(Options.Stream)),
+            Hysteria2::ServerConfig{std::string(Password)});
+        const auto HandshakeError = std::get<0>(AcceptResult);
+        const auto &Request = std::get<1>(AcceptResult);
+        const auto &Connection = std::get<2>(AcceptResult);
+        (void)Request;
+        if (HandshakeError != Error::None || !Connection)
+        {
+            (void)Options.Completion->try_send(
+                boost::system::error_code{}, false);
+            co_return;
+        }
+
+        std::vector<std::byte> Buffer(Options.BlockSize);
+        std::error_code ReadError;
+        std::size_t Received = 0;
+        while (Received < Options.TotalBytes)
+        {
+            const auto ReadSize =
+                std::min(Options.BlockSize, Options.TotalBytes - Received);
+            const auto ReadWindow = std::span<std::byte>(
+                Buffer.data(),
+                ReadSize);
+            const auto Count = co_await Connection->async_read_some(
+                ReadWindow,
+                ReadError);
+            if (ReadError || Count == 0 || Count > ReadSize)
+            {
+                break;
+            }
+            if (Options.Echo)
+            {
+                std::error_code WriteError;
+                const auto WriteWindow = std::span<const std::byte>(
+                    Buffer.data(),
+                    Count);
+                const auto Written = co_await Connection->async_write_some(
+                    WriteWindow,
+                    WriteError);
+                if (WriteError || Written != Count)
+                {
+                    break;
+                }
+            }
+            Received += Count;
+        }
+
+        Connection->Close();
+        const bool Completed = Received == Options.TotalBytes;
+        (void)Options.Completion->try_send(
+            boost::system::error_code{},
+            Completed);
+    }
+
+    [[nodiscard]] auto RunSession(SessionState State) -> Net::awaitable<bool>
+    {
+        const auto Completion =
+            std::make_shared<CompletionChannel>(State.Executor, 1);
+        ServerOptions ServerState{
+            std::move(State.ServerStream),
+            State.TotalBytes,
+            State.BlockSize,
+            State.Echo,
+            Completion};
+        auto ServerCompletion =
+            [Completion](std::exception_ptr Exception) -> void
+        {
+            if (Exception)
+            {
+                (void)Completion->try_send(
+                    boost::system::error_code{}, false);
+            }
+        };
+        Net::co_spawn(
+            State.Executor,
+            RunServer(std::move(ServerState)),
+            std::move(ServerCompletion));
+
+        bool ClientCompleted = false;
+        try
+        {
+            const auto ConnectResult = co_await Hysteria2::Connect(
+                std::make_shared<MemoryStream>(std::move(State.ClientStream)),
+                Hysteria2::ClientConfig{std::string(Password)},
+                MakeAddress("example.com", 443));
+            const auto HandshakeError = std::get<0>(ConnectResult);
+            auto Client = std::get<1>(ConnectResult);
+            ClientCompleted =
+                HandshakeError == Error::None && Client != nullptr;
+            if (ClientCompleted)
+            {
+                std::size_t Sent = 0;
+                while (Sent < State.TotalBytes)
+                {
+                    const auto WriteSize =
+                        std::min(State.Payload.size(), State.TotalBytes - Sent);
+                    const auto WriteWindow = std::span<const std::byte>(
+                        State.Payload.data(),
+                        WriteSize);
+                    std::error_code WriteError;
+                    const auto Written = co_await Client->async_write_some(
+                        WriteWindow,
+                        WriteError);
+                    if (WriteError || Written == 0 || Written > WriteSize)
+                    {
+                        ClientCompleted = false;
+                        break;
+                    }
+                    Sent += Written;
+                }
+                if (Sent != State.TotalBytes)
+                {
+                    ClientCompleted = false;
+                }
+
+                if (ClientCompleted && State.Echo)
+                {
+                    std::vector<std::byte> EchoBuffer(State.BlockSize);
+                    std::error_code ReadError;
+                    std::size_t Received = 0;
+                    while (Received < State.TotalBytes)
+                    {
+                        const auto ReadSize = std::min(
+                            EchoBuffer.size(),
+                            State.TotalBytes - Received);
+                        const auto ReadWindow = std::span<std::byte>(
+                            EchoBuffer.data(),
+                            ReadSize);
+                        const auto Count = co_await Client->async_read_some(
+                            ReadWindow,
+                            ReadError);
+                        if (ReadError || Count == 0 || Count > ReadSize)
+                        {
+                            ClientCompleted = false;
+                            break;
+                        }
+                        Received += Count;
+                    }
+                    if (Received != State.TotalBytes)
+                    {
+                        ClientCompleted = false;
+                    }
+                }
+            }
+            if (Client)
+            {
+                Client->Close();
+            }
+        }
+        catch (...)
+        {
+            ClientCompleted = false;
+        }
+
+        const auto ServerCompleted =
+            co_await Completion->async_receive(Net::use_awaitable);
+        co_return ClientCompleted && ServerCompleted;
+    }
+
+    auto RunSessionAndReport(
+        SessionState State,
+        std::shared_ptr<CompletionChannel> ResultChannel)
+        -> Net::awaitable<void>
+    {
+        bool Completed = false;
+        try
+        {
+            Completed = co_await RunSession(std::move(State));
+        }
+        catch (...)
+        {
+            Completed = false;
+        }
+        (void)ResultChannel->try_send(
+            boost::system::error_code{},
+            Completed);
+    }
+
+    [[nodiscard]] auto RunSingle(
+        Net::io_context &IoContext,
+        SessionState State) -> bool
+    {
+        bool Completed = false;
+        auto Coroutine =
+            [&Completed, State = std::move(State)]() mutable
+            -> Net::awaitable<void>
+        {
+            Completed = co_await RunSession(std::move(State));
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
+        return Completed;
+    }
+
+    [[nodiscard]] auto RunConcurrent(
+        Net::io_context &IoContext,
+        ExecutorType Executor,
+        const std::vector<std::byte> &Payload)
+        -> Net::awaitable<std::size_t>
+    {
+        const auto ResultChannel =
+            std::make_shared<CompletionChannel>(
+                Executor,
+                ConcurrentConnectionCount);
+        for (std::size_t Index = 0;
+             Index < ConcurrentConnectionCount;
+             ++Index)
+        {
+            auto [ClientStream, ServerStream] =
+                Preview::MakeMemoryPair(Executor);
+            auto State = SessionState{
+                IoContext.get_executor(),
+                std::move(ClientStream),
+                std::move(ServerStream),
+                Payload,
+                Payload.size(),
+                128,
+                true};
+            auto SessionCompletion =
+                [ResultChannel](std::exception_ptr Exception) -> void
+            {
+                if (Exception)
+                {
+                    (void)ResultChannel->try_send(
+                        boost::system::error_code{}, false);
+                }
+            };
+            Net::co_spawn(
+                Executor,
+                RunSessionAndReport(std::move(State), ResultChannel),
+                std::move(SessionCompletion));
+        }
+
+        std::size_t SuccessfulConnections = 0;
+        for (std::size_t Index = 0;
+             Index < ConcurrentConnectionCount;
+             ++Index)
+        {
+            const auto Completed =
+                co_await ResultChannel->async_receive(Net::use_awaitable);
+            if (Completed)
+            {
+                ++SuccessfulConnections;
+            }
+        }
+        co_return SuccessfulConnections;
+    }
 
     TEST(Hysteria2Stress, ConnectLoop)
     {
-        constexpr int kRounds = 200;
-        const std::string payload = "hysteria2-stress";
-        int ok_count = 0;
-        for (int i = 0; i < kRounds; ++i)
+        constexpr int Rounds = 200;
+        const auto Payload = MakePayload("hysteria2-stress");
+        int SuccessfulRounds = 0;
+        for (int Round = 0; Round < Rounds; ++Round)
         {
-            net::io_context ioc;
-            if (one_session(ioc, payload))
+            Net::io_context IoContext;
+            auto [ClientStream, ServerStream] =
+                Preview::MakeMemoryPair(IoContext.get_executor());
+            const auto State = SessionState{
+                IoContext.get_executor(),
+                std::move(ClientStream),
+                std::move(ServerStream),
+                Payload,
+                Payload.size(),
+                4096,
+                true};
+            if (RunSingle(IoContext, std::move(State)))
             {
-                ++ok_count;
+                ++SuccessfulRounds;
             }
         }
-        EXPECT_EQ(ok_count, kRounds);
+        EXPECT_EQ(SuccessfulRounds, Rounds);
     }
-
-    // ── 2. 16 并发连接 ──
 
     TEST(Hysteria2Stress, Concurrent16)
     {
-        net::io_context ioc;
-        std::atomic<int> success{0};
-        const std::string payload = "concurrent-h2";
-        for (int i = 0; i < 16; ++i)
+        Net::io_context IoContext;
+        const auto Executor = IoContext.get_executor();
+        const auto Payload = MakePayload("concurrent-h2");
+        std::size_t SuccessfulConnections = 0;
+        auto Coroutine = [&]() -> Net::awaitable<void>
         {
-            auto [a, b] = MakeMemoryPair(ioc.get_executor());
-            net::co_spawn(
-                ioc.get_executor(),
-                [b = std::move(b)]() mutable -> net::awaitable<void>
-                {
-                    auto [err, msg, Conn] =
-                        co_await Hysteria2::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                   Hysteria2::ServerConfig{kPassword});
-                    if (err == Error::None && Conn)
-                    {
-                        std::array<std::byte, 128> buf{};
-                        std::error_code ec;
-                        const auto n = co_await Conn->async_read_some(buf, ec);
-                        if (!ec && n > 0)
-                        {
-                            co_await Conn->async_write_some(
-                                std::span<const std::byte>(buf.data(), n), ec);
-                        }
-                        Conn->Close();
-                    }
-                },
-                net::detached);
-            net::co_spawn(
-                ioc.get_executor(),
-                [&, a = std::move(a), payload]() mutable -> net::awaitable<void>
-                {
-                    auto Stream = std::make_shared<MemoryStream>(std::move(a));
-                    auto [herr, cli] = co_await Hysteria2::Connect(
-                        Stream, Hysteria2::ClientConfig{kPassword},
-                        make_domain_addr("example.com", 443));
-                    if (herr != Error::None || !cli)
-                    {
-                        co_return;
-                    }
-                    std::error_code ec;
-                    co_await cli->async_write_some(
-                        std::span<const std::byte>(
-                            reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
-                        ec);
-                    std::array<std::byte, 128> echo{};
-                    std::size_t rg = 0;
-                    while (rg < payload.size())
-                    {
-                        const auto n = co_await cli->async_read_some(
-                            std::span<std::byte>(echo.data() + rg, echo.size() - rg), ec);
-                        if (ec || n == 0)
-                        {
-                            break;
-                        }
-                        rg += n;
-                    }
-                    if (rg == payload.size())
-                    {
-                        success.fetch_add(1);
-                    }
-                    cli->Close();
-                },
-                net::detached);
-        }
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 超时守卫：客户端失败时避免无限自旋
-                     net::steady_timer t(ioc);
-                     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-                     while (success.load() < 16 && std::chrono::steady_clock::now() < deadline)
-                     {
-                         t.expires_after(std::chrono::milliseconds(1));
-                         co_await t.async_wait(net::use_awaitable);
-                     }
-                 });
-        EXPECT_EQ(success.load(), 16);
+            SuccessfulConnections =
+                co_await RunConcurrent(IoContext, Executor, Payload);
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
+        EXPECT_EQ(SuccessfulConnections, ConcurrentConnectionCount);
     }
-
-    // ── 3. 2MB 传输 ──
 
     TEST(Hysteria2Stress, Transfer2MB)
     {
-        net::io_context ioc;
-        constexpr std::size_t kTotal = 2 * 1024 * 1024;
-        constexpr std::size_t kChunk = 64 * 1024;
-
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        std::atomic<std::size_t> received{0};
-        net::co_spawn(
-            ioc.get_executor(),
-            [b = std::move(b), &received]() mutable -> net::awaitable<void>
-            {
-                auto [err, msg, Conn] =
-                    co_await Hysteria2::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                               Hysteria2::ServerConfig{kPassword});
-                if (err != Error::None || !Conn)
-                {
-                    co_return;
-                }
-                std::array<std::byte, kChunk> buf{};
-                std::error_code ec;
-                std::size_t Total = 0;
-                while (Total < kTotal)
-                {
-                    const auto n = co_await Conn->async_read_some(buf, ec);
-                    if (ec || n == 0)
-                    {
-                        break;
-                    }
-                    Total += n;
-                }
-                received.store(Total);
-                Conn->Close();
-            },
-            net::detached);
-
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     auto Stream = std::make_shared<MemoryStream>(std::move(a));
-                     auto [herr, cli] = co_await Hysteria2::Connect(
-                         Stream, Hysteria2::ClientConfig{kPassword},
-                         make_domain_addr("example.com", 443));
-                     if (herr != Error::None || !cli)
-                     {
-                         co_return;
-                     }
-                     std::vector<std::byte> chunk(kChunk, std::byte{0xAB});
-                     std::error_code ec;
-                     for (std::size_t sent = 0; sent < kTotal; sent += kChunk)
-                     {
-                         co_await cli->async_write_some(std::span<const std::byte>(chunk), ec);
-                         if (ec)
-                         {
-                             break;
-                         }
-                     }
-                     cli->Close();
-                 });
-        EXPECT_EQ(received.load(), kTotal);
+        constexpr std::size_t TotalBytes = 2 * 1024 * 1024;
+        constexpr std::size_t BlockSize = 64 * 1024;
+        Net::io_context IoContext;
+        auto [ClientStream, ServerStream] =
+            Preview::MakeMemoryPair(IoContext.get_executor());
+        const std::vector<std::byte> Payload(BlockSize, std::byte{0xAB});
+        const auto State = SessionState{
+            IoContext.get_executor(),
+            std::move(ClientStream),
+            std::move(ServerStream),
+            Payload,
+            TotalBytes,
+            BlockSize,
+            false};
+        EXPECT_TRUE(RunSingle(IoContext, std::move(State)));
     }
-
 } // namespace

@@ -15,6 +15,7 @@
 #include <preview/Net/Dialer/Dialer.hpp>
 #include <preview/Transport/MemoryStream.hpp>
 #include <preview/Transport/Reliable.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
@@ -32,19 +33,27 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using Tcp = net::ip::tcp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    using Tcp = Net::ip::tcp;
+    using Preview::Error;
+    using Preview::SharedTransmission;
 
     template <typename A>
-    void run_coro(net::io_context &ioc, A coro)
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(
+            IoContext,
+            std::move(Coroutine),
+            [&](std::exception_ptr ErrorValue)
+            {
+                Exception = ErrorValue;
+                IoContext.stop();
+            });
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 } // namespace
@@ -91,6 +100,63 @@ TEST(Http11Connect, ParseMalformed)
     EXPECT_EQ(Preview::Http11::ParseRequest("", req), Preview::Fault::Code::ParseError);
 }
 
+TEST(Http11Connect, RejectsOverreportedHeaderRead)
+{
+    Net::io_context ioc;
+    auto raw = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+    raw->OverreportRead = true;
+    Preview::Http11::ServerConn server(raw);
+    Preview::Http11::HttpRequest request;
+    Preview::Fault::Code result = Preview::Fault::Code::Success;
+
+    RunCoroutine(ioc,
+             [&]() -> Net::awaitable<void>
+             {
+                 result = co_await server.ReadRequest(request);
+             });
+
+    EXPECT_EQ(result, Preview::Fault::Code::IoError);
+}
+
+TEST(Http11Connect, ParseRejectsDuplicateSecurityHeaders)
+{
+    const std::string raw = "CONNECT host:80 HTTP/1.1\r\n"
+                            "Host: host:80\r\n"
+                            "Host: other:80\r\n"
+                            "Proxy-Authorization: Basic abc\r\n"
+                            "Proxy-Authorization: Basic def\r\n"
+                            "\r\n";
+    Preview::Http11::HttpRequest req;
+    EXPECT_EQ(Preview::Http11::ParseRequest(raw, req), Preview::Fault::Code::ParseError);
+}
+
+TEST(Http11Connect, ParseRejectsObsoleteFoldingAndInvalidCharacters)
+{
+    const std::string folded = "CONNECT host:80 HTTP/1.1\r\n"
+                               "Host: host:80\r\n"
+                               "\tcontinued\r\n"
+                               "\r\n";
+    const std::string invalid_name = "CONNECT host:80 HTTP/1.1\r\n"
+                                     "Bad Header: value\r\n"
+                                     "\r\n";
+    const std::string invalid_value = "CONNECT host:80 HTTP/1.1\r\n"
+                                      "Host: host:\x01\r\n"
+                                      "\r\n";
+    Preview::Http11::HttpRequest req;
+    EXPECT_EQ(Preview::Http11::ParseRequest(folded, req), Preview::Fault::Code::ParseError);
+    EXPECT_EQ(Preview::Http11::ParseRequest(invalid_name, req), Preview::Fault::Code::ParseError);
+    EXPECT_EQ(Preview::Http11::ParseRequest(invalid_value, req), Preview::Fault::Code::ParseError);
+}
+
+TEST(Http11Connect, ParseRejectsOversizedHeaderBlock)
+{
+    std::string raw = "CONNECT host:80 HTTP/1.1\r\nHost: host:80\r\nX-Pad: ";
+    raw.append(Preview::Http11::MaxHdrSize, 'x');
+    raw.append("\r\n\r\n");
+    Preview::Http11::HttpRequest req;
+    EXPECT_EQ(Preview::Http11::ParseRequest(raw, req), Preview::Fault::Code::ParseError);
+}
+
 TEST(Http11Connect, ParseStatusCode)
 {
     EXPECT_EQ(Preview::Http11::ParseStatusCode("HTTP/1.1 200 Connection Established\r\n\r\n"), 200);
@@ -118,7 +184,7 @@ TEST(Http11Connect, CheckBasicAuth)
 
     auto Ok = Preview::Http11::CheckBasic(auth_ok, Auth);
     EXPECT_TRUE(Ok.Ok);
-    EXPECT_EQ(Ok.identity, "user");
+    EXPECT_EQ(Ok.Identity, "user");
 
     EXPECT_FALSE(Preview::Http11::CheckBasic(auth_bad, Auth).Ok);
     EXPECT_FALSE(Preview::Http11::CheckBasic("Bearer token", Auth).Ok);
@@ -127,21 +193,21 @@ TEST(Http11Connect, CheckBasicAuth)
 
 TEST(Http11Connect, HandshakeOkE2E)
 {
-    net::io_context ioc;
-    Tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+    Net::io_context ioc;
+    Tcp::acceptor acceptor(ioc, Tcp::endpoint(Tcp::v4(), 0));
     const auto port = acceptor.local_endpoint().port();
 
     std::error_code ec;
     SharedTransmission Client;
     int status = 0;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoroutine(ioc,
+             [&]() -> Net::awaitable<void>
              {
-                 net::co_spawn(
+                 Net::co_spawn(
                      ioc.get_executor(),
-                     [&]() -> net::awaitable<void>
+                     [&]() -> Net::awaitable<void>
                      {
-                         auto sock = co_await acceptor.async_accept(net::use_awaitable);
+                         auto sock = co_await acceptor.async_accept(Net::use_awaitable);
                          auto transport = Preview::Transport::MakeReliable(std::move(sock));
                          Preview::Http11::ServerConn Server(transport);
                          Preview::Http11::HttpRequest req;
@@ -151,7 +217,7 @@ TEST(Http11Connect, HandshakeOkE2E)
                              co_await Server.SendResponse(Preview::Http11::Status::Ok);
                          }
                      },
-                     net::detached);
+                     Net::detached);
 
                  Client = co_await Preview::Network::Dialer::Dialer(ioc.get_executor()).Connect("127.0.0.1", port, ec);
                  if (!ec)
@@ -166,8 +232,8 @@ TEST(Http11Connect, HandshakeOkE2E)
 
 TEST(Http11Connect, AuthRequired407)
 {
-    net::io_context ioc;
-    Tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+    Net::io_context ioc;
+    Tcp::acceptor acceptor(ioc, Tcp::endpoint(Tcp::v4(), 0));
     const auto port = acceptor.local_endpoint().port();
 
     const Preview::StaticAuthenticator Auth("user", "pass");
@@ -175,17 +241,17 @@ TEST(Http11Connect, AuthRequired407)
     SharedTransmission Client;
     int status_no_auth = 0;
     int status_ok = 0;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoroutine(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  // Server：循环 Accept 两次，按凭据决定 407/200
-                 net::co_spawn(
+                 Net::co_spawn(
                      ioc.get_executor(),
-                     [&]() -> net::awaitable<void>
+                     [&]() -> Net::awaitable<void>
                      {
                          for (int round = 0; round < 2; ++round)
                          {
-                             auto sock = co_await acceptor.async_accept(net::use_awaitable);
+                             auto sock = co_await acceptor.async_accept(Net::use_awaitable);
                              auto transport = Preview::Transport::MakeReliable(std::move(sock));
                              Preview::Http11::ServerConn Server(transport);
                              Preview::Http11::HttpRequest req;
@@ -193,12 +259,16 @@ TEST(Http11Connect, AuthRequired407)
                              if (rc == Preview::Fault::Code::Success)
                              {
                                  const auto ar = Preview::Http11::CheckBasic(req.authorization, Auth);
-                                 co_await Server.SendResponse(ar.Ok ? Preview::Http11::Status::Ok
-                                                                     : Preview::Http11::Status::ProxyAuthRequired);
+                                 auto ResponseStatus = Preview::Http11::Status::ProxyAuthRequired;
+                                 if (ar.Ok)
+                                 {
+                                     ResponseStatus = Preview::Http11::Status::Ok;
+                                 }
+                                 co_await Server.SendResponse(ResponseStatus);
                              }
                          }
                      },
-                     net::detached);
+                     Net::detached);
 
                  // 连接 1：无凭据 → 407
                  Client = co_await Preview::Network::Dialer::Dialer(ioc.get_executor()).Connect("127.0.0.1", port, ec);
@@ -224,30 +294,33 @@ TEST(Http11Connect, AuthRequired407)
 
 TEST(Http11Connect, BadRequest400)
 {
-    net::io_context ioc;
-    Tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+    Net::io_context ioc;
+    Tcp::acceptor acceptor(ioc, Tcp::endpoint(Tcp::v4(), 0));
     const auto port = acceptor.local_endpoint().port();
 
     std::error_code ec;
     SharedTransmission Client;
     std::string Reply;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoroutine(ioc,
+             [&]() -> Net::awaitable<void>
              {
-                 net::co_spawn(
+                 Net::co_spawn(
                      ioc.get_executor(),
-                     [&]() -> net::awaitable<void>
+                     [&]() -> Net::awaitable<void>
                      {
-                         auto sock = co_await acceptor.async_accept(net::use_awaitable);
+                         auto sock = co_await acceptor.async_accept(Net::use_awaitable);
                          auto transport = Preview::Transport::MakeReliable(std::move(sock));
                          Preview::Http11::ServerConn Server(transport);
                          Preview::Http11::HttpRequest req;
                          const auto rc = co_await Server.ReadRequest(req);
-                         co_await Server.SendResponse(rc == Preview::Fault::Code::Success
-                                                           ? Preview::Http11::Status::Ok
-                                                           : Preview::Http11::Status::BadRequest);
+                         auto ResponseStatus = Preview::Http11::Status::BadRequest;
+                         if (rc == Preview::Fault::Code::Success)
+                         {
+                             ResponseStatus = Preview::Http11::Status::Ok;
+                         }
+                         co_await Server.SendResponse(ResponseStatus);
                      },
-                     net::detached);
+                     Net::detached);
 
                  Client = co_await Preview::Network::Dialer::Dialer(ioc.get_executor()).Connect("127.0.0.1", port, ec);
                  if (!ec)
@@ -268,22 +341,22 @@ TEST(Http11Connect, BadRequest400)
 
 TEST(Http11Connect, TunnelBidirectional)
 {
-    net::io_context ioc;
-    Tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+    Net::io_context ioc;
+    Tcp::acceptor acceptor(ioc, Tcp::endpoint(Tcp::v4(), 0));
     const auto port = acceptor.local_endpoint().port();
 
     std::error_code ec;
     SharedTransmission Client;
     int status = 0;
     std::string echo_back;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoroutine(ioc,
+             [&]() -> Net::awaitable<void>
              {
-                 net::co_spawn(
+                 Net::co_spawn(
                      ioc.get_executor(),
-                     [&]() -> net::awaitable<void>
+                     [&]() -> Net::awaitable<void>
                      {
-                         auto sock = co_await acceptor.async_accept(net::use_awaitable);
+                         auto sock = co_await acceptor.async_accept(Net::use_awaitable);
                          auto transport = Preview::Transport::MakeReliable(std::move(sock));
                          Preview::Http11::ServerConn Server(transport);
                          Preview::Http11::HttpRequest req;
@@ -302,7 +375,7 @@ TEST(Http11Connect, TunnelBidirectional)
                              }
                          }
                      },
-                     net::detached);
+                     Net::detached);
 
                  Client = co_await Preview::Network::Dialer::Dialer(ioc.get_executor()).Connect("127.0.0.1", port, ec);
                  if (!ec)
@@ -326,7 +399,7 @@ TEST(Http11Connect, TunnelBidirectional)
 
 TEST(Http11Connect, ServerPreservesCoalescedTunnelPayload)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [clientEnd, serverEnd] = Preview::MakeMemoryPair(ioc.get_executor());
     Preview::SharedTransmission Client =
         std::make_shared<Preview::MemoryStream>(std::move(clientEnd));
@@ -338,8 +411,8 @@ TEST(Http11Connect, ServerPreservesCoalescedTunnelPayload)
                              "\r\n" +
                              Payload;
     std::string Received;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoroutine(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  std::error_code ec;
                  co_await Client->AsyncWrite(
@@ -358,7 +431,7 @@ TEST(Http11Connect, ServerPreservesCoalescedTunnelPayload)
 
 TEST(Http11Connect, ClientPreservesCoalescedResponsePayload)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto [clientEnd, serverEnd] = Preview::MakeMemoryPair(ioc.get_executor());
     Preview::SharedTransmission Client =
         std::make_shared<Preview::MemoryStream>(std::move(clientEnd));
@@ -367,8 +440,8 @@ TEST(Http11Connect, ClientPreservesCoalescedResponsePayload)
     const std::string Wire = "HTTP/1.1 200 Connection Established\r\n\r\n" + Payload;
     int Status = 0;
     std::string Received;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoroutine(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  std::error_code ec;
                  co_await Server->AsyncWrite(

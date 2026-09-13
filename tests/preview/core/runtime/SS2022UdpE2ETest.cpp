@@ -26,9 +26,9 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace boost::asio::experimental::awaitable_operators;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Shadowsocks2022 = Preview::Shadowsocks2022;
+    using Preview::Error;
 
     /// 接收看门狗超时（超过即判定挂死）
     constexpr auto kRecvDeadline = std::chrono::milliseconds(2000);
@@ -48,12 +48,12 @@ namespace
      */
     auto RecvGuarded(const Shadowsocks2022::SharedDgram &sock, Shadowsocks2022::Address &src,
                       std::vector<std::uint8_t> &Rx)
-        -> net::awaitable<std::optional<Error>>
+        -> Net::awaitable<std::optional<Error>>
     {
-        net::steady_timer wd(sock->Executor());
+        Net::steady_timer wd(sock->Executor());
         wd.expires_after(kRecvDeadline);
-        auto Result = co_await (sock->AsyncReceiveFrom(src, Rx) ||
-                                wd.async_wait(net::use_awaitable));
+        auto Result = co_await Net::experimental::awaitable_operators::operator||(
+            sock->AsyncReceiveFrom(src, Rx), wd.async_wait(Net::use_awaitable));
         if (Result.index() == 1)
         {
             co_return std::nullopt; // 超时
@@ -62,10 +62,10 @@ namespace
     }
 
     /// 创建绑定随机端口的服务端并回读端点
-    auto MakeServer(net::io_context &ioc, const char *password)
-        -> std::pair<Shadowsocks2022::SharedDgram, net::ip::udp::endpoint>
+    auto MakeServer(Net::io_context &ioc, const char *password)
+        -> std::pair<Shadowsocks2022::SharedDgram, Net::ip::udp::endpoint>
     {
-        net::ip::udp::endpoint bound;
+        Net::ip::udp::endpoint bound;
         Shadowsocks2022::ServerConfig Config;
         Config.password = password;
         Config.UsePsk = true;
@@ -75,7 +75,7 @@ namespace
         return {std::move(Server), bound};
     }
 
-    auto MakeClient(net::io_context &ioc, const std::string &remote,
+    auto MakeClient(Net::io_context &ioc, const std::string &remote,
                     const char *password, bool CorrectKey)
         -> Shadowsocks2022::SharedDgram
     {
@@ -92,10 +92,10 @@ namespace
 
     TEST(SS2022Udp, DirectEchoDomain)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         bool Ok = false;
         std::exception_ptr done_ep;
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        Net::co_spawn(ioc, [&]() -> Net::awaitable<void>
         {
             auto [Server, bound] = MakeServer(ioc, "Secret");
             if (!Server) { ADD_FAILURE() << "Server null"; co_return; }
@@ -113,7 +113,13 @@ namespace
             Shadowsocks2022::Address src;
             std::vector<std::uint8_t> Rx;
             const auto rerr = co_await RecvGuarded(Server, src, Rx);
-            if (rerr != Error::None) { ADD_FAILURE() << "recv1: " << (rerr ? (int)*rerr : -1); co_return; }
+            if (rerr != Error::None)
+            {
+                int ErrorValue = -1;
+                if (rerr) { ErrorValue = static_cast<int>(*rerr); }
+                ADD_FAILURE() << "recv1: " << ErrorValue;
+                co_return;
+            }
             const std::string got(reinterpret_cast<const char *>(Rx.data()), Rx.size());
             if (got != payload) { ADD_FAILURE() << got; co_return; }
 
@@ -124,7 +130,13 @@ namespace
             Shadowsocks2022::Address src2;
             std::vector<std::uint8_t> rx2;
             const auto rerr2 = co_await RecvGuarded(Client, src2, rx2);
-            if (rerr2 != Error::None) { ADD_FAILURE() << "recv2: " << (rerr2 ? (int)*rerr2 : -1); co_return; }
+            if (rerr2 != Error::None)
+            {
+                int ErrorValue = -1;
+                if (rerr2) { ErrorValue = static_cast<int>(*rerr2); }
+                ADD_FAILURE() << "recv2: " << ErrorValue;
+                co_return;
+            }
             const std::string echo(reinterpret_cast<const char *>(rx2.data()), rx2.size());
             Ok = (echo == payload);
         }, [&](std::exception_ptr ep) { done_ep = ep; ioc.stop(); });
@@ -138,10 +150,10 @@ namespace
 
     TEST(SS2022Udp, DirectEchoIpv4)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         bool Ok = false;
         std::exception_ptr done_ep;
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        Net::co_spawn(ioc, [&]() -> Net::awaitable<void>
         {
             auto [Server, bound] = MakeServer(ioc, "Secret");
             if (!Server) { ADD_FAILURE() << "Server null"; co_return; }
@@ -158,7 +170,13 @@ namespace
             Shadowsocks2022::Address src;
             std::vector<std::uint8_t> Rx;
             const auto rerr = co_await RecvGuarded(Server, src, Rx);
-            if (rerr != Error::None) { ADD_FAILURE() << "recv: " << (rerr ? (int)*rerr : -1); co_return; }
+            if (rerr != Error::None)
+            {
+                int ErrorValue = -1;
+                if (rerr) { ErrorValue = static_cast<int>(*rerr); }
+                ADD_FAILURE() << "recv: " << ErrorValue;
+                co_return;
+            }
             Ok = (std::string(reinterpret_cast<const char *>(Rx.data()), Rx.size()) == payload);
         }, [&](std::exception_ptr ep) { done_ep = ep; ioc.stop(); });
         ioc.run();
@@ -171,10 +189,10 @@ namespace
 
     TEST(SS2022Udp, BadPskDrop)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         bool rejected = false;
         std::exception_ptr done_ep;
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        Net::co_spawn(ioc, [&]() -> Net::awaitable<void>
         {
             auto [Server, bound] = MakeServer(ioc, "right");
             if (!Server) { ADD_FAILURE() << "Server null"; co_return; }
@@ -196,8 +214,9 @@ namespace
             const auto rerr = co_await RecvGuarded(Server, src, Rx);
             if (rerr != Error::BadAuth)
             {
-                ADD_FAILURE() << "expected bad_auth, got "
-                              << (rerr ? (int)*rerr : -1);
+                int ErrorValue = -1;
+                if (rerr) { ErrorValue = static_cast<int>(*rerr); }
+                ADD_FAILURE() << "expected bad_auth, got " << ErrorValue;
                 co_return;
             }
             // 关闭后接收应以错误收口而非挂死

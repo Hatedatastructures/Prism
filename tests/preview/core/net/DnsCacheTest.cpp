@@ -16,27 +16,26 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace Preview;
+    namespace Net = boost::asio;
     using Preview::Network::Dns::Cache;
     using Preview::Network::Dns::CacheOptions;
     using Preview::Network::Dns::PutInput;
 
     constexpr std::uint16_t QtA = 1;
 
-    auto V4(const char *s) -> net::ip::address
+    auto V4(const char *AddressText) -> Net::ip::address
     {
-        return net::ip::make_address(s);
+        return Net::ip::make_address(AddressText);
     }
 
-    auto MakePut(const std::string &domain, const char *ip, std::chrono::seconds ttl) -> PutInput
+    auto MakePut(const std::string &Domain, const char *Ip, std::chrono::seconds Ttl) -> PutInput
     {
-        PutInput in;
-        in.Domain = domain;
-        in.QType = QtA;
-        in.Ips = {V4(ip)};
-        in.Ttl = ttl;
-        return in;
+        PutInput Input;
+        Input.Domain = Domain;
+        Input.QType = QtA;
+        Input.Ips = {V4(Ip)};
+        Input.Ttl = Ttl;
+        return Input;
     }
 } // namespace
 

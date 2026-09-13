@@ -29,7 +29,7 @@
 
 #include <gtest/gtest.h>
 
-namespace net = boost::asio;
+namespace Net = boost::asio;
 namespace handshake = psm::handshake;
 namespace transport = psm::transport;
 
@@ -66,7 +66,7 @@ namespace
         }
 
         [[nodiscard]] auto handshake(handshake::handshake_context /*ctx*/)
-            -> net::awaitable<handshake::handshake_result> override
+            -> Net::awaitable<handshake::handshake_result> override
         {
             co_return preset_result;
         }
@@ -121,7 +121,7 @@ namespace
 
     auto run_single(handshake::scheme_executor *executor, handshake::shared_scheme scheme,
                     handshake::handshake_context ctx, handshake::handshake_result *result)
-        -> net::awaitable<void>
+        -> Net::awaitable<void>
     {
         *result = co_await executor->execute_single(std::move(scheme), std::move(ctx));
     }
@@ -129,7 +129,7 @@ namespace
     auto run_pipeline(handshake::scheme_executor *executor,
                       const psm::memory::vector<psm::memory::string> *order,
                       handshake::handshake_context ctx, handshake::handshake_result *result)
-        -> net::awaitable<void>
+        -> Net::awaitable<void>
     {
         *result = co_await executor->execute_pipeline(*order, std::move(ctx));
     }
@@ -137,7 +137,7 @@ namespace
     auto run_by_analysis(handshake::scheme_executor *executor,
                          const psm::recognition::analysis_result *analysis,
                          handshake::handshake_context ctx, handshake::handshake_result *result)
-        -> net::awaitable<void>
+        -> Net::awaitable<void>
     {
         *result = co_await executor->execute_by_analysis(*analysis, std::move(ctx));
     }
@@ -145,7 +145,7 @@ namespace
     auto run_execute(handshake::scheme_executor *executor,
                      const psm::memory::vector<psm::memory::string> *candidates,
                      handshake::handshake_context ctx, handshake::handshake_result *result)
-        -> net::awaitable<void>
+        -> Net::awaitable<void>
     {
         *result = co_await executor->execute(*candidates, std::move(ctx));
     }
@@ -156,7 +156,7 @@ namespace
         ASSERT_NE(ctx.session, nullptr);
 
         auto &worker_ioc = ctx.session->worker->ioc;
-        net::post(worker_ioc, [&worker_ioc] { worker_ioc.stop(); });
+        Net::post(worker_ioc, [&worker_ioc] { worker_ioc.stop(); });
         worker_ioc.run();
 
         ctx.session_keepalive.reset();
@@ -177,11 +177,11 @@ namespace
 
         handshake::scheme_executor exec(registry);
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(ioc, run_single(&exec, mock, make_context(), &result),
+        Net::co_spawn(ioc, run_single(&exec, mock, make_context(), &result),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -217,11 +217,11 @@ namespace
 
         handshake::scheme_executor exec(registry);
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_single(&exec, mock, make_context(), &result),
             [&](std::exception_ptr e)
@@ -255,11 +255,11 @@ namespace
         psm::memory::vector<psm::memory::string> order;
         order.emplace_back("facade_ok");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
@@ -290,11 +290,11 @@ namespace
         psm::memory::vector<psm::memory::string> order;
         order.emplace_back("stack_ok");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
@@ -337,11 +337,11 @@ namespace
         order.emplace_back("stack_fail");
         order.emplace_back("facade_ok");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
@@ -380,11 +380,11 @@ namespace
         order.emplace_back("tls_detector");
         order.emplace_back("real_match");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
@@ -414,11 +414,11 @@ namespace
         psm::memory::vector<psm::memory::string> order;
         order.emplace_back("fail_scheme");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
@@ -451,11 +451,11 @@ namespace
         order.emplace_back("nonexistent");
         order.emplace_back("existing");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
@@ -489,11 +489,11 @@ namespace
         order.emplace_back("disabled");
         order.emplace_back("enabled");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
@@ -514,11 +514,11 @@ namespace
 
         psm::memory::vector<psm::memory::string> order;
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
@@ -551,11 +551,11 @@ namespace
         psm::recognition::analysis_result analysis;
         // candidates 为空
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc, run_by_analysis(&exec, &analysis, make_context(), &result),
             [&](std::exception_ptr e)
             {
@@ -585,11 +585,11 @@ namespace
         psm::recognition::analysis_result analysis;
         analysis.candidates.emplace_back("scheme_b");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc, run_by_analysis(&exec, &analysis, make_context(), &result),
             [&](std::exception_ptr e)
             {
@@ -620,11 +620,11 @@ namespace
         psm::memory::vector<psm::memory::string> candidates;
         candidates.emplace_back("delegate_test");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_execute(&exec, &candidates, make_context(), &result),
             [&](std::exception_ptr e)
@@ -664,11 +664,11 @@ namespace
         candidates.emplace_back("first");
         candidates.emplace_back("second");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_execute(&exec, &candidates, make_context(), &result),
             [&](std::exception_ptr e)
@@ -702,11 +702,11 @@ namespace
         psm::memory::vector<psm::memory::string> order;
         order.emplace_back("fail_no_rewind");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)
@@ -750,11 +750,11 @@ namespace
         psm::memory::vector<psm::memory::string> order;
         order.emplace_back("preread_probe");
 
-        net::io_context ioc;
+        Net::io_context ioc;
         handshake::handshake_result result;
         std::exception_ptr ep;
 
-        net::co_spawn(
+        Net::co_spawn(
             ioc,
             run_pipeline(&exec, &order, make_context(), &result),
             [&](std::exception_ptr e)

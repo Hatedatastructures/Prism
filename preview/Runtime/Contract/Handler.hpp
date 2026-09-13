@@ -6,18 +6,22 @@
 #pragma once
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 
+#include <boost/asio/awaitable.hpp>
+
 #include <preview/Foundation/Error.hpp>
 #include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/Utility/Account/Directory.hpp>
 #include <preview/Net/Target.hpp>
 #include <preview/Transport/Transmission.hpp>
 
 namespace Preview::Runtime::Handler
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @struct AcceptResult
@@ -33,10 +37,14 @@ namespace Preview::Runtime::Handler
         Preview::SharedTransmission Transmission;
         /// 已认证的用户身份（协议未提供时留空）
         std::string identity;
+        /// 协议握手是否已经完成认证；为真时 Session 不再重复执行通用认证中间件
+        bool ProtocolAuthenticated{false};
+        /// 协议认证成功后持有的账户租约
+        std::optional<Preview::Account::Lease> AccountLease;
         /// true 时 Transmission 形态按协议而异：SOCKS5=TCP 控制连接、Trojan/VMess=Dgram<> 装饰器、VLESS=裸流，udp_service 需按协议 dynamic_pointer_cast
         bool IsDgram{false};
         /// 上游拨号完成后的回调（如 SOCKS5 延迟 CONNECT 应答；空 = 无需回调）
-        std::function<net::awaitable<void>(Preview::Fault::Code)> PostDial;
+        std::function<Net::awaitable<void>(Preview::Fault::Code)> PostDial;
     };
 
     /**
@@ -53,7 +61,7 @@ namespace Preview::Runtime::Handler
          * @return 握手结果（目标地址、数据面通道与拨号后回调）
          */
         virtual auto Accept(Preview::SharedTransmission Inbound)
-            -> net::awaitable<AcceptResult> = 0;
+            -> Net::awaitable<AcceptResult> = 0;
 
         /**
          * @brief 处理器名称

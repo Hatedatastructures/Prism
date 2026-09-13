@@ -26,7 +26,7 @@
 namespace Preview::Middleware
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class Middleware
@@ -55,7 +55,7 @@ namespace Preview::Middleware
          * @return 处理后的错误码（success = 继续下一中间件）
          */
         virtual auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
-            -> net::awaitable<Preview::Fault::Code> = 0;
+            -> Net::awaitable<Preview::Fault::Code> = 0;
     };
 
     /// 中间件共享指针
@@ -88,7 +88,7 @@ namespace Preview::Middleware
          * @return 最终错误码（success = 全部通过）
          */
         auto Run(Preview::SharedTransmission Inbound, Context &ctx)
-            -> net::awaitable<Preview::Fault::Code>
+            -> Net::awaitable<Preview::Fault::Code>
         {
             for (const auto &mw : Chain_)
             {

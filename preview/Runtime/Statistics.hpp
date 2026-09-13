@@ -156,6 +156,13 @@ namespace Preview::Runtime
     class IdentityTraffic
     {
     public:
+        static constexpr std::size_t DefaultMaxIdentities = 100000;
+
+        explicit IdentityTraffic(std::size_t MaxIdentities = DefaultMaxIdentities) noexcept
+            : MaxIdentities_(MaxIdentities)
+        {
+        }
+
         /**
          * @brief 累加流量
          * @param identity 用户标识
@@ -165,6 +172,10 @@ namespace Preview::Runtime
         void Add(std::string_view identity, std::uint64_t up, std::uint64_t down)
         {
             auto Slot = GetSlot(identity);
+            if (!Slot)
+            {
+                return;
+            }
             Slot->Up.fetch_add(up, std::memory_order_relaxed);
             Slot->Down.fetch_add(down, std::memory_order_relaxed);
         }
@@ -227,6 +238,11 @@ namespace Preview::Runtime
                     return It->second;
                 }
 
+                if (Snapshot->size() >= MaxIdentities_)
+                {
+                    return {};
+                }
+
                 if (!NewSlot)
                 {
                     NewSlot = std::make_shared<WorkerSlot>();
@@ -244,6 +260,7 @@ namespace Preview::Runtime
         }
 
         using Table = std::unordered_map<std::string, std::shared_ptr<WorkerSlot>>;
+        const std::size_t MaxIdentities_;
         std::atomic<std::shared_ptr<const Table>> Snapshot_{
             std::make_shared<const Table>()}; ///< identity → 原子流量槽快照
     };
@@ -261,6 +278,13 @@ namespace Preview::Runtime
     class TrafficCounter final : public Preview::Foundation::TrafficSink
     {
     public:
+        static constexpr std::size_t DefaultMaxIdentities = 100000;
+
+        explicit TrafficCounter(std::size_t MaxIdentities = DefaultMaxIdentities) noexcept
+            : MaxIdentities_(MaxIdentities)
+        {
+        }
+
         /**
          * @struct Entry
          * @brief 单 identity 的流量
@@ -280,6 +304,10 @@ namespace Preview::Runtime
         void Report(std::string_view identity, std::size_t up, std::size_t down) override
         {
             const auto Slot = SlotFor(identity);
+            if (!Slot)
+            {
+                return;
+            }
             Slot->Up.fetch_add(up, std::memory_order_relaxed);
             Slot->Down.fetch_add(down, std::memory_order_relaxed);
         }
@@ -348,6 +376,10 @@ namespace Preview::Runtime
                 {
                     return It->second;
                 }
+                if (Snap->size() >= MaxIdentities_)
+                {
+                    return {};
+                }
                 auto Next = std::make_shared<Table>(*Snap);
                 auto Slot = std::make_shared<AtomicEntry>();
                 const auto SlotPtr = Slot.get();
@@ -362,6 +394,7 @@ namespace Preview::Runtime
             }
         }
 
+        const std::size_t MaxIdentities_;
         std::atomic<std::shared_ptr<const Table>> Snapshot_{
             std::make_shared<const Table>()}; ///< identity → 流量（COW 快照）
     };

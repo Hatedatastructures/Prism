@@ -4,7 +4,7 @@
  * @details 协议族统一入口：
  * - 工厂函数（本文件）：Connect / Accept ——HTTP 升级握手在工厂内部完成
  * - 配置：ClientConfig / ServerConfig（本文件，字段分开定义）
- * - 连接：Conn（流，Conn.hpp，Upgrade 握手 + 数据透传）
+ * - 连接：Conn（流，Conn.hpp，Upgrade 握手 + RFC 6455 数据帧）
  * - 编解码：Codec.hpp（Accept 计算 + 帧头解析/编码/掩码）
  */
 
@@ -26,6 +26,8 @@
 
 namespace Preview::Ws
 {
+
+    namespace Net = boost::asio;
 
     // =========================================================================
     // 配置（客户端与服务端字段分开定义）
@@ -64,9 +66,9 @@ namespace Preview::Ws
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Connect(SharedTransmission upstream, const ClientConfig &cfg)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream));
+        auto C = std::make_shared<Conn<>>(std::move(upstream), true);
         const auto Err = co_await C->WriteHandshake(cfg.key, cfg.host);
         SharedConn Conn;
         if (Err == Error::None)
@@ -87,9 +89,9 @@ namespace Preview::Ws
      * @return 错误码、客户端 Key 与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, std::string, SharedConn>>
+        -> Net::awaitable<std::tuple<Error, std::string, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream));
+        auto C = std::make_shared<Conn<>>(std::move(upstream), false);
         std::string key;
         const auto Err = co_await C->ReadHandshake(key);
         SharedConn Conn;

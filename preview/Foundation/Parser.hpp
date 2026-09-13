@@ -28,6 +28,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 
 #include <preview/Foundation/Error.hpp>
@@ -36,21 +37,23 @@
 namespace Preview
 {
 
-    namespace detail
+    namespace Detail
     {
 
         /// 帧配置 concept：描述帧结构
         /// @tparam C 配置类型
         template <typename C>
-        concept FrameConfig = requires(C &c) {
+        concept FrameConfig = requires(std::span<const std::uint8_t> Header,
+                                       typename C::FrameType &Frame) {
             typename C::FrameType;
             { C::HeaderLen } -> std::convertible_to<const std::size_t>;
-            { C::ParseHeader(std::span<const std::uint8_t>{}, c.Frame_) } -> std::same_as<Error>;
-            { C::PayloadLen(c.Frame_) } -> std::convertible_to<std::size_t>;
-            { C::ParsePayload(c.Frame_, std::span<const std::uint8_t>{}) } -> std::same_as<Error>;
+            { C::MaxPayloadLen } -> std::convertible_to<const std::size_t>;
+            { C::ParseHeader(Header, Frame) } -> std::same_as<Error>;
+            { C::PayloadLen(Frame) } -> std::convertible_to<std::size_t>;
+            { C::ParsePayload(Frame, Header) } -> std::same_as<Error>;
         };
 
-    } // namespace detail
+    } // namespace Detail
 
     /// 增量解析器状态
     enum class ParseState
@@ -143,10 +146,14 @@ namespace Preview
                 }
                 return 0;
             }
-            const auto Total = Config::HeaderLen + Config::PayloadLen(Frame_);
-            if (Total > Buf_.Size())
+            std::size_t Need = 0;
+            if (!TryPayloadLength(Frame_, Need))
             {
-                return Total - Buf_.Size();
+                return 0;
+            }
+            if (Need > Buf_.Size())
+            {
+                return Need - Buf_.Size();
             }
             return 0;
         }
@@ -166,6 +173,12 @@ namespace Preview
             if (State_ == ParseState::Done)
             {
                 return Error::None;
+            }
+
+            const auto MaxFrame = MaxFrameSize();
+            if (MaxFrame == 0 || Buf_.Size() > MaxFrame || Data.size() > MaxFrame - Buf_.Size())
+            {
+                return Fail(Error::BadLength);
             }
 
             // 追加到内部缓冲
@@ -194,11 +207,20 @@ namespace Preview
                         return Ec;
                     }
                     Buf_.Consume(Config::HeaderLen);
+                    std::size_t Need = 0;
+                    if (!TryPayloadLength(Frame_, Need))
+                    {
+                        return Fail(Error::BadLength);
+                    }
                     State_ = ParseState::Payload;
                 }
                 else if (State_ == ParseState::Payload)
                 {
-                    const auto Need = Config::PayloadLen(Frame_);
+                    std::size_t Need = 0;
+                    if (!TryPayloadLength(Frame_, Need))
+                    {
+                        return Fail(Error::BadLength);
+                    }
                     if (Buf_.Size() < Need)
                     {
                         return Error::NeedMore;
@@ -258,6 +280,36 @@ namespace Preview
         }
 
     private:
+        static constexpr auto MaxFrameSize() noexcept -> std::size_t
+        {
+            if (Config::HeaderLen > FlatBuffer::MaxSizeLimit ||
+                Config::MaxPayloadLen > FlatBuffer::MaxSizeLimit - Config::HeaderLen)
+            {
+                return 0;
+            }
+            return Config::HeaderLen + Config::MaxPayloadLen;
+        }
+
+        static auto TryPayloadLength(const FrameType &Frame, std::size_t &Need) -> bool
+        {
+            const auto Payload = Config::PayloadLen(Frame);
+            if (Payload > Config::MaxPayloadLen || Config::HeaderLen > FlatBuffer::MaxSizeLimit ||
+                Payload > FlatBuffer::MaxSizeLimit - Config::HeaderLen)
+            {
+                return false;
+            }
+            Need = Payload;
+            return true;
+        }
+
+        auto Fail(Error Ec) -> Error
+        {
+            State_ = ParseState::Failed;
+            Buf_.Clear();
+            Frame_ = FrameType{};
+            return Ec;
+        }
+
         FlatBuffer Buf_;
         FrameType Frame_{};
         ParseState State_{ParseState::Header};

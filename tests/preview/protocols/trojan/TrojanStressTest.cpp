@@ -1,286 +1,455 @@
 /**
  * @file TrojanStressTest.cpp
  * @brief Trojan 协议会话压力测试（达标标准 C2）
- * @details 生产级压力验证：
- * 1. 200 次连接循环（每次新 ioc + 内存对，握手 + 回显，计数验证）
- * 2. 16 并发连接握手（全 co_spawn 到同一 ioc，客户端逻辑内联）
- * 3. 2MB 数据传输（64KB 分块，服务端累积计数校验）
+ * @details 覆盖 200 次独立握手回环、16 并发连接和 2 MiB 分块传输；
+ *          每条协程都有完成通知，异常不会被丢弃。
  * @note 使用 Trojan::Accept 服务端 + 原始 wire 客户端握手
- *       （Sha224 凭据 + CRLF 分隔请求头，无服务端响应字节）
+ *       （Sha224 凭据 + CRLF 分隔请求头，无服务端响应字节）。
  */
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
-#include <array>
-#include <atomic>
-#include <chrono>
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <tuple>
+#include <utility>
 #include <vector>
 
-#include <preview/Transport/MemoryStream.hpp>
-#include <preview/Protocols/Trojan/Trojan.hpp>
 #include <gtest/gtest.h>
+#include <preview/Protocols/Trojan/Trojan.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+
+namespace Net = boost::asio;
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Trojan = Preview::Trojan;
+
+    using Address = Trojan::Address;
+    using AddressType = Trojan::AddressType;
+    using Error = Preview::Error;
+    using ExecutorType = Net::any_io_executor;
+    using MemoryStream = Preview::MemoryStream;
+    using CompletionChannel =
+        Net::experimental::channel<void(boost::system::error_code, bool)>;
 
     /// 测试密码（Sha224 哈希后作为凭据）
-    constexpr const char *kPassword = "pw123456";
+    constexpr const char *Password = "pw123456";
 
-    /// 运行协程直至完成（异常重抛）
-    template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    struct ServerOptions
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        MemoryStream Stream;
+        std::size_t TotalBytes;
+        std::size_t BlockSize;
+        bool Echo;
+        std::shared_ptr<CompletionChannel> Completion;
+    };
+
+    struct SessionState
+    {
+        Net::io_context &IoContext;
+        ExecutorType Executor;
+        MemoryStream ClientStream;
+        MemoryStream ServerStream;
+        std::vector<std::uint8_t> Payload;
+        std::size_t TotalBytes;
+        std::size_t BlockSize;
+        bool Echo;
+    };
+
+    template <typename Awaitable>
+    auto RunCoroutine(
+        Net::io_context &IoContext,
+        Awaitable Coroutine) -> void
+    {
+        std::exception_ptr Exception;
+        auto Completion =
+            [&Exception, &IoContext](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(
+            IoContext,
+            std::move(Coroutine),
+            std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
-    /// 构造 trojan 目标地址
-    auto make_addr(Trojan::AddressType Type, std::string host, std::uint16_t port)
-        -> Trojan::Address
+    [[nodiscard]] auto MakeAddress(
+        const AddressType Type,
+        std::string Host,
+        const std::uint16_t Port) -> Address
     {
-        Trojan::Address addr{};
-        addr.Type = Type;
-        addr.Host = std::move(host);
-        addr.Port = port;
-        return addr;
+        Address Result;
+        Result.Type = Type;
+        Result.Host = std::move(Host);
+        Result.Port = Port;
+        return Result;
     }
 
-    /// 服务端：Accept + 回显
-    auto server_echo(net::io_context &ioc, MemoryStream b) -> void
+    [[nodiscard]] auto BuildRawRequest(const Address &Target)
+        -> std::vector<std::uint8_t>
     {
-        net::co_spawn(ioc.get_executor(),
-                      [b = std::move(b)]() mutable -> net::awaitable<void>
-                      {
-                          auto [err, req, Conn] =
-                              co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                      Trojan::ServerConfig{kPassword});
-                          if (err != Error::None || !Conn)
-                          {
-                              co_return;
-                          }
-                          std::array<std::byte, 4096> buf{};
-                          std::error_code ec;
-                          while (true)
-                          {
-                              const auto n = co_await Conn->async_read_some(buf, ec);
-                              if (ec || n == 0)
-                              {
-                                  break;
-                              }
-                              co_await Conn->async_write_some(
-                                  std::span<const std::byte>(buf.data(), n), ec);
-                          }
-                          Conn->Close();
-                      },
-                      net::detached);
+        const auto Credential = Trojan::Credential(Password);
+        return Trojan::BuildRequest(
+            Credential,
+            Trojan::Command::Connect,
+            Target);
     }
 
-    /// 客户端：原始 wire 握手（Sha224 凭据 + CRLF 头）+ 回显往返
-    auto client_roundtrip(net::io_context &ioc, MemoryStream a, const std::string &payload) -> bool
+    [[nodiscard]] auto MakePayload(std::string_view Text)
+        -> std::vector<std::uint8_t>
     {
-        bool Ok = false;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     const auto cred = Trojan::Credential(kPassword);
-                     auto wire = Trojan::BuildRequest(
-                         cred, Trojan::Command::Connect,
-                         make_addr(Trojan::AddressType::Domain, "example.com", 443));
-                     wire.insert(wire.end(), payload.begin(), payload.end());
-                     std::error_code ec;
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-                     std::array<std::byte, 4096> echo{};
-                     std::size_t got = 0;
-                     while (got < payload.size())
-                     {
-                         const auto n = co_await a.async_read_some(
-                             std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
-                         if (ec || n == 0)
-                         {
-                             break;
-                         }
-                         got += n;
-                     }
-                     Ok = (got == payload.size());
-                 });
-        return Ok;
+        return {
+            reinterpret_cast<const std::uint8_t *>(Text.data()),
+            reinterpret_cast<const std::uint8_t *>(Text.data()) + Text.size()};
     }
 
-    // ── 1. 200 次连接循环泄漏检测 ──
+    auto RunServer(ServerOptions Options) -> Net::awaitable<void>
+    {
+        const auto AcceptResult = co_await Trojan::Accept(
+            std::make_shared<MemoryStream>(std::move(Options.Stream)),
+            Trojan::ServerConfig{Password});
+        const auto HandshakeError = std::get<0>(AcceptResult);
+        const auto &Request = std::get<1>(AcceptResult);
+        const auto &Connection = std::get<2>(AcceptResult);
+        (void)Request;
+        if (HandshakeError != Error::None || !Connection)
+        {
+            (void)Options.Completion->try_send(
+                boost::system::error_code{}, false);
+            co_return;
+        }
+
+        std::vector<std::byte> Buffer(Options.BlockSize);
+        std::error_code ReadError;
+        std::size_t Received = 0;
+        while (Received < Options.TotalBytes)
+        {
+            const auto ReadSize =
+                std::min(Options.BlockSize, Options.TotalBytes - Received);
+            auto ReadWindow = std::span<std::byte>(
+                Buffer.data(),
+                ReadSize);
+            const auto Count = co_await Connection->async_read_some(
+                ReadWindow,
+                ReadError);
+            if (ReadError || Count == 0 || Count > ReadSize)
+            {
+                break;
+            }
+            if (Options.Echo)
+            {
+                std::error_code WriteError;
+                auto WriteWindow = std::span<const std::byte>(
+                    Buffer.data(),
+                    Count);
+                const auto Written = co_await Connection->async_write_some(
+                    WriteWindow,
+                    WriteError);
+                if (WriteError || Written != Count)
+                {
+                    break;
+                }
+            }
+            Received += Count;
+        }
+
+        Connection->Close();
+        const bool Completed = Received == Options.TotalBytes;
+        (void)Options.Completion->try_send(
+            boost::system::error_code{},
+            Completed);
+    }
+
+    [[nodiscard]] auto RunSession(SessionState State) -> Net::awaitable<bool>
+    {
+        const auto Completion =
+            std::make_shared<CompletionChannel>(State.Executor, 1);
+        ServerOptions ServerState{
+            std::move(State.ServerStream),
+            State.TotalBytes,
+            State.BlockSize,
+            State.Echo,
+            Completion};
+        auto ServerCompletion =
+            [Completion](std::exception_ptr Exception) -> void
+        {
+            if (Exception)
+            {
+                (void)Completion->try_send(
+                    boost::system::error_code{}, false);
+            }
+        };
+        Net::co_spawn(
+            State.Executor,
+            RunServer(std::move(ServerState)),
+            std::move(ServerCompletion));
+
+        const auto Target = MakeAddress(
+            AddressType::Domain,
+            "example.com",
+            443);
+        const auto Header = BuildRawRequest(Target);
+        std::error_code WriteError;
+        const auto HeaderBytes = std::span<const std::uint8_t>(Header);
+        const auto HeaderBuffer = Preview::AsBytes(HeaderBytes);
+        const auto HeaderWritten = co_await State.ClientStream.async_write_some(
+            HeaderBuffer,
+            WriteError);
+        bool ClientCompleted =
+            !WriteError && HeaderWritten == Header.size();
+
+        if (State.Payload.empty() && State.TotalBytes > 0)
+        {
+            ClientCompleted = false;
+        }
+
+        std::size_t Sent = 0;
+        while (ClientCompleted && Sent < State.TotalBytes)
+        {
+            const auto PayloadOffset = Sent % State.Payload.size();
+            const auto RemainingPayload = State.Payload.size() - PayloadOffset;
+            const auto WriteSize =
+                std::min(RemainingPayload, State.TotalBytes - Sent);
+            const auto PayloadBytes = std::span<const std::uint8_t>(
+                State.Payload.data() + PayloadOffset,
+                WriteSize);
+            const auto PayloadBuffer = Preview::AsBytes(PayloadBytes);
+            const auto Written = co_await State.ClientStream.async_write_some(
+                PayloadBuffer,
+                WriteError);
+            if (WriteError || Written == 0 || Written > WriteSize)
+            {
+                ClientCompleted = false;
+                break;
+            }
+            Sent += Written;
+            if (State.BlockSize > 0 &&
+                ((Sent / State.BlockSize) & 0x0F) == 0)
+            {
+                const auto PostToken = Net::use_awaitable;
+                co_await Net::post(
+                    State.Executor,
+                    PostToken);
+            }
+        }
+        if (Sent != State.TotalBytes)
+        {
+            ClientCompleted = false;
+        }
+
+        if (ClientCompleted && State.Echo)
+        {
+            std::vector<std::byte> EchoBuffer(State.BlockSize);
+            std::error_code ReadError;
+            std::size_t Received = 0;
+            while (Received < State.TotalBytes)
+            {
+                const auto ReadSize =
+                    std::min(EchoBuffer.size(), State.TotalBytes - Received);
+                auto ReadWindow = std::span<std::byte>(
+                    EchoBuffer.data(),
+                    ReadSize);
+                const auto Count = co_await State.ClientStream.async_read_some(
+                    ReadWindow,
+                    ReadError);
+                if (ReadError || Count == 0 || Count > ReadSize)
+                {
+                    ClientCompleted = false;
+                    break;
+                }
+                for (std::size_t Index = 0; Index < Count; ++Index)
+                {
+                    const auto Expected =
+                        State.Payload[(Received + Index) % State.Payload.size()];
+                    if (EchoBuffer[Index] != static_cast<std::byte>(Expected))
+                    {
+                        ClientCompleted = false;
+                        break;
+                    }
+                }
+                if (!ClientCompleted)
+                {
+                    break;
+                }
+                Received += Count;
+            }
+            if (Received != State.TotalBytes)
+            {
+                ClientCompleted = false;
+            }
+        }
+
+        State.ClientStream.Close();
+        const auto ServerCompleted =
+            co_await Completion->async_receive(Net::use_awaitable);
+        const bool Completed = ClientCompleted && ServerCompleted;
+        co_return Completed;
+    }
+
+    auto RunSessionAndReport(
+        SessionState State,
+        const std::shared_ptr<CompletionChannel> &ResultChannel)
+        -> Net::awaitable<void>
+    {
+        bool Completed = false;
+        try
+        {
+            Completed = co_await RunSession(std::move(State));
+        }
+        catch (...)
+        {
+            Completed = false;
+        }
+        (void)ResultChannel->try_send(
+            boost::system::error_code{},
+            Completed);
+    }
+
+    [[nodiscard]] auto RunSingle(SessionState State) -> bool
+    {
+        auto &IoContext = State.IoContext;
+        bool Completed = false;
+        auto Coroutine =
+            [&Completed, State = std::move(State)]() mutable
+            -> Net::awaitable<void>
+        {
+            Completed = co_await RunSession(std::move(State));
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
+        return Completed;
+    }
+
+    [[nodiscard]] auto MakeSessionState(
+        Net::io_context &IoContext,
+        MemoryStream ClientStream,
+        MemoryStream ServerStream,
+        std::vector<std::uint8_t> Payload,
+        const std::size_t TotalBytes,
+        const std::size_t BlockSize,
+        const bool Echo) -> SessionState
+    {
+        return SessionState{
+            IoContext,
+            IoContext.get_executor(),
+            std::move(ClientStream),
+            std::move(ServerStream),
+            std::move(Payload),
+            TotalBytes,
+            BlockSize,
+            Echo};
+    }
 
     TEST(TrojanStress, ConnectLoopNoLeak)
     {
-        constexpr int kRounds = 200;
-        const std::string payload = "stress-payload";
-        int ok_count = 0;
-        for (int i = 0; i < kRounds; ++i)
+        constexpr int Rounds = 200;
+        const auto Payload = MakePayload("stress-payload");
+        int SuccessfulRounds = 0;
+        for (int Round = 0; Round < Rounds; ++Round)
         {
-            net::io_context ioc;
-            auto [a, b] = MakeMemoryPair(ioc.get_executor());
-            server_echo(ioc, std::move(b));
-            if (client_roundtrip(ioc, std::move(a), payload))
+            Net::io_context IoContext;
+            auto [ClientStream, ServerStream] =
+                Preview::MakeMemoryPair(IoContext.get_executor());
+            auto State = MakeSessionState(
+                IoContext,
+                std::move(ClientStream),
+                std::move(ServerStream),
+                Payload,
+                Payload.size(),
+                4096,
+                true);
+            if (RunSingle(std::move(State)))
             {
-                ++ok_count;
+                ++SuccessfulRounds;
             }
         }
-        EXPECT_EQ(ok_count, kRounds);
+        EXPECT_EQ(SuccessfulRounds, Rounds);
     }
-
-    // ── 2. 16 并发连接 ──
 
     TEST(TrojanStress, Concurrent16)
     {
-        net::io_context ioc;
-        std::atomic<int> success{0};
-        const std::string payload = "concurrent-payload";
-        for (int i = 0; i < 16; ++i)
+        constexpr std::size_t ConnectionCount = 16;
+        Net::io_context IoContext;
+        const auto Executor = IoContext.get_executor();
+        const auto Payload = MakePayload("concurrent-payload");
+        const auto ResultChannel =
+            std::make_shared<CompletionChannel>(Executor, ConnectionCount);
+        std::size_t SuccessfulConnections = 0;
+        auto Coroutine = [&]() -> Net::awaitable<void>
         {
-            auto [a, b] = MakeMemoryPair(ioc.get_executor());
-            net::co_spawn(
-                ioc.get_executor(),
-                [b = std::move(b)]() mutable -> net::awaitable<void>
+            for (std::size_t Index = 0; Index < ConnectionCount; ++Index)
+            {
+                auto [ClientStream, ServerStream] =
+                    Preview::MakeMemoryPair(Executor);
+                auto State = MakeSessionState(
+                    IoContext,
+                    std::move(ClientStream),
+                    std::move(ServerStream),
+                    Payload,
+                    Payload.size(),
+                    4096,
+                    true);
+                auto SessionCompletion =
+                    [ResultChannel](std::exception_ptr Exception) -> void
                 {
-                    auto [err, req, Conn] =
-                        co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                Trojan::ServerConfig{kPassword});
-                    if (err == Error::None && Conn)
+                    if (Exception)
                     {
-                        std::array<std::byte, 128> buf{};
-                        std::error_code ec;
-                        const auto n = co_await Conn->async_read_some(buf, ec);
-                        if (!ec && n > 0)
-                        {
-                            co_await Conn->async_write_some(
-                                std::span<const std::byte>(buf.data(), n), ec);
-                        }
-                        Conn->Close();
+                        (void)ResultChannel->try_send(
+                            boost::system::error_code{}, false);
                     }
-                },
-                net::detached);
-            net::co_spawn(
-                ioc.get_executor(),
-                [&, a = std::move(a), payload]() mutable -> net::awaitable<void>
+                };
+                Net::co_spawn(
+                    Executor,
+                    RunSessionAndReport(std::move(State), ResultChannel),
+                    std::move(SessionCompletion));
+            }
+            for (std::size_t Index = 0; Index < ConnectionCount; ++Index)
+            {
+                const auto Completed =
+                    co_await ResultChannel->async_receive(Net::use_awaitable);
+                if (Completed)
                 {
-                    const auto cred = Trojan::Credential(kPassword);
-                    auto wire = Trojan::BuildRequest(
-                        cred, Trojan::Command::Connect,
-                        make_addr(Trojan::AddressType::Domain, "example.com", 443));
-                    wire.insert(wire.end(), payload.begin(), payload.end());
-                    std::error_code ec;
-                    co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-                    std::array<std::byte, 128> echo{};
-                    std::size_t got = 0;
-                    while (got < payload.size())
-                    {
-                        const auto n = co_await a.async_read_some(
-                            std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
-                        if (ec || n == 0)
-                        {
-                            break;
-                        }
-                        got += n;
-                    }
-                    if (got == payload.size())
-                    {
-                        success.fetch_add(1);
-                    }
-                },
-                net::detached);
-        }
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 超时守卫：客户端失败时避免无限自旋
-                     net::steady_timer t(ioc);
-                     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-                     while (success.load() < 16 && std::chrono::steady_clock::now() < deadline)
-                     {
-                         t.expires_after(std::chrono::milliseconds(1));
-                         co_await t.async_wait(net::use_awaitable);
-                     }
-                 });
-        EXPECT_EQ(success.load(), 16);
+                    ++SuccessfulConnections;
+                }
+            }
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
+        EXPECT_EQ(SuccessfulConnections, ConnectionCount);
     }
-
-    // ── 3. 2MB 数据传输 ──
 
     TEST(TrojanStress, Transfer2MB)
     {
-        net::io_context ioc;
-        constexpr std::size_t kTotal = 2 * 1024 * 1024;
-        constexpr std::size_t kChunk = 64 * 1024;
-
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        // 服务端：接受 + 统计接收字节
-        std::atomic<std::size_t> received{0};
-        net::co_spawn(
-            ioc.get_executor(),
-            [b = std::move(b), &received]() mutable -> net::awaitable<void>
-            {
-                auto [err, req, Conn] =
-                    co_await Trojan::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                            Trojan::ServerConfig{kPassword});
-                if (err != Error::None || !Conn)
-                {
-                    co_return;
-                }
-                std::array<std::byte, kChunk> buf{};
-                std::error_code ec;
-                std::size_t Total = 0;
-                while (Total < kTotal)
-                {
-                    const auto n = co_await Conn->async_read_some(buf, ec);
-                    if (ec || n == 0)
-                    {
-                        break;
-                    }
-                    Total += n;
-                }
-                received.store(Total);
-                Conn->Close();
-            },
-            net::detached);
-
-        // 客户端：原始 wire 握手 + 发送 2MB
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     const auto cred = Trojan::Credential(kPassword);
-                     auto wire = Trojan::BuildRequest(
-                         cred, Trojan::Command::Connect,
-                         make_addr(Trojan::AddressType::Domain, "example.com", 443));
-                     std::error_code ec;
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-                     std::vector<std::byte> chunk(kChunk, std::byte{0xAB});
-                     for (std::size_t sent = 0; sent < kTotal; sent += kChunk)
-                     {
-                         co_await a.async_write_some(std::span<const std::byte>(chunk), ec);
-                         if (ec)
-                         {
-                             break;
-                         }
-                     }
-                 });
-        EXPECT_EQ(received.load(), kTotal);
+        constexpr std::size_t TotalBytes = 2 * 1024 * 1024;
+        constexpr std::size_t BlockSize = 64 * 1024;
+        Net::io_context IoContext;
+        auto [ClientStream, ServerStream] =
+            Preview::MakeMemoryPair(IoContext.get_executor());
+        const std::vector<std::uint8_t> Payload(BlockSize, 0xAB);
+        auto State = MakeSessionState(
+            IoContext,
+            std::move(ClientStream),
+            std::move(ServerStream),
+            Payload,
+            TotalBytes,
+            BlockSize,
+            false);
+        EXPECT_TRUE(RunSingle(std::move(State)));
     }
-
 } // namespace

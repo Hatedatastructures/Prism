@@ -15,6 +15,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -39,7 +40,7 @@ namespace Preview::Reality
      */
     struct ClientConfig
     {
-        /// 客户端 X25519 私钥（32 字节）
+        /// 客户端 X25519 私钥（32 字节，字段名称保持配置兼容）
         std::array<std::uint8_t, KeyLen> private_key{};
         /// 短 ID（8 字节，内嵌 SessionId）
         std::array<std::uint8_t, MaxShortIdLen> ShortId{};
@@ -52,7 +53,7 @@ namespace Preview::Reality
      */
     struct ServerConfig
     {
-        /// 服务端 X25519 私钥（32 字节）
+        /// 服务端 X25519 私钥（32 字节，字段名称保持配置兼容）
         std::array<std::uint8_t, KeyLen> private_key{};
         /// 允许的短 ID（空 = 通配）
         std::array<std::uint8_t, MaxShortIdLen> ShortId{};
@@ -94,20 +95,22 @@ namespace Preview::Reality
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(Params.Upstream), Params.Config.private_key);
-        const auto Err = co_await C->WriteHandshake(Params.PeerPublicKey, Params.Params);
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(
+            std::move(Params.Upstream), Params.Config.private_key);
+        const auto ErrorCode =
+            co_await Connection->WriteHandshake(Params.PeerPublicKey, Params.Params);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{ErrorCode, std::move(Result)};
     }
 
     /**
@@ -116,21 +119,24 @@ namespace Preview::Reality
      * @return 错误码、解析的短 ID 与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Accept(AcceptParameters Params)
-        -> net::awaitable<std::tuple<Error, std::array<std::uint8_t, MaxShortIdLen>, SharedConn>>
+        -> Net::awaitable<
+            std::tuple<Error, std::array<std::uint8_t, MaxShortIdLen>, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(Params.Upstream), Params.Config.private_key);
+        auto Connection = std::make_shared<Conn<>>(
+            std::move(Params.Upstream), Params.Config.private_key);
         std::array<std::uint8_t, MaxShortIdLen> ShortId{};
-        const auto Err = co_await C->ReadHandshake(Params.PeerPublicKey, Params.Params, ShortId);
-        SharedConn Conn;
-        if (Err == Error::None)
+        const auto ErrorCode = co_await Connection->ReadHandshake(
+            Params.PeerPublicKey, Params.Params, ShortId);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::tuple{Err, ShortId, std::move(Conn)};
+        co_return std::tuple{ErrorCode, ShortId, std::move(Result)};
     }
 
 } // namespace Preview::Reality

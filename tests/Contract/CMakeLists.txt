@@ -16,4 +16,7 @@ if(PRISM_ENABLE_PERF_CONTRACT)
         PreviewProtocolSocks5
         PreviewProtocolVless
         PreviewProtocolShadowsocks2022)
+    if(WIN32)
+        target_link_libraries(PerformanceContract PRIVATE psapi)
+    endif()
 endif()

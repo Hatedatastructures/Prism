@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <utility>
+
 // clang-format off
 #include <preview/Protocols/Mux/Yamux/Codec.hpp>
 #include <preview/Protocols/Mux/Yamux/Client.hpp>
@@ -30,29 +32,31 @@ namespace Preview::Mux::Yamux
     /**
      * @brief 创建客户端会话（工厂）
      * @tparam Memory 会话内存策略（默认 8KB Arena）
-     * @param upstream 上游传输（所有权移交）
-     * @param opt 会话选项
+     * @param Upstream 上游传输（所有权移交）
+     * @param Options 会话选项
      * @return 客户端会话容器
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    [[nodiscard]] inline auto Connect(SharedTransmission upstream,
-                                      const SessionOptions &opt = {}) -> Mux::Client<Codec, Memory>
+    [[nodiscard]] inline auto Connect(
+        SharedTransmission Upstream,
+        const SessionOptions &Options = {}) -> Mux::Client<Codec, Memory>
     {
-        return Mux::Connect<Codec, Memory>(std::move(upstream), opt);
+        return Mux::Connect<Codec, Memory>(std::move(Upstream), Options);
     }
 
     /**
      * @brief 创建服务端会话（工厂）
      * @tparam Memory 会话内存策略（默认 8KB Arena）
-     * @param upstream 上游传输（所有权移交）
-     * @param opt 会话选项
+     * @param Upstream 上游传输（所有权移交）
+     * @param Options 会话选项
      * @return 服务端会话容器
      */
     template <Preview::Memory::Restrict Memory = Preview::Memory::SessionResource<>>
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream,
-                                     const SessionOptions &opt = {}) -> Mux::Server<Codec, Memory>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Upstream,
+        const SessionOptions &Options = {}) -> Mux::Server<Codec, Memory>
     {
-        return Mux::Accept<Codec, Memory>(std::move(upstream), opt);
+        return Mux::Accept<Codec, Memory>(std::move(Upstream), Options);
     }
 
 } // namespace Preview::Mux::Yamux

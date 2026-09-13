@@ -33,69 +33,74 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Vmess = Preview::Vmess;
+    using Preview::AsBytes;
+    using Preview::AsU8;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     /// 运行协程直至完成（异常重抛）
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = ErrorValue;
+                          IoContext.stop();
                       });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     /// 测试 UUID（固定值，两字节交替模式便于识别）
-    auto test_uuid() -> std::array<std::uint8_t, 16>
+    auto TestUuid() -> std::array<std::uint8_t, 16>
     {
-        std::array<std::uint8_t, 16> uuid{};
-        for (std::size_t i = 0; i < uuid.size(); ++i)
+        std::array<std::uint8_t, 16> Uuid{};
+        for (std::size_t Index = 0; Index < Uuid.size(); ++Index)
         {
-            uuid[i] = static_cast<std::uint8_t>(0x20 + i);
+            Uuid[Index] = static_cast<std::uint8_t>(0x20 + Index);
         }
-        return uuid;
+        return Uuid;
     }
 
     /// 构造 vmess 目标地址
-    auto make_addr(Vmess::AddressType Type, std::string host, std::uint16_t port) -> Vmess::Address
+    auto MakeAddress(Vmess::AddressType Type, std::string Host, std::uint16_t Port) -> Vmess::Address
     {
-        Vmess::Address addr{};
-        addr.Type = Type;
-        addr.Host = std::move(host);
-        addr.Port = port;
-        return addr;
+        Vmess::Address Address{};
+        Address.Type = Type;
+        Address.Host = std::move(Host);
+        Address.Port = Port;
+        return Address;
     }
 
     /// 精确读取（测试辅助）
-    auto RecvExact(MemoryStream &Stream, std::span<std::uint8_t> dst) -> net::awaitable<bool>
+    auto RecvExact(MemoryStream &Stream, std::span<std::uint8_t> Destination) -> Net::awaitable<bool>
     {
         std::size_t Done = 0;
-        while (Done < dst.size())
+        while (Done < Destination.size())
         {
-            std::error_code ec;
-            const auto n = co_await Stream.async_read_some(AsBytes(dst.subspan(Done)), ec);
-            if (ec || n == 0)
+            std::error_code ErrorCode;
+            const auto BytesRead = co_await Stream.async_read_some(AsBytes(Destination.subspan(Done)), ErrorCode);
+            if (ErrorCode || BytesRead == 0)
             {
                 co_return true;
             }
-            Done += n;
+            Done += BytesRead;
         }
         co_return false;
     }
 
     /// 原始客户端：AEAD 握手 → 数据块 → 结束块
     /// @return 全流程成功返回 true
-    auto run_raw_client(MemoryStream &Stream, const std::array<std::uint8_t, 16> &uuid,
-                        const std::string &payload) -> net::awaitable<bool>
+    auto RunRawClient(MemoryStream &Stream, const std::array<std::uint8_t, 16> &Uuid,
+                      const std::string &Payload) -> Net::awaitable<bool>
     {
         // 1. 生成随机参数
         std::random_device rd;
@@ -124,11 +129,12 @@ namespace
         Vmess::RequestHeader hdr;
         hdr.Version = Vmess::ProtocolVersion;
         hdr.Cmd = static_cast<std::uint8_t>(static_cast<std::uint8_t>(Vmess::Command::Tcp));
-        hdr.opt = static_cast<std::uint8_t>(Vmess::Option::ChunkStream);
+        hdr.opt = static_cast<std::uint8_t>(Vmess::Option::ChunkStream) |
+                  static_cast<std::uint8_t>(Vmess::Option::ChunkMasking);
         hdr.sec = Vmess::Security::Aes128Gcm;
-        hdr.Target = make_addr(Vmess::AddressType::Domain, "example.com", 443);
+        hdr.Target = MakeAddress(Vmess::AddressType::Domain, "example.com", 443);
         const auto plain = Vmess::BuildRequestHeader(hdr, Vmess::RequestMeta{iv, key, v, p});
-        const auto cmd_key = Vmess::CmdKeyFromUuid(uuid);
+        const auto cmd_key = Vmess::CmdKeyFromUuid(Uuid);
         const auto sealed = Vmess::SealAuthHeader(cmd_key, Vmess::AuthHeaderInput{plain, time_sec, random4});
         const auto auth_id = Vmess::CreateAuthId(cmd_key, time_sec, random4);
         std::error_code ec;
@@ -157,7 +163,7 @@ namespace
         std::array<std::uint8_t, 12> rliv{};
         std::memcpy(rliv.data(), resp_len_iv.data(), 12);
         const auto len_plain = Vmess::detail::AesGcmOpen(
-            Vmess::detail::OpenInput{rlk, rliv, len_enc, auth_id});
+        Vmess::detail::OpenInput{rlk, rliv, len_enc, {}});
         if (len_plain.size() != 2)
         {
             co_return false;
@@ -165,7 +171,7 @@ namespace
         const auto resp_len = static_cast<std::size_t>(len_plain[0]) << 8 | len_plain[1];
 
         // 4. 读取响应头并校验验证字节
-        std::vector<std::uint8_t> resp_enc(resp_len);
+        std::vector<std::uint8_t> resp_enc(resp_len + 16);
         if (co_await RecvExact(Stream, resp_enc))
         {
             co_return false;
@@ -185,16 +191,12 @@ namespace
         }
 
         // 5. 派生分块密钥，发送数据块 + 结束块
-        const auto body_key = Vmess::Kdf(key, iv);
-        std::array<std::uint8_t, 16> ChunkKey{};
-        std::memcpy(ChunkKey.data(), body_key.data(), 16);
-        std::array<std::uint8_t, 12> ChunkNonce{};
-        std::memcpy(ChunkNonce.data(), iv.data(), 12);
-        Vmess::ChunkEncryptor enc(ChunkKey, ChunkNonce);
-        std::vector<std::uint8_t> chunk(payload.size() + Vmess::ChunkEncryptor::Overhead);
+        Vmess::ChunkEncryptor enc(std::span<const std::uint8_t, 16>(key),
+                                  std::span<const std::uint8_t, 16>(iv), hdr.opt);
+        std::vector<std::uint8_t> chunk(Payload.size() + Vmess::ChunkEncryptor::Overhead);
         const auto enc_n = enc.Seal(
-            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(payload.data()),
-                                          payload.size()),
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(Payload.data()),
+                                          Payload.size()),
             chunk);
         co_await Stream.async_write_some(AsBytes(std::span<const std::uint8_t>(chunk).first(enc_n)), ec);
         if (ec)
@@ -213,16 +215,16 @@ namespace
 
     TEST(VmessConnSession, ClientServerEchoRoundtrip)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        const auto uuid = test_uuid();
+        const auto uuid = TestUuid();
         const std::string payload = "vmess echo payload";
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：Accept AEAD 握手 → 解密读取 → 回显
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Vmess::ServerConfig cfg;
                          cfg.uuid = uuid;
@@ -246,13 +248,13 @@ namespace
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      Vmess::ClientConfig cfg;
                      cfg.uuid = uuid;
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
-                         make_addr(Vmess::AddressType::Domain, "example.com", 443));
+                         MakeAddress(Vmess::AddressType::Domain, "example.com", 443));
                      EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
@@ -274,16 +276,16 @@ namespace
 
     TEST(VmessConnSession, ServerEofOnEndBlock)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        const auto uuid = test_uuid();
+        const auto uuid = TestUuid();
         const std::string payload = "end block payload";
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：Accept 握手 → 读数据块 → 经底层传输写结束块 → 客户端 EOF
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Vmess::ServerConfig cfg;
                          cfg.uuid = uuid;
@@ -301,12 +303,15 @@ namespace
                          EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
                          // 经底层传输写原始结束块（Accept 已把底层流 move 进 Conn，
                          // 用 NextLayer() 导航获取底层传输，不可再用已移动的局部流）
-                         const auto body_key = Vmess::Kdf(req.RequestKey, req.RequestNonce);
-                         std::array<std::uint8_t, 16> ChunkKey{};
-                         std::memcpy(ChunkKey.data(), body_key.data(), 16);
-                         std::array<std::uint8_t, 12> ChunkNonce{};
-                         std::memcpy(ChunkNonce.data(), req.RequestNonce.data(), 12);
-                         Vmess::ChunkEncryptor enc(ChunkKey, ChunkNonce);
+                         const auto RespBodyKey = Vmess::detail::Sha256(req.RequestKey);
+                         const auto RespBodyIv = Vmess::detail::Sha256(req.RequestNonce);
+                         std::array<std::uint8_t, 16> RespKey{};
+                         std::array<std::uint8_t, 16> RespNonce{};
+                         std::memcpy(RespKey.data(), RespBodyKey.data(), 16);
+                         std::memcpy(RespNonce.data(), RespBodyIv.data(), 16);
+                         Vmess::ChunkEncryptor enc(std::span<const std::uint8_t, 16>(RespKey),
+                                                   std::span<const std::uint8_t, 16>(RespNonce),
+                                                   req.Option);
                          std::array<std::uint8_t, 34> end_block{};
                          const auto end_n = enc.Finish(end_block);
                          co_await Conn->NextLayer()->async_write_some(
@@ -314,14 +319,14 @@ namespace
                          EXPECT_FALSE(ec);
                          Conn->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      // 客户端：Connect 握手 → 写数据块 → 读结束块 → EOF
                      Vmess::ClientConfig cfg;
                      cfg.uuid = uuid;
                      auto [herr, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
-                         make_addr(Vmess::AddressType::Domain, "example.com", 443));
+                         MakeAddress(Vmess::AddressType::Domain, "example.com", 443));
                      EXPECT_EQ(herr, Error::None);
                      if (!cli)
                      {
@@ -348,20 +353,20 @@ namespace
 
     TEST(VmessConnSession, ClientEofOnEndBlock)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        const auto uuid = test_uuid();
+        const auto uuid = TestUuid();
         const std::string payload = "Client end block payload";
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端完成通知：防止 detached 协程在 ioc 析构时
                      // 仍挂起在 channel 读上（use-after-free）
-                     net::experimental::channel<void(boost::system::error_code)> server_done(ioc.get_executor(), 1);
+                     Net::experimental::channel<void(boost::system::error_code)> server_done(ioc.get_executor(), 1);
 
                      // 服务端：Accept 握手 → 读数据块 → 读结束块 → EOF
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Vmess::ServerConfig cfg;
                          cfg.uuid = uuid;
@@ -385,27 +390,27 @@ namespace
                          Conn->Close();
                          server_done.try_send(boost::system::error_code{});
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      // 原始客户端：握手 + 数据块 + 结束块
-                     EXPECT_TRUE(co_await run_raw_client(a, uuid, payload));
+                     EXPECT_TRUE(co_await RunRawClient(a, uuid, payload));
                      a.Close();
                      // 等待服务端协程完成，避免 ioc 析构时挂起协程帧悬垂
-                     co_await server_done.async_receive(net::use_awaitable);
+                     co_await server_done.async_receive(Net::use_awaitable);
                  });
     }
 
     TEST(VmessConnSession, UdpDgramRoundtrip)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        const auto uuid = test_uuid();
+        const auto uuid = TestUuid();
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：AcceptPacket（udp 命令）→ Dgram 收包
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Vmess::ServerConfig cfg;
                          cfg.uuid = uuid;
@@ -426,13 +431,13 @@ namespace
                          EXPECT_TRUE(dg->Stream());
                          dg->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      Vmess::ClientConfig cfg;
                      cfg.uuid = uuid;
                      auto [herr, dg] = co_await Vmess::ConnectPacket(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
-                         make_addr(Vmess::AddressType::Domain, "example.com", 53));
+                         MakeAddress(Vmess::AddressType::Domain, "example.com", 53));
                      EXPECT_EQ(herr, Error::None);
                      if (!dg)
                      {
@@ -449,15 +454,15 @@ namespace
 
     TEST(VmessConnSession, BadUuidRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        const auto uuid = test_uuid();
+        const auto uuid = TestUuid();
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端：UUID 不匹配 → bad_auth（不发送响应）
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Vmess::ServerConfig cfg;
                          cfg.uuid = uuid;
@@ -467,7 +472,7 @@ namespace
                          EXPECT_FALSE(Conn);
                          (void)req;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      // 原始客户端：错误 UUID 密封认证头，发送后关闭
                      std::array<std::uint8_t, 16> bad_uuid{};
@@ -491,9 +496,10 @@ namespace
                      Vmess::RequestHeader hdr;
                      hdr.Version = Vmess::ProtocolVersion;
                      hdr.Cmd = static_cast<std::uint8_t>(static_cast<std::uint8_t>(Vmess::Command::Tcp));
-                     hdr.opt = static_cast<std::uint8_t>(Vmess::Option::ChunkStream);
+                     hdr.opt = static_cast<std::uint8_t>(Vmess::Option::ChunkStream) |
+                               static_cast<std::uint8_t>(Vmess::Option::ChunkMasking);
                      hdr.sec = Vmess::Security::Aes128Gcm;
-                     hdr.Target = make_addr(Vmess::AddressType::Domain, "example.com", 443);
+                     hdr.Target = MakeAddress(Vmess::AddressType::Domain, "example.com", 443);
                      const auto plain = Vmess::BuildRequestHeader(hdr, Vmess::RequestMeta{iv, key, v, 0});
                      const auto cmd_key = Vmess::CmdKeyFromUuid(bad_uuid);
                      const auto sealed =
@@ -506,12 +512,12 @@ namespace
 
     TEST(VmessConnSession, NotOpenRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        const auto uuid = test_uuid();
+        const auto uuid = TestUuid();
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 未握手 Conn：读写与数据报均应返回 not_open
                      auto c = std::make_shared<Vmess::Conn<>>(uuid);
@@ -535,19 +541,19 @@ namespace
 
     TEST(VmessConnSession, WriteToClosedPeer)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        const auto uuid = test_uuid();
+        const auto uuid = TestUuid();
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      b.Close(); // 对端已全关 → 写失败 → io_error
                      Vmess::ClientConfig cfg;
                      cfg.uuid = uuid;
                      auto [err, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
-                         make_addr(Vmess::AddressType::Ipv4, "1.1.1.1", 80));
+                         MakeAddress(Vmess::AddressType::Ipv4, "1.1.1.1", 80));
                      EXPECT_EQ(err, Error::IoError);
                      EXPECT_FALSE(cli);
                  });
@@ -555,12 +561,12 @@ namespace
 
     TEST(VmessConnSession, DecoratorChain)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        const auto uuid = test_uuid();
+        const auto uuid = TestUuid();
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 未握手 Conn：Close / Cancel / Release 可直接调用（无传输安全返回空）
                      auto c = std::make_shared<Vmess::Conn<>>(uuid);
@@ -570,7 +576,7 @@ namespace
                      EXPECT_FALSE(released);
                      EXPECT_EQ(c->NextLayer(), nullptr); // 未绑定传输
                      // 绑定传输后 NextLayer 可导航（服务端接受握手）
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          Vmess::ServerConfig cfg;
                          cfg.uuid = uuid;
@@ -582,12 +588,12 @@ namespace
                          }
                          (void)sreq;
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
                      Vmess::ClientConfig cfg;
                      cfg.uuid = uuid;
                      auto [err, cli] = co_await Vmess::Connect(
                          std::make_shared<MemoryStream>(std::move(a)), cfg,
-                         make_addr(Vmess::AddressType::Domain, "example.com", 443));
+                         MakeAddress(Vmess::AddressType::Domain, "example.com", 443));
                      EXPECT_EQ(err, Error::None);
                      if (!cli)
                      {
@@ -608,11 +614,11 @@ namespace
 
     TEST(VmessDgramSession, WrapNonConnRejected)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // Dgram 包裹非 Conn 传输 → dynamic_cast 失败 → not_open
                      auto dg = std::make_shared<Vmess::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));

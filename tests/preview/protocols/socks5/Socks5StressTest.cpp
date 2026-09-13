@@ -27,104 +27,109 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Preview = ::Preview;
+    namespace Net = boost::asio;
+    namespace Socks5 = Preview::Socks5;
+    using Preview::AsBytes;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoro(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = ErrorValue;
+                          IoContext.stop();
                       });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     /// 服务端：Accept + 回显
-    auto server_echo(net::io_context &ioc, MemoryStream b, const std::string &expected) -> void
+    auto ServerEcho(Net::io_context &IoContext, MemoryStream Stream, const std::string &Expected) -> void
     {
-        net::co_spawn(ioc.get_executor(),
-                      [b = std::move(b), expected]() mutable -> net::awaitable<void>
+        Net::co_spawn(IoContext.get_executor(),
+                      [Stream = std::move(Stream), Expected]() mutable -> Net::awaitable<void>
                       {
-                          auto [err, req, Conn] =
-                              co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(b)),
+                          auto [ErrorValue, Request, Conn] =
+                              co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(Stream)),
                                                       Socks5::ServerConfig{});
-                          if (err != Error::None || !Conn)
+                          if (ErrorValue != Error::None || !Conn)
                           {
                               co_return;
                           }
-                          std::array<std::byte, 4096> buf{};
-                          std::error_code ec;
+                          std::array<std::byte, 4096> Buffer{};
+                          std::error_code ErrorCode;
                           while (true)
                           {
-                              const auto n = co_await Conn->async_read_some(buf, ec);
-                              if (ec || n == 0)
+                              const auto Count = co_await Conn->async_read_some(Buffer, ErrorCode);
+                              if (ErrorCode || Count == 0)
                               {
                                   break;
                               }
                               co_await Conn->async_write_some(
-                                  std::span<const std::byte>(buf.data(), n), ec);
+                                  std::span<const std::byte>(Buffer.data(), Count), ErrorCode);
                           }
                           Conn->Close();
                       },
-                      net::detached);
+                      Net::detached);
     }
 
     /// 客户端：原始 wire 握手 + 回显往返
-    auto client_roundtrip(net::io_context &ioc, MemoryStream a, const std::string &payload) -> bool
+    auto ClientRoundtrip(Net::io_context &IoContext, MemoryStream Stream, const std::string &Payload) -> bool
     {
         bool Ok = false;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
                  {
-                     std::vector<std::uint8_t> wire{0x05, 0x01, 0x00};
-                     const std::string host = "example.com";
-                     wire.insert(wire.end(), {0x05, 0x01, 0x00, 0x03,
-                                              static_cast<std::uint8_t>(host.size())});
-                     wire.insert(wire.end(), host.begin(), host.end());
-                     wire.push_back(0x01);
-                     wire.push_back(0xBB);
-                     wire.insert(wire.end(), payload.begin(), payload.end());
-                     std::error_code ec;
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-                     std::array<std::uint8_t, 12> resp{};
-                     std::size_t got = 0;
-                     while (got < resp.size())
+                     std::vector<std::uint8_t> Wire{0x05, 0x01, 0x00};
+                     const std::string Host = "example.com";
+                     Wire.insert(Wire.end(), {0x05, 0x01, 0x00, 0x03,
+                                              static_cast<std::uint8_t>(Host.size())});
+                     Wire.insert(Wire.end(), Host.begin(), Host.end());
+                     Wire.push_back(0x01);
+                     Wire.push_back(0xBB);
+                     Wire.insert(Wire.end(), Payload.begin(), Payload.end());
+                     std::error_code ErrorCode;
+                     co_await Stream.async_write_some(AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+                     std::array<std::uint8_t, 12> Response{};
+                     std::size_t Received = 0;
+                     while (Received < Response.size())
                      {
-                         const auto n = co_await a.async_read_some(
-                             AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
-                         if (ec || n == 0)
+                         const auto Count = co_await Stream.async_read_some(
+                             AsBytes(std::span<std::uint8_t>(Response).subspan(Received)), ErrorCode);
+                         if (ErrorCode || Count == 0)
                          {
                              break;
                          }
-                         got += n;
+                         Received += Count;
                      }
-                     if (got != 12u || resp[0] != Socks5::Version)
+                     if (Received != 12u || Response[0] != Socks5::Version)
                      {
                          Ok = false;
                          co_return;
                      }
-                     std::array<std::byte, 4096> echo{};
-                     got = 0;
-                     while (got < payload.size())
+                     std::array<std::byte, 4096> Echo{};
+                     Received = 0;
+                     while (Received < Payload.size())
                      {
-                         const auto n = co_await a.async_read_some(
-                             std::span<std::byte>(echo.data() + got, echo.size() - got), ec);
-                         if (ec || n == 0)
+                         const auto Count = co_await Stream.async_read_some(
+                             std::span<std::byte>(Echo.data() + Received, Echo.size() - Received), ErrorCode);
+                         if (ErrorCode || Count == 0)
                          {
                              break;
                          }
-                         got += n;
+                         Received += Count;
                      }
-                     Ok = (got == payload.size());
-                 });
+                     Ok = (Received == Payload.size());
+                });
         return Ok;
     }
 
@@ -132,192 +137,197 @@ namespace
 
     TEST(Socks5Stress, ConnectLoopNoLeak)
     {
-        constexpr int kRounds = 300;
-        const std::string payload = "stress-payload";
-        int ok_count = 0;
-        for (int i = 0; i < kRounds; ++i)
+        constexpr int Rounds = 300;
+        const std::string Payload = "stress-payload";
+        int OkCount = 0;
+        for (int Index = 0; Index < Rounds; ++Index)
         {
-            net::io_context ioc;
-            auto [a, b] = MakeMemoryPair(ioc.get_executor());
-            server_echo(ioc, std::move(b), payload);
-            if (client_roundtrip(ioc, std::move(a), payload))
+            Net::io_context IoContext;
+            auto [ClientStream, ServerStream] = MakeMemoryPair(IoContext.get_executor());
+            ServerEcho(IoContext, std::move(ServerStream), Payload);
+            if (ClientRoundtrip(IoContext, std::move(ClientStream), Payload))
             {
-                ++ok_count;
+                ++OkCount;
             }
         }
-        EXPECT_EQ(ok_count, kRounds);
+        EXPECT_EQ(OkCount, Rounds);
     }
 
     // ── 2. 32 并发连接 ──
 
     TEST(Socks5Stress, Concurrent32)
     {
-        net::io_context ioc;
-        std::atomic<int> success{0};
-        const std::string payload = "concurrent-payload";
-        for (int i = 0; i < 32; ++i)
+        Net::io_context IoContext;
+        std::atomic<int> Success{0};
+        const std::string Payload = "concurrent-payload";
+        for (int Index = 0; Index < 32; ++Index)
         {
-            auto [a, b] = MakeMemoryPair(ioc.get_executor());
-            net::co_spawn(
-                ioc.get_executor(),
-                [b = std::move(b)]() mutable -> net::awaitable<void>
+            auto [ClientStream, ServerStream] = MakeMemoryPair(IoContext.get_executor());
+            Net::co_spawn(
+                IoContext.get_executor(),
+                [ServerStream = std::move(ServerStream)]() mutable -> Net::awaitable<void>
                 {
-                    auto [err, req, Conn] =
-                        co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(b)),
+                    auto [ErrorValue, Request, Conn] =
+                        co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(ServerStream)),
                                                 Socks5::ServerConfig{});
-                    if (err == Error::None && Conn)
+                    if (ErrorValue == Error::None && Conn)
                     {
-                        std::array<std::byte, 128> buf{};
-                        std::error_code ec;
-                        const auto n = co_await Conn->async_read_some(buf, ec);
-                        if (!ec && n > 0)
+                        std::array<std::byte, 128> Buffer{};
+                        std::error_code ErrorCode;
+                        const auto Count = co_await Conn->async_read_some(Buffer, ErrorCode);
+                        if (!ErrorCode && Count > 0)
                         {
                             co_await Conn->async_write_some(
-                                std::span<const std::byte>(buf.data(), n), ec);
+                                std::span<const std::byte>(Buffer.data(), Count), ErrorCode);
                         }
                         Conn->Close();
                     }
                 },
-                net::detached);
-            net::co_spawn(
-                ioc.get_executor(),
-                [&, a = std::move(a), payload]() mutable -> net::awaitable<void>
+                Net::detached);
+            Net::co_spawn(
+                IoContext.get_executor(),
+                [&Success, ClientStream = std::move(ClientStream), Payload]() mutable -> Net::awaitable<void>
                 {
-                    std::vector<std::uint8_t> wire{0x05, 0x01, 0x00};
-                    const std::string host = "example.com";
-                    wire.insert(wire.end(), {0x05, 0x01, 0x00, 0x03,
-                                             static_cast<std::uint8_t>(host.size())});
-                    wire.insert(wire.end(), host.begin(), host.end());
-                    wire.push_back(0x01);
-                    wire.push_back(0xBB);
-                    wire.insert(wire.end(), payload.begin(), payload.end());
-                    std::error_code ec;
-                    co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-                    std::array<std::uint8_t, 12> resp{};
-                    std::size_t got = 0;
-                    while (got < resp.size())
+                    std::vector<std::uint8_t> Wire{0x05, 0x01, 0x00};
+                    const std::string Host = "example.com";
+                    Wire.insert(Wire.end(), {0x05, 0x01, 0x00, 0x03,
+                                             static_cast<std::uint8_t>(Host.size())});
+                    Wire.insert(Wire.end(), Host.begin(), Host.end());
+                    Wire.push_back(0x01);
+                    Wire.push_back(0xBB);
+                    Wire.insert(Wire.end(), Payload.begin(), Payload.end());
+                    std::error_code ErrorCode;
+                    co_await ClientStream.async_write_some(AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+                    std::array<std::uint8_t, 12> Response{};
+                    std::size_t Received = 0;
+                    while (Received < Response.size())
                     {
-                        const auto n = co_await a.async_read_some(
-                            AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
-                        if (ec || n == 0)
+                        const auto Count = co_await ClientStream.async_read_some(
+                            AsBytes(std::span<std::uint8_t>(Response).subspan(Received)), ErrorCode);
+                        if (ErrorCode || Count == 0)
                         {
                             break;
                         }
-                        got += n;
+                        Received += Count;
                     }
-                    if (got == 12u)
+                    if (Received == 12u)
                     {
                         // 读回显
-                        std::array<std::byte, 128> echo{};
-                        std::size_t rg = 0;
-                        while (rg < payload.size())
+                        std::array<std::byte, 128> Echo{};
+                        std::size_t EchoReceived = 0;
+                        while (EchoReceived < Payload.size())
                         {
-                            const auto n = co_await a.async_read_some(
-                                std::span<std::byte>(echo.data() + rg, echo.size() - rg), ec);
-                            if (ec || n == 0)
+                            const auto Count = co_await ClientStream.async_read_some(
+                                std::span<std::byte>(Echo.data() + EchoReceived,
+                                                     Echo.size() - EchoReceived),
+                                ErrorCode);
+                            if (ErrorCode || Count == 0)
                             {
                                 break;
                             }
-                            rg += n;
+                            EchoReceived += Count;
                         }
-                        if (rg == payload.size())
+                        if (EchoReceived == Payload.size())
                         {
-                            success.fetch_add(1);
+                            Success.fetch_add(1);
                         }
                     }
                 },
-                net::detached);
+                Net::detached);
         }
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
                  {
                      // 超时守卫：客户端失败时避免无限自旋
-                     net::steady_timer t(ioc);
-                     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
-                     while (success.load() < 32 && std::chrono::steady_clock::now() < deadline)
+                     Net::steady_timer Timer(IoContext);
+                     const auto Deadline =
+                         std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                     while (Success.load() < 32 && std::chrono::steady_clock::now() < Deadline)
                      {
-                         t.expires_after(std::chrono::milliseconds(1));
-                         co_await t.async_wait(net::use_awaitable);
+                         Timer.expires_after(std::chrono::milliseconds(1));
+                         co_await Timer.async_wait(Net::use_awaitable);
                      }
-                 });
-        EXPECT_EQ(success.load(), 32);
+                });
+        EXPECT_EQ(Success.load(), 32);
     }
 
     // ── 3. 4MB 数据传输 ──
 
     TEST(Socks5Stress, Transfer4MB)
     {
-        net::io_context ioc;
-        constexpr std::size_t kTotal = 4 * 1024 * 1024;
-        constexpr std::size_t kChunk = 64 * 1024;
+        Net::io_context IoContext;
+        constexpr std::size_t Total = 4 * 1024 * 1024;
+        constexpr std::size_t Chunk = 64 * 1024;
 
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto [ClientStream, ServerStream] = MakeMemoryPair(IoContext.get_executor());
         // 服务端：接受 + 统计接收字节
-        std::atomic<std::size_t> received{0};
-        net::co_spawn(
-            ioc.get_executor(),
-            [b = std::move(b), &received]() mutable -> net::awaitable<void>
+        std::atomic<std::size_t> ReceivedBytes{0};
+        Net::co_spawn(
+            IoContext.get_executor(),
+            [ServerStream = std::move(ServerStream), &ReceivedBytes]() mutable -> Net::awaitable<void>
             {
-                auto [err, req, Conn] =
-                    co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(b)),
+                auto [ErrorValue, Request, Conn] =
+                    co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(ServerStream)),
                                             Socks5::ServerConfig{});
-                if (err != Error::None || !Conn)
+                if (ErrorValue != Error::None || !Conn)
                 {
                     co_return;
                 }
-                std::array<std::byte, kChunk> buf{};
-                std::error_code ec;
-                std::size_t Total = 0;
-                while (Total < kTotal)
+                std::array<std::byte, Chunk> Buffer{};
+                std::error_code ErrorCode;
+                std::size_t ReceivedTotal = 0;
+                while (ReceivedTotal < Total)
                 {
-                    const auto n = co_await Conn->async_read_some(buf, ec);
-                    if (ec || n == 0)
+                    const auto Count = co_await Conn->async_read_some(Buffer, ErrorCode);
+                    if (ErrorCode || Count == 0)
                     {
                         break;
                     }
-                    Total += n;
+                    ReceivedTotal += Count;
                 }
-                received.store(Total);
+                ReceivedBytes.store(ReceivedTotal);
                 Conn->Close();
             },
-            net::detached);
+            Net::detached);
 
         // 客户端：原始 wire 握手 + 发送 4MB
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
                  {
-                     std::vector<std::uint8_t> wire{0x05, 0x01, 0x00};
-                     const std::string host = "example.com";
-                     wire.insert(wire.end(), {0x05, 0x01, 0x00, 0x03,
-                                              static_cast<std::uint8_t>(host.size())});
-                     wire.insert(wire.end(), host.begin(), host.end());
-                     wire.push_back(0x01);
-                     wire.push_back(0xBB);
-                     std::error_code ec;
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-                     std::array<std::uint8_t, 12> resp{};
-                     std::size_t got = 0;
-                     while (got < resp.size())
+                     std::vector<std::uint8_t> Wire{0x05, 0x01, 0x00};
+                     const std::string Host = "example.com";
+                     Wire.insert(Wire.end(), {0x05, 0x01, 0x00, 0x03,
+                                              static_cast<std::uint8_t>(Host.size())});
+                     Wire.insert(Wire.end(), Host.begin(), Host.end());
+                     Wire.push_back(0x01);
+                     Wire.push_back(0xBB);
+                     std::error_code ErrorCode;
+                     co_await ClientStream.async_write_some(
+                         AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+                     std::array<std::uint8_t, 12> Response{};
+                     std::size_t Received = 0;
+                     while (Received < Response.size())
                      {
-                         const auto n = co_await a.async_read_some(
-                             AsBytes(std::span<std::uint8_t>(resp).subspan(got)), ec);
-                         if (ec || n == 0)
+                         const auto Count = co_await ClientStream.async_read_some(
+                             AsBytes(std::span<std::uint8_t>(Response).subspan(Received)), ErrorCode);
+                         if (ErrorCode || Count == 0)
                          {
                              break;
                          }
-                         got += n;
+                         Received += Count;
                      }
-                     std::vector<std::byte> chunk(kChunk, std::byte{0xAB});
-                     for (std::size_t sent = 0; sent < kTotal; sent += kChunk)
+                     std::vector<std::byte> ChunkBuffer(Chunk, std::byte{0xAB});
+                     for (std::size_t Sent = 0; Sent < Total; Sent += Chunk)
                      {
-                         co_await a.async_write_some(std::span<const std::byte>(chunk), ec);
-                         if (ec)
+                         co_await ClientStream.async_write_some(
+                             std::span<const std::byte>(ChunkBuffer), ErrorCode);
+                         if (ErrorCode)
                          {
                              break;
                          }
                      }
-                 });
-        EXPECT_EQ(received.load(), kTotal);
+                });
+        EXPECT_EQ(ReceivedBytes.load(), Total);
     }
 
 } // namespace

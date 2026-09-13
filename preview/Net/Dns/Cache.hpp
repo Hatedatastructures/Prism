@@ -116,43 +116,51 @@ namespace Preview::Network::Dns
          * @return nullopt=未命中；空 vector=负缓存命中；非空=正命中。
          *         过期时按策略：Serve 返回旧数据（同样提升），Discard 擦除后返回 nullopt
          */
-        [[nodiscard]] auto Get(const std::string &domain, const std::uint16_t qtype)
+        [[nodiscard]] auto Get(const std::string &Domain, const std::uint16_t QTypeValue)
             -> std::optional<IpList>
         {
-            const auto Key = KeyView(domain, qtype);
+            const auto Key = KeyView(Domain, QTypeValue);
             const auto It = Index_.find(Key);
             if (It == Index_.end())
             {
                 return std::nullopt;
             }
-            Entry &entry = Slots_[It->second];
-            if (std::chrono::steady_clock::now() >= entry.Expire)
+            Entry &EntryValue = Slots_[It->second];
+            if (std::chrono::steady_clock::now() >= EntryValue.Expire)
             {
                 if (Options_.Policy == StalePolicy::Discard)
                 {
                     Drop(It);
                     return std::nullopt;
                 }
-                Promote(It->second, entry);
-                return entry.Failed ? IpList{} : entry.Ips;
+                Promote(It->second, EntryValue);
+                if (EntryValue.Failed)
+                {
+                    return IpList{};
+                }
+                return EntryValue.Ips;
             }
-            Promote(It->second, entry);
-            return entry.Failed ? IpList{} : entry.Ips;
+            Promote(It->second, EntryValue);
+            if (EntryValue.Failed)
+            {
+                return IpList{};
+            }
+            return EntryValue.Ips;
         }
 
         /**
          * @brief 写入缓存（自动按 TtlMin/TtlMax 钳制 TTL）
          * @param in 写入参数；Failed=true 时写入负缓存语义
          */
-        void Put(const PutInput &in)
+        void Put(const PutInput &Input)
         {
-            auto Ttl = in.Ttl;
+            auto Ttl = Input.Ttl;
             if (Options_.TtlMax > std::chrono::seconds{0})
             {
                 Ttl = std::min(Ttl, Options_.TtlMax);
             }
             Ttl = std::max(Ttl, Options_.TtlMin);
-            Store(in, Ttl);
+            Store(Input, Ttl);
         }
 
         /**
@@ -160,14 +168,14 @@ namespace Preview::Network::Dns
          * @param domain 已规范化域名
          * @param qtype 查询类型数值
          */
-        void PutNegative(const std::string &domain, const std::uint16_t qtype)
+        void PutNegative(const std::string &Domain, const std::uint16_t QTypeValue)
         {
-            PutInput in;
-            in.Domain = domain;
-            in.QType = qtype;
-            in.Ttl = Options_.NegativeTtl;
-            in.Failed = true;
-            Store(in, Options_.NegativeTtl);
+            PutInput Input;
+            Input.Domain = Domain;
+            Input.QType = QTypeValue;
+            Input.Ttl = Options_.NegativeTtl;
+            Input.Failed = true;
+            Store(Input, Options_.NegativeTtl);
         }
 
         /**
@@ -177,21 +185,21 @@ namespace Preview::Network::Dns
         auto EvictExpired() -> std::size_t
         {
             const auto Now = std::chrono::steady_clock::now();
-            std::size_t evicted = 0;
+            std::size_t Evicted = 0;
             for (auto It = Index_.begin(); It != Index_.end();)
             {
-                const Entry &entry = Slots_[It->second];
-                if (Now >= entry.Expire)
+                const Entry &EntryValue = Slots_[It->second];
+                if (Now >= EntryValue.Expire)
                 {
                     It = Drop(It);
-                    ++evicted;
+                    ++Evicted;
                 }
                 else
                 {
                     ++It;
                 }
             }
-            return evicted;
+            return Evicted;
         }
 
         /**
@@ -226,10 +234,10 @@ namespace Preview::Network::Dns
          * @param qtype 查询类型数值
          * @return "domain:qtype"
          */
-        [[nodiscard]] static auto MakeKey(const std::string &domain, const std::uint16_t qtype)
+        [[nodiscard]] static auto MakeKey(const std::string &Domain, const std::uint16_t QTypeValue)
             -> std::string
         {
-            return domain + ':' + std::to_string(qtype);
+            return Domain + ':' + std::to_string(QTypeValue);
         }
 
     private:
@@ -241,27 +249,27 @@ namespace Preview::Network::Dns
         };
 
         /// 在栈缓冲中拼出查找键（domain ≤253 字节 + ':' + ≤5 位 qtype）
-        [[nodiscard]] auto KeyView(const std::string &domain, const std::uint16_t qtype)
+        [[nodiscard]] auto KeyView(const std::string &Domain, const std::uint16_t QTypeValue)
             -> std::string_view
         {
-            if (domain.size() + 6 <= KeyBuf_.size())
+            if (Domain.size() + 6 <= KeyBuf_.size())
             {
-                auto *p = KeyBuf_.data();
-                std::memcpy(p, domain.data(), domain.size());
-                p += domain.size();
-                *p++ = ':';
-                const auto End = std::to_chars(p, KeyBuf_.data() + KeyBuf_.size(), qtype);
+                auto *Cursor = KeyBuf_.data();
+                std::memcpy(Cursor, Domain.data(), Domain.size());
+                Cursor += Domain.size();
+                *Cursor++ = ':';
+                const auto End = std::to_chars(Cursor, KeyBuf_.data() + KeyBuf_.size(), QTypeValue);
                 return {KeyBuf_.data(), static_cast<std::size_t>(End.ptr - KeyBuf_.data())};
             }
-            HeapKey_ = MakeKey(domain, qtype); // 超长域名退化为堆键（罕见）
+            HeapKey_ = MakeKey(Domain, QTypeValue); // 超长域名退化为堆键（罕见）
             return HeapKey_;
         }
 
         /// LRU 提升：写入新世代号并入队尾，旧队列项由淘汰路径惰性跳过
-        void Promote(std::size_t slot, Entry &entry)
+        void Promote(std::size_t Slot, Entry &EntryValue)
         {
-            entry.Gen = ++GenCounter_;
-            Order_.push_back({slot, entry.Gen});
+            EntryValue.Gen = ++GenCounter_;
+            Order_.push_back({Slot, EntryValue.Gen});
             // 读多写少的长期运行下，失效队列项只被淘汰路径顺带回收；
             // 积压超过存活条目的有界倍数时主动压实，防止队列无界增长
             if (Order_.size() > LiveCount_ * 2 + 64)
@@ -276,12 +284,13 @@ namespace Preview::Network::Dns
             std::vector<SlotGen> live;
             live.reserve(LiveCount_);
             // Index_ 恰为存活集合（淘汰/覆盖/过期丢弃时同步移除）
-            for (const auto &[key, slot] : Index_)
+            for (const auto &[Key, Slot] : Index_)
             {
-                live.push_back({slot, Slots_[slot].Gen});
+                live.push_back({Slot, Slots_[Slot].Gen});
             }
             std::sort(live.begin(), live.end(),
-                      [](const SlotGen &a, const SlotGen &b) { return a.Gen < b.Gen; });
+                      [](const SlotGen &Left, const SlotGen &Right)
+                      { return Left.Gen < Right.Gen; });
             Order_.assign(live.begin(), live.end());
         }
 
@@ -290,40 +299,40 @@ namespace Preview::Network::Dns
         {
             while (!Order_.empty())
             {
-                const auto [slot, gen] = Order_.front();
+                const auto [Slot, Generation] = Order_.front();
                 Order_.pop_front();
-                Entry &entry = Slots_[slot];
-                if (entry.Dead || entry.Gen != gen)
+                Entry &EntryValue = Slots_[Slot];
+                if (EntryValue.Dead || EntryValue.Gen != Generation)
                 {
                     continue; // 已失效或已被提升（世代号不符），跳过
                 }
-                Index_.erase(entry.Key);
-                entry.Dead = true;
+                Index_.erase(EntryValue.Key);
+                EntryValue.Dead = true;
                 --LiveCount_;
-                Free_.push_back(slot);
+                Free_.push_back(Slot);
                 break;
             }
         }
 
         /// 惰性删除条目（查询路径过期丢弃时调用），返回下一迭代器
         auto Drop(std::unordered_map<std::string, std::size_t, TransparentStringHash,
-                                     TransparentStringEqual>::iterator it)
+                                     TransparentStringEqual>::iterator It)
             -> std::unordered_map<std::string, std::size_t, TransparentStringHash,
                                   TransparentStringEqual>::iterator
         {
-            const auto Slot = it->second;
-            auto next = std::next(it);
-            Index_.erase(it);
+            const auto Slot = It->second;
+            auto Next = std::next(It);
+            Index_.erase(It);
             Slots_[Slot].Dead = true;
             --LiveCount_;
             Free_.push_back(Slot);
-            return next;
+            return Next;
         }
 
         /// 统一写入入口（插入 / 覆盖刷新 / 淘汰，均摊 O(1)）
-        void Store(const PutInput &in, const std::chrono::seconds ttl)
+        void Store(const PutInput &Input, const std::chrono::seconds Ttl)
         {
-            const auto Key = MakeKey(in.Domain, in.QType);
+            const auto Key = MakeKey(Input.Domain, Input.QType);
             const auto Now = std::chrono::steady_clock::now();
 
             // 覆盖已有键：旧槽失效并交还回收站（新项入队尾 = 刷新到最新）
@@ -355,10 +364,10 @@ namespace Preview::Network::Dns
 
             Entry fresh;
             fresh.Key = Key;
-            fresh.Ips = in.Ips;
-            fresh.Expire = Now + ttl;
+            fresh.Ips = Input.Ips;
+            fresh.Expire = Now + Ttl;
             fresh.Inserted = Now;
-            fresh.Failed = in.Failed;
+            fresh.Failed = Input.Failed;
             fresh.Dead = false;
             fresh.Gen = ++GenCounter_;
             Slots_[Slot] = std::move(fresh);

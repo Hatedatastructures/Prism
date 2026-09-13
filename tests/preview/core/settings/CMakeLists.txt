@@ -1,3 +1,7 @@
 # settings 子模块测试
 AddPreviewTest(SettingsApiTest.cpp)
 target_link_libraries(SettingsApiTest PRIVATE PreviewComposition PreviewTestSupport)
+AddPreviewTest(ProfileSettingsTest.cpp)
+target_link_libraries(ProfileSettingsTest PRIVATE PreviewComposition PreviewRuntime PreviewTestSupport)
+AddPreviewTest(ProfileBootstrapTest.cpp)
+target_link_libraries(ProfileBootstrapTest PRIVATE PreviewComposition PreviewRuntime PreviewTestSupport)

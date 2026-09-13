@@ -29,6 +29,8 @@
 namespace Preview
 {
 
+    namespace Net = boost::asio;
+
     /// 基准测试选项
     struct BenchOptions
     {
@@ -62,8 +64,8 @@ namespace Preview
     /// @tparam T 传输类型（协议 Session / MemoryStream 均满足）
     template <typename T>
     concept BenchStream = requires(T &s, std::span<std::uint8_t> buf, std::span<const std::uint8_t> wbuf) {
-        { s.ReadSome(buf) } -> std::same_as<net::awaitable<std::size_t>>;
-        { s.WriteAll(wbuf) } -> std::same_as<net::awaitable<boost::system::error_code>>;
+        { s.ReadSome(buf) } -> std::same_as<Net::awaitable<std::size_t>>;
+        { s.WriteAll(wbuf) } -> std::same_as<Net::awaitable<boost::system::error_code>>;
     };
 
     /// 新接口传输概念（async_read_some/async_write_some，供 bench 消费）
@@ -71,8 +73,8 @@ namespace Preview
     template <typename T>
     concept BenchTx =
         requires(T &s, std::span<std::byte> buf, std::span<const std::byte> wbuf, std::error_code &Ec) {
-            { s.async_read_some(buf, Ec) } -> std::same_as<net::awaitable<std::size_t>>;
-            { s.async_write_some(wbuf, Ec) } -> std::same_as<net::awaitable<std::size_t>>;
+            { s.async_read_some(buf, Ec) } -> std::same_as<Net::awaitable<std::size_t>>;
+            { s.async_write_some(wbuf, Ec) } -> std::same_as<Net::awaitable<std::size_t>>;
         };
 
     namespace detail
@@ -91,7 +93,7 @@ namespace Preview
          */
         template <typename WriteBlock, typename ReadBlock>
         auto RunBench(WriteBlock Write, ReadBlock Read, const BenchOptions &opt)
-            -> net::awaitable<BenchReport>
+            -> Net::awaitable<BenchReport>
         {
             BenchReport rep;
             const auto T0 = std::chrono::steady_clock::now();
@@ -165,15 +167,15 @@ namespace Preview
      * @note 延迟为写读往返时间（写 1 块 + 读回 1 块），p50/p95/p99 分位数
      */
     template <BenchStream S>
-    auto BenchThroughput(S &w, S &r, const BenchOptions &opt) -> net::awaitable<BenchReport>
+    auto BenchThroughput(S &w, S &r, const BenchOptions &opt) -> Net::awaitable<BenchReport>
     {
         return detail::RunBench(
-            [&w](std::span<const std::uint8_t> Data) -> net::awaitable<bool>
+            [&w](std::span<const std::uint8_t> Data) -> Net::awaitable<bool>
             {
                 const auto Ec = co_await w.WriteAll(Data);
                 co_return !Ec;
             },
-            [&r](std::span<std::uint8_t> Data) -> net::awaitable<std::size_t>
+            [&r](std::span<std::uint8_t> Data) -> Net::awaitable<std::size_t>
             {
                 std::size_t Got = 0;
                 while (Got < Data.size())
@@ -201,10 +203,10 @@ namespace Preview
      * （Server/Client 分离设计）。
      */
     template <BenchTx S>
-    auto BenchThroughputTx(S &w, S &r, const BenchOptions &opt) -> net::awaitable<BenchReport>
+    auto BenchThroughputTx(S &w, S &r, const BenchOptions &opt) -> Net::awaitable<BenchReport>
     {
         return detail::RunBench(
-            [&w](std::span<const std::uint8_t> Data) -> net::awaitable<bool>
+            [&w](std::span<const std::uint8_t> Data) -> Net::awaitable<bool>
             {
                 std::size_t Done = 0;
                 while (Done < Data.size())
@@ -220,7 +222,7 @@ namespace Preview
                 }
                 co_return true;
             },
-            [&r](std::span<std::uint8_t> Data) -> net::awaitable<std::size_t>
+            [&r](std::span<std::uint8_t> Data) -> Net::awaitable<std::size_t>
             {
                 std::size_t Got = 0;
                 while (Got < Data.size())

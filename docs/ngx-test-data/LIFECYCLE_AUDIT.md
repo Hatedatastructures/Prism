@@ -1,7 +1,7 @@
 # 生命周期 / 错误链审计（preview）
 
-> 日期：2026-08-20
-> 范围：`tests/common` 公共层、runtime/session、adapter 缝、Trojan/VMess/SS2022 L3
+> 日期：2026-09-05
+> 范围：Preview 公共层、识别策略（Configured/DeterministicRoute/MixedTrial）、TLS carrier、QUIC provider、runtime/session、adapter 缝、SOCKS5/Trojan/VMess/SS2022 L3
 
 ## 1. 所有权模型
 
@@ -28,6 +28,12 @@
 ### 2.3 本次修复
 - **session recognition 门**：协议专用 listener 已配 `accept_protocol` 时，`recognition` 仅作预读回注，不再因 `unknown` 直接 `protocol_error`（`session.hpp:99-107`）。`UnknownProtocolRejected`（无 `accept_protocol`）仍返回 `protocol_error`，回归通过。
 - **traffic 上报时序**：`run_coro` 的 `ioc.stop()` 会废弃在途 `relay`，`Trojan/VMess TrafficIdentity` 在 `proxy->close()` 后加 50ms `steady_timer` 让出，使 `relay` 完成 `report` 后再停 ioc（`TrojanE2ETest.cpp:616` 同理）。
+
+### 2.4 TaskRegistry 关闭收口（P-M05）
+- `TaskRegistry::Cancel()` 为每个 tracked 协程发出独立 Asio terminal cancellation，不再把仍在运行的 token 直接 `Detach()` 并清空。
+- `TaskRegistry::CancelAndWait()` 是同一 executor 上的非阻塞 `awaitable<bool>`，通过 drain timer 等待 completion 真正释放 token；超时返回 `false`，未释放 token 保留在注册表中供后续重试或析构解绑。
+- `TotalCancelled` 只在已请求取消的 token 实际释放时递增，避免把仍在执行的协程误记为已收口。
+- registry 析构时先请求取消，再解除残留 token 的 `Owner_`，因此 completion handler 晚于 registry 析构也不会访问悬垂指针；`RegistryTest` 与 `OwnershipAudit.TaskRegistryDanglingOwner` 已覆盖。
 
 ## 3. 错误链审计
 
@@ -61,7 +67,10 @@
 ## 5. 待补
 
 - 覆盖率 `branches 44.5%` 需补错误/边界分支至 60%+
-- `scheme_executor`（链 S）尚未接入 recognition，伪装方案仍 L1/L2
+- 历史快照（2026-08-20）：`scheme_executor`（链 S）尚未接入 recognition，伪装方案仍 L1/L2；
+  当前已由 `SettingsBuilder`、`CandidateRegistry` 和 `LayeredCandidateFactory` 接入，
+  但 Reality/Restls 双向和 ShadowTLS Preview client→reference server 方向的标准 carrier endpoint 仍是 Gate D 缺口；
+  ShadowTLS reference client→Preview server 已有真实 authenticated-echo。
 - `E1 prism 链接溢出` 未解，`L4/L5` 对拍、外部互操作、性能对标仍阻塞
 
 ## 6. 阶段 5.6 审计整改结论（2026-08-20）
@@ -84,3 +93,48 @@
 - session protocol_guard 失败双 close 无泄漏路径（既有结论保持）。
 
 验证：Socks5UdpE2E 5/5、Socks5TcpE2E 3/3、AdapterTest 4/4、Vless/VMess/Trojan/SS2022 E2E 全绿、ListenerE2E 4/4、SessionOrchestration 5/5、其余 12 个回归 target 全绿。
+
+## 7. 2026-09-05 Preview recognition/QUIC 复核
+
+- `ProbeBuffer` 是连接级唯一预读所有者；snapshot 存活时增长执行 copy-on-write，失败和
+  timeout 路径通过回放或显式关闭收口。`RecognitionStability` 顺序、并发、逐字节分片、
+  EOF/half-close、timeout 和 10000 opaque 前缀 flood 均通过。
+- `LayeredCandidateFactory` 的 carrier commit 与内层 handler resolver 分离：carrier 失败
+  时不调用内层 handler，成功后只交给 winner 的内层接入器；真实 ClientHello/SNI/ALPN +
+  HTTP wire `2/2` 通过。
+- legacy recognition 不再将任意 VMess `0x01`、Trojan `CRLFCRLF` 或 ASCII VLESS magic 当作协议；
+  标准 VLESS 二进制头必须满足结构约束，opaque 协议仍必须由配置候选执行有界凭据确认，
+  避免随机流误路由。
+- QUIC `GatewayCommon` 在连接登记时绑定协议/ALPN/CID，后续 stream 不重新猜测；
+  `DatagramAdapter` 对短写返回错误，`StreamAdapter::Cancel` 关闭 provider 并唤醒挂起读。
+  native ngtcp2 loopback 和相关 carrier/provider 回归均通过，detached audit 为
+  `DANGEROUS=0`（22 个 REVIEW 项均为现有人工复核清单）。
+- H2 stream 收到 peer `END_STREAM` 后保留状态，直到本端方向也结束；后续 DATA 会被拒绝，
+  同时允许服务端在客户端半关闭后发送响应，修复了 XHTTP stream-one 回归。
+
+- VMess 标准数据面已按 option 选择长度格式：ChunkMasking 使用 request/response nonce
+  的 SHAKE128 流，AEAD 数据方向分别使用 request key 与响应 SHA256 key；response
+  header 长度明文固定为 4，且不附带 AuthID AAD。标准 wire Contract 和独立 sing-vmess
+  TCP/UDP client→Preview server 均通过。
+- 识别策略的配置生命周期已收敛到 `SettingsBuilder`：候选工厂、immutable Profile 和
+  resolver 先成对安装到 `SessionOptions`，再由 `TcpListener::SessionFactory` 按值共享；
+  `MixedTrial` 在出现完整结构候选时不再等待未完成 opaque fallback，避免早期响应死锁。
+  未注册 scheme 明确返回空传输，不能静默退化为 passthrough。
+
+- `DeterministicRoute` 复用同一 Profile/ProbeBuffer/Commit 生命周期；当结构候选超过一个
+  时在认证前返回 `Ambiguous`，不会触发任何候选 `Prepare`，并由独立 coordinator 入口
+  分发。`Configured` 仍保持单候选兼容语义。
+
+本轮最终本地证据（2026-09-11）：Release 构建 `exit 0`；CTest 注册 `3961`，
+`3936/3936` active 通过，`25` 个 `StealthNested2` 明确 Disabled，失败 `0`；
+Perf `613.06s`，perf/stress 标签时间 `630.58s`，全量墙钟 `630.85s`；G7/mirror `260/260`，detached `DANGEROUS=0`。
+此前 3867/3842、3858/3833 为历史快照。
+
+历史本地证据：Release 构建 `exit 0`；CTest 注册 `3858`，`3833/3833` active 通过，
+`25` 个 `StealthNested2` 明确 Disabled，失败 `0`。该结论不等价于外部 L5 或生产
+analyzer 前置已解除。
+
+双模式配置接线增量后的历史复核：CTest 注册 `3858`，`3833/3833` active 通过，
+`25` 个 `StealthNested2` 明确 Disabled，失败 `0`；当前主机最新全量墙钟 `897.21s`，其中
+`Perf_Recognition` 正式默认参数运行 `765.00s`，全量 CTest 墙钟 `897.21s`，专用 CTest timeout 为 `1800s`。`DeterministicRoute` 与 `MixedTrial`
+共享同一 ProbeBuffer/Snapshot/Commit 所有权，确定性歧义在候选认证前收口；Probe 在 read 返回 partial bytes + error 时保留已读字节，避免 legacy 回放截断；legacy Pipeline 的预取消控制会在读取前收口并保留回放传输。

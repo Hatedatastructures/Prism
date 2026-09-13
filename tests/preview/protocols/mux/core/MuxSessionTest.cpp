@@ -21,16 +21,21 @@
 #include <preview/Protocols/Mux/Yamux/Yamux.hpp>
 #include <gtest/gtest.h>
 
-namespace
-{
-    using namespace Preview;
-    using namespace Preview::Mux;
+    namespace
+    {
+    namespace Net = boost::asio;
+    namespace Smux = Preview::Mux::Smux;
+    namespace Yamux = Preview::Mux::Yamux;
+    namespace H2Mux = Preview::Mux::H2Mux;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto run_coro(Net::io_context &ioc, A coro) -> void
     {
         std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
+        Net::co_spawn(ioc, std::move(coro),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -45,7 +50,7 @@ namespace
 
     /// 通用会话测试：cl/sv 为 (Client, Server) 值对象，payload 回显
     template <typename Client, typename Server>
-    auto run_session(net::io_context &ioc, Client &cl, Server &sv, const std::size_t payload_size)
+    auto run_session(Net::io_context &ioc, Client &cl, Server &sv, const std::size_t payload_size)
         -> std::size_t
     {
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
@@ -54,9 +59,9 @@ namespace
 
         std::size_t received = 0;
         run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto s = co_await sv.AcceptStream();
                          if (!s)
@@ -80,7 +85,7 @@ namespace
                          }
                          s->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      auto s = co_await cl.OpenStream();
                      if (!s)
@@ -116,7 +121,7 @@ namespace
 
     TEST(MuxSession, SmuxEcho)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Smux::Client cl;
         Smux::Server sv;
         EXPECT_EQ(run_session(ioc, cl, sv, 100 * 1024), 100 * 1024u);
@@ -124,7 +129,7 @@ namespace
 
     TEST(MuxSession, YamuxEcho)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         Yamux::Client cl;
         Yamux::Server sv;
         EXPECT_EQ(run_session(ioc, cl, sv, 100 * 1024), 100 * 1024u);
@@ -132,7 +137,7 @@ namespace
 
     TEST(MuxSession, H2muxEcho)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         H2Mux::Client cl;
         H2Mux::Server sv;
         EXPECT_EQ(run_session(ioc, cl, sv, 100 * 1024), 100 * 1024u);
@@ -140,7 +145,7 @@ namespace
 
     TEST(MuxSession, SmuxMultiStream)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         Smux::Client cl;
         Smux::Server sv;
@@ -150,9 +155,9 @@ namespace
         constexpr int kStreams = 8;
         constexpr std::size_t kPayload = 64 * 1024;
         run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          std::array<std::byte, 4096> buf{};
                          for (int i = 0; i < kStreams; ++i)
@@ -177,7 +182,7 @@ namespace
                              s->Close();
                          }
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
 
                      std::string payload(kPayload, 'C');
                      for (int i = 0; i < kStreams; ++i)
@@ -194,7 +199,7 @@ namespace
                              ec);
                          s->Close();
                          // 让出调度：保证对端 Accept 与帧循环有机会推进
-                         co_await net::post(ioc.get_executor(), net::use_awaitable);
+                         co_await Net::post(ioc.get_executor(), Net::use_awaitable);
                      }
                      cl.Close();
                      sv.Close();
@@ -203,16 +208,16 @@ namespace
 
     TEST(MuxSession, FactorySmux)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         Smux::Client cl;
         Smux::Server sv;
         ASSERT_TRUE(cl.Connect(std::make_shared<MemoryStream>(std::move(a))));
         ASSERT_TRUE(sv.Accept(std::make_shared<MemoryStream>(std::move(b))));
         run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto server_coro = [&]() -> Net::awaitable<void>
                      {
                          auto s = co_await sv.AcceptStream();
                          if (!s)
@@ -231,7 +236,7 @@ namespace
                          }
                          s->Close();
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
                      auto s = co_await cl.OpenStream();
                      if (!s)
                      {

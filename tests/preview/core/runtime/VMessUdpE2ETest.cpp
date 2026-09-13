@@ -37,10 +37,16 @@
 namespace
 {
 
-    namespace net = boost::asio;
-    using udp = net::ip::udp;
-    using Tcp = net::ip::tcp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Runtime = Preview::Runtime;
+    namespace Network = Preview::Network;
+    namespace Vmess = Preview::Vmess;
+    namespace Fault = Preview::Fault;
+    using Preview::Error;
+    using Preview::SharedTransmission;
+    using Udp = Net::ip::udp;
+    using udp = Udp;
+    using Tcp = Net::ip::tcp;
     using Preview::Runtime::MakeAcceptVmess;
 
     // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
@@ -57,7 +63,7 @@ namespace
     /// VMess UDP 纵向测试共享状态
     struct vmess_udp_state
     {
-        net::any_io_executor Executor;
+        Net::any_io_executor Executor;
         std::uint16_t echo_port{0};
         /// 服务端数据面退出次数（TCP 关闭/空闲超时终止的证据）
         std::shared_ptr<std::atomic<int>> relay_exits{std::make_shared<std::atomic<int>>(0)};
@@ -65,11 +71,11 @@ namespace
 
     /// 数据面单方向中继：客户端帧 ↔ 真实 UDP（echo 上游）
     auto udp_relay_frames(std::shared_ptr<Preview::Vmess::Dgram<>> Dgram,
-                          std::uint16_t echo_port) -> net::awaitable<Preview::Fault::Code>
+                          std::uint16_t echo_port) -> Net::awaitable<Preview::Fault::Code>
     {
         udp::socket sock(Dgram->Executor());
         boost::system::error_code ec;
-        sock.open(net::ip::udp::v4(), ec);
+        sock.open(Net::ip::udp::v4(), ec);
         sock.bind(udp::endpoint(udp::v4(), 0), ec);
         if (ec)
         {
@@ -83,9 +89,9 @@ namespace
             {
                 break;
             }
-            const udp::endpoint ep(net::ip::make_address("127.0.0.1"), echo_port);
-            co_await sock.async_send_to(net::buffer(payload), ep,
-                                        net::redirect_error(net::use_awaitable, ec));
+            const udp::endpoint ep(Net::ip::make_address("127.0.0.1"), echo_port);
+            co_await sock.async_send_to(Net::buffer(payload), ep,
+                                        Net::redirect_error(Net::use_awaitable, ec));
             if (ec)
             {
                 break;
@@ -93,7 +99,7 @@ namespace
             std::array<std::byte, 65535> Rx{};
             udp::endpoint from;
             const auto n = co_await sock.async_receive_from(
-                net::buffer(Rx), from, net::redirect_error(net::use_awaitable, ec));
+                Net::buffer(Rx), from, Net::redirect_error(Net::use_awaitable, ec));
             if (ec || n == 0)
             {
                 break;
@@ -108,28 +114,28 @@ namespace
     /// 构造 VMess UDP 数据面服务（Dgram ↔ 真实 UDP 中继到 echo）
     auto make_vmess_udp_service(const std::shared_ptr<vmess_udp_state> &st,
                                 std::chrono::milliseconds idle_timeout)
-        -> std::function<net::awaitable<Preview::Fault::Code>(Preview::Middleware::Context &)>
+        -> std::function<Net::awaitable<Preview::Fault::Code>(Preview::Middleware::Context &)>
     {
         return [st, idle_timeout](Preview::Middleware::Context &ctx)
-            -> net::awaitable<Preview::Fault::Code>
+            -> Net::awaitable<Preview::Fault::Code>
         {
             auto Dgram = std::dynamic_pointer_cast<Preview::Vmess::Dgram<>>(ctx.Inbound);
             if (!Dgram)
             {
                 co_return Preview::Fault::Code::ProtocolError;
             }
-            auto relay = [&]() -> net::awaitable<Preview::Fault::Code>
+            auto relay = [&]() -> Net::awaitable<Preview::Fault::Code>
             {
                 co_return co_await udp_relay_frames(Dgram, st->echo_port);
             };
-            auto idle = [Dgram, idle_timeout]() -> net::awaitable<Preview::Fault::Code>
+            auto idle = [Dgram, idle_timeout]() -> Net::awaitable<Preview::Fault::Code>
             {
-                net::steady_timer timer(Dgram->Executor(), idle_timeout);
-                co_await timer.async_wait(net::use_awaitable);
+                Net::steady_timer timer(Dgram->Executor(), idle_timeout);
+                co_await timer.async_wait(Net::use_awaitable);
                 Dgram->Close();
                 co_return Preview::Fault::Code::Success;
             };
-            using net::experimental::awaitable_operators::operator||;
+            using Net::experimental::awaitable_operators::operator||;
             co_await (relay() || idle());
             ++(*st->relay_exits); // 数据面退出证据（TCP 断开或空闲超时）
             co_return Preview::Fault::Code::Success;
@@ -138,12 +144,12 @@ namespace
 
     TEST(TcpListener, VmessUdpConnectEcho)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         udp::endpoint echo_ep(udp::v4(), 0);
         udp::socket echo_sock(ioc.get_executor(), echo_ep);
         const auto echo_port = echo_sock.local_endpoint().port();
         auto echo_ep_ptr = std::make_shared<std::exception_ptr>();
-        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [echo_ep_ptr](const std::exception_ptr &ep)
                       {
                           if (ep)
@@ -170,10 +176,10 @@ namespace
         bool Ok = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listener.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
@@ -198,14 +204,17 @@ namespace
                         reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
                 std::vector<std::uint8_t> Rx;
                 // 看门狗竞速：数据面断裂时失败而非挂死
-                net::steady_timer wd(Dgram->Executor());
+                Net::steady_timer wd(Dgram->Executor());
                 wd.expires_after(std::chrono::seconds(2));
-                using net::experimental::awaitable_operators::operator||;
+                using Net::experimental::awaitable_operators::operator||;
                 auto Result =
-                    co_await (Dgram->AsyncReceiveFrom(Rx) || wd.async_wait(net::use_awaitable));
-                const auto rerr = Result.index() == 1 ? Error::Timeout
-                                                      : std::get<0>(std::move(Result));
-                if (rerr == Error::None)
+                    co_await (Dgram->AsyncReceiveFrom(Rx) || wd.async_wait(Net::use_awaitable));
+                auto Rerr = Error::Timeout;
+                if (Result.index() != 1)
+                {
+                    Rerr = std::get<0>(std::move(Result));
+                }
+                if (Rerr == Error::None)
                 {
                     const std::string echo(reinterpret_cast<const char *>(Rx.data()), Rx.size());
                     Ok = (echo == payload);
@@ -219,11 +228,11 @@ namespace
 
     TEST(TcpListener, VmessUdpConnectIdleTimeout)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         udp::endpoint echo_ep(udp::v4(), 0);
         udp::socket echo_sock(ioc.get_executor(), echo_ep);
         const auto echo_port = echo_sock.local_endpoint().port();
-        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [](const std::exception_ptr &) {});
 
         auto State = std::make_shared<vmess_udp_state>(
@@ -244,10 +253,10 @@ namespace
         bool closed = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listener.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
@@ -265,8 +274,8 @@ namespace
                 {
                     co_return;
                 }
-                net::steady_timer timer(ioc.get_executor(), std::chrono::milliseconds(400));
-                co_await timer.async_wait(net::use_awaitable);
+                Net::steady_timer timer(ioc.get_executor(), std::chrono::milliseconds(400));
+                co_await timer.async_wait(Net::use_awaitable);
                 std::vector<std::uint8_t> Rx;
                 const auto rerr = co_await Dgram->AsyncReceiveFrom(Rx);
                 closed = (rerr != Error::None);
@@ -278,11 +287,11 @@ namespace
 
     TEST(TcpListener, VmessUdpConnectTcpCloseTerminates)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         udp::endpoint echo_ep(udp::v4(), 0);
         udp::socket echo_sock(ioc.get_executor(), echo_ep);
         const auto echo_port = echo_sock.local_endpoint().port();
-        net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
+        Net::co_spawn(ioc.get_executor(), Preview::Testing::UdpEchoServer(std::move(echo_sock)),
                       [](const std::exception_ptr &) {});
 
         auto State = std::make_shared<vmess_udp_state>(
@@ -303,10 +312,10 @@ namespace
         bool closed = false;
         RunCoro(
             ioc,
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 const auto start_rc = co_await listener.Start(
-                    net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+                    Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
                 EXPECT_EQ(start_rc, Fault::Code::Success);
                 const auto listen_port = listener.LocalEndpoint().port();
 
@@ -340,7 +349,7 @@ namespace
 
                 // 关闭 TCP 控制连接：服务端数据面必须在有界时间内终止
                 Dgram->Close();
-                net::steady_timer wd(ioc.get_executor());
+                Net::steady_timer wd(ioc.get_executor());
                 const auto deadline = std::chrono::steady_clock::now() +
                                       std::chrono::seconds(2);
                 while (State->relay_exits->load(std::memory_order_acquire) == 0)
@@ -350,7 +359,7 @@ namespace
                         throw std::runtime_error("udp Data plane not terminated after Tcp Close");
                     }
                     wd.expires_after(std::chrono::milliseconds(5));
-                    co_await wd.async_wait(net::use_awaitable);
+                    co_await wd.async_wait(Net::use_awaitable);
                 }
                 closed = true;
                 listener.Stop();

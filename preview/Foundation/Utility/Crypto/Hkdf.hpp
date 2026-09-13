@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstring>
 
 #include <openssl/sha.h>
@@ -50,7 +51,7 @@ namespace Preview::Crypto
      * @details 计算 HMAC-SHA256(key, Data)，用于 HKDF-Extract
      * 和 TLS 1.3 Finished 消息的 verify_data 计算。
      */
-    [[nodiscard]] auto HmacSha256(std::span<const std::uint8_t> key, std::span<const std::uint8_t> Data)
+    [[nodiscard]] auto HmacSha256(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
         -> std::array<std::uint8_t, Sha256Len>;
 
     /**
@@ -59,7 +60,7 @@ namespace Preview::Crypto
      * @param Data 输入数据
      * @return 64 字节 HMAC-SHA512 结果
      */
-    [[nodiscard]] auto HmacSha512(std::span<const std::uint8_t> key, std::span<const std::uint8_t> Data)
+    [[nodiscard]] auto HmacSha512(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
         -> std::array<std::uint8_t, Sha512Len>;
 
     /**
@@ -70,7 +71,7 @@ namespace Preview::Crypto
      * @details 计算 PRK = HMAC-SHA256(salt, IKM)。
      * 当 salt 为空时使用 32 字节全零作为盐值（RFC 5869）。
      */
-    [[nodiscard]] auto HkdfExtract(std::span<const std::uint8_t> salt, std::span<const std::uint8_t> ikm)
+    [[nodiscard]] auto HkdfExtract(std::span<const std::uint8_t> Salt, std::span<const std::uint8_t> IKM)
         -> std::array<std::uint8_t, Sha256Len>;
 
     /**
@@ -84,8 +85,8 @@ namespace Preview::Crypto
      * T(N) = HMAC-SHA256(PRK, T(N-1) || Info || N)
      * Output = T(1) || T(2) || ... || T(N)
      */
-    [[nodiscard]] auto HkdfExpand(std::span<const std::uint8_t> prk, std::span<const std::uint8_t> Info,
-                                   std::size_t length) -> std::pair<Fault::Code, std::vector<std::uint8_t>>;
+    [[nodiscard]] auto HkdfExpand(std::span<const std::uint8_t> PRK, std::span<const std::uint8_t> Info,
+                                   std::size_t Length) -> std::pair<Fault::Code, std::vector<std::uint8_t>>;
 
     /**
      * @struct ExpandLabelParams
@@ -97,7 +98,7 @@ namespace Preview::Crypto
         std::span<const std::uint8_t> Secret;  ///< 输入密钥
         std::string_view Label;                ///< 标签（如 "key", "iv", "finished"）
         std::span<const std::uint8_t> Context; ///< 上下文数据（通常是 transcript Hash）
-        std::size_t length = 0;                ///< 输出长度
+        std::size_t Length{0};                 ///< 输出长度
     };
 
     /**
@@ -109,7 +110,7 @@ namespace Preview::Crypto
      * HKDF-Expand-Label(Secret, Label, Context, Length) = HKDF-Expand(Secret, HkdfLabel, Length)
      * @note TLS 1.3 自动在 Label 前添加 "tls13 " 前缀。
      */
-    [[nodiscard]] auto ExpandLabel(ExpandParams params)
+    [[nodiscard]] auto ExpandLabel(ExpandParams Params)
         -> std::pair<Fault::Code, std::vector<std::uint8_t>>;
 
     /**
@@ -128,7 +129,7 @@ namespace Preview::Crypto
      * @details 计算 SHA-256(data1 || data2)，用于 TLS 1.3 transcript Hash。
      * 比 concat 后再 Hash 更高效，避免额外内存分配。
      */
-    [[nodiscard]] auto Sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2)
+    [[nodiscard]] auto Sha256(std::span<const std::uint8_t> Data1, std::span<const std::uint8_t> Data2)
         -> std::array<std::uint8_t, Sha256Len>;
 
     /**
@@ -139,21 +140,21 @@ namespace Preview::Crypto
      * @return 32 字节 SHA-256 哈希值
      * @details 计算 SHA-256(data1 || data2 || data3)，用于 TLS 1.3 transcript Hash。
      */
-    [[nodiscard]] auto Sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2,
-                              std::span<const std::uint8_t> data3) -> std::array<std::uint8_t, Sha256Len>;
+    [[nodiscard]] auto Sha256(std::span<const std::uint8_t> Data1, std::span<const std::uint8_t> Data2,
+                              std::span<const std::uint8_t> Data3) -> std::array<std::uint8_t, Sha256Len>;
 
 
 
-    inline auto HmacSha256(std::span<const std::uint8_t> key, std::span<const std::uint8_t> Data)
+    inline auto HmacSha256(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
         -> std::array<std::uint8_t, Sha256Len>
     {
         std::array<std::uint8_t, Sha256Len> Result{};
 
         std::uint32_t MacLen = 0;
-        const auto *ret = HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), Data.data(),
-                               Data.size(), Result.data(), &MacLen);
+        const auto *HmacResult = HMAC(EVP_sha256(), Key.data(), static_cast<int>(Key.size()), Data.data(),
+                                      Data.size(), Result.data(), &MacLen);
 
-        if (!ret)
+        if (!HmacResult)
         {
             Result.fill(0);
         }
@@ -161,16 +162,16 @@ namespace Preview::Crypto
         return Result;
     }
 
-    inline auto HmacSha512(std::span<const std::uint8_t> key, std::span<const std::uint8_t> Data)
+    inline auto HmacSha512(std::span<const std::uint8_t> Key, std::span<const std::uint8_t> Data)
         -> std::array<std::uint8_t, Sha512Len>
     {
         std::array<std::uint8_t, Sha512Len> Result{};
 
         std::uint32_t MacLen = 0;
-        const auto *ret = HMAC(EVP_sha512(), key.data(), static_cast<int>(key.size()), Data.data(),
-                               Data.size(), Result.data(), &MacLen);
+        const auto *HmacResult = HMAC(EVP_sha512(), Key.data(), static_cast<int>(Key.size()), Data.data(),
+                                      Data.size(), Result.data(), &MacLen);
 
-        if (!ret)
+        if (!HmacResult)
         {
             Result.fill(0);
         }
@@ -178,26 +179,26 @@ namespace Preview::Crypto
         return Result;
     }
 
-    inline auto HkdfExtract(std::span<const std::uint8_t> salt, std::span<const std::uint8_t> ikm)
+    inline auto HkdfExtract(std::span<const std::uint8_t> Salt, std::span<const std::uint8_t> IKM)
         -> std::array<std::uint8_t, Sha256Len>
     {
-        if (salt.empty())
+        if (Salt.empty())
         {
             std::array<std::uint8_t, Sha256Len> ZeroSalt{};
-            return HmacSha256(ZeroSalt, ikm);
+            return HmacSha256(ZeroSalt, IKM);
         }
-        return HmacSha256(salt, ikm);
+        return HmacSha256(Salt, IKM);
     }
 
-    inline auto HkdfExpand(std::span<const std::uint8_t> prk, std::span<const std::uint8_t> Info,
-                            const std::size_t length) -> std::pair<Fault::Code, std::vector<std::uint8_t>>
+    inline auto HkdfExpand(std::span<const std::uint8_t> PRK, std::span<const std::uint8_t> Info,
+                           const std::size_t Length) -> std::pair<Fault::Code, std::vector<std::uint8_t>>
     {
-        if (length > 255 * Sha256Len)
+        if (Length > 255 * Sha256Len)
         {
             return {Fault::Code::InvalidArgument, {}};
         }
 
-        if (prk.size() < Sha256Len)
+        if (PRK.size() < Sha256Len)
         {
             return {Fault::Code::InvalidArgument, {}};
         }
@@ -209,21 +210,21 @@ namespace Preview::Crypto
         }
 
         std::vector<std::uint8_t> Result;
-        Result.reserve(length);
+        Result.reserve(Length);
 
-        std::array<std::uint8_t, Sha256Len> t{};
+        std::array<std::uint8_t, Sha256Len> PreviousBlock{};
         std::size_t TSize = 0;
         std::size_t Offset = 0;
         std::uint8_t Counter = 1;
 
-        while (Offset < length)
+        while (Offset < Length)
         {
             constexpr std::size_t MaxHmacBuf = Sha256Len + MaxInfoSize + 1;
             std::array<std::uint8_t, MaxHmacBuf> HmacBuf;
             const auto HmacSize = TSize + Info.size() + 1;
             if (TSize > 0)
             {
-                std::memcpy(HmacBuf.data(), t.data(), TSize);
+                std::memcpy(HmacBuf.data(), PreviousBlock.data(), TSize);
             }
             if (!Info.empty())
             {
@@ -231,13 +232,13 @@ namespace Preview::Crypto
             }
             HmacBuf[HmacSize - 1] = Counter;
 
-            const auto Block = HmacSha256(prk.first(Sha256Len), {HmacBuf.data(), HmacSize});
+            const auto Block = HmacSha256(PRK.first(Sha256Len), {HmacBuf.data(), HmacSize});
 
-            const auto ToCopy = std::min(Sha256Len, length - Offset);
+            const auto ToCopy = std::min(Sha256Len, Length - Offset);
             Result.insert(Result.end(), Block.begin(), Block.begin() + static_cast<std::ptrdiff_t>(ToCopy));
             Offset += ToCopy;
 
-            t = Block;
+            PreviousBlock = Block;
             TSize = Sha256Len;
             ++Counter;
         }
@@ -245,13 +246,13 @@ namespace Preview::Crypto
         return {Fault::Code::Success, std::move(Result)};
     }
 
-    inline auto ExpandLabel(const ExpandParams params)
+    inline auto ExpandLabel(const ExpandParams Params)
         -> std::pair<Fault::Code, std::vector<std::uint8_t>>
     {
-        const auto &Secret = params.Secret;
-        const auto &Label = params.Label;
-        const auto &Context = params.Context;
-        const auto length = params.length;
+        const auto &Secret = Params.Secret;
+        const auto &Label = Params.Label;
+        const auto &Context = Params.Context;
+        const auto Length = Params.Length;
         constexpr std::string_view Tls13Prefix = "tls13 ";
         const auto FullLabelLen = Tls13Prefix.size() + Label.size();
 
@@ -269,8 +270,8 @@ namespace Preview::Crypto
         std::array<std::uint8_t, MaxLabelBuf> LabelBuf;
         std::size_t Pos = 0;
 
-        LabelBuf[Pos++] = static_cast<std::uint8_t>((length >> 8) & 0xFF);
-        LabelBuf[Pos++] = static_cast<std::uint8_t>(length & 0xFF);
+        LabelBuf[Pos++] = static_cast<std::uint8_t>((Length >> 8) & 0xFF);
+        LabelBuf[Pos++] = static_cast<std::uint8_t>(Length & 0xFF);
 
         LabelBuf[Pos++] = static_cast<std::uint8_t>(FullLabelLen);
         std::memcpy(LabelBuf.data() + Pos, Tls13Prefix.data(), Tls13Prefix.size());
@@ -285,7 +286,7 @@ namespace Preview::Crypto
             Pos += Context.size();
         }
 
-        return HkdfExpand(Secret, {LabelBuf.data(), Pos}, length);
+        return HkdfExpand(Secret, {LabelBuf.data(), Pos}, Length);
     }
 
     inline auto Sha256(std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, Sha256Len>
@@ -295,65 +296,65 @@ namespace Preview::Crypto
         return Hash;
     }
 
-    inline auto Sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2)
+    inline auto Sha256(std::span<const std::uint8_t> Data1, std::span<const std::uint8_t> Data2)
         -> std::array<std::uint8_t, Sha256Len>
     {
         std::array<std::uint8_t, Sha256Len> Hash{};
 
-        EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-        if (!ctx)
+        EVP_MD_CTX *Context = EVP_MD_CTX_new();
+        if (!Context)
         {
             return Hash;
         }
 
-        if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1)
+        if (EVP_DigestInit_ex(Context, EVP_sha256(), nullptr) != 1)
         {
-            EVP_MD_CTX_free(ctx);
+            EVP_MD_CTX_free(Context);
             return Hash;
         }
 
-        if (EVP_DigestUpdate(ctx, data1.data(), data1.size()) != 1 ||
-            EVP_DigestUpdate(ctx, data2.data(), data2.size()) != 1)
+        if (EVP_DigestUpdate(Context, Data1.data(), Data1.size()) != 1 ||
+            EVP_DigestUpdate(Context, Data2.data(), Data2.size()) != 1)
         {
-            EVP_MD_CTX_free(ctx);
+            EVP_MD_CTX_free(Context);
             return Hash;
         }
 
         std::uint32_t HashLen = 0;
-        EVP_DigestFinal_ex(ctx, Hash.data(), &HashLen);
-        EVP_MD_CTX_free(ctx);
+        EVP_DigestFinal_ex(Context, Hash.data(), &HashLen);
+        EVP_MD_CTX_free(Context);
 
         return Hash;
     }
 
-    inline auto Sha256(std::span<const std::uint8_t> data1, std::span<const std::uint8_t> data2,
-                       const std::span<const std::uint8_t> data3) -> std::array<std::uint8_t, Sha256Len>
+    inline auto Sha256(std::span<const std::uint8_t> Data1, std::span<const std::uint8_t> Data2,
+                       const std::span<const std::uint8_t> Data3) -> std::array<std::uint8_t, Sha256Len>
     {
         std::array<std::uint8_t, Sha256Len> Hash{};
 
-        EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-        if (!ctx)
+        EVP_MD_CTX *Context = EVP_MD_CTX_new();
+        if (!Context)
         {
             return Hash;
         }
 
-        if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1)
+        if (EVP_DigestInit_ex(Context, EVP_sha256(), nullptr) != 1)
         {
-            EVP_MD_CTX_free(ctx);
+            EVP_MD_CTX_free(Context);
             return Hash;
         }
 
-        if (EVP_DigestUpdate(ctx, data1.data(), data1.size()) != 1 ||
-            EVP_DigestUpdate(ctx, data2.data(), data2.size()) != 1 ||
-            EVP_DigestUpdate(ctx, data3.data(), data3.size()) != 1)
+        if (EVP_DigestUpdate(Context, Data1.data(), Data1.size()) != 1 ||
+            EVP_DigestUpdate(Context, Data2.data(), Data2.size()) != 1 ||
+            EVP_DigestUpdate(Context, Data3.data(), Data3.size()) != 1)
         {
-            EVP_MD_CTX_free(ctx);
+            EVP_MD_CTX_free(Context);
             return Hash;
         }
 
         std::uint32_t HashLen = 0;
-        EVP_DigestFinal_ex(ctx, Hash.data(), &HashLen);
-        EVP_MD_CTX_free(ctx);
+        EVP_DigestFinal_ex(Context, Hash.data(), &HashLen);
+        EVP_MD_CTX_free(Context);
 
         return Hash;
     }

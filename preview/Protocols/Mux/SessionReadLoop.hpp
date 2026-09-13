@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <system_error>
 
 #include <preview/Foundation/ByteSpan.hpp>
 #include <preview/Transport/Transmission.hpp>
@@ -21,18 +22,24 @@ namespace Preview::Mux::Detail
      * @brief 读取完整缓冲区
      * @param Raw 底层传输
      * @param Buffer 目标缓冲区
-     * @return true = 完整读入；false = EOF 或底层错误
+     * @return 完整读入返回 true；EOF、底层错误或 over-report 返回 false
      */
-    [[nodiscard]] inline auto ReadExact(const SharedTransmission &Raw, std::span<std::uint8_t> Buffer)
-        -> net::awaitable<bool>
+    [[nodiscard]] inline auto ReadExact(
+        SharedTransmission Raw,
+        std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
     {
+        if (!Raw)
+        {
+            co_return false;
+        }
+
         std::size_t Done = 0;
         while (Done < Buffer.size())
         {
-            std::error_code Ec;
+            std::error_code ErrorCode;
             const auto N = co_await Raw->async_read_some(
-                Preview::AsBytes(Buffer.subspan(Done)), Ec);
-            if (Ec || N == 0)
+                Preview::AsBytes(Buffer.subspan(Done)), ErrorCode);
+            if (ErrorCode || N == 0 || N > Buffer.size() - Done)
             {
                 co_return false;
             }

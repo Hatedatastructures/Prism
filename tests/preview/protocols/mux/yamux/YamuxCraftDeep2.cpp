@@ -32,7 +32,7 @@
 using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace yamux = psm::multiplex::yamux;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 #include <gtest/gtest.h>
 
@@ -41,7 +41,7 @@ namespace
     struct CraftFixture
     {
         std::shared_ptr<ProductionMockTransport> transport;
-        std::unique_ptr<net::io_context> ioc;
+        std::unique_ptr<Net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<yamux::control> craft_obj;
         static multiplex::config cfg;
@@ -49,7 +49,7 @@ namespace
         CraftFixture()
         {
             transport = std::make_shared<ProductionMockTransport>();
-            ioc = std::make_unique<net::io_context>(1);
+            ioc = std::make_unique<Net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
@@ -186,7 +186,7 @@ namespace
             10, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
         fx.craft_obj->ensure_window(10);
         // 手动创建一个 timer 而不是通过 start_pending（避免 co_spawn 副作用）
-        auto timer = std::make_shared<net::steady_timer>(fx.craft_obj->executor());
+        auto timer = std::make_shared<Net::steady_timer>(fx.craft_obj->executor());
         timer->expires_after(std::chrono::milliseconds(30000));
         fx.craft_obj->pending_timers_[10] = timer;
         EXPECT_TRUE(fx.craft_obj->pending_timers_.count(10) == 1) << "handle_rst: timer exists";
@@ -327,8 +327,8 @@ namespace
         fx.craft_obj->ensure_window(1);
         fx.craft_obj->ensure_window(2);
         // 手动创建 timer 避免通过 start_pending 的 co_spawn
-        auto timer1 = std::make_shared<net::steady_timer>(fx.craft_obj->executor());
-        auto timer2 = std::make_shared<net::steady_timer>(fx.craft_obj->executor());
+        auto timer1 = std::make_shared<Net::steady_timer>(fx.craft_obj->executor());
+        auto timer2 = std::make_shared<Net::steady_timer>(fx.craft_obj->executor());
         fx.craft_obj->pending_timers_[1] = timer1;
         fx.craft_obj->pending_timers_[2] = timer2;
 
@@ -417,7 +417,7 @@ namespace
         CraftFixture fx;
         auto *w = fx.craft_obj->ensure_window(1);
         auto expiry = w->window_signal->expiry();
-        EXPECT_EQ(expiry, net::steady_timer::time_point::max()) << "window: signal expires at max";
+        EXPECT_EQ(expiry, Net::steady_timer::time_point::max()) << "window: signal expires at max";
     }
 
 } // namespace

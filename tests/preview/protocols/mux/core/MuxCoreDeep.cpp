@@ -21,7 +21,7 @@
 
 using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 #include <gtest/gtest.h>
 
@@ -35,7 +35,7 @@ namespace
         {
         }
 
-        auto send(std::uint32_t, psm::memory::vector<std::byte>) -> net::awaitable<void> override
+        auto send(std::uint32_t, psm::memory::vector<std::byte>) -> Net::awaitable<void> override
         {
             co_return;
         }
@@ -59,12 +59,12 @@ namespace
         }
 
     protected:
-        auto run() -> net::awaitable<void> override
+        auto run() -> Net::awaitable<void> override
         {
             co_return;
         }
 
-        auto write_frame(outbound_frame) -> net::awaitable<void> override
+        auto write_frame(outbound_frame) -> Net::awaitable<void> override
         {
             co_return;
         }
@@ -76,13 +76,13 @@ namespace
     {
         std::shared_ptr<ProductionMockTransport> transport;
         std::shared_ptr<TestCore> core_obj;
-        std::unique_ptr<net::io_context> ioc;
+        std::unique_ptr<Net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
 
         CoreFixture()
         {
             transport = std::make_shared<ProductionMockTransport>();
-            ioc = std::make_unique<net::io_context>(1);
+            ioc = std::make_unique<Net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
@@ -103,7 +103,7 @@ namespace
     TEST(MuxCoreDeep, ConstructorWithMr)
     {
         auto transport = std::make_shared<ProductionMockTransport>();
-        auto ioc = std::make_unique<net::io_context>(1);
+        auto ioc = std::make_unique<Net::io_context>(1);
         psm::dns::config dns_cfg;
         psm::connect::dialer_options ropts{*ioc, dns_cfg};
         auto router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));

@@ -64,7 +64,7 @@ namespace Preview::Http2
     /// 帧头（9 字节）
     struct FrameHeader
     {
-        std::uint32_t length{0};      ///< 载荷长度（24 位）
+        std::uint32_t length{0}; ///< 载荷长度（24 位；保留以兼容现有调用方）
         FrameType Type{FrameType::Data}; ///< 帧类型
         std::uint8_t Flags{0};        ///< 标志位
         std::uint32_t StreamId{0};   ///< 流 ID（31 位）
@@ -74,7 +74,7 @@ namespace Preview::Http2
     struct SettingsEntry
     {
         std::uint16_t Id{0};     ///< 参数 ID
-        std::uint32_t value{0};  ///< 参数值
+        std::uint32_t value{0};  ///< 参数值（保留以兼容现有调用方）
     };
 
     /// GOAWAY 参数
@@ -88,7 +88,7 @@ namespace Preview::Http2
     /// WINDOW_UPDATE 载荷
     struct WindowUpdateParams
     {
-        std::uint32_t increment{0}; ///< 窗口增量（31 位）
+        std::uint32_t Increment{0}; ///< 窗口增量（31 位）
     };
 
     /// RST_STREAM 载荷
@@ -111,68 +111,108 @@ namespace Preview::Http2
 
     /**
      * @brief 编码 24 位长度
-     * @param len 长度值（≤ 0xFFFFFF）
-     * @param out 输出缓冲区（3 字节）
+     * @param Length 长度值（≤ 0xFFFFFF）
+     * @param Output 输出缓冲区（3 字节）
      */
-    inline void EncodeLen24(std::uint32_t len, std::span<std::byte, 3> out) noexcept
+    inline auto EncodeLen24(
+        std::uint32_t Length,
+        std::span<std::byte, 3> Output) noexcept -> void
     {
-        out[0] = static_cast<std::byte>((len >> 16) & 0xFF);
-        out[1] = static_cast<std::byte>((len >> 8) & 0xFF);
-        out[2] = static_cast<std::byte>(len & 0xFF);
+        Output[0] = static_cast<std::byte>((Length >> 16) & 0xFF);
+        Output[1] = static_cast<std::byte>((Length >> 8) & 0xFF);
+        Output[2] = static_cast<std::byte>(Length & 0xFF);
     }
 
     /**
      * @brief 解码 24 位长度
-     * @param in 输入缓冲区（3 字节）
+     * @param Input 输入缓冲区（3 字节）
      * @return 长度值
      */
-    [[nodiscard]] inline auto DecodeLen24(std::span<const std::byte, 3> in) noexcept -> std::uint32_t
+    [[nodiscard]] inline auto DecodeLen24(
+        std::span<const std::byte, 3> Input) noexcept -> std::uint32_t
     {
-        return (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(in[0])) << 16) |
-               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(in[1])) << 8) |
-               static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(in[2]));
+        return (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[0])) << 16) |
+               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[1])) << 8) |
+               static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[2]));
     }
 
     /**
      * @brief 编码 31 位流 ID / 窗口增量
-     * @param val 值（≤ 0x7FFFFFFF）
-     * @param out 输出缓冲区（4 字节）
+     * @param Value 值（≤ 0x7FFFFFFF）
+     * @param Output 输出缓冲区（4 字节）
      */
-    inline void EncodeU31(std::uint32_t val, std::span<std::byte, 4> out) noexcept
+    inline auto EncodeU31(
+        std::uint32_t Value,
+        std::span<std::byte, 4> Output) noexcept -> void
     {
-        out[0] = static_cast<std::byte>((val >> 24) & 0x7F);
-        out[1] = static_cast<std::byte>((val >> 16) & 0xFF);
-        out[2] = static_cast<std::byte>((val >> 8) & 0xFF);
-        out[3] = static_cast<std::byte>(val & 0xFF);
+        Output[0] = static_cast<std::byte>((Value >> 24) & 0x7F);
+        Output[1] = static_cast<std::byte>((Value >> 16) & 0xFF);
+        Output[2] = static_cast<std::byte>((Value >> 8) & 0xFF);
+        Output[3] = static_cast<std::byte>(Value & 0xFF);
+    }
+
+    /**
+     * @brief 编码 32 位错误码
+     * @param ErrorCode 错误码
+     * @param Output 输出缓冲区（4 字节）
+     */
+    inline auto EncodeU32(
+        std::uint32_t ErrorCode,
+        std::span<std::byte, 4> Output) noexcept -> void
+    {
+        Output[0] = static_cast<std::byte>((ErrorCode >> 24) & 0xFF);
+        Output[1] = static_cast<std::byte>((ErrorCode >> 16) & 0xFF);
+        Output[2] = static_cast<std::byte>((ErrorCode >> 8) & 0xFF);
+        Output[3] = static_cast<std::byte>(ErrorCode & 0xFF);
     }
 
     /**
      * @brief 解码 31 位值
-     * @param in 输入缓冲区（至少 4 字节）
+     * @param Input 输入缓冲区（至少 4 字节）
      * @return 值
      */
-    [[nodiscard]] inline auto DecodeU31(std::span<const std::byte> in) noexcept -> std::uint32_t
+    [[nodiscard]] inline auto DecodeU31(
+        std::span<const std::byte> Input) noexcept -> std::uint32_t
     {
-        if (in.size() < 4)
+        if (Input.size() < 4)
         {
             return 0;
         }
-        return (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(in[0]) & 0x7F) << 24) |
-               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(in[1])) << 16) |
-               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(in[2])) << 8) |
-               static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(in[3]));
+        return (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[0]) & 0x7F) << 24) |
+               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[1])) << 16) |
+               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[2])) << 8) |
+               static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[3]));
+    }
+
+    /**
+     * @brief 解码 32 位错误码
+     * @param Input 输入缓冲区（至少 4 字节）
+     * @return 32 位值；不足返回 0
+     */
+    [[nodiscard]] inline auto DecodeU32(
+        std::span<const std::byte> Input) noexcept -> std::uint32_t
+    {
+        if (Input.size() < 4)
+        {
+            return 0;
+        }
+        return (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[0])) << 24) |
+               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[1])) << 16) |
+               (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[2])) << 8) |
+               static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Input[3]));
     }
 
     /**
      * @brief 构建帧（帧头 + 载荷）
-     * @param Type 帧类型
-     * @param Flags 标志位
-     * @param StreamId 流 ID
-     * @param payload 载荷（可空）
-     * @return 完整帧字节（9 + payload.size()）
+     * @param Params 帧类型、标志位、流 ID 与载荷
+     * @return 完整帧字节（9 + Payload.size()）
      */
     [[nodiscard]] inline auto BuildFrame(const FrameParameters &Params) -> std::vector<std::byte>
     {
+        if (Params.Payload.size() > 0xFFFFFFU)
+        {
+            return {};
+        }
         std::vector<std::byte> Frame;
         Frame.reserve(FrameHeaderSize + Params.Payload.size());
         Frame.resize(FrameHeaderSize);
@@ -190,42 +230,44 @@ namespace Preview::Http2
      * @param Data 输入（至少 9 字节）
      * @return 解析后的帧头；不足返回 std::nullopt
      */
-    [[nodiscard]] inline auto ParseFrameHeader(std::span<const std::byte> Data)
+    [[nodiscard]] inline auto ParseFrameHeader(
+        std::span<const std::byte> Data)
         -> std::optional<FrameHeader>
     {
         if (Data.size() < FrameHeaderSize)
         {
             return std::nullopt;
         }
-        FrameHeader h;
+        FrameHeader Header;
         const auto Head = Data.first<9>();
-        h.length = DecodeLen24(Head.first<3>());
-        h.Type = static_cast<FrameType>(std::to_integer<std::uint8_t>(Head[3]));
-        h.Flags = std::to_integer<std::uint8_t>(Head[4]);
-        h.StreamId = DecodeU31(Head.last<4>());
-        return h;
+        Header.length = DecodeLen24(Head.first<3>());
+        Header.Type = static_cast<FrameType>(std::to_integer<std::uint8_t>(Head[3]));
+        Header.Flags = std::to_integer<std::uint8_t>(Head[4]);
+        Header.StreamId = DecodeU31(Head.last<4>());
+        return Header;
     }
 
     /**
      * @brief 编码 SETTINGS 参数
-     * @param entries 参数列表
+     * @param Entries 参数列表
      * @return 载荷字节
      */
-    [[nodiscard]] inline auto EncodeSettings(std::span<const SettingsEntry> entries)
+    [[nodiscard]] inline auto EncodeSettings(
+        std::span<const SettingsEntry> Entries)
         -> std::vector<std::byte>
     {
-        std::vector<std::byte> out;
-        out.reserve(entries.size() * 6);
-        for (const auto &e : entries)
+        std::vector<std::byte> Output;
+        Output.reserve(Entries.size() * 6);
+        for (const auto &Entry : Entries)
         {
-            out.push_back(static_cast<std::byte>((e.Id >> 8) & 0xFF));
-            out.push_back(static_cast<std::byte>(e.Id & 0xFF));
-            out.push_back(static_cast<std::byte>((e.value >> 24) & 0xFF));
-            out.push_back(static_cast<std::byte>((e.value >> 16) & 0xFF));
-            out.push_back(static_cast<std::byte>((e.value >> 8) & 0xFF));
-            out.push_back(static_cast<std::byte>(e.value & 0xFF));
+            Output.push_back(static_cast<std::byte>((Entry.Id >> 8) & 0xFF));
+            Output.push_back(static_cast<std::byte>(Entry.Id & 0xFF));
+            Output.push_back(static_cast<std::byte>((Entry.value >> 24) & 0xFF));
+            Output.push_back(static_cast<std::byte>((Entry.value >> 16) & 0xFF));
+            Output.push_back(static_cast<std::byte>((Entry.value >> 8) & 0xFF));
+            Output.push_back(static_cast<std::byte>(Entry.value & 0xFF));
         }
-        return out;
+        return Output;
     }
 
     /**
@@ -233,40 +275,41 @@ namespace Preview::Http2
      * @param Data 载荷字节
      * @return 参数列表；长度非法返回 std::nullopt
      */
-    [[nodiscard]] inline auto DecodeSettings(std::span<const std::byte> Data)
+    [[nodiscard]] inline auto DecodeSettings(
+        std::span<const std::byte> Data)
         -> std::optional<std::vector<SettingsEntry>>
     {
         if (Data.size() % 6 != 0)
         {
             return std::nullopt;
         }
-        std::vector<SettingsEntry> entries;
-        entries.reserve(Data.size() / 6);
+        std::vector<SettingsEntry> Entries;
+        Entries.reserve(Data.size() / 6);
         for (std::size_t I = 0; I < Data.size(); I += 6)
         {
-            SettingsEntry e;
-            e.Id = static_cast<std::uint16_t>(
+            SettingsEntry Entry;
+            Entry.Id = static_cast<std::uint16_t>(
                 (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Data[I])) << 8) |
                 static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Data[I + 1])));
-            e.value = (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 2])) << 24) |
-                      (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 3])) << 16) |
-                      (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 4])) << 8) |
-                      static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 5]));
-            entries.push_back(e);
+            Entry.value = (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 2])) << 24) |
+                          (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 3])) << 16) |
+                          (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 4])) << 8) |
+                          static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Data[I + 5]));
+            Entries.push_back(Entry);
         }
-        return entries;
+        return Entries;
     }
 
     /**
      * @brief 编码 WINDOW_UPDATE 载荷
-     * @param increment 窗口增量
+     * @param Increment 窗口增量
      * @return 4 字节载荷
      */
-    [[nodiscard]] inline auto EncodeWindowUpdate(std::uint32_t increment) -> std::array<std::byte, 4>
+    [[nodiscard]] inline auto EncodeWindowUpdate(std::uint32_t Increment) -> std::array<std::byte, 4>
     {
-        std::array<std::byte, 4> out{};
-        EncodeU31(increment, out);
-        return out;
+        std::array<std::byte, 4> Output{};
+        EncodeU31(Increment, Output);
+        return Output;
     }
 
     /**
@@ -276,26 +319,26 @@ namespace Preview::Http2
      */
     [[nodiscard]] inline auto EncodeRstStream(std::uint32_t ErrorCode) -> std::array<std::byte, 4>
     {
-        std::array<std::byte, 4> out{};
-        EncodeU31(ErrorCode, out);
-        return out;
+        std::array<std::byte, 4> Output{};
+        EncodeU32(ErrorCode, Output);
+        return Output;
     }
 
     /**
      * @brief 编码 GOAWAY 载荷
-     * @param params GOAWAY 参数
+     * @param Params GOAWAY 参数
      * @return 载荷字节
      */
-    [[nodiscard]] inline auto EncodeGoaway(const GoawayParams &params) -> std::vector<std::byte>
+    [[nodiscard]] inline auto EncodeGoaway(const GoawayParams &Params) -> std::vector<std::byte>
     {
-        std::vector<std::byte> out;
-        out.reserve(8 + params.Debug.size());
-        out.resize(8);
-        const auto Head = std::span<std::byte>(out.data(), 8);
-        EncodeU31(params.LastStreamId, Head.first<4>());
-        EncodeU31(params.ErrorCode, Head.last<4>());
-        out.insert(out.end(), params.Debug.begin(), params.Debug.end());
-        return out;
+        std::vector<std::byte> Output;
+        Output.reserve(8 + Params.Debug.size());
+        Output.resize(8);
+        const auto Head = std::span<std::byte>(Output.data(), 8);
+        EncodeU31(Params.LastStreamId, Head.first<4>());
+        EncodeU31(Params.ErrorCode, Head.last<4>());
+        Output.insert(Output.end(), Params.Debug.begin(), Params.Debug.end());
+        return Output;
     }
 
     /// 常见 SETTINGS 参数 ID（RFC 7540 §6.5.2）

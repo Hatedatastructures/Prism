@@ -111,6 +111,18 @@ namespace
         EXPECT_EQ(traffic.IdentityCount(), 2);
     }
 
+    TEST(IdentityTraffic, RejectsNewIdentitiesAfterConfiguredLimit)
+    {
+        Preview::Runtime::IdentityTraffic traffic(1);
+        traffic.Add("first", 10, 20);
+        traffic.Add("second", 30, 40);
+        traffic.Add("first", 1, 2);
+
+        EXPECT_EQ(traffic.IdentityCount(), 1u);
+        EXPECT_EQ(traffic.PerIdentity("first").Up, 11u);
+        EXPECT_EQ(traffic.PerIdentity("second").Up, 0u);
+    }
+
     TEST(IdentityTraffic, SnapshotAll)
     {
         Preview::Runtime::IdentityTraffic traffic;

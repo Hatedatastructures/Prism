@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <span>
 #include <vector>
@@ -72,7 +73,8 @@ namespace Preview::Shadowsocks2022
          */
         [[nodiscard]] inline auto CryptSeparate(
             std::span<const std::uint8_t> Key,
-            std::span<const std::uint8_t, SeparateHdrLen> Input, const bool Encrypt)
+            std::span<const std::uint8_t, SeparateHdrLen> Input,
+            bool Encrypt)
             -> std::optional<std::array<std::uint8_t, SeparateHdrLen>>
         {
             if (Key.size() != AeadKeyLen)
@@ -85,9 +87,15 @@ namespace Preview::Shadowsocks2022
                 return std::nullopt;
             }
             const auto *Cipher = EVP_aes_128_ecb();
-            const auto InitOk = Encrypt
-                                    ? EVP_EncryptInit_ex(Ctx, Cipher, nullptr, Key.data(), nullptr)
-                                    : EVP_DecryptInit_ex(Ctx, Cipher, nullptr, Key.data(), nullptr);
+            int InitOk = 0;
+            if (Encrypt)
+            {
+                InitOk = EVP_EncryptInit_ex(Ctx, Cipher, nullptr, Key.data(), nullptr);
+            }
+            else
+            {
+                InitOk = EVP_DecryptInit_ex(Ctx, Cipher, nullptr, Key.data(), nullptr);
+            }
             if (InitOk != 1 || EVP_CIPHER_CTX_set_padding(Ctx, 0) != 1)
             {
                 EVP_CIPHER_CTX_free(Ctx);
@@ -95,14 +103,35 @@ namespace Preview::Shadowsocks2022
             }
             std::array<std::uint8_t, SeparateHdrLen> Output{};
             int PartLen = 0;
-            const auto UpdateOk = Encrypt
-                                      ? EVP_EncryptUpdate(Ctx, Output.data(), &PartLen,
-                                                           Input.data(), Input.size())
-                                      : EVP_DecryptUpdate(Ctx, Output.data(), &PartLen,
-                                                           Input.data(), Input.size());
+            int UpdateOk = 0;
+            if (Encrypt)
+            {
+                UpdateOk = EVP_EncryptUpdate(
+                    Ctx,
+                    Output.data(),
+                    &PartLen,
+                    Input.data(),
+                    Input.size());
+            }
+            else
+            {
+                UpdateOk = EVP_DecryptUpdate(
+                    Ctx,
+                    Output.data(),
+                    &PartLen,
+                    Input.data(),
+                    Input.size());
+            }
             int FinalLen = 0;
-            const auto FinalOk = Encrypt ? EVP_EncryptFinal_ex(Ctx, Output.data() + PartLen, &FinalLen)
-                                         : EVP_DecryptFinal_ex(Ctx, Output.data() + PartLen, &FinalLen);
+            int FinalOk = 0;
+            if (Encrypt)
+            {
+                FinalOk = EVP_EncryptFinal_ex(Ctx, Output.data() + PartLen, &FinalLen);
+            }
+            else
+            {
+                FinalOk = EVP_DecryptFinal_ex(Ctx, Output.data() + PartLen, &FinalLen);
+            }
             EVP_CIPHER_CTX_free(Ctx);
             if (UpdateOk != 1 || FinalOk != 1 || PartLen + FinalLen != SeparateHdrLen)
             {
@@ -113,76 +142,143 @@ namespace Preview::Shadowsocks2022
 
         /**
          * @brief UDP 数据报单次 AES-128-GCM 加密
-         * @param in 加密输入
+         * @param Input 加密输入
          * @return 密文 + 16B tag；失败返回空
          */
-        [[nodiscard]] inline auto UdpSeal(const UdpSealInput &in) -> std::vector<std::uint8_t>
+        [[nodiscard]] inline auto UdpSeal(const UdpSealInput &Input)
+            -> std::vector<std::uint8_t>
         {
-            if (in.key.size() != AeadKeyLen)
+            constexpr auto MaxInt = static_cast<std::size_t>((std::numeric_limits<int>::max)());
+            if (Input.key.size() != AeadKeyLen || Input.Nonce.size() != 12 ||
+                Input.plain.size() > MaxInt || Input.aad.size() > MaxInt ||
+                Input.plain.size() > (std::numeric_limits<std::size_t>::max)() - AeadTagLen)
             {
                 return {};
             }
-            std::vector<std::uint8_t> Out(in.plain.size() + AeadTagLen);
-            EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-            if (!ctx)
+            std::vector<std::uint8_t> Output(Input.plain.size() + AeadTagLen);
+            EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
+            if (!Ctx)
             {
                 return {};
             }
             int Len = 0;
-            EVP_EncryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, in.key.data(), in.Nonce.data());
-            if (!in.aad.empty())
+            bool Ok = EVP_EncryptInit_ex(
+                          Ctx,
+                          EVP_aes_128_gcm(),
+                          nullptr,
+                          Input.key.data(),
+                          Input.Nonce.data()) == 1;
+            if (Ok && !Input.aad.empty())
             {
-                EVP_EncryptUpdate(ctx, nullptr, &Len, in.aad.data(), static_cast<int>(in.aad.size()));
+                Ok = EVP_EncryptUpdate(
+                    Ctx,
+                    nullptr,
+                    &Len,
+                    Input.aad.data(),
+                    static_cast<int>(Input.aad.size())) == 1;
             }
-            EVP_EncryptUpdate(ctx, Out.data(), &Len, in.plain.data(), static_cast<int>(in.plain.size()));
-            int OutLen = Len;
-            EVP_EncryptFinal_ex(ctx, Out.data() + OutLen, &Len);
-            OutLen += Len;
-            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, Out.data() + OutLen);
-            Out.resize(static_cast<std::size_t>(OutLen) + AeadTagLen);
-            EVP_CIPHER_CTX_free(ctx);
-            return Out;
+            int OutputLength = 0;
+            if (Ok && !Input.plain.empty())
+            {
+                Ok = EVP_EncryptUpdate(
+                    Ctx,
+                    Output.data(),
+                    &Len,
+                    Input.plain.data(),
+                    static_cast<int>(Input.plain.size())) == 1;
+                OutputLength = Len;
+            }
+            if (Ok)
+            {
+                Ok = EVP_EncryptFinal_ex(Ctx, Output.data() + OutputLength, &Len) == 1;
+                OutputLength += Len;
+            }
+            if (Ok)
+            {
+                Ok = EVP_CIPHER_CTX_ctrl(
+                    Ctx,
+                    EVP_CTRL_GCM_GET_TAG,
+                    16,
+                    Output.data() + OutputLength) == 1;
+            }
+            EVP_CIPHER_CTX_free(Ctx);
+            if (!Ok || OutputLength != static_cast<int>(Input.plain.size()))
+            {
+                return {};
+            }
+            Output.resize(static_cast<std::size_t>(OutputLength) + AeadTagLen);
+            return Output;
         }
 
         /**
          * @brief UDP 数据报单次 AES-128-GCM 解密
-         * @param in 解密输入
+         * @param Input 解密输入
          * @return 明文；nullopt = 校验失败或参数非法，空 vector = 合法空载荷
          */
-        [[nodiscard]] inline auto UdpOpen(const UdpOpenInput &in)
+        [[nodiscard]] inline auto UdpOpen(const UdpOpenInput &Input)
             -> std::optional<std::vector<std::uint8_t>>
         {
-            if (in.key.size() != AeadKeyLen || in.cipher.size() < AeadTagLen)
+            constexpr auto MaxInt = static_cast<std::size_t>((std::numeric_limits<int>::max)());
+            if (Input.key.size() != AeadKeyLen || Input.Nonce.size() != 12 ||
+                Input.cipher.size() < AeadTagLen ||
+                Input.cipher.size() - AeadTagLen > MaxInt || Input.aad.size() > MaxInt)
             {
                 return std::nullopt;
             }
-            std::vector<std::uint8_t> Out(in.cipher.size() - AeadTagLen);
-            EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
-            if (!ctx)
+            const auto CipherLength = Input.cipher.size() - AeadTagLen;
+            std::vector<std::uint8_t> Output(CipherLength);
+            EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
+            if (!Ctx)
             {
                 return std::nullopt;
             }
             int Len = 0;
-            EVP_DecryptInit_ex(ctx, EVP_aes_128_gcm(), nullptr, in.key.data(), in.Nonce.data());
-            if (!in.aad.empty())
+            bool Ok = EVP_DecryptInit_ex(
+                          Ctx,
+                          EVP_aes_128_gcm(),
+                          nullptr,
+                          Input.key.data(),
+                          Input.Nonce.data()) == 1;
+            if (Ok && !Input.aad.empty())
             {
-                EVP_DecryptUpdate(ctx, nullptr, &Len, in.aad.data(), static_cast<int>(in.aad.size()));
+                Ok = EVP_DecryptUpdate(
+                    Ctx,
+                    nullptr,
+                    &Len,
+                    Input.aad.data(),
+                    static_cast<int>(Input.aad.size())) == 1;
             }
-            EVP_DecryptUpdate(ctx, Out.data(), &Len, in.cipher.data(),
-                              static_cast<int>(in.cipher.size() - AeadTagLen));
-            int OutLen = Len;
-            EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
-                                const_cast<std::uint8_t *>(in.cipher.data()) + in.cipher.size() -
-                                    AeadTagLen);
-            const auto Ok = EVP_DecryptFinal_ex(ctx, Out.data() + OutLen, &Len);
-            OutLen += Len;
-            EVP_CIPHER_CTX_free(ctx);
-            if (Ok != 1)
+            int OutputLength = 0;
+            if (Ok && CipherLength > 0)
+            {
+                Ok = EVP_DecryptUpdate(
+                    Ctx,
+                    Output.data(),
+                    &Len,
+                    Input.cipher.data(),
+                    static_cast<int>(CipherLength)) == 1;
+                OutputLength = Len;
+            }
+            if (Ok)
+            {
+                Ok = EVP_CIPHER_CTX_ctrl(
+                    Ctx,
+                    EVP_CTRL_GCM_SET_TAG,
+                    static_cast<int>(AeadTagLen),
+                    const_cast<std::uint8_t *>(Input.cipher.data()) + CipherLength) == 1;
+            }
+            if (Ok)
+            {
+                Ok = EVP_DecryptFinal_ex(Ctx, Output.data() + OutputLength, &Len) == 1;
+                OutputLength += Len;
+            }
+            EVP_CIPHER_CTX_free(Ctx);
+            if (!Ok || OutputLength != static_cast<int>(CipherLength))
             {
                 return std::nullopt;
             }
-            Out.resize(static_cast<std::size_t>(OutLen));
-            return Out;
+            Output.resize(static_cast<std::size_t>(OutputLength));
+            return Output;
         }
 
     } // namespace detail
@@ -222,38 +318,40 @@ namespace Preview::Shadowsocks2022
 
     /**
      * @brief 构造 UDP 数据报（写入复用缓冲）
-     * @param in 构造输入
-     * @param Out 输出缓冲
+     * @param Input 构造输入
+     * @param Output 输出缓冲
      * @return false = 参数非法
      */
     template <typename Alloc>
-    [[nodiscard]] inline auto BuildUdpPacket(const UdpBuildInput &in,
-                                               std::vector<std::uint8_t, Alloc> &Out) -> bool
+    [[nodiscard]] inline auto BuildUdpPacket(
+        const UdpBuildInput &Input,
+        std::vector<std::uint8_t, Alloc> &Output) -> bool
     {
-        Out.clear();
-        if (!in.Target || in.SessionKey.size() != AeadKeyLen || in.payload.size() > MaxUdpPayload ||
-            (in.HeaderType != HeaderTypeClient && in.HeaderType != HeaderTypeServer))
+        Output.clear();
+        if (!Input.Target || Input.SessionKey.size() != AeadKeyLen ||
+            Input.payload.size() > MaxUdpPayload ||
+            (Input.HeaderType != HeaderTypeClient && Input.HeaderType != HeaderTypeServer))
         {
             return false;
         }
 
         std::array<std::uint8_t, SessionIdLen> SessionId{};
-        if (in.SessionId.empty())
+        if (Input.SessionId.empty())
         {
             if (RAND_bytes(SessionId.data(), static_cast<int>(SessionId.size())) != 1)
             {
                 return false;
             }
         }
-        else if (in.SessionId.size() != SessionIdLen)
+        else if (Input.SessionId.size() != SessionIdLen)
         {
             return false;
         }
         else
         {
-            std::memcpy(SessionId.data(), in.SessionId.data(), SessionIdLen);
+            std::memcpy(SessionId.data(), Input.SessionId.data(), SessionIdLen);
         }
-        if (in.HeaderType == HeaderTypeServer && in.RemoteSessionId.size() != SessionIdLen)
+        if (Input.HeaderType == HeaderTypeServer && Input.RemoteSessionId.size() != SessionIdLen)
         {
             return false;
         }
@@ -263,100 +361,116 @@ namespace Preview::Shadowsocks2022
         for (std::size_t I = 0; I < PacketIdLen; ++I)
         {
             SeparatePlain[SessionIdLen + I] =
-                static_cast<std::uint8_t>((in.PacketId >> (56 - I * 8)) & 0xFF);
+                static_cast<std::uint8_t>((Input.PacketId >> (56 - I * 8)) & 0xFF);
         }
         const auto Separate = detail::CryptSeparate(
-            in.SessionKey, std::span<const std::uint8_t, SeparateHdrLen>(SeparatePlain), true);
+            Input.SessionKey,
+            std::span<const std::uint8_t, SeparateHdrLen>(SeparatePlain),
+            true);
         if (!Separate)
         {
             return false;
         }
 
         const auto Subkey = Preview::Shadowsocks2022::SessionKey(
-            in.SessionKey, std::span<const std::uint8_t>(SessionId), AeadKeyLen);
+            Input.SessionKey,
+            std::span<const std::uint8_t>(SessionId),
+            AeadKeyLen);
         std::vector<std::uint8_t> Plain;
-        Plain.reserve(1 + UdpTsLen + 32 + 2 + in.payload.size());
-        Plain.push_back(in.HeaderType);
-        const auto Ts = in.Timestamp != 0
-                            ? in.Timestamp
-                            : static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
-                                                              std::chrono::system_clock::now().time_since_epoch())
-                                                              .count());
+        Plain.reserve(1 + UdpTsLen + 32 + 2 + Input.payload.size());
+        Plain.push_back(Input.HeaderType);
+        std::uint64_t Timestamp;
+        if (Input.Timestamp != 0)
+        {
+            Timestamp = Input.Timestamp;
+        }
+        else
+        {
+            Timestamp = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+        }
         for (std::size_t I = 0; I < UdpTsLen; ++I)
         {
-            Plain.push_back(static_cast<std::uint8_t>((Ts >> (56 - I * 8)) & 0xFF));
+            Plain.push_back(static_cast<std::uint8_t>((Timestamp >> (56 - I * 8)) & 0xFF));
         }
-        if (in.HeaderType == HeaderTypeServer)
+        if (Input.HeaderType == HeaderTypeServer)
         {
-            Plain.insert(Plain.end(), in.RemoteSessionId.begin(), in.RemoteSessionId.end());
+            Plain.insert(Plain.end(), Input.RemoteSessionId.begin(), Input.RemoteSessionId.end());
             Plain.push_back(0);
             Plain.push_back(0);
         }
         else
         {
             // SIP022 request body places the destination before padding.
-            EncodeAddress(*in.Target, Plain);
+            if (!EncodeAddress(*Input.Target, Plain))
+            {
+                return false;
+            }
             Plain.push_back(0);
             Plain.push_back(0);
         }
-        Plain.insert(Plain.end(), in.payload.begin(), in.payload.end());
+        Plain.insert(Plain.end(), Input.payload.begin(), Input.payload.end());
 
         std::array<std::uint8_t, 12> Nonce{};
         std::memcpy(Nonce.data(), SeparatePlain.data() + SessionIdLen / 2, SessionIdLen / 2);
         std::memcpy(Nonce.data() + SessionIdLen / 2,
                     SeparatePlain.data() + SessionIdLen, PacketIdLen);
 
-        const auto BodyEnc =
-            detail::UdpSeal(detail::UdpSealInput{Subkey, Nonce, Plain, {}});
+        const auto BodyEnc = detail::UdpSeal(detail::UdpSealInput{Subkey, Nonce, Plain, {}});
         if (BodyEnc.empty())
         {
             return false;
         }
-        Out.reserve(Separate->size() + BodyEnc.size());
-        Out.insert(Out.end(), Separate->begin(), Separate->end());
-        Out.insert(Out.end(), BodyEnc.begin(), BodyEnc.end());
+        Output.reserve(Separate->size() + BodyEnc.size());
+        Output.insert(Output.end(), Separate->begin(), Separate->end());
+        Output.insert(Output.end(), BodyEnc.begin(), BodyEnc.end());
         return true;
     }
 
     /**
      * @brief 构造 UDP 数据报（逐包 AEAD 无状态加密）
-     * @param in 构造输入
+     * @param Input 构造输入
      * @return 完整数据报字节；参数非法返回空
      */
-    [[nodiscard]] inline auto BuildUdpPacket(const UdpBuildInput &in) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto BuildUdpPacket(const UdpBuildInput &Input)
+        -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> Out;
-        if (!BuildUdpPacket(in, Out))
+        std::vector<std::uint8_t> Output;
+        if (!BuildUdpPacket(Input, Output))
         {
             return {};
         }
-        return Out;
+        return Output;
     }
 
     /**
      * @brief 解析 UDP 数据报（逐包 AEAD 无状态解密）
-     * @param in 解析输入
+     * @param Input 解析输入
      * @return 错误码
      */
-    [[nodiscard]] inline auto ParseUdpPacket(const UdpParseInput &in) -> Error
+    [[nodiscard]] inline auto ParseUdpPacket(const UdpParseInput &Input) -> Error
     {
-        if (!in.Target || !in.payload)
+        if (!Input.Target || !Input.payload)
         {
             return Error::BadLength;
         }
-        const auto &SessionKey16 = in.SessionKey;
-        const auto &packet = in.packet;
-        auto &Target = *in.Target;
-        auto &payload = *in.payload;
-        payload.clear();
+        const auto &SessionKey16 = Input.SessionKey;
+        const auto &Packet = Input.packet;
+        auto &Target = *Input.Target;
+        auto &Payload = *Input.payload;
+        Payload.clear();
         if (SessionKey16.size() != AeadKeyLen ||
-            packet.size() < SeparateHdrLen + 1 + UdpTsLen + 1 + 2 + AeadTagLen)
+            Packet.size() < SeparateHdrLen + 1 + UdpTsLen + 1 + 2 + AeadTagLen)
         {
             return Error::BadLength;
         }
-        const auto Separate = packet.first(SeparateHdrLen);
+        const auto Separate = Packet.first(SeparateHdrLen);
         const auto SeparatePlain = detail::CryptSeparate(
-            SessionKey16, std::span<const std::uint8_t, SeparateHdrLen>(Separate), false);
+            SessionKey16,
+            std::span<const std::uint8_t, SeparateHdrLen>(Separate),
+            false);
         if (!SeparatePlain)
         {
             return Error::BadAuth;
@@ -369,22 +483,19 @@ namespace Preview::Shadowsocks2022
         {
             PacketId = (PacketId << 8) | SeparatePlain->at(SessionIdLen + I);
         }
-        if (in.SessionId)
-        {
-            std::memcpy(in.SessionId->data(), SessionId.data(), SessionIdLen);
-        }
-        if (in.PacketId)
-        {
-            *in.PacketId = PacketId;
-        }
         const auto Subkey = Preview::Shadowsocks2022::SessionKey(
-            SessionKey16, SessionId, AeadKeyLen);
+            SessionKey16,
+            SessionId,
+            AeadKeyLen);
         std::array<std::uint8_t, 12> Nonce{};
         std::memcpy(Nonce.data(), SeparatePlain->data() + SessionIdLen / 2, SessionIdLen / 2);
         std::memcpy(Nonce.data() + SessionIdLen / 2,
                     SeparatePlain->data() + SessionIdLen, PacketIdLen);
         const auto Body = detail::UdpOpen(detail::UdpOpenInput{
-            Subkey, Nonce, packet.subspan(SeparateHdrLen), {}});
+            Subkey,
+            Nonce,
+            Packet.subspan(SeparateHdrLen),
+            {}});
         if (!Body)
         {
             return Error::BadAuth;
@@ -398,27 +509,33 @@ namespace Preview::Shadowsocks2022
         {
             return Error::BadMessage;
         }
-        if (in.HeaderType)
-        {
-            *in.HeaderType = Type;
-        }
-
         std::uint64_t Timestamp = 0;
         for (std::size_t I = 0; I < UdpTsLen; ++I)
         {
             Timestamp = (Timestamp << 8) | (*Body)[1 + I];
         }
-        if (in.Timestamp)
+        std::uint64_t Now;
+        if (Input.Now != 0)
         {
-            *in.Timestamp = Timestamp;
+            Now = Input.Now;
         }
-        const auto Now = in.Now != 0
-                             ? in.Now
-                             : static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
-                                                               std::chrono::system_clock::now().time_since_epoch())
-                                                               .count());
-        const auto Diff = Now >= Timestamp ? Now - Timestamp : Timestamp - Now;
-        if (Diff > in.TimeWindow)
+        else
+        {
+            Now = static_cast<std::uint64_t>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count());
+        }
+        std::uint64_t Difference;
+        if (Now >= Timestamp)
+        {
+            Difference = Now - Timestamp;
+        }
+        else
+        {
+            Difference = Timestamp - Now;
+        }
+        if (Difference > Input.TimeWindow)
         {
             return Error::BadMessage;
         }
@@ -426,38 +543,57 @@ namespace Preview::Shadowsocks2022
         std::size_t Off = 1 + UdpTsLen;
         if (Type == HeaderTypeServer)
         {
-            if (Body->size() < Off + SessionIdLen + 2)
+            if (Body->size() - Off < SessionIdLen + 2)
             {
                 return Error::BadLength;
             }
-            if (in.RemoteSessionId)
+            if (Input.RemoteSessionId)
             {
-                std::memcpy(in.RemoteSessionId->data(), Body->data() + Off, SessionIdLen);
+                std::memcpy(Input.RemoteSessionId->data(), Body->data() + Off, SessionIdLen);
             }
             Off += SessionIdLen;
         }
         std::size_t Consumed = 0;
         if (Type == HeaderTypeClient)
         {
-            auto Err = ParseAddress(std::span<const std::uint8_t>(*Body).subspan(Off), Target, Consumed);
-            if (Err != Error::None)
+            const auto AddressError = ParseAddress(
+                std::span<const std::uint8_t>(*Body).subspan(Off),
+                Target,
+                Consumed);
+            if (AddressError != Error::None)
             {
-                return Err;
+                return AddressError;
             }
             Off += Consumed;
         }
-        if (Body->size() < Off + 2)
+        if (Body->size() - Off < 2)
         {
             return Error::BadLength;
         }
-        const auto PadLen = static_cast<std::size_t>((*Body)[Off]) << 8 | (*Body)[Off + 1];
+        const auto PaddingLength = static_cast<std::size_t>((*Body)[Off]) << 8 | (*Body)[Off + 1];
         Off += 2;
-        if (Body->size() < Off + PadLen)
+        if (Body->size() - Off < PaddingLength)
         {
             return Error::BadLength;
         }
-        Off += PadLen;
-        payload.assign(Body->begin() + static_cast<std::ptrdiff_t>(Off), Body->end());
+        Off += PaddingLength;
+        Payload.assign(Body->begin() + static_cast<std::ptrdiff_t>(Off), Body->end());
+        if (Input.SessionId)
+        {
+            std::memcpy(Input.SessionId->data(), SessionId.data(), SessionIdLen);
+        }
+        if (Input.PacketId)
+        {
+            *Input.PacketId = PacketId;
+        }
+        if (Input.HeaderType)
+        {
+            *Input.HeaderType = Type;
+        }
+        if (Input.Timestamp)
+        {
+            *Input.Timestamp = Timestamp;
+        }
         return Error::None;
     }
 

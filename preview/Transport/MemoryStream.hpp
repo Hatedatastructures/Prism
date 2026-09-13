@@ -26,6 +26,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <deque>
 #include <memory>
 #include <span>
@@ -40,6 +41,8 @@
 namespace Preview
 {
 
+    namespace Net = boost::asio;
+
     /// 内存管道流端点
     class MemoryStream : public Transmission
     {
@@ -50,20 +53,22 @@ namespace Preview
         /// 内部状态：入向队列（对端写、本端读）
         struct State
         {
-            explicit State(net::any_io_executor ex) : ReadChannel(ex, 1), timer(ex)
+            explicit State(Net::any_io_executor Executor) : ReadChannel(Executor, 1), Timer(Executor)
             {
             }
 
             /// 数据到达 / EOF / 关闭 / 取消 通知（容量 1，无数据载荷）
             boost::asio::experimental::channel<void(boost::system::error_code)> ReadChannel;
             /// 读超时定时器
-            net::steady_timer timer;
+            Net::steady_timer Timer;
             /// 待读数据队列
             std::deque<std::vector<std::uint8_t>> RxQueue;
             /// 对端是否已半关（EOF）
             bool PeerEof{false};
             /// 本端是否已全关（对端写 → broken_pipe）
             bool Closed{false};
+            /// 本端写方向是否已半关闭
+            bool WriteShutdown{false};
             /// 读被取消（Cancel 唤醒后返回 0）
             bool Canceled{false};
             /// 读超时触发标记（async_read_some 据此设置 timed_out 错误）
@@ -76,7 +81,8 @@ namespace Preview
          * @brief 构造（未连接，需通过 MakeMemoryPair 成对使用）
          * @param ex 执行器
          */
-        explicit MemoryStream(net::any_io_executor ex) : In_(std::make_shared<State>(std::move(ex)))
+        explicit MemoryStream(Net::any_io_executor Executor)
+            : In_(std::make_shared<State>(std::move(Executor)))
         {
         }
 
@@ -84,9 +90,9 @@ namespace Preview
          * @brief 读取最多 buf.size() 字节
          * @return 实际读取字节数；0 = 对端半关 / 超时 / 取消
          */
-        auto ReadSome(std::span<std::uint8_t> buf) -> net::awaitable<std::size_t>
+        auto ReadSome(std::span<std::uint8_t> Buffer) -> Net::awaitable<std::size_t>
         {
-            using namespace boost::asio::experimental::awaitable_operators;
+            using boost::asio::experimental::awaitable_operators::operator||;
 
             while (true)
             {
@@ -102,8 +108,8 @@ namespace Preview
                 if (!In_->RxQueue.empty())
                 {
                     const auto &front = In_->RxQueue.front();
-                    const auto N = std::min(buf.size(), front.size());
-                    std::memcpy(buf.data(), front.data(), N);
+                    const auto N = std::min(Buffer.size(), front.size());
+                    std::memcpy(Buffer.data(), front.data(), N);
                     if (N < front.size())
                     {
                         In_->RxQueue.front().erase(In_->RxQueue.front().begin(),
@@ -125,9 +131,9 @@ namespace Preview
                 In_->ReadChannel.reset();
                 if (In_->Timeout.count() > 0)
                 {
-                    In_->timer.expires_after(In_->Timeout);
-                    auto Result = co_await (In_->ReadChannel.async_receive(net::use_awaitable) ||
-                                            In_->timer.async_wait(net::use_awaitable));
+                    In_->Timer.expires_after(In_->Timeout);
+                    auto Result = co_await (In_->ReadChannel.async_receive(Net::use_awaitable) ||
+                                            In_->Timer.async_wait(Net::use_awaitable));
                     if (Result.index() == 1) // 超时
                     {
                         In_->ReadTimedOut = true;
@@ -136,7 +142,7 @@ namespace Preview
                 }
                 else
                 {
-                    co_await In_->ReadChannel.async_receive(net::use_awaitable);
+                    co_await In_->ReadChannel.async_receive(Net::use_awaitable);
                 }
             }
         }
@@ -145,14 +151,14 @@ namespace Preview
          * @brief 写入全部数据到对端
          * @return 错误码（成功 = 空；对端全关 = broken_pipe）
          */
-        auto WriteAll(std::span<const std::uint8_t> buf) -> net::awaitable<ProtocolEc>
+        auto WriteAll(std::span<const std::uint8_t> Buffer) -> Net::awaitable<ProtocolEc>
         {
             const auto Peer = Peer_.lock();
-            if (!Peer || Peer->Closed)
+            if (In_->Closed || In_->WriteShutdown || !Peer || Peer->Closed)
             {
-                co_return net::error::broken_pipe;
+                co_return Net::error::broken_pipe;
             }
-            std::vector<std::uint8_t> Data(buf.begin(), buf.end());
+            std::vector<std::uint8_t> Data(Buffer.begin(), Buffer.end());
             Peer->RxQueue.push_back(std::move(Data));
             Peer->ReadChannel.try_send(boost::system::error_code{});
             co_return boost::system::error_code{};
@@ -163,6 +169,7 @@ namespace Preview
          */
         auto Shutdown() -> void override
         {
+            In_->WriteShutdown = true;
             const auto Peer = Peer_.lock();
             if (Peer)
             {
@@ -177,6 +184,7 @@ namespace Preview
         auto Close() -> void override
         {
             In_->Closed = true;
+            In_->WriteShutdown = true;
             In_->ReadChannel.try_send(boost::system::error_code{});
             const auto Peer = Peer_.lock();
             if (Peer)
@@ -198,9 +206,9 @@ namespace Preview
         /**
          * @brief 设置读超时（0 = 禁用）
          */
-        auto SetTimeout(std::chrono::milliseconds ms) -> void override
+        auto SetTimeout(std::chrono::milliseconds Timeout) -> void override
         {
-            In_->Timeout = ms;
+            In_->Timeout = Timeout;
         }
 
         /**
@@ -217,15 +225,15 @@ namespace Preview
          * @details 桥接到 ReadSome 内部逻辑。超时返回
          * operation_timed_out，取消/EOF 返回 0（ec 为空）。
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
-            ec.clear();
+            ErrorCode.clear();
             In_->ReadTimedOut = false;
             const auto N = co_await ReadSome(AsU8(Buffer));
             if (In_->ReadTimedOut)
             {
-                ec = std::make_error_code(std::errc::timed_out);
+                ErrorCode = std::make_error_code(std::errc::timed_out);
             }
             co_return N;
         }
@@ -234,16 +242,16 @@ namespace Preview
          * @brief 异步写入（Transmission 接口，字节视图）
          * @details 桥接到 WriteAll，错误码存入 ec。
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override
         {
             const auto Err = co_await WriteAll(AsU8(Buffer));
             if (Err)
             {
-                ec = Err;
+                ErrorCode = Err;
                 co_return 0;
             }
-            ec.clear();
+            ErrorCode.clear();
             co_return Buffer.size();
         }
 
@@ -251,7 +259,7 @@ namespace Preview
          * @brief 获取执行器
          * @return 关联的执行器
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
             return In_->ReadChannel.get_executor();
         }
@@ -263,12 +271,12 @@ namespace Preview
         /**
          * @brief 内部：绑定对端（仅 MakeMemoryPair 使用）
          */
-        explicit MemoryStream(std::shared_ptr<State> in, std::weak_ptr<State> Peer)
-            : In_(std::move(in)), Peer_(std::move(Peer))
+        explicit MemoryStream(std::shared_ptr<State> Input, std::weak_ptr<State> Peer)
+            : In_(std::move(Input)), Peer_(std::move(Peer))
         {
         }
 
-        friend auto MakeMemoryPair(net::any_io_executor) -> std::pair<MemoryStream, MemoryStream>;
+        friend auto MakeMemoryPair(Net::any_io_executor) -> std::pair<MemoryStream, MemoryStream>;
     };
 
     static_assert(Stream<MemoryStream>, "MemoryStream 必须满足 Stream concept");
@@ -278,11 +286,11 @@ namespace Preview
      * @param ex 执行器（通常来自 io_context）
      * @return 两个互为对端的流
      */
-    [[nodiscard]] inline auto MakeMemoryPair(net::any_io_executor ex)
+    [[nodiscard]] inline auto MakeMemoryPair(Net::any_io_executor Executor)
         -> std::pair<MemoryStream, MemoryStream>
     {
-        auto A = std::make_shared<MemoryStream::State>(ex);
-        auto B = std::make_shared<MemoryStream::State>(ex);
+        auto A = std::make_shared<MemoryStream::State>(Executor);
+        auto B = std::make_shared<MemoryStream::State>(Executor);
         return {MemoryStream{A, B}, MemoryStream{B, A}};
     }
 

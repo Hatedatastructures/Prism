@@ -342,9 +342,10 @@ if(GO_EXECUTABLE AND MINGW)
 
     # --- handshake 方案字节级对照工具（纯逻辑，无 Prism 依赖） ---
     # realitycmp / shadowtlscmp / restlscmp / anytlscmp / trusttunnelcmp / wscmp / guncmp
-    set(_GoCmpSources realitycmp shadowtlscmp restlscmp anytlscmp trusttunnelcmp wscmp guncmp)
+    set(_GoCmpSources realitycmp shadowtlscmp restlscmp anytlscmp trusttunnelcmp wscmp guncmp httpcmp socks5cmp trojancmp vlesscmp hysteria2cmp tuiccmp xhttpcmp vmesscmp)
     set(_GoCmpTargets GoCmpReality GoCmpShadowtls GoCmpRestls GoCmpAnytls
-                        GoCmpTrusttunnel GoCmpWs GoCmpGun)
+                        GoCmpTrusttunnel GoCmpWs GoCmpGun GoCmpHttp GoCmpSocks5 GoCmpTrojan GoCmpVless
+                        GoCmpHysteria2 GoCmpTuic GoCmpXhttp GoCmpVmess)
     list(LENGTH _GoCmpSources _GoCmpCount)
     math(EXPR _GoCmpLast "${_GoCmpCount} - 1")
     foreach(_Index RANGE 0 ${_GoCmpLast})
@@ -374,6 +375,16 @@ if(GO_EXECUTABLE AND MINGW)
             VERBATIM)
         list(APPEND _GoTestTargets ${_ProtoTarget})
     endforeach()
+    add_custom_target(GoTestShadowtls ALL
+        COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/shadowtls.exe ./shadowtls
+        WORKING_DIRECTORY ${_GoSrcDir}
+        COMMENT "Building Go ShadowTLS compatibility harness"
+        VERBATIM)
+    add_custom_target(GoTestHysteria2Server ALL
+        COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/hysteria2_server.exe ./hysteria2_server
+        WORKING_DIRECTORY ${_GoSrcDir}
+        COMMENT "Building Go Hysteria2 reference server"
+        VERBATIM)
     # VMess 参考客户端使用 go.mod 中固定版本的 mihomo 模块；
     # 不允许依赖开发机绝对路径，依赖获取失败应让构建明确失败。
     if(EXISTS ${_GoSrcDir}/go.mod)
@@ -392,6 +403,121 @@ if(GO_EXECUTABLE AND MINGW)
         COMMENT "Building Go sing-vmess compatibility test"
         VERBATIM)
     list(APPEND _GoTestTargets GoTestSingVmess)
+    add_custom_target(GoTestVmessServer ALL
+        COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/vmess_server.exe ./vmess_server
+        WORKING_DIRECTORY ${_GoSrcDir}
+        COMMENT "Building Go VMess reference server"
+        VERBATIM)
+    list(APPEND _GoTestTargets GoTestVmessServer)
+    add_custom_target(GoTestTuicServer ALL
+        COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/tuic_server.exe ./tuic_server
+        WORKING_DIRECTORY ${_GoSrcDir}
+        COMMENT "Building Go TUIC reference server"
+        VERBATIM)
+    list(APPEND _GoTestTargets GoTestTuicServer)
+
+    # Trojan reference harness is a standalone nested Go module with no
+    # external dependencies; build it from its own module directory.
+    if(EXISTS ${_GoSrcDir}/trojan/go.mod)
+        add_custom_target(GoTestTrojan ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/trojan.exe .
+            WORKING_DIRECTORY ${_GoSrcDir}/trojan
+            COMMENT "Building Go Trojan compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestTrojan)
+    else()
+        message(FATAL_ERROR "Go Trojan reference harness requires tests/go/trojan/go.mod")
+    endif()
+    if(EXISTS ${_GoSrcDir}/vless/main.go)
+        add_custom_target(GoTestVless ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/vless.exe ./vless
+            WORKING_DIRECTORY ${_GoSrcDir}
+            COMMENT "Building Go VLESS compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestVless)
+    else()
+        message(FATAL_ERROR "Go VLESS reference harness requires tests/go/vless/main.go")
+    endif()
+    if(EXISTS ${_GoSrcDir}/socks5/main.go)
+        add_custom_target(GoTestSocks5 ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/socks5.exe ./socks5
+            WORKING_DIRECTORY ${_GoSrcDir}
+            COMMENT "Building Go SOCKS5 compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestSocks5)
+    else()
+        message(FATAL_ERROR "Go SOCKS5 reference harness requires tests/go/socks5/main.go")
+    endif()
+    if(EXISTS ${_GoSrcDir}/http/main.go)
+        add_custom_target(GoTestHttp ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/http.exe ./http
+            WORKING_DIRECTORY ${_GoSrcDir}
+            COMMENT "Building Go HTTP CONNECT compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestHttp)
+    else()
+        message(FATAL_ERROR "Go HTTP reference harness requires tests/go/http/main.go")
+    endif()
+    if(EXISTS ${_GoSrcDir}/native_tls/main.go)
+        add_custom_target(GoTestNativeTls ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/native_tls.exe ./native_tls
+            WORKING_DIRECTORY ${_GoSrcDir}
+            COMMENT "Building Go native TLS compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestNativeTls)
+    else()
+        message(FATAL_ERROR "Go native TLS reference harness requires tests/go/native_tls/main.go")
+    endif()
+    if(EXISTS ${_GoSrcDir}/websocket/main.go)
+        add_custom_target(GoTestWebsocket ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/websocket.exe ./websocket
+            WORKING_DIRECTORY ${_GoSrcDir}
+            COMMENT "Building Go WebSocket compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestWebsocket)
+    else()
+        message(FATAL_ERROR "Go WebSocket reference harness requires tests/go/websocket/main.go")
+    endif()
+    if(EXISTS ${_GoSrcDir}/anytls/main.go)
+        add_custom_target(GoTestAnytls ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/anytls.exe ./anytls
+            WORKING_DIRECTORY ${_GoSrcDir}
+            COMMENT "Building Go AnyTLS compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestAnytls)
+    else()
+        message(FATAL_ERROR "Go AnyTLS reference harness requires tests/go/anytls/main.go")
+    endif()
+    if(EXISTS ${_GoSrcDir}/gun/main.go)
+        add_custom_target(GoTestGun ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/gun.exe ./gun
+            WORKING_DIRECTORY ${_GoSrcDir}
+            COMMENT "Building Go gun-lite compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestGun)
+    else()
+        message(FATAL_ERROR "Go gun-lite reference harness requires tests/go/gun/main.go")
+    endif()
+    if(EXISTS ${_GoSrcDir}/xhttp/main.go)
+        add_custom_target(GoTestXhttp ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/xhttp.exe ./xhttp
+            WORKING_DIRECTORY ${_GoSrcDir}
+            COMMENT "Building Go XHTTP compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestXhttp)
+    else()
+        message(FATAL_ERROR "Go XHTTP reference harness requires tests/go/xhttp/main.go")
+    endif()
+    if(EXISTS ${_GoSrcDir}/trusttunnel/main.go)
+        add_custom_target(GoTestTrusttunnel ALL
+            COMMAND ${GO_EXECUTABLE} build -o ${_GoBinDir}/trusttunnel.exe ./trusttunnel
+            WORKING_DIRECTORY ${_GoSrcDir}
+            COMMENT "Building Go TrustTunnel compatibility harness"
+            VERBATIM)
+        list(APPEND _GoTestTargets GoTestTrusttunnel)
+    else()
+        message(FATAL_ERROR "Go TrustTunnel reference harness requires tests/go/trusttunnel/main.go")
+    endif()
 
     set(_GoPrismExe ${CMAKE_BINARY_DIR}/src/Prism.exe)
     set(_GoPrismConfig ${CMAKE_SOURCE_DIR}/src/configuration.json)
@@ -407,20 +533,20 @@ if(GO_EXECUTABLE AND MINGW)
                     -GoExe ${_GoBinDir}/${_ProtoSource}.exe
                     -PrismExe ${_GoPrismExe}
                     -Config ${_GoPrismConfig})
-        set_tests_properties(${_CompatTarget} PROPERTIES TIMEOUT 60)
+        set_tests_properties(${_CompatTarget} PROPERTIES TIMEOUT 60 LABELS interop RUN_SERIAL TRUE)
     endforeach()
     add_test(NAME GoCompatVmess
         COMMAND powershell -ExecutionPolicy Bypass -File ${_GoRunner}
                 -GoExe ${_GoBinDir}/vmess_client.exe
                 -PrismExe ${_GoPrismExe}
                 -Config ${_GoPrismConfig})
-    set_tests_properties(GoCompatVmess PROPERTIES TIMEOUT 60)
+    set_tests_properties(GoCompatVmess PROPERTIES TIMEOUT 60 LABELS interop RUN_SERIAL TRUE)
     add_test(NAME GoCompatSingVmess
         COMMAND powershell -ExecutionPolicy Bypass -File ${_GoRunner}
                 -GoExe ${_GoBinDir}/singvmess.exe
                 -PrismExe ${_GoPrismExe}
                 -Config ${_GoPrismConfig})
-    set_tests_properties(GoCompatSingVmess PROPERTIES TIMEOUT 60)
+    set_tests_properties(GoCompatSingVmess PROPERTIES TIMEOUT 60 LABELS interop RUN_SERIAL TRUE)
 endif()
 
 if(PRISM_ENABLE_INTEROP)

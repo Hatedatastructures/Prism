@@ -33,7 +33,9 @@ namespace Preview
          * @brief 构造
          * @param InitialSize 初始容量
          */
-        explicit FlatBuffer(std::size_t InitialSize = DefaultInitialSize) : Storage_(InitialSize)
+        explicit FlatBuffer(std::size_t InitialSize = DefaultInitialSize)
+            : Storage_((std::min)(InitialSize, MaxSizeLimit)),
+              InitialSize_((std::min)(InitialSize, MaxSizeLimit))
         {
         }
 
@@ -112,6 +114,10 @@ namespace Preview
          */
         [[nodiscard]] auto Prepare(std::size_t N) -> std::span<std::uint8_t>
         {
+            if (Size_ > MaxSizeLimit || N > MaxSizeLimit - Size_)
+            {
+                return {};
+            }
             if (N > MaxSize())
             {
                 if (!Grow(Size_ + N))
@@ -216,7 +222,13 @@ namespace Preview
             {
                 return false;
             }
-            auto NewCap = std::max(Storage_.size() * 2, N);
+            const auto Current = Storage_.size();
+            std::size_t Doubled = Current * 2;
+            if (Current > MaxSizeLimit / 2)
+            {
+                Doubled = MaxSizeLimit;
+            }
+            auto NewCap = std::max(Doubled, N);
             NewCap = std::min(NewCap, MaxSizeLimit);
             try
             {

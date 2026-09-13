@@ -3,11 +3,14 @@
  * @brief TLS 伪装方案 + 内层代理协议组合测试（联通性 + 数据一致性 + 性能）
  * @details 外层伪装（shadowtls/restls/anytls/trusttunnel/ws/gun/reality）
  *          内层套 vless/trojan/socks5：验证多层套接的正确性与开销。
- *          每用例：双端握手 → 64MB 传输 → Hash 一致性 → 吞吐/延迟。
+ *          每用例：双端握手 → 64MB 传输 → 固定 payload 校验 → 吞吐/延迟。
+ * @note 传输介质是 MemoryStream；这里测量的是协议装饰器和内存管道开销，
+ *       不代表 TCP/QUIC 内核、背压或真实网络吞吐。
  */
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/redirect_error.hpp>
@@ -15,9 +18,13 @@
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <chrono>
 #include <cstdio>
+#include <exception>
 #include <memory>
 #include <string>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include <TestSupport/Benchmark/Bench.hpp>
@@ -36,322 +43,519 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Anytls = Preview::Anytls;
+    namespace Gun = Preview::Gun;
+    namespace Reality = Preview::Reality;
+    namespace Restls = Preview::Restls;
+    namespace Shadowtls = Preview::Shadowtls;
+    namespace Socks5 = Preview::Socks5;
+    namespace Trojan = Preview::Trojan;
+    namespace Trusttunnel = Preview::Trusttunnel;
+    namespace Vless = Preview::Vless;
+    namespace Ws = Preview::Ws;
+    using Preview::BenchOptions;
+    using Preview::BenchReport;
+    using Preview::BenchThroughputTx;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::SharedTransmission;
+
+    using CompletionChannel =
+        Net::experimental::channel<void(boost::system::error_code)>;
+
+    struct NestedRunState
+    {
+        explicit NestedRunState(Net::any_io_executor Executor)
+            : ServerCompletion(std::make_shared<CompletionChannel>(Executor, 1)),
+              WatchdogCompletion(std::make_shared<CompletionChannel>(Executor, 1)),
+              Watchdog(std::make_shared<Net::steady_timer>(Executor))
+        {
+        }
+
+        SharedTransmission ClientEndpoint;
+        SharedTransmission ServerEndpoint;
+        std::shared_ptr<CompletionChannel> ServerCompletion;
+        std::shared_ptr<CompletionChannel> WatchdogCompletion;
+        std::shared_ptr<Net::steady_timer> Watchdog;
+        std::exception_ptr ServerException;
+        std::exception_ptr WatchdogException;
+        BenchReport Report{};
+        bool Linked{false};
+        bool Failed{false};
+        bool PayloadMismatch{false};
+        bool TimedOut{false};
+        bool Completed{false};
+    };
+
+    auto CloseNestedEndpoints(const std::shared_ptr<NestedRunState> &State) -> void
+    {
+        if (State->ClientEndpoint)
+        {
+            State->ClientEndpoint->Close();
+        }
+        if (State->ServerEndpoint)
+        {
+            State->ServerEndpoint->Close();
+        }
+    }
+
+    [[nodiscard]] auto WaitForCompletion(
+        const std::shared_ptr<CompletionChannel> &Completion)
+        -> Net::awaitable<void>
+    {
+        boost::system::error_code ErrorCode;
+        auto Receive = Completion->async_receive(
+            Net::redirect_error(Net::use_awaitable, ErrorCode));
+        co_await std::move(Receive);
+    }
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr Error)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = Error;
+                          IoContext.stop();
                       });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto make_dst() -> Vless::Address
+    auto MakeDestination() -> Vless::Address
     {
-        Vless::Address dst{};
-        dst.Type = Vless::AddressType::Ipv4;
-        dst.Host = "93.184.216.34";
-        dst.Port = 443;
-        return dst;
+        Vless::Address Destination{};
+        Destination.Type = Vless::AddressType::Ipv4;
+        Destination.Host = "93.184.216.34";
+        Destination.Port = 443;
+        return Destination;
     }
 
-    auto make_uuid() -> std::array<std::uint8_t, Vless::UuidLen>
+    auto MakeUuid() -> std::array<std::uint8_t, Vless::UuidLen>
     {
-        std::array<std::uint8_t, Vless::UuidLen> u{};
-        u.fill(0x55);
-        return u;
+        std::array<std::uint8_t, Vless::UuidLen> Uuid{};
+        Uuid.fill(0x55);
+        return Uuid;
     }
 
-    auto make_random32() -> std::array<std::uint8_t, 32>
+    auto MakeRandom32() -> std::array<std::uint8_t, 32>
     {
-        std::array<std::uint8_t, 32> r{};
-        for (std::size_t i = 0; i < r.size(); ++i)
+        std::array<std::uint8_t, 32> Random{};
+        for (std::size_t Index = 0; Index < Random.size(); ++Index)
         {
-            r[i] = static_cast<std::uint8_t>(i * 3 + 1);
+            Random[Index] = static_cast<std::uint8_t>(Index * 3 + 1);
         }
-        return r;
+        return Random;
+    }
+
+    template <typename Connection>
+    auto ToTransmission(Error ErrorCode, Connection ConnectionValue) -> SharedTransmission
+    {
+        if (ErrorCode == Error::None)
+        {
+            return SharedTransmission(std::move(ConnectionValue));
+        }
+        return {};
     }
 
     /**
      * @brief 组合测试运行器：伪装层(Factory) 套 内层 vless
      * @tparam Factory 伪装层工厂（提供 Connect/Accept，接收 SharedTransmission）
      * @param Name 方案名（打印用）
-     * @details 结构：memory_pair → 伪装 Conn 对 → vless Conn 对 → 64MB 传输
+     * @details 结构：memory_pair → 伪装 Conn 对 → vless Conn 对 → 64MB 传输。
+     *          MemoryStream 不提供真实 socket 背压，结果只用于协议层相对比较。
      */
     template <typename Factory>
-    auto run_nested_vless(net::io_context &ioc, Factory factory, const char *Name) -> void
+    auto RunNestedVless(Net::io_context &IoContext, Factory FactoryValue, const char *Name) -> void
     {
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        constexpr std::size_t kTotal = 64 * 1024 * 1024;
-        constexpr std::size_t kBlock = 64 * 1024;
+        constexpr std::size_t TotalBytes = 64 * 1024 * 1024;
+        constexpr std::size_t BlockBytes = 64 * 1024;
+        auto State = std::make_shared<NestedRunState>(IoContext.get_executor());
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        State->ClientEndpoint = std::make_shared<MemoryStream>(std::move(ClientMemory));
+        State->ServerEndpoint = std::make_shared<MemoryStream>(std::move(ServerMemory));
 
-        BenchReport tp{};
-        bool linked = false;
-        bool Failed = false;
-
-        // 全局超时：10s 强制终止，防止任何挂起
-        net::steady_timer watchdog(ioc.get_executor());
-        watchdog.expires_after(std::chrono::seconds(10));
-        net::co_spawn(
-            ioc.get_executor(),
-            [&]() -> net::awaitable<void>
+        State->Watchdog->expires_after(std::chrono::seconds(10));
+        auto WatchdogCoroutine = [State]() -> Net::awaitable<void>
+        {
+            boost::system::error_code ErrorCode;
+            co_await State->Watchdog->async_wait(
+                Net::redirect_error(Net::use_awaitable, ErrorCode));
+            if (ErrorCode == Net::error::operation_aborted)
             {
-                boost::system::error_code ec;
-                co_await watchdog.async_wait(net::redirect_error(net::use_awaitable, ec));
-                if (!Failed && tp.Bytes == 0)
+                co_return;
+            }
+            if (ErrorCode)
+            {
+                State->WatchdogException = std::make_exception_ptr(
+                    std::system_error(ErrorCode));
+                co_return;
+            }
+            if (!State->Completed)
+            {
+                State->TimedOut = true;
+                CloseNestedEndpoints(State);
+            }
+        };
+        auto OnWatchdogComplete = [State](std::exception_ptr Exception) -> void
+        {
+            if (Exception)
+            {
+                State->WatchdogException = std::move(Exception);
+            }
+            (void)State->WatchdogCompletion->try_send(
+                boost::system::error_code{});
+        };
+        Net::co_spawn(
+            IoContext,
+            WatchdogCoroutine(),
+            std::move(OnWatchdogComplete));
+
+        auto Root = [&]() -> Net::awaitable<void>
+        {
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
+            {
+                auto [ServerError, ServerConnection] = co_await FactoryValue.ServerAccept(
+                    State->ServerEndpoint);
+                if (ServerError != Error::None || !ServerConnection)
                 {
-                    EXPECT_TRUE(false) << Name << ": 超时（10s 无结果）";
-                    ioc.stop();
+                    State->Failed = true;
+                    EXPECT_TRUE(false)
+                        << Name << ": stealth Accept Failed err=" << static_cast<int>(ServerError);
+                    CloseNestedEndpoints(State);
+                    co_return;
                 }
-            },
-            net::detached);
-
-        run_coro(
-            ioc,
-            [&]() -> net::awaitable<void>
-            {
-                // 服务端：伪装层 Accept → vless Accept
-                auto server_coro = [&]() -> net::awaitable<void>
+                auto [InnerError, Request, ServerConnectionValue] = co_await Vless::Accept(
+                    std::move(ServerConnection),
+                    Vless::ServerConfig{MakeUuid()});
+                const auto ExpectedTarget = MakeDestination();
+                if (InnerError != Error::None || !ServerConnectionValue)
                 {
-                    auto [serr, sconn] =
-                        co_await factory.server_accept(std::make_shared<MemoryStream>(std::move(b)));
-                    if (serr != Error::None || !sconn)
+                    State->Failed = true;
+                    EXPECT_TRUE(false) << Name << ": vless Accept Failed";
+                    CloseNestedEndpoints(State);
+                    co_return;
+                }
+                if (Request.Target.Host != ExpectedTarget.Host ||
+                    Request.Target.Port != ExpectedTarget.Port)
+                {
+                    State->Failed = true;
+                    EXPECT_TRUE(false) << Name << ": VLESS target mismatch";
+                    CloseNestedEndpoints(State);
+                    co_return;
+                }
+                State->Linked = true;
+                std::array<std::byte, 128 * 1024> Buffer{};
+                while (true)
+                {
+                    std::error_code ReadError;
+                    const auto Count = co_await ServerConnectionValue->async_read_some(
+                        Buffer,
+                        ReadError);
+                    if (ReadError || Count == 0)
                     {
-                        EXPECT_TRUE(false)
-                            << Name << ": stealth Accept Failed err=" << static_cast<int>(serr);
-                        Failed = true;
-                        ioc.stop();
-                        co_return;
+                        break;
                     }
-                    auto [verr, req, vconn] =
-                        co_await Vless::Accept(std::move(sconn), Vless::ServerConfig{make_uuid()});
-                    if (verr != Error::None || !vconn)
+                    for (std::size_t Index = 0; Index < Count; ++Index)
                     {
-                        EXPECT_TRUE(false) << Name << ": vless Accept Failed";
-                        Failed = true;
-                        ioc.stop();
-                        co_return;
-                    }
-                    linked = true;
-                    // 回显
-                    std::array<std::byte, 128 * 1024> buf{};
-                    while (true)
-                    {
-                        std::error_code ec;
-                        const auto n = co_await vconn->async_read_some(buf, ec);
-                        if (ec || n == 0)
+                        if (Buffer[Index] != std::byte{0x5a})
                         {
+                            State->PayloadMismatch = true;
+                            State->Failed = true;
                             break;
                         }
-                        ec.clear();
-                        (void)co_await vconn->async_write_some(std::span(buf.data(), n), ec);
                     }
-                    vconn->Close();
-                };
-                net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-
-                // 客户端：伪装层 Connect → vless Connect
-                auto [cerr, cconn] =
-                    co_await factory.client_connect(std::make_shared<MemoryStream>(std::move(a)));
-                if (cerr != Error::None || !cconn)
-                {
-                    EXPECT_TRUE(false) << Name << ": stealth Connect Failed err=" << static_cast<int>(cerr);
-                    Failed = true;
-                    ioc.stop();
-                    co_return;
+                    if (State->Failed)
+                    {
+                        break;
+                    }
+                    std::size_t Offset = 0;
+                    while (Offset < Count)
+                    {
+                        std::error_code WriteError;
+                        const auto WriteWindow = std::span<const std::byte>(Buffer).subspan(
+                            Offset,
+                            Count - Offset);
+                        const auto Written = co_await ServerConnectionValue->async_write_some(
+                            WriteWindow,
+                            WriteError);
+                        if (WriteError || Written == 0 || Written > Count - Offset)
+                        {
+                            State->Failed = true;
+                            break;
+                        }
+                        Offset += Written;
+                    }
+                    if (State->Failed)
+                    {
+                        break;
+                    }
                 }
-                auto [herr, cli] =
-                    co_await Vless::Connect(std::move(cconn), Vless::ClientConfig{make_uuid()}, make_dst());
-                if (herr != Error::None || !cli)
+                ServerConnectionValue->Close();
+            };
+            auto OnServerComplete = [State](std::exception_ptr Exception) -> void
+            {
+                if (Exception)
                 {
-                    EXPECT_TRUE(false) << Name << ": vless Connect Failed err=" << static_cast<int>(herr);
-                    Failed = true;
-                    ioc.stop();
-                    co_return;
+                    State->ServerException = std::move(Exception);
+                    State->Failed = true;
+                    CloseNestedEndpoints(State);
                 }
-                BenchOptions opt;
-                opt.Total = kTotal;
-                opt.Block = kBlock;
-                tp = co_await BenchThroughputTx(*cli, *cli, opt);
-                cli->Close();
-            });
+                (void)State->ServerCompletion->try_send(
+                    boost::system::error_code{});
+            };
+            Net::co_spawn(
+                IoContext,
+                ServerCoroutine(),
+                std::move(OnServerComplete));
 
-        // 联通性 + 一致性
-        if (!Failed)
+            auto Finalize = [State]() -> Net::awaitable<void>
+            {
+                State->Completed = true;
+                CloseNestedEndpoints(State);
+                State->Watchdog->cancel();
+                co_await WaitForCompletion(State->ServerCompletion);
+                co_await WaitForCompletion(State->WatchdogCompletion);
+                if (State->ServerException)
+                {
+                    std::rethrow_exception(State->ServerException);
+                }
+                if (State->WatchdogException)
+                {
+                    std::rethrow_exception(State->WatchdogException);
+                }
+            };
+
+            auto [ClientError, ClientConnection] = co_await FactoryValue.ClientConnect(
+                State->ClientEndpoint);
+            if (ClientError != Error::None || !ClientConnection)
+            {
+                State->Failed = true;
+                EXPECT_TRUE(false)
+                    << Name << ": stealth Connect Failed err=" << static_cast<int>(ClientError);
+                co_await Finalize();
+                co_return;
+            }
+            auto [InnerError, ClientConnectionValue] = co_await Vless::Connect(
+                std::move(ClientConnection),
+                Vless::ClientConfig{MakeUuid()},
+                MakeDestination());
+            if (InnerError != Error::None || !ClientConnectionValue)
+            {
+                State->Failed = true;
+                EXPECT_TRUE(false)
+                    << Name << ": vless Connect Failed err=" << static_cast<int>(InnerError);
+                co_await Finalize();
+                co_return;
+            }
+            BenchOptions BenchValue;
+            BenchValue.Total = TotalBytes;
+            BenchValue.Block = BlockBytes;
+            State->Report = co_await BenchThroughputTx(
+                *ClientConnectionValue,
+                *ClientConnectionValue,
+                BenchValue);
+            ClientConnectionValue->Close();
+            co_await Finalize();
+        };
+        RunCoroutine(IoContext, Root());
+
+        if (!State->Failed)
         {
-            EXPECT_TRUE(linked) << Name << ": 双层握手联通失败";
-            EXPECT_EQ(tp.Bytes, kTotal) << Name << ": 传输字节数不一致";
+            EXPECT_TRUE(State->Linked) << Name << ": 双层握手联通失败";
+            EXPECT_EQ(State->Report.Bytes, TotalBytes) << Name << ": 传输字节数不一致";
+            EXPECT_FALSE(State->PayloadMismatch) << Name << ": payload 内容不一致";
+        }
+        const char *Status = "FAIL";
+        if (State->Linked && !State->Failed)
+        {
+            Status = "OK";
         }
         std::printf("%-12s 联通=%s  Bytes=%zu(期望 %zu)  吞吐=%.1f MB/s  延迟(ms) avg=%.3f p50=%.3f p95=%.3f "
                     "p99=%.3f\n",
-                    Name, (linked && !Failed) ? "OK" : "FAIL", tp.Bytes, kTotal, tp.Mbps, tp.LatencyAvg,
-                    tp.LatencyP50, tp.LatencyP95, tp.LatencyP99);
+                    Name, Status, State->Report.Bytes, TotalBytes, State->Report.Mbps,
+                    State->Report.LatencyAvg, State->Report.LatencyP50,
+                    State->Report.LatencyP95, State->Report.LatencyP99);
     }
 
     // ---------- 各伪装层工厂 ----------
 
     struct shadowtls_factory
     {
-        auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ClientConnect(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            const auto sr = make_random32();
-            const auto cr = make_random32();
-            auto [err, c] =
-                co_await Shadowtls::Connect(
-                    {std::move(up), Shadowtls::ClientConfig{"st_password"}, sr, cr});
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            const auto ServerRandom = MakeRandom32();
+            const auto ClientRandom = MakeRandom32();
+            auto [ErrorCode, Connection] = co_await Shadowtls::Connect(
+                {std::move(Upstream), Shadowtls::ClientConfig{"st_password"}, ServerRandom, ClientRandom});
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
-        auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ServerAccept(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, c] =
-                co_await Shadowtls::Accept(std::move(up), Shadowtls::ServerConfig{"st_password"});
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            auto [ErrorCode, Connection] = co_await Shadowtls::Accept(
+                std::move(Upstream),
+                Shadowtls::ServerConfig{"st_password"});
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
     };
 
     struct restls_factory
     {
-        auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ClientConnect(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            const auto sr = make_random32();
-            auto [err, c] = co_await Restls::Connect(std::move(up), Restls::ClientConfig{"rs_password"}, sr);
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            const auto ServerRandom = MakeRandom32();
+            auto [ErrorCode, Connection] = co_await Restls::Connect(
+                std::move(Upstream),
+                Restls::ClientConfig{"rs_password"},
+                ServerRandom);
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
-        auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ServerAccept(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            const auto sr = make_random32();
-            auto [err, c] = co_await Restls::Accept(std::move(up), Restls::ServerConfig{"rs_password"}, sr);
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            const auto ServerRandom = MakeRandom32();
+            auto [ErrorCode, Connection] = co_await Restls::Accept(
+                std::move(Upstream),
+                Restls::ServerConfig{"rs_password"},
+                ServerRandom);
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
     };
 
     struct anytls_factory
     {
-        auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ClientConnect(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, c] = co_await Anytls::Connect(std::move(up), Anytls::ClientConfig{"at_password"});
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            auto [ErrorCode, Connection] = co_await Anytls::Connect(
+                std::move(Upstream),
+                Anytls::ClientConfig{"at_password"});
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
-        auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ServerAccept(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, c] = co_await Anytls::Accept(std::move(up), Anytls::ServerConfig{"at_password"});
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            auto [ErrorCode, Connection] = co_await Anytls::Accept(
+                std::move(Upstream),
+                Anytls::ServerConfig{"at_password"});
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
     };
 
     struct trusttunnel_factory
     {
-        auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ClientConnect(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, c] = co_await Trusttunnel::Connect(
-                {std::move(up), Trusttunnel::ClientConfig{"tu_user", "tu_pass"}, "example.com", 443});
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            auto [ErrorCode, Connection] = co_await Trusttunnel::Connect(
+                {std::move(Upstream), Trusttunnel::ClientConfig{"tu_user", "tu_pass"}, "example.com", 443});
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
-        auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ServerAccept(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, Target, c] =
-                co_await Trusttunnel::Accept(std::move(up), Trusttunnel::ServerConfig{"tu_user", "tu_pass"});
+            auto [ErrorCode, Target, Connection] = co_await Trusttunnel::Accept(
+                std::move(Upstream),
+                Trusttunnel::ServerConfig{"tu_user", "tu_pass"});
             (void)Target;
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
     };
 
     struct ws_factory
     {
-        auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ClientConnect(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, c] = co_await Ws::Connect(std::move(up), Ws::ClientConfig{"example.com"});
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            auto [ErrorCode, Connection] = co_await Ws::Connect(
+                std::move(Upstream),
+                Ws::ClientConfig{"example.com"});
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
-        auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ServerAccept(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, key, c] = co_await Ws::Accept(std::move(up), Ws::ServerConfig{});
-            (void)key;
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            auto [ErrorCode, Key, Connection] = co_await Ws::Accept(
+                std::move(Upstream), Ws::ServerConfig{});
+            (void)Key;
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
     };
 
     struct gun_factory
     {
-        auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ClientConnect(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, c] = co_await Gun::Connect(std::move(up), "example.com");
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            auto [ErrorCode, Connection] = co_await Gun::Connect(
+                std::move(Upstream), "example.com");
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
-        auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ServerAccept(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            auto [err, host, c] = co_await Gun::Accept(std::move(up));
-            (void)host;
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            auto [ErrorCode, Host, Connection] = co_await Gun::Accept(
+                std::move(Upstream));
+            (void)Host;
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
     };
 
     struct reality_factory
     {
         // 共享密钥对（客户端持 cli 私钥，服务端持 srv 私钥）
-        std::array<std::uint8_t, Reality::KeyLen> srv_priv{};
-        std::array<std::uint8_t, Reality::KeyLen> srv_pub{};
-        std::array<std::uint8_t, Reality::KeyLen> cli_priv{};
-        std::array<std::uint8_t, Reality::KeyLen> cli_pub{};
-        std::array<std::uint8_t, 40> random{};
-        std::array<std::uint8_t, 128> hello{};
+        std::array<std::uint8_t, Reality::KeyLen> ServerPrivate{};
+        std::array<std::uint8_t, Reality::KeyLen> ServerPublic{};
+        std::array<std::uint8_t, Reality::KeyLen> ClientPrivate{};
+        std::array<std::uint8_t, Reality::KeyLen> ClientPublic{};
+        std::array<std::uint8_t, 40> Random{};
+        std::array<std::uint8_t, 128> Hello{};
 
         reality_factory()
         {
-            EXPECT_FALSE(Reality::GenerateKeypair(srv_priv, srv_pub));
-            EXPECT_FALSE(Reality::GenerateKeypair(cli_priv, cli_pub));
-            for (std::size_t i = 0; i < random.size(); ++i)
+            EXPECT_FALSE(Reality::GenerateKeypair(ServerPrivate, ServerPublic));
+            EXPECT_FALSE(Reality::GenerateKeypair(ClientPrivate, ClientPublic));
+            for (std::size_t Index = 0; Index < Random.size(); ++Index)
             {
-                random[i] = static_cast<std::uint8_t>(i * 5 + 2);
+                Random[Index] = static_cast<std::uint8_t>(Index * 5 + 2);
             }
-            for (std::size_t i = 0; i < hello.size(); ++i)
+            for (std::size_t Index = 0; Index < Hello.size(); ++Index)
             {
-                hello[i] = static_cast<std::uint8_t>(i);
+                Hello[Index] = static_cast<std::uint8_t>(Index);
             }
         }
 
-        auto client_connect(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ClientConnect(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            Reality::ClientConfig cfg;
-            cfg.private_key = cli_priv;
-            cfg.ShortId.fill(0x42);
-            auto [err, c] = co_await Reality::Connect(
-                {std::move(up), cfg, srv_pub, Reality::HandshakeParams{random, hello, cfg.ShortId}});
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            Reality::ClientConfig Config;
+            Config.private_key = ClientPrivate;
+            Config.ShortId.fill(0x42);
+            auto [ErrorCode, Connection] = co_await Reality::Connect(
+                {std::move(Upstream), Config, ServerPublic,
+                 Reality::HandshakeParams{Random, Hello, Config.ShortId}});
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
-        auto server_accept(SharedTransmission up) -> net::awaitable<std::pair<Error, SharedTransmission>>
+        auto ServerAccept(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, SharedTransmission>>
         {
-            Reality::ServerConfig cfg;
-            cfg.private_key = srv_priv;
-            cfg.ShortId.fill(0x42);
-            auto [err, got_sid, c] = co_await Reality::Accept(
-                {std::move(up), cfg, cli_pub, Reality::HandshakeParams{random, hello}});
-            (void)got_sid;
-            co_return std::pair{err, err == Error::None ? SharedTransmission(std::move(c))
-                                                        : SharedTransmission{}};
+            Reality::ServerConfig Config;
+            Config.private_key = ServerPrivate;
+            Config.ShortId.fill(0x42);
+            auto [ErrorCode, GotSessionId, Connection] = co_await Reality::Accept(
+                {std::move(Upstream), Config, ClientPublic,
+                 Reality::HandshakeParams{Random, Hello}});
+            (void)GotSessionId;
+            co_return std::pair{ErrorCode, ToTransmission(ErrorCode, std::move(Connection))};
         }
     };
 
@@ -359,80 +563,105 @@ namespace
 
     TEST(StealthNested, ShadowTlsVless)
     {
-        net::io_context ioc;
-        run_nested_vless(ioc, shadowtls_factory{}, "shadowtls");
+        Net::io_context IoContext;
+        RunNestedVless(IoContext, shadowtls_factory{}, "shadowtls");
     }
 
     TEST(StealthNested, RestlsVless)
     {
-        net::io_context ioc;
-        run_nested_vless(ioc, restls_factory{}, "restls");
+        Net::io_context IoContext;
+        RunNestedVless(IoContext, restls_factory{}, "restls");
     }
 
     TEST(StealthNested, AnyTlsVless)
     {
-        net::io_context ioc;
-        run_nested_vless(ioc, anytls_factory{}, "anytls");
+        Net::io_context IoContext;
+        RunNestedVless(IoContext, anytls_factory{}, "anytls");
     }
 
     TEST(StealthNested, TrustTunnelVless)
     {
-        net::io_context ioc;
-        run_nested_vless(ioc, trusttunnel_factory{}, "trusttunnel");
+        Net::io_context IoContext;
+        RunNestedVless(IoContext, trusttunnel_factory{}, "trusttunnel");
     }
 
     TEST(TrustTunnelConn, HandshakeDirect)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        auto ServerCompletion = std::make_shared<CompletionChannel>(
+            IoContext.get_executor(), 1);
+        auto ServerException = std::make_shared<std::exception_ptr>();
+        auto Target = std::make_shared<std::string>();
+        RunCoroutine(IoContext,
+                 [ClientMemory = std::move(ClientMemory),
+                  ServerMemory = std::move(ServerMemory),
+                  ServerCompletion,
+                  ServerException,
+                  Target,
+                  &IoContext]() mutable -> Net::awaitable<void>
                  {
-                     std::string Target;
-                     auto server_coro = [&]() -> net::awaitable<void>
+                     auto ServerCoroutine = [ServerMemory = std::move(ServerMemory),
+                                             ServerCompletion,
+                                             ServerException,
+                                             Target]() mutable -> Net::awaitable<void>
                      {
-                         auto [err, t, c] =
-                             co_await Trusttunnel::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                          Trusttunnel::ServerConfig{"tu_user", "tu_pass"});
-                         if (err != Error::None)
+                         auto [ErrorCode, AcceptedTarget, Connection] = co_await Trusttunnel::Accept(
+                             std::make_shared<MemoryStream>(std::move(ServerMemory)),
+                             Trusttunnel::ServerConfig{"tu_user", "tu_pass"});
+                         if (ErrorCode != Error::None)
                          {
-                             EXPECT_TRUE(false) << "Accept err=" << static_cast<int>(err);
-                             ioc.stop();
+                             EXPECT_TRUE(false) << "Accept err=" << static_cast<int>(ErrorCode);
                              co_return;
                          }
-                         Target = t;
+                         *Target = std::move(AcceptedTarget);
                      };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-                     auto [cerr, c] = co_await Trusttunnel::Connect(
-                         {std::make_shared<MemoryStream>(std::move(a)),
-                          Trusttunnel::ClientConfig{"tu_user", "tu_pass"}, "example.com", 443});
-                     if (cerr != Error::None)
+                     auto OnServerComplete = [ServerCompletion, ServerException](
+                                                 std::exception_ptr Exception) -> void
                      {
-                         EXPECT_TRUE(false) << "Connect err=" << static_cast<int>(cerr);
+                         *ServerException = std::move(Exception);
+                         (void)ServerCompletion->try_send(
+                             boost::system::error_code{});
+                     };
+                     Net::co_spawn(
+                         IoContext,
+                         ServerCoroutine(),
+                         std::move(OnServerComplete));
+                     auto [ErrorCode, Connection] = co_await Trusttunnel::Connect(
+                         {std::make_shared<MemoryStream>(std::move(ClientMemory)),
+                          Trusttunnel::ClientConfig{"tu_user", "tu_pass"}, "example.com", 443});
+                     if (ErrorCode != Error::None)
+                     {
+                         EXPECT_TRUE(false) << "Connect err=" << static_cast<int>(ErrorCode);
+                         co_await WaitForCompletion(ServerCompletion);
                          co_return;
                      }
-                     co_await net::post(ioc.get_executor(), net::use_awaitable);
-                     EXPECT_EQ(Target, "example.com");
-                     c->Close();
+                     co_await WaitForCompletion(ServerCompletion);
+                     if (*ServerException)
+                     {
+                         std::rethrow_exception(*ServerException);
+                     }
+                     EXPECT_EQ(*Target, "example.com");
+                     Connection->Close();
                  });
     }
 
     TEST(StealthNested, WsVless)
     {
-        net::io_context ioc;
-        run_nested_vless(ioc, ws_factory{}, "ws");
+        Net::io_context IoContext;
+        RunNestedVless(IoContext, ws_factory{}, "ws");
     }
 
     TEST(StealthNested, GunVless)
     {
-        net::io_context ioc;
-        run_nested_vless(ioc, gun_factory{}, "gun");
+        Net::io_context IoContext;
+        RunNestedVless(IoContext, gun_factory{}, "gun");
     }
 
     TEST(StealthNested, RealityVless)
     {
-        net::io_context ioc;
-        run_nested_vless(ioc, reality_factory{}, "reality");
+        Net::io_context IoContext;
+        RunNestedVless(IoContext, reality_factory{}, "reality");
     }
 
 } // namespace

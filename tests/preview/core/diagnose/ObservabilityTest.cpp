@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -71,8 +72,20 @@ namespace
         meter.Mark(100);
         // 窗口 1s：1 个窗口内 100 次/窗口 → 速率 100
         EXPECT_NEAR(meter.RatePerSecond(500), 200.0, 1.0); // 0.5s → 100/0.5
+        EXPECT_NEAR(meter.RatePerSecond(1000), 200.0 * std::exp(-0.5), 1.0);
+        EXPECT_NEAR(meter.RatePerSecond(2000), 200.0 * std::exp(-1.5), 1.0);
+    }
+
+    TEST(EwmaMeter, DecaysWithoutRecountingHistoricalEvents)
+    {
+        Preview::Diagnose::EwmaMeter meter(1000);
+        EXPECT_EQ(meter.RatePerSecond(0), 0.0);
+
+        meter.Mark(100);
         EXPECT_NEAR(meter.RatePerSecond(1000), 100.0, 1.0);
-        EXPECT_NEAR(meter.RatePerSecond(2000), 50.0, 1.0); // 2 窗口 → 衰减
+
+        // 没有新事件时只做指数衰减，不能把历史 100 次按 2 秒重新除一遍。
+        EXPECT_NEAR(meter.RatePerSecond(2000), 100.0 * std::exp(-1.0), 1.0);
     }
 
     TEST(SampleTracer, FullSampling)
@@ -111,6 +124,24 @@ namespace
         EXPECT_GT(n, 0);
         // 最新样本是 99
         EXPECT_EQ(out[0], 99);
+    }
+
+    TEST(SampleTracer, NormalizesInvalidRingSize)
+    {
+        Preview::Diagnose::SampleTracer tracer(1, 3);
+        tracer.Sample(0);
+        tracer.Sample(1);
+        tracer.Sample(2);
+
+        std::array<std::uint64_t, 8> out{};
+        ASSERT_EQ(tracer.Drain(out), 8U);
+        EXPECT_EQ(out[0], 2U);
+    }
+
+    TEST(SampleTracer, CapsOversizedRingSize)
+    {
+        Preview::Diagnose::SampleTracer tracer(1, 1U << 20);
+        EXPECT_EQ(tracer.Capacity(), Preview::Diagnose::SampleTracer::MaxRingSize);
     }
 
 } // namespace

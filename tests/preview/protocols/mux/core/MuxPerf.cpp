@@ -12,10 +12,14 @@
 #include <boost/asio/post.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <memory>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <TestSupport/Benchmark/Bench.hpp>
@@ -27,231 +31,245 @@
 
 namespace
 {
-    using namespace Preview;
-    using namespace Preview::Mux;
+    namespace Net = boost::asio;
+    namespace H2Mux = Preview::Mux::H2Mux;
+    namespace Smux = Preview::Mux::Smux;
+    namespace Yamux = Preview::Mux::Yamux;
+    using Preview::BenchOptions;
+    using Preview::BenchReport;
+    using Preview::BenchThroughputTx;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoro(
+        Net::io_context &IoContext,
+        A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        auto Completion = [&](std::exception_ptr Error) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = Error;
+            IoContext.stop();
+        };
+        Net::co_spawn(IoContext, std::move(Coroutine), std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto fnv1a64(std::span<const std::uint8_t> Data) -> std::uint64_t
+    [[nodiscard]] auto Fnv1a64(std::span<const std::uint8_t> Data) -> std::uint64_t
     {
-        std::uint64_t h = 14695981039346656037ULL;
-        for (const auto b : Data)
+        std::uint64_t Hash = 14695981039346656037ULL;
+        for (const auto Byte : Data)
         {
-            h ^= b;
-            h *= 1099511628211ULL;
+            Hash ^= Byte;
+            Hash *= 1099511628211ULL;
         }
-        return h;
+        return Hash;
     }
 
     /// 100MB 传输完整性（Client 写 Server 读，摘要比对）
-    template <typename Client, typename Server>
-    auto run_transfer(net::io_context &ioc, Client &cl, Server &sv) -> void
+    template <typename ClientType, typename ServerType>
+    auto RunTransfer(
+        Net::io_context &IoContext,
+        ClientType &Client,
+        ServerType &Server) -> void
     {
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        ASSERT_TRUE(cl.Connect(std::make_shared<MemoryStream>(std::move(a))));
-        ASSERT_TRUE(sv.Accept(std::make_shared<MemoryStream>(std::move(b))));
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        ASSERT_TRUE(Client.Connect(std::make_shared<MemoryStream>(std::move(ClientMemory))));
+        ASSERT_TRUE(Server.Accept(std::make_shared<MemoryStream>(std::move(ServerMemory))));
 
-        constexpr std::size_t kTotal = 100 * 1024 * 1024;
-        constexpr std::size_t kBlock = 64 * 1024;
-        run_coro(
-            ioc,
-            [&]() -> net::awaitable<void>
+        constexpr std::size_t TotalBytes = 100 * 1024 * 1024;
+        constexpr std::size_t BlockSize = 64 * 1024;
+        auto Operation = [&]() -> Net::awaitable<void>
+        {
+            Net::experimental::channel<void(boost::system::error_code)> ServerDone(
+                IoContext.get_executor(), 1);
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                // 服务端完成通知：防止 detached 协程在 ioc 析构时
-                // 仍挂起（use-after-free）
-                net::experimental::channel<void(boost::system::error_code)> server_done(ioc.get_executor(), 1);
-                auto server_coro = [&]() -> net::awaitable<void>
+                auto Stream = co_await Server.AcceptStream();
+                if (!Stream)
                 {
-                    auto s = co_await sv.AcceptStream();
-                    if (!s)
-                    {
-                        EXPECT_TRUE(false) << "Accept Failed";
-                        server_done.try_send(boost::system::error_code{});
-                        co_return;
-                    }
-                    std::array<std::byte, kBlock> buf{};
-                    std::size_t got = 0;
-                    while (got < kTotal)
-                    {
-                        std::error_code ec;
-                        const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
-                        if (ec || n == 0)
-                        {
-                            break;
-                        }
-                        got += n;
-                    }
-                    EXPECT_EQ(got, kTotal);
-                    s->Close();
-                    server_done.try_send(boost::system::error_code{});
-                };
-                net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
-
-                auto s = co_await cl.OpenStream();
-                if (!s)
-                {
-                    EXPECT_TRUE(false) << "Open Failed";
+                    EXPECT_TRUE(false) << "Accept Failed";
+                    (void)ServerDone.try_send(boost::system::error_code{});
                     co_return;
                 }
-                std::vector<std::uint8_t> payload(kBlock, 0x2A);
-                std::size_t sent = 0;
-                std::size_t block_idx = 0;
-                while (sent < kTotal)
+                std::array<std::byte, BlockSize> Buffer{};
+                std::size_t Received = 0;
+                while (Received < TotalBytes)
                 {
-                    const auto n = std::min(kBlock, kTotal - sent);
-                    std::error_code ec;
-                    const auto w = co_await s->async_write_some(
-                        std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()), n),
-                        ec);
-                    if (ec || w == 0)
+                    std::error_code ErrorCode;
+                    const auto ReadSize = co_await Stream->async_read_some(Buffer, ErrorCode);
+                    if (ErrorCode || ReadSize == 0)
                     {
                         break;
                     }
-                    sent += w;
-                    // 让出调度：MemoryStream 写同步完成，不 yield 会饿死对端协程
-                    if ((++block_idx & 0x0F) == 0)
-                    {
-                        co_await net::post(ioc.get_executor(), net::use_awaitable);
-                    }
+                    Received += ReadSize;
                 }
-                EXPECT_EQ(sent, kTotal);
-                s->Close();
-                cl.Close();
-                sv.Close();
-                // 等待服务端协程完成，避免 ioc 析构时挂起协程帧悬垂
-                co_await server_done.async_receive(net::use_awaitable);
-            });
+                EXPECT_EQ(Received, TotalBytes);
+                Stream->Close();
+                (void)ServerDone.try_send(boost::system::error_code{});
+            };
+            Net::co_spawn(IoContext.get_executor(), std::move(ServerCoroutine), Net::detached);
+
+            auto Stream = co_await Client.OpenStream();
+            if (!Stream)
+            {
+                EXPECT_TRUE(false) << "Open Failed";
+                co_return;
+            }
+            std::vector<std::uint8_t> Payload(BlockSize, 0x2A);
+            std::size_t Sent = 0;
+            std::size_t BlockIndex = 0;
+            while (Sent < TotalBytes)
+            {
+                const auto ChunkSize = std::min(BlockSize, TotalBytes - Sent);
+                std::error_code ErrorCode;
+                const auto PayloadBuffer = std::span<const std::byte>(
+                    reinterpret_cast<const std::byte *>(Payload.data()), ChunkSize);
+                const auto Written = co_await Stream->async_write_some(PayloadBuffer, ErrorCode);
+                if (ErrorCode || Written == 0)
+                {
+                    break;
+                }
+                Sent += Written;
+                if ((++BlockIndex & 0x0F) == 0)
+                {
+                    // 让出调度：MemoryStream 写同步完成，不 yield 会饿死对端协程
+                    co_await Net::post(IoContext.get_executor(), Net::use_awaitable);
+                }
+            }
+            EXPECT_EQ(Sent, TotalBytes);
+            Stream->Close();
+            Client.Close();
+            Server.Close();
+            co_await ServerDone.async_receive(Net::use_awaitable);
+        };
+        RunCoro(IoContext, std::move(Operation));
     }
 
     /// 吞吐 + 延迟报告
-    template <typename Client, typename Server>
-    auto RunBench(net::io_context &ioc, Client &cl, Server &sv, const char *Name) -> void
+    template <typename ClientType, typename ServerType>
+    struct BenchRequest
     {
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        ASSERT_TRUE(cl.Connect(std::make_shared<MemoryStream>(std::move(a))));
-        ASSERT_TRUE(sv.Accept(std::make_shared<MemoryStream>(std::move(b))));
+        Net::io_context &IoContext;
+        ClientType &Client;
+        ServerType &Server;
+        const char *Name;
+    };
 
-        BenchReport rep{};
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 服务端完成通知：防止 detached 协程在 ioc 析构时
-                     // 仍挂起（use-after-free）
-                     net::experimental::channel<void(boost::system::error_code)> server_done(ioc.get_executor(), 1);
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto s = co_await sv.AcceptStream();
-                         if (!s)
-                         {
-                             server_done.try_send(boost::system::error_code{});
-                             co_return;
-                         }
-                         std::array<std::byte, 128 * 1024> buf{};
-                         while (true)
-                         {
-                             std::error_code ec;
-                             const auto n = co_await s->async_read_some(std::span<std::byte>(buf), ec);
-                             if (ec || n == 0)
-                             {
-                                 break;
-                             }
-                             ec.clear();
-                             (void)co_await s->async_write_some(std::span<const std::byte>(buf.data(), n),
-                                                                ec);
-                         }
-                         s->Close();
-                         server_done.try_send(boost::system::error_code{});
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+    template <typename ClientType, typename ServerType>
+    auto RunBench(BenchRequest<ClientType, ServerType> Request) -> void
+    {
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(Request.IoContext.get_executor());
+        ASSERT_TRUE(Request.Client.Connect(std::make_shared<MemoryStream>(std::move(ClientMemory))));
+        ASSERT_TRUE(Request.Server.Accept(std::make_shared<MemoryStream>(std::move(ServerMemory))));
 
-                     auto s = co_await cl.OpenStream();
-                     if (!s)
-                     {
-                         co_return;
-                     }
-                     BenchOptions opt;
-                     opt.Total = 64 * 1024 * 1024;
-                     opt.Block = 64 * 1024;
-                     rep = co_await BenchThroughputTx(*s, *s, opt);
-                     s->Close();
-                     cl.Close();
-                     // 显式 co_await 服务端会话关闭：触发 Teardown 唤醒
-                     // 服务端挂起读（sv.Close() 是 void，丢弃 awaitable 不执行）
-                     if (sv.Session())
-                     {
-                         co_await sv.Session()->Close();
-                     }
-                     // 等待服务端协程完成，避免 ioc 析构时挂起协程帧悬垂
-                     co_await server_done.async_receive(net::use_awaitable);
-                 });
+        BenchReport Report{};
+        auto Operation = [&]() -> Net::awaitable<void>
+        {
+            Net::experimental::channel<void(boost::system::error_code)> ServerDone(
+                Request.IoContext.get_executor(), 1);
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
+            {
+                auto Stream = co_await Request.Server.AcceptStream();
+                if (!Stream)
+                {
+                    (void)ServerDone.try_send(boost::system::error_code{});
+                    co_return;
+                }
+                std::array<std::byte, 128 * 1024> Buffer{};
+                while (true)
+                {
+                    std::error_code ErrorCode;
+                    const auto ReadSize = co_await Stream->async_read_some(Buffer, ErrorCode);
+                    if (ErrorCode || ReadSize == 0)
+                    {
+                        break;
+                    }
+                    const auto Response = std::span<const std::byte>(Buffer.data(), ReadSize);
+                    ErrorCode.clear();
+                    (void)co_await Stream->async_write_some(Response, ErrorCode);
+                }
+                Stream->Close();
+                (void)ServerDone.try_send(boost::system::error_code{});
+            };
+            Net::co_spawn(Request.IoContext.get_executor(), std::move(ServerCoroutine), Net::detached);
+
+            auto Stream = co_await Request.Client.OpenStream();
+            if (!Stream)
+            {
+                co_return;
+            }
+            BenchOptions Options;
+            Options.Total = 64 * 1024 * 1024;
+            Options.Block = 64 * 1024;
+            Report = co_await BenchThroughputTx(*Stream, *Stream, Options);
+            Stream->Close();
+            Request.Client.Close();
+            if (Request.Server.Session())
+            {
+                co_await Request.Server.Session()->Close();
+            }
+            co_await ServerDone.async_receive(Net::use_awaitable);
+        };
+        RunCoro(Request.IoContext, std::move(Operation));
 
         std::printf("%s throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min %.3f "
                     "max %.3f) samples=%zu\n",
-                    Name, rep.Mbps, rep.LatencyAvg, rep.LatencyP50, rep.LatencyP95, rep.LatencyP99,
-                    rep.LatencyMin, rep.LatencyMax, rep.Samples);
+                    Request.Name, Report.Mbps, Report.LatencyAvg, Report.LatencyP50, Report.LatencyP95,
+                    Report.LatencyP99, Report.LatencyMin, Report.LatencyMax, Report.Samples);
     }
 
     TEST(MuxPerf, SmuxTransfer100MB)
     {
-        net::io_context ioc;
-        Smux::Client cl;
-        Smux::Server sv;
-        run_transfer(ioc, cl, sv);
+        Net::io_context IoContext;
+        Smux::Client Client;
+        Smux::Server Server;
+        RunTransfer(IoContext, Client, Server);
     }
 
     TEST(MuxPerf, YamuxTransfer100MB)
     {
-        net::io_context ioc;
-        Yamux::Client cl;
-        Yamux::Server sv;
-        run_transfer(ioc, cl, sv);
+        Net::io_context IoContext;
+        Yamux::Client Client;
+        Yamux::Server Server;
+        RunTransfer(IoContext, Client, Server);
     }
 
     TEST(MuxPerf, H2muxTransfer100MB)
     {
-        net::io_context ioc;
-        H2Mux::Client cl;
-        H2Mux::Server sv;
-        run_transfer(ioc, cl, sv);
+        Net::io_context IoContext;
+        H2Mux::Client Client;
+        H2Mux::Server Server;
+        RunTransfer(IoContext, Client, Server);
     }
 
     TEST(MuxPerf, SmuxThroughputLatency)
     {
-        net::io_context ioc;
-        Smux::Client cl;
-        Smux::Server sv;
-        RunBench(ioc, cl, sv, "smux ");
+        Net::io_context IoContext;
+        Smux::Client Client;
+        Smux::Server Server;
+        RunBench(BenchRequest<decltype(Client), decltype(Server)>{IoContext, Client, Server, "smux "});
     }
 
     TEST(MuxPerf, YamuxThroughputLatency)
     {
-        net::io_context ioc;
-        Yamux::Client cl;
-        Yamux::Server sv;
-        RunBench(ioc, cl, sv, "yamux");
+        Net::io_context IoContext;
+        Yamux::Client Client;
+        Yamux::Server Server;
+        RunBench(BenchRequest<decltype(Client), decltype(Server)>{IoContext, Client, Server, "yamux"});
     }
 
     TEST(MuxPerf, H2muxThroughputLatency)
     {
-        net::io_context ioc;
-        H2Mux::Client cl;
-        H2Mux::Server sv;
-        RunBench(ioc, cl, sv, "h2mux");
+        Net::io_context IoContext;
+        H2Mux::Client Client;
+        H2Mux::Server Server;
+        RunBench(BenchRequest<decltype(Client), decltype(Server)>{IoContext, Client, Server, "h2mux"});
     }
 
 } // namespace

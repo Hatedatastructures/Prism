@@ -76,13 +76,13 @@ namespace Preview::Memory
     using List = std::pmr::list<Value>; // PMR 双向链表模板
 
     template <typename Key, typename Value, typename Compare = std::less<Key>>
-    using map = std::pmr::map<Key, Value, Compare>; // PMR 红黑树映射模板
+    using Map = std::pmr::map<Key, Value, Compare>; // PMR 红黑树映射模板
 
     template <typename Key, typename Value, typename Hash = std::hash<Key>,
               typename KeyEqual = std::equal_to<Key>>
-    using unordered_map = std::pmr::unordered_map<Key, Value, Hash, KeyEqual>; // PMR 哈希映射模板
+    using UnorderedMap = std::pmr::unordered_map<Key, Value, Hash, KeyEqual>; // PMR 哈希映射模板
 
     template <typename Key, typename Hash = std::hash<Key>, typename KeyEqual = std::equal_to<Key>>
-    using unordered_set = std::pmr::unordered_set<Key, Hash, KeyEqual>; // PMR 哈希集合模板
+    using UnorderedSet = std::pmr::unordered_set<Key, Hash, KeyEqual>; // PMR 哈希集合模板
 
 } // namespace Preview::Memory

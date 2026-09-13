@@ -9,267 +9,565 @@
  */
 
 #include <preview/Foundation/Memory/Container.hpp>
-#include <preview/Transport/Transmission.hpp>
-#include <preview/Transport/MemoryStream.hpp>
 #include <preview/Protocols/Native/Native.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+#include <preview/Transport/Transmission.hpp>
 
+#include <boost/asio/awaitable.hpp>
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/read.hpp>
+#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <boost/asio/write.hpp>
 
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#include <array>
 #include <chrono>
+#include <cstdio>
+#include <cstring>
+#include <exception>
 #include <memory>
+#include <span>
+#include <string>
+#include <system_error>
+#include <utility>
 
 #include <gtest/gtest.h>
 
 namespace
 {
-    namespace net = boost::asio;
-    namespace ssl = net::ssl;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Ssl = Net::ssl;
 
-    /// 生成自签证书并加载到服务端上下文
-    void load_self_signed(ssl::context &ctx)
+    struct PkeyContextDeleter
     {
-        auto *PkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
-        EVP_PKEY *pkey = nullptr;
-        if (PkeyCtx && EVP_PKEY_keygen_init(PkeyCtx) > 0 &&
-            EVP_PKEY_CTX_set_rsa_keygen_bits(PkeyCtx, 2048) > 0)
+        auto operator()(EVP_PKEY_CTX *Value) const noexcept -> void
         {
-            EVP_PKEY_keygen(PkeyCtx, &pkey);
+            EVP_PKEY_CTX_free(Value);
         }
-        EVP_PKEY_CTX_free(PkeyCtx);
-        ASSERT_NE(pkey, nullptr);
+    };
 
-        auto *x509 = X509_new();
-        X509_set_version(x509, 2);
-        ASN1_INTEGER_set(X509_get_serialNumber(x509), 1);
-        X509_gmtime_adj(X509_get_notBefore(x509), 0);
-        X509_gmtime_adj(X509_get_notAfter(x509), 3600 * 24);
+    struct PkeyDeleter
+    {
+        auto operator()(EVP_PKEY *Value) const noexcept -> void
+        {
+            EVP_PKEY_free(Value);
+        }
+    };
 
-        auto *Name = X509_NAME_new();
-        X509_NAME_add_entry_by_txt(Name, "CN", MBSTRING_ASC,
-                                   reinterpret_cast<const unsigned char *>("Native-test"), -1, -1, 0);
-        X509_set_subject_name(x509, Name);
-        X509_set_issuer_name(x509, Name);
-        X509_NAME_free(Name);
+    struct X509Deleter
+    {
+        auto operator()(X509 *Value) const noexcept -> void
+        {
+            X509_free(Value);
+        }
+    };
 
-        X509_set_pubkey(x509, pkey);
-        X509_sign(x509, pkey, EVP_sha256());
+    struct X509NameDeleter
+    {
+        auto operator()(X509_NAME *Value) const noexcept -> void
+        {
+            X509_NAME_free(Value);
+        }
+    };
 
-        SSL_CTX_use_certificate(ctx.native_handle(), x509);
-        SSL_CTX_use_PrivateKey(ctx.native_handle(), pkey);
+    using PkeyContextPtr = std::unique_ptr<EVP_PKEY_CTX, PkeyContextDeleter>;
+    using PkeyPtr = std::unique_ptr<EVP_PKEY, PkeyDeleter>;
+    using X509Ptr = std::unique_ptr<X509, X509Deleter>;
+    using X509NamePtr = std::unique_ptr<X509_NAME, X509NameDeleter>;
 
-        X509_free(x509);
-        EVP_PKEY_free(pkey);
+    struct ConnectionResult
+    {
+        bool Success{false};
+        bool HalfClosed{false};
+        bool TimedOut{false};
+    };
+
+    struct PairOutcome
+    {
+        ConnectionResult Client;
+        ConnectionResult Server;
+        bool ClientCompleted{false};
+        bool ServerCompleted{false};
+        bool DeadlineExpired{false};
+        std::exception_ptr ClientException;
+        std::exception_ptr ServerException;
+    };
+
+    struct SingleOutcome
+    {
+        ConnectionResult Result;
+        bool Completed{false};
+        bool DeadlineExpired{false};
+        std::exception_ptr Exception;
+    };
+
+    /// 生成自签证书并加载到服务端上下文。
+    [[nodiscard]] auto LoadSelfSigned(Ssl::context &Context) -> bool
+    {
+        PkeyContextPtr PkeyContext(EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr));
+        if (!PkeyContext || EVP_PKEY_keygen_init(PkeyContext.get()) <= 0 ||
+            EVP_PKEY_CTX_set_rsa_keygen_bits(PkeyContext.get(), 2048) <= 0)
+        {
+            return false;
+        }
+
+        EVP_PKEY *PkeyValue = nullptr;
+        if (EVP_PKEY_keygen(PkeyContext.get(), &PkeyValue) <= 0 || PkeyValue == nullptr)
+        {
+            return false;
+        }
+        PkeyPtr Pkey(PkeyValue);
+
+        X509Ptr Certificate(X509_new());
+        if (!Certificate || X509_set_version(Certificate.get(), 2) != 1 ||
+            ASN1_INTEGER_set(X509_get_serialNumber(Certificate.get()), 1) != 1 ||
+            X509_gmtime_adj(X509_get_notBefore(Certificate.get()), 0) == nullptr ||
+            X509_gmtime_adj(X509_get_notAfter(Certificate.get()), 3600 * 24) == nullptr)
+        {
+            return false;
+        }
+
+        X509NamePtr Name(X509_NAME_new());
+        if (!Name ||
+            X509_NAME_add_entry_by_txt(Name.get(), "CN", MBSTRING_ASC,
+                                       reinterpret_cast<const unsigned char *>("Native-test"), -1, -1, 0) != 1 ||
+            X509_set_subject_name(Certificate.get(), Name.get()) != 1 ||
+            X509_set_issuer_name(Certificate.get(), Name.get()) != 1 ||
+            X509_set_pubkey(Certificate.get(), Pkey.get()) != 1 ||
+            X509_sign(Certificate.get(), Pkey.get(), EVP_sha256()) <= 0)
+        {
+            return false;
+        }
+
+        auto *NativeContext = Context.native_handle();
+        if (SSL_CTX_use_certificate(NativeContext, Certificate.get()) != 1 ||
+            SSL_CTX_use_PrivateKey(NativeContext, Pkey.get()) != 1 ||
+            SSL_CTX_check_private_key(NativeContext) != 1)
+        {
+            return false;
+        }
+        return true;
     }
 
-    /// 客户端：TLS 握手 + 数据 echo 验证
-    net::awaitable<void> DoTlsClient(SharedTransmission raw, ssl::context &client_ctx,
-                                     const std::string &payload, std::shared_ptr<bool> Ok,
-                                     std::shared_ptr<bool> Done)
+    /// 运行两条相互依赖的 TLS coroutine，并观察两条 completion。
+    [[nodiscard]] auto RunPair(
+        Net::io_context &IoContext, Preview::SharedTransmission ClientRaw,
+        Preview::SharedTransmission ServerRaw, Net::awaitable<ConnectionResult> ClientOperation,
+        Net::awaitable<ConnectionResult> ServerOperation, std::chrono::milliseconds Timeout) -> PairOutcome
     {
-        Preview::Transport::Connector Conn(raw);
-        auto Stream = std::make_shared<ssl::stream<Preview::Transport::Connector>>(
-            std::move(Conn), client_ctx);
-        boost::system::error_code ec;
-        co_await Stream->async_handshake(ssl::stream_base::client,
-                                         net::redirect_error(net::use_awaitable, ec));
-        if (ec)
+        PairOutcome Outcome;
+        Net::steady_timer Deadline(IoContext);
+
+        auto ClosePair = [&]() -> void
         {
-            *Ok = false;
-            *Done = true;
-            co_return;
-        }
-        // 发送 payload（经 TLS）
-        co_await Stream->async_write_some(
-            net::buffer(payload.data(), payload.size()), net::redirect_error(net::use_awaitable, ec));
-        if (ec)
+            if (ClientRaw)
+            {
+                ClientRaw->Cancel();
+                ClientRaw->Close();
+            }
+            if (ServerRaw)
+            {
+                ServerRaw->Cancel();
+                ServerRaw->Close();
+            }
+        };
+
+        auto StopWhenComplete = [&]() -> void
         {
-            *Ok = false;
-            *Done = true;
-            co_return;
-        }
-        // 读 echo
-        std::array<char, 256> buf{};
-        const auto n = co_await Stream->async_read_some(
-            net::buffer(buf.data(), buf.size()), net::redirect_error(net::use_awaitable, ec));
-        *Ok = !ec && n == payload.size() && std::string_view(buf.data(), n) == payload;
-        *Done = true;
-        co_return;
+            if (Outcome.ClientCompleted && Outcome.ServerCompleted)
+            {
+                Deadline.cancel();
+                IoContext.stop();
+            }
+        };
+
+        auto OnClientComplete = [&](std::exception_ptr Error, ConnectionResult Result) -> void
+        {
+            Outcome.ClientCompleted = true;
+            Outcome.Client = Result;
+            Outcome.ClientException = std::move(Error);
+            if (Outcome.ClientException)
+            {
+                ClosePair();
+            }
+            StopWhenComplete();
+        };
+
+        auto OnServerComplete = [&](std::exception_ptr Error, ConnectionResult Result) -> void
+        {
+            Outcome.ServerCompleted = true;
+            Outcome.Server = Result;
+            Outcome.ServerException = std::move(Error);
+            if (Outcome.ServerException)
+            {
+                ClosePair();
+            }
+            StopWhenComplete();
+        };
+
+        auto OnDeadline = [&](const boost::system::error_code &Error) -> void
+        {
+            if (Error || (Outcome.ClientCompleted && Outcome.ServerCompleted))
+            {
+                return;
+            }
+            Outcome.DeadlineExpired = true;
+            ClosePair();
+            IoContext.stop();
+        };
+
+        Deadline.expires_after(Timeout);
+        Deadline.async_wait(OnDeadline);
+        Net::co_spawn(IoContext, std::move(ClientOperation), OnClientComplete);
+        Net::co_spawn(IoContext, std::move(ServerOperation), OnServerComplete);
+        IoContext.run();
+        return Outcome;
     }
 
-    /// 服务端：Native Accept + echo
-    net::awaitable<void> DoNativeServer(SharedTransmission raw, ssl::context &server_ctx,
-                                        const std::string &payload, std::shared_ptr<bool> Ok)
+    /// 运行单条 TLS coroutine，并在 deadline 后关闭仍挂起的传输。
+    [[nodiscard]] auto RunSingle(Net::io_context &IoContext, Preview::SharedTransmission Raw,
+                                 Net::awaitable<ConnectionResult> Operation,
+                                 std::chrono::milliseconds Timeout) -> SingleOutcome
     {
-        auto trans = co_await Preview::Native::Accept(std::move(raw), server_ctx);
-        if (!trans)
+        SingleOutcome Outcome;
+        Net::steady_timer Deadline(IoContext);
+
+        auto OnComplete = [&](std::exception_ptr Error, ConnectionResult Result) -> void
         {
-            *Ok = false;
-            co_return;
-        }
-        std::array<std::byte, 256> buf{};
-        std::error_code ec;
-        const auto n = co_await trans->async_read_some(buf, ec);
-        if (ec || n == 0)
+            Outcome.Completed = true;
+            Outcome.Result = Result;
+            Outcome.Exception = std::move(Error);
+            Deadline.cancel();
+            IoContext.stop();
+        };
+
+        auto OnDeadline = [&](const boost::system::error_code &Error) -> void
         {
-            *Ok = false;
-            co_return;
+            if (Error || Outcome.Completed)
+            {
+                return;
+            }
+            Outcome.DeadlineExpired = true;
+            if (Raw)
+            {
+                Raw->Cancel();
+                Raw->Close();
+            }
+        };
+
+        Deadline.expires_after(Timeout);
+        Deadline.async_wait(OnDeadline);
+        Net::co_spawn(IoContext, std::move(Operation), OnComplete);
+        IoContext.run();
+        return Outcome;
+    }
+
+    /// 客户端：TLS 握手 + 数据 echo + 服务端半关观测。
+    [[nodiscard]] auto DoTlsClient(Preview::SharedTransmission Raw, Ssl::context &ClientContext,
+                                   const std::string &Payload) -> Net::awaitable<ConnectionResult>
+    {
+        Preview::Transport::Connector Connector(std::move(Raw));
+        auto Stream = std::make_shared<Ssl::stream<Preview::Transport::Connector>>(
+            std::move(Connector), ClientContext);
+        boost::system::error_code Error;
+        co_await Stream->async_handshake(Ssl::stream_base::client,
+                                         Net::redirect_error(Net::use_awaitable, Error));
+        if (Error)
+        {
+            Stream->next_layer().Transmission().Close();
+            co_return ConnectionResult{};
         }
-        std::error_code w_ec;
-        co_await trans->async_write_some(std::span<const std::byte>(buf.data(), n), w_ec);
-        *Ok = !w_ec;
-        co_return;
+
+        const auto Written = co_await Net::async_write(
+            *Stream, Net::buffer(Payload.data(), Payload.size()),
+            Net::redirect_error(Net::use_awaitable, Error));
+        if (Error || Written != Payload.size())
+        {
+            Stream->next_layer().Transmission().Close();
+            co_return ConnectionResult{};
+        }
+
+        std::array<char, 256> Buffer{};
+        if (Payload.size() > Buffer.size())
+        {
+            Stream->next_layer().Transmission().Close();
+            co_return ConnectionResult{};
+        }
+        Error.clear();
+        const auto Read = co_await Net::async_read(
+            *Stream, Net::buffer(Buffer.data(), Payload.size()),
+            Net::redirect_error(Net::use_awaitable, Error));
+        if (Error || Read != Payload.size() ||
+            std::memcmp(Buffer.data(), Payload.data(), Payload.size()) != 0)
+        {
+            Stream->next_layer().Transmission().Close();
+            co_return ConnectionResult{};
+        }
+
+        Stream->next_layer().Transmission().Close();
+        co_return ConnectionResult{true, false, false};
+    }
+
+    /// 服务端：Native Accept + 完整数据 echo + 半关。
+    [[nodiscard]] auto DoNativeServer(Preview::SharedTransmission Raw, Ssl::context &ServerContext,
+                                      const std::string &Payload) -> Net::awaitable<ConnectionResult>
+    {
+        auto Transport = co_await Preview::Native::Accept(std::move(Raw), ServerContext);
+        if (!Transport || Payload.size() > 256)
+        {
+            if (Transport)
+            {
+                Transport->Close();
+            }
+            co_return ConnectionResult{};
+        }
+
+        std::array<std::byte, 256> Buffer{};
+        const auto PayloadBytes = std::span<const std::byte>(
+            reinterpret_cast<const std::byte *>(Payload.data()), Payload.size());
+        std::error_code Error;
+        const auto Read = co_await Transport->AsyncRead(std::span<std::byte>(Buffer).first(Payload.size()), Error);
+        if (Error || Read != Payload.size() ||
+            std::memcmp(Buffer.data(), Payload.data(), Payload.size()) != 0)
+        {
+            Transport->Close();
+            co_return ConnectionResult{};
+        }
+
+        Error.clear();
+        const auto Written = co_await Transport->AsyncWrite(PayloadBytes, Error);
+        if (Error || Written != Payload.size())
+        {
+            Transport->Close();
+            co_return ConnectionResult{};
+        }
+        Transport->Close();
+        co_return ConnectionResult{true, false, false};
+    }
+
+    /// 客户端：Native Connect + 完整数据 echo + 服务端半关观测。
+    [[nodiscard]] auto DoNativeClient(Preview::SharedTransmission Raw, Ssl::context &ClientContext,
+                                      const std::string &Payload) -> Net::awaitable<ConnectionResult>
+    {
+        auto Transport = co_await Preview::Native::Connect(std::move(Raw), ClientContext, "Native-test");
+        if (!Transport || Payload.size() > 256)
+        {
+            if (Transport)
+            {
+                Transport->Close();
+            }
+            co_return ConnectionResult{};
+        }
+
+        const auto PayloadBytes = std::span<const std::byte>(
+            reinterpret_cast<const std::byte *>(Payload.data()), Payload.size());
+        std::error_code Error;
+        const auto Written = co_await Transport->AsyncWrite(PayloadBytes, Error);
+        if (Error || Written != Payload.size())
+        {
+            Transport->Close();
+            co_return ConnectionResult{};
+        }
+
+        std::array<std::byte, 256> Buffer{};
+        Error.clear();
+        const auto Read = co_await Transport->AsyncRead(std::span<std::byte>(Buffer).first(Payload.size()), Error);
+        if (Error || Read != Payload.size() ||
+            std::memcmp(Buffer.data(), Payload.data(), Payload.size()) != 0)
+        {
+            Transport->Close();
+            co_return ConnectionResult{};
+        }
+
+        Transport->Close();
+        co_return ConnectionResult{true, false, false};
+    }
+
+    /// 客户端：只执行 TLS 握手，供证书校验失败用例使用。
+    [[nodiscard]] auto DoVerifyClient(Preview::SharedTransmission Raw, Ssl::context &ClientContext)
+        -> Net::awaitable<ConnectionResult>
+    {
+        Preview::Transport::Connector Connector(std::move(Raw));
+        auto Stream = std::make_shared<Ssl::stream<Preview::Transport::Connector>>(
+            std::move(Connector), ClientContext);
+        boost::system::error_code Error;
+        co_await Stream->async_handshake(Ssl::stream_base::client,
+                                         Net::redirect_error(Net::use_awaitable, Error));
+        Stream->next_layer().Transmission().Close();
+        co_return ConnectionResult{!Error, false, false};
+    }
+
+    /// 服务端：只执行 Native TLS 握手，供证书校验失败用例使用。
+    [[nodiscard]] auto DoVerifyServer(Preview::SharedTransmission Raw, Ssl::context &ServerContext)
+        -> Net::awaitable<ConnectionResult>
+    {
+        auto Transport = co_await Preview::Native::Accept(std::move(Raw), ServerContext);
+        if (Transport)
+        {
+            Transport->Close();
+            co_return ConnectionResult{true, false, false};
+        }
+        co_return ConnectionResult{};
+    }
+
+    /// 服务端：在无客户端 ClientHello 时用底层读超时结束握手。
+    [[nodiscard]] auto DoNativeServerTimeout(Preview::SharedTransmission Raw,
+                                             Ssl::context &ServerContext) -> Net::awaitable<ConnectionResult>
+    {
+        Raw->SetTimeout(std::chrono::milliseconds(50));
+        auto Transport = co_await Preview::Native::Accept(std::move(Raw), ServerContext);
+        if (Transport)
+        {
+            Transport->Close();
+            co_return ConnectionResult{true, false, false};
+        }
+        co_return ConnectionResult{false, false, true};
     }
 } // namespace
 
 TEST(NativeConn, TlsHandshakeAndPassthrough)
 {
-    net::io_context ioc;
+    Net::io_context IoContext;
 
-    ssl::context server_ctx(ssl::context::tlsv13);
-    load_self_signed(server_ctx);
+    Ssl::context ServerContext(Ssl::context::tlsv13);
+    ASSERT_TRUE(LoadSelfSigned(ServerContext));
 
-    ssl::context client_ctx(ssl::context::tlsv13);
-    client_ctx.set_verify_mode(ssl::verify_none);
+    Ssl::context ClientContext(Ssl::context::tlsv13);
+    ClientContext.set_verify_mode(Ssl::verify_none);
 
-    auto [a, b] = MakeMemoryPair(ioc.get_executor());
-    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
-    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+    auto [A, B] = Preview::MakeMemoryPair(IoContext.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto Server = std::make_shared<Preview::MemoryStream>(std::move(B));
+    const std::string Payload = "Native-tls-passthrough";
 
-    const std::string payload = "Native-tls-passthrough";
-    auto client_ok = std::make_shared<bool>(false);
-    auto client_done = std::make_shared<bool>(false);
-    auto server_ok = std::make_shared<bool>(false);
-
-    std::exception_ptr ep;
-    auto coro = [&]() -> net::awaitable<void>
-    {
-        net::co_spawn(ioc.get_executor(),
-                      DoTlsClient(sa, client_ctx, payload, client_ok, client_done), net::detached);
-        co_await DoNativeServer(sb, server_ctx, payload, server_ok);
-        net::steady_timer deadline(ioc);
-        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-        while (!*client_done && std::chrono::steady_clock::now() < end)
-        {
-            deadline.expires_after(std::chrono::milliseconds(10));
-            co_await deadline.async_wait(net::use_awaitable);
-        }
-        ioc.stop();
-    };
-    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; });
-    ioc.run();
-    if (ep)
-    {
-        std::rethrow_exception(ep);
-    }
-    EXPECT_TRUE(*server_ok);
-    EXPECT_TRUE(*client_ok);
+    const auto Outcome = RunPair(
+        IoContext, Client, Server, DoTlsClient(Client, ClientContext, Payload),
+        DoNativeServer(Server, ServerContext, Payload), std::chrono::seconds(2));
+    ASSERT_TRUE(Outcome.ClientCompleted);
+    ASSERT_TRUE(Outcome.ServerCompleted);
+    ASSERT_FALSE(Outcome.ClientException);
+    ASSERT_FALSE(Outcome.ServerException);
+    EXPECT_FALSE(Outcome.DeadlineExpired);
+    EXPECT_TRUE(Outcome.Server.Success);
+    EXPECT_TRUE(Outcome.Client.Success);
+    Client->Close();
+    Server->Close();
 }
 
-// 客户端校验失败：verify_peer 且无受信 CA → 握手失败
+TEST(NativeConn, ClientFactoryTlsHandshakeAndPassthrough)
+{
+    Net::io_context IoContext;
+
+    Ssl::context ServerContext(Ssl::context::tlsv13);
+    ASSERT_TRUE(LoadSelfSigned(ServerContext));
+
+    Ssl::context ClientContext(Ssl::context::tlsv13);
+    ClientContext.set_verify_mode(Ssl::verify_none);
+
+    auto [A, B] = Preview::MakeMemoryPair(IoContext.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto Server = std::make_shared<Preview::MemoryStream>(std::move(B));
+    const std::string Payload = "Native-client-factory";
+
+    const auto Outcome = RunPair(
+        IoContext, Client, Server, DoNativeClient(Client, ClientContext, Payload),
+        DoNativeServer(Server, ServerContext, Payload), std::chrono::seconds(2));
+    ASSERT_TRUE(Outcome.ClientCompleted);
+    ASSERT_TRUE(Outcome.ServerCompleted);
+    ASSERT_FALSE(Outcome.ClientException);
+    ASSERT_FALSE(Outcome.ServerException);
+    EXPECT_FALSE(Outcome.DeadlineExpired);
+    EXPECT_TRUE(Outcome.Server.Success);
+    EXPECT_TRUE(Outcome.Client.Success);
+    Client->Close();
+    Server->Close();
+}
+
+// 客户端校验失败：verify_peer 且无受信 CA -> 握手失败。
 TEST(NativeConn, ClientVerifyFailure)
 {
-    net::io_context ioc;
+    Net::io_context IoContext;
 
-    ssl::context server_ctx(ssl::context::tlsv13);
-    load_self_signed(server_ctx);
+    Ssl::context ServerContext(Ssl::context::tlsv13);
+    ASSERT_TRUE(LoadSelfSigned(ServerContext));
 
-    ssl::context client_ctx(ssl::context::tlsv13);
-    client_ctx.set_verify_mode(ssl::verify_peer); // 无 CA → 自签被拒
+    Ssl::context ClientContext(Ssl::context::tlsv13);
+    ClientContext.set_verify_mode(Ssl::verify_peer);
 
-    auto [a, b] = MakeMemoryPair(ioc.get_executor());
-    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
-    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+    auto [A, B] = Preview::MakeMemoryPair(IoContext.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto Server = std::make_shared<Preview::MemoryStream>(std::move(B));
 
-    auto client_ok = std::make_shared<bool>(true);
-    auto server_ok = std::make_shared<bool>(false);
-
-    std::exception_ptr ep;
-    auto coro = [&]() -> net::awaitable<void>
-    {
-        net::co_spawn(
-            ioc.get_executor(),
-            [&]() -> net::awaitable<void>
-            {
-                Preview::Transport::Connector Conn(sa);
-                auto Stream = std::make_shared<ssl::stream<Preview::Transport::Connector>>(
-                    std::move(Conn), client_ctx);
-                boost::system::error_code ec;
-                co_await Stream->async_handshake(ssl::stream_base::client,
-                                                 net::redirect_error(net::use_awaitable, ec));
-                // 客户端验证失败（certificate verify Failed）
-                if (ec)
-                {
-                    *client_ok = false;
-                }
-            },
-            net::detached);
-        // 服务端握手应因客户端中止而失败
-        auto trans = co_await Preview::Native::Accept(sb, server_ctx);
-        if (!trans)
-        {
-            *server_ok = true;
-        }
-    };
-    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-    ioc.run();
-    if (ep)
-    {
-        std::rethrow_exception(ep);
-    }
-    EXPECT_TRUE(*server_ok); // 服务端检测到握手失败
-    EXPECT_FALSE(*client_ok); // 客户端验证失败
+    const auto Outcome = RunPair(
+        IoContext, Client, Server, DoVerifyClient(Client, ClientContext),
+        DoVerifyServer(Server, ServerContext), std::chrono::seconds(2));
+    ASSERT_TRUE(Outcome.ClientCompleted);
+    ASSERT_TRUE(Outcome.ServerCompleted);
+    ASSERT_FALSE(Outcome.ClientException);
+    ASSERT_FALSE(Outcome.ServerException);
+    EXPECT_FALSE(Outcome.DeadlineExpired);
+    EXPECT_FALSE(Outcome.Client.Success);
+    EXPECT_FALSE(Outcome.Server.Success);
+    Client->Close();
+    Server->Close();
 }
 
-// 半包握手：客户端分片发送 ClientHello → 服务端仍完成握手
+// 服务端没有收到 ClientHello 时，底层读超时必须结束 Native 握手。
+TEST(NativeConn, ServerHandshakeTimeout)
+{
+    Net::io_context IoContext;
+
+    Ssl::context ServerContext(Ssl::context::tlsv13);
+    ASSERT_TRUE(LoadSelfSigned(ServerContext));
+
+    auto [A, B] = Preview::MakeMemoryPair(IoContext.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto Server = std::make_shared<Preview::MemoryStream>(std::move(B));
+
+    const auto Outcome = RunSingle(
+        IoContext, Server, DoNativeServerTimeout(Server, ServerContext), std::chrono::seconds(2));
+    ASSERT_TRUE(Outcome.Completed);
+    ASSERT_FALSE(Outcome.Exception);
+    EXPECT_FALSE(Outcome.DeadlineExpired);
+    EXPECT_FALSE(Outcome.Result.Success);
+    EXPECT_TRUE(Outcome.Result.TimedOut);
+    Client->Close();
+    Server->Close();
+}
+
+// 半包握手：客户端分片发送 ClientHello -> 服务端仍完成握手。
 TEST(NativeConn, FragmentedClientHello)
 {
-    net::io_context ioc;
+    Net::io_context IoContext;
 
-    ssl::context server_ctx(ssl::context::tlsv13);
-    load_self_signed(server_ctx);
+    Ssl::context ServerContext(Ssl::context::tlsv13);
+    ASSERT_TRUE(LoadSelfSigned(ServerContext));
 
-    ssl::context client_ctx(ssl::context::tlsv13);
-    client_ctx.set_verify_mode(ssl::verify_none);
+    Ssl::context ClientContext(Ssl::context::tlsv13);
+    ClientContext.set_verify_mode(Ssl::verify_none);
 
-    auto [a, b] = MakeMemoryPair(ioc.get_executor());
-    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
-    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+    auto [A, B] = Preview::MakeMemoryPair(IoContext.get_executor());
+    auto Client = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto Server = std::make_shared<Preview::MemoryStream>(std::move(B));
+    const std::string Payload = "fragmented-hello";
 
-    const std::string payload = "fragmented-hello";
-    auto client_ok = std::make_shared<bool>(false);
-    auto client_done = std::make_shared<bool>(false);
-    auto server_ok = std::make_shared<bool>(false);
-
-    std::exception_ptr ep;
-    auto coro = [&]() -> net::awaitable<void>
-    {
-        net::co_spawn(ioc.get_executor(),
-                      DoTlsClient(sa, client_ctx, payload, client_ok, client_done), net::detached);
-        co_await DoNativeServer(sb, server_ctx, payload, server_ok);
-        net::steady_timer deadline(ioc);
-        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-        while (!*client_done && std::chrono::steady_clock::now() < end)
-        {
-            deadline.expires_after(std::chrono::milliseconds(10));
-            co_await deadline.async_wait(net::use_awaitable);
-        }
-        ioc.stop();
-    };
-    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; });
-    ioc.run();
-    if (ep)
-    {
-        std::rethrow_exception(ep);
-    }
-    EXPECT_TRUE(*server_ok);
-    EXPECT_TRUE(*client_ok);
+    const auto Outcome = RunPair(
+        IoContext, Client, Server, DoTlsClient(Client, ClientContext, Payload),
+        DoNativeServer(Server, ServerContext, Payload), std::chrono::seconds(2));
+    ASSERT_TRUE(Outcome.ClientCompleted);
+    ASSERT_TRUE(Outcome.ServerCompleted);
+    ASSERT_FALSE(Outcome.ClientException);
+    ASSERT_FALSE(Outcome.ServerException);
+    EXPECT_FALSE(Outcome.DeadlineExpired);
+    EXPECT_TRUE(Outcome.Server.Success);
+    EXPECT_TRUE(Outcome.Client.Success);
+    Client->Close();
+    Server->Close();
 }

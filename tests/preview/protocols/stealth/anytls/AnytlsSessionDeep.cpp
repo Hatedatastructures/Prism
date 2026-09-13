@@ -37,7 +37,7 @@
 
 using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace anytls = psm::handshake::anytls;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 namespace
 {
@@ -160,15 +160,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -204,15 +204,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -253,15 +253,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -303,15 +303,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -350,15 +350,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -396,15 +396,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -440,15 +440,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -483,15 +483,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -532,15 +532,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -585,15 +585,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -639,15 +639,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -690,15 +690,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -740,15 +740,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -787,15 +787,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -830,15 +830,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -876,15 +876,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -919,15 +919,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -962,15 +962,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1013,15 +1013,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1067,15 +1067,15 @@ namespace
         fx.transport->InjectRead(frame_bytes.data(), frame_bytes.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1110,15 +1110,15 @@ namespace
         fx.transport->close();
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1155,23 +1155,23 @@ namespace
         fx.transport->InjectRead(short_data.data(), short_data.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
 
             // 等待 read_exact 读取 3 字节，然后挂起在定时器上等待更多数据
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(50));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             // 关闭让 recv_loop 的 read_exact 返回 false → recv_loop 退出
             fx.transport->close();
 
             timer.expires_after(std::chrono::milliseconds(50));
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1209,15 +1209,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1251,12 +1251,12 @@ namespace
         std::error_code ec;
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             auto n = co_await fx.session->write_psh(1, data, ec);
             EXPECT_EQ(n, 2) << "write_psh: returned 2";
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1290,8 +1290,8 @@ namespace
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->write_fin(1, ec); };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        auto coro = [&]() -> Net::awaitable<void> { co_await fx.session->write_fin(1, ec); };
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1323,8 +1323,8 @@ namespace
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->write_synack(1, ec); };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        auto coro = [&]() -> Net::awaitable<void> { co_await fx.session->write_synack(1, ec); };
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1358,8 +1358,8 @@ namespace
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->send_waste_frame(0, ec); };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        auto coro = [&]() -> Net::awaitable<void> { co_await fx.session->send_waste_frame(0, ec); };
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1394,8 +1394,8 @@ namespace
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->send_waste_frame(0, ec); };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        auto coro = [&]() -> Net::awaitable<void> { co_await fx.session->send_waste_frame(0, ec); };
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1431,8 +1431,8 @@ namespace
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void> { co_await fx.session->send_waste_frame(1, ec); };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        auto coro = [&]() -> Net::awaitable<void> { co_await fx.session->send_waste_frame(1, ec); };
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1466,9 +1466,9 @@ namespace
 
         std::error_code ec;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         { co_await fx.session->write_frame(anytls::frame_input{anytls::command::psh, 1, {}, ec}); };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1504,15 +1504,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1548,7 +1548,7 @@ namespace
 
         bool ok = false;
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             auto [ec, tup] = co_await fx.session->wait_first_stream();
             auto &[id, preread] = tup;
@@ -1557,7 +1557,7 @@ namespace
                 ok = true;
             }
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1591,15 +1591,15 @@ namespace
         fx.transport->SetReadError(std::make_error_code(std::errc::io_error));
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1649,15 +1649,15 @@ namespace
         fx.transport->InjectRead(f3.data(), f3.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1708,15 +1708,15 @@ namespace
         fx.transport->close();
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1756,15 +1756,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -1799,15 +1799,15 @@ namespace
         fx.transport->InjectRead(frame.data(), frame.size());
 
         std::exception_ptr ep;
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.session->start();
-            net::steady_timer timer(fx.ioc().get_executor());
+            Net::steady_timer timer(fx.ioc().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
         };
-        net::co_spawn(fx.ioc().get_executor(), coro(),
+        Net::co_spawn(fx.ioc().get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;

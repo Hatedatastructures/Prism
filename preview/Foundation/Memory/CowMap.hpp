@@ -55,15 +55,15 @@ namespace Preview::Memory
          * @param key 键
          * @return 找到返回 true（值经 out 返回副本）
          */
-        [[nodiscard]] auto Find(const Key &key, Value &out) const -> bool
+        [[nodiscard]] auto Find(const Key &KeyObject, Value &ValueOut) const -> bool
         {
             const auto Snap = Snapshot();
-            const auto It = Snap->find(key);
+            const auto It = Snap->find(KeyObject);
             if (It == Snap->end())
             {
                 return false;
             }
-            out = It->second;
+            ValueOut = It->second;
             return true;
         }
 
@@ -72,10 +72,10 @@ namespace Preview::Memory
          * @param key 键
          * @param value 值
          */
-        void Set(const Key &key, Value value)
+        void Set(const Key &KeyObject, Value ValueObject)
         {
-            // CAS 失败重试会再次执行 UpdateFn，value 必须保持可拷贝语义
-            Update([&](MapT &m) { m[key] = value; });
+            // CAS 失败重试会再次执行 UpdateFn，ValueObject 必须保持可拷贝语义
+            Update([&](MapT &Map) { Map[KeyObject] = ValueObject; });
         }
 
         /**
@@ -83,10 +83,10 @@ namespace Preview::Memory
          * @param key 键
          * @return 存在并移除返回 true
          */
-        auto Remove(const Key &key) -> bool
+        auto Remove(const Key &KeyObject) -> bool
         {
             bool Removed = false;
-            Update([&](MapT &m) { Removed = m.erase(key) > 0; });
+            Update([&](MapT &Map) { Removed = Map.erase(KeyObject) > 0; });
             return Removed;
         }
 
@@ -97,13 +97,13 @@ namespace Preview::Memory
          * @details 复制当前快照 → 应用更新 → CAS 替换，失败重试
          */
         template <typename UpdateFn>
-        void Update(UpdateFn &&Fn)
+        void Update(UpdateFn &&Function)
         {
             auto Current = Map_.load(std::memory_order_acquire);
             while (true)
             {
                 auto Next = std::make_shared<MapT>(*Current);
-                Fn(*Next);
+                Function(*Next);
                 if (Map_.compare_exchange_strong(Current, Next, std::memory_order_release,
                                                  std::memory_order_acquire))
                 {

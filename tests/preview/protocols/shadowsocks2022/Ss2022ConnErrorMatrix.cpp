@@ -19,87 +19,128 @@
 #include <vector>
 
 #include <preview/Transport/MemoryStream.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
-    namespace ss = Preview::Shadowsocks2022;
+    namespace Preview = ::Preview;
+    namespace Net = boost::asio;
+    namespace SS2022 = Preview::Shadowsocks2022;
+    using Preview::AsBytes;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     /**
      * @brief 驱动协程运行
      */
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = ErrorValue;
+                          IoContext.stop();
                       });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     TEST(Ss2022ConnErrorMatrix, BadPassword)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
         {
             // 服务端正确密码，客户端错误密码
-            Shadowsocks2022::ServerConfig srv_cfg;
-            srv_cfg.password = "Server-correct";
-            auto b_stream = std::make_shared<MemoryStream>(std::move(b));
+            SS2022::ServerConfig ServerConfig;
+            ServerConfig.password = "Server-correct";
+            auto ServerStream = std::make_shared<MemoryStream>(std::move(ServerMemory));
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                auto [err, req, Conn] = co_await Shadowsocks2022::Accept(b_stream, srv_cfg);
-                EXPECT_EQ(err, Error::BadAuth); // 错误密码 → 固定头解密失败
-                b_stream->Close();           // 解除客户端响应读取阻塞（EOF）
+                auto [ErrorValue, Request, Connection] = co_await SS2022::Accept(
+                    ServerStream, ServerConfig);
+                EXPECT_EQ(ErrorValue, Error::BadAuth); // 错误密码 → 固定头解密失败
+                ServerStream->Close();                 // 解除客户端响应读取阻塞（EOF）
             };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+            Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::detached);
 
             // 客户端用错误密码握手：首包正常发送，但响应校验失败
-            Shadowsocks2022::ClientConfig ccfg;
-            ccfg.password = "Client-wrong";
-            auto [err, Conn] = co_await Shadowsocks2022::Connect(
-                std::make_shared<MemoryStream>(std::move(a)), ccfg,
-                ss::Address{ss::AddressType::Domain, "t.internal", 443});
+            SS2022::ClientConfig ClientConfig;
+            ClientConfig.password = "Client-wrong";
+            auto [ErrorValue, Connection] = co_await SS2022::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientMemory)), ClientConfig,
+                SS2022::Address{SS2022::AddressType::Domain, "t.internal", 443});
             // 客户端侧：错误密码 → 服务端静默断开（bad_auth 后不写响应）→ 读响应 EOF
-            EXPECT_EQ(err, Error::IoError);
+            EXPECT_EQ(ErrorValue, Error::IoError);
         });
     }
 
     TEST(Ss2022ConnErrorMatrix, TruncatedHeader)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
         {
-            Shadowsocks2022::ServerConfig cfg;
-            cfg.password = "Server-Secret";
+            SS2022::ServerConfig Config;
+            Config.password = "Server-Secret";
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                auto [err, req, Conn] =
-                    co_await Shadowsocks2022::Accept(std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::IoError); // 半包后 EOF
+                auto [ErrorValue, Request, Connection] = co_await SS2022::Accept(
+                    std::make_shared<MemoryStream>(std::move(ServerMemory)), Config);
+                EXPECT_EQ(ErrorValue, Error::IoError); // 半包后 EOF
             };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+            Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::detached);
 
             // 只发 4 字节（salt 未收满）后关闭
-            const std::vector<std::uint8_t> wire{0x01, 0x02, 0x03, 0x04};
-            std::error_code ec;
-            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-            a.Close();
+            const std::vector<std::uint8_t> Wire{0x01, 0x02, 0x03, 0x04};
+            std::error_code ErrorCode;
+            co_await ClientMemory.async_write_some(AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+            ClientMemory.Close();
         });
+    }
+
+    TEST(Ss2022ConnErrorMatrix, RejectsOverreportedRead)
+    {
+        Net::io_context IoContext;
+        auto Raw = std::make_shared<Preview::PreviewMockTransport>(IoContext.get_executor());
+        Raw->OverreportRead = true;
+
+        RunCoroutine(IoContext,
+                     [&]() -> Net::awaitable<void>
+                     {
+                         auto Server = std::make_shared<SS2022::Conn<>>(std::string("Server-Secret"));
+                         auto [ErrorValue, Request] = co_await Server->ReadHandshake(Raw);
+                         EXPECT_EQ(ErrorValue, Error::IoError);
+                         EXPECT_EQ(Raw->ReadsDone, 1u);
+                         (void)Request;
+                     });
+    }
+
+    TEST(Ss2022ConnErrorMatrix, RejectsOverreportedWrite)
+    {
+        Net::io_context IoContext;
+        auto Raw = std::make_shared<Preview::PreviewMockTransport>(IoContext.get_executor());
+        Raw->OverreportWrite = true;
+        Raw->EofOnDrain = true;
+
+        RunCoroutine(IoContext,
+                     [&]() -> Net::awaitable<void>
+                     {
+                         auto Client = std::make_shared<SS2022::Conn<>>(std::string("Server-Secret"));
+                         const auto ErrorValue = co_await Client->WriteHandshake(
+                             Raw, SS2022::Address{SS2022::AddressType::Domain, "example.com", 443});
+                         EXPECT_EQ(ErrorValue, Error::IoError);
+                         EXPECT_EQ(Raw->ReadsDone, 0u);
+                     });
     }
 
 } // namespace

@@ -4,13 +4,19 @@
  */
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <TestSupport/Benchmark/Bench.hpp>
@@ -20,198 +26,270 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Socks5 = Preview::Socks5;
+    using Preview::BenchOptions;
+    using Preview::BenchReport;
+    using Preview::BenchThroughputTx;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
-    template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    using CompletionChannel = Net::experimental::channel<void(boost::system::error_code)>;
+
+    template <typename Awaitable>
+    auto RunCoro(
+        Net::io_context &IoContext,
+        Awaitable Operation) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        auto Completion = [&](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(IoContext, std::move(Operation), std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto make_dst() -> Socks5::Address
+    [[nodiscard]] auto MakeDestination() -> Socks5::Address
     {
-        Socks5::Address dst{};
-        dst.Type = Socks5::AddressType::Ipv4;
-        dst.Host = "93.184.216.34";
-        dst.Port = 443;
-        return dst;
+        Socks5::Address Destination{};
+        Destination.Type = Socks5::AddressType::Ipv4;
+        Destination.Host = "93.184.216.34";
+        Destination.Port = 443;
+        return Destination;
     }
 
     TEST(Socks5ClientServer, HandshakeAndTransfer100MB)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
 
-        constexpr std::size_t kTotal = 100 * 1024 * 1024;
-        constexpr std::size_t kBlock = 64 * 1024;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto [err, req, srv] = co_await Socks5::Accept(
-                             std::make_shared<MemoryStream>(std::move(b)), Socks5::ServerConfig{});
-                         if (err != Error::None)
-                         {
-                             EXPECT_TRUE(false) << "Accept Failed";
-                             co_return;
-                         }
-                         EXPECT_EQ(req.Target.Port, 443u);
-                         std::array<std::byte, kBlock> buf{};
-                         std::size_t got = 0;
-                         while (got < kTotal)
-                         {
-                             std::error_code ec;
-                             const auto n = co_await srv->async_read_some(buf, ec);
-                             if (ec || n == 0)
-                             {
-                                 break;
-                             }
-                             got += n;
-                         }
-                         EXPECT_EQ(got, kTotal);
-                         srv->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+        constexpr std::size_t TotalBytes = 100 * 1024 * 1024;
+        constexpr std::size_t BlockSize = 64 * 1024;
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    auto ServerDone = std::make_shared<CompletionChannel>(
+                        IoContext.get_executor(), 1);
+                    auto ServerTransport = std::make_shared<MemoryStream>(std::move(ServerMemory));
+                    auto ServerCoroutine = [
+                        ServerTransport = std::move(ServerTransport), TotalBytes, BlockSize]() mutable
+                        -> Net::awaitable<void>
+                    {
+                        Socks5::ServerConfig ServerConfig{};
+                        auto [AcceptError, Request, Connection] = co_await Socks5::Accept(
+                            std::move(ServerTransport), ServerConfig);
+                        if (AcceptError != Error::None || !Connection)
+                        {
+                            EXPECT_TRUE(false) << "Accept Failed";
+                            co_return;
+                        }
+                        EXPECT_EQ(Request.Target.Port, 443u);
+                        std::array<std::byte, BlockSize> Buffer{};
+                        std::size_t Received = 0;
+                        while (Received < TotalBytes)
+                        {
+                            std::error_code ErrorCode;
+                            const auto ReadSize = co_await Connection->async_read_some(Buffer, ErrorCode);
+                            if (ErrorCode || ReadSize == 0)
+                            {
+                                break;
+                            }
+                            Received += ReadSize;
+                        }
+                        EXPECT_EQ(Received, TotalBytes);
+                        Connection->Close();
+                    };
+                    auto ServerCompletion = [ServerDone](std::exception_ptr) -> void
+                    {
+                        (void)ServerDone->try_send(boost::system::error_code{});
+                    };
+                    Net::co_spawn(
+                        IoContext.get_executor(), std::move(ServerCoroutine), std::move(ServerCompletion));
 
-                     auto [herr, cli] = co_await Socks5::Connect(
-                         std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{}, make_dst());
-                     if (herr != Error::None || !cli)
-                     {
-                         EXPECT_TRUE(false) << "Connect Failed";
-                         co_return;
-                     }
-                     std::vector<std::uint8_t> payload(kBlock, 0x6D);
-                     std::size_t sent = 0;
-                     std::size_t yield_cnt = 0;
-                     while (sent < kTotal)
-                     {
-                         if ((++yield_cnt % 16) == 0)
-                         {
-                             co_await net::post(ioc.get_executor(), net::use_awaitable);
-                         }
-                         const auto n = std::min(kBlock, kTotal - sent);
-                         std::size_t Done = 0;
-                         while (Done < n)
-                         {
-                             std::error_code ec;
-                             const auto w = co_await cli->async_write_some(
-                                 std::span<const std::byte>(
-                                     reinterpret_cast<const std::byte *>(payload.data() + Done), n - Done),
-                                 ec);
-                             if (ec || w == 0)
-                             {
-                                 break;
-                             }
-                             Done += w;
-                         }
-                         if (Done < n)
-                         {
-                             break;
-                         }
-                         sent += n;
-                     }
-                     EXPECT_EQ(sent, kTotal);
-                     cli->Close();
-                 });
+                    Socks5::ClientConfig ClientConfig{};
+                    auto ClientTransport = std::make_shared<MemoryStream>(std::move(ClientMemory));
+                    const auto Destination = MakeDestination();
+                    auto [ConnectError, Client] = co_await Socks5::Connect(
+                        std::move(ClientTransport), ClientConfig, Destination);
+                    if (ConnectError != Error::None || !Client)
+                    {
+                        EXPECT_TRUE(false) << "Connect Failed";
+                        co_return;
+                    }
+                    std::vector<std::uint8_t> Payload(BlockSize, 0x6D);
+                    std::size_t Sent = 0;
+                    std::size_t YieldCount = 0;
+                    while (Sent < TotalBytes)
+                    {
+                        if ((++YieldCount % 16) == 0)
+                        {
+                            co_await Net::post(IoContext.get_executor(), Net::use_awaitable);
+                        }
+                        const auto ChunkSize = std::min(BlockSize, TotalBytes - Sent);
+                        std::size_t WrittenTotal = 0;
+                        while (WrittenTotal < ChunkSize)
+                        {
+                            std::error_code ErrorCode;
+                            const auto PayloadBuffer = std::span<const std::byte>(
+                                reinterpret_cast<const std::byte *>(Payload.data() + WrittenTotal),
+                                ChunkSize - WrittenTotal);
+                            const auto Written = co_await Client->async_write_some(PayloadBuffer, ErrorCode);
+                            if (ErrorCode || Written == 0)
+                            {
+                                break;
+                            }
+                            WrittenTotal += Written;
+                        }
+                        if (WrittenTotal < ChunkSize)
+                        {
+                            break;
+                        }
+                        Sent += ChunkSize;
+                    }
+                    EXPECT_EQ(Sent, TotalBytes);
+                    Client->Close();
+                    co_await ServerDone->async_receive(Net::use_awaitable);
+                });
     }
 
     TEST(Socks5ClientServer, ThroughputLatency)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
 
-        BenchReport tp{};
-        BenchReport lat{};
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto [err, req, srv] = co_await Socks5::Accept(
-                             std::make_shared<MemoryStream>(std::move(b)), Socks5::ServerConfig{});
-                         if (err != Error::None)
-                         {
-                             co_return;
-                         }
-                         std::array<std::byte, 128 * 1024> buf{};
-                         while (true)
-                         {
-                             std::error_code ec;
-                             const auto n = co_await srv->async_read_some(buf, ec);
-                             if (ec || n == 0)
-                             {
-                                 break;
-                             }
-                             co_await srv->async_write_some(std::span(buf.data(), n), ec);
-                         }
-                         srv->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+        BenchReport ThroughputReport{};
+        BenchReport LatencyReport{};
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    auto ServerDone = std::make_shared<CompletionChannel>(
+                        IoContext.get_executor(), 1);
+                    auto ServerTransport = std::make_shared<MemoryStream>(std::move(ServerMemory));
+                    auto ServerCoroutine = [ServerTransport = std::move(ServerTransport)]() mutable
+                        -> Net::awaitable<void>
+                    {
+                        Socks5::ServerConfig ServerConfig{};
+                        auto [AcceptError, Request, Connection] = co_await Socks5::Accept(
+                            std::move(ServerTransport), ServerConfig);
+                        (void)Request;
+                        if (AcceptError != Error::None || !Connection)
+                        {
+                            co_return;
+                        }
+                        std::array<std::byte, 128 * 1024> Buffer{};
+                        while (true)
+                        {
+                            std::error_code ErrorCode;
+                            const auto ReadSize = co_await Connection->async_read_some(Buffer, ErrorCode);
+                            if (ErrorCode || ReadSize == 0)
+                            {
+                                break;
+                            }
+                            const auto Response = std::span<const std::byte>(Buffer.data(), ReadSize);
+                            ErrorCode.clear();
+                            (void)co_await Connection->async_write_some(Response, ErrorCode);
+                        }
+                        Connection->Close();
+                    };
+                    auto ServerCompletion = [ServerDone](std::exception_ptr) -> void
+                    {
+                        (void)ServerDone->try_send(boost::system::error_code{});
+                    };
+                    Net::co_spawn(
+                        IoContext.get_executor(), std::move(ServerCoroutine), std::move(ServerCompletion));
 
-                     auto [herr, cli] = co_await Socks5::Connect(
-                         std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{}, make_dst());
-                     if (herr != Error::None || !cli)
-                     {
-                         co_return;
-                     }
-                     BenchOptions opt;
-                     opt.Total = 64 * 1024 * 1024;
-                     opt.Block = 64 * 1024;
-                     tp = co_await BenchThroughputTx(*cli, *cli, opt);
-                     // 延迟用新连接（回环小包 RTT）
-                     auto [a2, b2] = MakeMemoryPair(ioc.get_executor());
-                     auto server_coro2 = [&]() -> net::awaitable<void>
-                     {
-                         auto [err, req, srv] = co_await Socks5::Accept(
-                             std::make_shared<MemoryStream>(std::move(b2)), Socks5::ServerConfig{});
-                         if (err != Error::None)
-                         {
-                             co_return;
-                         }
-                         std::array<std::byte, 128 * 1024> buf{};
-                         while (true)
-                         {
-                             std::error_code ec;
-                             const auto n = co_await srv->async_read_some(buf, ec);
-                             if (ec || n == 0)
-                             {
-                                 break;
-                             }
-                             co_await srv->async_write_some(std::span(buf.data(), n), ec);
-                         }
-                         srv->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro2(), net::detached);
-                     auto [herr2, cli2] = co_await Socks5::Connect(
-                         std::make_shared<MemoryStream>(std::move(a2)), Socks5::ClientConfig{}, make_dst());
-                     if (herr2 != Error::None || !cli2)
-                     {
-                         co_return;
-                     }
-                     BenchOptions lopt;
-                     lopt.Total = 1000 * 4 * 1024;
-                     lopt.Block = 4 * 1024;
-                     lat = co_await BenchThroughputTx(*cli2, *cli2, lopt);
-                     cli2->Close();
-                 });
+                    Socks5::ClientConfig ClientConfig{};
+                    auto ClientTransport = std::make_shared<MemoryStream>(std::move(ClientMemory));
+                    const auto Destination = MakeDestination();
+                    auto [ConnectError, Client] = co_await Socks5::Connect(
+                        std::move(ClientTransport), ClientConfig, Destination);
+                    if (ConnectError != Error::None || !Client)
+                    {
+                        co_return;
+                    }
+                    BenchOptions ThroughputOptions;
+                    ThroughputOptions.Total = 64 * 1024 * 1024;
+                    ThroughputOptions.Block = 64 * 1024;
+                    ThroughputReport = co_await BenchThroughputTx(
+                        *Client, *Client, ThroughputOptions);
+                    Client->Close();
+                    co_await ServerDone->async_receive(Net::use_awaitable);
+
+                    auto [LatencyClientMemory, LatencyServerMemory] = MakeMemoryPair(
+                        IoContext.get_executor());
+                    auto LatencyServerDone = std::make_shared<CompletionChannel>(
+                        IoContext.get_executor(), 1);
+                    auto LatencyServerTransport = std::make_shared<MemoryStream>(
+                        std::move(LatencyServerMemory));
+                    auto LatencyServerCoroutine = [
+                        LatencyServerTransport = std::move(LatencyServerTransport)]() mutable
+                        -> Net::awaitable<void>
+                    {
+                        Socks5::ServerConfig ServerConfig{};
+                        auto [AcceptError, Request, Connection] = co_await Socks5::Accept(
+                            std::move(LatencyServerTransport), ServerConfig);
+                        (void)Request;
+                        if (AcceptError != Error::None || !Connection)
+                        {
+                            co_return;
+                        }
+                        std::array<std::byte, 128 * 1024> Buffer{};
+                        while (true)
+                        {
+                            std::error_code ErrorCode;
+                            const auto ReadSize = co_await Connection->async_read_some(Buffer, ErrorCode);
+                            if (ErrorCode || ReadSize == 0)
+                            {
+                                break;
+                            }
+                            const auto Response = std::span<const std::byte>(Buffer.data(), ReadSize);
+                            ErrorCode.clear();
+                            (void)co_await Connection->async_write_some(Response, ErrorCode);
+                        }
+                        Connection->Close();
+                    };
+                    auto LatencyServerCompletion = [LatencyServerDone](std::exception_ptr) -> void
+                    {
+                        (void)LatencyServerDone->try_send(boost::system::error_code{});
+                    };
+                    Net::co_spawn(IoContext.get_executor(), std::move(LatencyServerCoroutine),
+                                  std::move(LatencyServerCompletion));
+
+                    auto LatencyClientTransport = std::make_shared<MemoryStream>(
+                        std::move(LatencyClientMemory));
+                    const auto LatencyDestination = MakeDestination();
+                    auto [LatencyConnectError, LatencyClient] = co_await Socks5::Connect(
+                        std::move(LatencyClientTransport), ClientConfig, LatencyDestination);
+                    if (LatencyConnectError != Error::None || !LatencyClient)
+                    {
+                        co_return;
+                    }
+                    BenchOptions LatencyOptions;
+                    LatencyOptions.Total = 1000 * 4 * 1024;
+                    LatencyOptions.Block = 4 * 1024;
+                    LatencyReport = co_await BenchThroughputTx(
+                        *LatencyClient, *LatencyClient, LatencyOptions);
+                    LatencyClient->Close();
+                    co_await LatencyServerDone->async_receive(Net::use_awaitable);
+                });
 
         std::printf("socks5 throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f p95 %.3f p99 %.3f (min "
                     "%.3f max %.3f) samples=%zu\n",
-                    tp.Mbps, lat.LatencyAvg, lat.LatencyP50, lat.LatencyP95, lat.LatencyP99,
-                    lat.LatencyMin, lat.LatencyMax, lat.Samples);
+                    ThroughputReport.Mbps,
+                    LatencyReport.LatencyAvg,
+                    LatencyReport.LatencyP50,
+                    LatencyReport.LatencyP95,
+                    LatencyReport.LatencyP99,
+                    LatencyReport.LatencyMin,
+                    LatencyReport.LatencyMax,
+                    LatencyReport.Samples);
     }
 
 } // namespace

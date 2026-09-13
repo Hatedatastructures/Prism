@@ -36,7 +36,7 @@
 namespace Preview::Middleware::Builtin
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     namespace detail
     {
@@ -62,7 +62,7 @@ namespace Preview::Middleware::Builtin
             std::vector<std::byte> UpBuffer;
             std::vector<std::byte> DownBuffer;
             std::array<std::size_t, 2> Total{0, 0};
-            net::steady_timer IdleTimer;
+            Net::steady_timer IdleTimer;
             std::chrono::milliseconds IdleTimeout;
             std::atomic_size_t CompletedDirections{0};
             std::atomic_bool closed{false};
@@ -116,18 +116,37 @@ namespace Preview::Middleware::Builtin
          */
         template <std::size_t Idx>
         auto RelayDirection(std::shared_ptr<RelayState> State, std::string_view Name)
-            -> net::awaitable<void>
+            -> Net::awaitable<void>
         {
-            auto &src = Idx == 0 ? State->Inbound : State->Outbound;
-            auto &dst = Idx == 0 ? State->Outbound : State->Inbound;
-            auto &buf = Idx == 0 ? State->UpBuffer : State->DownBuffer;
+            Preview::SharedTransmission *Source = nullptr;
+            Preview::SharedTransmission *Destination = nullptr;
+            std::vector<std::byte> *Buffer = nullptr;
+            if (Idx == 0)
+            {
+                Source = &State->Inbound;
+                Destination = &State->Outbound;
+                Buffer = &State->UpBuffer;
+            }
+            else
+            {
+                Source = &State->Outbound;
+                Destination = &State->Inbound;
+                Buffer = &State->DownBuffer;
+            }
             try
             {
                 while (true)
                 {
                     std::error_code ReadEc;
-                    const auto N = co_await src->async_read_some(
-                        std::span<std::byte>(buf), ReadEc);
+                    const auto N = co_await (*Source)->async_read_some(
+                        std::span<std::byte>(*Buffer), ReadEc);
+                    if (N > Buffer->size())
+                    {
+                        State->DirectionFault[Idx] = Preview::Fault::Code::IoError;
+                        CloseRelay(State);
+                        CompleteDirection(State);
+                        co_return;
+                    }
                     if (N == 0)
                     {
                         // 真实 TCP 将 FIN 映射为 Fault::Code::Eof；它和内存传输的
@@ -140,7 +159,7 @@ namespace Preview::Middleware::Builtin
                         }
                         else
                         {
-                            dst->Shutdown();
+                            (*Destination)->Shutdown();
                         }
                         CompleteDirection(State);
                         co_return;
@@ -148,8 +167,8 @@ namespace Preview::Middleware::Builtin
                     ResetIdleTimer(State);
 
                     std::error_code WriteEc;
-                    co_await dst->AsyncWrite(
-                        std::span<const std::byte>(buf.data(), N), WriteEc);
+                    co_await (*Destination)->AsyncWrite(
+                        std::span<const std::byte>(Buffer->data(), N), WriteEc);
                     // 流量按实际写入计：写失败不计入，避免错误路径虚增统计
                     if (!WriteEc)
                     {
@@ -166,7 +185,7 @@ namespace Preview::Middleware::Builtin
 
                     if (ReadEc)
                     {
-                        dst->Shutdown();
+                        (*Destination)->Shutdown();
                         CompleteDirection(State);
                         co_return;
                     }
@@ -194,7 +213,7 @@ namespace Preview::Middleware::Builtin
          * @note 转发层：统一实现见 RelayDirection
          */
         auto RelayUp(const std::shared_ptr<RelayState> &State)
-            -> net::awaitable<void>
+            -> Net::awaitable<void>
         {
             co_await RelayDirection<0>(State, "relay uplink terminated by exception");
         }
@@ -205,7 +224,7 @@ namespace Preview::Middleware::Builtin
          * @note 转发层：统一实现见 RelayDirection
          */
         auto RelayDown(const std::shared_ptr<RelayState> &State)
-            -> net::awaitable<void>
+            -> Net::awaitable<void>
         {
             co_await RelayDirection<1>(State, "relay downlink terminated by exception");
         }
@@ -215,14 +234,14 @@ namespace Preview::Middleware::Builtin
          * @param State relay 共享状态
          */
         auto RelayIdle(const std::shared_ptr<RelayState> &State)
-            -> net::awaitable<void>
+            -> Net::awaitable<void>
         {
             if (State->IdleTimeout <= std::chrono::milliseconds::zero())
             {
-                net::steady_timer hold(State->Inbound->Executor());
+                Net::steady_timer hold(State->Inbound->Executor());
                 hold.expires_after(std::chrono::hours(24));
                 boost::system::error_code HoldEc;
-                co_await hold.async_wait(net::redirect_error(net::use_awaitable, HoldEc));
+                co_await hold.async_wait(Net::redirect_error(Net::use_awaitable, HoldEc));
                 co_return;
             }
 
@@ -230,8 +249,8 @@ namespace Preview::Middleware::Builtin
             {
                 boost::system::error_code TimerEc;
                 co_await State->IdleTimer.async_wait(
-                    net::redirect_error(net::use_awaitable, TimerEc));
-                if (TimerEc == net::error::operation_aborted)
+                    Net::redirect_error(Net::use_awaitable, TimerEc));
+                if (TimerEc == Net::error::operation_aborted)
                 {
                     if (State->closed.load(std::memory_order_acquire) ||
                         State->CompletedDirections.load(std::memory_order_acquire) == 2)
@@ -293,7 +312,7 @@ namespace Preview::Middleware::Builtin
          * @return 隧道结束码（success = 正常关闭）
          */
         auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
-            -> net::awaitable<Preview::Fault::Code> override
+            -> Net::awaitable<Preview::Fault::Code> override
         {
             // 优先使用管线上下文注入的 Outbound（Dial 中间件产出）
             auto Outbound = Outbound_;
@@ -320,8 +339,8 @@ namespace Preview::Middleware::Builtin
             detail::ResetIdleTimer(State);
 
             // 正常路径等待上下行都完成；任一方向发生 I/O 错误时由该方向关闭双方。
-            using boost::asio::experimental::awaitable_operators::operator&&;
-            using boost::asio::experimental::awaitable_operators::operator||;
+            using Net::experimental::awaitable_operators::operator&&;
+            using Net::experimental::awaitable_operators::operator||;
             co_await ((detail::RelayUp(State) && detail::RelayDown(State)) ||
                       detail::RelayIdle(State));
 

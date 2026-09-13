@@ -21,6 +21,7 @@ namespace Preview::Http3::Qpack
     class DynamicTable final
     {
     public:
+        /// 动态表能力标记；当前 Preview 认证路径固定禁用动态表。
         static constexpr bool Enabled = false;
 
         /**

@@ -3,7 +3,7 @@
  * @brief TrustTunnel UDP 包连接对象（Transmission 装饰器）
  * @details UDP 数据面连接：将底层传输包装为 HTTP/2 数据帧承载的
  * 包连接（对齐 mihomo transport/trusttunnel ListenPacket）。
- * 帧格式：[DATA 帧头 9B][payload]（简化：测试库直接透传数据报，
+ * 帧格式：[DATA 帧头 9B][负载]（简化：测试库直接透传数据报，
  * 帧编解码由上层 HTTP/2 层负责）。
  * @note 继承 Preview::Transmission，构造函数传入底层传输（相当于
  * socket 收发的持有者），对齐 Conn 的装饰器链模式。
@@ -23,8 +23,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <span>
+#include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -43,18 +46,22 @@ namespace Preview::Trusttunnel
     public:
         /**
          * @brief 构造函数（工厂调用）
-         * @param upstream 底层传输（已握手，所有权移交）
+         * @param Upstream 底层传输（已握手，所有权移交）
          */
-        explicit Dgram(SharedTransmission upstream)
-            : NextLayer_(std::move(upstream))
+        explicit Dgram(SharedTransmission Upstream)
+            : NextLayer_(std::move(Upstream))
         {
         }
 
         /**
          * @brief 获取执行器（委托底层传输）
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
@@ -68,31 +75,42 @@ namespace Preview::Trusttunnel
 
         /**
          * @brief 发送一个 UDP 数据报（WriteTo 语义）
-         * @param host 目标主机
-         * @param port 目标端口
-         * @param payload 载荷
+         * @param Host 目标主机
+         * @param Port 目标端口
+         * @param Payload 载荷
          * @return 错误码
          */
-        [[nodiscard]] auto AsyncSendTo(std::string_view host, std::uint16_t port,
-                                         std::span<const std::uint8_t> payload)
-        -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncSendTo(
+            std::string_view Host,
+            std::uint16_t Port,
+            std::span<const std::uint8_t> Payload) -> Net::awaitable<Error>
         {
-            // 简化：UDP 数据报带 1 字节长度 + 主机 + 2 字节端口 + 载荷透传
-            std::vector<std::uint8_t> wire;
-            wire.reserve(1 + host.size() + 2 + payload.size());
-            wire.push_back(static_cast<std::uint8_t>(host.size()));
-            wire.insert(wire.end(), host.begin(), host.end());
-            wire.push_back(static_cast<std::uint8_t>(port >> 8));
-            wire.push_back(static_cast<std::uint8_t>(port & 0xFF));
-            wire.insert(wire.end(), payload.begin(), payload.end());
-            std::size_t Done = 0;
-            while (Done < wire.size())
+            if (!NextLayer_)
             {
-                std::error_code ec;
+                co_return Error::NotOpen;
+            }
+            if (Host.size() > std::numeric_limits<std::uint8_t>::max())
+            {
+                co_return Error::BadLength;
+            }
+            // 简化：UDP 数据报带 1 字节长度 + 主机 + 2 字节端口 + 载荷透传
+            std::vector<std::uint8_t> Wire;
+            Wire.reserve(1 + Host.size() + 2 + Payload.size());
+            Wire.push_back(static_cast<std::uint8_t>(Host.size()));
+            Wire.insert(Wire.end(), Host.begin(), Host.end());
+            Wire.push_back(static_cast<std::uint8_t>(Port >> 8));
+            Wire.push_back(static_cast<std::uint8_t>(Port & 0xFF));
+            Wire.insert(Wire.end(), Payload.begin(), Payload.end());
+            std::size_t Done = 0;
+            while (Done < Wire.size())
+            {
+                std::error_code ErrorCode;
                 const auto N = co_await NextLayer_->async_write_some(
-                    AsBytes(std::span<const std::uint8_t>(wire)).subspan(Done), ec);
-                if (ec || N == 0)
+                    AsBytes(std::span<const std::uint8_t>(Wire)).subspan(Done), ErrorCode);
+                if (ErrorCode || N == 0)
                     co_return Error::IoError;
+                if (N > Wire.size() - Done)
+                    co_return Error::BadLength;
                 Done += N;
             }
             co_return Error::None;
@@ -100,93 +118,134 @@ namespace Preview::Trusttunnel
 
         /**
          * @brief 接收一个 UDP 数据报（ReadFrom 语义）
-         * @param host 输出源主机
-         * @param port 输出源端口
-         * @param payload 输出载荷
+         * @param Host 输出源主机
+         * @param Port 输出源端口
+         * @param Payload 输出载荷
          * @return 错误码
          */
-        [[nodiscard]] auto AsyncReceiveFrom(std::string &host, std::uint16_t &port,
-                                              std::vector<std::uint8_t> &payload)
-        -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncReceiveFrom(
+            std::string &Host,
+            std::uint16_t &Port,
+            std::vector<std::uint8_t> &Payload) -> Net::awaitable<Error>
         {
-            std::array<std::uint8_t, 1> hlen{};
-            std::size_t Done = 0;
-            while (Done < hlen.size())
+            if (!NextLayer_)
             {
-                std::error_code ec;
+                co_return Error::NotOpen;
+            }
+            Host.clear();
+            Port = 0;
+            Payload.clear();
+            std::array<std::uint8_t, 1> HostLength{};
+            std::size_t Done = 0;
+            while (Done < HostLength.size())
+            {
+                std::error_code ErrorCode;
                 const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(std::span<std::uint8_t>(hlen).subspan(Done)), ec);
-                if (ec || N == 0)
+                    AsBytes(std::span<std::uint8_t>(HostLength).subspan(Done)), ErrorCode);
+                if (ErrorCode || N == 0)
                     co_return Error::UnexpectedEof;
+                if (N > HostLength.size() - Done)
+                    co_return Error::BadLength;
                 Done += N;
             }
-            std::vector<std::uint8_t> HostBuf(hlen[0]);
+            std::vector<std::uint8_t> HostBuf(HostLength[0]);
             Done = 0;
             while (Done < HostBuf.size())
             {
-                std::error_code ec;
+                std::error_code ErrorCode;
                 const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(std::span<std::uint8_t>(HostBuf).subspan(Done)), ec);
-                if (ec || N == 0)
+                    AsBytes(std::span<std::uint8_t>(HostBuf).subspan(Done)), ErrorCode);
+                if (ErrorCode || N == 0)
                     co_return Error::UnexpectedEof;
+                if (N > HostBuf.size() - Done)
+                    co_return Error::BadLength;
                 Done += N;
             }
-            host.assign(reinterpret_cast<const char *>(HostBuf.data()), HostBuf.size());
+            Host.assign(reinterpret_cast<const char *>(HostBuf.data()), HostBuf.size());
             std::array<std::uint8_t, 2> PortBuf{};
             Done = 0;
             while (Done < PortBuf.size())
             {
-                std::error_code ec;
+                std::error_code ErrorCode;
                 const auto N = co_await NextLayer_->async_read_some(
-                    AsBytes(std::span<std::uint8_t>(PortBuf).subspan(Done)), ec);
-                if (ec || N == 0)
+                    AsBytes(std::span<std::uint8_t>(PortBuf).subspan(Done)), ErrorCode);
+                if (ErrorCode || N == 0)
                     co_return Error::UnexpectedEof;
+                if (N > PortBuf.size() - Done)
+                    co_return Error::BadLength;
                 Done += N;
             }
-            port = static_cast<std::uint16_t>(PortBuf[0]) << 8 | PortBuf[1];
-            std::array<std::uint8_t, 512> chunk{};
-            std::error_code ec;
+            Port = static_cast<std::uint16_t>(PortBuf[0]) << 8 | PortBuf[1];
+            std::array<std::uint8_t, 512> Chunk{};
+            std::error_code ErrorCode;
             const auto N = co_await NextLayer_->async_read_some(
-                AsBytes(std::span<std::uint8_t>(chunk)), ec);
-            if (ec)
+                AsBytes(std::span<std::uint8_t>(Chunk)), ErrorCode);
+            if (ErrorCode)
+            {
                 co_return Error::IoError;
-            payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
+            }
+            if (N == 0)
+            {
+                co_return Error::UnexpectedEof;
+            }
+            if (N > Chunk.size())
+                co_return Error::BadLength;
+            Payload.assign(Chunk.begin(), Chunk.begin() + static_cast<std::ptrdiff_t>(N));
             co_return Error::None;
         }
 
         /**
          * @brief 透传读取（底层原样）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            ErrorCode.clear();
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 透传写入（底层原样）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
-                                            std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            ErrorCode.clear();
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭底层传输
          */
-        void Close() override
+        auto Close() -> void override
         {
-            NextLayer_->Close();
+            if (NextLayer_)
+            {
+                NextLayer_->Close();
+            }
         }
 
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
-            NextLayer_->Cancel();
+            if (NextLayer_)
+            {
+                NextLayer_->Cancel();
+            }
         }
 
         /**

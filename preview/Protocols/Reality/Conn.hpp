@@ -25,14 +25,15 @@
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <memory>
 #include <span>
+#include <system_error>
 #include <utility>
-#include <vector>
 
 namespace Preview::Reality
 {
@@ -60,59 +61,70 @@ namespace Preview::Reality
 
         /**
          * @brief 构造函数
-         * @param upstream 底层传输（所有权移交）
-         * @param private_key_st 服务端/客户端 X25519 私钥（32 字节）
+         * @param Upstream 底层传输（所有权移交）
+         * @param PrivateKey 服务端/客户端 X25519 私钥（32 字节）
          */
-        explicit Conn(SharedTransmission upstream, std::array<std::uint8_t, KeyLen> private_key_st)
-            : NextLayer_(std::move(upstream)), private_key_st(private_key_st)
+        explicit Conn(SharedTransmission Upstream,
+                      std::array<std::uint8_t, KeyLen> PrivateKey)
+            : NextLayer_(std::move(Upstream)), PrivateKey_(PrivateKey)
         {
         }
 
         /**
          * @brief 获取执行器（委托底层传输）
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
         /**
          * @brief 客户端握手：派生 AuthKey + Seal SessionId 并发送
          * @param PeerPublicKey 服务端公钥（32 字节）
-         * @param params 握手参数（ClientRandom + hello + ShortId）
+         * @param Params 握手参数（ClientRandom + hello + ShortId）
          * @return 错误码
          */
-        [[nodiscard]] auto WriteHandshake(std::span<const std::uint8_t> PeerPublicKey,
-                                           const HandshakeParams &params)
-        -> net::awaitable<Error>
+        [[nodiscard]] auto WriteHandshake(
+            std::span<const std::uint8_t> PeerPublicKey,
+            const HandshakeParams &Params) -> Net::awaitable<Error>
         {
-            const auto &ClientRandom = params.ClientRandom;
-            const auto &hello = params.hello;
-            const auto &ShortId = params.ShortId;
+            Handshaken_ = false;
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+
+            const auto ClientRandom = Params.ClientRandom;
+            const auto Hello = Params.hello;
+            const auto &ShortId = Params.ShortId;
             // X25519 共享密钥
-            std::array<std::uint8_t, KeyLen> shared{};
-            if (X25519Shared(private_key_st, PeerPublicKey, shared))
+            std::array<std::uint8_t, KeyLen> Shared{};
+            if (X25519Shared(PrivateKey_, PeerPublicKey, Shared))
                 co_return Error::KdfError;
-            SharedSecret_ = shared;
+            SharedSecret_ = Shared;
 
             // 派生 AuthKey
             std::array<std::uint8_t, KeyLen> AuthKey{};
-            if (DeriveAuthKey(shared, ClientRandom, AuthKey))
+            if (DeriveAuthKey(Shared, ClientRandom, AuthKey))
                 co_return Error::KdfError;
             AuthKey_ = AuthKey;
 
             // 构造明文 SessionId：version(1) + random(7) + ShortId(8)
-            std::array<std::uint8_t, 16> plain{};
-            plain[0] = 0x01;
-            std::copy(ShortId.begin(), ShortId.end(), plain.begin() + 8);
+            std::array<std::uint8_t, 16> Plain{};
+            Plain[0] = 0x01;
+            std::copy(ShortId.begin(), ShortId.end(), Plain.begin() + 8);
 
             // Seal 并发送
-            std::array<std::uint8_t, SessionIdAuthLen> sealed{};
-            if (SealSessionId(SessionIdSealInput{AuthKey, ClientRandom, plain, hello},
-                                sealed))
+            std::array<std::uint8_t, SessionIdAuthLen> Sealed{};
+            if (SealSessionId(SessionIdSealInput{AuthKey, ClientRandom, Plain, Hello},
+                              Sealed))
                 co_return Error::KdfError;
-            SessionId_ = sealed;
-            if (co_await SendBytes(sealed))
+            SessionId_ = Sealed;
+            if (co_await SendBytes(Sealed))
             {
                 std::fprintf(stderr, "[reality] send sealed sid Failed\n");
                 co_return Error::IoError;
@@ -124,39 +136,46 @@ namespace Preview::Reality
         /**
          * @brief 服务端握手：读取 SessionId → 派生 AuthKey → 校验
          * @param PeerPublicKey 客户端公钥（32 字节）
-         * @param params 握手参数（ClientRandom + hello）
+         * @param Params 握手参数（ClientRandom + hello）
          * @param ShortId 输出短 ID（8 字节）
          * @return 错误码；bad_auth = 解密失败或版本不匹配
          */
-        [[nodiscard]] auto ReadHandshake(std::span<const std::uint8_t> PeerPublicKey,
-                                          const HandshakeParams &params,
-                                          std::array<std::uint8_t, MaxShortIdLen> &ShortId)
-        -> net::awaitable<Error>
+        [[nodiscard]] auto ReadHandshake(
+            std::span<const std::uint8_t> PeerPublicKey,
+            const HandshakeParams &Params,
+            std::array<std::uint8_t, MaxShortIdLen> &ShortId) -> Net::awaitable<Error>
         {
-            const auto &ClientRandom = params.ClientRandom;
-            const auto &hello = params.hello;
+            Handshaken_ = false;
+            ShortId.fill(0);
+            if (!NextLayer_)
+            {
+                co_return Error::NotOpen;
+            }
+
+            const auto ClientRandom = Params.ClientRandom;
+            const auto Hello = Params.hello;
             // 读取客户端 SessionId 密文（32 字节）
             std::array<std::uint8_t, SessionIdAuthLen> SessionId{};
-            if (co_await ReadExact(std::span<std::uint8_t>(SessionId)))
+            if (co_await ReadExact(SessionId))
                 co_return Error::UnexpectedEof;
 
-            std::array<std::uint8_t, KeyLen> shared{};
-            if (X25519Shared(private_key_st, PeerPublicKey, shared))
+            std::array<std::uint8_t, KeyLen> Shared{};
+            if (X25519Shared(PrivateKey_, PeerPublicKey, Shared))
                 co_return Error::KdfError;
-            SharedSecret_ = shared;
+            SharedSecret_ = Shared;
 
             std::array<std::uint8_t, KeyLen> AuthKey{};
-            if (DeriveAuthKey(shared, ClientRandom, AuthKey))
+            if (DeriveAuthKey(Shared, ClientRandom, AuthKey))
                 co_return Error::KdfError;
             AuthKey_ = AuthKey;
 
-            std::array<std::uint8_t, 16> plain{};
-            if (OpenSessionId(SessionIdOpenInput{AuthKey, ClientRandom, SessionId, hello},
-                                plain))
+            std::array<std::uint8_t, 16> Plain{};
+            if (OpenSessionId(SessionIdOpenInput{AuthKey, ClientRandom, SessionId, Hello},
+                              Plain))
                 co_return Error::BadAuth;
-            if (plain[0] != 0x01)
+            if (Plain[0] != 0x01)
                 co_return Error::BadAuth;
-            std::copy(plain.begin() + 8, plain.begin() + 16, ShortId.begin());
+            std::copy(Plain.begin() + 8, Plain.begin() + 16, ShortId.begin());
             Handshaken_ = true;
             co_return Error::None;
         }
@@ -164,46 +183,56 @@ namespace Preview::Reality
         /**
          * @brief 透传读取（数据面原样）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            ErrorCode.clear();
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 透传写入（数据面原样）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
-                                            std::error_code &ec)
-        -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            ErrorCode.clear();
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭底层传输
          */
-        void Close() override
+        auto Close() -> void override
         {
-            NextLayer_->Close();
+            Handshaken_ = false;
+            if (NextLayer_)
+            {
+                NextLayer_->Close();
+            }
         }
 
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
-            NextLayer_->Cancel();
+            if (NextLayer_)
+            {
+                NextLayer_->Cancel();
+            }
         }
 
         /**
@@ -227,6 +256,7 @@ namespace Preview::Reality
          */
         [[nodiscard]] auto Release() -> SharedTransmission override
         {
+            Handshaken_ = false;
             return std::move(NextLayer_);
         }
 
@@ -257,18 +287,25 @@ namespace Preview::Reality
     private:
         /**
          * @brief 精确读取指定字节数
-         * @param dst 目标缓冲区
+         * @param Dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst)
-        -> net::awaitable<bool>
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Dst) -> Net::awaitable<bool>
         {
-            std::size_t Done = 0;
-            while (Done < dst.size())
+            if (!NextLayer_)
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
-                if (ec || N == 0)
+                co_return true;
+            }
+
+            std::size_t Done = 0;
+            while (Done < Dst.size())
+            {
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_read_some(
+                    AsBytes(Dst.subspan(Done)), ErrorCode);
+                if (ErrorCode || N == 0)
+                    co_return true;
+                if (N > Dst.size() - Done)
                     co_return true;
                 Done += N;
             }
@@ -281,26 +318,32 @@ namespace Preview::Reality
          * @return true = 失败
          */
         [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const
-        -> net::awaitable<bool>
+            -> Net::awaitable<bool>
         {
+            if (!NextLayer_)
+            {
+                co_return true;
+            }
+
             std::size_t Done = 0;
             while (Done < Data.size())
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
-                if (ec)
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_write_some(
+                    AsBytes(Data.subspan(Done)), ErrorCode);
+                if (ErrorCode || N == 0 || N > Data.size() - Done)
                     co_return true;
                 Done += N;
             }
             co_return false;
         }
 
-        SharedTransmission NextLayer_;                              ///< 底层传输（独占所有权）
-        std::array<std::uint8_t, KeyLen> private_key_st{};             ///< X25519 私钥
-        std::array<std::uint8_t, KeyLen> SharedSecret_{};          ///< 共享密钥
-        std::array<std::uint8_t, KeyLen> AuthKey_{};               ///< 认证密钥
+        SharedTransmission NextLayer_; ///< 底层传输（独占所有权）
+        std::array<std::uint8_t, KeyLen> PrivateKey_{}; ///< X25519 私钥
+        std::array<std::uint8_t, KeyLen> SharedSecret_{}; ///< 共享密钥
+        std::array<std::uint8_t, KeyLen> AuthKey_{}; ///< 认证密钥
         std::array<std::uint8_t, SessionIdAuthLen> SessionId_{}; ///< Seal 后的 SessionId
-        bool Handshaken_{false};                                      ///< 握手完成标志
+        bool Handshaken_{false}; ///< 握手完成标志
     };
 
     /// 流连接共享指针（默认内存策略）

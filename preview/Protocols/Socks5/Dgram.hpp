@@ -37,6 +37,8 @@
 namespace Preview::Socks5
 {
 
+    namespace Net = boost::asio;
+
     /**
      * @class Dgram
      * @brief SOCKS5 UDP 包连接对象（Transmission 装饰器）
@@ -63,7 +65,7 @@ namespace Preview::Socks5
         /**
          * @brief 获取执行器（委托底层流连接）
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
             return NextLayer_->Executor();
         }
@@ -84,7 +86,7 @@ namespace Preview::Socks5
          * @details 报文格式 [RSV 2B][FRAG 1B][ATYP][ADDR][PORT][payload]。
          */
         [[nodiscard]] auto AsyncSendTo(const Address &dest, std::span<const std::uint8_t> payload)
-            -> net::awaitable<Error>
+            -> Net::awaitable<Error>
         {
             BuildUdpDatagram(dest, payload, TxWire_);
             std::size_t Done = 0;
@@ -101,6 +103,10 @@ namespace Preview::Socks5
                 {
                     co_return Error::BrokenPipe; // 底层零字节写入，防死循环
                 }
+                if (N > TxWire_.size() - Done)
+                {
+                    co_return Error::BadLength;
+                }
                 Done += N;
             }
             co_return Error::None;
@@ -115,14 +121,13 @@ namespace Preview::Socks5
          * RSV(2) + FRAG(1) + ATYP + ADDR + PORT(2) + payload。
          */
         [[nodiscard]] auto AsyncReceiveFrom(Address &src, std::vector<std::uint8_t> &payload)
-            -> net::awaitable<Error>
+            -> Net::awaitable<Error>
         {
             // 1. RSV(2) + FRAG(1)
             std::array<std::uint8_t, 3> head{};
-            if (co_await ReadExact(std::span<std::uint8_t>(head)))
-            {
-                co_return Error::IoError;
-            }
+            const auto HeadError = co_await ReadExact(std::span<std::uint8_t>(head));
+            if (HeadError != Error::None)
+                co_return HeadError;
             if (head[0] != 0 || head[1] != 0 || head[2] != 0)
             {
                 co_return Error::BadMessage;
@@ -130,10 +135,9 @@ namespace Preview::Socks5
 
             // 2. ATYP + ADDR + PORT
             std::array<std::uint8_t, 1> atyp{};
-            if (co_await ReadExact(std::span<std::uint8_t>(atyp)))
-            {
-                co_return Error::IoError;
-            }
+            const auto AtypError = co_await ReadExact(std::span<std::uint8_t>(atyp));
+            if (AtypError != Error::None)
+                co_return AtypError;
             src.Type = static_cast<AddressType>(atyp[0]);
             auto Err = co_await ReadAddressBody(src);
             if (Err != Error::None)
@@ -141,10 +145,9 @@ namespace Preview::Socks5
                 co_return Err;
             }
             std::array<std::uint8_t, 2> port{};
-            if (co_await ReadExact(std::span<std::uint8_t>(port)))
-            {
-                co_return Error::IoError;
-            }
+            const auto PortError = co_await ReadExact(std::span<std::uint8_t>(port));
+            if (PortError != Error::None)
+                co_return PortError;
             src.Port = static_cast<std::uint16_t>(port[0]) << 8 | port[1];
 
             // 3. 剩余为 payload（单次读取，超读由流连接缓冲保留）
@@ -160,6 +163,10 @@ namespace Preview::Socks5
             {
                 co_return Error::UnexpectedEof;
             }
+            if (N > chunk.size())
+            {
+                co_return Error::BadLength;
+            }
             payload.assign(chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
             co_return Error::None;
         }
@@ -168,7 +175,7 @@ namespace Preview::Socks5
          * @brief 透传读取（底层流原样）
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             co_return co_await NextLayer_->async_read_some(Buffer, ec);
         }
@@ -177,7 +184,7 @@ namespace Preview::Socks5
          * @brief 透传写入（底层流原样）
          */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             co_return co_await NextLayer_->async_write_some(Buffer, ec);
         }
@@ -234,9 +241,9 @@ namespace Preview::Socks5
         /**
          * @brief 精确读取指定字节数
          * @param dst 目标缓冲区
-         * @return true = 失败（EOF / 底层错误）
+         * @return 错误码；None 表示完整读取，BadLength 表示底层违反窗口契约
          */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst) -> Net::awaitable<Error>
         {
             std::size_t Done = 0;
             while (Done < dst.size())
@@ -245,11 +252,15 @@ namespace Preview::Socks5
                 const auto N = co_await NextLayer_->async_read_some(AsBytes(dst.subspan(Done)), ec);
                 if (ec || N == 0)
                 {
-                    co_return true;
+                    co_return Error::IoError;
+                }
+                if (N > dst.size() - Done)
+                {
+                    co_return Error::BadLength;
                 }
                 Done += N;
             }
-            co_return false;
+            co_return Error::None;
         }
 
         /**
@@ -258,10 +269,13 @@ namespace Preview::Socks5
          * @return 错误码
          * @note 转发层：统一实现见 Protocol/common::ReadAddressBody
          */
-        [[nodiscard]] auto ReadAddressBody(Address &addr) -> net::awaitable<Error>
+        [[nodiscard]] auto ReadAddressBody(Address &addr) -> Net::awaitable<Error>
         {
             return Preview::Protocol::Common::ReadAddressBody(
-                addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return ReadExact(dst); });
+                addr, [this](std::span<std::uint8_t> dst) -> Net::awaitable<bool>
+                {
+                    co_return (co_await ReadExact(dst)) != Error::None;
+                });
         }
 
         SharedTransmission NextLayer_; ///< 底层流连接（嵌入，同一条 TCP）

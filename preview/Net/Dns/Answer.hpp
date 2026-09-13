@@ -26,7 +26,7 @@
 namespace Preview::Network::Dns
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @struct AnswerSet
@@ -38,7 +38,7 @@ namespace Preview::Network::Dns
         bool Truncated{false};                               ///< TC 截断标志
         std::uint8_t Rcode{0};                               ///< 响应码（0=NOERROR, 3=NXDOMAIN）
         std::uint32_t MinTtl{0};                             ///< 三段记录最小 TTL（无记录为 0）
-        boost::container::small_vector<net::ip::address, 8> Ips; ///< Answer 段中 qtype 匹配的地址
+        boost::container::small_vector<Net::ip::address, 8> Ips; ///< Answer 段中 qtype 匹配的地址
     };
 
     namespace Detail
@@ -50,54 +50,54 @@ namespace Preview::Network::Dns
          * @param off [in/out] 域名起始偏移；成功后推进到名字之后第一个字节
          * @return 非法输入（越界/指针循环）返回 false
          */
-        [[nodiscard]] inline auto SkipName(std::span<const std::uint8_t> data, std::size_t &off)
+        [[nodiscard]] inline auto SkipName(std::span<const std::uint8_t> Data, std::size_t &Offset)
             -> bool
         {
-            std::size_t Cur = off;
-            std::size_t NextOff = off;
+            std::size_t Current = Offset;
+            std::size_t NextOffset = Offset;
             bool Jumped = false;
             std::size_t Jumps = 0;
 
             while (true)
             {
-                if (Cur >= data.size())
+                if (Current >= Data.size())
                 {
                     return false;
                 }
-                const auto Len = data[Cur];
+                const auto Len = Data[Current];
                 if ((Len & 0xC0) == 0xC0)
                 {
-                    if (Cur + 2 > data.size())
+                    if (Current + 2 > Data.size())
                     {
                         return false;
                     }
                     if (!Jumped)
                     {
-                        NextOff = Cur + 2;
+                        NextOffset = Current + 2;
                         Jumped = true;
                     }
                     if (++Jumps > MaxNameJumps)
                     {
                         return false; // 压缩指针循环
                     }
-                    Cur = (static_cast<std::size_t>(Len & 0x3F) << 8) | data[Cur + 1];
+                    Current = (static_cast<std::size_t>(Len & 0x3F) << 8) | Data[Current + 1];
                     continue;
                 }
                 if (Len == 0)
                 {
                     if (!Jumped)
                     {
-                        NextOff = Cur + 1;
+                        NextOffset = Current + 1;
                     }
                     break;
                 }
-                if (Cur + 1 + Len > data.size())
+                if (Current + 1 + Len > Data.size())
                 {
                     return false;
                 }
-                Cur += 1 + Len;
+                Current += 1 + Len;
             }
-            off = NextOff;
+            Offset = NextOffset;
             return true;
         }
     } // namespace Detail
@@ -109,35 +109,35 @@ namespace Preview::Network::Dns
      *              记录被收集为地址，其余类型跳过
      * @return 畸形输入（长度不足/字段越界/压缩指针循环/记录越界）返回 nullopt
      */
-    [[nodiscard]] inline auto ScanAnswers(std::span<const std::uint8_t> data,
-                                          const std::uint16_t qtype)
+    [[nodiscard]] inline auto ScanAnswers(std::span<const std::uint8_t> Data,
+                                          const std::uint16_t QTypeValue)
         -> std::optional<AnswerSet>
     {
-        if (data.size() < 12)
+        if (Data.size() < 12)
         {
             return std::nullopt;
         }
-        AnswerSet out;
-        out.Id = static_cast<std::uint16_t>((data[0] << 8) | data[1]);
-        const auto Flags = static_cast<std::uint16_t>((data[2] << 8) | data[3]);
-        out.Truncated = (Flags & 0x0200u) != 0;
-        out.Rcode = static_cast<std::uint8_t>(Flags & 0x0Fu);
+        AnswerSet Result;
+        Result.Id = static_cast<std::uint16_t>((Data[0] << 8) | Data[1]);
+        const auto Flags = static_cast<std::uint16_t>((Data[2] << 8) | Data[3]);
+        Result.Truncated = (Flags & 0x0200u) != 0;
+        Result.Rcode = static_cast<std::uint8_t>(Flags & 0x0Fu);
 
-        const auto QdCount = static_cast<std::uint16_t>((data[4] << 8) | data[5]);
-        const auto AnCount = static_cast<std::uint16_t>((data[6] << 8) | data[7]);
-        const auto NsCount = static_cast<std::uint16_t>((data[8] << 8) | data[9]);
-        const auto ArCount = static_cast<std::uint16_t>((data[10] << 8) | data[11]);
+        const auto QdCount = static_cast<std::uint16_t>((Data[4] << 8) | Data[5]);
+        const auto AnCount = static_cast<std::uint16_t>((Data[6] << 8) | Data[7]);
+        const auto NsCount = static_cast<std::uint16_t>((Data[8] << 8) | Data[9]);
+        const auto ArCount = static_cast<std::uint16_t>((Data[10] << 8) | Data[11]);
 
-        std::size_t off = 12;
+        std::size_t Offset = 12;
 
         // 跳过 Question 段（QNAME + QTYPE + QCLASS）
-        for (std::uint16_t i = 0; i < QdCount; ++i)
+        for (std::uint16_t Index = 0; Index < QdCount; ++Index)
         {
-            if (!Detail::SkipName(data, off))
+            if (!Detail::SkipName(Data, Offset))
             {
                 return std::nullopt;
             }
-            const auto Fixed = Detail::GetU16(data, off) && Detail::GetU16(data, off);
+            const auto Fixed = Detail::GetU16(Data, Offset) && Detail::GetU16(Data, Offset);
             if (!Fixed)
             {
                 return std::nullopt;
@@ -146,54 +146,61 @@ namespace Preview::Network::Dns
 
         // 三段记录：Answer 收集地址，三段共同参与 MinTtl
         bool HasTtl = false;
-        const auto ScanSection = [&](const std::uint16_t count, const bool collect) -> bool
+        const auto ScanSection = [&](const std::uint16_t Count, const bool Collect) -> bool
         {
-            for (std::uint16_t i = 0; i < count; ++i)
+            for (std::uint16_t Index = 0; Index < Count; ++Index)
             {
-                if (!Detail::SkipName(data, off))
+                if (!Detail::SkipName(Data, Offset))
                 {
                     return false;
                 }
-                const auto Type = Detail::GetU16(data, off);
-                const auto RClass = Detail::GetU16(data, off);
-                const auto Ttl = Detail::GetU32(data, off);
-                const auto RdLength = Detail::GetU16(data, off);
+                const auto Type = Detail::GetU16(Data, Offset);
+                const auto RClass = Detail::GetU16(Data, Offset);
+                const auto Ttl = Detail::GetU32(Data, Offset);
+                const auto RdLength = Detail::GetU16(Data, Offset);
                 if (!Type || !RClass || !Ttl || !RdLength)
                 {
                     return false;
                 }
-                if (off + *RdLength > data.size())
+                if (Offset + *RdLength > Data.size())
                 {
                     return false;
                 }
                 // OPT（type 41）的 TTL 字段实为扩展标志位（RFC 6891），不参与最小 TTL
                 if (*Type != static_cast<std::uint16_t>(QType::Opt))
                 {
-                    out.MinTtl = HasTtl ? std::min(out.MinTtl, *Ttl) : *Ttl;
+                    if (HasTtl)
+                    {
+                        Result.MinTtl = std::min(Result.MinTtl, *Ttl);
+                    }
+                    else
+                    {
+                        Result.MinTtl = *Ttl;
+                    }
                     HasTtl = true;
                 }
-                if (collect && *Type == qtype)
+                if (Collect && *Type == QTypeValue)
                 {
                     if (*Type == static_cast<std::uint16_t>(QType::A) && *RdLength == 4)
                     {
-                        const auto Raw = (static_cast<std::uint32_t>(data[off]) << 24) |
-                                         (static_cast<std::uint32_t>(data[off + 1]) << 16) |
-                                         (static_cast<std::uint32_t>(data[off + 2]) << 8) |
-                                         static_cast<std::uint32_t>(data[off + 3]);
-                        out.Ips.emplace_back(net::ip::address_v4(Raw));
+                        const auto Raw = (static_cast<std::uint32_t>(Data[Offset]) << 24) |
+                                         (static_cast<std::uint32_t>(Data[Offset + 1]) << 16) |
+                                         (static_cast<std::uint32_t>(Data[Offset + 2]) << 8) |
+                                         static_cast<std::uint32_t>(Data[Offset + 3]);
+                        Result.Ips.emplace_back(Net::ip::address_v4(Raw));
                     }
                     else if (*Type == static_cast<std::uint16_t>(QType::Aaaa) && *RdLength == 16)
                     {
                         std::array<unsigned char, 16> Bytes{};
                         for (std::size_t b = 0; b < Bytes.size(); ++b)
                         {
-                            Bytes[b] = data[off + b];
+                            Bytes[b] = Data[Offset + b];
                         }
-                        out.Ips.emplace_back(net::ip::address_v6(Bytes));
+                        Result.Ips.emplace_back(Net::ip::address_v6(Bytes));
                     }
                     // 类型匹配但 rdlength 非法：与 ExtractIps 语义一致，跳过该记录
                 }
-                off += *RdLength;
+                Offset += *RdLength;
             }
             return true;
         };
@@ -203,7 +210,7 @@ namespace Preview::Network::Dns
         {
             return std::nullopt;
         }
-        return out;
+        return Result;
     }
 
 } // namespace Preview::Network::Dns

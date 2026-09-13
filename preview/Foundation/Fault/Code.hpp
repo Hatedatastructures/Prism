@@ -25,7 +25,7 @@ namespace Preview::Fault
      * @details 表示系统运行时可能出现的所有错误情况，
      * 遵循热路径无异常原则。零值表示成功，非零值表示
      * 各类错误。
-     * @note _count 仅用于内部统计，不应用于错误处理。
+     * @note Count 仅用于内部统计，不应用于错误处理。
      */
     enum class Code : std::int32_t
     {
@@ -164,7 +164,7 @@ namespace Preview::Fault
         Badcfg = 63,
 
         /** @brief 错误码总数，仅供内部使用 */
-        _count = 64
+        Count = 64
     }; // enum class Code
 
     /**
@@ -176,9 +176,9 @@ namespace Preview::Fault
      * 日志和诊断。对于未知错误码返回 "unknown"。
      * @note 该函数为 constexpr，可在编译时求值。
      */
-    [[nodiscard]] constexpr auto Describe(const Code value) noexcept -> std::string_view
+    [[nodiscard]] constexpr auto Describe(const Code Value) noexcept -> std::string_view
     {
-        switch (value)
+        switch (Value)
         {
         case Code::Success: return "success";
         case Code::GenericError: return "generic_error";
@@ -255,9 +255,9 @@ namespace Preview::Fault
      * @details 语义等价于 c == Code::Success，
      * 使用此函数可提高代码表达力。
      */
-    [[nodiscard]] constexpr auto Succeeded(const Code c) noexcept -> bool
+    [[nodiscard]] constexpr auto Succeeded(const Code Value) noexcept -> bool
     {
-        return c == Code::Success;
+        return Value == Code::Success;
     }
 
     /**
@@ -267,9 +267,9 @@ namespace Preview::Fault
      * @details Succeeded() 的互补函数，语义等价于
      * c != Code::Success。
      */
-    [[nodiscard]] constexpr auto Failed(const Code c) noexcept -> bool
+    [[nodiscard]] constexpr auto Failed(const Code Value) noexcept -> bool
     {
-        return !Succeeded(c);
+        return !Succeeded(Value);
     }
 
 } // namespace Preview::Fault

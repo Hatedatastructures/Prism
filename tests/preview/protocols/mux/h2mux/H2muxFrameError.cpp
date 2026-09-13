@@ -3,8 +3,9 @@
  * @brief sing-mux（h2mux）帧格式错误路径与往返测试（Preview 测试库 Codec 层）
  * @details 覆盖：长度越界（>16MB → bad_length）、长度边界（0 / 16MB）、
  *          帧截断（半帧 → need_more）、流 ID 边界（0 会话级 / 0xFFFFFFFF）、
- *          窗口增量（0 / 手工大端 / 最大值）、未知类型字节（Codec 放行，
- *          会话层经 FrameEvent 映射为 rst 忽略）、DATA/CLOSE/PING 往返稳定。
+ *          窗口增量（0 / 手工大端 / 最大值）、未知类型字节（帧头阶段
+ *          bad_message）、控制帧固定长度（window_update/ping=4、close=0）、
+ *          DATA/CLOSE/PING 往返稳定。
  *          协议无标志位字段（Type 为单字节枚举，不存在 SYN+FIN / RST+数据
  *          冲突输入）。全部为纯函数同步测试，无协程无 I/O。
  */
@@ -18,8 +19,10 @@
 
 namespace
 {
-    using namespace Preview;
-    using namespace Preview::Mux;
+    namespace H2Mux = Preview::Mux::H2Mux;
+    using Error = Preview::Error;
+    using Preview::Parser;
+    using Preview::Mux::StreamEvent;
 
     TEST(H2muxFrameError, ParseHeaderEmpty)
     {
@@ -96,23 +99,56 @@ namespace
         EXPECT_EQ(p.Put(hdr), Error::ProtocolError) << "Parser: Failed 后 -> protocol_error";
     }
 
-    TEST(H2muxFrameError, UnknownTypeAccepted)
+    TEST(H2muxFrameError, UnknownTypeRejectedAtHeader)
     {
-        // 未知类型字节（0xFF）：Codec 层不校验，解析成功（兼容未来扩展）
+        // 未知类型字节（0xFF）：必须在帧头阶段拒绝，避免先按声明长度
+        // 分配/读取大 payload 再由会话层丢弃（远程内存/带宽放大）。
         auto wire = H2Mux::Build(static_cast<H2Mux::FrameType>(0xFF), 1);
         H2Mux::FrameHeader out{};
-        EXPECT_EQ(H2Mux::ParseHeader(wire, out), Error::None);
-        EXPECT_EQ(out.Type, static_cast<H2Mux::FrameType>(0xFF));
-        // 语义拒绝发生在会话层：未知类型 → rst 事件 → 忽略
-        EXPECT_EQ(H2Mux::Codec::FrameEvent(out), StreamEvent::Rst) << "未知类型 -> rst";
-        EXPECT_TRUE(H2Mux::Codec::IsControl(out)) << "未知类型视为会话级控制帧";
+        EXPECT_EQ(H2Mux::ParseHeader(wire, out), Error::BadMessage) << "未知类型 -> bad_message";
+        Parser<H2Mux::Codec> p;
+        EXPECT_EQ(p.Put(wire), Error::BadMessage) << "Parser: 未知类型 -> bad_message";
+        EXPECT_TRUE(p.Failed()) << "Parser: 未知类型进入 Failed";
+    }
+
+    TEST(H2muxFrameError, ControlFrameLengthEnforced)
+    {
+        H2Mux::FrameHeader out{};
+        // WindowUpdate：负载必须恰好 4 字节
+        {
+            std::array<std::uint8_t, 9> hdr{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05};
+            EXPECT_EQ(H2Mux::ParseHeader(hdr, out), Error::BadLength) << "window_update length=0";
+            hdr[4] = 5;
+            EXPECT_EQ(H2Mux::ParseHeader(hdr, out), Error::BadLength) << "window_update length=5";
+        }
+        // Ping：负载必须恰好 4 字节
+        {
+            std::array<std::uint8_t, 9> hdr{0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+            EXPECT_EQ(H2Mux::ParseHeader(hdr, out), Error::BadLength) << "ping length=0";
+            hdr[4] = 5;
+            EXPECT_EQ(H2Mux::ParseHeader(hdr, out), Error::BadLength) << "ping length=5";
+        }
+        // Close：必须零负载
+        {
+            std::array<std::uint8_t, 9> hdr{0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x03};
+            EXPECT_EQ(H2Mux::ParseHeader(hdr, out), Error::BadLength) << "close length=1";
+        }
+        // 构造器输出的合法控制帧仍正常解析
+        {
+            const auto Wu = H2Mux::BuildWinupd(5, 1);
+            EXPECT_EQ(H2Mux::ParseHeader(Wu, out), Error::None);
+            const auto Ping = H2Mux::BuildPing(1);
+            EXPECT_EQ(H2Mux::ParseHeader(Ping, out), Error::None);
+            const auto Close = H2Mux::BuildClose(3);
+            EXPECT_EQ(H2Mux::ParseHeader(Close, out), Error::None);
+        }
     }
 
     TEST(H2muxFrameError, StreamIdBoundary)
     {
         // Stream 0 = 会话级（ping/window_update 使用），合法
         {
-            auto wire = H2Mux::Build(H2Mux::FrameType::WindowUpdate, 0);
+            auto wire = H2Mux::BuildWinupd(0, 0);
             H2Mux::FrameHeader out{};
             EXPECT_EQ(H2Mux::ParseHeader(wire, out), Error::None);
             EXPECT_EQ(out.StreamId, 0u);
@@ -131,7 +167,7 @@ namespace
     TEST(H2muxFrameError, SessionStreamControl)
     {
         // 会话级控制帧（window_update）使用 Stream 0，映射为 rst 忽略
-        auto wu = H2Mux::Build(H2Mux::FrameType::WindowUpdate, 0);
+        auto wu = H2Mux::BuildWinupd(0, 1);
         H2Mux::FrameHeader out{};
         EXPECT_EQ(H2Mux::ParseHeader(wu, out), Error::None);
         EXPECT_TRUE(H2Mux::Codec::IsControl(out)) << "window_update 为控制帧";

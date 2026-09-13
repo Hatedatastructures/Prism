@@ -12,6 +12,9 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -23,6 +26,40 @@ namespace Preview
 {
 
     /**
+     * @brief 对两个字节序列执行不依赖内容的比较
+     * @param Left 左侧字节序列
+     * @param Right 右侧字节序列
+     * @return 长度和内容均相同返回 true
+     * @details 比较完整的较长序列，不在第一个差异处提前返回；长度属于
+     *          输入元数据，长度不等时仍遍历完整序列，支持二进制凭据。
+     */
+    [[nodiscard]] inline auto ConstantTimeEqual(std::string_view Left, std::string_view Right) noexcept
+        -> bool
+    {
+        const auto Length = (std::max)(Left.size(), Right.size());
+        std::uint8_t Difference = 0;
+        if (Left.size() != Right.size())
+        {
+            Difference = 1;
+        }
+        for (std::size_t I = 0; I < Length; ++I)
+        {
+            std::uint8_t L = 0;
+            if (I < Left.size())
+            {
+                L = static_cast<std::uint8_t>(static_cast<unsigned char>(Left[I]));
+            }
+            std::uint8_t R = 0;
+            if (I < Right.size())
+            {
+                R = static_cast<std::uint8_t>(static_cast<unsigned char>(Right[I]));
+            }
+            Difference = static_cast<std::uint8_t>(Difference | (L ^ R));
+        }
+        return Difference == 0;
+    }
+
+    /**
      * @brief 认证结果
      * @details Ok 表示凭据通过；identity 为通过后的用户标识
      * （供统计/审计按账户聚合）。
@@ -30,7 +67,7 @@ namespace Preview
     struct AuthResult
     {
         bool Ok{false};          ///< 认证是否通过
-        std::string identity{};  ///< 用户标识（通过后有效）
+        std::string Identity{};  ///< 用户标识（通过后有效）
         std::optional<Preview::Account::Lease> Lease{}; ///< 目录连接租约（可选）
     };
 
@@ -53,7 +90,7 @@ namespace Preview
          * @param Secret 凭据（socks5 密码；trojan/vless 为协议凭据）
          * @return 认证结果（通过时 identity 为用户标识）
          */
-        [[nodiscard]] virtual auto Check(std::string_view identity, std::string_view Secret) const
+        [[nodiscard]] virtual auto Check(std::string_view Identity, std::string_view Secret) const
             -> AuthResult = 0;
     };
 
@@ -71,19 +108,21 @@ namespace Preview
          * @param identity 期望身份（socks5 用户名；单凭据协议传空）
          * @param Secret 期望凭据
          */
-        explicit StaticAuthenticator(std::string identity, std::string Secret)
-            : Identity_(std::move(identity)), Secret_(std::move(Secret))
+        explicit StaticAuthenticator(std::string Identity, std::string Secret)
+            : Identity_(std::move(Identity)), Secret_(std::move(Secret))
         {
         }
 
-        [[nodiscard]] auto Check(std::string_view identity, std::string_view Secret) const
+        [[nodiscard]] auto Check(std::string_view Identity, std::string_view Secret) const
             -> AuthResult override
         {
-            if (identity != Identity_ || Secret != Secret_)
+            const auto IdentityMatches = ConstantTimeEqual(Identity, Identity_);
+            const auto SecretMatches = ConstantTimeEqual(Secret, Secret_);
+            if (!IdentityMatches || !SecretMatches)
             {
                 return {false, {}};
             }
-            return {true, std::string(identity)};
+            return {true, std::string(Identity)};
         }
 
     private:

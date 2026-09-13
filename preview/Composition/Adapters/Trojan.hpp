@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <boost/asio/awaitable.hpp>
+
 #include <preview/Runtime/Contract/Handler.hpp>
 #include <preview/Protocols/Trojan/Trojan.hpp>
 #include <preview/Protocols/Trojan/Dgram.hpp>
@@ -12,13 +14,15 @@
 namespace Preview::Runtime::Handler
 {
 
+    namespace Net = boost::asio;
+
     class Trojan final : public ProtocolHandler
     {
     public:
         explicit Trojan(Preview::Trojan::ServerConfig cfg) : Cfg_(std::move(cfg)) {}
 
         auto Accept(Preview::SharedTransmission Inbound)
-            -> net::awaitable<AcceptResult> override
+            -> Net::awaitable<AcceptResult> override
         {
             auto [err, req, Conn] = co_await Preview::Trojan::Accept(std::move(Inbound), Cfg_);
             AcceptResult r;
@@ -27,6 +31,8 @@ namespace Preview::Runtime::Handler
             r.Target.Host = req.Target.Host;
             r.Target.Port = std::to_string(req.Target.Port);
             // identity 留空：Trojan 无客户端标识，禁止把密码写进统计
+            r.ProtocolAuthenticated = true;
+            r.AccountLease = Conn->TakeAuthLease();
             if (req.Cmd == Preview::Trojan::Command::UdpAssociate)
             {
                 r.IsDgram = true;

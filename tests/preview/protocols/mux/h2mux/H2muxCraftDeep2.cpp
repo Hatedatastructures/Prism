@@ -30,7 +30,7 @@
 using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace h2mux = psm::multiplex::h2mux;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 #include <gtest/gtest.h>
 
@@ -64,14 +64,14 @@ namespace
     struct CraftFixture
     {
         std::shared_ptr<ProductionMockTransport> transport;
-        std::unique_ptr<net::io_context> ioc;
+        std::unique_ptr<Net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<h2mux::control> craft_obj;
 
         CraftFixture()
         {
             transport = std::make_shared<ProductionMockTransport>();
-            ioc = std::make_unique<net::io_context>(1);
+            ioc = std::make_unique<Net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));

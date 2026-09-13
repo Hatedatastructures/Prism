@@ -33,26 +33,30 @@
 
 namespace
 {
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Mux = Preview::Mux;
+    namespace Vmess = Preview::Vmess;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     /**
      * @brief 协程内让出一次调度（驱动 detached 帧循环推进）
      */
-    auto make_tick(net::any_io_executor ex) -> net::awaitable<void>
+    auto MakeTick(Net::any_io_executor Executor) -> Net::awaitable<void>
     {
-        net::steady_timer timer(ex);
-        timer.expires_after(std::chrono::milliseconds(1));
-        co_await timer.async_wait(net::use_awaitable);
+        Net::steady_timer Timer(Executor);
+        Timer.expires_after(std::chrono::milliseconds(1));
+        co_await Timer.async_wait(Net::use_awaitable);
     }
 
     /**
      * @brief 内存写入端 fake 传输（Preview::Transport 体系）
      * @details PadTransport 仅测试填充逻辑，写入直接落内存。
      */
-    class fake_sink final : public Preview::Transmission
+    class FakeSink final : public Preview::Transmission
     {
     public:
-        explicit fake_sink(net::any_io_executor ex) : Ex_(std::move(ex))
+        explicit FakeSink(Net::any_io_executor Executor) : Ex_(std::move(Executor))
         {
         }
 
@@ -62,18 +66,18 @@ namespace
         }
 
         [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &Ec)
-            -> net::awaitable<std::size_t> override
+            -> Net::awaitable<std::size_t> override
         {
             Ec.clear();
             co_return 0;
         }
 
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> buf, std::error_code &Ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &Ec)
+            -> Net::awaitable<std::size_t> override
         {
             Ec.clear();
-            written_.insert(written_.end(), buf.begin(), buf.end());
-            co_return buf.size();
+            Written_.insert(Written_.end(), Buffer.begin(), Buffer.end());
+            co_return Buffer.size();
         }
 
         void Close() override
@@ -84,10 +88,10 @@ namespace
         {
         }
 
-        std::vector<std::byte> written_; ///< 捕获的写入字节
+        std::vector<std::byte> Written_; ///< 捕获的写入字节
 
     private:
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
     };
 
     /**
@@ -98,37 +102,37 @@ namespace
      */
     TEST(OwnershipAudit, VmessChunkStreamEndBlock)
     {
-        Preview::Vmess::ChunkStream cs;
-        std::array<std::uint8_t, 16> key{};
-        key[0] = 0x11;
-        std::array<std::uint8_t, 16> iv{};
-        iv[0] = 0x22;
-        cs.Init(key, iv);
+        Preview::Vmess::ChunkStream ChunkStream;
+        std::array<std::uint8_t, 16> Key{};
+        Key[0] = 0x11;
+        std::array<std::uint8_t, 16> Iv{};
+        Iv[0] = 0x22;
+        ChunkStream.Init(Key, Iv);
 
         // 先加密一个数据块推进 Nonce，再加密结束块
-        const std::array<std::uint8_t, 3> payload{0xAA, 0xBB, 0xCC};
-        std::string wire1;
-        cs.Encrypt(payload, wire1);
-        std::string wire2;
-        cs.Encrypt({}, wire2); // 结束块
+        const std::array<std::uint8_t, 3> Payload{0xAA, 0xBB, 0xCC};
+        std::string Wire1;
+        ChunkStream.Encrypt(Payload, Wire1);
+        std::string Wire2;
+        ChunkStream.Encrypt({}, Wire2); // 结束块
 
-        std::string plain1;
-        const auto r1 = cs.Decrypt(
-            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(wire1.data()),
-                                          wire1.size()),
-            plain1);
-        EXPECT_FALSE(r1.Ec);
-        EXPECT_EQ(plain1.size(), 3u);
+        std::string Plain1;
+        const auto Result1 = ChunkStream.Decrypt(
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(Wire1.data()),
+                                          Wire1.size()),
+            Plain1);
+        EXPECT_FALSE(Result1.Ec);
+        EXPECT_EQ(Plain1.size(), 3u);
 
         // 结束块：修复前此处越界读崩溃
-        std::string plain2("sentinel");
-        const auto r2 = cs.Decrypt(
-            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(wire2.data()),
-                                          wire2.size()),
-            plain2);
-        EXPECT_FALSE(r2.Ec);
-        EXPECT_TRUE(plain2.empty());
-        EXPECT_EQ(r2.Consumed, 18u);
+        std::string Plain2("sentinel");
+        const auto Result2 = ChunkStream.Decrypt(
+            std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(Wire2.data()),
+                                          Wire2.size()),
+            Plain2);
+        EXPECT_FALSE(Result2.Ec);
+        EXPECT_TRUE(Plain2.empty());
+        EXPECT_EQ(Result2.Consumed, 18u);
     }
 
     /**
@@ -138,28 +142,28 @@ namespace
      */
     TEST(OwnershipAudit, PadMaxRangeNoDivZero)
     {
-        net::io_context ioc;
-        auto sink = std::make_shared<fake_sink>(ioc.get_executor());
+        Net::io_context IoContext;
+        auto Sink = std::make_shared<FakeSink>(IoContext.get_executor());
 
-        Preview::Transport::PadConfig cfg;
-        cfg.PadTargets = "0-65535";
-        Preview::Transport::PadTransport pad(sink, cfg);
+        Preview::Transport::PadConfig Config;
+        Config.PadTargets = "0-65535";
+        Preview::Transport::PadTransport Pad(Sink, Config);
 
-        std::array<std::byte, 1> buf{std::byte{0x42}};
+        std::array<std::byte, 1> Buffer{std::byte{0x42}};
         std::error_code Ec;
-        std::size_t n = 0;
-        net::co_spawn(
-            ioc,
-            [&]() -> net::awaitable<void>
+        std::size_t BytesWritten = 0;
+        Net::co_spawn(
+            IoContext,
+            [&]() -> Net::awaitable<void>
             {
-                n = co_await pad.async_write_some(buf, Ec);
+                BytesWritten = co_await Pad.async_write_some(Buffer, Ec);
             },
-            net::detached);
-        ioc.run();
+            Net::detached);
+        IoContext.run();
 
         EXPECT_FALSE(Ec);
-        EXPECT_EQ(n, 1u);
-        EXPECT_GE(sink->written_.size(), 1u);
+        EXPECT_EQ(BytesWritten, 1u);
+        EXPECT_GE(Sink->Written_.size(), 1u);
     }
 
     /**
@@ -170,76 +174,76 @@ namespace
      */
     TEST(OwnershipAudit, MuxSessionCycleLeak)
     {
-        net::io_context ioc;
-        std::exception_ptr ep;
-        std::weak_ptr<Preview::Mux::Session<Preview::Mux::Smux::Codec>> weak;
-        bool connected = false;
-        bool opened = false;
+        Net::io_context IoContext;
+        std::exception_ptr Exception;
+        std::weak_ptr<Preview::Mux::Session<Preview::Mux::Smux::Codec>> WeakSession;
+        bool Connected = false;
+        bool Opened = false;
 
-        net::co_spawn(
-            ioc,
-            [&]() -> net::awaitable<void>
+        Net::co_spawn(
+            IoContext,
+            [&]() -> Net::awaitable<void>
             {
-                auto [a, b] = Preview::MakeMemoryPair(ioc.get_executor());
-                auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
-                auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+                auto [ClientMemoryValue, ServerMemoryValue] = Preview::MakeMemoryPair(IoContext.get_executor());
+                auto ClientMemory = std::make_shared<Preview::MemoryStream>(std::move(ClientMemoryValue));
+                auto ServerMemory = std::make_shared<Preview::MemoryStream>(std::move(ServerMemoryValue));
 
                 Preview::Mux::Client<Preview::Mux::Smux::Codec> Client;
-                connected = Client.Connect(sa);
+                Connected = Client.Connect(ClientMemory);
                 auto Stream = co_await Client.OpenStream();
-                opened = Stream != nullptr;
-                weak = Client.Session();
+                Opened = Stream != nullptr;
+                WeakSession = Client.Session();
 
                 // 释放外部流句柄引用（仅流表持有）
                 Stream.reset();
 
                 // 对端关闭 → 客户端帧循环读到 EOF → Teardown
-                sb->Close();
-                co_await make_tick(ioc.get_executor());
+                ServerMemory->Close();
+                co_await MakeTick(IoContext.get_executor());
             },
-            [&](std::exception_ptr e)
+            [&](std::exception_ptr ErrorValue)
             {
-                ep = e;
-                ioc.stop();
+                Exception = ErrorValue;
+                IoContext.stop();
             });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
 
-        EXPECT_TRUE(connected);
-        EXPECT_TRUE(opened);
-        // 修复前：Session ↔ StreamHandle 循环引用 → weak 未过期（泄漏）
+        EXPECT_TRUE(Connected);
+        EXPECT_TRUE(Opened);
+        // 修复前：Session ↔ StreamHandle 循环引用 → WeakSession 未过期（泄漏）
         // 修复后：Teardown 清空流表 → Session 析构
-        EXPECT_TRUE(weak.expired());
+        EXPECT_TRUE(WeakSession.expired());
     }
 
     /**
      * @brief 验证 TaskToken 在注册表析构后不访问悬垂 Owner_
-     * @details CancelAndWait + 析构后，token 仍被 co_spawn completion
-     * handler 持有；ioc.run() 驱动协程完成后 completion 触发 token
+     * @details Cancel() + 析构后，token 仍被 co_spawn completion
+     * handler 持有；IoContext.run() 驱动协程完成后 completion 触发 token
      * 析构。修复前 Release() 访问已析构的 Owner_（UAF），修复后
      * Detach() 已将 Owner_ 置空。
      */
     TEST(OwnershipAudit, TaskRegistryDanglingOwner)
     {
-        auto ioc = std::make_unique<net::io_context>();
+        auto IoContext = std::make_unique<Net::io_context>();
         {
-            Preview::Coroutine::TaskRegistry reg(*ioc);
-            reg.SpawnTracked(
-                "dangling-owner", [ioc_ptr = ioc.get()]() -> net::awaitable<void>
+            Preview::Coroutine::TaskRegistry Registry(*IoContext);
+            Registry.SpawnTracked(
+                "dangling-owner", [IoContextPointer = IoContext.get()]() -> Net::awaitable<void>
                 {
-                    net::steady_timer timer(ioc_ptr->get_executor());
-                    timer.expires_after(std::chrono::milliseconds(20));
-                    co_await timer.async_wait(net::use_awaitable);
+                    Net::steady_timer Timer(IoContextPointer->get_executor());
+                    Timer.expires_after(std::chrono::milliseconds(20));
+                    co_await Timer.async_wait(Net::use_awaitable);
                 });
-            (void)reg.CancelAndWait();
+            Registry.Cancel();
         } // registry 析构；token 仍被 completion handler 持有
 
         // 驱动协程完成 → completion → token 析构 → 修复前访问悬垂 Owner_
-        ioc->run();
-        ioc.reset();
+        IoContext->run();
+        IoContext.reset();
     }
 
 } // namespace

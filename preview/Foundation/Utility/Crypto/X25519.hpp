@@ -55,7 +55,7 @@ namespace Preview::Crypto
      */
     struct X25519Keypair
     {
-        std::array<std::uint8_t, X25519Klen> private_key{}; // X25519 私钥（32 字节标量）
+        std::array<std::uint8_t, X25519Klen> PrivateKey{}; // X25519 私钥（32 字节标量）
         std::array<std::uint8_t, X25519Klen> PublicKey{};  // X25519 公钥（Curve25519 上的点，32 字节）
     };
 
@@ -74,7 +74,7 @@ namespace Preview::Crypto
      * @param private_key 32 字节 X25519 私钥
      * @return 推导出的 32 字节公钥，失败时返回全零
      */
-    [[nodiscard]] auto DerivePubkey(std::span<const std::uint8_t> private_key)
+    [[nodiscard]] auto DerivePubkey(std::span<const std::uint8_t> PrivateKey)
         -> std::array<std::uint8_t, X25519Klen>;
 
     /**
@@ -88,7 +88,7 @@ namespace Preview::Crypto
      * @note 即使对方公钥是低阶点，X25519 也会成功计算（输出全零），
      * 调用者应检查共享密钥是否为全零以检测此类攻击。
      */
-    [[nodiscard]] auto X25519(std::span<const std::uint8_t> private_key,
+    [[nodiscard]] auto X25519(std::span<const std::uint8_t> PrivateKey,
                               std::span<const std::uint8_t> PeerPubkey)
         -> std::pair<Fault::Code, std::array<std::uint8_t, X25519Slen>>;
 
@@ -100,7 +100,7 @@ namespace Preview::Crypto
      */
     struct Ed25519Keypair
     {
-        std::array<std::uint8_t, Ed25519Plen> private_key{}; // Ed25519 完整私钥（64 字节：种子+公钥）
+        std::array<std::uint8_t, Ed25519Plen> PrivateKey{}; // Ed25519 完整私钥（64 字节：种子+公钥）
         std::array<std::uint8_t, Ed25519Klen> PublicKey{};  // Ed25519 公钥（32 字节）
     };
 
@@ -108,39 +108,39 @@ namespace Preview::Crypto
 
     inline auto GenerateKeypair() -> X25519Keypair
     {
-        X25519Keypair keypair;
+        X25519Keypair Keypair;
 
-        if (RAND_bytes(keypair.private_key.data(), static_cast<int>(X25519Klen)) != 1)
+        if (RAND_bytes(Keypair.PrivateKey.data(), static_cast<int>(X25519Klen)) != 1)
         {
-            return keypair;
+            return Keypair;
         }
 
-        keypair.PublicKey = DerivePubkey(keypair.private_key);
-        return keypair;
+        Keypair.PublicKey = DerivePubkey(Keypair.PrivateKey);
+        return Keypair;
     }
 
-    inline auto DerivePubkey(std::span<const std::uint8_t> private_key)
+    inline auto DerivePubkey(std::span<const std::uint8_t> PrivateKey)
         -> std::array<std::uint8_t, X25519Klen>
     {
         std::array<std::uint8_t, X25519Klen> PublicKey{};
 
-        if (private_key.size() != X25519Klen)
+        if (PrivateKey.size() != X25519Klen)
         {
             return PublicKey;
         }
 
-        X25519_public_from_private(PublicKey.data(), private_key.data());
+        X25519_public_from_private(PublicKey.data(), PrivateKey.data());
 
         return PublicKey;
     }
 
-    inline auto X25519(std::span<const std::uint8_t> private_key,
+    inline auto X25519(std::span<const std::uint8_t> PrivateKey,
                        const std::span<const std::uint8_t> PeerPubkey)
         -> std::pair<Fault::Code, std::array<std::uint8_t, X25519Slen>>
     {
         std::array<std::uint8_t, X25519Slen> SharedSecret{};
 
-        if (private_key.size() != X25519Klen)
+        if (PrivateKey.size() != X25519Klen)
         {
             return {Fault::Code::InvalidArgument, SharedSecret};
         }
@@ -150,7 +150,7 @@ namespace Preview::Crypto
             return {Fault::Code::InvalidArgument, SharedSecret};
         }
 
-        if (::X25519(SharedSecret.data(), private_key.data(), PeerPubkey.data()) != 1)
+        if (::X25519(SharedSecret.data(), PrivateKey.data(), PeerPubkey.data()) != 1)
         {
             SharedSecret.fill(0);
             return {Fault::Code::Kexfail, SharedSecret};

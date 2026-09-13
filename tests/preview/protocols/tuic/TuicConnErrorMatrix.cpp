@@ -1,179 +1,228 @@
 /**
  * @file TuicConnErrorMatrix.cpp
- * @brief Tuic Conn 错误矩阵测试
- * @details 服务端握手错误路径：
- * - 半包截断（帧头/地址体未收满 → unexpected_eof）
- * - 正常握手基线（Connect/Accept 成功）
- * @note Preview::Tuic 握手为简化实现（不做 UUID/密码认证），
- *       故无 BadCredential 用例。
+ * @brief TUIC Conn 错误矩阵测试
+ * @details 覆盖认证输入提前关闭时的截断错误和完整握手成功路径。
  */
 
 #include <gtest/gtest.h>
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
-#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <cstdint>
+#include <exception>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
-#include <vector>
+#include <utility>
 
-#include <preview/Transport/MemoryStream.hpp>
 #include <preview/Protocols/Tuic/Tuic.hpp>
+#include <preview/Transport/MemoryStream.hpp>
+
+namespace Net = boost::asio;
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Tuic = Preview::Tuic;
 
-    /**
-     * @brief 驱动协程运行
-     */
-    template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    using Address = Tuic::Address;
+    using Error = Preview::Error;
+    using MemoryStream = Preview::MemoryStream;
+    using SharedTransmission = Preview::SharedTransmission;
+    using CompletionChannel =
+        Net::experimental::channel<void(boost::system::error_code)>;
+
+    template <typename Awaitable>
+    auto RunCoroutine(
+        Net::io_context &IoContext,
+        Awaitable Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        auto Completion =
+            [&Exception, &IoContext](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(
+            IoContext,
+            std::move(Coroutine),
+            std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
-    /**
-     * @brief 生成测试 UUID（全 0x55）
-     */
-    auto make_uuid() -> std::array<std::uint8_t, 16>
+    [[nodiscard]] auto MakeUuid() -> std::array<std::uint8_t, 16>
     {
-        std::array<std::uint8_t, 16> u{};
-        u.fill(0x55);
-        return u;
+        std::array<std::uint8_t, 16> Uuid{};
+        Uuid.fill(0x55);
+        return Uuid;
     }
 
-    auto test_exporter(std::span<std::uint8_t> Output, std::span<const std::uint8_t> Label,
-                       std::string_view Context) -> bool
+    [[nodiscard]] auto TestExporter(
+        std::span<std::uint8_t> Output,
+        std::span<const std::uint8_t> Label,
+        std::string_view Context) -> bool
     {
         std::uint8_t State = 0x5A;
         for (const auto Byte : Label)
         {
             State = static_cast<std::uint8_t>((State * 33U) ^ Byte);
         }
-        for (const auto Byte : Context)
+        for (const auto Character : Context)
         {
-            State = static_cast<std::uint8_t>((State * 33U) ^ static_cast<std::uint8_t>(Byte));
+            State = static_cast<std::uint8_t>(
+                (State * 33U) ^ static_cast<std::uint8_t>(Character));
         }
-        for (std::size_t I = 0; I < Output.size(); ++I)
+        for (std::size_t Index = 0; Index < Output.size(); ++Index)
         {
-            State = static_cast<std::uint8_t>(State * 33U + static_cast<std::uint8_t>(I));
-            Output[I] = State;
+            State = static_cast<std::uint8_t>(
+                State * 33U + static_cast<std::uint8_t>(Index));
+            Output[Index] = State;
         }
         return true;
     }
 
-    using CompletionChannel = net::experimental::channel<void(boost::system::error_code)>;
-
-    auto RunTruncatedServer(SharedTransmission Data, Tuic::ServerConfig Config)
-        -> net::awaitable<void>
+    auto RunTruncatedServer(
+        SharedTransmission Data,
+        Tuic::ServerConfig Config) -> Net::awaitable<void>
     {
-        auto [err, req, Conn] = co_await Tuic::Accept(std::move(Data), Config);
-        EXPECT_EQ(err, Error::UnexpectedEof);
-        EXPECT_FALSE(Conn);
-        (void)req;
+        auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
+            std::move(Data),
+            Config);
+        EXPECT_EQ(ErrorValue, Error::UnexpectedEof);
+        EXPECT_FALSE(Connection);
+        (void)Request;
     }
 
-    auto RunHandshakeServer(SharedTransmission Data, Tuic::ServerConfig Config,
-                            std::shared_ptr<CompletionChannel> Done) -> net::awaitable<void>
+    auto RunHandshakeServer(
+        SharedTransmission Data,
+        Tuic::ServerConfig Config,
+        const std::shared_ptr<CompletionChannel> &Done)
+        -> Net::awaitable<void>
     {
-        auto [err, req, Conn] = co_await Tuic::Accept(std::move(Data), Config);
-        EXPECT_EQ(err, Error::None);
-        EXPECT_TRUE(Conn);
-        EXPECT_EQ(req.Cmd, Tuic::CmdConnect);
-        EXPECT_EQ(req.dst.Host, "t.internal");
-        EXPECT_EQ(req.dst.Port, 443u);
-        co_await Done->async_send(boost::system::error_code{}, net::use_awaitable);
+        auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
+            std::move(Data),
+            Config);
+        EXPECT_EQ(ErrorValue, Error::None);
+        EXPECT_TRUE(Connection);
+        EXPECT_EQ(Request.Cmd, Tuic::CmdConnect);
+        EXPECT_EQ(Request.dst.Host, "t.internal");
+        EXPECT_EQ(Request.dst.Port, 443u);
+        (void)co_await Done->async_send(
+            boost::system::error_code{},
+            Net::use_awaitable);
     }
 
     TEST(TuicConnErrorMatrix, TruncatedHeader)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        auto [auth_a, auth_b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientStream, ServerStream] =
+            Preview::MakeMemoryPair(IoContext.get_executor());
+        auto [AuthClient, AuthServer] =
+            Preview::MakeMemoryPair(IoContext.get_executor());
+        auto Coroutine = [&]() -> Net::awaitable<void>
         {
-            Tuic::ServerConfig cfg;
-            cfg.uuid = make_uuid();
-            cfg.password = "pw";
-            cfg.AuthStream = std::make_shared<MemoryStream>(std::move(auth_b));
-            cfg.Exporter = test_exporter;
+            Tuic::ServerConfig Config;
+            Config.uuid = MakeUuid();
+            Config.password = "pw";
+            Config.AuthStream = std::make_shared<MemoryStream>(
+                std::move(AuthServer));
+            Config.Exporter = TestExporter;
 
-            auto Done = std::make_shared<CompletionChannel>(ioc.get_executor(), 1);
+            const auto Done =
+                std::make_shared<CompletionChannel>(
+                    IoContext.get_executor(),
+                    1);
             auto Failure = std::make_shared<std::exception_ptr>();
-            net::co_spawn(
-                ioc.get_executor(),
-                RunTruncatedServer(std::make_shared<MemoryStream>(std::move(b)),
-                                   cfg),
-                [Done, Failure](std::exception_ptr Ep)
-                {
-                    *Failure = Ep;
-                    Done->try_send(boost::system::error_code{});
-                });
+            auto ServerCompletion =
+                [Done, Failure](std::exception_ptr Exception) -> void
+            {
+                *Failure = Exception;
+                (void)Done->try_send(boost::system::error_code{});
+            };
+            auto ServerOperation = RunTruncatedServer(
+                std::make_shared<MemoryStream>(std::move(ServerStream)),
+                Config);
+            Net::co_spawn(
+                IoContext.get_executor(),
+                std::move(ServerOperation),
+                std::move(ServerCompletion));
 
-            // 认证 uni stream 提前关闭，服务端必须拒绝不完整认证帧。
-            (void)a;
-            auth_a.Close();
-            co_await Done->async_receive(net::use_awaitable);
+            (void)ClientStream;
+            AuthClient.Close();
+            (void)co_await Done->async_receive(Net::use_awaitable);
             EXPECT_FALSE(*Failure);
-            co_return;
-        });
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
     }
 
     TEST(TuicConnErrorMatrix, HandshakeOk)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        auto [auth_a, auth_b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientStream, ServerStream] =
+            Preview::MakeMemoryPair(IoContext.get_executor());
+        auto [AuthClient, AuthServer] =
+            Preview::MakeMemoryPair(IoContext.get_executor());
+        auto Coroutine = [&]() -> Net::awaitable<void>
         {
-            auto Done = std::make_shared<CompletionChannel>(ioc.get_executor(), 1);
+            const auto Uuid = MakeUuid();
+            const auto Done =
+                std::make_shared<CompletionChannel>(
+                    IoContext.get_executor(),
+                    1);
             auto Failure = std::make_shared<std::exception_ptr>();
-            net::co_spawn(
-                ioc.get_executor(),
-                RunHandshakeServer(
-                    std::make_shared<MemoryStream>(std::move(b)),
-                    Tuic::ServerConfig{make_uuid(), "pw", std::make_shared<MemoryStream>(std::move(auth_b)),
-                                       test_exporter},
-                    Done),
-                [Done, Failure](std::exception_ptr Ep)
-                {
-                    *Failure = Ep;
-                    Done->try_send(boost::system::error_code{});
-                });
+            auto Config = Tuic::ServerConfig{};
+            Config.uuid = Uuid;
+            Config.password = "pw";
+            Config.AuthStream = std::make_shared<MemoryStream>(
+                std::move(AuthServer));
+            Config.Exporter = TestExporter;
+            auto ServerOperation = RunHandshakeServer(
+                std::make_shared<MemoryStream>(std::move(ServerStream)),
+                Config,
+                Done);
+            auto ServerCompletion =
+                [Done, Failure](std::exception_ptr Exception) -> void
+            {
+                *Failure = Exception;
+                (void)Done->try_send(boost::system::error_code{});
+            };
+            Net::co_spawn(
+                IoContext.get_executor(),
+                std::move(ServerOperation),
+                std::move(ServerCompletion));
 
-            Tuic::ClientConfig cfg;
-            cfg.uuid = make_uuid();
-            cfg.password = "pw";
-            cfg.AuthStream = std::make_shared<MemoryStream>(std::move(auth_a));
-            cfg.Exporter = test_exporter;
-            auto [err, Conn] = co_await Tuic::Connect(
-                std::make_shared<MemoryStream>(std::move(a)), cfg,
-                Tuic::Address{Tuic::AddressType::Domain, "t.internal", 443});
-            EXPECT_EQ(err, Error::None);
-            EXPECT_NE(Conn, nullptr);
-            co_await Done->async_receive(net::use_awaitable);
+            Tuic::ClientConfig ClientConfig;
+            ClientConfig.uuid = Uuid;
+            ClientConfig.password = "pw";
+            ClientConfig.AuthStream = std::make_shared<MemoryStream>(
+                std::move(AuthClient));
+            ClientConfig.Exporter = TestExporter;
+            const auto Target = Address{
+                Tuic::AddressType::Domain,
+                "t.internal",
+                443};
+            auto [ErrorValue, Connection] = co_await Tuic::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientStream)),
+                ClientConfig,
+                Target);
+            EXPECT_EQ(ErrorValue, Error::None);
+            EXPECT_NE(Connection, nullptr);
+            co_await Done->async_receive(Net::use_awaitable);
             EXPECT_FALSE(*Failure);
-            co_return;
-        });
+            if (Connection)
+            {
+                Connection->Close();
+            }
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
     }
-
 } // namespace

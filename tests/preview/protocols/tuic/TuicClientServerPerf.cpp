@@ -1,222 +1,619 @@
 /**
  * @file TuicClientServerPerf.cpp
- * @brief Tuic 客户端/服务端封装测试（传输 + 性能）
+ * @brief TUIC 客户端/服务端完整会话测试（传输 + 性能）
  */
 
-#include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
-#include <boost/asio/io_context.hpp>
+#include <gtest/gtest.h>
 
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/redirect_error.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+#include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <exception>
 #include <memory>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #include <TestSupport/Benchmark/Bench.hpp>
-#include <preview/Transport/MemoryStream.hpp>
 #include <preview/Protocols/Tuic/Tuic.hpp>
-#include <gtest/gtest.h>
+#include <preview/Transport/MemoryStream.hpp>
+
+namespace Net = boost::asio;
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Preview = ::Preview;
+    namespace Tuic = Preview::Tuic;
 
-    template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    using Address = Tuic::Address;
+    using BenchOptions = Preview::BenchOptions;
+    using BenchReport = Preview::BenchReport;
+    using ClientConfig = Tuic::ClientConfig;
+    using CompletionChannel =
+        Net::experimental::channel<void(boost::system::error_code, bool)>;
+    using Error = Preview::Error;
+    using ExecutorType = Net::any_io_executor;
+    using MemoryStream = Preview::MemoryStream;
+    using ServerConfig = Tuic::ServerConfig;
+    using SharedTask = std::shared_ptr<struct TaskResult>;
+
+    using Preview::BenchThroughputTx;
+    using Preview::MakeMemoryPair;
+
+    struct ServerOptions
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        std::size_t ExpectedBytes{0};
+        std::size_t BlockSize{64 * 1024};
+        bool Echo{false};
+    };
+
+    struct TaskResult
+    {
+        explicit TaskResult(ExecutorType Executor)
+            : Done(std::move(Executor), 1)
         {
-            std::rethrow_exception(ep);
+        }
+
+        CompletionChannel Done;
+        std::exception_ptr Exception;
+    };
+
+    template <typename Awaitable>
+    auto RunCoroutine(Net::io_context &IoContext, Awaitable Coroutine) -> void
+    {
+        std::exception_ptr Exception;
+        auto Completion =
+            [&Exception, &IoContext](std::exception_ptr ErrorValue) -> void
+        {
+            Exception = std::move(ErrorValue);
+            IoContext.stop();
+        };
+        Net::co_spawn(
+            IoContext,
+            std::move(Coroutine),
+            std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
-    auto make_uuid() -> std::array<std::uint8_t, 16>
+    [[nodiscard]] auto MakeUuid() -> std::array<std::uint8_t, 16>
     {
-        std::array<std::uint8_t, 16> u{};
-        u.fill(0x55);
-        return u;
+        std::array<std::uint8_t, 16> Uuid{};
+        Uuid.fill(0x55);
+        return Uuid;
     }
 
-    auto test_exporter(std::span<std::uint8_t> Output, std::span<const std::uint8_t> Label,
-                       std::string_view Context) -> bool
+    [[nodiscard]] auto TestExporter(
+        std::span<std::uint8_t> Output,
+        std::span<const std::uint8_t> Label,
+        std::string_view Context) -> bool
     {
         std::uint8_t State = 0x5A;
         for (const auto Byte : Label)
         {
             State = static_cast<std::uint8_t>((State * 33U) ^ Byte);
         }
-        for (const auto Byte : Context)
+        for (const auto Character : Context)
         {
-            State = static_cast<std::uint8_t>((State * 33U) ^ static_cast<std::uint8_t>(Byte));
+            State = static_cast<std::uint8_t>(
+                (State * 33U) ^ static_cast<std::uint8_t>(Character));
         }
-        for (std::size_t I = 0; I < Output.size(); ++I)
+        for (std::size_t Index = 0; Index < Output.size(); ++Index)
         {
-            State = static_cast<std::uint8_t>(State * 33U + static_cast<std::uint8_t>(I));
-            Output[I] = State;
+            State = static_cast<std::uint8_t>(
+                State * 33U + static_cast<std::uint8_t>(Index));
+            Output[Index] = State;
         }
         return true;
     }
 
-    auto make_dst() -> Tuic::Address
+    [[nodiscard]] auto MakeDestination() -> Address
     {
-        Tuic::Address dst{};
-        dst.Type = Tuic::AddressType::Ipv4;
-        dst.Host = "93.184.216.34";
-        dst.Port = 443;
-        return dst;
+        Address Destination{};
+        Destination.Type = Tuic::AddressType::Ipv4;
+        Destination.Host = "93.184.216.34";
+        Destination.Port = 443;
+        return Destination;
     }
 
-    TEST(TuicClientServer, HandshakeAndTransfer)
+    [[nodiscard]] auto MakeClientConfig(
+        std::shared_ptr<MemoryStream> AuthStream) -> ClientConfig
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        auto [auth_a, auth_b] = MakeMemoryPair(ioc.get_executor());
+        ClientConfig Config{};
+        Config.uuid = MakeUuid();
+        Config.password = "pw";
+        Config.AuthStream = std::move(AuthStream);
+        Config.Exporter = TestExporter;
+        return Config;
+    }
 
-        constexpr std::size_t kTotal = 4 * 1024 * 1024;
-        constexpr std::size_t kBlock = 64 * 1024;
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto [err, req, Conn] =
-                             co_await Tuic::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                                    Tuic::ServerConfig{make_uuid(), "pw",
-                                                                        std::make_shared<MemoryStream>(std::move(auth_b)),
-                                                                        test_exporter});
-                         if (err != Error::None)
-                         {
-                             EXPECT_TRUE(false) << "Accept Failed";
-                             co_return;
-                         }
-                         EXPECT_EQ(req.dst.Port, 443u);
-                         std::array<std::byte, kBlock> buf{};
-                         std::size_t got = 0;
-                         while (got < kTotal)
-                         {
-                             std::error_code ec;
-                             const auto n = co_await Conn->async_read_some(buf, ec);
-                             if (ec || n == 0)
-                             {
-                                 break;
-                             }
-                             got += n;
-                         }
-                         EXPECT_EQ(got, kTotal);
-                         Conn->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+    [[nodiscard]] auto MakeServerConfig(
+        std::shared_ptr<MemoryStream> AuthStream) -> ServerConfig
+    {
+        ServerConfig Config{};
+        Config.uuid = MakeUuid();
+        Config.password = "pw";
+        Config.AuthStream = std::move(AuthStream);
+        Config.Exporter = TestExporter;
+        return Config;
+    }
 
-                     auto [herr, cli] =
-                         co_await Tuic::Connect(std::make_shared<MemoryStream>(std::move(a)),
-                                                 Tuic::ClientConfig{make_uuid(), "pw",
-                                                                    std::make_shared<MemoryStream>(std::move(auth_a)),
-                                                                    test_exporter},
-                                                 make_dst());
-                     if (herr != Error::None || !cli)
-                     {
-                         EXPECT_TRUE(false) << "Connect Failed";
-                         co_return;
-                     }
-                     std::vector<std::uint8_t> payload(kBlock, 0x4D);
-                     std::size_t sent = 0;
-                     std::size_t yield_cnt = 0;
-                     while (sent < kTotal)
-                     {
-                         if ((++yield_cnt % 16) == 0)
-                         {
-                             co_await net::post(ioc.get_executor(), net::use_awaitable);
-                         }
-                         const auto n = std::min(kBlock, kTotal - sent);
-                         std::size_t Done = 0;
-                         while (Done < n)
-                         {
-                             std::error_code ec;
-                             const auto w = co_await cli->async_write_some(
-                                 std::span<const std::byte>(
-                                     reinterpret_cast<const std::byte *>(payload.data() + Done), n - Done),
-                                 ec);
-                             if (ec || w == 0)
-                             {
-                                 break;
-                             }
-                             Done += w;
-                         }
-                         if (Done < n)
-                         {
-                             break;
-                         }
-                         sent += n;
-                     }
-                     EXPECT_EQ(sent, kTotal);
-                     cli->Close();
-                 });
+    auto CloseStreams(
+        const std::shared_ptr<MemoryStream> &Stream,
+        const std::shared_ptr<MemoryStream> &AuthStream) -> void
+    {
+        if (Stream)
+        {
+            Stream->Close();
+        }
+        if (AuthStream)
+        {
+            AuthStream->Close();
+        }
+    }
+
+    [[nodiscard]] auto SpawnTask(
+        ExecutorType Executor,
+        Net::awaitable<void> Coroutine) -> SharedTask
+    {
+        const auto Task = std::make_shared<TaskResult>(std::move(Executor));
+        auto Completion = [Task](std::exception_ptr Exception) -> void
+        {
+            Task->Exception = std::move(Exception);
+            const bool Completed = Task->Exception == nullptr;
+            (void)Task->Done.try_send(
+                boost::system::error_code{},
+                Completed);
+        };
+        Net::co_spawn(
+            Task->Done.get_executor(),
+            std::move(Coroutine),
+            std::move(Completion));
+        return Task;
+    }
+
+    [[nodiscard]] auto WaitTask(
+        const SharedTask &Task) -> Net::awaitable<bool>
+    {
+        boost::system::error_code ErrorCode;
+        const auto Completed = co_await Task->Done.async_receive(
+            Net::redirect_error(Net::use_awaitable, ErrorCode));
+        if (ErrorCode)
+        {
+            co_return false;
+        }
+        if (Task->Exception)
+        {
+            std::rethrow_exception(Task->Exception);
+        }
+        co_return Completed;
+    }
+
+    auto RunServer(
+        std::shared_ptr<MemoryStream> Stream,
+        std::shared_ptr<MemoryStream> AuthStream,
+        ServerOptions Options) -> Net::awaitable<void>
+    {
+        if (Options.BlockSize == 0)
+        {
+            throw std::runtime_error("TUIC server block size is zero");
+        }
+
+        const auto Config = MakeServerConfig(std::move(AuthStream));
+        auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
+            std::move(Stream),
+            Config);
+        if (ErrorValue != Error::None || !Connection)
+        {
+            throw std::runtime_error("TUIC server authentication failed");
+        }
+        EXPECT_EQ(Request.dst.Port, 443u);
+        if (Request.dst.Port != 443u)
+        {
+            throw std::runtime_error("TUIC server target mismatch");
+        }
+
+        std::vector<std::byte> Buffer(Options.BlockSize);
+        std::size_t Received = 0;
+        while (Options.ExpectedBytes == 0 || Received < Options.ExpectedBytes)
+        {
+            std::size_t ReadSize = Buffer.size();
+            if (Options.ExpectedBytes > 0)
+            {
+                const auto Remaining = Options.ExpectedBytes - Received;
+                ReadSize = std::min(ReadSize, Remaining);
+            }
+            const std::span<std::byte> ReadWindow(Buffer.data(), ReadSize);
+            std::error_code ReadError;
+            const auto Count = co_await Connection->async_read_some(
+                ReadWindow,
+                ReadError);
+            if (ReadError)
+            {
+                throw std::runtime_error("TUIC server read failed");
+            }
+            if (Count == 0)
+            {
+                if (Options.ExpectedBytes > 0 && Received < Options.ExpectedBytes)
+                {
+                    throw std::runtime_error("TUIC server received incomplete data");
+                }
+                break;
+            }
+            if (Count > ReadSize)
+            {
+                throw std::runtime_error("TUIC server read exceeded buffer");
+            }
+
+            if (Options.Echo)
+            {
+                const std::span<const std::byte> EchoWindow(
+                    Buffer.data(),
+                    Count);
+                std::size_t Written = 0;
+                while (Written < EchoWindow.size())
+                {
+                    const auto WriteWindow = EchoWindow.subspan(Written);
+                    std::error_code WriteError;
+                    const auto WriteCount = co_await Connection->async_write_some(
+                        WriteWindow,
+                        WriteError);
+                    if (WriteError || WriteCount == 0 ||
+                        WriteCount > EchoWindow.size() - Written)
+                    {
+                        throw std::runtime_error("TUIC server echo failed");
+                    }
+                    Written += WriteCount;
+                }
+            }
+            Received += Count;
+        }
+        Connection->Close();
+        if (Options.ExpectedBytes > 0 && Received != Options.ExpectedBytes)
+        {
+            throw std::runtime_error("TUIC server received incomplete data");
+        }
+    }
+
+    auto RunUdpServer(
+        std::shared_ptr<MemoryStream> Stream,
+        std::shared_ptr<MemoryStream> AuthStream) -> Net::awaitable<void>
+    {
+        const auto Config = MakeServerConfig(std::move(AuthStream));
+        auto [ErrorValue, Request, Connection] = co_await Tuic::Accept(
+            std::move(Stream),
+            Config);
+        if (ErrorValue != Error::None || !Connection)
+        {
+            throw std::runtime_error("TUIC UDP server authentication failed");
+        }
+        EXPECT_EQ(Request.dst.Port, 443u);
+        if (Request.dst.Port != 443u)
+        {
+            throw std::runtime_error("TUIC UDP server target mismatch");
+        }
+
+        Address Source;
+        std::vector<std::uint8_t> Payload;
+        const auto ReceiveError = co_await Connection->AsyncReceiveDatagram(
+            Source,
+            Payload);
+        EXPECT_EQ(ReceiveError, Error::None);
+        if (ReceiveError != Error::None)
+        {
+            throw std::runtime_error("TUIC UDP server receive failed");
+        }
+        const std::string ReceivedPayload(Payload.begin(), Payload.end());
+        EXPECT_EQ(ReceivedPayload, "hello udp");
+        if (ReceivedPayload != "hello udp")
+        {
+            throw std::runtime_error("TUIC UDP server payload mismatch");
+        }
+
+        std::vector<std::uint8_t> Response(Payload.rbegin(), Payload.rend());
+        const std::span<const std::uint8_t> ResponseSpan(Response);
+        const auto SendError = co_await Connection->AsyncSendDatagram(
+            Source,
+            ResponseSpan);
+        EXPECT_EQ(SendError, Error::None);
+        if (SendError != Error::None)
+        {
+            throw std::runtime_error("TUIC UDP server send failed");
+        }
+        Connection->Close();
+    }
+
+    auto RunTransfer(
+        Net::io_context &IoContext,
+        const std::size_t TotalBytes) -> void
+    {
+        constexpr std::size_t BlockSize = 64 * 1024;
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
+        auto [ClientAuthMemory, ServerAuthMemory] =
+            MakeMemoryPair(IoContext.get_executor());
+
+        auto Coroutine = [&]() -> Net::awaitable<void>
+        {
+            const auto ServerStream = std::make_shared<MemoryStream>(
+                std::move(ServerMemory));
+            const auto ServerAuthStream = std::make_shared<MemoryStream>(
+                std::move(ServerAuthMemory));
+            auto ServerOperation =
+                [ServerStream, ServerAuthStream, TotalBytes]()
+                -> Net::awaitable<void>
+            {
+                co_await RunServer(
+                    ServerStream,
+                    ServerAuthStream,
+                    ServerOptions{TotalBytes, BlockSize, false});
+            };
+            const auto ServerTask = SpawnTask(
+                IoContext.get_executor(),
+                ServerOperation());
+
+            const auto ClientAuthStream = std::make_shared<MemoryStream>(
+                std::move(ClientAuthMemory));
+            const auto ClientConfigValue = MakeClientConfig(ClientAuthStream);
+            const auto Destination = MakeDestination();
+            auto [HandshakeError, Client] = co_await Tuic::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientMemory)),
+                ClientConfigValue,
+                Destination);
+            EXPECT_EQ(HandshakeError, Error::None);
+            EXPECT_NE(Client, nullptr);
+            if (HandshakeError != Error::None || !Client)
+            {
+                CloseStreams(ServerStream, ServerAuthStream);
+                const auto ServerCompleted = co_await WaitTask(ServerTask);
+                EXPECT_TRUE(ServerCompleted);
+                co_return;
+            }
+
+            std::vector<std::uint8_t> Payload(BlockSize, 0x4D);
+            const std::span<const std::byte> PayloadWindow(
+                reinterpret_cast<const std::byte *>(Payload.data()),
+                Payload.size());
+            std::size_t Sent = 0;
+            std::size_t YieldCount = 0;
+            while (Sent < TotalBytes)
+            {
+                ++YieldCount;
+                if (YieldCount % 16 == 0)
+                {
+                    co_await Net::post(
+                        IoContext.get_executor(),
+                        Net::use_awaitable);
+                }
+                const auto Chunk = std::min(BlockSize, TotalBytes - Sent);
+                const auto WriteWindow = PayloadWindow.first(Chunk);
+                std::size_t Written = 0;
+                while (Written < Chunk)
+                {
+                    const auto Remaining = WriteWindow.subspan(Written);
+                    std::error_code WriteError;
+                    const auto WriteCount = co_await Client->async_write_some(
+                        Remaining,
+                        WriteError);
+                    if (WriteError || WriteCount == 0 ||
+                        WriteCount > Chunk - Written)
+                    {
+                        break;
+                    }
+                    Written += WriteCount;
+                }
+                if (Written < Chunk)
+                {
+                    break;
+                }
+                Sent += Chunk;
+            }
+            EXPECT_EQ(Sent, TotalBytes);
+            Client->Close();
+            const auto ServerCompleted = co_await WaitTask(ServerTask);
+            EXPECT_TRUE(ServerCompleted);
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
+    }
+
+    auto RunBenchConnection(
+        Net::io_context &IoContext,
+        const BenchOptions &Options) -> Net::awaitable<BenchReport>
+    {
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
+        auto [ClientAuthMemory, ServerAuthMemory] =
+            MakeMemoryPair(IoContext.get_executor());
+        const auto ServerStream = std::make_shared<MemoryStream>(
+            std::move(ServerMemory));
+        const auto ServerAuthStream = std::make_shared<MemoryStream>(
+            std::move(ServerAuthMemory));
+        auto ServerOperation =
+            [ServerStream, ServerAuthStream, Options]()
+            -> Net::awaitable<void>
+        {
+            co_await RunServer(
+                ServerStream,
+                ServerAuthStream,
+                ServerOptions{Options.Total, Options.Block, true});
+        };
+        const auto ServerTask = SpawnTask(
+            IoContext.get_executor(),
+            ServerOperation());
+
+        const auto ClientAuthStream = std::make_shared<MemoryStream>(
+            std::move(ClientAuthMemory));
+        const auto ClientConfigValue = MakeClientConfig(ClientAuthStream);
+        const auto Destination = MakeDestination();
+        auto [HandshakeError, Client] = co_await Tuic::Connect(
+            std::make_shared<MemoryStream>(std::move(ClientMemory)),
+            ClientConfigValue,
+            Destination);
+        EXPECT_EQ(HandshakeError, Error::None);
+        EXPECT_NE(Client, nullptr);
+        if (HandshakeError != Error::None || !Client)
+        {
+            CloseStreams(ServerStream, ServerAuthStream);
+            const auto ServerCompleted = co_await WaitTask(ServerTask);
+            EXPECT_TRUE(ServerCompleted);
+            co_return BenchReport{};
+        }
+
+        const auto Report = co_await BenchThroughputTx(
+            *Client,
+            *Client,
+            Options);
+        EXPECT_EQ(Report.Bytes, Options.Total);
+        Client->Close();
+        const auto ServerCompleted = co_await WaitTask(ServerTask);
+        EXPECT_TRUE(ServerCompleted);
+        co_return Report;
+    }
+
+    auto RunBenchmarks(
+        Net::io_context &IoContext,
+        BenchReport &ThroughputReport,
+        BenchReport &LatencyReport) -> Net::awaitable<void>
+    {
+        BenchOptions ThroughputOptions;
+        ThroughputOptions.Total = 64 * 1024 * 1024;
+        ThroughputOptions.Block = 64 * 1024;
+        ThroughputReport = co_await RunBenchConnection(
+            IoContext,
+            ThroughputOptions);
+
+        BenchOptions LatencyOptions;
+        LatencyOptions.Total = 1000 * 4 * 1024;
+        LatencyOptions.Block = 4 * 1024;
+        LatencyReport = co_await RunBenchConnection(
+            IoContext,
+            LatencyOptions);
+    }
+
+    TEST(TuicClientServer, Transfer100MB)
+    {
+        Net::io_context IoContext;
+        RunTransfer(IoContext, 100 * 1024 * 1024);
+    }
+
+    TEST(TuicClientServer, ThroughputLatency)
+    {
+        Net::io_context IoContext;
+        BenchReport ThroughputReport{};
+        BenchReport LatencyReport{};
+        auto Coroutine = RunBenchmarks(
+            IoContext,
+            ThroughputReport,
+            LatencyReport);
+        RunCoroutine(IoContext, std::move(Coroutine));
+
+        EXPECT_EQ(ThroughputReport.Bytes, 64u * 1024u * 1024u);
+        EXPECT_EQ(LatencyReport.Bytes, 1000u * 4u * 1024u);
+        EXPECT_GT(ThroughputReport.Mbps, 0.0);
+        EXPECT_GT(LatencyReport.Samples, 0u);
+        std::printf(
+            "tuic throughput: %.1f MB/s | latency(ms): avg %.3f p50 %.3f "
+            "p95 %.3f p99 %.3f (min %.3f max %.3f) samples=%zu\n",
+            ThroughputReport.Mbps,
+            LatencyReport.LatencyAvg,
+            LatencyReport.LatencyP50,
+            LatencyReport.LatencyP95,
+            LatencyReport.LatencyP99,
+            LatencyReport.LatencyMin,
+            LatencyReport.LatencyMax,
+            LatencyReport.Samples);
     }
 
     TEST(TuicClientServer, UdpDatagramRoundtrip)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        auto [auth_a, auth_b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
+        auto [ClientAuthMemory, ServerAuthMemory] =
+            MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(
-            ioc,
-            [&]() -> net::awaitable<void>
+        auto Coroutine = [&]() -> Net::awaitable<void>
+        {
+            const auto ServerStream = std::make_shared<MemoryStream>(
+                std::move(ServerMemory));
+            const auto ServerAuthStream = std::make_shared<MemoryStream>(
+                std::move(ServerAuthMemory));
+            auto ServerOperation = [ServerStream, ServerAuthStream]()
+                -> Net::awaitable<void>
             {
-                auto server_coro = [&]() -> net::awaitable<void>
-                {
-                    auto [err, req, Conn] =
-                        co_await Tuic::Accept(std::make_shared<MemoryStream>(std::move(b)),
-                                              Tuic::ServerConfig{make_uuid(), "pw",
-                                                                 std::make_shared<MemoryStream>(std::move(auth_b)),
-                                                                 test_exporter});
-                    if (err != Error::None)
-                    {
-                        co_return;
-                    }
-                    Tuic::Address src;
-                    std::vector<std::uint8_t> payload;
-                    const auto rerr = co_await Conn->AsyncReceiveDatagram(src, payload);
-                    EXPECT_EQ(rerr, Error::None);
-                    EXPECT_EQ(std::string(payload.begin(), payload.end()), "hello udp");
-                    std::vector<std::uint8_t> back(payload.rbegin(), payload.rend());
-                    (void)co_await Conn->AsyncSendDatagram(src, back);
-                    Conn->Close();
-                };
-                net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+                co_await RunUdpServer(ServerStream, ServerAuthStream);
+            };
+            const auto ServerTask = SpawnTask(
+                IoContext.get_executor(),
+                ServerOperation());
 
-                auto [herr, cli] = co_await Tuic::Connect(std::make_shared<MemoryStream>(std::move(a)),
-                                                          Tuic::ClientConfig{make_uuid(), "pw",
-                                                                             std::make_shared<MemoryStream>(std::move(auth_a)),
-                                                                             test_exporter},
-                                                          make_dst());
-                if (herr != Error::None || !cli)
-                {
-                    co_return;
-                }
-                const std::string payload = "hello udp";
-                auto serr = co_await cli->AsyncSendDatagram(
-                    make_dst(), std::span<const std::uint8_t>(
-                                    reinterpret_cast<const std::uint8_t *>(payload.data()), payload.size()));
-                EXPECT_EQ(serr, Error::None);
-                Tuic::Address src;
-                std::vector<std::uint8_t> back;
-                const auto rerr = co_await cli->AsyncReceiveDatagram(src, back);
-                EXPECT_EQ(rerr, Error::None);
-                EXPECT_EQ(std::string(back.begin(), back.end()), "pdu olleh");
-                cli->Close();
-            });
+            const auto ClientAuthStream = std::make_shared<MemoryStream>(
+                std::move(ClientAuthMemory));
+            const auto ClientConfigValue = MakeClientConfig(ClientAuthStream);
+            const auto Destination = MakeDestination();
+            auto [HandshakeError, Client] = co_await Tuic::Connect(
+                std::make_shared<MemoryStream>(std::move(ClientMemory)),
+                ClientConfigValue,
+                Destination);
+            EXPECT_EQ(HandshakeError, Error::None);
+            EXPECT_NE(Client, nullptr);
+            if (HandshakeError != Error::None || !Client)
+            {
+                CloseStreams(ServerStream, ServerAuthStream);
+                const auto ServerCompleted = co_await WaitTask(ServerTask);
+                EXPECT_TRUE(ServerCompleted);
+                co_return;
+            }
+
+            const std::string Payload = "hello udp";
+            const std::span<const std::uint8_t> PayloadSpan(
+                reinterpret_cast<const std::uint8_t *>(Payload.data()),
+                Payload.size());
+            const auto SendError = co_await Client->AsyncSendDatagram(
+                Destination,
+                PayloadSpan);
+            EXPECT_EQ(SendError, Error::None);
+            if (SendError != Error::None)
+            {
+                Client->Close();
+                CloseStreams(ServerStream, ServerAuthStream);
+                const auto ServerCompleted = co_await WaitTask(ServerTask);
+                EXPECT_TRUE(ServerCompleted);
+                co_return;
+            }
+
+            Address Source;
+            std::vector<std::uint8_t> Response;
+            const auto ReceiveError = co_await Client->AsyncReceiveDatagram(
+                Source,
+                Response);
+            EXPECT_EQ(ReceiveError, Error::None);
+            const std::string ReceivedPayload(
+                Response.begin(),
+                Response.end());
+            EXPECT_EQ(ReceivedPayload, "pdu olleh");
+            Client->Close();
+            const auto ServerCompleted = co_await WaitTask(ServerTask);
+            EXPECT_TRUE(ServerCompleted);
+        };
+        RunCoroutine(IoContext, std::move(Coroutine));
     }
 
 } // namespace

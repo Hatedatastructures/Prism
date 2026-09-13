@@ -26,7 +26,7 @@
 using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace h2mux = psm::multiplex::h2mux;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 #include <gtest/gtest.h>
 
@@ -60,14 +60,14 @@ namespace
     struct AsyncFixture
     {
         std::shared_ptr<ProductionMockTransport> transport;
-        std::unique_ptr<net::io_context> ioc;
+        std::unique_ptr<Net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<h2mux::control> craft_obj;
 
         explicit AsyncFixture(h2mux::address_resolver resolver = make_check_resolver())
         {
             transport = std::make_shared<ProductionMockTransport>();
-            ioc = std::make_unique<net::io_context>(1);
+            ioc = std::make_unique<Net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
@@ -85,14 +85,14 @@ namespace
         std::exception_ptr ep;
         bool wrote_data = false;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(200));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             psm::memory::vector<std::byte> payload(psm::memory::current_resource());
             payload.push_back(std::byte{0xDE});
@@ -101,7 +101,7 @@ namespace
             co_await fx.craft_obj->send(1, std::move(payload));
 
             timer.expires_after(std::chrono::milliseconds(200));
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             wrote_data = !fx.transport->WrittenData().empty();
 
@@ -110,7 +110,7 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -142,19 +142,19 @@ namespace
         std::exception_ptr ep;
         bool fin_ok = false;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(200));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             fx.craft_obj->fin(1);
 
             timer.expires_after(std::chrono::milliseconds(200));
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             fin_ok = true;
 
@@ -163,7 +163,7 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -195,14 +195,14 @@ namespace
         std::exception_ptr ep;
         bool empty_ok = false;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(200));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             psm::memory::vector<std::byte> empty_payload(psm::memory::current_resource());
             co_await fx.craft_obj->send(1, std::move(empty_payload));
@@ -214,7 +214,7 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -247,20 +247,20 @@ namespace
         std::exception_ptr ep;
         bool closed_ok = false;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(300));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             closed_ok = !fx.craft_obj->is_active();
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -292,21 +292,21 @@ namespace
         std::exception_ptr ep;
         std::optional<h2mux::h2_headers> result;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             fx.transport->close();
             result = co_await fx.craft_obj->wait_first_connect();
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -338,14 +338,14 @@ namespace
         std::exception_ptr ep;
         std::optional<h2mux::h2_headers> result;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             // 模拟 handle_connect 已设置 connect_resolved_
             fx.craft_obj->connect_resolved_ = true;
@@ -360,7 +360,7 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -393,14 +393,14 @@ namespace
         std::exception_ptr ep;
         std::optional<h2mux::h2_headers> result;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             // resolved 但 authority 为空 → nullopt
             fx.craft_obj->connect_resolved_ = true;
@@ -412,7 +412,7 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -445,14 +445,14 @@ namespace
         bool second_resolved = false;
         bool second_connecting = false;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(200));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             // 模拟第一个 CONNECT 已被 handle_connect 处理
             h2mux::h2_pending_entry entry1;
@@ -472,7 +472,7 @@ namespace
 
             // 等待 activate_stream 完成
             timer.expires_after(std::chrono::milliseconds(300));
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             second_resolved = fx.craft_obj->connect_resolved_;
             second_connecting = fx.craft_obj->h2_pending_.count(3) == 0;
@@ -482,7 +482,7 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -515,14 +515,14 @@ namespace
         std::exception_ptr ep;
         bool not_connecting = false;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(200));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             // 第一个 CONNECT 也返回 invalid，不会设置 connect_resolved_
             h2mux::h2_pending_entry entry1;
@@ -543,7 +543,7 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;
@@ -576,14 +576,14 @@ namespace
         bool respond_200_ok = false;
         bool respond_407_ok = false;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
-            net::steady_timer timer(co_await net::this_coro::executor);
+            Net::steady_timer timer(co_await Net::this_coro::executor);
             timer.expires_after(std::chrono::milliseconds(200));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             respond_200_ok = (fx.craft_obj->respond_connect(1, 200) == 0);
             respond_407_ok = (fx.craft_obj->respond_connect(3, 407) == 0);
@@ -593,7 +593,7 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;

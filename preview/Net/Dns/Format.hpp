@@ -180,7 +180,11 @@ namespace Preview::Network::Dns
                     map.emplace(std::string(name), static_cast<std::uint16_t>(out.size()));
                 }
                 const auto Dot = name.find('.');
-                const auto Label = Dot == std::string_view::npos ? name : name.substr(0, Dot);
+                std::string_view Label = name;
+                if (Dot != std::string_view::npos)
+                {
+                    Label = name.substr(0, Dot);
+                }
                 if (Label.empty() || Label.size() > 63)
                 {
                     return; // 非法标签：丢弃尾部（调用方应保证输入已规范化）
@@ -338,9 +342,28 @@ namespace Preview::Network::Dns
             out.reserve(512);
             Detail::PutU16(out, Id);
 
-            const auto Flags = static_cast<std::uint16_t>(
-                (Qr ? 0x8000u : 0u) | ((Opcode & 0x0Fu) << 11) | (Aa ? 0x0400u : 0u) |
-                (Tc ? 0x0200u : 0u) | (Rd ? 0x0100u : 0u) | (Ra ? 0x0080u : 0u) | (Rcode & 0x0Fu));
+            std::uint16_t Flags = static_cast<std::uint16_t>((Opcode & 0x0Fu) << 11) |
+                                  static_cast<std::uint16_t>(Rcode & 0x0Fu);
+            if (Qr)
+            {
+                Flags = static_cast<std::uint16_t>(Flags | 0x8000u);
+            }
+            if (Aa)
+            {
+                Flags = static_cast<std::uint16_t>(Flags | 0x0400u);
+            }
+            if (Tc)
+            {
+                Flags = static_cast<std::uint16_t>(Flags | 0x0200u);
+            }
+            if (Rd)
+            {
+                Flags = static_cast<std::uint16_t>(Flags | 0x0100u);
+            }
+            if (Ra)
+            {
+                Flags = static_cast<std::uint16_t>(Flags | 0x0080u);
+            }
             Detail::PutU16(out, Flags);
             Detail::PutU16(out, static_cast<std::uint16_t>(Questions.size()));
             Detail::PutU16(out, static_cast<std::uint16_t>(Answers.size()));
@@ -511,7 +534,14 @@ namespace Preview::Network::Dns
                     {
                         continue; // OPT 的 TTL 字段是扩展标志位，非生存时间
                     }
-                    best = has ? std::min(best, r.Ttl) : r.Ttl;
+                    if (has)
+                    {
+                        best = std::min(best, r.Ttl);
+                    }
+                    else
+                    {
+                        best = r.Ttl;
+                    }
                     has = true;
                 }
             };

@@ -14,6 +14,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -28,48 +29,49 @@ namespace Preview::Gun
 
     /**
      * @brief 创建客户端流连接并完成 CONNECT 握手
-     * @param upstream 上游传输（所有权移交）
-     * @param host 目标主机
+     * @param Upstream 上游传输（所有权移交）
+     * @param Host 目标主机
      * @return 错误码与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Connect(SharedTransmission upstream, std::string_view host)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Connect(
+        SharedTransmission Upstream,
+        std::string_view Host) -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream));
-        const auto Err = co_await C->WriteHandshake(host);
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream));
+        const auto ErrorCode = co_await Connection->WriteHandshake(Host);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{ErrorCode, std::move(Result)};
     }
 
     /**
      * @brief 接收服务端流连接并完成 CONNECT 握手
-     * @param upstream 上游传输（所有权移交）
+     * @param Upstream 上游传输（所有权移交）
      * @return 错误码、解析的目标与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream)
-        -> net::awaitable<std::tuple<Error, std::string, SharedConn>>
+    [[nodiscard]] inline auto Accept(SharedTransmission Upstream)
+        -> Net::awaitable<std::tuple<Error, std::string, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream));
-        std::string host;
-        const auto Err = co_await C->ReadHandshake(host);
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream));
+        std::string Host;
+        const auto ErrorCode = co_await Connection->ReadHandshake(Host);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::tuple{Err, std::move(host), std::move(Conn)};
+        co_return std::tuple{ErrorCode, std::move(Host), std::move(Result)};
     }
 
 } // namespace Preview::Gun

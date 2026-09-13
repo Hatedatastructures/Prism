@@ -28,10 +28,13 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace psm::connect;
+    namespace Net = boost::asio;
     using Psm::Testing::ProductionMockTransport;
-    using namespace psm::protocol;
+    using psm::connect::forward_options;
+    using psm::connect::target;
+    using psm::connect::tunnel_options;
+    using psm::connect::write_policy;
+    using psm::protocol::form;
 } // anonymous namespace
 
 // ── forward_options 结构验证 ──
@@ -71,7 +74,7 @@ TEST(Forward, OptionsMoveSemantics)
 
 TEST(Forward, TunnelOptionsStructure)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     auto Inbound = std::make_shared<ProductionMockTransport>();
     auto Outbound = std::make_shared<ProductionMockTransport>();
 

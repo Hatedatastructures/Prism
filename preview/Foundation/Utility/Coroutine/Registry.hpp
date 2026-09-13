@@ -10,8 +10,8 @@
  *   - TaskToken 通过 shared_ptr 由 registry 和 co_spawn completion 共享持有，
  *     任一方释放后通过析构通知 registry 注销。
  *   - 单线程使用（每 worker 一个实例），Tokens_ 操作无需锁。
- *   - CancelAndWait 通过 io_context::Stop() 触发取消，配合外部 ioc.run()
- *     退出后 token 自然 Release，避免引入跨线程同步。
+ *   - 每个 token 拥有独立 cancellation slot，Cancel() 通过 Asio 取消挂起的
+ *     异步操作；CancelAndWait() 在同一 executor 上等待 token 真正释放。
  *
  * @note 命名空间 Preview::Coroutine，与 Preview::net（boost::asio）解耦
  * @warning 跨线程调用 SpawnTracked 行为未定义
@@ -27,10 +27,11 @@
 #include <memory>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace Preview::Coroutine
 {
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     class TaskRegistry;
 
@@ -54,8 +55,7 @@ namespace Preview::Coroutine
      * @brief 协程令牌（RAII 注销）
      * @details detached 协程完成时通过 Release() 注销自身。生命周期由
      * TaskRegistry 内部持有 + co_spawn completion 捕获共同管理，外部不可
-     * 直接持有。Registry_ 是裸指针，registry 析构时所有 token 必然先被
-     * Release（由 CancelAndWait 保证）。
+     * 直接持有。Owner_ 是裸指针，registry 析构时会先发出取消并解除绑定。
      * @note 继承 enable_shared_from_this 以便在 completion handler 中保活
      */
     class TaskToken : public std::enable_shared_from_this<TaskToken>
@@ -66,8 +66,8 @@ namespace Preview::Coroutine
          * @param owner 关联的注册表引用
          * @param Label 协程标签，用于日志诊断
          */
-        TaskToken(TaskRegistry &owner, std::string_view Label)
-            : Owner_(&owner), Label_(Label, Preview::Memory::CurrentResource())
+        TaskToken(TaskRegistry &Owner, std::string_view Label)
+            : Owner_(&Owner), Label_(Label, Preview::Memory::CurrentResource())
         {
         }
 
@@ -80,10 +80,35 @@ namespace Preview::Coroutine
 
         /**
          * @brief 标记完成并从注册表注销
-         * @details 幂等，多次调用安全。registry 在析构前会先 CancelAndWait，
-         * 因此 Release 时 Owner_ 必然有效。
-         */
+         * @details 幂等，多次调用安全。registry 正常关闭时应先
+         * co_await CancelAndWait()；析构路径则由 Detach() 保证 Owner_ 安全。
+        */
         auto Release() noexcept -> void;
+
+        /**
+         * @brief 请求取消该协程
+         * @details 通过 token 独立的 cancellation slot 传播 terminal cancellation，
+         *          重复调用不会重复发信号。
+         */
+        auto RequestCancel() noexcept -> void;
+
+        /**
+         * @brief 查询是否已请求取消
+         * @return 已请求取消返回 true
+         */
+        [[nodiscard]] auto CancelRequested() const noexcept -> bool
+        {
+            return CancelRequested_;
+        }
+
+        /**
+         * @brief 获取该 token 的 cancellation slot
+         * @return 用于绑定 co_spawn completion token 的 slot
+         */
+        [[nodiscard]] auto CancellationSlot() noexcept -> Net::cancellation_slot
+        {
+            return Cancellation_.slot();
+        }
 
         /**
          * @brief 解除与注册表的绑定（注册表析构前调用）
@@ -107,16 +132,20 @@ namespace Preview::Coroutine
         }
 
     private:
+        friend class TaskRegistry;
+
         TaskRegistry *Owner_;
         Preview::Memory::String Label_;
+        Net::cancellation_signal Cancellation_;
         bool Released_{false};
+        bool CancelRequested_{false};
     };
 
     /**
      * @class TaskRegistry
      * @brief detached 协程注册表（每 worker 一个）
-     * @details 通过 SpawnTracked() 替代 net::detached。worker 析构前调用
-     * CancelAndWait() 保证优雅退出，避免悬挂协程访问已销毁资源。
+     * @details 通过 SpawnTracked() 替代 net::detached。worker 关闭流程应在
+     * 析构前 co_await CancelAndWait()，避免悬挂协程访问已销毁资源。
      * @note 单线程使用（每 worker 一个实例），Tokens_ 操作无需锁
      * @warning Ioc_ 的生命周期必须长于本对象
      */
@@ -129,18 +158,18 @@ namespace Preview::Coroutine
          * @brief 构造注册表
          * @param ioc 关联的 io_context，用于 co_spawn
          */
-        explicit TaskRegistry(net::io_context &ioc) noexcept : Ioc_(ioc)
+        explicit TaskRegistry(Net::io_context &Ioc) noexcept : Ioc_(Ioc), DrainTimer_(Ioc)
         {
         }
 
         ~TaskRegistry() noexcept
         {
-            // 解除所有残留 token 对 Owner_ 的绑定：token 可能仍被
-            // co_spawn completion handler 持有，其析构发生在 ioc 析构时
-            // （可能晚于本对象），直接访问 Owner_ 会悬垂
-            for (const auto &[ptr, Token] : Tokens_)
+            // 析构函数不能 co_await，只发出取消并解除 Owner_ 绑定；调用方
+            // 若需要确认协程已收口，应在析构前 co_await CancelAndWait()。
+            Cancel();
+            for (const auto &[Pointer, Token] : Tokens_)
             {
-                (void)ptr;
+                (void)Pointer;
                 Token->Detach();
             }
             Tokens_.clear();
@@ -153,30 +182,31 @@ namespace Preview::Coroutine
 
         /**
          * @brief 启动受追踪的协程
-         * @tparam Coro 协程类型（返回 net::awaitable<void>）
+         * @tparam Coro 协程类型（返回 Net::awaitable<void>）
          * @param Label 协程标签（用于日志和调试）
          * @param coro 协程对象
          * @details 创建 TaskToken 加入 Tokens_，co_spawn 到 Ioc_，
          * completion handler 持 token shared_ptr 并调用 Release()。
          */
         template <typename Coro>
-        auto SpawnTracked(std::string_view Label, Coro &&coro) -> void;
+        auto SpawnTracked(std::string_view Label, Coro &&CoroObject) -> void;
 
         /**
-         * @brief 取消并清理所有活跃协程令牌
-         * @param timeout 参数保留兼容，当前实现不实际等待（见 details）
-         * @return true 全部清理完成
-         * @details 实为 Stop + 等待退出（非取消等待）：
-         * 典型调用场景为 worker 析构链：worker 线程已退出（Ioc_.run()
-         * 已返回），Tokens_ 中残留的是 ioc 析构时未触发 completion handler
-         * 的 token。本函数标记 Cancelling_ 并直接清理 Tokens_，避免后续
-         * token 析构访问悬垂 Owner_。
-         * @note 若在 Ioc_ 仍在 Run 的线程中调用，本函数无法真实等待协程退出。
-         *       真实 graceful Shutdown 应在调用前确保 Ioc_.stop() 已发出且
-         *       worker 线程已 join。
+         * @brief 请求取消所有活跃协程
+         * @details 只发出取消请求，不等待协程完成；可在无法 co_await 的
+         *          析构路径调用。重复调用幂等。
          */
-        [[nodiscard]] auto CancelAndWait(std::chrono::milliseconds timeout = std::chrono::seconds(5))
-            -> bool;
+        auto Cancel() noexcept -> void;
+
+        /**
+         * @brief 取消并等待所有活跃协程收口
+         * @param timeout 最长等待时间
+         * @return 在超时前所有 token 均释放返回 true，否则返回 false
+         * @details 必须在关联 io_context 的 executor 上 co_await。等待期间
+         *          不阻塞线程，底层异步操作通过 cancellation slot 收到取消。
+         */
+        [[nodiscard]] auto CancelAndWait(std::chrono::milliseconds Timeout = std::chrono::seconds(5))
+            -> Net::awaitable<bool>;
 
         /**
          * @brief 获取统计快照
@@ -188,13 +218,14 @@ namespace Preview::Coroutine
         /**
          * @brief 内部注销接口（由 TaskToken::Release 调用）
          * @param token 待注销的令牌引用
-         * @details 在 Tokens_ 中移除该 token 并累加 TotalReleased_ 或
-         * TotalCancelled_（视 CancelAndWait 是否在进行）。
+         * @details 在 Tokens_ 中移除该 token 并按是否请求取消累加
+         * TotalReleased_ 或 TotalCancelled_。
          * 哈希索引（O(1)）：token 指针即键，避免线性扫描。
          */
         auto ReleaseInternal(const TaskToken &Token) noexcept -> void;
 
-        net::io_context &Ioc_;
+        Net::io_context &Ioc_;
+        Net::steady_timer DrainTimer_;
         std::unordered_map<const TaskToken *, std::shared_ptr<TaskToken>> Tokens_; ///< token 指针 → 令牌
         std::size_t TotalSpawned_{0};
         std::size_t TotalReleased_{0};
@@ -205,14 +236,20 @@ namespace Preview::Coroutine
     // ── template 实现 ─────────────────────────────────────────────
 
     template <typename Coro>
-    auto TaskRegistry::SpawnTracked(std::string_view Label, Coro &&coro) -> void
+    auto TaskRegistry::SpawnTracked(std::string_view Label, Coro &&CoroObject) -> void
     {
+        if (Cancelling_)
+        {
+            return;
+        }
+
         auto Token = std::make_shared<TaskToken>(*this, Label);
         Tokens_.emplace(Token.get(), Token);
         ++TotalSpawned_;
 
-        net::co_spawn(Ioc_, std::forward<Coro>(coro),
-                      [Token](const std::exception_ptr &) noexcept { Token->Release(); });
+        auto Completion = [Token](const std::exception_ptr &) noexcept { Token->Release(); };
+        auto BoundCompletion = Net::bind_cancellation_slot(Token->CancellationSlot(), std::move(Completion));
+        Net::co_spawn(Ioc_, std::forward<Coro>(CoroObject), std::move(BoundCompletion));
     }
 
     inline TaskToken::~TaskToken() noexcept
@@ -236,17 +273,69 @@ namespace Preview::Coroutine
         }
     }
 
-    inline auto TaskRegistry::CancelAndWait(const std::chrono::milliseconds /*timeout*/) -> bool
+    inline auto TaskToken::RequestCancel() noexcept -> void
     {
-        Cancelling_ = true;
-        TotalCancelled_ += Tokens_.size();
-        for (const auto &[ptr, Token] : Tokens_)
+        if (Released_ || CancelRequested_)
         {
-            (void)ptr;
-            Token->Detach();
+            return;
         }
-        Tokens_.clear();
-        return true;
+        CancelRequested_ = true;
+        Cancellation_.emit(Net::cancellation_type::all);
+    }
+
+    inline auto TaskRegistry::Cancel() noexcept -> void
+    {
+        if (Cancelling_)
+        {
+            return;
+        }
+        Cancelling_ = true;
+
+        // 取消回调可能立即推进 token 的完成路径，先复制 shared_ptr，避免
+        // 发信号期间修改 Tokens_ 使迭代器失效。
+        std::vector<std::shared_ptr<TaskToken>> Pending;
+        Pending.reserve(Tokens_.size());
+        for (const auto &[Pointer, Token] : Tokens_)
+        {
+            (void)Pointer;
+            Pending.push_back(Token);
+        }
+        for (const auto &Token : Pending)
+        {
+            Token->RequestCancel();
+        }
+    }
+
+    inline auto TaskRegistry::CancelAndWait(const std::chrono::milliseconds Timeout)
+        -> Net::awaitable<bool>
+    {
+        Cancel();
+        if (Tokens_.empty())
+        {
+            co_return true;
+        }
+        if (Timeout <= std::chrono::milliseconds::zero())
+        {
+            co_return false;
+        }
+
+        const auto Deadline = std::chrono::steady_clock::now() + Timeout;
+        while (!Tokens_.empty())
+        {
+            DrainTimer_.expires_at(Deadline);
+            boost::system::error_code Ec;
+            co_await DrainTimer_.async_wait(Net::redirect_error(Net::use_awaitable, Ec));
+            if (Tokens_.empty())
+            {
+                co_return true;
+            }
+            if (!Ec)
+            {
+                co_return false;
+            }
+        }
+
+        co_return true;
     }
 
     inline auto TaskRegistry::Stats() const noexcept -> TaskStats
@@ -256,16 +345,22 @@ namespace Preview::Coroutine
 
     inline auto TaskRegistry::ReleaseInternal(const TaskToken &Token) noexcept -> void
     {
-        if (Cancelling_)
-        {
-            return;
-        }
-
         const auto It = Tokens_.find(&Token);
         if (It != Tokens_.end())
         {
             Tokens_.erase(It);
-            ++TotalReleased_;
+            if (Token.CancelRequested())
+            {
+                ++TotalCancelled_;
+            }
+            else
+            {
+                ++TotalReleased_;
+            }
+            if (Tokens_.empty())
+            {
+                DrainTimer_.cancel();
+            }
         }
     }
 

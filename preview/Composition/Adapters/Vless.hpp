@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <boost/asio/awaitable.hpp>
+
 #include <preview/Runtime/Contract/Handler.hpp>
 #include <preview/Protocols/Vless/Vless.hpp>
 #include <preview/Foundation/Error.hpp>
@@ -13,13 +15,15 @@
 namespace Preview::Runtime::Handler
 {
 
+    namespace Net = boost::asio;
+
     class Vless final : public ProtocolHandler
     {
     public:
         explicit Vless(Preview::Vless::ServerConfig cfg) : Cfg_(std::move(cfg)) {}
 
         auto Accept(Preview::SharedTransmission Inbound)
-            -> net::awaitable<AcceptResult> override
+            -> Net::awaitable<AcceptResult> override
         {
             auto [err, req, Conn] = co_await Preview::Vless::Accept(std::move(Inbound), Cfg_);
             AcceptResult r;
@@ -28,6 +32,8 @@ namespace Preview::Runtime::Handler
             r.Target.Host = req.Target.Host;
             r.Target.Port = std::to_string(req.Target.Port);
             r.identity = Preview::Runtime::Detail::UuidHex(req.Uuid);
+            r.ProtocolAuthenticated = true;
+            r.AccountLease = Conn->TakeAuthLease();
             r.IsDgram = (req.Cmd == Preview::Vless::Command::Udp);
             r.Transmission = std::move(Conn);
             co_return r;

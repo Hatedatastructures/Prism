@@ -19,7 +19,7 @@
 using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace h2mux = psm::multiplex::h2mux;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 #include <gtest/gtest.h>
 
@@ -45,14 +45,14 @@ namespace
     struct CraftFixture
     {
         std::shared_ptr<ProductionMockTransport> transport;
-        std::unique_ptr<net::io_context> ioc;
+        std::unique_ptr<Net::io_context> ioc;
         std::unique_ptr<psm::connect::dialer> router_ptr;
         std::shared_ptr<h2mux::control> craft_obj;
 
         CraftFixture()
         {
             transport = std::make_shared<ProductionMockTransport>();
-            ioc = std::make_unique<net::io_context>(1);
+            ioc = std::make_unique<Net::io_context>(1);
             psm::dns::config dns_cfg;
             psm::connect::dialer_options ropts{*ioc, dns_cfg};
             router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
@@ -72,7 +72,7 @@ namespace
     TEST(H2muxCraftDeep, ConstructorWithMr)
     {
         auto transport = std::make_shared<ProductionMockTransport>();
-        auto ioc = std::make_unique<net::io_context>(1);
+        auto ioc = std::make_unique<Net::io_context>(1);
         psm::dns::config dns_cfg;
         psm::connect::dialer_options ropts{*ioc, dns_cfg};
         auto router_ptr = std::make_unique<psm::connect::dialer>(std::move(ropts));
@@ -148,15 +148,15 @@ namespace
         bool respond_ok = false;
         bool close_ok = false;
 
-        auto coro = [&]() -> net::awaitable<void>
+        auto coro = [&]() -> Net::awaitable<void>
         {
             fx.craft_obj->start();
 
             // 等待 init_nghttp2 + send_pending + send_loop 启动
-            net::steady_timer timer(fx.transport->GetIoContext().get_executor());
+            Net::steady_timer timer(fx.transport->GetIoContext().get_executor());
             timer.expires_after(std::chrono::milliseconds(100));
             boost::system::error_code ec;
-            co_await timer.async_wait(net::redirect_error(net::use_awaitable, ec));
+            co_await timer.async_wait(Net::redirect_error(Net::use_awaitable, ec));
 
             // respond_connect 需要 Session_ 已由 init_nghttp2 创建
             fx.craft_obj->respond_connect(1, 200);
@@ -168,7 +168,7 @@ namespace
         };
 
         auto &mock_ioc = fx.transport->GetIoContext();
-        net::co_spawn(mock_ioc.get_executor(), coro(),
+        Net::co_spawn(mock_ioc.get_executor(), coro(),
                       [&](std::exception_ptr e)
                       {
                           ep = e;

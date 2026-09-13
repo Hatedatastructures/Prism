@@ -8,8 +8,6 @@
 
 #pragma once
 
-#include <preview/Foundation/Memory/Container.hpp>
-
 namespace Preview::Native
 {
 
@@ -17,6 +15,7 @@ namespace Preview::Native
      * @struct Config
      * @brief Native 方案配置
      * @details 当前无配置项（TLS 证书由调用方 SSL 上下文提供）。
+     * @note Enabled() 始终返回 true；Native 是否挂载由调用方决定。
      */
     struct Config
     {

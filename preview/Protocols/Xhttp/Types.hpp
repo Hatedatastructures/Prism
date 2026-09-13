@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include <preview/Foundation/Memory/Container.hpp>
+#include <string>
 
 namespace Preview::Xhttp
 {
@@ -16,6 +16,7 @@ namespace Preview::Xhttp
     /**
      * @struct Config
      * @brief XHTTP 方案配置
+     * @note Path 为空时方案不可用；是否挂载由调用方决定。
      */
     struct Config
     {

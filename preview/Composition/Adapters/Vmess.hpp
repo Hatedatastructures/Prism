@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <boost/asio/awaitable.hpp>
+
 #include <preview/Runtime/Contract/Handler.hpp>
 #include <preview/Protocols/Vmess/Vmess.hpp>
 #include <preview/Protocols/Vmess/Dgram.hpp>
@@ -13,13 +15,15 @@
 namespace Preview::Runtime::Handler
 {
 
+    namespace Net = boost::asio;
+
     class Vmess final : public ProtocolHandler
     {
     public:
         explicit Vmess(Preview::Vmess::ServerConfig cfg) : Cfg_(std::move(cfg)) {}
 
         auto Accept(Preview::SharedTransmission Inbound)
-            -> net::awaitable<AcceptResult> override
+            -> Net::awaitable<AcceptResult> override
         {
             auto [err, msg, Conn] = co_await Preview::Vmess::Accept(std::move(Inbound), Cfg_);
             AcceptResult r;
@@ -28,6 +32,7 @@ namespace Preview::Runtime::Handler
             r.Target.Host = msg.dst.Host;
             r.Target.Port = std::to_string(msg.dst.Port);
             r.identity = Preview::Runtime::Detail::UuidHex(Cfg_.uuid);
+            r.ProtocolAuthenticated = true;
             if (msg.Cmd == Preview::Vmess::CmdUdp)
             {
                 r.IsDgram = true;

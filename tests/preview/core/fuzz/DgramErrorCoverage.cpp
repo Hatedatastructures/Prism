@@ -42,112 +42,125 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Hysteria2 = Preview::Hysteria2;
+    namespace Shadowsocks2022 = Preview::Shadowsocks2022;
+    namespace Socks5 = Preview::Socks5;
+    namespace Trojan = Preview::Trojan;
+    namespace Tuic = Preview::Tuic;
+    namespace Vless = Preview::Vless;
+    namespace Vmess = Preview::Vmess;
+    using Preview::AsBytes;
+    using Preview::AsU8Span;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::PreviewMockTransport;
+    using Preview::Transmission;
 
     /// 运行协程直至完成（异常重抛）
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = ErrorValue;
+                          IoContext.stop();
                       });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
     /// 构造 socks5 目标地址
-    auto make_s5_addr() -> Socks5::Address
+    auto MakeSocks5Address() -> Socks5::Address
     {
-        Socks5::Address addr{};
-        addr.Type = Socks5::AddressType::Ipv4;
-        addr.Host = "1.2.3.4";
-        addr.Port = 80;
-        return addr;
+        Socks5::Address Address{};
+        Address.Type = Socks5::AddressType::Ipv4;
+        Address.Host = "1.2.3.4";
+        Address.Port = 80;
+        return Address;
     }
 
     /// 构造 trojan 目标地址
-    auto make_trojan_addr() -> Trojan::Address
+    auto MakeTrojanAddress() -> Trojan::Address
     {
-        Trojan::Address addr{};
-        addr.Type = Trojan::AddressType::Ipv4;
-        addr.Host = "1.2.3.4";
-        addr.Port = 80;
-        return addr;
+        Trojan::Address Address{};
+        Address.Type = Trojan::AddressType::Ipv4;
+        Address.Host = "1.2.3.4";
+        Address.Port = 80;
+        return Address;
     }
 
     /// 构造 vless 目标地址
-    auto make_vless_addr() -> Vless::Address
+    auto MakeVlessAddress() -> Vless::Address
     {
-        Vless::Address addr{};
-        addr.Type = Vless::AddressType::Ipv4;
-        addr.Host = "1.2.3.4";
-        addr.Port = 80;
-        return addr;
+        Vless::Address Address{};
+        Address.Type = Vless::AddressType::Ipv4;
+        Address.Host = "1.2.3.4";
+        Address.Port = 80;
+        return Address;
     }
 
     /// 构造 tuic 目标地址
-    auto make_tuic_addr() -> Tuic::Address
+    auto MakeTuicAddress() -> Tuic::Address
     {
-        Tuic::Address addr{};
-        addr.Type = Tuic::AddressType::Ipv4;
-        addr.Host = "1.2.3.4";
-        addr.Port = 80;
-        return addr;
+        Tuic::Address Address{};
+        Address.Type = Tuic::AddressType::Ipv4;
+        Address.Host = "1.2.3.4";
+        Address.Port = 80;
+        return Address;
     }
 
     /// 构造 hysteria2 目标地址
-    auto make_hy2_addr() -> Hysteria2::Address
+    auto MakeHysteria2Address() -> Hysteria2::Address
     {
-        Hysteria2::Address addr{};
-        addr.Type = Hysteria2::AddressType::Ipv4;
-        addr.Host = "1.2.3.4";
-        addr.Port = 80;
-        return addr;
+        Hysteria2::Address Address{};
+        Address.Type = Hysteria2::AddressType::Ipv4;
+        Address.Host = "1.2.3.4";
+        Address.Port = 80;
+        return Address;
     }
 
     /// 构造 ss2022 目标地址
-    auto make_ss_addr() -> Shadowsocks2022::Address
+    auto MakeShadowsocks2022Address() -> Shadowsocks2022::Address
     {
-        Shadowsocks2022::Address addr{};
-        addr.Type = Shadowsocks2022::AddressType::Ipv4;
-        addr.Host = "1.2.3.4";
-        addr.Port = 80;
-        return addr;
+        Shadowsocks2022::Address Address{};
+        Address.Type = Shadowsocks2022::AddressType::Ipv4;
+        Address.Host = "1.2.3.4";
+        Address.Port = 80;
+        return Address;
     }
 
     /// 构造 vmess 目标地址
-    auto make_vmess_addr() -> Vmess::Address
+    auto MakeVmessAddress() -> Vmess::Address
     {
-        Vmess::Address addr{};
-        addr.Type = Vmess::AddressType::Domain;
-        addr.Host = "example.com";
-        addr.Port = 53;
-        return addr;
+        Vmess::Address Address{};
+        Address.Type = Vmess::AddressType::Domain;
+        Address.Host = "example.com";
+        Address.Port = 53;
+        return Address;
     }
 
     /// 构造 16 字节测试 UUID
-    auto make_uuid() -> std::array<std::uint8_t, 16>
+    auto MakeUuid() -> std::array<std::uint8_t, 16>
     {
-        std::array<std::uint8_t, 16> uuid{};
-        for (std::size_t i = 0; i < uuid.size(); ++i)
+        std::array<std::uint8_t, 16> Uuid{};
+        for (std::size_t Index = 0; Index < Uuid.size(); ++Index)
         {
-            uuid[i] = static_cast<std::uint8_t>(0x11 * (i + 1));
+            Uuid[Index] = static_cast<std::uint8_t>(0x11 * (Index + 1));
         }
-        return uuid;
+        return Uuid;
     }
 
     /// dgram 错误矩阵使用有限注入流，耗尽后按旧桩契约显式返回 EOF。
-    auto make_mock(net::any_io_executor ex) -> std::shared_ptr<PreviewMockTransport>
+    auto MakeMock(Net::any_io_executor Executor) -> std::shared_ptr<PreviewMockTransport>
     {
-        auto Mock = std::make_shared<PreviewMockTransport>(ex);
+        auto Mock = std::make_shared<PreviewMockTransport>(Executor);
         Mock->EofOnDrain = true;
         Mock->TransportKind = Preview::Transmission::Type::Udp;
         return Mock;
@@ -157,28 +170,28 @@ namespace
 
     TEST(Socks5DgramErr, SendWriteFail)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->AsyncSendTo(make_s5_addr(), AsU8Span(p));
+                     const auto err = co_await dg->AsyncSendTo(MakeSocks5Address(), AsU8Span(p));
                      EXPECT_EQ(err, Error::IoError);
                  });
     }
 
     TEST(Socks5DgramErr, ReceiveHeadEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
@@ -189,12 +202,12 @@ namespace
 
     TEST(Socks5DgramErr, ReceiveBadRsv)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 0x00, 0x00};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -206,12 +219,12 @@ namespace
 
     TEST(Socks5DgramErr, ReceiveBadAtyp)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x99};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -223,13 +236,13 @@ namespace
 
     TEST(Socks5DgramErr, ReceiveDomainTruncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 域名长度声明 5，实际仅 2 字节 → 半包截断 io_error
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x03, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -241,13 +254,13 @@ namespace
 
     TEST(Socks5DgramErr, ReceivePortEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 地址体完整，端口缺失 → io_error
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -259,13 +272,13 @@ namespace
 
     TEST(Socks5DgramErr, ReceivePayloadIoError)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 帧头完整，载荷读取注入错误 → io_error
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
@@ -278,13 +291,13 @@ namespace
 
     TEST(Socks5DgramErr, ReceivePayloadEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 帧头完整，载荷缺失（EOF）→ unexpected_eof
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x00, 0x00, 0x00, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      Socks5::Address src;
@@ -296,13 +309,13 @@ namespace
 
     TEST(Socks5DgramErr, ReceiveIpv6Truncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // IPv6 地址体截断（16 字节仅注入 8）→ io_error
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      std::vector<std::uint8_t> wire{0x00, 0x00, 0x00, 0x04};
                      wire.insert(wire.end(), 8, 0x21);
                      raw->ToRead = wire;
@@ -316,16 +329,16 @@ namespace
 
     TEST(Socks5DgramErr, ClosedStateOperations)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Socks5::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->AsyncSendTo(make_s5_addr(), AsU8Span(p));
+                     const auto serr = co_await dg->AsyncSendTo(MakeSocks5Address(), AsU8Span(p));
                      EXPECT_EQ(serr, Error::IoError);
                      Socks5::Address src;
                      std::vector<std::uint8_t> out;
@@ -338,28 +351,28 @@ namespace
 
     TEST(TrojanDgramErr, SendWriteFail)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->AsyncSendTo(make_trojan_addr(), AsU8Span(p));
+                     const auto err = co_await dg->AsyncSendTo(MakeTrojanAddress(), AsU8Span(p));
                      EXPECT_EQ(err, Error::IoError);
                  });
     }
 
     TEST(TrojanDgramErr, ReceiveHeadEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
@@ -370,12 +383,12 @@ namespace
 
     TEST(TrojanDgramErr, ReceiveBadAtyp)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x99};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -387,12 +400,12 @@ namespace
 
     TEST(TrojanDgramErr, ReceiveDomainTruncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x03, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -404,12 +417,12 @@ namespace
 
     TEST(TrojanDgramErr, ReceivePortEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -421,13 +434,13 @@ namespace
 
     TEST(TrojanDgramErr, ReceiveLenHeadEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // LEN(2) + CRLF(2) 头部缺失 → io_error
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -439,13 +452,13 @@ namespace
 
     TEST(TrojanDgramErr, ReceiveBadCrlf)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // CRLF 魔数非法 → bad_magic
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, 'X', 'Y'};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -457,13 +470,13 @@ namespace
 
     TEST(TrojanDgramErr, ReceivePayloadTruncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // LEN 声明 5，实际仅 2 字节载荷 → io_error
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, '\r', '\n', 'h', 'e'};
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      Trojan::Address src;
@@ -475,12 +488,12 @@ namespace
 
     TEST(TrojanDgramErr, ReceivePayloadIoError)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50, 0x00, 0x05, '\r', '\n'};
                      raw->ReadFailAt = 5; // 第 5 次读取 = 载荷读取
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
@@ -493,16 +506,16 @@ namespace
 
     TEST(TrojanDgramErr, ClosedStateOperations)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Trojan::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->AsyncSendTo(make_trojan_addr(), AsU8Span(p));
+                     const auto serr = co_await dg->AsyncSendTo(MakeTrojanAddress(), AsU8Span(p));
                      EXPECT_EQ(serr, Error::IoError);
                      Trojan::Address src;
                      std::vector<std::uint8_t> out;
@@ -515,28 +528,28 @@ namespace
 
     TEST(VlessDgramErr, SendWriteFail)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->AsyncSendTo(make_vless_addr(), AsU8Span(p));
+                     const auto err = co_await dg->AsyncSendTo(MakeVlessAddress(), AsU8Span(p));
                      EXPECT_EQ(err, Error::IoError);
                  });
     }
 
     TEST(VlessDgramErr, ReceiveHeadEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
@@ -547,12 +560,12 @@ namespace
 
     TEST(VlessDgramErr, ReceiveBadAtyp)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x99};
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
@@ -564,12 +577,12 @@ namespace
 
     TEST(VlessDgramErr, ReceiveDomainTruncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x02, 0x05, 'a', 'b'}; // VLESS domain = 0x02
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
@@ -581,12 +594,12 @@ namespace
 
     TEST(VlessDgramErr, ReceivePortEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
@@ -598,12 +611,12 @@ namespace
 
     TEST(VlessDgramErr, ReceivePayloadIoError)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
                      raw->ReadFailAt = 4; // 第 4 次读取 = 载荷读取
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
@@ -616,12 +629,12 @@ namespace
 
     TEST(VlessDgramErr, ReceivePayloadEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      Vless::Address src;
@@ -633,12 +646,12 @@ namespace
 
     TEST(VlessDgramErr, ReceiveIpv6Truncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      std::vector<std::uint8_t> wire{0x03}; // VLESS ipv6 = 0x03
                      wire.insert(wire.end(), 8, 0x21);
                      raw->ToRead = wire;
@@ -652,16 +665,16 @@ namespace
 
     TEST(VlessDgramErr, ClosedStateOperations)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Vless::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->AsyncSendTo(make_vless_addr(), AsU8Span(p));
+                     const auto serr = co_await dg->AsyncSendTo(MakeVlessAddress(), AsU8Span(p));
                      EXPECT_EQ(serr, Error::IoError);
                      Vless::Address src;
                      std::vector<std::uint8_t> out;
@@ -673,7 +686,7 @@ namespace
     // ──────────────────────────── TUIC ────────────────────────────
 
     /// TUIC v5 packet 帧：Ver(0x05) Cmd(0x02) + 2B Assoc/Pkt + 分片字段 + Size + ATYP。
-    auto make_tuic_head(std::uint8_t atyp) -> std::vector<std::uint8_t>
+    auto MakeTuicHead(std::uint8_t atyp) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> head{0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 0};
         head.push_back(atyp);
@@ -682,28 +695,28 @@ namespace
 
     TEST(TuicDgramErr, SendWriteFail)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->AsyncSendTo(make_tuic_addr(), AsU8Span(p));
+                     const auto err = co_await dg->AsyncSendTo(MakeTuicAddress(), AsU8Span(p));
                      EXPECT_EQ(err, Error::IoError);
                  });
     }
 
     TEST(TuicDgramErr, ReceiveHeadEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
@@ -714,12 +727,12 @@ namespace
 
     TEST(TuicDgramErr, ReceiveShortHead)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x05, 0x02, 0, 0, 0};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
@@ -731,12 +744,12 @@ namespace
 
     TEST(TuicDgramErr, ReceiveBadVersion)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x04, 0x02, 0, 0, 0, 0, 1, 0, 0, 0, 0x01};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
@@ -748,12 +761,12 @@ namespace
 
     TEST(TuicDgramErr, ReceiveBadCommand)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x05, 0x06, 0, 0, 0, 0, 0, 0, 0, 0};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
@@ -765,13 +778,13 @@ namespace
 
     TEST(TuicDgramErr, ReceiveBadAtyp)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
-                     const auto head = make_tuic_head(0x99);
+                     auto raw = MakeMock(ioc.get_executor());
+                     const auto head = MakeTuicHead(0x99);
                      raw->ToRead.assign(head.begin(), head.end());
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
@@ -783,12 +796,12 @@ namespace
 
     TEST(TuicDgramErr, ReceiveDomainTruncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 0, 0x00, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
@@ -800,12 +813,12 @@ namespace
 
     TEST(TuicDgramErr, ReceivePortEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 0, 0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
@@ -817,12 +830,12 @@ namespace
 
     TEST(TuicDgramErr, ReceivePayloadIoError)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 1, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      raw->FailNextRead = true;
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
@@ -835,12 +848,12 @@ namespace
 
     TEST(TuicDgramErr, ReceivePayloadEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x05, 0x02, 0, 0, 0, 0, 1, 0, 0, 1, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      Tuic::Address src;
@@ -852,13 +865,13 @@ namespace
 
     TEST(TuicDgramErr, ReceiveIpv6Truncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
-                     const auto head = make_tuic_head(0x02);
+                     auto raw = MakeMock(ioc.get_executor());
+                     const auto head = MakeTuicHead(0x02);
                      std::vector<std::uint8_t> wire(head.begin(), head.end());
                      wire.insert(wire.end(), 8, 0x21);
                      raw->ToRead = wire;
@@ -872,16 +885,16 @@ namespace
 
     TEST(TuicDgramErr, ClosedStateOperations)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Tuic::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->AsyncSendTo(make_tuic_addr(), AsU8Span(p));
+                     const auto serr = co_await dg->AsyncSendTo(MakeTuicAddress(), AsU8Span(p));
                      EXPECT_EQ(serr, Error::IoError);
                      Tuic::Address src;
                      std::vector<std::uint8_t> out;
@@ -893,7 +906,7 @@ namespace
     // ──────────────────────────── Hysteria2 ────────────────────────────
 
     /// hysteria2 帧：Kind(0x02) SessionID(4 LE) PacketID(4 LE) 9 字节头 + ATYP 单独一字节
-    auto make_hy2_head(std::uint8_t atyp) -> std::vector<std::uint8_t>
+    auto MakeHysteria2Head(std::uint8_t atyp) -> std::vector<std::uint8_t>
     {
         std::vector<std::uint8_t> head{0x02, 0, 0, 0, 0, 0, 0, 0, 0};
         head.push_back(atyp);
@@ -902,28 +915,28 @@ namespace
 
     TEST(Hysteria2DgramErr, SendWriteFail)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->FailNextWrite = true;
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      const std::string p = "x";
-                     const auto err = co_await dg->AsyncSendTo(make_hy2_addr(), AsU8Span(p));
+                     const auto err = co_await dg->AsyncSendTo(MakeHysteria2Address(), AsU8Span(p));
                      EXPECT_EQ(err, Error::IoError);
                  });
     }
 
     TEST(Hysteria2DgramErr, ReceiveHeadEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
@@ -934,12 +947,12 @@ namespace
 
     TEST(Hysteria2DgramErr, ReceiveShortHead)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
@@ -951,12 +964,12 @@ namespace
 
     TEST(Hysteria2DgramErr, ReceiveBadKind)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x01, 0, 0, 0, 0, 0, 0, 0, 0x01};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
@@ -968,13 +981,13 @@ namespace
 
     TEST(Hysteria2DgramErr, ReceiveBadAtyp)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
-                     const auto head = make_hy2_head(0x99);
+                     auto raw = MakeMock(ioc.get_executor());
+                     const auto head = MakeHysteria2Head(0x99);
                      raw->ToRead.assign(head.begin(), head.end());
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
@@ -986,12 +999,12 @@ namespace
 
     TEST(Hysteria2DgramErr, ReceiveDomainTruncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x02, 0x05, 'a', 'b'};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
@@ -1003,12 +1016,12 @@ namespace
 
     TEST(Hysteria2DgramErr, ReceivePortEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
@@ -1020,12 +1033,12 @@ namespace
 
     TEST(Hysteria2DgramErr, ReceivePayloadIoError)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      raw->FailNextRead = true;
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
@@ -1038,12 +1051,12 @@ namespace
 
     TEST(Hysteria2DgramErr, ReceiveEmptyPayloadAccepted)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      Hysteria2::Address src;
@@ -1056,13 +1069,13 @@ namespace
 
     TEST(Hysteria2DgramErr, ReceiveIpv6Truncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
-                     const auto head = make_hy2_head(0x03); // hysteria2 ipv6 = 0x03
+                     auto raw = MakeMock(ioc.get_executor());
+                     const auto head = MakeHysteria2Head(0x03); // hysteria2 ipv6 = 0x03
                      std::vector<std::uint8_t> wire(head.begin(), head.end());
                      wire.insert(wire.end(), 8, 0x21);
                      raw->ToRead = wire;
@@ -1076,16 +1089,16 @@ namespace
 
     TEST(Hysteria2DgramErr, ClosedStateOperations)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      auto dg = std::make_shared<Hysteria2::Dgram<>>(raw);
                      dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->AsyncSendTo(make_hy2_addr(), AsU8Span(p));
+                     const auto serr = co_await dg->AsyncSendTo(MakeHysteria2Address(), AsU8Span(p));
                      EXPECT_EQ(serr, Error::IoError);
                      Hysteria2::Address src;
                      std::vector<std::uint8_t> out;
@@ -1097,7 +1110,7 @@ namespace
     // ──────────────────────────── Shadowsocks 2022 ────────────────────────────
 
     /// ss2022 UDP 会话密钥（16 字节）
-    auto make_ss_key() -> std::array<std::uint8_t, 16>
+    auto MakeShadowsocks2022Key() -> std::array<std::uint8_t, 16>
     {
         std::array<std::uint8_t, 16> key{};
         for (std::size_t i = 0; i < key.size(); ++i)
@@ -1108,7 +1121,7 @@ namespace
     }
 
     /// 构造带合法 AEAD 的 ss2022 UDP 数据报，供字段错误路径测试使用。
-    auto make_ss_packet(const std::array<std::uint8_t, 16> &key, std::uint8_t Type,
+    auto MakeShadowsocks2022Packet(const std::array<std::uint8_t, 16> &key, std::uint8_t Type,
                         const std::vector<std::uint8_t> &Address = {0x01, 1, 2, 3, 4, 0x00, 0x50})
         -> std::vector<std::uint8_t>
     {
@@ -1149,47 +1162,47 @@ namespace
 
     TEST(Ss2022DgramErr, SendWriteFail)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->FailNextWrite = true;
-                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, MakeShadowsocks2022Key());
                      const std::string p = "x";
-                     const auto err = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
+                     const auto err = co_await dg->AsyncSendTo(MakeShadowsocks2022Address(), AsU8Span(p));
                      EXPECT_EQ(err, Error::IoError);
                  });
     }
 
     TEST(Ss2022DgramErr, SendPartialWrite)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 单次写入仅返回 8 字节（半包写）→ n != 帧长 → io_error
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->MaxWrite = 8;
-                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, MakeShadowsocks2022Key());
                      const std::string p = "x";
-                     const auto err = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
+                     const auto err = co_await dg->AsyncSendTo(MakeShadowsocks2022Address(), AsU8Span(p));
                      EXPECT_EQ(err, Error::IoError);
                  });
     }
 
     TEST(Ss2022DgramErr, ReceiveIoError)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->FailNextRead = true;
-                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, MakeShadowsocks2022Key());
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
@@ -1199,13 +1212,13 @@ namespace
 
     TEST(Ss2022DgramErr, ReceiveEof)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
-                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     auto raw = MakeMock(ioc.get_executor());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, MakeShadowsocks2022Key());
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
@@ -1215,15 +1228,15 @@ namespace
 
     TEST(Ss2022DgramErr, ReceiveTooShort)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 不足最小长度（SeparateHeader + 头部 + tag）→ bad_length
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      raw->ToRead = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, MakeShadowsocks2022Key());
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
@@ -1233,17 +1246,17 @@ namespace
 
     TEST(Ss2022DgramErr, ReceiveBadSessionId)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // SessionID 前 8 字节与密钥不一致 → bad_auth
-                     auto raw = make_mock(ioc.get_executor());
-                     auto packet = make_ss_packet(make_ss_key(), 0x01);
+                     auto raw = MakeMock(ioc.get_executor());
+                     auto packet = MakeShadowsocks2022Packet(MakeShadowsocks2022Key(), 0x01);
                      packet[0] ^= 0xFF;
                      raw->ToRead = packet;
-                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, MakeShadowsocks2022Key());
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
@@ -1253,15 +1266,15 @@ namespace
 
     TEST(Ss2022DgramErr, ReceiveBadType)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 合法 AEAD 内的类型字节非法 → bad_message
-                     auto raw = make_mock(ioc.get_executor());
-                     raw->ToRead = make_ss_packet(make_ss_key(), 0x02);
-                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     auto raw = MakeMock(ioc.get_executor());
+                     raw->ToRead = MakeShadowsocks2022Packet(MakeShadowsocks2022Key(), 0x02);
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, MakeShadowsocks2022Key());
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
@@ -1271,17 +1284,17 @@ namespace
 
     TEST(Ss2022DgramErr, ReceiveDomainTruncated)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 合法 AEAD 内的域名长度声明 0xFF 但包内无足够字节 → need_more
-                     auto raw = make_mock(ioc.get_executor());
+                     auto raw = MakeMock(ioc.get_executor());
                      const std::vector<std::uint8_t> TruncatedDomain{0x03, 0xFF};
-                     const auto packet = make_ss_packet(make_ss_key(), 0x00, TruncatedDomain);
+                     const auto packet = MakeShadowsocks2022Packet(MakeShadowsocks2022Key(), 0x00, TruncatedDomain);
                      raw->ToRead = packet;
-                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, MakeShadowsocks2022Key());
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
                      const auto err = co_await dg->AsyncReceiveFrom(src, out);
@@ -1291,16 +1304,16 @@ namespace
 
     TEST(Ss2022DgramErr, ClosedStateOperations)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
-                     auto raw = make_mock(ioc.get_executor());
-                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, make_ss_key());
+                     auto raw = MakeMock(ioc.get_executor());
+                     auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(raw, MakeShadowsocks2022Key());
                      dg->Close();
                      const std::string p = "x";
-                     const auto serr = co_await dg->AsyncSendTo(make_ss_addr(), AsU8Span(p));
+                     const auto serr = co_await dg->AsyncSendTo(MakeShadowsocks2022Address(), AsU8Span(p));
                      EXPECT_EQ(serr, Error::NotOpen);
                      Shadowsocks2022::Address src;
                      std::vector<std::uint8_t> out;
@@ -1313,13 +1326,13 @@ namespace
 
     TEST(VmessDgramErr, NotHandshakenOperations)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 底层 Conn 未握手 → 收发均 not_open
-                     auto c = std::make_shared<Vmess::Conn<>>(make_uuid());
+                     auto c = std::make_shared<Vmess::Conn<>>(MakeUuid());
                      auto dg = std::make_shared<Vmess::Dgram<>>(c);
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(AsU8Span(p));
@@ -1332,18 +1345,18 @@ namespace
 
     TEST(VmessDgramErr, PeerClosedOperations)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        const auto uuid = make_uuid();
+        const auto uuid = MakeUuid();
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      // 服务端 AcceptPacket 完成握手后关闭 → 客户端收发失败
-                     net::experimental::channel<void(boost::system::error_code)> server_closed(
+                     Net::experimental::channel<void(boost::system::error_code)> server_closed(
                          ioc.get_executor(), 1);
-                     net::co_spawn(ioc.get_executor(),
-                                   [&]() -> net::awaitable<void>
+                     Net::co_spawn(ioc.get_executor(),
+                                   [&]() -> Net::awaitable<void>
                                    {
                                        Vmess::ServerConfig cfg;
                                        cfg.uuid = uuid;
@@ -1354,14 +1367,14 @@ namespace
                                        dg->Close();
                                        server_closed.try_send(boost::system::error_code{});
                                    },
-                                   net::detached);
+                                   Net::detached);
 
                      Vmess::ClientConfig cfg;
                      cfg.uuid = uuid;
                      auto [herr, dg] = co_await Vmess::ConnectPacket(
-                         std::make_shared<MemoryStream>(std::move(a)), cfg, make_vmess_addr());
+                         std::make_shared<MemoryStream>(std::move(a)), cfg, MakeVmessAddress());
                      EXPECT_EQ(herr, Error::None);
-                     co_await server_closed.async_receive(net::use_awaitable);
+                     co_await server_closed.async_receive(Net::use_awaitable);
 
                      const std::string p = "x";
                      const auto serr = co_await dg->AsyncSendTo(AsU8Span(p));

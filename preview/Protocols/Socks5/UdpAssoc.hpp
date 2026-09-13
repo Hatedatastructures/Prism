@@ -38,7 +38,7 @@
 namespace Preview::Socks5
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @struct UdpAssocOptions
@@ -49,7 +49,7 @@ namespace Preview::Socks5
         /// 空闲超时（0 = 禁用回收）
         std::chrono::milliseconds IdleTimeout{std::chrono::seconds(60)};
         /// 目标解析回调：socks5 地址 → UDP 端点（nullptr = 按 IP/域名直解）
-        std::function<net::awaitable<std::pair<Error, net::ip::udp::endpoint>>(
+        std::function<Net::awaitable<std::pair<Error, Net::ip::udp::endpoint>>(
             const Address &)>
             resolve{};
         /// 流量统计 sink（数据面退出时上报；nullptr = 不统计）
@@ -73,11 +73,11 @@ namespace Preview::Socks5
          * @brief 构造
          * @param Executor 执行器
          * @param Tcp 已握手的 TCP 控制连接（所有权移交）
-         * @param opts 数据面选项
+         * @param Options 数据面选项
          */
-        UdpAssoc(net::any_io_executor Executor, std::shared_ptr<Conn<>> Tcp,
-                  UdpAssocOptions opts)
-            : Ex_(std::move(Executor)), Tcp_(std::move(Tcp)), Opts_(std::move(opts)),
+        UdpAssoc(Net::any_io_executor Executor, std::shared_ptr<Conn<>> Tcp,
+                  UdpAssocOptions Options)
+            : Ex_(std::move(Executor)), Tcp_(std::move(Tcp)), Opts_(std::move(Options)),
               Ingress_(Ex_), Egress_(Ex_)
         {
         }
@@ -87,22 +87,26 @@ namespace Preview::Socks5
          * @return 错误码（成功后 BindEndpoint() 有效）
          * @note 失败路径会立即关闭已 Open 的 UDP socket。
          */
-        [[nodiscard]] auto BindAndReply() -> net::awaitable<Error>
+        [[nodiscard]] auto BindAndReply() -> Net::awaitable<Error>
         {
+            if (!Tcp_)
+            {
+                co_return Error::NotOpen;
+            }
             boost::system::error_code ec;
-            Ingress_.open(net::ip::udp::v4(), ec);
+            Ingress_.open(Net::ip::udp::v4(), ec);
             if (ec)
             {
                 CloseSockets();
                 co_return Error::IoError;
             }
-            Egress_.open(net::ip::udp::v4(), ec);
+            Egress_.open(Net::ip::udp::v4(), ec);
             if (ec)
             {
                 CloseSockets();
                 co_return Error::IoError;
             }
-            Ingress_.bind(net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0), ec);
+            Ingress_.bind(Net::ip::udp::endpoint(Net::ip::make_address("127.0.0.1"), 0), ec);
             if (ec)
             {
                 CloseSockets();
@@ -125,7 +129,7 @@ namespace Preview::Socks5
          * @brief 获取 BND 端点（BindAndReply 成功后有效）
          * @return 本地 UDP 端点
          */
-        [[nodiscard]] auto BindEndpoint() const -> net::ip::udp::endpoint
+        [[nodiscard]] auto BindEndpoint() const -> Net::ip::udp::endpoint
         {
             return Ingress_.local_endpoint();
         }
@@ -134,22 +138,12 @@ namespace Preview::Socks5
          * @brief 运行数据面（帧循环 + 控制通道守护，任一结束即收尾）
          * @return 无（结束后所有资源已关闭）
          */
-        [[nodiscard]] auto Run() -> net::awaitable<void>
+        [[nodiscard]] auto Run() -> Net::awaitable<void>
         {
             using boost::asio::experimental::awaitable_operators::operator||;
 
-            auto FrameLoop = [self = shared_from_this()]() mutable
-                -> net::awaitable<void>
-            {
-                co_await self->FrameLoop();
-            };
-            auto TcpWatch = [self = shared_from_this()]() mutable
-                -> net::awaitable<void>
-            {
-                co_await self->TcpWatch();
-            };
-
-            co_await (FrameLoop() || TcpWatch());
+            auto Self = shared_from_this();
+            co_await (Self->FrameLoop() || Self->TcpWatch());
 
             Close();
             // FrameLoop 可能被 TcpWatch 侧取消，计数器放成员保证跨取消存活
@@ -175,14 +169,23 @@ namespace Preview::Socks5
         }
 
     private:
+        struct ReceiveOptions
+        {
+            Net::ip::udp::socket &Socket;
+            Net::steady_timer &Idle;
+            std::span<std::byte> Buffer;
+            Net::ip::udp::endpoint &Endpoint;
+            boost::system::error_code &Error;
+        };
+
         /**
          * @brief 数据面帧循环：解帧转发 + 回包封帧
          * @details 每次网络等待（收客户端帧 / 收上游回包）都与空闲定时器竞速，
          *          任一阶段超时即终止；TCP 控制断开由 TcpWatch 并行守护。
          */
-        [[nodiscard]] auto FrameLoop() -> net::awaitable<void>
+        [[nodiscard]] auto FrameLoop() -> Net::awaitable<void>
         {
-            net::steady_timer idle(Ex_);
+            Net::steady_timer Idle(Ex_);
             // 大缓冲堆分配，避免协程帧膨胀（对齐 UdpRelay 方向）
             std::vector<std::byte> Rx(65535);
             std::vector<std::byte> up(65535);
@@ -190,9 +193,10 @@ namespace Preview::Socks5
             while (true)
             {
                 // 收客户端帧（受空闲超时保护）
-                net::ip::udp::endpoint ClientEp;
+                Net::ip::udp::endpoint ClientEp;
                 boost::system::error_code REc;
-                const auto N = co_await RecvGuarded(Ingress_, idle, Rx, ClientEp, REc);
+                ReceiveOptions ClientReceive{Ingress_, Idle, Rx, ClientEp, REc};
+                const auto N = co_await RecvGuarded(ClientReceive);
                 if (REc || !N)
                 {
                     co_return; // 错误或空闲超时
@@ -201,10 +205,10 @@ namespace Preview::Socks5
                 // 解帧：RSV/FRAG 校验 + 目标地址 + 载荷
                 Address Target;
                 std::span<const std::uint8_t> payload;
-                const auto PErr = ParseUdpDatagram(
-                    std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(Rx.data()), *N),
-                    Target, payload);
+                const auto ReceivedWindow = std::span<const std::uint8_t>(
+                    reinterpret_cast<const std::uint8_t *>(Rx.data()),
+                    *N);
+                const auto PErr = ParseUdpDatagram(ReceivedWindow, Target, payload);
                 if (PErr != Error::None)
                 {
                     continue; // 非法帧丢弃（对齐生产端语义）
@@ -217,9 +221,9 @@ namespace Preview::Socks5
                     continue;
                 }
                 boost::system::error_code WEc;
-                co_await Egress_.async_send_to(net::buffer(payload.data(), payload.size()),
+                co_await Egress_.async_send_to(Net::buffer(payload.data(), payload.size()),
                                                TargetEp.second,
-                                               net::redirect_error(net::use_awaitable, WEc));
+                                               Net::redirect_error(Net::use_awaitable, WEc));
                 if (WEc)
                 {
                     co_return;
@@ -227,23 +231,23 @@ namespace Preview::Socks5
                 SentBytes_ += payload.size();
 
                 // 收上游回包（受空闲超时保护；静默上游不会挂住关联）
-                net::ip::udp::endpoint SrcEp;
+                Net::ip::udp::endpoint SrcEp;
                 boost::system::error_code UEc;
-                const auto UpN = co_await RecvGuarded(Egress_, idle, up, SrcEp, UEc);
+                ReceiveOptions UpstreamReceive{Egress_, Idle, up, SrcEp, UEc};
+                const auto UpN = co_await RecvGuarded(UpstreamReceive);
                 if (UEc || !UpN)
                 {
                     co_return;
                 }
                 const auto SrcAddr = EndpointToAddress(SrcEp);
-                BuildUdpDatagram(
-                    SrcAddr,
-                    std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(up.data()), *UpN),
-                    wire);
+                const auto UpstreamWindow = std::span<const std::uint8_t>(
+                    reinterpret_cast<const std::uint8_t *>(up.data()),
+                    *UpN);
+                BuildUdpDatagram(SrcAddr, UpstreamWindow, wire);
                 boost::system::error_code SEc;
                 co_await Ingress_.async_send_to(
-                    net::buffer(wire.data(), wire.size()), ClientEp,
-                    net::redirect_error(net::use_awaitable, SEc));
+                    Net::buffer(wire.data(), wire.size()), ClientEp,
+                    Net::redirect_error(Net::use_awaitable, SEc));
                 if (SEc)
                 {
                     co_return;
@@ -265,31 +269,30 @@ namespace Preview::Socks5
 
         /**
          * @brief 单次网络接收（与空闲定时器竞速）
-         * @param sock 接收 socket（入站或出站）
-         * @param idle 空闲定时器（每次调用重新武装）
-         * @param buf 接收缓冲
-         * @param ep 源端点输出
-         * @param ec 错误码输出
+         * @param Options 接收 socket、缓冲区、定时器和输出状态
          * @return 实际字节数；nullopt = 空闲超时
          * @note IdleTimeout 为 0 时禁用超时，直接阻塞等待接收。
          */
-        [[nodiscard]] auto RecvGuarded(net::ip::udp::socket &sock, net::steady_timer &idle,
-                                        std::span<std::byte> buf, net::ip::udp::endpoint &ep,
-                                        boost::system::error_code &ec)
-            -> net::awaitable<std::optional<std::size_t>>
+        [[nodiscard]] auto RecvGuarded(ReceiveOptions Options)
+            -> Net::awaitable<std::optional<std::size_t>>
         {
             using boost::asio::experimental::awaitable_operators::operator||;
             if (Opts_.IdleTimeout.count() <= 0)
             {
-                co_return co_await sock.async_receive_from(
-                    net::buffer(buf), ep, net::redirect_error(net::use_awaitable, ec));
+                auto Receive = Options.Socket.async_receive_from(
+                    Net::buffer(Options.Buffer),
+                    Options.Endpoint,
+                    Net::redirect_error(Net::use_awaitable, Options.Error));
+                co_return co_await std::move(Receive);
             }
-            idle.expires_after(Opts_.IdleTimeout);
-            auto Recv = sock.async_receive_from(
-                net::buffer(buf), ep, net::redirect_error(net::use_awaitable, ec));
-            auto Wait = idle.async_wait(net::use_awaitable);
-            auto Result = co_await (std::move(Recv) || std::move(Wait));
-            idle.cancel();
+            Options.Idle.expires_after(Opts_.IdleTimeout);
+            auto Receive = Options.Socket.async_receive_from(
+                Net::buffer(Options.Buffer),
+                Options.Endpoint,
+                Net::redirect_error(Net::use_awaitable, Options.Error));
+            auto Wait = Options.Idle.async_wait(Net::use_awaitable);
+            auto Result = co_await (std::move(Receive) || std::move(Wait));
+            Options.Idle.cancel();
             if (Result.index() == 1)
             {
                 co_return std::nullopt; // 空闲超时
@@ -300,8 +303,12 @@ namespace Preview::Socks5
         /**
          * @brief 控制通道守护：TCP 关闭（EOF/错误）即终止数据面
          */
-        [[nodiscard]] auto TcpWatch() -> net::awaitable<void>
+        [[nodiscard]] auto TcpWatch() -> Net::awaitable<void>
         {
+            if (!Tcp_)
+            {
+                co_return;
+            }
             std::array<std::byte, 1> Probe{};
             std::error_code ec;
             (void)co_await Tcp_->async_read_some(std::span(Probe), ec);
@@ -314,7 +321,7 @@ namespace Preview::Socks5
          * @return 错误码与端点
          */
         [[nodiscard]] auto ResolveTarget(const Address &Target)
-            -> net::awaitable<std::pair<Error, net::ip::udp::endpoint>>
+            -> Net::awaitable<std::pair<Error, Net::ip::udp::endpoint>>
         {
             if (Opts_.resolve)
             {
@@ -322,42 +329,42 @@ namespace Preview::Socks5
             }
             // 默认：IP 直解，域名尝试（失败返回 bad_address）
             boost::system::error_code ec;
-            const auto Ip = net::ip::make_address(Target.Host, ec);
+            const auto Ip = Net::ip::make_address(Target.Host, ec);
             if (ec)
             {
-                co_return std::pair{Error::BadAddress, net::ip::udp::endpoint{}};
+                co_return std::pair{Error::BadAddress, Net::ip::udp::endpoint{}};
             }
             co_return std::pair{Error::None,
-                                net::ip::udp::endpoint(Ip, Target.Port)};
+                                Net::ip::udp::endpoint(Ip, Target.Port)};
         }
 
         /**
          * @brief UDP 端点转 socks5 地址（回包源地址封帧用）
-         * @param ep 端点
+         * @param Endpoint 端点
          * @return socks5 地址
          */
-        [[nodiscard]] static auto EndpointToAddress(const net::ip::udp::endpoint &ep)
+        [[nodiscard]] static auto EndpointToAddress(const Net::ip::udp::endpoint &Endpoint)
             -> Address
         {
-            Address out;
-            if (ep.address().is_v4())
+            Address Output;
+            if (Endpoint.address().is_v4())
             {
-                out.Type = AddressType::Ipv4;
+                Output.Type = AddressType::Ipv4;
             }
             else
             {
-                out.Type = AddressType::Ipv6;
+                Output.Type = AddressType::Ipv6;
             }
-            out.Host = ep.address().to_string();
-            out.Port = ep.port();
-            return out;
+            Output.Host = Endpoint.address().to_string();
+            Output.Port = Endpoint.port();
+            return Output;
         }
 
-        net::any_io_executor Ex_;                       ///< 执行器
+        Net::any_io_executor Ex_;                       ///< 执行器
         std::shared_ptr<Conn<>> Tcp_;                   ///< TCP 控制连接（已握手）
         UdpAssocOptions Opts_;                        ///< 数据面选项
-        net::ip::udp::socket Ingress_;                  ///< 入站 UDP socket（BND）
-        net::ip::udp::socket Egress_;                   ///< 出站 UDP socket（上游）
+        Net::ip::udp::socket Ingress_;                  ///< 入站 UDP socket（BND）
+        Net::ip::udp::socket Egress_;                   ///< 出站 UDP socket（上游）
         /// 客户端→上游载荷字节（up 口径，对齐 relay）
         std::size_t SentBytes_{0};
         /// 上游→客户端载荷字节（down 口径，对齐 relay）

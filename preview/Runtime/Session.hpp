@@ -37,7 +37,7 @@
 namespace Preview::Runtime
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @struct SessionOptions
@@ -46,9 +46,12 @@ namespace Preview::Runtime
     struct SessionOptions
     {
         /// 协议接入函数：完成握手并将入站传输替换为协议数据连接
-        using ProtocolAcceptFn = std::function<net::awaitable<
+        using ProtocolAcceptFn = std::function<Net::awaitable<
             Preview::Fault::Code>(Preview::SharedTransmission &,
                                   Preview::Middleware::Context &)>;
+
+        /// 按识别候选 ID 解析 winner-only 协议接入函数
+        using ResolveCandidateFn = std::function<ProtocolAcceptFn(Preview::Recognition::CandidateId)>;
 
         /// SNI 路由表（可选，TLS 分流）
         Preview::Recognition::SniRouteTable *routes{nullptr};
@@ -60,8 +63,14 @@ namespace Preview::Runtime
         std::chrono::milliseconds RelayIdleTimeout{std::chrono::seconds(60)};
         /// 协议接入函数（可选；缺省保留识别后的原始传输）
         ProtocolAcceptFn AcceptProtocol{};
+        /// Profile 路径的不可变候选配置
+        Preview::Recognition::SharedProfile Profile{};
+        /// Profile 路径按 CandidateId 解析接入函数；仅 winner 调用一次
+        ResolveCandidateFn ResolveCandidate{};
+        /// Resolver 命名兼容别名；Profile 路径优先使用 ResolveCandidate
+        ResolveCandidateFn Resolver{};
         /// 装配回调：按识别结果填充 ctx（Target/凭据）；返回非 success 终止
-        std::function<net::awaitable<Preview::Fault::Code>(
+        std::function<Net::awaitable<Preview::Fault::Code>(
             const Preview::Recognition::RecognizeResult &, Preview::Middleware::Context &)>
             Prepare{};
         /// 多路复用引导函数（可选；缺省直通）
@@ -71,7 +80,7 @@ namespace Preview::Runtime
         /// 拨号函数（缺省 Dial 中间件返回 not_supported）
         Preview::Middleware::Builtin::DialMiddleware::DialFn Dial{};
         /// Dgram 会话服务（ctx.IsDgram 时替代 Dial/relay；协议无关）
-        std::function<net::awaitable<Preview::Fault::Code>(
+        std::function<Net::awaitable<Preview::Fault::Code>(
             Preview::Middleware::Context &)>
             udp_service{};
         /// 流量统计 sink（relay 结束点上报）
@@ -89,9 +98,9 @@ namespace Preview::Runtime
     public:
         /**
          * @brief 构造
-         * @param opts 编排选项
+         * @param Options 编排选项
          */
-        explicit Session(SessionOptions opts) : Opts_(std::move(opts))
+        explicit Session(SessionOptions Options) : Opts_(std::move(Options))
         {
         }
 
@@ -100,19 +109,55 @@ namespace Preview::Runtime
          * @param Inbound 入站传输
          * @return 最终错误码（success = 隧道正常结束）
          */
-        [[nodiscard]] auto Run(Preview::SharedTransmission Inbound) -> net::awaitable<Preview::Fault::Code>
+        [[nodiscard]] auto Run(
+            Preview::SharedTransmission Inbound) -> Net::awaitable<Preview::Fault::Code>
         {
             // 1. 协议识别（预读回注）
-            Preview::Recognition::Pipeline recog(Opts_.routes, Opts_.Scheme);
-            auto Res = co_await recog.Recognize(std::move(Inbound));
-            // 协议专用 listener：已配置 AcceptProtocol 时，recognition 仅负责预读回注，
-            // 是否识别成功交给 AcceptProtocol 决定（Trojan/SS2022 等首字节不可识别）。
-            if (!Opts_.AcceptProtocol)
+            Preview::Recognition::Pipeline Recognizer(Opts_.routes, Opts_.Scheme);
+            if (Opts_.Profile)
             {
-                if (!Res.success || Res.detected == Preview::Recognition::ProtocolType::Unknown)
+                Recognizer = Preview::Recognition::Pipeline(Opts_.Profile);
+            }
+            auto Res = co_await Recognizer.Recognize(std::move(Inbound));
+            SessionOptions::ProtocolAcceptFn Acceptor;
+            if (Opts_.Profile)
+            {
+                if (!Res.success || Res.Status != Preview::Recognition::RecognitionStatus::Accepted ||
+                    Res.Candidate == Preview::Recognition::InvalidCandidate)
                 {
+                    CloseTransport(Res.transport);
                     co_return Preview::Fault::Code::ProtocolError;
                 }
+                SessionOptions::ResolveCandidateFn Resolver;
+                if (Opts_.ResolveCandidate)
+                {
+                    Resolver = Opts_.ResolveCandidate;
+                }
+                else
+                {
+                    Resolver = Opts_.Resolver;
+                }
+                if (Resolver)
+                {
+                    Acceptor = Resolver(Res.Candidate);
+                }
+                if (!Acceptor)
+                {
+                    CloseTransport(Res.transport);
+                    co_return Preview::Fault::Code::ProtocolError;
+                }
+            }
+            else
+            {
+                // 协议专用 listener：已配置 AcceptProtocol 时，recognition 仅负责预读回注，
+                // 是否识别成功交给 AcceptProtocol 决定（Trojan/SS2022 等首字节不可识别）。
+                if (!Opts_.AcceptProtocol &&
+                    (!Res.success || Res.detected == Preview::Recognition::ProtocolType::Unknown))
+                {
+                    CloseTransport(Res.transport);
+                    co_return Preview::Fault::Code::ProtocolError;
+                }
+                Acceptor = Opts_.AcceptProtocol;
             }
 
             // 2. 上下文装配
@@ -121,11 +166,10 @@ namespace Preview::Runtime
             ctx.Inbound = std::move(Res.transport);
             ctx.traffic = Opts_.traffic;
             ctx.pad = Opts_.pad;
-            if (Opts_.AcceptProtocol)
+            if (Acceptor)
             {
                 auto ProtocolGuard = ctx.Inbound;
-                const auto Ec =
-                    co_await Opts_.AcceptProtocol(ctx.Inbound, ctx);
+                const auto Ec = co_await Acceptor(ctx.Inbound, ctx);
                 if (Preview::Fault::Failed(Ec))
                 {
                     if (ProtocolGuard)
@@ -169,15 +213,17 @@ namespace Preview::Runtime
             }
 
             // 4. 认证 + 多路复用 + 拨号（不含 relay）
-            if (Opts_.AcceptProtocol && Opts_.Auth)
+            if (!Opts_.Profile && Opts_.AcceptProtocol && Opts_.Auth && !ctx.ProtocolAuthenticated)
             {
-                // 适配器未回填 RawIdentity：已通过协议认证的会话会被 Auth
-                // 中间件再次拒绝，属配置矛盾，提前告警便于定位
+                // 未完成协议认证的 legacy adapter 仍需提供 RawIdentity/RawSecret，
+                // 否则通用 Auth 中间件会拒绝该会话。
                 Preview::Diagnose::Warn("AcceptProtocol 与 Auth 中间件同时配置："
-                                        "适配器未回填 RawIdentity，已通过协议认证的会话将被拒绝");
+                                        "未认证 adapter 必须回填 RawIdentity/RawSecret");
             }
             Preview::Middleware::Pipeline pipe;
-            if (Opts_.Auth)
+            // 协议 handler 已完成凭据校验时，协议认证是本会话的权威认证结果；
+            // 只有未提供协议认证的入口才追加通用 Auth 中间件，避免二次认证清空 identity/lease。
+            if (Opts_.Auth && !ctx.ProtocolAuthenticated)
             {
                 pipe.Add(std::make_shared<Preview::Middleware::Builtin::AuthMiddleware>(Opts_.Auth));
             }
@@ -191,6 +237,8 @@ namespace Preview::Runtime
                 {
                     co_await ctx.PostDial(DialEc);
                 }
+                CloseTransport(ctx.Inbound);
+                CloseTransport(ctx.Outbound);
                 co_return DialEc;
             }
             // 5. 拨号成功后发送协议级应答（如 SOCKS5 CONNECT success）
@@ -205,6 +253,15 @@ namespace Preview::Runtime
         }
 
     private:
+        static auto CloseTransport(Preview::SharedTransmission Transport) -> void
+        {
+            if (Transport)
+            {
+                Transport->Cancel();
+                Transport->Close();
+            }
+        }
+
         SessionOptions Opts_; ///< 编排选项
     };
 

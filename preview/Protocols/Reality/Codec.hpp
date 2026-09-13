@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <span>
 #include <string>
 #include <string_view>
@@ -43,144 +44,166 @@ namespace Preview::Reality
     [[nodiscard]] inline auto Base64urlEncode(std::span<const std::uint8_t> Data) -> std::string
     {
         static constexpr char Table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-        std::string out;
-        out.reserve((Data.size() + 2) / 3 * 4);
+        std::string Output;
+        Output.reserve((Data.size() + 2) / 3 * 4);
         std::size_t I = 0;
         for (; I + 2 < Data.size(); I += 3)
         {
             const auto N = static_cast<std::uint32_t>(Data[I]) << 16 |
                            static_cast<std::uint32_t>(Data[I + 1]) << 8 | Data[I + 2];
-            out.push_back(Table[(N >> 18) & 0x3F]);
-            out.push_back(Table[(N >> 12) & 0x3F]);
-            out.push_back(Table[(N >> 6) & 0x3F]);
-            out.push_back(Table[N & 0x3F]);
+            Output.push_back(Table[(N >> 18) & 0x3F]);
+            Output.push_back(Table[(N >> 12) & 0x3F]);
+            Output.push_back(Table[(N >> 6) & 0x3F]);
+            Output.push_back(Table[N & 0x3F]);
         }
         if (I + 1 == Data.size())
         {
             const auto N = static_cast<std::uint32_t>(Data[I]) << 16;
-            out.push_back(Table[(N >> 18) & 0x3F]);
-            out.push_back(Table[(N >> 12) & 0x3F]);
+            Output.push_back(Table[(N >> 18) & 0x3F]);
+            Output.push_back(Table[(N >> 12) & 0x3F]);
         }
         else if (I + 2 == Data.size())
         {
             const auto N = static_cast<std::uint32_t>(Data[I]) << 16 | static_cast<std::uint32_t>(Data[I + 1])
                                                                            << 8;
-            out.push_back(Table[(N >> 18) & 0x3F]);
-            out.push_back(Table[(N >> 12) & 0x3F]);
-            out.push_back(Table[(N >> 6) & 0x3F]);
+            Output.push_back(Table[(N >> 18) & 0x3F]);
+            Output.push_back(Table[(N >> 12) & 0x3F]);
+            Output.push_back(Table[(N >> 6) & 0x3F]);
         }
-        return out;
+        return Output;
     }
 
     /**
      * @brief base64url 解码（无填充，失败返回空）
-     * @param s 输入
+     * @param Input 输入
      * @return 解码字节
      */
-    [[nodiscard]] inline auto Base64urlDecode(std::string_view s) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto Base64urlDecode(std::string_view Input) -> std::vector<std::uint8_t>
     {
-        auto Val = [](char c) -> int
+        auto ValueOf = [](const char Character) -> int
         {
-            if (c >= 'A' && c <= 'Z')
+            if (Character >= 'A' && Character <= 'Z')
             {
-                return c - 'A';
+                return Character - 'A';
             }
-            if (c >= 'a' && c <= 'z')
+            if (Character >= 'a' && Character <= 'z')
             {
-                return c - 'a' + 26;
+                return Character - 'a' + 26;
             }
-            if (c >= '0' && c <= '9')
+            if (Character >= '0' && Character <= '9')
             {
-                return c - '0' + 52;
+                return Character - '0' + 52;
             }
-            if (c == '-')
+            if (Character == '-')
             {
                 return 62;
             }
-            if (c == '_')
+            if (Character == '_')
             {
                 return 63;
             }
             return -1;
         };
-        std::vector<std::uint8_t> out;
+        if (Input.size() % 4 == 1)
+        {
+            return {};
+        }
+        std::vector<std::uint8_t> Output;
         std::uint32_t Acc = 0;
         int Bits = 0;
-        for (const char c : s)
+        for (const char Character : Input)
         {
-            const int V = Val(c);
-            if (V < 0)
+            const int Value = ValueOf(Character);
+            if (Value < 0)
             {
                 return {};
             }
-            Acc = (Acc << 6) | static_cast<std::uint32_t>(V);
+            Acc = (Acc << 6) | static_cast<std::uint32_t>(Value);
             Bits += 6;
             if (Bits >= 8)
             {
                 Bits -= 8;
-                out.push_back(static_cast<std::uint8_t>((Acc >> Bits) & 0xFF));
+                Output.push_back(static_cast<std::uint8_t>((Acc >> Bits) & 0xFF));
+                if (Bits == 0)
+                {
+                    Acc = 0;
+                }
+                else
+                {
+                    Acc &= (std::uint32_t{1} << Bits) - 1;
+                }
             }
         }
-        return out;
+        if (Bits != 0 && (Acc & ((std::uint32_t{1} << Bits) - 1)) != 0)
+        {
+            return {};
+        }
+        return Output;
     }
 
     /**
      * @brief 生成 X25519 密钥对（BoringSSL 原生 API）
-     * @param priv 输出私钥（32 字节）
-     * @param pub 输出公钥（32 字节）
+     * @param PrivateKey 输出私钥（32 字节）
+     * @param PublicKey 输出公钥（32 字节）
      * @return 成功返回 false
      */
-    [[nodiscard]] inline auto GenerateKeypair(std::array<std::uint8_t, KeyLen> &priv,
-                                               std::array<std::uint8_t, KeyLen> &pub) -> bool
+    [[nodiscard]] inline auto GenerateKeypair(
+        std::array<std::uint8_t, KeyLen> &PrivateKey,
+        std::array<std::uint8_t, KeyLen> &PublicKey) -> bool
     {
-        if (RAND_bytes(priv.data(), static_cast<int>(KeyLen)) != 1)
+        PrivateKey.fill(0);
+        PublicKey.fill(0);
+        if (RAND_bytes(PrivateKey.data(), static_cast<int>(KeyLen)) != 1)
         {
             return true;
         }
-        X25519_public_from_private(pub.data(), priv.data());
+        X25519_public_from_private(PublicKey.data(), PrivateKey.data());
         return false;
     }
 
     /**
      * @brief 由私钥派生公钥（BoringSSL 原生 API）
-     * @param priv 私钥（32 字节）
-     * @param pub 输出公钥（32 字节）
+     * @param PrivateKey 私钥（32 字节）
+     * @param PublicKey 输出公钥（32 字节）
      * @return 成功返回 false
      */
-    [[nodiscard]] inline auto DerivePublicKey(std::span<const std::uint8_t> priv,
-                                                std::array<std::uint8_t, KeyLen> &pub) -> bool
+    [[nodiscard]] inline auto DerivePublicKey(
+        std::span<const std::uint8_t> PrivateKey,
+        std::array<std::uint8_t, KeyLen> &PublicKey) -> bool
     {
-        if (priv.size() != KeyLen)
+        if (PrivateKey.size() != KeyLen)
         {
             return true;
         }
-        X25519_public_from_private(pub.data(), priv.data());
+        X25519_public_from_private(PublicKey.data(), PrivateKey.data());
         return false;
     }
 
     /**
      * @brief X25519 共享密钥（BoringSSL 原生 API）
-     * @param priv 私钥（32 字节）
-     * @param pub 公钥（32 字节）
-     * @param out 输出共享密钥（32 字节）
+     * @param PrivateKey 私钥（32 字节）
+     * @param PublicKey 公钥（32 字节）
+     * @param Output 输出共享密钥（32 字节）
      * @return 成功返回 false
      */
-    [[nodiscard]] inline auto X25519Shared(std::span<const std::uint8_t> priv,
-                                            std::span<const std::uint8_t> pub,
-                                            std::array<std::uint8_t, KeyLen> &out) -> bool
+    [[nodiscard]] inline auto X25519Shared(
+        std::span<const std::uint8_t> PrivateKey,
+        std::span<const std::uint8_t> PublicKey,
+        std::array<std::uint8_t, KeyLen> &Output) -> bool
     {
-        if (priv.size() != KeyLen || pub.size() != KeyLen)
+        Output.fill(0);
+        if (PrivateKey.size() != KeyLen || PublicKey.size() != KeyLen)
         {
             return true;
         }
-        if (X25519(out.data(), priv.data(), pub.data()) != 1)
+        if (X25519(Output.data(), PrivateKey.data(), PublicKey.data()) != 1)
         {
             return true;
         }
         bool AllZero = true;
-        for (const auto b : out)
+        for (const auto Byte : Output)
         {
-            if (b != 0)
+            if (Byte != 0)
             {
                 AllZero = false;
                 break;
@@ -193,7 +216,7 @@ namespace Preview::Reality
      * @brief 派生认证密钥（对齐 mihomo reality.go，HMAC 实现 HKDF）
      * @param SharedSecret X25519 共享密钥（32 字节）
      * @param ClientRandom 客户端随机数（40 字节：前 20 salt，后 12 Nonce）
-     * @param out 输出 32 字节 AuthKey
+     * @param Output 输出 32 字节 AuthKey
      * @return 成功返回 false
      * @details HKDF-Extract(salt=random[:20], ikm=shared) +
      * HKDF-Expand(Info="REALITY", 32)，用 HMAC-SHA256 实现
@@ -201,43 +224,49 @@ namespace Preview::Reality
      */
     [[nodiscard]] inline auto DeriveAuthKey(std::span<const std::uint8_t> SharedSecret,
                                               std::span<const std::uint8_t> ClientRandom,
-                                              std::array<std::uint8_t, KeyLen> &out) -> bool
+                                              std::array<std::uint8_t, KeyLen> &Output) -> bool
     {
-        if (ClientRandom.size() < 40)
+        Output.fill(0);
+        if (SharedSecret.size() != KeyLen || ClientRandom.size() < 40)
         {
             return true;
         }
-        auto HmacSha256 = [](std::span<const std::uint8_t> key,
-                              std::span<const std::uint8_t> Data) -> std::array<std::uint8_t, 32>
+        auto HmacSha256 = [](std::span<const std::uint8_t> Key,
+                              std::span<const std::uint8_t> Data,
+                              std::array<std::uint8_t, 32> &Digest) -> bool
         {
-            std::array<std::uint8_t, 32> md{};
             unsigned int Len = 0;
-            HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()), Data.data(), Data.size(), md.data(),
-                 &Len);
-            return md;
+            const auto *Result = HMAC(
+                EVP_sha256(),
+                Key.data(),
+                static_cast<int>(Key.size()),
+                Data.data(),
+                Data.size(),
+                Digest.data(),
+                &Len);
+            return Result != nullptr && Len == Digest.size();
         };
 
         // HKDF-Extract: PRK = HMAC-SHA256(salt, ikm)
-        const auto Prk = HmacSha256(ClientRandom.first(20), SharedSecret);
+        std::array<std::uint8_t, 32> Prk{};
+        if (!HmacSha256(ClientRandom.first(20), SharedSecret, Prk))
+        {
+            return true;
+        }
 
         // HKDF-Expand: OKM = HMAC-SHA256(PRK, Info || 0x01)，32 字节单块
         std::vector<std::uint8_t> Info(sizeof(RealityInfo) - 1 + 1);
         std::memcpy(Info.data(), RealityInfo, sizeof(RealityInfo) - 1);
         Info.back() = 0x01;
-        const auto Okm = HmacSha256(Prk, Info);
-        std::memcpy(out.data(), Okm.data(), KeyLen);
+        std::array<std::uint8_t, 32> Okm{};
+        if (!HmacSha256(Prk, Info, Okm))
+        {
+            return true;
+        }
+        std::memcpy(Output.data(), Okm.data(), KeyLen);
         return false;
     }
 
-    /**
-     * @brief Seal SessionId（客户端侧，对齐 mihomo reality.go）
-     * @param AuthKey 32 字节认证密钥
-     * @param ClientRandom 客户端随机数（40 字节，后 12 为 Nonce）
-     * @param plain 明文（16 字节：version + random + ShortId + padding）
-     * @param hello ClientHello 原始消息（AAD，SessionId 区偏移 39 清零）
-     * @param out 输出 32 字节密文（16 + tag 16）
-     * @return 成功返回 false
-     */
     /// SessionId 密封输入（AuthKey + random + hello）
     struct SessionIdSealInput
     {
@@ -258,23 +287,25 @@ namespace Preview::Reality
 
     /**
      * @brief Seal SessionId（客户端侧，对齐 mihomo reality.go）
-     * @param in 密封输入
-     * @param out 输出 32 字节密文（16 + tag 16）
+     * @param Input 密封输入
+     * @param Output 输出 32 字节密文（16 + tag 16）
      * @return 成功返回 false
      */
-    [[nodiscard]] inline auto SealSessionId(const SessionIdSealInput &in,
-                                              std::array<std::uint8_t, SessionIdAuthLen> &out) -> bool
+    [[nodiscard]] inline auto SealSessionId(
+        const SessionIdSealInput &Input,
+        std::array<std::uint8_t, SessionIdAuthLen> &Output) -> bool
     {
-        if (in.plain.size() != 16 || in.ClientRandom.size() < 40)
+        Output.fill(0);
+        constexpr auto MaxInt = static_cast<std::size_t>((std::numeric_limits<int>::max)());
+        if (Input.AuthKey.size() != KeyLen || Input.plain.size() != 16 ||
+            Input.ClientRandom.size() < 40 || Input.hello.size() < 39 + 32 ||
+            Input.hello.size() > MaxInt)
         {
             return true;
         }
         // AAD：hello 且 SessionId 区（偏移 39 起 32 字节）清零
-        std::vector<std::uint8_t> aad(in.hello.begin(), in.hello.end());
-        if (aad.size() >= 39 + 32)
-        {
-            std::memset(aad.data() + 39, 0, 32);
-        }
+        std::vector<std::uint8_t> AAD(Input.hello.begin(), Input.hello.end());
+        std::memset(AAD.data() + 39, 0, 32);
 
         EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
         if (!ctx)
@@ -282,35 +313,60 @@ namespace Preview::Reality
             return true;
         }
         int Len = 0;
-        EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.AuthKey.data(), in.ClientRandom.data() + 20);
-        EVP_EncryptUpdate(ctx, nullptr, &Len, aad.data(), static_cast<int>(aad.size()));
-        EVP_EncryptUpdate(ctx, out.data(), &Len, in.plain.data(), static_cast<int>(in.plain.size()));
-        int OutLen = Len;
-        EVP_EncryptFinal_ex(ctx, out.data() + OutLen, &Len);
-        OutLen += Len;
-        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + OutLen);
+        bool Ok = EVP_EncryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, Input.AuthKey.data(),
+                                     Input.ClientRandom.data() + 20) == 1;
+        if (Ok && !AAD.empty())
+        {
+            Ok = EVP_EncryptUpdate(ctx, nullptr, &Len, AAD.data(), static_cast<int>(AAD.size())) == 1;
+        }
+        if (Ok)
+        {
+            Ok = EVP_EncryptUpdate(ctx, Output.data(), &Len, Input.plain.data(),
+                                   static_cast<int>(Input.plain.size())) == 1;
+        }
+        int OutLen = 0;
+        if (Ok)
+        {
+            OutLen = Len;
+        }
+        if (Ok)
+        {
+            Ok = EVP_EncryptFinal_ex(ctx, Output.data() + OutLen, &Len) == 1;
+            OutLen += Len;
+        }
+        if (Ok && OutLen == 16)
+        {
+            Ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, Output.data() + OutLen) == 1;
+        }
         EVP_CIPHER_CTX_free(ctx);
+        if (!Ok || OutLen != 16)
+        {
+            Output.fill(0);
+            return true;
+        }
         return false;
     }
 
     /**
      * @brief Open SessionId（服务端侧）
-     * @param in 解析输入
-     * @param out 输出 16 字节明文
+     * @param Input 解析输入
+     * @param Output 输出 16 字节明文
      * @return 成功返回 false
      */
-    [[nodiscard]] inline auto OpenSessionId(const SessionIdOpenInput &in,
-                                              std::array<std::uint8_t, 16> &out) -> bool
+    [[nodiscard]] inline auto OpenSessionId(
+        const SessionIdOpenInput &Input,
+        std::array<std::uint8_t, 16> &Output) -> bool
     {
-        if (in.cipher.size() != SessionIdAuthLen || in.ClientRandom.size() < 40)
+        Output.fill(0);
+        constexpr auto MaxInt = static_cast<std::size_t>((std::numeric_limits<int>::max)());
+        if (Input.AuthKey.size() != KeyLen || Input.cipher.size() != SessionIdAuthLen ||
+            Input.ClientRandom.size() < 40 || Input.hello.size() < 39 + 32 ||
+            Input.hello.size() > MaxInt)
         {
             return true;
         }
-        std::vector<std::uint8_t> aad(in.hello.begin(), in.hello.end());
-        if (aad.size() >= 39 + 32)
-        {
-            std::memset(aad.data() + 39, 0, 32);
-        }
+        std::vector<std::uint8_t> AAD(Input.hello.begin(), Input.hello.end());
+        std::memset(AAD.data() + 39, 0, 32);
 
         EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
         if (!ctx)
@@ -318,83 +374,111 @@ namespace Preview::Reality
             return true;
         }
         int Len = 0;
-        EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, in.AuthKey.data(), in.ClientRandom.data() + 20);
-        EVP_DecryptUpdate(ctx, nullptr, &Len, aad.data(), static_cast<int>(aad.size()));
-        EVP_DecryptUpdate(ctx, out.data(), &Len, in.cipher.data(), 16);
-        int OutLen = Len;
-        EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, const_cast<std::uint8_t *>(in.cipher.data()) + 16);
-        const auto Ok = EVP_DecryptFinal_ex(ctx, out.data() + OutLen, &Len);
+        bool Ok = EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), nullptr, Input.AuthKey.data(),
+                                     Input.ClientRandom.data() + 20) == 1;
+        if (Ok && !AAD.empty())
+        {
+            Ok = EVP_DecryptUpdate(ctx, nullptr, &Len, AAD.data(), static_cast<int>(AAD.size())) == 1;
+        }
+        if (Ok)
+        {
+            Ok = EVP_DecryptUpdate(ctx, Output.data(), &Len, Input.cipher.data(), 16) == 1;
+        }
+        int OutLen = 0;
+        if (Ok)
+        {
+            OutLen = Len;
+        }
+        if (Ok)
+        {
+            Ok = EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16,
+                                     const_cast<std::uint8_t *>(Input.cipher.data()) + 16) == 1;
+        }
+        if (Ok)
+        {
+            Ok = EVP_DecryptFinal_ex(ctx, Output.data() + OutLen, &Len) == 1;
+            OutLen += Len;
+        }
         EVP_CIPHER_CTX_free(ctx);
-        return Ok != 1;
+        if (!Ok || OutLen != 16)
+        {
+            Output.fill(0);
+            return true;
+        }
+        return false;
     }
 
     /**
      * @brief 解析 base64url 私钥
-     * @param encoded base64url 字符串
-     * @param out 输出私钥（32 字节）
+     * @param Encoded base64url 字符串
+     * @param Output 输出私钥（32 字节）
      * @return 成功返回 false
      */
-    [[nodiscard]] inline auto ParsePrivateKey(std::string_view encoded,
-                                                std::array<std::uint8_t, KeyLen> &out) -> bool
+    [[nodiscard]] inline auto ParsePrivateKey(
+        std::string_view Encoded,
+        std::array<std::uint8_t, KeyLen> &Output) -> bool
     {
-        const auto Raw = Base64urlDecode(encoded);
+        Output.fill(0);
+        const auto Raw = Base64urlDecode(Encoded);
         if (Raw.size() != KeyLen)
         {
             return true;
         }
-        std::copy(Raw.begin(), Raw.end(), out.begin());
+        std::copy(Raw.begin(), Raw.end(), Output.begin());
         return false;
     }
 
     /**
      * @brief 编码公钥为 base64url
-     * @param pub 公钥（32 字节）
+     * @param PublicKey 公钥（32 字节）
      * @return base64url 字符串
      */
-    [[nodiscard]] inline auto EncodePublicKey(std::span<const std::uint8_t> pub) -> std::string
+    [[nodiscard]] inline auto EncodePublicKey(std::span<const std::uint8_t> PublicKey) -> std::string
     {
-        return Base64urlEncode(pub);
+        return Base64urlEncode(PublicKey);
     }
 
     /**
      * @brief 解析 16 进制短 ID（最多 8 字节）
-     * @param hex 16 进制字符串
-     * @param out 输出短 ID（8 字节，不足补 0）
+     * @param Hex 16 进制字符串
+     * @param Output 输出短 ID（8 字节，不足补 0）
      * @return 成功返回 false
      */
-    [[nodiscard]] inline auto ParseShortId(std::string_view hex,
-                                             std::array<std::uint8_t, MaxShortIdLen> &out) -> bool
+    [[nodiscard]] inline auto ParseShortId(
+        std::string_view Hex,
+        std::array<std::uint8_t, MaxShortIdLen> &Output) -> bool
     {
-        if (hex.empty() || hex.size() > 16 || hex.size() % 2 != 0)
+        Output.fill(0);
+        if (Hex.empty() || Hex.size() > 16 || Hex.size() % 2 != 0)
         {
             return true;
         }
-        auto Nibble = [](char c) -> int
+        auto Nibble = [](const char Character) -> int
         {
-            if (c >= '0' && c <= '9')
+            if (Character >= '0' && Character <= '9')
             {
-                return c - '0';
+                return Character - '0';
             }
-            if (c >= 'a' && c <= 'f')
+            if (Character >= 'a' && Character <= 'f')
             {
-                return c - 'a' + 10;
+                return Character - 'a' + 10;
             }
-            if (c >= 'A' && c <= 'F')
+            if (Character >= 'A' && Character <= 'F')
             {
-                return c - 'A' + 10;
+                return Character - 'A' + 10;
             }
             return -1;
         };
         std::size_t Pos = 0;
-        for (std::size_t I = 0; I < hex.size(); I += 2)
+        for (std::size_t I = 0; I < Hex.size(); I += 2)
         {
-            const int Hi = Nibble(hex[I]);
-            const int Lo = Nibble(hex[I + 1]);
+            const int Hi = Nibble(Hex[I]);
+            const int Lo = Nibble(Hex[I + 1]);
             if (Hi < 0 || Lo < 0)
             {
                 return true;
             }
-            out[Pos++] = static_cast<std::uint8_t>((Hi << 4) | Lo);
+            Output[Pos++] = static_cast<std::uint8_t>((Hi << 4) | Lo);
         }
         return false;
     }

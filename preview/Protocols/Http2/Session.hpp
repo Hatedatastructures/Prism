@@ -31,13 +31,13 @@
 namespace Preview::Http2
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /// HTTP 头键值对
     struct Header
     {
         std::string Name;  ///< 头名称（小写）
-        std::string value; ///< 头值
+        std::string value; ///< 头值（保留以兼容现有调用方）
     };
 
     /// 头列表（保持顺序）
@@ -60,35 +60,41 @@ namespace Preview::Http2
         /**
          * @brief 投喂流数据（传输层 → h2 状态机）
          * @param Data 收到的字节流
-         * @param ec 错误码输出
+         * @param Error 错误码输出
          * @return 处理是否成功
          */
-        [[nodiscard]] virtual auto Feed(std::span<const std::byte> Data, std::error_code &ec) -> bool = 0;
+        [[nodiscard]] virtual auto Feed(
+            std::span<const std::byte> Data,
+            std::error_code &Error) -> bool = 0;
 
         /**
          * @brief 收集待发送帧（h2 状态机 → 传输层）
-         * @param out 输出缓冲区
+         * @param Output 输出缓冲区
          * @return 是否还有更多待发数据
          */
-        [[nodiscard]] virtual auto Collect(std::vector<std::byte> &out) -> bool = 0;
+        [[nodiscard]] virtual auto Collect(std::vector<std::byte> &Output) -> bool = 0;
 
         /**
          * @brief 打开新流
-         * @param headers 初始头（伪头 + 普通头）
+         * @param Headers 初始头（伪头 + 普通头）
          * @param EndStream 是否立即结束流
          * @return 流 ID；<0 失败
          */
-        [[nodiscard]] virtual auto OpenStream(const HeaderList &headers, bool EndStream) -> std::int32_t = 0;
+        [[nodiscard]] virtual auto OpenStream(
+            const HeaderList &Headers,
+            bool EndStream) -> std::int32_t = 0;
 
         /**
          * @brief 提交头到已开流
          * @param StreamId 流 ID
-         * @param headers 头列表
+         * @param Headers 头列表
          * @param EndStream 是否结束流
          * @return 成功返回 0
          */
-        [[nodiscard]] virtual auto SubmitHeaders(std::int32_t StreamId, const HeaderList &headers,
-                                                  bool EndStream) -> std::int32_t = 0;
+        [[nodiscard]] virtual auto SubmitHeaders(
+            std::int32_t StreamId,
+            const HeaderList &Headers,
+            bool EndStream) -> std::int32_t = 0;
 
         /**
          * @brief 提交数据到流
@@ -97,8 +103,19 @@ namespace Preview::Http2
          * @param EndStream 是否结束流
          * @return 成功返回 0
          */
-        [[nodiscard]] virtual auto SubmitData(std::int32_t StreamId, std::span<const std::byte> Data,
-                                               bool EndStream) -> std::int32_t = 0;
+        [[nodiscard]] virtual auto SubmitData(
+            std::int32_t StreamId,
+            std::span<const std::byte> Data,
+            bool EndStream) -> std::int32_t = 0;
+
+        /**
+         * @brief 确认应用层已经消费收到的 DATA
+         * @param StreamId 数据所属流
+         * @param Bytes 已消费的 DATA 帧载荷字节数
+         * @details 实现必须分别恢复连接窗口和流窗口，并生成对应的
+         * WINDOW_UPDATE 帧。Bytes 超过 31 位增量时必须拆分为多个帧。
+         */
+        virtual auto ConsumeData(std::int32_t StreamId, std::size_t Bytes) -> void = 0;
 
         /**
          * @brief 重置流（RST_STREAM）
@@ -106,22 +123,31 @@ namespace Preview::Http2
          * @param ErrorCode 错误码
          * @return 成功返回 0
          */
-        [[nodiscard]] virtual auto ResetStream(std::int32_t StreamId, std::uint32_t ErrorCode)
+        [[nodiscard]] virtual auto ResetStream(
+            std::int32_t StreamId,
+            std::uint32_t ErrorCode)
             -> std::int32_t = 0;
 
         /**
          * @brief 获取执行器
          */
-        [[nodiscard]] virtual auto Executor() const -> net::any_io_executor = 0;
+        [[nodiscard]] virtual auto Executor() const -> Net::any_io_executor = 0;
 
         // ── 事件回调（协议层订阅） ──
 
         /// 收到流头（OnHeaders）
-        std::function<void(std::int32_t StreamId, const HeaderList &headers, bool EndStream)> OnHeaders;
+        std::function<void(
+            std::int32_t StreamId,
+            const HeaderList &Headers,
+            bool EndStream)> OnHeaders;
         /// 收到流数据（OnData）
-        std::function<void(std::int32_t StreamId, std::span<const std::byte> Data)> OnData;
+        std::function<void(
+            std::int32_t StreamId,
+            std::span<const std::byte> Data)> OnData;
         /// 流关闭（OnStreamClose）
-        std::function<void(std::int32_t StreamId, std::uint32_t ErrorCode)> OnStreamClose;
+        std::function<void(
+            std::int32_t StreamId,
+            std::uint32_t ErrorCode)> OnStreamClose;
     };
 
     /// 会话共享指针

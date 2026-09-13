@@ -21,7 +21,7 @@ namespace Preview::Ech
 
     /**
      * @brief 检查 ClientHello 是否包含 ECH 扩展
-     * @param raw TLS 记录字节（可含完整 ClientHello 或多个记录）
+     * @param Raw TLS 记录字节（可含完整 ClientHello 或多个记录）
      * @return 含 ECH 扩展返回 true
      * @details 解析 ClientHello 结构（RFC 8446 §4.1.2）：
      *          记录头(5) + handshake_type(1) + handshake_len(3) +
@@ -30,78 +30,96 @@ namespace Preview::Ech
      *          compression_len(1) + compression + extensions。
      *          逐字段显式跳转，扫描 extensions 中的 ECH 类型。
      */
-    [[nodiscard]] inline auto ContainsEchExtension(std::span<const std::byte> raw) -> bool
+    [[nodiscard]] inline auto ContainsEchExtension(std::span<const std::byte> Raw) -> bool
     {
         // TLS 记录头：5 字节
-        if (raw.size() < 5)
+        if (Raw.size() < 5)
         {
             return false;
         }
         std::size_t Off = 5;
         // handshake_type + handshake_len(3)
-        if (Off + 4 > raw.size() || std::to_integer<std::uint8_t>(raw[Off]) != 0x01)
+        if (Raw.size() - Off < 4 || std::to_integer<std::uint8_t>(Raw[Off]) != 0x01)
         {
             return false;
         }
-        const auto HsLen = (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(raw[Off + 1])) << 16) |
-                            (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(raw[Off + 2])) << 8) |
-                            static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(raw[Off + 3]));
+        const auto HsLen = (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Raw[Off + 1])) << 16) |
+                           (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Raw[Off + 2])) << 8) |
+                           static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Raw[Off + 3]));
         Off += 4;
-        if (Off + HsLen > raw.size())
+        if (HsLen > Raw.size() - Off)
         {
             return false;
         }
         // LegacyVersion(2) + random(32)
-        if (Off + 34 > raw.size())
+        if (Raw.size() - Off < 34)
         {
             return false;
         }
         Off += 34;
         // SessionId
-        if (Off + 1 > raw.size())
+        if (Raw.size() - Off < 1)
         {
             return false;
         }
-        const auto SidLen = std::to_integer<std::uint8_t>(raw[Off]);
-        Off += 1 + SidLen;
+        const auto SidLen = std::to_integer<std::uint8_t>(Raw[Off]);
+        ++Off;
+        if (SidLen > Raw.size() - Off)
+        {
+            return false;
+        }
+        Off += SidLen;
         // cipher_suites
-        if (Off + 2 > raw.size())
+        if (Raw.size() - Off < 2)
         {
             return false;
         }
-        const auto CsLen = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(raw[Off])) << 8) |
-                            static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(raw[Off + 1]));
+        const auto CsLen = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off])) << 8) |
+                           static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off + 1]));
         Off += 2 + CsLen;
+        if (Off > Raw.size())
+        {
+            return false;
+        }
         // compression_methods
-        if (Off + 1 > raw.size())
+        if (Raw.size() - Off < 1)
         {
             return false;
         }
-        const auto CompLen = std::to_integer<std::uint8_t>(raw[Off]);
-        Off += 1 + CompLen;
+        const auto CompLen = std::to_integer<std::uint8_t>(Raw[Off]);
+        ++Off;
+        if (CompLen > Raw.size() - Off)
+        {
+            return false;
+        }
+        Off += CompLen;
         // extensions
-        if (Off + 2 > raw.size())
+        if (Raw.size() - Off < 2)
         {
             return false;
         }
-        const auto ExtLen = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(raw[Off])) << 8) |
-                             static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(raw[Off + 1]));
+        const auto ExtLen = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off])) << 8) |
+                            static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off + 1]));
         Off += 2;
-        if (Off + ExtLen > raw.size())
+        if (ExtLen > Raw.size() - Off)
         {
             return false;
         }
         // 扫描扩展项
-        const std::size_t end = Off + ExtLen;
-        while (Off + 4 <= end)
+        const std::size_t End = Off + ExtLen;
+        while (End - Off >= 4)
         {
-            const auto Type = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(raw[Off])) << 8) |
-                              static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(raw[Off + 1]));
-            const auto Len = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(raw[Off + 2])) << 8) |
-                             static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(raw[Off + 3]));
+            const auto Type = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off])) << 8) |
+                             static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off + 1]));
+            const auto Len = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off + 2])) << 8) |
+                             static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off + 3]));
             if (Type == EchExtensionType)
             {
                 return true;
+            }
+            if (Len > End - Off - 4)
+            {
+                return false;
             }
             Off += 4 + Len;
         }

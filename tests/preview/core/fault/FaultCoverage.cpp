@@ -32,7 +32,7 @@ namespace
 {
     using Preview::Fault::Code;
 
-    constexpr auto code_count = static_cast<int>(Code::_count);
+    constexpr auto code_count = static_cast<int>(Code::Count);
 
     // ────────────────────────── Code.hpp ──────────────────────────
 
@@ -104,7 +104,7 @@ namespace
         }
 
         // 越界索引回落 "unknown"
-        EXPECT_EQ(Preview::Fault::CachedMessage(static_cast<Code>(Code::_count)), "unknown");
+        EXPECT_EQ(Preview::Fault::CachedMessage(static_cast<Code>(Code::Count)), "unknown");
         EXPECT_EQ(Preview::Fault::CachedMessage(static_cast<Code>(-3)), "unknown");
         EXPECT_EQ(Preview::Fault::CachedMessage(static_cast<Code>(65536)), "unknown");
     }
@@ -128,7 +128,7 @@ namespace
             EXPECT_FALSE(msg.empty()) << "Category.message(" << Cursor << ") 返回空串";
         }
         EXPECT_EQ(cat.message(0), "success");
-        EXPECT_EQ(cat.message(static_cast<int>(Code::_count)), "unknown");
+        EXPECT_EQ(cat.message(static_cast<int>(Code::Count)), "unknown");
     }
 
     TEST(FaultCoverage, BoostCategoryNameAndMessage)
@@ -141,7 +141,7 @@ namespace
 
         EXPECT_EQ(cat.message(static_cast<int>(Code::Eof)), "eof");
         EXPECT_EQ(cat.message(static_cast<int>(Code::Success)), "success");
-        EXPECT_EQ(cat.message(static_cast<int>(Code::_count)), "unknown");
+        EXPECT_EQ(cat.message(static_cast<int>(Code::Count)), "unknown");
         EXPECT_EQ(cat.message(-7), "unknown");
     }
 

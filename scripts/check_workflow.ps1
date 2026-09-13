@@ -135,7 +135,7 @@ foreach ($Entry in $RunBlocks) {
             if (-not $Bash) {
                 $Problems.Add("$Step Bash validation unavailable: bash was not found")
             } else {
-                & $Bash.Source -n -c $Block.Script
+                $Block.Script | & $Bash.Source -n
                 if ($LASTEXITCODE -ne 0) {
                     $Problems.Add("$Step Bash parse failed with exit code $LASTEXITCODE")
                 }

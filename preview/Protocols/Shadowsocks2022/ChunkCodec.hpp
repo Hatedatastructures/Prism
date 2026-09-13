@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <optional>
 #include <span>
 #include <vector>
@@ -24,6 +25,17 @@ namespace Preview::Shadowsocks2022
 
     namespace detail
     {
+
+        inline constexpr std::size_t AesKeyLen = 16;
+        inline constexpr std::size_t AesNonceLen = 12;
+
+        [[nodiscard]] inline auto ValidAeadInput(std::span<const std::uint8_t> Key,
+                                                 std::span<const std::uint8_t> Nonce,
+                                                 std::span<const std::uint8_t> Data) noexcept -> bool
+        {
+            constexpr auto MaxInt = static_cast<std::size_t>((std::numeric_limits<int>::max)());
+            return Key.size() == AesKeyLen && Nonce.size() == AesNonceLen && Data.size() <= MaxInt;
+        }
 
         /**
          * @brief Nonce 小端 +1
@@ -56,19 +68,45 @@ namespace Preview::Shadowsocks2022
                                            std::vector<std::uint8_t, Alloc> &Out) -> std::size_t
         {
             Out.clear();
+            if (!ValidAeadInput(Key, Nonce, Plain) ||
+                Plain.size() > (std::numeric_limits<std::size_t>::max)() - AeadTagLen)
+            {
+                return 0;
+            }
             Out.resize(Plain.size() + AeadTagLen);
             EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
             if (!Ctx)
             {
+                Out.clear();
                 return 0;
             }
             int Len = 0;
-            EVP_EncryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data());
-            EVP_EncryptUpdate(Ctx, Out.data(), &Len, Plain.data(), static_cast<int>(Plain.size()));
-            int OutLen = Len;
-            EVP_EncryptFinal_ex(Ctx, Out.data() + OutLen, &Len);
-            OutLen += Len;
-            EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_GET_TAG, 16, Out.data() + OutLen);
+            bool Ok = EVP_EncryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data()) == 1;
+            if (Ok)
+            {
+                Ok = EVP_EncryptUpdate(Ctx, Out.data(), &Len, Plain.data(),
+                                       static_cast<int>(Plain.size())) == 1;
+            }
+            int OutLen = 0;
+            if (Ok)
+            {
+                OutLen = Len;
+            }
+            if (Ok)
+            {
+                Ok = EVP_EncryptFinal_ex(Ctx, Out.data() + OutLen, &Len) == 1;
+                OutLen += Len;
+            }
+            if (Ok)
+            {
+                Ok = EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_GET_TAG, 16, Out.data() + OutLen) == 1;
+            }
+            if (!Ok || OutLen != static_cast<int>(Plain.size()))
+            {
+                EVP_CIPHER_CTX_free(Ctx);
+                Out.clear();
+                return 0;
+            }
             Out.resize(static_cast<std::size_t>(OutLen) + AeadTagLen);
             EVP_CIPHER_CTX_free(Ctx);
             return Out.size();
@@ -90,6 +128,11 @@ namespace Preview::Shadowsocks2022
                                            std::vector<std::uint8_t, Alloc> &Out,
                                            const std::size_t Offset) -> std::size_t
         {
+            if (!ValidAeadInput(Key, Nonce, Plain) || Offset > (std::numeric_limits<std::size_t>::max)() -
+                                                           Plain.size() - AeadTagLen)
+            {
+                return 0;
+            }
             if (Out.size() < Offset + Plain.size() + AeadTagLen)
             {
                 Out.resize(Offset + Plain.size() + AeadTagLen);
@@ -97,16 +140,37 @@ namespace Preview::Shadowsocks2022
             EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
             if (!Ctx)
             {
+                Out.resize(Offset);
                 return 0;
             }
             int Len = 0;
-            EVP_EncryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data());
-            EVP_EncryptUpdate(Ctx, Out.data() + Offset, &Len, Plain.data(),
-                              static_cast<int>(Plain.size()));
-            int OutLen = Len;
-            EVP_EncryptFinal_ex(Ctx, Out.data() + Offset + OutLen, &Len);
-            OutLen += Len;
-            EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_GET_TAG, 16, Out.data() + Offset + OutLen);
+            bool Ok = EVP_EncryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data()) == 1;
+            if (Ok)
+            {
+                Ok = EVP_EncryptUpdate(Ctx, Out.data() + Offset, &Len, Plain.data(),
+                                       static_cast<int>(Plain.size())) == 1;
+            }
+            int OutLen = 0;
+            if (Ok)
+            {
+                OutLen = Len;
+            }
+            if (Ok)
+            {
+                Ok = EVP_EncryptFinal_ex(Ctx, Out.data() + Offset + OutLen, &Len) == 1;
+                OutLen += Len;
+            }
+            if (Ok)
+            {
+                Ok = EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_GET_TAG, 16,
+                                         Out.data() + Offset + OutLen) == 1;
+            }
+            if (!Ok || OutLen != static_cast<int>(Plain.size()))
+            {
+                EVP_CIPHER_CTX_free(Ctx);
+                Out.resize(Offset);
+                return 0;
+            }
             EVP_CIPHER_CTX_free(Ctx);
             return static_cast<std::size_t>(OutLen) + AeadTagLen;
         }
@@ -136,27 +200,42 @@ namespace Preview::Shadowsocks2022
                                            std::span<const std::uint8_t> Cipher)
             -> std::vector<std::uint8_t>
         {
-            if (Cipher.size() < AeadTagLen)
+            if (Cipher.size() < AeadTagLen ||
+                !ValidAeadInput(Key, Nonce,
+                                std::span<const std::uint8_t>(Cipher).subspan(0, Cipher.size() - AeadTagLen)))
             {
                 return {};
             }
-            std::vector<std::uint8_t> Out(Cipher.size() - AeadTagLen);
+            const auto CipherLen = Cipher.size() - AeadTagLen;
+            std::vector<std::uint8_t> Out(CipherLen);
             EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
             if (!Ctx)
             {
                 return {};
             }
             int Len = 0;
-            EVP_DecryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data());
-            EVP_DecryptUpdate(Ctx, Out.data(), &Len, Cipher.data(),
-                              static_cast<int>(Cipher.size() - AeadTagLen));
-            int OutLen = Len;
-            EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
-                                const_cast<std::uint8_t *>(Cipher.data()) + Cipher.size() - AeadTagLen);
-            const auto Ok = EVP_DecryptFinal_ex(Ctx, Out.data() + OutLen, &Len);
-            OutLen += Len;
+            bool Ok = EVP_DecryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data()) == 1;
+            if (Ok && CipherLen > 0)
+            {
+                Ok = EVP_DecryptUpdate(Ctx, Out.data(), &Len, Cipher.data(), static_cast<int>(CipherLen)) == 1;
+            }
+            int OutLen = 0;
+            if (CipherLen > 0)
+            {
+                OutLen = Len;
+            }
+            if (Ok)
+            {
+                Ok = EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
+                                         const_cast<std::uint8_t *>(Cipher.data()) + CipherLen) == 1;
+            }
+            if (Ok)
+            {
+                Ok = EVP_DecryptFinal_ex(Ctx, Out.data() + OutLen, &Len) == 1;
+                OutLen += Len;
+            }
             EVP_CIPHER_CTX_free(Ctx);
-            if (Ok != 1)
+            if (!Ok || OutLen != static_cast<int>(CipherLen))
             {
                 return {};
             }
@@ -174,27 +253,43 @@ namespace Preview::Shadowsocks2022
                                            std::vector<std::uint8_t, Alloc> &Out) -> bool
         {
             Out.clear();
-            if (Cipher.size() < AeadTagLen)
+            if (Cipher.size() < AeadTagLen ||
+                !ValidAeadInput(Key, Nonce,
+                                std::span<const std::uint8_t>(Cipher).subspan(0, Cipher.size() - AeadTagLen)))
             {
                 return false;
             }
-            Out.resize(Cipher.size() - AeadTagLen);
+            const auto CipherLen = Cipher.size() - AeadTagLen;
+            Out.resize(CipherLen);
             EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
             if (!Ctx)
             {
+                Out.clear();
                 return false;
             }
             int Len = 0;
-            EVP_DecryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data());
-            EVP_DecryptUpdate(Ctx, Out.data(), &Len, Cipher.data(),
-                              static_cast<int>(Cipher.size() - AeadTagLen));
-            int OutLen = Len;
-            EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
-                                const_cast<std::uint8_t *>(Cipher.data()) + Cipher.size() - AeadTagLen);
-            const auto Ok = EVP_DecryptFinal_ex(Ctx, Out.data() + OutLen, &Len);
-            OutLen += Len;
+            bool Ok = EVP_DecryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, Key.data(), Nonce.data()) == 1;
+            if (Ok && CipherLen > 0)
+            {
+                Ok = EVP_DecryptUpdate(Ctx, Out.data(), &Len, Cipher.data(), static_cast<int>(CipherLen)) == 1;
+            }
+            int OutLen = 0;
+            if (CipherLen > 0)
+            {
+                OutLen = Len;
+            }
+            if (Ok)
+            {
+                Ok = EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_SET_TAG, static_cast<int>(AeadTagLen),
+                                         const_cast<std::uint8_t *>(Cipher.data()) + CipherLen) == 1;
+            }
+            if (Ok)
+            {
+                Ok = EVP_DecryptFinal_ex(Ctx, Out.data() + OutLen, &Len) == 1;
+                OutLen += Len;
+            }
             EVP_CIPHER_CTX_free(Ctx);
-            if (Ok != 1)
+            if (!Ok || OutLen != static_cast<int>(CipherLen))
             {
                 Out.clear();
                 return false;
@@ -280,6 +375,7 @@ namespace Preview::Shadowsocks2022
         [[nodiscard]] auto OpenLen(std::span<const std::uint8_t> Head)
             -> std::optional<std::size_t>
         {
+            const auto StartNonce = Nonce_;
             if (Head.size() < LenBlockSize)
             {
                 return std::nullopt;
@@ -293,6 +389,7 @@ namespace Preview::Shadowsocks2022
             const auto N = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
             if (N > MaxChunkSize)
             {
+                Nonce_ = StartNonce;
                 return std::nullopt;
             }
             return N;
@@ -339,6 +436,7 @@ namespace Preview::Shadowsocks2022
             auto Len = OpenLen(Data);
             if (!Len)
             {
+                Nonce_ = StartNonce;
                 return {};
             }
             if (*Len == 0)

@@ -24,7 +24,7 @@
 namespace
 {
     namespace fault = psm::fault;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
     void write_u16(std::vector<std::uint8_t> &buf, std::uint16_t val)
     {
         buf.push_back(static_cast<std::uint8_t>((val >> 8) & 0xFF));
@@ -429,10 +429,10 @@ namespace
     /**
      * @brief 辅助：限时运行 io_context，防止挂起
      */
-    void run_with_timeout(net::io_context &ioc,
+    void run_with_timeout(Net::io_context &ioc,
                           std::chrono::milliseconds timeout = std::chrono::milliseconds(500))
     {
-        net::steady_timer timer(ioc);
+        Net::steady_timer timer(ioc);
         timer.expires_after(timeout);
         timer.async_wait([&](const boost::system::error_code &) { ioc.stop(); });
         ioc.run();
@@ -447,15 +447,15 @@ namespace
         fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock);
                 ResultEc = ec;
                 result_data = std::move(Data);
             },
-            net::detached);
+            Net::detached);
 
         run_with_timeout(mock->GetIoContext());
 
@@ -477,14 +477,14 @@ namespace
 
         fault::code ResultEc = fault::code::success;
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock);
                 ResultEc = ec;
             },
-            net::detached);
+            Net::detached);
 
         run_with_timeout(mock->GetIoContext());
 
@@ -498,14 +498,14 @@ namespace
 
         fault::code ResultEc = fault::code::success;
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock);
                 ResultEc = ec;
             },
-            net::detached);
+            Net::detached);
 
         run_with_timeout(mock->GetIoContext());
 
@@ -524,15 +524,15 @@ namespace
         fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock, preread);
                 ResultEc = ec;
                 result_data = std::move(Data);
             },
-            net::detached);
+            Net::detached);
 
         run_with_timeout(mock->GetIoContext());
 
@@ -554,15 +554,15 @@ namespace
         fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(*mock, preread);
                 ResultEc = ec;
                 result_data = std::move(Data);
             },
-            net::detached);
+            Net::detached);
 
         run_with_timeout(mock->GetIoContext());
 
@@ -582,16 +582,16 @@ namespace
         fault::code ResultEc = fault::code::success;
         psm::memory::vector<std::uint8_t> result_data;
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(
                     *mock, std::span<const std::byte>{short_preread.data(), short_preread.size()});
                 ResultEc = ec;
                 result_data = std::move(Data);
             },
-            net::detached);
+            Net::detached);
 
         run_with_timeout(mock->GetIoContext());
 
@@ -608,15 +608,15 @@ namespace
 
         fault::code ResultEc = fault::code::success;
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(
                     *mock, std::span<const std::byte>{non_hs_preread.data(), non_hs_preread.size()});
                 ResultEc = ec;
             },
-            net::detached);
+            Net::detached);
 
         run_with_timeout(mock->GetIoContext());
 
@@ -633,15 +633,15 @@ namespace
 
         fault::code ResultEc = fault::code::success;
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [&]() -> net::awaitable<void>
+            [&]() -> Net::awaitable<void>
             {
                 auto [ec, Data] = co_await psm::recognition::tls::read_tls_record(
                     *mock, std::span<const std::byte>{oversized_preread.data(), oversized_preread.size()});
                 ResultEc = ec;
             },
-            net::detached);
+            Net::detached);
 
         run_with_timeout(mock->GetIoContext());
 

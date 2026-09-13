@@ -1,10 +1,119 @@
 # Prism Next-Gen 实施计划
 
+> 当前权威本地门禁（2026-09-11）：Release 构建 exit `0`；功能并行 `3853/3853`，
+> perf/stress 串行 `94/94`，CTest 注册 `3972`、active `3947`、`25` 个测试明确
+> Disabled；`Perf_Recognition` `936.62s`，perf/stress 标签时间 `957.38s`，全量墙钟
+> `957.67s`。以下较早状态行
+> 保留为历史快照；Gate D 仍受外部 L5、carrier endpoint 和生产 analyzer 前置阻塞。
+
+> 2026-09-11 P-M05：TaskRegistry 为 tracked 协程绑定独立 cancellation slot，
+> `Cancel()` 只请求取消，`CancelAndWait()` 在同一 executor 上非阻塞等待 token
+> 真正释放或超时；Preview/生产注册表与 OwnershipAudit 回归已通过。
+
+> 2026-09-11 P-M07：TokenBucket 的时间戳、补发乘法和令牌加法改为饱和算术，
+> 极值时间轴与超大补发计数不再污染打包状态；TokenBucket/Throttle/Ban focused 已通过。
+
+> 2026-09-11 P-M08：FlatBuffer 增长与 Parser 帧长计算增加上限/溢出防护，Parser
+> 要求 Config 声明 `MaxPayloadLen`；超限输入清空并返回 `BadLength`，`Want()` 只报告
+> 未消费 payload，FlatBuffer/smux/h2mux focused 已通过。
+
+> 2026-09-11 P-M10：静态认证路径统一使用 `Preview::ConstantTimeEqual`，覆盖二进制
+> UUID/token、用户名/密码和 Basic Auth，身份与密码比较不再短路；相关 focused 已通过。
+
+> 2026-09-11 P-M11：ProbeDefenseTracker 查询/记录路径主动清理过期来源，容量达到
+> 上限时淘汰最旧项，`MaxRecords=0` 拒绝插入，并支持可注入时钟；窗口和容量回归已通过。
+
+> 2026-09-11 P-M12：SNI 路由表改用不可变 COW 快照原子发布，查询按值返回；单标签
+> 通配后缀改为哈希查找，避免并发更新数据竞争和每次 O(N) 扫描；路由回归已通过。
+
+> 2026-09-11 P-M09：通用地址编码改为严格校验并回滚失败输出，协议构造器不再把
+> 非法 IPv4/IPv6/域名变成可发送的错误 wire；跨协议地址回归已通过。
+
+> 2026-09-11 P-M13：IdentityTraffic/TrafficCounter 增加可配置最大 identity 数，
+> 达到上限拒绝新 key、保留已有 key 的精确统计，避免无界 COW 快照复制；容量回归已通过。
+
+> 2026-09-11 P-M14/P-M15：Profile 增加 route/name/scheme 元数据预算并接入 Settings，
+> HTTP/1 parser 严格校验请求行和头字段、拒绝重复安全头与折叠；PreparedState 内部大小
+> 仍由候选实现负责，Http11/Profile/Settings focused 已通过。
+
+> 2026-09-11 P-M16：Preview QPACK 静态解码增加头块/字段数/单字段输出预算并继续拒绝
+> 动态表指令；QpackInterop focused `11/11` 通过，nghttp3 第三方内部状态仍单独保留。
+
+> 2026-09-11 P-M17：AnyTLS `SendBytes` 拒绝零进展和超额写入，避免握手循环卡死或
+> offset 越界；新增 zero-progress/over-reporting 回归通过。
+
+> 2026-09-11 P-M23：TrustTunnel、SOCKS5、Trojan 和 VLESS datagram 的发送循环、
+> 精确读取窗口与 payload 窗口拒绝底层 over-report，并传播 `BadLength`；相关回归与
+> Hysteria2/TUIC 错误矩阵合计 `66/66` 通过。
+
+> 2026-09-11 P-M24：AnyTLS、Reality、VMess 和 SS2022 的精确读取/写入辅助拒绝
+> 底层 over-report，避免错误数据被当成有效握手或推进偏移；新增回归 `5/5` 通过。
+
+> 2026-09-11 P-M25：ShadowTLS `ReadExact()` 拒绝底层 over-report，新增回归纳入
+> ShadowTLS/VMess 错误集合，focused `15/15` 通过。
+
+> 2026-09-11 P-M26：Mux 精确读、VLESS Conn 读写以及 SS2022 UDP 临时缓冲/发送循环
+> 拒绝底层 over-report；新增公开握手和 Mux 回归，focused `19/19` 通过。
+
+> 2026-09-11 P-M27：Common `ReadMin/ReadRemaining` 修复 Preview 传输类型并拒绝
+> over-report；HTTP/1.1、SOCKS5、Trojan、VMess、VLESS 的读写/拼接路径，以及
+> WebSocket、Gun、TrustTunnel 握手读循环和 HTTP/2/XHTTP 驱动均在使用返回长度前
+> 校验目标窗口；新增 focused `117/117`，生产目录未修改。
+
+> 2026-09-11 P-H10：SampleTracer 对 RingSize 执行非零/二次幂校验和 65536 容量封顶，
+> 防止位掩码索引越界及极值分配；Observability focused 回归已通过。
+
 > 目标：把 tests/common 中的 preview 协议组件库，逐步收敛为可验证、可对拍、可选择性迁移到生产栈的新一代架构。
 >
 > 本计划不等同于立即把 tests/common 搬入 src/prism。迁移必须建立在公共层正确性、完整纵向链路和生产对拍结果之上。
 >
-> 当前状态（2026-09-03）：阶段 0～4 的既有 Gate A/B/C 证据保留；Preview 已补齐 XHTTP 标准字段、SS2022 TCP raw PSK、VLESS 非法 ATYP、HTTP/2/HPACK 负向校验、TLS/SNI 基础解析和 native ngtcp2 QUIC UDP 回环。外部矩阵已生成 52 条机器记录（8 pass、44 blocked、0 failure），并新增同一 Contract 的 codec 性能输出；完整网络性能和全协议 L5 仍未闭合。VLESS/Trojan/VMess 真实生产单端口 echo 仍是 `blocked-production-prerequisite`，迁移决策矩阵已生成但没有协议满足 `migrate`。生产目录本轮不修改。
+> 当前状态（2026-09-10）：阶段 0～4 的既有 Gate A/B/C 证据保留；Preview 已补齐 XHTTP 标准字段、客户端工厂与 request half-close、TrustTunnel 标准 TLS/HTTP2 CONNECT、SS2022 TCP raw PSK、VLESS 非法 ATYP、标准二进制 VLESS 结构识别、VLESS UDP over TCP 标准长度分帧、VMess 标准 AEAD ChunkMasking/response wire、HTTP/2/HPACK 负向校验、HTTP/2 connection preface、TLS/SNI 基础解析、Configured/DeterministicRoute/MixedTrial 三种识别模式、TLS route selector/ClientHello boundary、HTTP authority IPv6 校验、空 route 防隐式 default、Session/Dial/Listener 失败收口（含 detached session 异常、scheme exception replay/close、Snapshot partial+error replay、carrier scheme exception）、ShadowTLS v3 标准 ClientHello/ServerHello parser、stateful application-data record protector 和 server relay、TLS carrier→内层 handler 组合和 native ngtcp2 QUIC UDP 回环。最新本地 Release 构建通过，CTest 注册 `3874` 项、`3849/3849` active 通过、`25` 个 StealthNested2 明确 Disabled；`Perf_Recognition` `723.21s`、全量墙钟 `846.49s`；G7/mirror `260/260`、detached `DANGEROUS=0`。外部矩阵当前为 63 条机器记录（54 pass、9 blocked、0 failure），其中 5 条为 carrier `interface-gap`、1 条为 native TLS `environment-unavailable`、3 条为生产 analyzer `blocked-production-prerequisite`；HTTP、SOCKS5、VLESS、Trojan、VMess、SS2022 六个真实单端口识别记录均通过，`recognition_coverage_complete=true`。本轮还加入确定性首字节冲突的编译期拒绝、route-aware TLS SNI 派生、Probe partial+error 字节保留、legacy Pipeline 预取消控制和窗口读取性能回归、协议认证标记和账户租约传递、VMess/SS2022 serializer 随机失败收口、QUIC/HTTP3 随机回调失败收口。HTTP CONNECT、SOCKS5、Trojan、VLESS、VMess、AnyTLS、WebSocket、TrustTunnel、XHTTP、Hysteria2、TUIC 已完成独立 reference authenticated-echo 或标准 codec/vector；完整网络性能对拍和全协议 L5 仍未闭合。VLESS/Trojan/VMess 真实生产单端口 echo 仍是 `blocked-production-prerequisite`，迁移决策矩阵已生成但没有协议满足 `migrate`。生产目录本轮不修改。
+
+> 历史本地门禁（2026-09-10）：CTest 注册 `3867` 项，`3842/3842` active 通过，
+> `25` Disabled，`Perf_Recognition` `676.26s`，全量墙钟 `802.33s`；最终权威结果见
+> 上方当前状态段，不再使用本段数字作为当前基线。
+
+> 2026-09-11 fresh 生产复核：Release 全量构建和普通功能 `3855/3855` 通过；完整
+> 外部矩阵保持 `63 total / 54 pass / 9 blocked / 0 failed`。临时配置 L4 echo 中
+> SOCKS5、SS2022、VMess 通过，VLESS/Trojan 仍被生产 analyzer/fallback 阻塞；
+> GoCompat 单次 `4/4` 通过，TUIC 独立 5 次 `4/5`（一次首连接 timeout）。历史
+> VMess fallback 失败分析保留为待观察证据，不再作为当前必现结论；生产目录本轮不修改。
+
+> 外部识别矩阵随后扩展为 `63 total / 54 pass / 9 blocked / 0 failed`：新增 sing-vmess
+> TCP-only 与 sing-shadowsocks SS2022 reference client → Preview `MixedTrial` 单端口
+> authenticated-echo，HTTP/SOCKS5/VLESS/Trojan/VMess/SS2022 六条真实识别均通过。
+
+> Pad 配置映射后的历史本地门禁：CTest `3868` 注册、`3843/3843` active 通过、`25`
+> Disabled、失败 `0`；`Perf_Recognition` `682.03s`，全量墙钟 `817.40s`。
+
+> Pad CSPRNG 失败收口后的历史本地门禁：CTest `3869` 注册、`3844/3844` active 通过、
+> `25` Disabled、失败 `0`；`Perf_Recognition` `698.72s`，全量墙钟 `807.99s`。
+
+> TrustTunnel/DNS/Pad 历史本地门禁：CTest `3870` 注册、`3845/3845` active 通过、
+> `25` Disabled、失败 `0`；`Perf_Recognition` `707.47s`，全量墙钟 `816.59s`；
+> 外部矩阵 `63 total / 54 pass / 9 blocked / 0 failed`。
+
+> DNS First 生命周期随后收口：每个 detached loser 使用独立 cancellation signal，首胜后
+> 取消并等待所有 worker 完成；DnsUpstream focused `34/34` 通过，owner release 回归已纳入门禁。
+>
+> 2026-09-05 双模式配置接线：Composition 新增 `SettingsBuilder`，将 Settings candidate 工厂、immutable Profile 与 resolver 成对安装到 `SessionOptions`，并可直接生成 `TcpListener::SessionFactory`；`ConfiguredCandidate` 在 `MixedTrial` 中被拒绝，避免无效配置。Profile route 已在 Configured/MixedTrial coordinator 中按完整 ClientHello/SNI 裁剪候选；显式 `DefaultCandidate` 可作为缺失 SNI 的受控 fallback，候选元数据保留实际外层 `Scheme`；核心六种 TCP 协议现可通过 `CandidateRegistry` 使用不可变 typed builder，完整凭据、custom carrier 和 QUIC 参数仍由 Composition 入口显式提供。
+
+> 2026-09-10 双模式 Session 接线新增 `DeterministicProfileResolvesByStructuralSelector`、确定性首字节冲突编译期拒绝、route-aware TLS SNI 派生、Probe partial+error 字节保留、legacy Pipeline 预取消控制和窗口读取性能回归、协议认证标记和账户租约传递、错误 coordinator mode guard、canonical mode 名称、Settings idle timeout 映射、`AuthRequired` 缺省认证器拒绝、TLS Session ID 长度、重复扩展、deterministic route 目标边界、ECH 无 inner Hello 时拒绝、MaxConnections listener 装配和认证器共享所有权回归；最新全量 CTest 为 `3858` 注册、`3833/3833` active 通过、`25` Disabled，失败 `0`，`Perf_Recognition` `765.00s`，全量墙钟 `897.21s`。
+>
+> Settings candidate 现可表达 `Scheme`、`ServerNames`、`Alpn`，并接受 `hysteria2`/`tuic` 协议名；协议名统一为 ASCII 小写，`ServerNames`/`Alpn` 可随外层 `Scheme` 显式提供，只有 `Scheme + Recognition.Routes` 时由 SettingsBuilder 将 route pattern 派生为 TLS inspector 的 ServerNames；TCP Profile 会在编译期拒绝 QUIC 候选；真实 carrier、凭据和 QUIC 会话仍由 Composition/QUIC 工厂负责。
+>
+> Hysteria2 外部闭环已由 `Http3::NativeServerSession` 接通：异步 provider 生命周期、stream ID、nghttp3 输出偏移和认证后 raw bidi stream 均在同一 executor 串行处理；认证响应保持 HTTP/3 stream 打开，避免客户端后续 QUIC raw stream 被过早关闭。`InteropHysteria2` 与独立 `sing-quic` client authenticated-echo 已在矩阵中稳定通过；Preview NativeClient 的正常 QUIC FIN 修复后，reference server→Preview client 方向也已通过；reference UDP→Preview authenticated-UDP-echo 已通过。完整 QUIC L5 仍待补。
+
+> 2026-09-07 识别策略增量：在保留 `Configured` 单候选兼容入口的基础上新增 `DeterministicRoute`。
+> 该模式允许多个带首字节或 TLS route 选择器的候选，结构歧义在认证前返回 `Ambiguous`；
+> `MixedTrial` 仍是显式配置的有界认证试探模式。三者共享 Profile、ProbeBuffer、Snapshot、
+> Candidate resolver 和 carrier 分层，QUIC 仍由独立 UDP gateway 处理。
+
+> 注意：上面的状态行保留了早期快照；当前权威基线见本文开头的 `3961` 注册、
+> `3936/3936` active 通过结果。
+
+> 2026-09-10 历史本地复核：CTest 注册 `3858` 项、`3833/3833` active 通过、`25` 个
+> `StealthNested2` 明确 Disabled；全量墙钟 `897.21s`，`Perf_Recognition` 正式运行 `765.00s`。
 
 ## 1. 总体设计
 
@@ -578,9 +687,9 @@ VLESS 接入时不得复制一套 runtime/middleware 编排逻辑。
 #### 仍缺项（迁移前补齐）
 
 - ❌ 生产对拍（L4）数据面全通：socks5/ss2022 已 PASS；vless/trojan/vmess echo 受阻于生产识别器——`src/prism/handshake/recognition/probe/analyzer.cpp` 只识别 SOCKS5/TLS/HTTP，其余一律回退 shadowsocks，VLESS/Trojan/VMess 首包被当 SS2022 解密失败（`decrypt fixed header failed: expected 11 plain bytes, got 27 enc bytes`）。生产 TODO（`logs/issues.md` T-1），不在 preview 侧改。
-- ⚠️ 外部互操作（L5）其他协议：当前 runner 已为全部协议生成逐方向 `environment-unavailable` 记录；Reality/ShadowTLS/Restls/AnyTLS/TrustTunnel/WebSocket/gRPC 另有 codec-vector 参考程序通过，但仍不是全链路 echo。
-- ⚠️ preview vs psm 同场景性能对标：`PerformanceContract` 已固定输入/预热/迭代/重复并输出 codec 指标；TCP/UDP/握手/CPU/峰值内存的统一网络 harness 尚未建立。
-- ⚠️ QUIC/Hysteria2/TUIC：Preview native ngtcp2 client/server UDP loopback 与 datagram provider 已通过；协议认证流和 quic-go/sing-quic 外部闭环仍待做。
+- ⚠️ 外部互操作（L5）其他协议：当前 runner 已为全部协议生成逐方向记录；Reality/Restls 双向与 ShadowTLS Preview client→reference server 方向仍为 `interface-gap`，native TLS codec-vector 不适用；ShadowTLS reference client→Preview server 已完成 authenticated-echo，TrustTunnel 已补齐标准 TLS/HTTP2 CONNECT 双向 echo，AnyTLS 已补齐独立认证帧 reference 双向 TCP（不等同于完整 TLS/多路复用），WebSocket 已补齐独立 Go `gobwas/ws` reference 双向 TCP authenticated-echo。
+- ⚠️ preview vs psm 同场景性能对标：`PerformanceContract` 已固定输入/预热/迭代/重复，并输出 codec、固定 16 KiB memory-transport、本机 TCP loopback 和固定 1200 字节 UDP loopback 的 median/p95/p99/MAD/CPU 字段，另输出 TCP `bytes_per_second`、UDP `packets_per_second`、进程 `peak_working_set_bytes`、environment、原始样本数组及 production/preview `comparisons` 分级；外部矩阵已补每用例 `wall_time_ms`/`peak_working_set_bytes`，但代理握手、持续吞吐和多连接 RSS 的统一真实网络 harness 尚未建立。
+- ⚠️ QUIC/Hysteria2/TUIC：Preview native ngtcp2 client/server UDP loopback、单向/双向流和 TLS exporter 已通过；TUIC 与 Hysteria2 独立 reference client↔Preview server 的 TCP/UDP authenticated-echo、TUIC Preview↔mihomo reference TCP+UDP 已 PASS，其他伪装方案的完整 QUIC L5 仍待做。
 - ✅ 生命周期/错误链审查结论文档（`docs/ngx-test-data/LIFECYCLE_AUDIT.md` 第 6 节，2026-08-20）
 - ✅ 逐协议迁移建议矩阵：`docs/ngx-test-data/migration-decision.md` 已生成；当前没有协议满足 `migrate` 条件。
 

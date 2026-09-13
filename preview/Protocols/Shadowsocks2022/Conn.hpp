@@ -38,6 +38,7 @@
 #include <preview/Foundation/ByteSpan.hpp>
 #include <preview/Foundation/Error.hpp>
 #include <preview/Foundation/Memory/Pointer.hpp>
+#include <preview/Foundation/Utility/Crypto/Random.hpp>
 #include <preview/Transport/Transmission.hpp>
 #include <preview/Protocols/Shadowsocks2022/Codec.hpp>
 #include <preview/Protocols/Shadowsocks2022/Types.hpp>
@@ -45,6 +46,7 @@
 namespace Preview::Shadowsocks2022
 {
 
+    namespace Net = boost::asio;
     namespace ss = Preview::Shadowsocks2022;
 
     /**
@@ -87,7 +89,7 @@ namespace Preview::Shadowsocks2022
          * @return 底层传输的执行器
          * @details 透传底层传输的执行器，供协程调度使用。
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
             return NextLayer_->Executor();
         }
@@ -102,7 +104,7 @@ namespace Preview::Shadowsocks2022
          * @warning 未握手或已结束时返回 0 并置 ec；与数据报模式互斥
          */
         [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+            -> Net::awaitable<std::size_t>
         {
             if (!Handshaken_)
             {
@@ -144,7 +146,7 @@ namespace Preview::Shadowsocks2022
          * @warning 未握手时返回 0 并置 ec；与数据报模式互斥
          */
         [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+            -> Net::awaitable<std::size_t>
         {
             if (!Handshaken_)
             {
@@ -266,14 +268,17 @@ namespace Preview::Shadowsocks2022
          * @warning 调用前必须确保 NextLayer_ 已建立连接
          */
         [[nodiscard]] auto WriteHandshake(SharedTransmission upstream, const ss::Address &Target)
-            -> net::awaitable<Error>
+            -> Net::awaitable<Error>
         {
             NextLayer_ = std::move(upstream);
             // 1. 生成随机盐并派生会话密钥
             // @note 盐必须 CSPRNG：MinGW 的 std::random_device 存在确定性序列风险，
             //       盐重复 = 跨会话 keystream 重用（与生产 RAND_bytes 口径一致）
             std::array<std::uint8_t, 16> salt{};
-            RAND_bytes(salt.data(), static_cast<int>(salt.size()));
+            if (!Preview::Crypto::FillRandom(std::span<std::uint8_t>(salt)))
+            {
+                co_return Error::IoError;
+            }
             const auto key = ss::SessionKey(Psk_, salt, 16);
 
             // 2. 构造固定头 + 变长头（地址 + padding + 初始载荷）
@@ -381,7 +386,7 @@ namespace Preview::Shadowsocks2022
          * 同一会话不可混用
          */
         [[nodiscard]] auto AsyncSendDatagram(const ss::Address &Target,
-                                               std::span<const std::uint8_t> Payload) -> net::awaitable<Error>
+                                               std::span<const std::uint8_t> Payload) -> Net::awaitable<Error>
         {
             if (!Handshaken_)
             {
@@ -413,7 +418,7 @@ namespace Preview::Shadowsocks2022
          * 同一会话不可混用
          */
         [[nodiscard]] auto AsyncReceiveDatagram(ss::Address &Target, std::vector<std::uint8_t> &Payload)
-            -> net::awaitable<Error>
+            -> Net::awaitable<Error>
         {
             if (!Handshaken_)
             {
@@ -494,7 +499,7 @@ namespace Preview::Shadowsocks2022
                 std::error_code ec;
                 const auto N =
                     co_await NextLayer_->async_read_some(AsBytes(std::span<std::uint8_t>(chunk)), ec);
-                if (ec || N == 0)
+                if (ec || N == 0 || N > chunk.size())
                 {
                     co_return Error::UnexpectedEof;
                 }
@@ -526,7 +531,7 @@ namespace Preview::Shadowsocks2022
          * → 变长头地址解析），发送响应固定头并初始化发送侧编解码器。
          */
         [[nodiscard]] auto ReadHandshake(SharedTransmission upstream)
-            -> net::awaitable<std::pair<Error, ss::Message>>
+            -> Net::awaitable<std::pair<Error, ss::Message>>
         {
             NextLayer_ = std::move(upstream);
             ss::Message Parsed;
@@ -560,7 +565,7 @@ namespace Preview::Shadowsocks2022
          * @param dst 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst) -> Net::awaitable<bool>
         {
             return RecvExact(dst);
         }
@@ -587,7 +592,7 @@ namespace Preview::Shadowsocks2022
          * @details 块格式：[2B 长度密文 + 16B tag][载荷密文 + 16B tag]。
          * 解密失败（tag 校验）返回 bad_auth。
          */
-        [[nodiscard]] auto ReadChunk() -> net::awaitable<Error>
+        [[nodiscard]] auto ReadChunk() -> Net::awaitable<Error>
         {
             // 1. 读取 18 字节长度块
             std::array<std::uint8_t, ss::LenBlockSize> head{};
@@ -630,7 +635,7 @@ namespace Preview::Shadowsocks2022
          * @return 错误码
          * @details 响应编解码器同时作为发送侧数据编解码器（Nonce 衔接）。
          */
-        [[nodiscard]] auto SendSuccess() -> net::awaitable<Error>
+        [[nodiscard]] auto SendSuccess() -> Net::awaitable<Error>
         {
             const auto TimeSec =
                 static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
@@ -640,7 +645,10 @@ namespace Preview::Shadowsocks2022
             // @note 盐必须 CSPRNG：MinGW 的 std::random_device 存在确定性序列风险，
             //       盐重复 = 跨会话 keystream 重用（与生产 RAND_bytes 口径一致）
             std::array<std::uint8_t, 16> ServerSalt{};
-            RAND_bytes(ServerSalt.data(), static_cast<int>(ServerSalt.size()));
+            if (!Preview::Crypto::FillRandom(std::span<std::uint8_t>(ServerSalt)))
+            {
+                co_return Error::IoError;
+            }
             const auto RespKey = ss::SessionKey(this->Psk_, ServerSalt, 16);
             std::array<std::uint8_t, ss::RespFixedHdrPlain> RespPlain{};
             RespPlain[0] = ss::HeaderTypeServer;
@@ -676,7 +684,7 @@ namespace Preview::Shadowsocks2022
          * 类型/时间窗校验 → 变长头解密 + 地址解析。接收侧编解码器
          * 保留（Nonce 与数据流衔接）。
          */
-        [[nodiscard]] auto ReadRequest(ss::Message &Out) -> net::awaitable<Error>
+        [[nodiscard]] auto ReadRequest(ss::Message &Out) -> Net::awaitable<Error>
         {
             // 1. 读取 salt（16 字节）
             std::array<std::uint8_t, 16> salt{};
@@ -758,7 +766,7 @@ namespace Preview::Shadowsocks2022
             co_return Error::None;
         }
 
-        [[nodiscard]] auto RecvExact(std::span<std::uint8_t> buf) -> net::awaitable<bool>
+        [[nodiscard]] auto RecvExact(std::span<std::uint8_t> buf) -> Net::awaitable<bool>
         {
             std::size_t Done = 0;
             while (Done < buf.size())
@@ -766,6 +774,10 @@ namespace Preview::Shadowsocks2022
                 std::error_code ec;
                 const auto N = co_await NextLayer_->async_read_some(AsBytes(buf.subspan(Done)), ec);
                 if (ec || N == 0)
+                {
+                    co_return true;
+                }
+                if (N > buf.size() - Done)
                 {
                     co_return true;
                 }
@@ -781,7 +793,7 @@ namespace Preview::Shadowsocks2022
          * @details 与 RecvExact 等价，但数据来自 UDP 数据报的明文
          * 头部；读取逻辑与隧道 chunk 读取互不干扰。
          */
-        [[nodiscard]] auto UdpReadExact(std::span<std::uint8_t> buf) -> net::awaitable<bool>
+        [[nodiscard]] auto UdpReadExact(std::span<std::uint8_t> buf) -> Net::awaitable<bool>
         {
             std::size_t Done = 0;
             while (Done < buf.size())
@@ -807,7 +819,7 @@ namespace Preview::Shadowsocks2022
                 std::error_code ec;
                 const auto N =
                     co_await NextLayer_->async_read_some(AsBytes(std::span<std::uint8_t>(chunk)), ec);
-                if (ec || N == 0)
+                if (ec || N == 0 || N > chunk.size())
                 {
                     co_return true;
                 }
@@ -823,7 +835,7 @@ namespace Preview::Shadowsocks2022
          * @param Data 数据
          * @return true = 失败
          */
-        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const -> net::awaitable<bool>
+        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const -> Net::awaitable<bool>
         {
             std::size_t Done = 0;
             while (Done < Data.size())
@@ -834,7 +846,7 @@ namespace Preview::Shadowsocks2022
                 {
                     co_return true;
                 }
-                if (N == 0)
+                if (N == 0 || N > Data.size() - Done)
                 {
                     co_return true; // 底层零字节写入，防死循环
                 }

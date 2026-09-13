@@ -15,10 +15,10 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include <preview/Foundation/Error.hpp>
 #include <preview/Protocols/Anytls/Types.hpp>
@@ -28,37 +28,39 @@ namespace Preview::Anytls
 
     /**
      * @brief 计算密码哈希
-     * @param password 密码
+     * @param Password 密码
      * @return SHA-256(password) 32 字节
      */
-    [[nodiscard]] inline auto PasswordHash(std::string_view password)
+    [[nodiscard]] inline auto PasswordHash(std::string_view Password)
         -> std::array<std::uint8_t, PasswordHashLen>
     {
-        std::array<std::uint8_t, PasswordHashLen> out{};
+        std::array<std::uint8_t, PasswordHashLen> Output{};
         unsigned int Len = 0;
-        EVP_Digest(password.data(), password.size(), out.data(), &Len, EVP_sha256(), nullptr);
-        return out;
+        EVP_Digest(Password.data(), Password.size(), Output.data(), &Len, EVP_sha256(), nullptr);
+        return Output;
     }
 
     /**
      * @brief 构造认证帧
-     * @param password 密码
+     * @param Password 密码
      * @param PadLen Padding 长度
-     * @param out 输出帧 [Hash 32][padlen 2 BE][padding]
+     * @param Output 输出帧 [Hash 32][PadLen 2 BE][Padding]
      * @return 错误码
      */
-    [[nodiscard]] inline auto BuildAuthFrame(std::string_view password, std::uint16_t PadLen, std::string &out)
-        -> Error
+    [[nodiscard]] inline auto BuildAuthFrame(
+        std::string_view Password,
+        std::uint16_t PadLen,
+        std::string &Output) -> Error
     {
-        const auto Hash = PasswordHash(password);
-        out.clear();
-        out.reserve(AuthFrameHdrlen + PadLen);
-        out.append(reinterpret_cast<const char *>(Hash.data()), Hash.size());
-        out.push_back(static_cast<char>((PadLen >> 8) & 0xFF));
-        out.push_back(static_cast<char>(PadLen & 0xFF));
+        const auto Hash = PasswordHash(Password);
+        Output.clear();
+        Output.reserve(AuthFrameHdrlen + PadLen);
+        Output.append(reinterpret_cast<const char *>(Hash.data()), Hash.size());
+        Output.push_back(static_cast<char>((PadLen >> 8) & 0xFF));
+        Output.push_back(static_cast<char>(PadLen & 0xFF));
         for (std::uint16_t I = 0; I < PadLen; ++I)
         {
-            out.push_back(static_cast<char>(I * 13 + 7));
+            Output.push_back(static_cast<char>(I * 13 + 7));
         }
         return Error::None;
     }
@@ -70,9 +72,10 @@ namespace Preview::Anytls
      * @param PadLen 输出 Padding 长度
      * @return 错误码；bad_length = 帧过短
      */
-    [[nodiscard]] inline auto ParseAuthFrame(std::span<const std::uint8_t> Data,
-                                               std::array<std::uint8_t, PasswordHashLen> &Hash,
-                                               std::uint16_t &PadLen) -> Error
+    [[nodiscard]] inline auto ParseAuthFrame(
+        std::span<const std::uint8_t> Data,
+        std::array<std::uint8_t, PasswordHashLen> &Hash,
+        std::uint16_t &PadLen) -> Error
     {
         if (Data.size() < AuthFrameHdrlen)
         {
@@ -89,14 +92,15 @@ namespace Preview::Anytls
 
     /**
      * @brief 校验认证帧密码
-     * @param password 期望密码
+     * @param Password 期望密码
      * @param Hash 帧内密码哈希
      * @return true = 匹配
      */
-    [[nodiscard]] inline auto VerifyAuth(std::string_view password,
-                                          const std::array<std::uint8_t, PasswordHashLen> &Hash) -> bool
+    [[nodiscard]] inline auto VerifyAuth(
+        std::string_view Password,
+        const std::array<std::uint8_t, PasswordHashLen> &Hash) -> bool
     {
-        const auto Expected = PasswordHash(password);
+        const auto Expected = PasswordHash(Password);
         // 常量时间比较，避免哈希逐字节 timing 泄漏（与 Shadowtls 一致）
         return CRYPTO_memcmp(Expected.data(), Hash.data(), Hash.size()) == 0;
     }

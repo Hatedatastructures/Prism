@@ -50,9 +50,9 @@ namespace Preview::Exception
          * 自动捕获抛出点的源码位置。这是异常构造
          * 的首选方式，提供结构化的错误信息。
          */
-        explicit Deviant(std::error_code ec, std::string_view desc = {},
-                         const std::source_location &loc = std::source_location::current())
-            : std::runtime_error(CreateWhat(ec, desc)), Ec_(ec), Location_(loc)
+        explicit Deviant(std::error_code ErrorCode, std::string_view Description = {},
+                         const std::source_location &SourceLocation = std::source_location::current())
+            : std::runtime_error(CreateWhat(ErrorCode, Description)), Ec_(ErrorCode), Location_(SourceLocation)
         {
         }
 
@@ -63,10 +63,10 @@ namespace Preview::Exception
          * @details 将字符串转换为 generic_error 错误码，
          * 建议迁移到错误码构造函数。
          */
-        explicit Deviant(const std::string &msg,
-                         const std::source_location &loc = std::source_location::current())
-            : Deviant(std::error_code(static_cast<int>(Fault::Code::GenericError), Fault::Category()), msg,
-                      loc)
+        explicit Deviant(const std::string &Message,
+                         const std::source_location &SourceLocation = std::source_location::current())
+            : Deviant(std::error_code(static_cast<int>(Fault::Code::GenericError), Fault::Category()), Message,
+                      SourceLocation)
         {
         }
 
@@ -80,8 +80,9 @@ namespace Preview::Exception
          * 建议迁移到错误码构造函数。
          */
         template <typename... Args>
-        explicit Deviant(const std::source_location &loc, std::format_string<Args...> fmt, Args &&...args)
-            : Deviant(std::format(fmt, std::forward<Args>(args)...), loc)
+        explicit Deviant(const std::source_location &SourceLocation, std::format_string<Args...> Format,
+                         Args &&...Arguments)
+            : Deviant(std::format(Format, std::forward<Args>(Arguments)...), SourceLocation)
         {
         }
 
@@ -141,13 +142,14 @@ namespace Preview::Exception
          * @param desc 额外描述
          * @return 组合后的错误消息
          */
-        [[nodiscard]] static auto CreateWhat(const std::error_code &ec, std::string_view desc) -> std::string
+        [[nodiscard]] static auto CreateWhat(const std::error_code &ErrorCode,
+                                             std::string_view Description) -> std::string
         {
-            if (desc.empty())
+            if (Description.empty())
             {
-                return ec.message();
+                return ErrorCode.message();
             }
-            return std::format("{}: {}", ec.message(), desc);
+            return std::format("{}: {}", ErrorCode.message(), Description);
         }
 
         std::error_code Ec_;            // 错误码

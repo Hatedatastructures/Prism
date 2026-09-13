@@ -25,114 +25,154 @@ namespace Preview::Http3::Qpack
     namespace Detail
     {
 
-        /**
-         * @brief 写一个 Huffman 字符串（长度前缀 + 编码字节）
-         * @param out 输出缓冲区
-         * @param Offset 当前写入偏移
-         * @param value 待写入字符串
-         * @param PrefixBits 长度前缀位宽（3 或 7）
-         * @param HuffFlag 长度前缀的模式位
-         * @return 是否写入成功
-         */
-        [[nodiscard]] inline auto WriteStringPrefixed(std::span<std::uint8_t> out, std::size_t &Offset,
-                                                        std::string_view value, std::uint8_t PrefixBits,
-                                                        std::uint8_t HuffFlag) -> bool
+        struct EncoderBuffer
         {
-            std::array<std::uint8_t, 255> stack{};
-            std::array<std::uint8_t, 16> LenBuf{};
-            std::vector<std::uint8_t> heap;
-            std::size_t EncN = 0;
-            const std::uint8_t *EncData = nullptr;
-            if (value.size() * 4 <= stack.size())
+            explicit EncoderBuffer(std::span<std::uint8_t> OutputValue)
+                : Output(OutputValue)
             {
-                EncN = HuffmanEncodeTo(value, stack);
-                if (EncN == 0 && !value.empty())
+            }
+
+            [[nodiscard]] auto AppendVarint(
+                std::uint64_t Value,
+                std::uint8_t PrefixBits,
+                std::uint8_t PrefixPattern) -> bool
+            {
+                std::array<std::uint8_t, 16> Encoded{};
+                const auto EncodedLength = Detail::WriteVarint(
+                    Encoded,
+                    PrefixBits,
+                    Value,
+                    PrefixPattern);
+                if (EncodedLength == 0 || Offset > Output.size() ||
+                    EncodedLength > Output.size() - Offset)
                 {
                     return false;
                 }
-                EncData = stack.data();
+                std::memcpy(Output.data() + Offset, Encoded.data(), EncodedLength);
+                Offset += EncodedLength;
+                return true;
             }
-            else
+
+            [[nodiscard]] auto AppendString(
+                std::string_view Value,
+                std::uint8_t PrefixBits,
+                std::uint8_t HuffFlag) -> bool
             {
-                if (!HuffmanEncodeImpl(value, heap))
+                std::array<std::uint8_t, 255> Stack{};
+                std::array<std::uint8_t, 16> LengthBuffer{};
+                std::vector<std::uint8_t> Heap;
+                std::size_t EncodedLength = 0;
+                const std::uint8_t *EncodedData = nullptr;
+                if (Value.size() <= Stack.size() / 4)
+                {
+                    EncodedLength = HuffmanEncodeTo(Value, Stack);
+                    if (EncodedLength == 0 && !Value.empty())
+                    {
+                        return false;
+                    }
+                    EncodedData = Stack.data();
+                }
+                else
+                {
+                    if (!HuffmanEncodeImpl(Value, Heap))
+                    {
+                        return false;
+                    }
+                    EncodedLength = Heap.size();
+                    EncodedData = Heap.data();
+                }
+                const auto LengthPrefix = Detail::WriteVarint(
+                    LengthBuffer,
+                    PrefixBits,
+                    EncodedLength,
+                    HuffFlag);
+                if (LengthPrefix == 0 || Offset > Output.size() ||
+                    LengthPrefix > Output.size() - Offset ||
+                    EncodedLength > Output.size() - Offset - LengthPrefix)
                 {
                     return false;
                 }
-                EncN = heap.size();
-                EncData = heap.data();
+                std::memcpy(Output.data() + Offset, LengthBuffer.data(), LengthPrefix);
+                Offset += LengthPrefix;
+                if (EncodedLength > 0)
+                {
+                    std::memcpy(Output.data() + Offset, EncodedData, EncodedLength);
+                    Offset += EncodedLength;
+                }
+                return true;
             }
-            const auto LenN = Detail::WriteVarint(LenBuf, PrefixBits, EncN, HuffFlag);
-            if (LenN == 0 || out.size() < Offset + LenN + EncN)
-            {
-                return false;
-            }
-            std::memcpy(out.data() + Offset, LenBuf.data(), LenN);
-            Offset += LenN;
-            if (EncN > 0)
-            {
-                std::memcpy(out.data() + Offset, EncData, EncN);
-                Offset += EncN;
-            }
-            return true;
-        }
+
+            std::span<std::uint8_t> Output;
+            std::size_t Offset{0};
+        };
 
     } // namespace Detail
 
     /**
      * @brief 编码 QPACK 头块前缀
-     * @param out 输出缓冲区
+     * @param Output 输出缓冲区
      * @return 写入字节数
      */
-    [[nodiscard]] inline auto EncodePrefix(std::span<std::uint8_t> out) -> std::size_t
+    [[nodiscard]] inline auto EncodePrefix(std::span<std::uint8_t> Output) -> std::size_t
     {
-        if (out.size() < 2)
+        if (Output.size() < 2)
         {
             return 0;
         }
-        out[0] = 0x00;
-        out[1] = 0x00;
+        Output[0] = 0x00;
+        Output[1] = 0x00;
         return 2;
     }
 
     /**
      * @brief 编码一个 QPACK 头字段
      * @param Name 字段名
-     * @param value 字段值
-     * @param out 输出缓冲区
+     * @param Value 字段值
+     * @param Output 输出缓冲区
      * @return 写入字节数；失败返回 0
      */
-    [[nodiscard]] inline auto EncodeLiteral(std::string_view Name, std::string_view value,
-                                             std::span<std::uint8_t> out) -> std::size_t
+    [[nodiscard]] inline auto EncodeLiteral(
+        std::string_view Name,
+        std::string_view Value,
+        std::span<std::uint8_t> Output) -> std::size_t
     {
+        Detail::EncoderBuffer Encoder(Output);
         if (const auto *Entry = Detail::LookupEncoderName(Name))
         {
             for (std::size_t I = 0; I < Entry->ValueCount; ++I)
             {
-                const auto &Value = Detail::EncoderValues[Entry->ValueOffset + I];
-                if (Value.value == value)
+                const auto &StaticValue = Detail::EncoderValues[Entry->ValueOffset + I];
+                if (StaticValue.value == Value)
                 {
-                    return Detail::WriteVarint(out, 6, Value.index, 0xC0);
+                    if (!Encoder.AppendVarint(StaticValue.index, 6, 0xC0))
+                    {
+                        return 0;
+                    }
+                    return Encoder.Offset;
                 }
             }
-            if (Entry->ValueCount == 0 && value.empty())
+            if (Entry->ValueCount == 0 && Value.empty())
             {
-                return Detail::WriteVarint(out, 6, Entry->FirstIndex, 0xC0);
+                if (!Encoder.AppendVarint(Entry->FirstIndex, 6, 0xC0))
+                {
+                    return 0;
+                }
+                return Encoder.Offset;
             }
-            std::size_t Offset = Detail::WriteVarint(out, 4, Entry->FirstIndex, 0x50);
-            if (Offset == 0 || !Detail::WriteStringPrefixed(out, Offset, value, 7, 0x80))
+            if (!Encoder.AppendVarint(Entry->FirstIndex, 4, 0x50) ||
+                !Encoder.AppendString(Value, 7, 0x80))
             {
                 return 0;
             }
-            return Offset;
+            return Encoder.Offset;
         }
 
-        std::size_t Offset = 0;
-        if (!Detail::WriteStringPrefixed(out, Offset, Name, 3, 0x20 | 0x08) ||
-            !Detail::WriteStringPrefixed(out, Offset, value, 7, 0x80))
+        if (!Encoder.AppendString(Name, 3, 0x20 | 0x08) ||
+            !Encoder.AppendString(Value, 7, 0x80))
         {
             return 0;
         }
-        return Offset;
+        return Encoder.Offset;
     }
 
 } // namespace Preview::Http3::Qpack

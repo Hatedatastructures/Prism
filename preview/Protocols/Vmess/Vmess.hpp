@@ -30,6 +30,8 @@
 namespace Preview::Vmess
 {
 
+    namespace Net = boost::asio;
+
     // =========================================================================
     // 配置（客户端与服务端字段分开定义）
     // =========================================================================
@@ -79,7 +81,7 @@ namespace Preview::Vmess
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
         auto C = std::make_shared<Conn<>>(Params.Config.uuid);
         const auto Err = co_await C->WriteHandshake(std::move(Params.Upstream), Params.Target, Params.Cmd);
@@ -103,8 +105,8 @@ namespace Preview::Vmess
      * @return 错误码与协议连接
      */
     [[nodiscard]] inline auto Connect(SharedTransmission Upstream, const ClientConfig &Config,
-                                      const Address &Target)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+                                       const Address &Target)
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
         auto Result = co_await Connect(ConnectParameters{std::move(Upstream), Config, Target});
         co_return Result;
@@ -119,7 +121,7 @@ namespace Preview::Vmess
      */
     [[nodiscard]] inline auto ConnectPacket(SharedTransmission upstream, const ClientConfig &cfg,
                                              const Address &Target)
-        -> net::awaitable<std::pair<Error, SharedDgram>>
+        -> Net::awaitable<std::pair<Error, SharedDgram>>
     {
         auto [Err, Conn] = co_await Connect(ConnectParameters{
             std::move(upstream), cfg, Target, static_cast<std::uint8_t>(Command::Udp)});
@@ -137,7 +139,7 @@ namespace Preview::Vmess
      * @return 错误码、解析的请求与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, Message, SharedConn>>
+        -> Net::awaitable<std::tuple<Error, Message, SharedConn>>
     {
         auto C = std::make_shared<Conn<>>(cfg.uuid);
         auto [Err, req] = co_await C->ReadHandshake(std::move(upstream));
@@ -160,7 +162,7 @@ namespace Preview::Vmess
      * @return 错误码、解析的请求与包连接（失败时连接为空）
      */
     [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, Message, SharedDgram>>
+        -> Net::awaitable<std::tuple<Error, Message, SharedDgram>>
     {
         auto [Err, req, Conn] = co_await Accept(std::move(upstream), cfg);
         if (Err != Error::None)

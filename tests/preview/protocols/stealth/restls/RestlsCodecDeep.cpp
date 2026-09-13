@@ -16,67 +16,67 @@
 
 namespace
 {
-    using namespace Preview;
+    namespace Restls = Preview::Restls;
 
     TEST(RestlsCodecDeep, DeriveSecret)
     {
-        const auto s1 = Restls::DeriveSecret("pw");
-        EXPECT_EQ(s1.size(), 32u);
-        EXPECT_EQ(Restls::DeriveSecret("pw"), s1); // 确定性
-        EXPECT_NE(Restls::DeriveSecret("pw2"), s1); // 密码敏感
+        const auto Secret = Restls::DeriveSecret("pw");
+        EXPECT_EQ(Secret.size(), 32u);
+        EXPECT_EQ(Restls::DeriveSecret("pw"), Secret); // 确定性
+        EXPECT_NE(Restls::DeriveSecret("pw2"), Secret); // 密码敏感
         EXPECT_EQ(Restls::DeriveSecret("").size(), 32u); // 空密码不崩溃
     }
 
     TEST(RestlsCodecDeep, ComputeServerMask)
     {
         const auto Secret = Restls::DeriveSecret("pw");
-        const std::array<std::uint8_t, 32> sr{0x01};
-        const auto m1 = Restls::ComputeServerMask(Secret, sr);
-        EXPECT_EQ(m1.size(), Restls::HsMaclen);
+        const std::array<std::uint8_t, 32> ServerRandom{0x01};
+        const auto Mask = Restls::ComputeServerMask(Secret, ServerRandom);
+        EXPECT_EQ(Mask.size(), Restls::HsMaclen);
         // 确定性
-        EXPECT_EQ(Restls::ComputeServerMask(Secret, sr), m1);
+        EXPECT_EQ(Restls::ComputeServerMask(Secret, ServerRandom), Mask);
         // Server random 变化 → 掩码变化
-        const std::array<std::uint8_t, 32> sr2{0x02};
-        EXPECT_NE(Restls::ComputeServerMask(Secret, sr2), m1);
+        const std::array<std::uint8_t, 32> ServerRandomTwo{0x02};
+        EXPECT_NE(Restls::ComputeServerMask(Secret, ServerRandomTwo), Mask);
     }
 
     TEST(RestlsCodecDeep, ComputeAuthMac)
     {
         const auto Secret = Restls::DeriveSecret("pw");
-        const std::array<std::uint8_t, 32> sr{0x10};
-        const std::array<std::uint8_t, 5> tls_hdr{0x17, 0x03, 0x03, 0x00, 0x10};
-        const std::array<std::uint8_t, 8> payload{0x20};
+        const std::array<std::uint8_t, 32> ServerRandom{0x10};
+        const std::array<std::uint8_t, 5> TlsHeader{0x17, 0x03, 0x03, 0x00, 0x10};
+        const std::array<std::uint8_t, 8> Payload{0x20};
 
-        Restls::AuthMacInput in{Secret, sr, Restls::FlowDirection::ToClient, 1, {}, tls_hdr,
-                                  payload};
-        const auto mac = Restls::ComputeAuthMac(in);
-        EXPECT_EQ(mac.size(), Restls::AppdataMaclen);
+        Restls::AuthMacInput Input{Secret, ServerRandom, Restls::FlowDirection::ToClient, 1, {}, TlsHeader,
+                                  Payload};
+        const auto Mac = Restls::ComputeAuthMac(Input);
+        EXPECT_EQ(Mac.size(), Restls::AppdataMaclen);
         // 确定性
-        EXPECT_EQ(Restls::ComputeAuthMac(in), mac);
+        EXPECT_EQ(Restls::ComputeAuthMac(Input), Mac);
         // counter 变化 → 不同
-        Restls::AuthMacInput in2{Secret, sr, Restls::FlowDirection::ToClient, 2, {}, tls_hdr,
-                                   payload};
-        EXPECT_NE(Restls::ComputeAuthMac(in2), mac);
+        Restls::AuthMacInput InputTwo{Secret, ServerRandom, Restls::FlowDirection::ToClient, 2, {}, TlsHeader,
+                                   Payload};
+        EXPECT_NE(Restls::ComputeAuthMac(InputTwo), Mac);
         // 方向变化 → 不同
-        Restls::AuthMacInput in3{Secret, sr, Restls::FlowDirection::ToServer, 1, {}, tls_hdr,
-                                   payload};
-        EXPECT_NE(Restls::ComputeAuthMac(in3), mac);
+        Restls::AuthMacInput InputThree{Secret, ServerRandom, Restls::FlowDirection::ToServer, 1, {}, TlsHeader,
+                                   Payload};
+        EXPECT_NE(Restls::ComputeAuthMac(InputThree), Mac);
     }
 
     TEST(RestlsCodecDeep, ComputeMask)
     {
         const auto Secret = Restls::DeriveSecret("pw");
-        const std::array<std::uint8_t, 32> sr{0x30};
+        const std::array<std::uint8_t, 32> ServerRandom{0x30};
         const std::array<std::uint8_t, 32> Sample{0x40};
 
-        Restls::MaskInput in{Secret, sr, Restls::FlowDirection::ToClient, 5, Sample};
-        const auto mask = Restls::ComputeMask(in);
-        EXPECT_EQ(mask.size(), Restls::MaskLen);
+        Restls::MaskInput Input{Secret, ServerRandom, Restls::FlowDirection::ToClient, 5, Sample};
+        const auto Mask = Restls::ComputeMask(Input);
+        EXPECT_EQ(Mask.size(), Restls::MaskLen);
         // 确定性
-        EXPECT_EQ(Restls::ComputeMask(in), mask);
+        EXPECT_EQ(Restls::ComputeMask(Input), Mask);
         // counter 变化 → 不同
-        Restls::MaskInput in2{Secret, sr, Restls::FlowDirection::ToClient, 6, Sample};
-        EXPECT_NE(Restls::ComputeMask(in2), mask);
+        Restls::MaskInput InputTwo{Secret, ServerRandom, Restls::FlowDirection::ToClient, 6, Sample};
+        EXPECT_NE(Restls::ComputeMask(InputTwo), Mask);
     }
 
 } // namespace

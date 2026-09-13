@@ -174,22 +174,22 @@ namespace Preview::Account
         /**
          * @brief 移动构造
          */
-        Lease(Lease &&other) noexcept : Entry_(std::move(other.Entry_))
+        Lease(Lease &&Other) noexcept : Entry_(std::move(Other.Entry_))
         {
         }
 
         /**
          * @brief 移动赋值
          */
-        auto operator=(Lease &&other) noexcept -> Lease &
+        auto operator=(Lease &&Other) noexcept -> Lease &
         {
-            if (this != &other)
+            if (this != &Other)
             {
                 if (Entry_)
                 {
                     Entry_->ReleaseActive();
                 }
-                Entry_ = std::move(other.Entry_);
+                Entry_ = std::move(Other.Entry_);
             }
             return *this;
         }
@@ -269,9 +269,9 @@ namespace Preview::Account
          * @param Credential 凭证
          * @param existing 已有条目
          */
-        void Insert(std::string_view Credential, SharedEntry existing)
+        void Insert(std::string_view Credential, SharedEntry Existing)
         {
-            Entries_.Set(std::string(Credential), std::move(existing));
+            Entries_.Set(std::string(Credential), std::move(Existing));
         }
 
         /**
@@ -313,12 +313,12 @@ namespace Preview::Account
          * @param fn 回调
          */
         template <typename Fn>
-        void ForEach(Fn &&fn) const
+        void ForEach(Fn &&Function) const
         {
             const auto Snap = Entries_.Snapshot();
-            for (const auto &[cred, E] : *Snap)
+            for (const auto &[Credential, E] : *Snap)
             {
-                fn(std::string_view(cred), E);
+                Function(std::string_view(Credential), E);
             }
         }
 
@@ -349,10 +349,10 @@ namespace Preview::Account
      * @param now 当前时间戳（0 = 不过期校验）
      * @return 持约 Lease；失败（不存在/禁用/过期/超限）返回空
      */
-    [[nodiscard]] inline auto TryAcquire(const Directory &dir, std::string_view Credential,
+    [[nodiscard]] inline auto TryAcquire(const Directory &DirectoryObject, std::string_view Credential,
                                           std::uint64_t Now = 0) -> Lease
     {
-        auto E = dir.Find(Credential);
+        auto E = DirectoryObject.Find(Credential);
         if (!E || E->Disabled() || (Now != 0 && E->Expired(Now)))
         {
             return Lease{};

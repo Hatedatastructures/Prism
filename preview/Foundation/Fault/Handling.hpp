@@ -37,19 +37,19 @@ namespace Preview::Fault
      * static_assert 编译错误。
      */
     template <typename ErrorCode>
-    [[nodiscard]] constexpr auto Succeeded(const ErrorCode &ec) noexcept -> bool
+    [[nodiscard]] constexpr auto Succeeded(const ErrorCode &ErrorValue) noexcept -> bool
     {
         if constexpr (std::is_same_v<ErrorCode, Code>)
         {
-            return ec == Code::Success;
+            return ErrorValue == Code::Success;
         }
         else if constexpr (std::is_same_v<ErrorCode, std::error_code>)
         {
-            return !ec;
+            return !ErrorValue;
         }
         else if constexpr (std::is_same_v<ErrorCode, boost::system::error_code>)
         {
-            return !ec;
+            return !ErrorValue;
         }
         else
         {
@@ -67,9 +67,9 @@ namespace Preview::Fault
      * !Succeeded(ec)。
      */
     template <typename ErrorCode>
-    [[nodiscard]] constexpr auto Failed(const ErrorCode &ec) noexcept -> bool
+    [[nodiscard]] constexpr auto Failed(const ErrorCode &ErrorValue) noexcept -> bool
     {
-        return !Succeeded(ec);
+        return !Succeeded(ErrorValue);
     }
 
     /**
@@ -81,28 +81,28 @@ namespace Preview::Fault
      * @warning 未映射的 Boost 错误将返回 io_error，
      * 可能丢失原始错误信息。
      */
-    [[nodiscard]] inline auto ToCode(const boost::system::error_code &ec) noexcept -> Code
+    [[nodiscard]] inline auto ToCode(const boost::system::error_code &ErrorValue) noexcept -> Code
     {
-        if (!ec)
+        if (!ErrorValue)
         {
             return Code::Success;
         }
 
-        if (std::string_view(ec.category().name()) == "Preview::fault")
+        if (std::string_view(ErrorValue.category().name()) == "Preview::fault")
         {
-            const auto value = ec.value();
-            if (value >= 0 && value < static_cast<std::int32_t>(Code::_count))
+            const auto Value = ErrorValue.value();
+            if (Value >= 0 && Value < static_cast<std::int32_t>(Code::Count))
             {
-                return static_cast<Code>(value);
+                return static_cast<Code>(Value);
             }
             return Code::GenericError;
         }
 
         // 协议层错误（prism.protocol，固定枚举序号）→ fault 映射。
         // 仅依赖中立分类契约，避免 Fault 反向 include 协议实现。
-        if (std::string_view(ec.category().name()) == "prism.protocol")
+        if (std::string_view(ErrorValue.category().name()) == "prism.protocol")
         {
-            switch (ec.value())
+            switch (ErrorValue.value())
             {
             case 0: return Code::Success;
             case 1: return Code::WouldBlock;
@@ -127,39 +127,39 @@ namespace Preview::Fault
             }
         }
 
-        if (ec == boost::asio::error::eof)
+        if (ErrorValue == boost::asio::error::eof)
         {
             return Code::Eof;
         }
-        if (ec == boost::asio::error::operation_aborted)
+        if (ErrorValue == boost::asio::error::operation_aborted)
         {
             return Code::Canceled;
         }
-        if (ec == boost::asio::error::timed_out)
+        if (ErrorValue == boost::asio::error::timed_out)
         {
             return Code::Timeout;
         }
-        if (ec == boost::asio::error::connection_refused)
+        if (ErrorValue == boost::asio::error::connection_refused)
         {
             return Code::ConnectionRefused;
         }
-        if (ec == boost::asio::error::connection_reset)
+        if (ErrorValue == boost::asio::error::connection_reset)
         {
             return Code::ConnectionReset;
         }
-        if (ec == boost::asio::error::connection_aborted)
+        if (ErrorValue == boost::asio::error::connection_aborted)
         {
             return Code::ConnectionAborted;
         }
-        if (ec == boost::asio::error::host_unreachable)
+        if (ErrorValue == boost::asio::error::host_unreachable)
         {
             return Code::HostNoreply;
         }
-        if (ec == boost::asio::error::network_unreachable)
+        if (ErrorValue == boost::asio::error::network_unreachable)
         {
             return Code::NetNoreply;
         }
-        if (ec == boost::asio::error::no_buffer_space)
+        if (ErrorValue == boost::asio::error::no_buffer_space)
         {
             return Code::ResourceUnavailable;
         }
@@ -175,19 +175,19 @@ namespace Preview::Fault
      * fault 错误码，未映射的错误返回 io_error。
      * @warning 未映射的标准错误将返回 io_error。
      */
-    [[nodiscard]] inline auto ToCode(const std::error_code &ec) noexcept -> Code
+    [[nodiscard]] inline auto ToCode(const std::error_code &ErrorValue) noexcept -> Code
     {
-        if (!ec)
+        if (!ErrorValue)
         {
             return Code::Success;
         }
 
-        if (&ec.category() == &Preview::Fault::Category())
+        if (&ErrorValue.category() == &Preview::Fault::Category())
         {
-            const auto value = ec.value();
-            if (value >= 0 && value < static_cast<std::int32_t>(Code::_count))
+            const auto Value = ErrorValue.value();
+            if (Value >= 0 && Value < static_cast<std::int32_t>(Code::Count))
             {
-                return static_cast<Code>(value);
+                return static_cast<Code>(Value);
             }
             return Code::GenericError;
         }
@@ -201,31 +201,31 @@ namespace Preview::Fault
         static const auto EcNet = std::make_error_code(std::errc::network_unreachable);
         static const auto EcCancel = std::make_error_code(std::errc::operation_canceled);
 
-        if (ec == EcRefused)
+        if (ErrorValue == EcRefused)
         {
             return Code::ConnectionRefused;
         }
-        if (ec == EcReset)
+        if (ErrorValue == EcReset)
         {
             return Code::ConnectionReset;
         }
-        if (ec == EcAborted)
+        if (ErrorValue == EcAborted)
         {
             return Code::ConnectionAborted;
         }
-        if (ec == EcTimeout)
+        if (ErrorValue == EcTimeout)
         {
             return Code::Timeout;
         }
-        if (ec == EcHost)
+        if (ErrorValue == EcHost)
         {
             return Code::HostNoreply;
         }
-        if (ec == EcNet)
+        if (ErrorValue == EcNet)
         {
             return Code::NetNoreply;
         }
-        if (ec == EcCancel)
+        if (ErrorValue == EcCancel)
         {
             return Code::Canceled;
         }

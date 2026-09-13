@@ -26,23 +26,27 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <optional>
-#include <random>
 #include <span>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <preview/Foundation/ByteSpan.hpp>
+#include <preview/Foundation/Authenticator.hpp>
 #include <preview/Foundation/Error.hpp>
 #include <preview/Foundation/Memory/Pointer.hpp>
+#include <preview/Foundation/Utility/Crypto/Random.hpp>
 #include <preview/Transport/Transmission.hpp>
 #include <preview/Protocols/Vmess/Codec.hpp>
 #include <preview/Protocols/Vmess/Types.hpp>
 
 namespace Preview::Vmess
 {
+
+    namespace Net = boost::asio;
 
     /**
      * @class Client
@@ -59,11 +63,12 @@ namespace Preview::Vmess
     public:
         /**
          * @brief 构造函数
-         * @param NextLayer 已建立连接的底层传输
-         * @param cfg 客户端配置
+         * @param Uuid 客户端 UUID（16 字节）
+         * @param Source 可选随机源
          * @details 接管底层传输所有权，调用者不应再使用原指针。
          */
-        explicit Conn(std::array<std::uint8_t, 16> uuid) : Uuid_(uuid)
+        explicit Conn(std::array<std::uint8_t, 16> Uuid, RandomSource Source = {})
+            : Uuid_(Uuid), Random_(std::move(Source))
         {
         }
 
@@ -72,31 +77,36 @@ namespace Preview::Vmess
          * @return 底层传输的执行器
          * @details 透传底层传输的执行器，供协程调度使用。
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
         /**
          * @brief 异步读取（解密后明文）
          * @param Buffer 接收缓冲区
-         * @param ec 错误码输出参数
+         * @param ErrorCode 错误码输出参数
          * @return 实际读取字节数；0 = 流结束（结束块或对端关闭）
          * @details 握手成功后：底层读取一个分块密文 → 解密 → 从内部
          * 明文缓冲拷贝给调用方。
-         * @warning 未握手或已结束时返回 0 并置 ec
+         * @warning 未握手或已结束时返回 0 并置 ErrorCode
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            ErrorCode.clear();
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
             if (Eof_)
             {
-                ec.clear();
                 co_return 0;
             }
             while (PlainOff_ >= PlainRx_.size())
@@ -104,41 +114,40 @@ namespace Preview::Vmess
                 const auto Err = co_await ReadChunk();
                 if (Err != Error::None)
                 {
-                    ec = make_error_code(Err);
+                    ErrorCode = make_error_code(Err);
                     co_return 0;
                 }
                 if (Eof_)
                 {
-                    ec.clear();
                     co_return 0;
                 }
             }
             const auto N = std::min(Buffer.size(), PlainRx_.size() - PlainOff_);
             std::memcpy(Buffer.data(), PlainRx_.data() + PlainOff_, N);
             PlainOff_ += N;
-            ec.clear();
             co_return N;
         }
 
         /**
          * @brief 异步写入（加密后发送，16KB 分块）
          * @param Buffer 发送缓冲区（明文）
-         * @param ec 错误码输出参数
+         * @param ErrorCode 错误码输出参数
          * @return 实际写入的明文长度
          * @details VMess AEAD chunk 上限 16KB：超过时按块分片加密发送。
-         * @warning 未握手时返回 0 并置 ec
+         * @warning 未握手时返回 0 并置 ErrorCode
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            if (!Handshaken_)
+            ErrorCode.clear();
+            if (!NextLayer_ || !Handshaken_)
             {
-                ec = make_error_code(Error::NotOpen);
+                ErrorCode = make_error_code(Error::NotOpen);
                 co_return 0;
             }
             if (Buffer.empty())
             {
-                ec.clear();
                 co_return 0;
             }
             std::size_t Done = 0;
@@ -150,17 +159,16 @@ namespace Preview::Vmess
                 const auto Enc = Enc_->Seal(AsU8(Buffer.subspan(Done, N)), Out);
                 if (Enc == 0)
                 {
-                    ec = make_error_code(Error::BadLength);
+                    ErrorCode = make_error_code(Error::BadLength);
                     co_return 0;
                 }
                 if (co_await SendBytes(std::span<const std::uint8_t>(Out.data(), Enc)))
                 {
-                    ec = make_error_code(Error::IoError);
+                    ErrorCode = make_error_code(Error::IoError);
                     co_return 0;
                 }
                 Done += N;
             }
-            ec.clear();
             co_return Buffer.size();
         }
 
@@ -168,7 +176,7 @@ namespace Preview::Vmess
          * @brief 关闭传输层
          * @details 透传关闭到底层传输，挂起的读写立即返回。
          */
-        void Close() override
+        auto Close() -> void override
         {
             if (NextLayer_)
             {
@@ -180,7 +188,7 @@ namespace Preview::Vmess
          * @brief 取消未完成异步操作
          * @details 透传取消到底层传输，挂起的读立即返回 0。
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
             if (NextLayer_)
             {
@@ -245,50 +253,67 @@ namespace Preview::Vmess
         /**
          * @brief 执行客户端握手
          * @param Target 目标地址
-         * @param cmd 命令（默认 Tcp；UDP 数据面传 Command::Udp）
+         * @param CommandValue 命令（默认 Tcp；UDP 数据面传 Command::Udp）
          * @return 错误码
          * @details 生成随机参数 → 密封请求头（命令写入指令头）→
          * 发送 → 读取响应校验。
          * @warning 调用前必须确保 NextLayer_ 已建立连接
          */
-        [[nodiscard]] auto WriteHandshake(SharedTransmission upstream, const Address &Target,
-                                           std::uint8_t Cmd = static_cast<std::uint8_t>(Command::Tcp)) -> net::awaitable<Error>
+        [[nodiscard]] auto WriteHandshake(
+            SharedTransmission Upstream,
+            const Address &Target,
+            std::uint8_t CommandValue = static_cast<std::uint8_t>(Command::Tcp))
+            -> Net::awaitable<Error>
         {
-            NextLayer_ = std::move(upstream);
+            NextLayer_ = std::move(Upstream);
+            Handshaken_ = false;
+            Eof_ = false;
+            AuthId_.fill(0);
+            Parsed_ = Message{};
+            ChunkOptions_ = static_cast<std::uint8_t>(Option::AuthenticatedLength);
+            PlainRx_.clear();
+            PlainOff_ = 0;
+            Enc_.reset();
+            Dec_.reset();
             // 1. 生成随机参数
-            std::random_device rd;
-            std::array<std::uint8_t, 16> iv{};
-            std::array<std::uint8_t, 16> key{};
-            for (auto &b : iv)
+            std::array<std::uint8_t, 16> Iv{};
+            std::array<std::uint8_t, 16> Key{};
+            std::array<std::uint8_t, 4> AuthRandom{};
+            std::array<std::uint8_t, 2> MetadataRandom{};
+            if (!FillRandomBytes(std::span<std::uint8_t>(Iv)) ||
+                !FillRandomBytes(std::span<std::uint8_t>(Key)) ||
+                !FillRandomBytes(std::span<std::uint8_t>(AuthRandom)) ||
+                !FillRandomBytes(std::span<std::uint8_t>(MetadataRandom)))
             {
-                b = static_cast<std::uint8_t>(rd() & 0xFF);
+                co_return Error::IoError;
             }
-            for (auto &b : key)
-            {
-                b = static_cast<std::uint8_t>(rd() & 0xFF);
-            }
-            const auto V = static_cast<std::uint8_t>(rd() & 0xFF);
-            const auto P = static_cast<std::uint8_t>(rd() % 16);
-            std::array<std::uint8_t, 4> random4{};
-            for (auto &b : random4)
-            {
-                b = static_cast<std::uint8_t>(rd() & 0xFF);
-            }
+            const auto VersionByte = MetadataRandom[0];
+            const auto PaddingLength = static_cast<std::uint8_t>(MetadataRandom[1] % 16);
             const auto TimeSec = std::chrono::duration_cast<std::chrono::seconds>(
                                       std::chrono::system_clock::now().time_since_epoch())
                                       .count();
 
             // 2. 构造请求头明文并密封
-            RequestHeader hdr;
-            hdr.Version = ProtocolVersion;
-            hdr.Cmd = Cmd;
-            hdr.opt = 0x01; // ChunkStream 分块传输
-            hdr.sec = Security::Aes128Gcm;
-            hdr.Target = Target;
-            const auto Plain = BuildRequestHeader(hdr, RequestMeta{iv, key, V, P});
+            RequestHeader RequestValue;
+            RequestValue.Version = ProtocolVersion;
+            RequestValue.Cmd = CommandValue;
+            RequestValue.opt = static_cast<std::uint8_t>(Option::ChunkStream) |
+                      static_cast<std::uint8_t>(Option::ChunkMasking);
+            RequestValue.sec = Security::Aes128Gcm;
+            RequestValue.Target = Target;
+            const auto Plain = BuildRequestHeader(
+                RequestValue,
+                RequestMeta{Iv, Key, VersionByte, PaddingLength});
             const auto CmdKey = CmdKeyFromUuid(Uuid_);
-            const auto Sealed = SealAuthHeader(CmdKey, AuthHeaderInput{Plain, TimeSec, random4});
-            const auto AuthId = CreateAuthId(CmdKey, TimeSec, random4);
+            const auto Sealed = SealAuthHeader(
+                CmdKey,
+                AuthHeaderInput{Plain, TimeSec, AuthRandom},
+                Random_);
+            const auto AuthId = CreateAuthId(CmdKey, TimeSec, AuthRandom);
+            if (Sealed.empty())
+            {
+                co_return Error::CryptoError;
+            }
             if (co_await SendBytes(Sealed))
             {
                 co_return Error::IoError;
@@ -302,77 +327,88 @@ namespace Preview::Vmess
             }
 
             // 4. 派生响应密钥并解密长度字段
-            const auto RespBodyKey = detail::Sha256(key);
-            const auto RespBodyIv = detail::Sha256(iv);
+            const auto RespBodyKey = detail::Sha256(Key);
+            const auto RespBodyIv = detail::Sha256(Iv);
             std::array<std::uint8_t, 16> RespKey16{};
             std::memcpy(RespKey16.data(), RespBodyKey.data(), 16);
             std::array<std::uint8_t, 16> RespIv16{};
             std::memcpy(RespIv16.data(), RespBodyIv.data(), 16);
             const auto RespLenKey = Kdf(RespKey16, KdfRespLenKey);
             const auto RespLenIv = Kdf(RespIv16, KdfRespLenIv);
-            std::array<std::uint8_t, 16> rlk{};
-            std::memcpy(rlk.data(), RespLenKey.data(), 16);
-            std::array<std::uint8_t, 12> rliv{};
-            std::memcpy(rliv.data(), RespLenIv.data(), 12);
-            const auto LenPlain = detail::AesGcmOpen(detail::OpenInput{rlk, rliv, LenEnc, AuthId});
+            std::array<std::uint8_t, 16> ResponseLengthKey{};
+            std::memcpy(ResponseLengthKey.data(), RespLenKey.data(), 16);
+            std::array<std::uint8_t, 12> ResponseLengthIv{};
+            std::memcpy(ResponseLengthIv.data(), RespLenIv.data(), 12);
+            const auto LenPlain = detail::AesGcmOpen(
+                detail::OpenInput{ResponseLengthKey, ResponseLengthIv, LenEnc, {}});
             if (LenPlain.size() != 2)
             {
                 co_return Error::BadAuth;
             }
-            const auto RespLen = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
+            const auto ResponseLength = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
 
             // 5. 读取响应头密文并校验验证字节
-            std::vector<std::uint8_t> RespEnc(RespLen);
+            if (ResponseLength > 0xFFFF - 16)
+            {
+                co_return Error::BadLength;
+            }
+            std::vector<std::uint8_t> RespEnc(ResponseLength + 16);
             if (co_await RecvExact(RespEnc))
             {
                 co_return Error::IoError;
             }
             const auto RespKey = Kdf(RespKey16, KdfRespKey);
             const auto RespIv = Kdf(RespIv16, KdfRespIv);
-            std::array<std::uint8_t, 16> rk{};
-            std::memcpy(rk.data(), RespKey.data(), 16);
-            std::array<std::uint8_t, 12> riv{};
-            std::memcpy(riv.data(), RespIv.data(), 12);
-            ResponseHeader rh;
-            if (OpenResponseHeader(rk, RespHeaderParseInput{riv, RespEnc, AuthId}, rh) != Error::None)
+            std::array<std::uint8_t, 16> ResponseKey{};
+            std::memcpy(ResponseKey.data(), RespKey.data(), 16);
+            std::array<std::uint8_t, 12> ResponseIv{};
+            std::memcpy(ResponseIv.data(), RespIv.data(), 12);
+            ResponseHeader ResponseValue;
+            if (OpenResponseHeader(
+                    ResponseKey,
+                    RespHeaderParseInput{ResponseIv, RespEnc, AuthId},
+                    ResponseValue) != Error::None)
             {
                 co_return Error::BadAuth;
             }
-            if (rh.Version != V)
+            if (ResponseValue.Version != VersionByte)
             {
                 co_return Error::BadAuth;
             }
 
-            // 6. 派生分块密钥（BodyKey = KDF(RequestKey, RequestNonce)）
-            const auto BodyKey = Kdf(key, iv);
-            std::array<std::uint8_t, 16> ChunkKey{};
-            std::memcpy(ChunkKey.data(), BodyKey.data(), 16);
-            std::array<std::uint8_t, 12> ChunkNonce{};
-            std::memcpy(ChunkNonce.data(), iv.data(), 12);
-            Enc_.emplace(ChunkKey, ChunkNonce);
-            Dec_.emplace(ChunkKey, ChunkNonce);
+            // 6. 数据方向分别绑定 request 与 response key/nonce。
+            Enc_.emplace(std::span<const std::uint8_t, 16>(Key),
+                         std::span<const std::uint8_t, 16>(Iv), RequestValue.opt);
+            Dec_.emplace(std::span<const std::uint8_t, 16>(RespKey16),
+                         std::span<const std::uint8_t, 16>(RespIv16), RequestValue.opt);
+            ChunkOptions_ = RequestValue.opt;
             Handshaken_ = true;
             co_return Error::None;
         }
 
         /**
          * @brief 发送一个 UDP 数据报（UDP 数据面，chunk 即包边界）
-         * @param payload 数据报载荷
+         * @param Payload 数据报载荷
          * @return 错误码
          * @details 目标地址固定来自指令头（不随包携带）。一次调用 =
-         * 加密并发送一个数据分块（长度密文 + 载荷密文），对端
+         * 加密并发送一个数据分块（长度掩码 + 载荷密文），对端
          * AsyncReceiveDatagram 恰好读到该分块即完整数据报。
          * @warning 仅在 handshake() 使用 Command::Udp 后调用；数据报
          * 模式与流式模式互斥，同一会话不可混用
          */
-        [[nodiscard]] auto AsyncSendDatagram(std::span<const std::uint8_t> payload) -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncSendDatagram(
+            std::span<const std::uint8_t> Payload) -> Net::awaitable<Error>
         {
-            if (!Handshaken_)
+            if (!NextLayer_ || !Handshaken_)
             {
                 co_return Error::NotOpen;
             }
-            std::vector<std::uint8_t> Out(payload.size() + ChunkEncryptor::Overhead);
-            const auto N = Enc_->Seal(payload, Out);
+            if (Payload.size() > (std::numeric_limits<std::size_t>::max)() - ChunkEncryptor::Overhead)
+            {
+                co_return Error::BadLength;
+            }
+            std::vector<std::uint8_t> Out(Payload.size() + ChunkEncryptor::Overhead);
+            const auto N = Enc_->Seal(Payload, Out);
             if (N == 0)
             {
                 co_return Error::BadLength;
@@ -387,16 +423,17 @@ namespace Preview::Vmess
 
         /**
          * @brief 接收一个 UDP 数据报（UDP 数据面，chunk 即包边界）
-         * @param payload 输出数据报载荷
+         * @param Payload 输出数据报载荷
          * @return 错误码
          * @details 一次调用 = 读取并解密一个数据分块，分块明文即完整
          * 数据报。读到结束块（len=0）返回 unexpected_eof。
          * @warning 仅在 handshake() 使用 Command::Udp 后调用；数据报
          * 模式与流式模式互斥，同一会话不可混用
          */
-        [[nodiscard]] auto AsyncReceiveDatagram(std::vector<std::uint8_t> &payload) -> net::awaitable<Error>
+        [[nodiscard]] auto AsyncReceiveDatagram(
+            std::vector<std::uint8_t> &Payload) -> Net::awaitable<Error>
         {
-            if (!Handshaken_)
+            if (!NextLayer_ || !Handshaken_)
             {
                 co_return Error::NotOpen;
             }
@@ -413,23 +450,32 @@ namespace Preview::Vmess
             {
                 co_return Error::UnexpectedEof;
             }
-            payload.assign(PlainRx_.begin(), PlainRx_.end());
+            Payload.assign(PlainRx_.begin(), PlainRx_.end());
             PlainOff_ = 0;
             co_return Error::None;
         }
 
         /**
          * @brief 服务端握手：解析认证头 → 校验 → 发送 AEAD 响应
-         * @param upstream 上游传输（所有权移交）
+         * @param Upstream 上游传输（所有权移交）
          * @return 错误码与解析的请求
          * @details 精确分段读取认证头（42B 前缀 → 解密长度 → 请求头
          * 密文），cmdKey 解密成功即 UUID 匹配，发送 38B 响应头并
          * 派生分块密钥。认证失败不发送响应，静默断开。
          */
-        [[nodiscard]] auto ReadHandshake(SharedTransmission upstream)
-            -> net::awaitable<std::pair<Error, Message>>
+        [[nodiscard]] auto ReadHandshake(SharedTransmission Upstream)
+            -> Net::awaitable<std::pair<Error, Message>>
         {
-            NextLayer_ = std::move(upstream);
+            NextLayer_ = std::move(Upstream);
+            Handshaken_ = false;
+            Eof_ = false;
+            AuthId_.fill(0);
+            Parsed_ = Message{};
+            ChunkOptions_ = static_cast<std::uint8_t>(Option::AuthenticatedLength);
+            PlainRx_.clear();
+            PlainOff_ = 0;
+            Enc_.reset();
+            Dec_.reset();
             Message Out;
             auto Err = co_await ReadRequest(Out);
             if (Err != Error::None)
@@ -451,14 +497,18 @@ namespace Preview::Vmess
                 co_return std::pair{Err, Message{}};
             }
 
-            // 派生分块密钥（BodyKey = KDF(RequestKey, RequestNonce) 前 16 字节）
-            const auto BodyKey = Kdf(Out.RequestKey, Out.RequestNonce);
-            std::array<std::uint8_t, 16> ChunkKey{};
-            std::memcpy(ChunkKey.data(), BodyKey.data(), 16);
-            std::array<std::uint8_t, 12> ChunkNonce{};
-            std::memcpy(ChunkNonce.data(), Out.RequestNonce.data(), 12);
-            Enc_.emplace(ChunkKey, ChunkNonce);
-            Dec_.emplace(ChunkKey, ChunkNonce);
+            // 数据方向分别绑定 request 与 response key/nonce。
+            const auto RespBodyKey = detail::Sha256(Out.RequestKey);
+            const auto RespBodyIv = detail::Sha256(Out.RequestNonce);
+            std::array<std::uint8_t, 16> RespKey16{};
+            std::array<std::uint8_t, 16> RespIv16{};
+            std::memcpy(RespKey16.data(), RespBodyKey.data(), 16);
+            std::memcpy(RespIv16.data(), RespBodyIv.data(), 16);
+            Dec_.emplace(std::span<const std::uint8_t, 16>(Out.RequestKey),
+                         std::span<const std::uint8_t, 16>(Out.RequestNonce), Out.Option);
+            Enc_.emplace(std::span<const std::uint8_t, 16>(RespKey16),
+                         std::span<const std::uint8_t, 16>(RespIv16), Out.Option);
+            ChunkOptions_ = Out.Option;
             Handshaken_ = true;
             Parsed_ = Out;
             co_return std::pair{Error::None, std::move(Out)};
@@ -476,13 +526,13 @@ namespace Preview::Vmess
     private:
         /**
          * @brief 读取并解析认证头（服务端）
-         * @param out 输出请求消息
+         * @param Out 输出请求消息
          * @return 错误码
          * @details 分阶段精确读取：42B 前缀 → 解密长度字段 → 读取
          * 剩余密文 → 组装解析（cmdKey 解密失败即 UUID 不匹配）→
          * 显式 UUID 校验。
          */
-        [[nodiscard]] auto ReadRequest(Message &Out) -> net::awaitable<Error>
+        [[nodiscard]] auto ReadRequest(Message &Out) -> Net::awaitable<Error>
         {
             // 1. 读取认证头前缀（16 AuthID + 18 LenEnc + 8 Nonce = 42 字节）
             std::array<std::uint8_t, 42> Prefix{};
@@ -494,45 +544,51 @@ namespace Preview::Vmess
             // 2. 解密长度字段，确定请求头密文总长
             const auto CmdKey = CmdKeyFromUuid(Uuid_);
             const auto AuthId = std::span<const std::uint8_t>(Prefix).first(16);
-            std::memcpy(AuthId_.data(), AuthId.data(), 16); // 响应 AAD 复用
+            std::memcpy(AuthId_.data(), AuthId.data(), 16); // 保留响应头兼容输入
             const auto Nonce8 = std::span<const std::uint8_t>(Prefix).subspan(34, 8);
             const auto LenKey = Kdf(CmdKey, KdfHeaderLenKey, AuthId, Nonce8);
             const auto LenIv = Kdf(CmdKey, KdfHeaderLenIv, AuthId, Nonce8);
-            std::array<std::uint8_t, 16> lk{};
-            std::memcpy(lk.data(), LenKey.data(), 16);
-            std::array<std::uint8_t, 12> liv{};
-            std::memcpy(liv.data(), LenIv.data(), 12);
+            std::array<std::uint8_t, 16> LengthKey{};
+            std::memcpy(LengthKey.data(), LenKey.data(), 16);
+            std::array<std::uint8_t, 12> LengthIv{};
+            std::memcpy(LengthIv.data(), LenIv.data(), 12);
             const auto LenPlain = detail::AesGcmOpen(
-                detail::OpenInput{lk, liv, std::span<const std::uint8_t>(Prefix).subspan(16, 18), AuthId});
+                detail::OpenInput{
+                    LengthKey,
+                    LengthIv,
+                    std::span<const std::uint8_t>(Prefix).subspan(16, 18),
+                    AuthId});
             if (LenPlain.size() != 2)
             {
                 co_return Error::BadAuth;
             }
-            const auto length = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
+            const auto Length = static_cast<std::size_t>(LenPlain[0]) << 8 | LenPlain[1];
 
-            // 3. 读取请求头密文（length + 16 tag）
-            std::vector<std::uint8_t> BodyEnc(length + 16);
+            // 3. 读取请求头密文（Length + 16 tag）
+            std::vector<std::uint8_t> BodyEnc(Length + 16);
             if (co_await RecvExact(BodyEnc))
             {
                 co_return Error::IoError;
             }
 
             // 4. 组装完整认证头，复用 handshake 的 Parser 解析
-            std::vector<std::uint8_t> full;
-            full.reserve(Prefix.size() + BodyEnc.size());
-            full.insert(full.end(), Prefix.begin(), Prefix.end());
-            full.insert(full.end(), BodyEnc.begin(), BodyEnc.end());
-            Parser P(Uuid_);
-            std::error_code pec;
-            P.Put(boost::asio::const_buffer(full.data(), full.size()), pec);
-            if (pec || !P.IsDone())
+            std::vector<std::uint8_t> FullWire;
+            FullWire.reserve(Prefix.size() + BodyEnc.size());
+            FullWire.insert(FullWire.end(), Prefix.begin(), Prefix.end());
+            FullWire.insert(FullWire.end(), BodyEnc.begin(), BodyEnc.end());
+            Parser RequestParser(Uuid_);
+            std::error_code ParseError;
+            RequestParser.Put(Net::const_buffer(FullWire.data(), FullWire.size()), ParseError);
+            if (ParseError || !RequestParser.IsDone())
             {
                 co_return Error::BadAuth;
             }
 
             // 5. UUID 校验（AEAD 解密成功即隐含 cmdKey 匹配，此处显式确认）
-            Out = P.Get();
-            if (Out.uuid != Uuid_)
+            Out = RequestParser.Get();
+            const std::string_view GotUuid(reinterpret_cast<const char *>(Out.uuid.data()), Out.uuid.size());
+            const std::string_view ExpectedUuid(reinterpret_cast<const char *>(Uuid_.data()), Uuid_.size());
+            if (!Preview::ConstantTimeEqual(GotUuid, ExpectedUuid))
             {
                 co_return Error::BadAuth;
             }
@@ -541,46 +597,62 @@ namespace Preview::Vmess
 
         /**
          * @brief 发送 AEAD 响应头（38B）
-         * @param req 请求消息（RequestKey / RequestNonce / RespHeader）
+         * @param RequestValue 请求消息（RequestKey / RequestNonce / RespHeader）
          * @return 错误码
-         * @details AAD = 请求的 AuthID（对齐 mihomo：客户端以自身
-         * AuthID 校验响应）。
+         * @details 标准 AEAD 响应头不带 AuthID AAD；AuthID 仅保留在
+         *          输入结构中兼容既有调用方。
          */
-        [[nodiscard]] auto SendSuccess(const Message &req) const -> net::awaitable<Error>
+        [[nodiscard]] auto SendSuccess(const Message &RequestValue) const -> Net::awaitable<Error>
         {
-            const auto RespBodyKey = detail::Sha256(req.RequestKey);
-            const auto RespBodyIv = detail::Sha256(req.RequestNonce);
+            const auto RespBodyKey = detail::Sha256(RequestValue.RequestKey);
+            const auto RespBodyIv = detail::Sha256(RequestValue.RequestNonce);
             std::array<std::uint8_t, 16> RespKey16{};
             std::memcpy(RespKey16.data(), RespBodyKey.data(), 16);
             std::array<std::uint8_t, 16> RespIv16{};
             std::memcpy(RespIv16.data(), RespBodyIv.data(), 16);
 
-            const std::array<std::uint8_t, 4> v_plain{req.RespHeader, 0, 0, 0};
+            const std::array<std::uint8_t, 4> ResponsePlain{
+                RequestValue.RespHeader,
+                RequestValue.Option,
+                0,
+                0};
             const auto RespKey = Kdf(RespKey16, KdfRespKey);
             const auto RespIv = Kdf(RespIv16, KdfRespIv);
-            std::array<std::uint8_t, 16> rk{};
-            std::memcpy(rk.data(), RespKey.data(), 16);
-            std::array<std::uint8_t, 12> riv{};
-            std::memcpy(riv.data(), RespIv.data(), 12);
-            const auto RespEnc = SealResponseHeader(rk, RespHeaderInput{riv, v_plain, AuthId_});
+            std::array<std::uint8_t, 16> ResponseKey{};
+            std::memcpy(ResponseKey.data(), RespKey.data(), 16);
+            std::array<std::uint8_t, 12> ResponseIv{};
+            std::memcpy(ResponseIv.data(), RespIv.data(), 12);
+            const auto RespEnc = SealResponseHeader(
+                ResponseKey,
+                RespHeaderInput{ResponseIv, ResponsePlain, AuthId_});
+            if (RespEnc.size() != 20)
+            {
+                co_return Error::CryptoError;
+            }
 
             const auto RespLenKey = Kdf(RespKey16, KdfRespLenKey);
             const auto RespLenIv = Kdf(RespIv16, KdfRespLenIv);
-            std::array<std::uint8_t, 16> rlk{};
-            std::memcpy(rlk.data(), RespLenKey.data(), 16);
-            std::array<std::uint8_t, 12> rliv{};
-            std::memcpy(rliv.data(), RespLenIv.data(), 12);
-            const std::array<std::uint8_t, 2> resp_LenPlain{
-                static_cast<std::uint8_t>(RespEnc.size() >> 8),
-                static_cast<std::uint8_t>(RespEnc.size() & 0xFF)};
+            std::array<std::uint8_t, 16> ResponseLengthKey{};
+            std::memcpy(ResponseLengthKey.data(), RespLenKey.data(), 16);
+            std::array<std::uint8_t, 12> ResponseLengthIv{};
+            std::memcpy(ResponseLengthIv.data(), RespLenIv.data(), 12);
+            const std::array<std::uint8_t, 2> ResponseLengthPlain{0, 4};
             const auto LenEnc =
-                detail::AesGcmSeal(detail::SealInput{rlk, rliv, resp_LenPlain, AuthId_});
+                detail::AesGcmSeal(detail::SealInput{
+                    ResponseLengthKey,
+                    ResponseLengthIv,
+                    ResponseLengthPlain,
+                    {}});
+            if (LenEnc.size() != 18)
+            {
+                co_return Error::CryptoError;
+            }
 
-            std::vector<std::uint8_t> resp;
-            resp.reserve(LenEnc.size() + RespEnc.size());
-            resp.insert(resp.end(), LenEnc.begin(), LenEnc.end());
-            resp.insert(resp.end(), RespEnc.begin(), RespEnc.end());
-            if (co_await SendBytes(resp))
+            std::vector<std::uint8_t> Response;
+            Response.reserve(LenEnc.size() + RespEnc.size());
+            Response.insert(Response.end(), LenEnc.begin(), LenEnc.end());
+            Response.insert(Response.end(), RespEnc.begin(), RespEnc.end());
+            if (co_await SendBytes(Response))
             {
                 co_return Error::IoError;
             }
@@ -590,20 +662,29 @@ namespace Preview::Vmess
         /**
          * @brief 读取并解密一个数据分块（内部循环补读）
          * @return 错误码；none 且 Eof_ = 结束块
-         * @details 块格式：[2B 长度密文 + 16B tag][载荷密文 + 16B tag]。
-         * 解密失败（tag 校验）返回 bad_auth。
+         * @details 标准 option 使用 [2B 掩码长度][载荷密文 + 16B tag]；
+         *          AuthenticatedLength 兼容路径使用两个 AEAD 长度块。
+         *          解密失败（tag 校验）返回 bad_auth。
          */
-        [[nodiscard]] auto ReadChunk() -> net::awaitable<Error>
+        [[nodiscard]] auto ReadChunk() -> Net::awaitable<Error>
         {
-            // 1. 读取 18 字节块头（长度密文 + 16 tag）
+            const bool AuthenticatedLength =
+                detail::HasOption(ChunkOptions_, Option::AuthenticatedLength);
+            std::size_t LengthHeaderSize = 2;
+            if (AuthenticatedLength)
+            {
+                LengthHeaderSize = 18;
+            }
+
+            // 1. 读取长度头（标准路径为 2 字节，兼容路径为 AEAD 块）
             std::array<std::uint8_t, 18> head{};
-            if (co_await RecvExact(std::span<std::uint8_t>(head)))
+            if (co_await RecvExact(std::span<std::uint8_t>(head).first(LengthHeaderSize)))
             {
                 co_return Error::UnexpectedEof;
             }
 
             // 2. 解密长度字段
-            auto Len = Dec_->OpenLen(head);
+            auto Len = Dec_->OpenLen(std::span<const std::uint8_t>(head).first(LengthHeaderSize));
             if (!Len)
             {
                 co_return Len.error();
@@ -614,14 +695,25 @@ namespace Preview::Vmess
                 co_return Error::None;
             }
 
-            // 3. 读取载荷密文（len + 16 tag）并解密
-            std::vector<std::uint8_t> Enc(*Len + 16);
+            auto EncodedLength = *Len;
+            if (AuthenticatedLength)
+            {
+                EncodedLength += 16;
+            }
+            if (EncodedLength < 16)
+            {
+                co_return Error::BadLength;
+            }
+            const auto PlainLength = EncodedLength - 16;
+
+            // 3. 读取载荷密文并解密
+            std::vector<std::uint8_t> Enc(EncodedLength);
             if (co_await RecvExact(Enc))
             {
                 co_return Error::UnexpectedEof;
             }
             typename Memory::template Buffer<std::uint8_t> Plain =
-                Mem_.template MakeBuffer<std::uint8_t>(*Len);
+                Mem_.template MakeBuffer<std::uint8_t>(PlainLength);
             const auto Err = Dec_->OpenPayload(Enc, Plain);
             if (Err != Error::None)
             {
@@ -636,17 +728,27 @@ namespace Preview::Vmess
 
         /**
          * @brief 精确读取指定字节数（内部循环补读）
-         * @param buf 目标缓冲区
+         * @param Buffer 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto RecvExact(std::span<std::uint8_t> buf) -> net::awaitable<bool>
+        [[nodiscard]] auto RecvExact(std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
         {
-            std::size_t Done = 0;
-            while (Done < buf.size())
+            if (!NextLayer_)
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_read_some(AsBytes(buf.subspan(Done)), ec);
-                if (ec || N == 0)
+                co_return true;
+            }
+            std::size_t Done = 0;
+            while (Done < Buffer.size())
+            {
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_read_some(
+                    AsBytes(Buffer.subspan(Done)),
+                    ErrorCode);
+                if (ErrorCode || N == 0)
+                {
+                    co_return true;
+                }
+                if (N > Buffer.size() - Done)
                 {
                     co_return true;
                 }
@@ -660,14 +762,20 @@ namespace Preview::Vmess
          * @param Data 数据
          * @return true = 失败
          */
-        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const -> net::awaitable<bool>
+        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const -> Net::awaitable<bool>
         {
+            if (!NextLayer_)
+            {
+                co_return true;
+            }
             std::size_t Done = 0;
             while (Done < Data.size())
             {
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_write_some(AsBytes(Data.subspan(Done)), ec);
-                if (ec)
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_write_some(
+                    AsBytes(Data.subspan(Done)),
+                    ErrorCode);
+                if (ErrorCode)
                 {
                     co_return true;
                 }
@@ -675,17 +783,32 @@ namespace Preview::Vmess
                 {
                     co_return true; // 底层零字节写入，防死循环
                 }
+                if (N > Data.size() - Done)
+                {
+                    co_return true;
+                }
                 Done += N;
             }
             co_return false;
         }
 
+        [[nodiscard]] auto FillRandomBytes(std::span<std::uint8_t> Data) -> bool
+        {
+            if (Random_)
+            {
+                return Preview::Crypto::FillRandom(Data, Random_);
+            }
+            return Preview::Crypto::FillRandom(Data);
+        }
+
         SharedTransmission NextLayer_;         ///< 底层传输（独占所有权）
-        std::array<std::uint8_t, 16> AuthId_{}; ///< 请求 AuthID（响应 AAD）
+        std::array<std::uint8_t, 16> AuthId_{}; ///< 请求 AuthID（兼容响应头输入）
         Message Parsed_{};                       ///< 服务端握手解析结果
         std::array<std::uint8_t, 16> Uuid_;      ///< 协议 UUID（凭据）
+        RandomSource Random_;                    ///< 可注入的 CSPRNG（空 = BoringSSL）
         std::optional<ChunkEncryptor> Enc_;     ///< 分块加密器（发送侧）
         std::optional<ChunkDecryptor> Dec_;     ///< 分块解密器（接收侧）
+        std::uint8_t ChunkOptions_{static_cast<std::uint8_t>(Option::AuthenticatedLength)};
         Memory Mem_;                             ///< 会话内存策略（Arena，热路径零释放分配）
         typename Memory::template Buffer<std::uint8_t> PlainRx_{Mem_.Arena()}; ///< 解密后的明文缓冲
         std::size_t PlainOff_{0};               ///< 明文缓冲消费偏移

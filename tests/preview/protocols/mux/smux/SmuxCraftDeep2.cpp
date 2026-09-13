@@ -38,7 +38,7 @@
 using ProductionMockTransport = Psm::Testing::ProductionMockTransport;
 namespace multiplex = psm::multiplex;
 namespace smux = psm::multiplex::smux;
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 namespace
 {
@@ -90,14 +90,14 @@ TEST(SmuxCraftDeep2, HandleSynCreatesPending)
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
     bool done = false;
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             co_await fx.craft_obj->handle_syn(1);
             done = true;
         },
-        net::detached);
+        Net::detached);
 
     // 用 poll_one 循环代替 run()，避免无限阻塞
     for (int i = 0; i < 100 && !done; ++i)
@@ -120,19 +120,19 @@ TEST(SmuxCraftDeep2, HandleSynMaxStreamsReached)
     fx.craft_obj->pending_.emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
     fx.craft_obj->pending_.emplace(2, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
 
-    net::co_spawn(
-        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->handle_syn(3); }, net::detached);
+    Net::co_spawn(
+        fx.ioc(), [&]() -> Net::awaitable<void> { co_await fx.craft_obj->handle_syn(3); }, Net::detached);
 
     // fin 内部 co_spawn 写 channel_，需要消费者
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             boost::system::error_code ec;
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = Net::redirect_error(Net::use_awaitable, ec);
             co_await fx.craft_obj->channel_.async_receive(token);
         },
-        net::detached);
+        Net::detached);
 
     fx.poll();
 
@@ -148,19 +148,19 @@ TEST(SmuxCraftDeep2, HandleSynDuplicateSyn)
 
     fx.craft_obj->pending_.emplace(1, multiplex::multiplexer::pending_entry(psm::memory::current_resource()));
 
-    net::co_spawn(
-        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->handle_syn(1); }, net::detached);
+    Net::co_spawn(
+        fx.ioc(), [&]() -> Net::awaitable<void> { co_await fx.craft_obj->handle_syn(1); }, Net::detached);
 
     // fin 消费者
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             boost::system::error_code ec;
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = Net::redirect_error(Net::use_awaitable, ec);
             co_await fx.craft_obj->channel_.async_receive(token);
         },
-        net::detached);
+        Net::detached);
 
     fx.poll();
 
@@ -174,18 +174,18 @@ TEST(SmuxCraftDeep2, HandleSynDuctsConflict)
 
     fx.craft_obj->streams_[5];
 
-    net::co_spawn(
-        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->handle_syn(5); }, net::detached);
+    Net::co_spawn(
+        fx.ioc(), [&]() -> Net::awaitable<void> { co_await fx.craft_obj->handle_syn(5); }, Net::detached);
 
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             boost::system::error_code ec;
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = Net::redirect_error(Net::use_awaitable, ec);
             co_await fx.craft_obj->channel_.async_receive(token);
         },
-        net::detached);
+        Net::detached);
 
     fx.poll();
 
@@ -199,18 +199,18 @@ TEST(SmuxCraftDeep2, HandleSynParcelsConflict)
 
     fx.craft_obj->datagrams_[10];
 
-    net::co_spawn(
-        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->handle_syn(10); }, net::detached);
+    Net::co_spawn(
+        fx.ioc(), [&]() -> Net::awaitable<void> { co_await fx.craft_obj->handle_syn(10); }, Net::detached);
 
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             boost::system::error_code ec;
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = Net::redirect_error(Net::use_awaitable, ec);
             co_await fx.craft_obj->channel_.async_receive(token);
         },
-        net::detached);
+        Net::detached);
 
     fx.poll();
 
@@ -350,14 +350,14 @@ TEST(SmuxCraftDeep2, ActivateStreamNotPending)
     fx.craft_obj->active_.store(true, std::memory_order_release);
 
     bool completed = false;
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(999);
             completed = true;
         },
-        net::detached);
+        Net::detached);
     fx.poll();
 
     EXPECT_TRUE(completed) << "activate_stream: not pending -> early return";
@@ -375,14 +375,14 @@ TEST(SmuxCraftDeep2, ActivateStreamBufferTooSmall)
     entry.buffer.resize(5);
 
     bool completed = false;
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(1);
             completed = true;
         },
-        net::detached);
+        Net::detached);
     fx.poll();
 
     EXPECT_TRUE(completed) << "activate_stream: buffer <7 -> completed";
@@ -401,14 +401,14 @@ TEST(SmuxCraftDeep2, ActivateStreamBufferExactlySix)
     entry.buffer.resize(6);
 
     bool completed = false;
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(2);
             completed = true;
         },
-        net::detached);
+        Net::detached);
     fx.poll();
 
     EXPECT_TRUE(completed) << "activate_stream: buffer=6 -> completed";
@@ -431,28 +431,28 @@ TEST(SmuxCraftDeep2, ActivateStreamBadAddressLargeBuffer)
 
     bool activate_done = false;
 
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(3);
             activate_done = true;
         },
-        net::detached);
+        Net::detached);
 
     // 消费 channel_ 中的帧（send_addr_err 会发 error data + FIN）
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             for (int i = 0; i < 2; ++i)
             {
                 boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = Net::redirect_error(Net::use_awaitable, ec);
                 co_await fx.craft_obj->channel_.async_receive(token);
             }
         },
-        net::detached);
+        Net::detached);
 
     fx.poll();
 
@@ -480,28 +480,28 @@ TEST(SmuxCraftDeep2, ActivateStreamInvalidAtyp)
 
     bool activate_done = false;
 
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(4);
             activate_done = true;
         },
-        net::detached);
+        Net::detached);
 
     // send_addr_err 发 2 帧：error data + fin
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             for (int i = 0; i < 2; ++i)
             {
                 boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = Net::redirect_error(Net::use_awaitable, ec);
                 co_await fx.craft_obj->channel_.async_receive(token);
             }
         },
-        net::detached);
+        Net::detached);
 
     fx.poll();
 
@@ -535,12 +535,12 @@ TEST(SmuxCraftDeep2, ActivateStreamValidTcpAddress)
     for (int i = 0; i < 2; ++i)
     {
         boost::system::error_code ec;
-        auto token = net::redirect_error(net::use_awaitable, ec);
+        auto token = Net::redirect_error(Net::use_awaitable, ec);
         auto receive = fx.craft_obj->channel_.async_receive(token);
-        net::co_spawn(fx.ioc(), std::move(receive), net::detached);
+        Net::co_spawn(fx.ioc(), std::move(receive), Net::detached);
     }
 
-    net::co_spawn(fx.ioc(), fx.craft_obj->activate_stream(10),
+    Net::co_spawn(fx.ioc(), fx.craft_obj->activate_stream(10),
                   [&](std::exception_ptr ep)
                   {
                       EXPECT_FALSE(ep);
@@ -576,24 +576,24 @@ TEST(SmuxCraftDeep2, ActivateStreamValidUdpAddress)
     std::exception_ptr ep;
 
     // activate_udp: send(1帧, success) + 可能的 parcel 创建
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             for (int i = 0; i < 4; ++i)
             {
                 boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = Net::redirect_error(Net::use_awaitable, ec);
                 co_await fx.craft_obj->channel_.async_receive(token);
             }
         },
-        net::detached);
+        Net::detached);
 
     // AGENTS.md 强制模式：co_spawn + 完整 ioc.run() 调度。
     // 原 poll_one 循环不提供调度保障（CI 时序下 activate 协程未跑完即退出）
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(20);
             activate_done = true;
@@ -642,28 +642,28 @@ TEST(SmuxCraftDeep2, ActivateStreamDomainAddress)
     entry.buffer.push_back(std::byte{0xBB});
 
     bool activate_done = false;
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             co_await fx.craft_obj->activate_stream(30);
             activate_done = true;
         },
-        net::detached);
+        Net::detached);
 
     // activate_tcp 失败路径：send(1帧) + fin(1帧) = 2帧
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             for (int i = 0; i < 2; ++i)
             {
                 boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = Net::redirect_error(Net::use_awaitable, ec);
                 co_await fx.craft_obj->channel_.async_receive(token);
             }
         },
-        net::detached);
+        Net::detached);
 
     fx.poll();
 
@@ -683,9 +683,9 @@ TEST(SmuxCraftDeep2, PushFrameEncodesCorrectly)
 
     multiplex::multiplexer::outbound_frame received_frame;
 
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             multiplex::multiplexer::outbound_frame frame;
             frame.stream_id = 42;
@@ -693,12 +693,12 @@ TEST(SmuxCraftDeep2, PushFrameEncodesCorrectly)
             frame.kind = multiplex::multiplexer::outbound_kind::data;
             co_await fx.craft_obj->push_frame(std::move(frame));
         },
-        net::detached);
+        Net::detached);
 
-    net::co_spawn(
-        fx.ioc(), [&]() -> net::awaitable<void>
-        { received_frame = co_await fx.craft_obj->channel_.async_receive(net::use_awaitable); },
-        net::detached);
+    Net::co_spawn(
+        fx.ioc(), [&]() -> Net::awaitable<void>
+        { received_frame = co_await fx.craft_obj->channel_.async_receive(Net::use_awaitable); },
+        Net::detached);
 
     fx.poll();
 
@@ -718,14 +718,14 @@ TEST(SmuxCraftDeep2, SendDataPushesFrame)
 
     multiplex::multiplexer::outbound_frame received_frame;
 
-    net::co_spawn(
-        fx.ioc(), [&]() -> net::awaitable<void> { co_await fx.craft_obj->send(7, std::move(data)); },
-        net::detached);
+    Net::co_spawn(
+        fx.ioc(), [&]() -> Net::awaitable<void> { co_await fx.craft_obj->send(7, std::move(data)); },
+        Net::detached);
 
-    net::co_spawn(
-        fx.ioc(), [&]() -> net::awaitable<void>
-        { received_frame = co_await fx.craft_obj->channel_.async_receive(net::use_awaitable); },
-        net::detached);
+    Net::co_spawn(
+        fx.ioc(), [&]() -> Net::awaitable<void>
+        { received_frame = co_await fx.craft_obj->channel_.async_receive(Net::use_awaitable); },
+        Net::detached);
 
     fx.poll();
 
@@ -743,19 +743,19 @@ TEST(SmuxCraftDeep2, SendFinSendsFinFrame)
 
     multiplex::multiplexer::outbound_frame received_frame;
     bool got_frame = false;
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             boost::system::error_code ec;
-            auto token = net::redirect_error(net::use_awaitable, ec);
+            auto token = Net::redirect_error(Net::use_awaitable, ec);
             received_frame = co_await fx.craft_obj->channel_.async_receive(token);
             if (!ec)
             {
                 got_frame = true;
             }
         },
-        net::detached);
+        Net::detached);
 
     fx.poll();
 
@@ -773,25 +773,25 @@ TEST(SmuxCraftDeep2, SendAddrErrSendsErrorAndFin)
     int frame_count = 0;
     bool done = false;
 
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             co_await fx.craft_obj->send_addr_err(1);
             done = true;
         },
-        net::detached);
+        Net::detached);
 
     // send_addr_err 内部 co_await send + fin，其中 fin co_spawn
     // send(1帧, push) + fin(co_spawn push) = 2帧
-    net::co_spawn(
+    Net::co_spawn(
         fx.ioc(),
-        [&]() -> net::awaitable<void>
+        [&]() -> Net::awaitable<void>
         {
             for (int i = 0; i < 2; ++i)
             {
                 boost::system::error_code ec;
-                auto token = net::redirect_error(net::use_awaitable, ec);
+                auto token = Net::redirect_error(Net::use_awaitable, ec);
                 co_await fx.craft_obj->channel_.async_receive(token);
                 if (!ec)
                 {
@@ -799,7 +799,7 @@ TEST(SmuxCraftDeep2, SendAddrErrSendsErrorAndFin)
                 }
             }
         },
-        net::detached);
+        Net::detached);
 
     fx.poll();
 

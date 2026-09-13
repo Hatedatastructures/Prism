@@ -1,22 +1,25 @@
 /**
  * @file XhttpNgxE2E.cpp
  * @brief XHTTP Stream-one 端到端测试（T2-2，Preview 自包含实现）
- * @details 模拟 h2 客户端（Preview http2）：
+ * @details 模拟 h2 客户端（Preview Http2）：
  *          1. TLS 握手（自签证书）
  *          2. h2 SETTINGS + POST / 请求（Stream-one）
- *          3. 请求体发送数据 → 服务端响应 200 + echo
+ *          3. 请求体发送数据，服务端响应 200 + echo
  *          4. 客户端验证回显
- * @note 使用自包含 http2 实现（非 nghttp2）
+ * @note 使用自包含 Http2 实现（非 nghttp2）。
  */
 
 #include <preview/Protocols/Http2/Impl.hpp>
 #include <preview/Transport/MemoryStream.hpp>
 #include <preview/Protocols/Xhttp/Xhttp.hpp>
 
-#include <boost/asio/io_context.hpp>
+#include <boost/asio/co_spawn.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <openssl/evp.h>
 #include <openssl/ssl.h>
@@ -24,245 +27,589 @@
 
 #include <array>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <exception>
 #include <memory>
+#include <span>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace boost::asio::experimental::awaitable_operators;
-    namespace ssl = net::ssl;
-    namespace h2 = Preview::Http2;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace SSL = Net::ssl;
+    namespace Http2 = Preview::Http2;
+    namespace Xhttp = Preview::Xhttp;
 
-    void load_self_signed(ssl::context &ctx)
+    using Net::experimental::awaitable_operators::operator&&;
+    using Net::experimental::awaitable_operators::operator||;
+
+    using SharedTransmission = Preview::SharedTransmission;
+    using SharedSslContext = std::shared_ptr<SSL::context>;
+
+    struct EchoRequest final
     {
-        auto *PkeyCtx = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
-        EVP_PKEY *pkey = nullptr;
-        if (PkeyCtx && EVP_PKEY_keygen_init(PkeyCtx) > 0 &&
-            EVP_PKEY_CTX_set_rsa_keygen_bits(PkeyCtx, 2048) > 0)
-        {
-            EVP_PKEY_keygen(PkeyCtx, &pkey);
-        }
-        EVP_PKEY_CTX_free(PkeyCtx);
-        ASSERT_NE(pkey, nullptr);
+        SharedTransmission Raw;
+        SharedSslContext Context;
+        std::string Payload;
+        std::shared_ptr<bool> Succeeded;
+    };
 
-        auto *x509 = X509_new();
-        X509_set_version(x509, 2);
-        ASN1_INTEGER_set(X509_get_serialNumber(x509), 1);
-        X509_gmtime_adj(X509_get_notBefore(x509), 0);
-        X509_gmtime_adj(X509_get_notAfter(x509), 3600 * 24);
+    struct StreamOneScenarioRequest final
+    {
+        Net::any_io_executor Executor;
+        EchoRequest Client;
+        EchoRequest Server;
+        std::shared_ptr<bool> TimedOut;
+    };
+
+    struct FactoryClientRequest final
+    {
+        SharedTransmission Raw;
+        SharedSslContext Context;
+        Xhttp::Config Config;
+        std::string Host;
+        std::string Payload;
+        std::shared_ptr<bool> Succeeded;
+    };
+
+    struct FactoryServerRequest final
+    {
+        SharedTransmission Raw;
+        SharedSslContext Context;
+        Xhttp::Config Config;
+        std::string Payload;
+        std::shared_ptr<bool> Succeeded;
+    };
+
+    struct FactoryScenarioRequest final
+    {
+        Net::any_io_executor Executor;
+        SharedTransmission ClientRaw;
+        SharedTransmission ServerRaw;
+        SharedSslContext ClientContext;
+        SharedSslContext ServerContext;
+        Xhttp::Config Config;
+        std::string Payload;
+        std::shared_ptr<bool> ClientSucceeded;
+        std::shared_ptr<bool> ServerSucceeded;
+        std::shared_ptr<bool> TimedOut;
+    };
+
+    auto LoadSelfSigned(SSL::context &Context) -> void
+    {
+        auto *PkeyContext = EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr);
+        EVP_PKEY *PrivateKey = nullptr;
+        if (PkeyContext && EVP_PKEY_keygen_init(PkeyContext) > 0 &&
+            EVP_PKEY_CTX_set_rsa_keygen_bits(PkeyContext, 2048) > 0)
+        {
+            EVP_PKEY_keygen(PkeyContext, &PrivateKey);
+        }
+        EVP_PKEY_CTX_free(PkeyContext);
+        ASSERT_NE(PrivateKey, nullptr);
+
+        auto *Certificate = X509_new();
+        X509_set_version(Certificate, 2);
+        ASN1_INTEGER_set(X509_get_serialNumber(Certificate), 1);
+        X509_gmtime_adj(X509_get_notBefore(Certificate), 0);
+        X509_gmtime_adj(X509_get_notAfter(Certificate), 3600 * 24);
 
         auto *Name = X509_NAME_new();
         X509_NAME_add_entry_by_txt(Name, "CN", MBSTRING_ASC,
                                    reinterpret_cast<const unsigned char *>("xhttp-test"), -1, -1, 0);
-        X509_set_subject_name(x509, Name);
-        X509_set_issuer_name(x509, Name);
+        X509_set_subject_name(Certificate, Name);
+        X509_set_issuer_name(Certificate, Name);
         X509_NAME_free(Name);
 
-        X509_set_pubkey(x509, pkey);
-        X509_sign(x509, pkey, EVP_sha256());
+        X509_set_pubkey(Certificate, PrivateKey);
+        X509_sign(Certificate, PrivateKey, EVP_sha256());
 
-        SSL_CTX_use_certificate(ctx.native_handle(), x509);
-        SSL_CTX_use_PrivateKey(ctx.native_handle(), pkey);
+        SSL_CTX_use_certificate(Context.native_handle(), Certificate);
+        SSL_CTX_use_PrivateKey(Context.native_handle(), PrivateKey);
 
-        X509_free(x509);
-        EVP_PKEY_free(pkey);
+        X509_free(Certificate);
+        EVP_PKEY_free(PrivateKey);
     }
 
-    /// h2 客户端：TLS + SETTINGS + POST + 数据 + echo 验证
-    net::awaitable<void> DoH2Client(SharedTransmission raw, ssl::context &client_ctx,
-                                    const std::string &payload, std::shared_ptr<bool> Ok)
+    auto HasPayload(std::span<const std::byte> Received, std::string_view Expected) -> bool
     {
-        Preview::Transport::Connector Conn(raw);
-        auto Stream = std::make_shared<ssl::stream<Preview::Transport::Connector>>(
-            std::move(Conn), client_ctx);
-        boost::system::error_code ec;
-        co_await Stream->async_handshake(ssl::stream_base::client,
-                                         net::redirect_error(net::use_awaitable, ec));
-        if (ec)
+        if (Received.size() < Expected.size())
         {
-            *Ok = false;
+            return false;
+        }
+        const auto ReceivedView = std::string_view(
+            reinterpret_cast<const char *>(Received.data()), Expected.size());
+        return ReceivedView == Expected;
+    }
+
+    template <typename Stream>
+    auto WriteHttp2Wire(
+        Stream &StreamValue,
+        std::vector<std::byte> &Wire,
+        boost::system::error_code &ErrorCode) -> Net::awaitable<bool>
+    {
+        if (Wire.empty())
+        {
+            co_return true;
+        }
+        auto Output = std::move(Wire);
+        Wire.clear();
+        const auto OutputBuffer = Net::buffer(Output.data(), Output.size());
+        auto WriteOperation = StreamValue.async_write_some(
+            OutputBuffer, Net::redirect_error(Net::use_awaitable, ErrorCode));
+        const auto Written = co_await std::move(WriteOperation);
+        co_return !ErrorCode && Written == Output.size();
+    }
+
+    /// h2 客户端：TLS + SETTINGS + POST + 数据 + echo 验证。
+    auto RunHttp2Client(EchoRequest Request) -> Net::awaitable<void>
+    {
+        *Request.Succeeded = false;
+        Preview::Transport::Connector Connector(std::move(Request.Raw));
+        auto Stream = std::make_shared<SSL::stream<Preview::Transport::Connector>>(
+            std::move(Connector), *Request.Context);
+
+        boost::system::error_code HandshakeError;
+        auto HandshakeOperation = Stream->async_handshake(
+            SSL::stream_base::client,
+            Net::redirect_error(Net::use_awaitable, HandshakeError));
+        co_await std::move(HandshakeOperation);
+        if (HandshakeError)
+        {
             co_return;
         }
 
-        auto Session = std::make_shared<h2::SessionImpl>(Stream->get_executor(), false);
+        auto Session = std::make_shared<Http2::SessionImpl>(Stream->get_executor(), false);
         Session->SendSettings();
 
-        // POST /
-        h2::HeaderList headers = {
+        Http2::HeaderList Headers = {
             {":method", "POST"},
             {":path", "/"},
             {":scheme", "https"},
             {":authority", "example.com"},
         };
-        const auto sid = Session->OpenStream(headers, false);
-        if (sid < 0)
+        const auto StreamId = Session->OpenStream(Headers, false);
+        if (StreamId < 0)
         {
-            *Ok = false;
             co_return;
         }
-        (void)Session->SubmitData(sid, std::span<const std::byte>(
-                                     reinterpret_cast<const std::byte *>(payload.data()), payload.size()),
-                             true);
 
-        // 收集并发送
-        std::vector<std::byte> wire;
-        (void)Session->Collect(wire);
-        std::vector<std::byte> received;
-
-        auto write_wire = [&]() -> net::awaitable<void>
+        const auto PayloadBytes = std::span<const std::byte>(
+            reinterpret_cast<const std::byte *>(Request.Payload.data()), Request.Payload.size());
+        if (Session->SubmitData(StreamId, PayloadBytes, true) != 0)
         {
-            if (wire.empty())
-            {
-                co_return;
-            }
-            auto out = std::move(wire);
-            wire.clear();
-            co_await Stream->async_write_some(net::buffer(out.data(), out.size()),
-                                              net::redirect_error(net::use_awaitable, ec));
-        };
-        co_await write_wire();
+            co_return;
+        }
 
-        // 读响应循环
-        Session->OnHeaders = [Ok](std::int32_t, const h2::HeaderList &hdrs, bool)
+        std::vector<std::byte> Wire;
+        (void)Session->Collect(Wire);
+        auto HeadersValid = std::make_shared<bool>(false);
+        auto Received = std::make_shared<std::vector<std::byte>>();
+        Session->OnHeaders = [HeadersValid](
+                                 std::int32_t, const Http2::HeaderList &Headers, bool)
         {
             bool HasStatus = false;
             bool HasContentType = false;
-            for (const auto &h : hdrs)
+            for (const auto &Header : Headers)
             {
-                if (h.Name == ":status")
+                if (Header.Name == ":status")
                 {
                     HasStatus = true;
-                    EXPECT_EQ(h.value, "200");
+                    EXPECT_EQ(Header.value, "200");
                 }
-                if (h.Name == "content-type")
+                if (Header.Name == "content-type")
                 {
                     HasContentType = true;
-                    EXPECT_EQ(h.value, "text/event-stream");
+                    EXPECT_EQ(Header.value, "text/event-stream");
                 }
             }
             EXPECT_TRUE(HasStatus);
             EXPECT_TRUE(HasContentType);
+            *HeadersValid = HasStatus && HasContentType;
         };
-        Session->OnData = [&](std::int32_t, std::span<const std::byte> Data)
+        Session->OnData = [Received](std::int32_t, std::span<const std::byte> Data)
         {
-            received.insert(received.end(), Data.begin(), Data.end());
+            Received->insert(Received->end(), Data.begin(), Data.end());
         };
 
-        std::array<std::byte, 8192> buf{};
-        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-        while (received.size() < payload.size() && std::chrono::steady_clock::now() < deadline)
+        boost::system::error_code WriteError;
+        auto InitialWrite = WriteHttp2Wire(*Stream, Wire, WriteError);
+        const auto InitialWriteSucceeded = co_await std::move(InitialWrite);
+        if (!InitialWriteSucceeded)
         {
-            const auto n = co_await Stream->async_read_some(
-                net::buffer(buf.data(), buf.size()), net::redirect_error(net::use_awaitable, ec));
-            if (ec || n == 0)
+            co_return;
+        }
+
+        std::array<std::byte, 8192> Buffer{};
+        boost::system::error_code ReadError;
+        const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (Received->size() < Request.Payload.size() &&
+               std::chrono::steady_clock::now() < Deadline)
+        {
+            const auto ReadBuffer = Net::buffer(Buffer.data(), Buffer.size());
+            auto ReadOperation = Stream->async_read_some(
+                ReadBuffer, Net::redirect_error(Net::use_awaitable, ReadError));
+            const auto BytesRead = co_await std::move(ReadOperation);
+            if (ReadError || BytesRead == 0)
             {
                 break;
             }
-            if (!Session->Feed(std::span<const std::byte>(buf.data(), n), ec))
+
+            std::error_code FeedError;
+            const auto InputSpan = std::span<const std::byte>(Buffer.data(), BytesRead);
+            if (!Session->Feed(InputSpan, FeedError))
             {
                 break;
             }
-            if (Session->Collect(wire))
+            if (Session->Collect(Wire))
             {
-                co_await write_wire();
+                WriteError.clear();
+                auto ResponseWrite = WriteHttp2Wire(*Stream, Wire, WriteError);
+                const auto ResponseWriteSucceeded = co_await std::move(ResponseWrite);
+                if (!ResponseWriteSucceeded)
+                {
+                    break;
+                }
             }
         }
 
-        *Ok = received.size() >= payload.size() &&
-              std::string_view(reinterpret_cast<const char *>(received.data()), payload.size()) == payload;
+        const auto ReceivedBytes = std::span<const std::byte>(*Received);
+        *Request.Succeeded = *HeadersValid && HasPayload(ReceivedBytes, Request.Payload);
         co_return;
     }
 
-    /// xhttp 服务端：Accept + echo
-    net::awaitable<void> DoXhttpServer(SharedTransmission raw, ssl::context &server_ctx,
-                                       const std::string &payload, std::shared_ptr<bool> Ok)
+    /// XHTTP 服务端：Accept + echo。
+    auto RunXhttpServer(EchoRequest Request) -> Net::awaitable<void>
     {
-        Preview::Xhttp::Config cfg;
-        auto trans = co_await Preview::Xhttp::Accept(std::move(raw), server_ctx, cfg);
-        if (!trans)
+        *Request.Succeeded = false;
+        Xhttp::Config Config;
+        auto Transport = co_await Xhttp::Accept(std::move(Request.Raw), *Request.Context, Config);
+        if (!Transport)
         {
-            *Ok = false;
             co_return;
         }
-        std::array<std::byte, 4096> buf{};
-        std::error_code ec;
+
+        std::array<std::byte, 4096> Buffer{};
+        std::error_code ReadError;
         std::size_t Total = 0;
         while (true)
         {
-            auto read = trans->async_read_some(buf, ec);
-            net::steady_timer watchdog(trans->Executor());
-            watchdog.expires_after(std::chrono::seconds(2));
-            auto result = co_await (std::move(read) || watchdog.async_wait(net::use_awaitable));
-            if (result.index() == 1)
+            auto ReadOperation = Transport->async_read_some(Buffer, ReadError);
+            Net::steady_timer Watchdog(Transport->Executor());
+            Watchdog.expires_after(std::chrono::seconds(2));
+            auto WatchdogOperation = Watchdog.async_wait(Net::use_awaitable);
+            auto ReadRace = co_await (std::move(ReadOperation) || std::move(WatchdogOperation));
+            if (ReadRace.index() == 1)
             {
-                trans->Close();
-                *Ok = false;
+                Transport->Close();
                 co_return;
             }
-            const auto n = std::get<0>(std::move(result));
-            if (ec || n == 0)
+
+            const auto BytesRead = std::get<0>(std::move(ReadRace));
+            if (ReadError || BytesRead == 0)
             {
                 break;
             }
-            Total += n;
-            std::error_code w_ec;
-            co_await trans->async_write_some(std::span<const std::byte>(buf.data(), n), w_ec);
-            if (w_ec)
+            Total += BytesRead;
+
+            std::error_code WriteError;
+            const auto EchoSpan = std::span<const std::byte>(Buffer.data(), BytesRead);
+            auto WriteOperation = Transport->AsyncWrite(EchoSpan, WriteError);
+            const auto BytesWritten = co_await std::move(WriteOperation);
+            if (WriteError || BytesWritten != EchoSpan.size())
             {
-                *Ok = false;
+                Transport->Close();
                 co_return;
             }
-            if (Total >= payload.size())
+            if (Total >= Request.Payload.size())
             {
                 break;
             }
         }
-        *Ok = Total >= payload.size();
+
+        *Request.Succeeded = Total >= Request.Payload.size();
+        Transport->Close();
         co_return;
+    }
+
+    auto RunWatchdog(
+        Net::any_io_executor Executor,
+        std::chrono::seconds Timeout,
+        const std::shared_ptr<bool> &TimedOut) -> Net::awaitable<void>
+    {
+        Net::steady_timer Timer(Executor);
+        Timer.expires_after(Timeout);
+        boost::system::error_code ErrorCode;
+        auto WaitOperation = Timer.async_wait(Net::redirect_error(Net::use_awaitable, ErrorCode));
+        co_await std::move(WaitOperation);
+        if (!ErrorCode)
+        {
+            *TimedOut = true;
+        }
+        co_return;
+    }
+
+    auto RunStreamOnePair(StreamOneScenarioRequest Request) -> Net::awaitable<void>
+    {
+        auto ClientOperation = Net::co_spawn(
+            Request.Executor, RunHttp2Client(Request.Client), Net::use_awaitable);
+        auto ServerOperation = Net::co_spawn(
+            Request.Executor, RunXhttpServer(Request.Server), Net::use_awaitable);
+        co_await (std::move(ClientOperation) && std::move(ServerOperation));
+        co_return;
+    }
+
+    auto RunStreamOneScenario(StreamOneScenarioRequest Request) -> Net::awaitable<void>
+    {
+        auto PairOperation = Net::co_spawn(
+            Request.Executor, RunStreamOnePair(Request), Net::use_awaitable);
+        auto WatchdogOperation = Net::co_spawn(
+            Request.Executor,
+            RunWatchdog(Request.Executor, std::chrono::seconds(5), Request.TimedOut),
+            Net::use_awaitable);
+        try
+        {
+            auto RaceResult = co_await (std::move(PairOperation) || std::move(WatchdogOperation));
+            (void)RaceResult;
+        }
+        catch (...)
+        {
+            *Request.Client.Succeeded = false;
+            *Request.Server.Succeeded = false;
+        }
+        if (Request.Client.Raw)
+        {
+            Request.Client.Raw->Close();
+        }
+        if (Request.Server.Raw)
+        {
+            Request.Server.Raw->Close();
+        }
+        co_return;
+    }
+
+    auto RunFactoryClient(FactoryClientRequest Request) -> Net::awaitable<void>
+    {
+        *Request.Succeeded = false;
+        auto Transport = co_await Xhttp::Connect(
+            std::move(Request.Raw), *Request.Context, Request.Config, Request.Host);
+        if (!Transport)
+        {
+            co_return;
+        }
+
+        const auto PayloadBytes = std::span<const std::byte>(
+            reinterpret_cast<const std::byte *>(Request.Payload.data()), Request.Payload.size());
+        std::error_code WriteError;
+        auto WriteOperation = Transport->AsyncWrite(PayloadBytes, WriteError);
+        const auto BytesWritten = co_await std::move(WriteOperation);
+        if (WriteError || BytesWritten != PayloadBytes.size())
+        {
+            Transport->Close();
+            co_return;
+        }
+
+        auto XhttpTransport = std::static_pointer_cast<Xhttp::XhttpTransport>(Transport);
+        try
+        {
+            auto FinishOperation = XhttpTransport->Finish();
+            co_await std::move(FinishOperation);
+        }
+        catch (...)
+        {
+            Transport->Close();
+            co_return;
+        }
+
+        std::vector<std::byte> Received;
+        std::array<std::byte, 256> Buffer{};
+        std::error_code ReadError;
+        while (Received.size() < Request.Payload.size())
+        {
+            auto ReadOperation = Transport->async_read_some(Buffer, ReadError);
+            const auto BytesRead = co_await std::move(ReadOperation);
+            if (ReadError || BytesRead == 0)
+            {
+                Transport->Close();
+                co_return;
+            }
+            const auto ReceivedSpan = std::span<const std::byte>(Buffer.data(), BytesRead);
+            Received.insert(Received.end(), ReceivedSpan.begin(), ReceivedSpan.end());
+        }
+
+        const auto ReceivedBytes = std::span<const std::byte>(Received);
+        *Request.Succeeded = HasPayload(ReceivedBytes, Request.Payload);
+        Transport->Close();
+        co_return;
+    }
+
+    auto RunFactoryServer(FactoryServerRequest Request) -> Net::awaitable<void>
+    {
+        *Request.Succeeded = false;
+        auto Transport = co_await Xhttp::Accept(
+            std::move(Request.Raw), *Request.Context, Request.Config);
+        if (!Transport)
+        {
+            co_return;
+        }
+
+        std::array<std::byte, 256> Buffer{};
+        std::error_code ReadError;
+        auto ReadOperation = Transport->async_read_some(Buffer, ReadError);
+        const auto BytesRead = co_await std::move(ReadOperation);
+        if (ReadError || BytesRead == 0)
+        {
+            Transport->Close();
+            co_return;
+        }
+
+        const auto EchoSpan = std::span<const std::byte>(Buffer.data(), BytesRead);
+        std::error_code WriteError;
+        auto WriteOperation = Transport->AsyncWrite(EchoSpan, WriteError);
+        const auto BytesWritten = co_await std::move(WriteOperation);
+        *Request.Succeeded = !WriteError && BytesWritten == EchoSpan.size();
+        Transport->Close();
+        co_return;
+    }
+
+    auto RunFactoryPair(FactoryScenarioRequest Request) -> Net::awaitable<void>
+    {
+        FactoryClientRequest ClientRequest{
+            Request.ClientRaw,
+            Request.ClientContext,
+            Request.Config,
+            "example.com",
+            Request.Payload,
+            Request.ClientSucceeded};
+        FactoryServerRequest ServerRequest{
+            Request.ServerRaw,
+            Request.ServerContext,
+            Request.Config,
+            Request.Payload,
+            Request.ServerSucceeded};
+        auto ClientOperation = Net::co_spawn(
+            Request.Executor, RunFactoryClient(std::move(ClientRequest)), Net::use_awaitable);
+        auto ServerOperation = Net::co_spawn(
+            Request.Executor, RunFactoryServer(std::move(ServerRequest)), Net::use_awaitable);
+        co_await (std::move(ClientOperation) && std::move(ServerOperation));
+        co_return;
+    }
+
+    auto RunFactoryScenario(FactoryScenarioRequest Request) -> Net::awaitable<void>
+    {
+        auto PairOperation = Net::co_spawn(
+            Request.Executor, RunFactoryPair(Request), Net::use_awaitable);
+        auto WatchdogOperation = Net::co_spawn(
+            Request.Executor,
+            RunWatchdog(Request.Executor, std::chrono::seconds(5), Request.TimedOut),
+            Net::use_awaitable);
+        try
+        {
+            auto RaceResult = co_await (std::move(PairOperation) || std::move(WatchdogOperation));
+            (void)RaceResult;
+        }
+        catch (...)
+        {
+            *Request.ClientSucceeded = false;
+            *Request.ServerSucceeded = false;
+        }
+        if (Request.ClientRaw)
+        {
+            Request.ClientRaw->Close();
+        }
+        if (Request.ServerRaw)
+        {
+            Request.ServerRaw->Close();
+        }
+        co_return;
+    }
+
+    template <typename Awaitable>
+    auto RunCoroutine(
+        const std::shared_ptr<Net::io_context> &IoContext,
+        Awaitable Coroutine) -> void
+    {
+        IoContext->restart();
+        auto Exception = std::make_shared<std::exception_ptr>();
+        auto Completion = [IoContext, Exception](std::exception_ptr Error) -> void
+        {
+            *Exception = Error;
+            IoContext->stop();
+        };
+        Net::co_spawn(*IoContext, std::move(Coroutine), std::move(Completion));
+        IoContext->run();
+        if (*Exception)
+        {
+            std::rethrow_exception(*Exception);
+        }
     }
 } // namespace
 
 TEST(XhttpNgxE2E, StreamOneEcho)
 {
-    net::io_context ioc;
+    auto IoContext = std::make_shared<Net::io_context>();
+    auto ServerContext = std::make_shared<SSL::context>(SSL::context::tlsv13);
+    LoadSelfSigned(*ServerContext);
 
-    ssl::context server_ctx(ssl::context::tlsv13);
-    load_self_signed(server_ctx);
+    auto ClientContext = std::make_shared<SSL::context>(SSL::context::tlsv13);
+    ClientContext->set_verify_mode(SSL::verify_none);
 
-    ssl::context client_ctx(ssl::context::tlsv13);
-    client_ctx.set_verify_mode(ssl::verify_none);
+    auto [A, B] = Preview::MakeMemoryPair(IoContext->get_executor());
+    auto ClientRaw = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto ServerRaw = std::make_shared<Preview::MemoryStream>(std::move(B));
 
-    auto [a, b] = MakeMemoryPair(ioc.get_executor());
-    auto sa = std::make_shared<Preview::MemoryStream>(std::move(a));
-    auto sb = std::make_shared<Preview::MemoryStream>(std::move(b));
+    const std::string Payload = "xhttp-Stream-one-echo";
+    auto ClientSucceeded = std::make_shared<bool>(false);
+    auto ServerSucceeded = std::make_shared<bool>(false);
+    auto TimedOut = std::make_shared<bool>(false);
+    StreamOneScenarioRequest Request{
+        IoContext->get_executor(),
+        EchoRequest{ClientRaw, ClientContext, Payload, ClientSucceeded},
+        EchoRequest{ServerRaw, ServerContext, Payload, ServerSucceeded},
+        TimedOut};
 
-    const std::string payload = "xhttp-Stream-one-echo";
-    auto client_ok = std::make_shared<bool>(false);
-    auto server_ok = std::make_shared<bool>(false);
+    RunCoroutine(IoContext, RunStreamOneScenario(std::move(Request)));
+    EXPECT_FALSE(*TimedOut);
+    EXPECT_TRUE(*ServerSucceeded);
+    EXPECT_TRUE(*ClientSucceeded);
+}
 
-    std::exception_ptr ep;
-    auto coro = [&]() -> net::awaitable<void>
-    {
-        net::co_spawn(ioc.get_executor(), DoH2Client(sa, client_ctx, payload, client_ok), net::detached);
-        co_await DoXhttpServer(sb, server_ctx, payload, server_ok);
-        net::steady_timer deadline(ioc);
-        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-        while (!*client_ok && std::chrono::steady_clock::now() < end)
-        {
-            deadline.expires_after(std::chrono::milliseconds(10));
-            co_await deadline.async_wait(net::use_awaitable);
-        }
-        ioc.stop();
-    };
-    net::co_spawn(ioc, coro(), [&](std::exception_ptr e) { ep = e; });
-    ioc.run();
-    if (ep)
-    {
-        std::rethrow_exception(ep);
-    }
-    EXPECT_TRUE(*server_ok);
-    EXPECT_TRUE(*client_ok);
+TEST(XhttpNgxE2E, ClientFactoryProvidesStreamOneTransport)
+{
+    auto IoContext = std::make_shared<Net::io_context>();
+    auto ServerContext = std::make_shared<SSL::context>(SSL::context::tlsv13);
+    LoadSelfSigned(*ServerContext);
+    auto ClientContext = std::make_shared<SSL::context>(SSL::context::tlsv13_client);
+    ClientContext->set_verify_mode(SSL::verify_none);
+
+    auto [A, B] = Preview::MakeMemoryPair(IoContext->get_executor());
+    auto ClientRaw = std::make_shared<Preview::MemoryStream>(std::move(A));
+    auto ServerRaw = std::make_shared<Preview::MemoryStream>(std::move(B));
+    Xhttp::Config Config;
+    const std::string Payload = "xhttp-client-factory-echo";
+    auto ClientSucceeded = std::make_shared<bool>(false);
+    auto ServerSucceeded = std::make_shared<bool>(false);
+    auto TimedOut = std::make_shared<bool>(false);
+    FactoryScenarioRequest Request{
+        IoContext->get_executor(),
+        ClientRaw,
+        ServerRaw,
+        ClientContext,
+        ServerContext,
+        Config,
+        Payload,
+        ClientSucceeded,
+        ServerSucceeded,
+        TimedOut};
+
+    RunCoroutine(IoContext, RunFactoryScenario(std::move(Request)));
+    EXPECT_FALSE(*TimedOut);
+    EXPECT_TRUE(*ServerSucceeded);
+    EXPECT_TRUE(*ClientSucceeded);
 }

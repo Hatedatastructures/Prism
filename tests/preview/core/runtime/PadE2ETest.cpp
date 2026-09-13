@@ -19,37 +19,79 @@
 #include <utility>
 
 #include <preview/Foundation/Fault/Code.hpp>
+#include <preview/Foundation/ByteSpan.hpp>
 #include <preview/Runtime/Middleware/Context.hpp>
 #include <preview/Net/Dialer/Dialer.hpp>
 #include <preview/Runtime/Listener.hpp>
 #include <preview/Runtime/Session.hpp>
+#include <preview/Transport/MemoryStream.hpp>
 #include <TestSupport/Fixtures/RuntimeTestHelpers.hpp>
 
 namespace
 {
 
-    namespace net = boost::asio;
-    using Tcp = net::ip::tcp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Fault = Preview::Fault;
+    namespace Middleware = Preview::Middleware;
+    namespace Network = Preview::Network;
+    namespace Runtime = Preview::Runtime;
+    using Tcp = Net::ip::tcp;
+    using Preview::AsBytes;
+    using Preview::AsU8Span;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::SharedTransmission;
 
     // 公共样板（RunCoro/echo 上游见 <TestSupport/Fixtures/RuntimeTestHelpers.hpp>）
     using Preview::Testing::AcceptEchoLoop;
     using Preview::Testing::RunCoro;
     using Preview::Testing::TcpEchoServer;
 
-    /// 拨号上游（SessionOptions::Dial 回调实现；直连目标，不经 Preview::Testing::ChainState）
-    auto dial_direct(net::any_io_executor ex, const Network::Target &t)
-        -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+    TEST(PadMiddleware, UsesContextSizeBounds)
     {
-        std::error_code ec;
-        Network::Dialer::Dialer d(ex);
-        auto up = co_await d.Connect(
-            std::string(t.Host), static_cast<unsigned short>(std::stoi(std::string(t.Port))), ec);
-        if (ec || !up)
+        Net::io_context Ioc;
+        RunCoro(Ioc,
+                [&]() -> Net::awaitable<void>
+                {
+                    auto [InboundValue, PeerValue] = MakeMemoryPair(Ioc.get_executor());
+                    SharedTransmission Inbound = std::make_shared<MemoryStream>(std::move(InboundValue));
+                    auto Peer = std::make_shared<MemoryStream>(std::move(PeerValue));
+                    Middleware::Context::PadConfig Pad;
+                    Pad.Enabled = true;
+                    Pad.MinSize = 8;
+                    Pad.MaxSize = 8;
+                    Middleware::Context Context;
+                    Context.pad = &Pad;
+                    Middleware::Builtin::PadMiddleware Middleware;
+
+                    EXPECT_EQ(co_await Middleware.Handle(Inbound, Context), Fault::Code::Success);
+                    std::error_code WriteError;
+                    const std::string_view Payload{"abc"};
+                    EXPECT_EQ(co_await Inbound->AsyncWrite(
+                                  AsBytes(AsU8Span(Payload.data(), Payload.size())), WriteError),
+                              3U);
+                    EXPECT_FALSE(WriteError);
+                    std::array<std::byte, 16> Wire{};
+                    std::error_code ReadError;
+                    const auto Count = co_await Peer->async_read_some(Wire, ReadError);
+                    EXPECT_FALSE(ReadError);
+                    EXPECT_EQ(Count, 8U);
+                });
+    }
+
+    /// 拨号上游（SessionOptions::Dial 回调实现；直连目标，不经 Preview::Testing::ChainState）
+    auto DialDirect(Net::any_io_executor Executor, const Network::Target &Target)
+        -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+    {
+        std::error_code ErrorCode;
+        Network::Dialer::Dialer Dialer(Executor);
+        auto Upstream = co_await Dialer.Connect(
+            std::string(Target.Host), static_cast<unsigned short>(std::stoi(std::string(Target.Port))), ErrorCode);
+        if (ErrorCode || !Upstream)
         {
             co_return std::pair{Fault::Code::Unreachable, SharedTransmission{}};
         }
-        co_return std::pair{Fault::Code::Success, std::move(up)};
+        co_return std::pair{Fault::Code::Success, std::move(Upstream)};
     }
 
     /**
@@ -57,86 +99,88 @@ namespace
      * @param pad pad 配置（nullptr = 不启用填充）
      * @return {是否拨号, 是否回环成功}
      */
-    auto run_pipeline_case(net::io_context &ioc, const Middleware::Context::PadConfig *pad)
-        -> net::awaitable<std::pair<bool, bool>>
+    auto RunPipelineCase(Net::io_context &IoContext, const Middleware::Context::PadConfig *Pad)
+        -> Net::awaitable<std::pair<bool, bool>>
     {
-        Tcp::acceptor echo_ac(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        const auto echo_port = echo_ac.local_endpoint().port();
-        net::co_spawn(ioc.get_executor(), Preview::Testing::AcceptEchoLoop(echo_ac), net::detached);
+        Tcp::acceptor EchoAcceptor(IoContext, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        const auto EchoPort = EchoAcceptor.local_endpoint().port();
+        Net::co_spawn(IoContext.get_executor(), Preview::Testing::AcceptEchoLoop(EchoAcceptor), Net::detached);
 
-        auto dialed = std::make_shared<bool>(false);
-        auto make_accept_set_target =
-            [echo_port](SharedTransmission &, Middleware::Context &ctx) -> net::awaitable<Fault::Code>
+        auto Dialed = std::make_shared<bool>(false);
+        auto MakeAcceptSetTarget =
+            [EchoPort](SharedTransmission &, Middleware::Context &Context) -> Net::awaitable<Fault::Code>
         {
-            ctx.Target.Host = "127.0.0.1";
-            ctx.Target.Port = std::to_string(echo_port);
+            Context.Target.Host = "127.0.0.1";
+            Context.Target.Port = std::to_string(EchoPort);
             co_return Fault::Code::Success;
         };
 
-        Runtime::TcpListener listener(ioc.get_executor(),
+        Runtime::TcpListener Listener(IoContext.get_executor(),
             [&](SharedTransmission, std::size_t) -> std::shared_ptr<Runtime::Session>
             {
-                Runtime::SessionOptions opts;
-                opts.AcceptProtocol = make_accept_set_target;
-                opts.pad = pad;
-                opts.Dial = [this_ex = ioc.get_executor(), dialed]
-                    (const Network::Target &t) -> net::awaitable<std::pair<Fault::Code, SharedTransmission>>
+                Runtime::SessionOptions Options;
+                Options.AcceptProtocol = MakeAcceptSetTarget;
+                Options.pad = Pad;
+                Options.Dial = [Executor = IoContext.get_executor(), Dialed]
+                    (const Network::Target &t) -> Net::awaitable<std::pair<Fault::Code, SharedTransmission>>
                 {
-                    *dialed = true;
-                    co_return co_await dial_direct(this_ex, t);
+                    *Dialed = true;
+                    co_return co_await DialDirect(Executor, t);
                 };
-                return std::make_shared<Runtime::Session>(std::move(opts));
+                return std::make_shared<Runtime::Session>(std::move(Options));
             });
 
         bool Ok = false;
-        const auto rc = co_await listener.Start(net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        EXPECT_EQ(rc, Fault::Code::Success);
-        const auto lp = listener.LocalEndpoint().port();
-        std::error_code ec;
-        Network::Dialer::Dialer d(ioc.get_executor());
-        auto raw = co_await d.Connect("127.0.0.1", lp, ec);
-        if (!ec && raw)
+        const auto ResultCode = co_await Listener.Start(Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        EXPECT_EQ(ResultCode, Fault::Code::Success);
+        const auto ListenPort = Listener.LocalEndpoint().port();
+        std::error_code ErrorCode;
+        Network::Dialer::Dialer Dialer(IoContext.get_executor());
+        auto Raw = co_await Dialer.Connect("127.0.0.1", ListenPort, ErrorCode);
+        if (!ErrorCode && Raw)
         {
-            const std::string payload = "pad Pipeline case";
-            co_await raw->AsyncWrite(
-                std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
-                                           payload.size()),
-                ec);
-            std::array<std::byte, 64> buf{};
-            std::size_t got = 0;
-            while (!ec && got < payload.size())
+            const std::string Payload = "pad Pipeline case";
+            co_await Raw->AsyncWrite(
+                std::span<const std::byte>(reinterpret_cast<const std::byte *>(Payload.data()), Payload.size()),
+                ErrorCode);
+            std::array<std::byte, 64> Buffer{};
+            std::size_t Received = 0;
+            while (!ErrorCode && Received < Payload.size())
             {
-                const auto n = co_await raw->async_read_some(
-                    std::span<std::byte>(buf).subspan(got), ec);
-                if (n == 0) break;
-                got += n;
+                const auto BytesRead = co_await Raw->async_read_some(
+                    std::span<std::byte>(Buffer).subspan(Received), ErrorCode);
+                if (BytesRead == 0)
+                {
+                    break;
+                }
+                Received += BytesRead;
             }
             // pad 开启时下行回环含补齐填充（≥ 载荷），前缀必为原文；
             // pad 关闭时回环恰为载荷长度
-            Ok = (got >= payload.size()) &&
-                 std::equal(buf.begin(), buf.begin() + static_cast<std::ptrdiff_t>(payload.size()),
-                            reinterpret_cast<const std::byte *>(payload.data()));
+            Ok = (Received >= Payload.size()) &&
+                 std::equal(Buffer.begin(), Buffer.begin() + static_cast<std::ptrdiff_t>(Payload.size()),
+                            reinterpret_cast<const std::byte *>(Payload.data()));
             if (!Ok)
             {
-                ADD_FAILURE() << "DIAG got=" << got << " first16="
-                              << std::string(reinterpret_cast<const char *>(buf.data()),
-                                             (std::min)(got, std::size_t{24}));
+                ADD_FAILURE() << "DIAG received=" << Received << " first16="
+                              << std::string(reinterpret_cast<const char *>(Buffer.data()),
+                                             (std::min)(Received, std::size_t{24}));
             }
-            raw->Close();
+            Raw->Close();
         }
-        listener.Stop();
+        Listener.Stop();
         boost::system::error_code ce;
-        echo_ac.close(ce);
-        co_return std::pair{*dialed, Ok};
+        EchoAcceptor.close(ce);
+        co_return std::pair{*Dialed, Ok};
     }
 
     TEST(PadMiddleware, SessionWithoutPad)
     {
-        net::io_context ioc;
+        Net::io_context IoContext;
         std::pair<bool, bool> Result;
-        RunCoro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(IoContext, [&]() -> Net::awaitable<void>
         {
-            Result = co_await run_pipeline_case(ioc, nullptr);
+            Result = co_await RunPipelineCase(IoContext, nullptr);
         });
         EXPECT_TRUE(Result.first);
         EXPECT_TRUE(Result.second);
@@ -144,16 +188,16 @@ namespace
 
     TEST(PadMiddleware, SessionWithPadWrapsAndRelays)
     {
-        net::io_context ioc;
-        Middleware::Context::PadConfig pad_cfg;
-        pad_cfg.Enabled = true;
-        pad_cfg.MinSize = 64;
-        pad_cfg.MaxSize = 128;
+        Net::io_context IoContext;
+        Middleware::Context::PadConfig PadConfig;
+        PadConfig.Enabled = true;
+        PadConfig.MinSize = 64;
+        PadConfig.MaxSize = 128;
 
         std::pair<bool, bool> Result;
-        RunCoro(ioc, [&]() -> net::awaitable<void>
+        RunCoro(IoContext, [&]() -> Net::awaitable<void>
         {
-            Result = co_await run_pipeline_case(ioc, &pad_cfg);
+            Result = co_await RunPipelineCase(IoContext, &PadConfig);
         });
         EXPECT_TRUE(Result.first);
         // 下行写入经 PadTransport 追加填充，但前缀字节仍是原文，回环必须成立

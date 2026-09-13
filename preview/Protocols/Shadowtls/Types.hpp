@@ -18,6 +18,20 @@
 namespace Preview::Shadowtls
 {
 
+    /// ShadowTLS 客户端认证配置
+    struct ClientConfig
+    {
+        /// 客户端认证密码；保留空字符串默认值
+        std::string password;
+    };
+
+    /// ShadowTLS 服务端认证配置
+    struct ServerConfig
+    {
+        /// 服务端认证密码；保留空字符串默认值
+        std::string password;
+    };
+
     /// TLS 记录头长度
     inline constexpr std::size_t TlsHdrsize = 5;
 
@@ -33,11 +47,30 @@ namespace Preview::Shadowtls
     /// HMAC 截断长度（4 字节）
     inline constexpr std::size_t HmacSize = 4;
 
+    /// TLS application-data 记录类型
+    inline constexpr std::uint8_t TlsContentApplicationData = 23;
+
+    /// ShadowTLS v3 记录版本（TLS 1.2 wire 版本）
+    inline constexpr std::uint8_t TlsRecordVersionMajor = 3;
+    inline constexpr std::uint8_t TlsRecordVersionMinor = 3;
+
+    /// 单个 application-data 记录的最大明文长度
+    inline constexpr std::size_t MaxTlsPlaintext = 16 * 1024;
+
     /// ClientHello 内 SessionId 起始偏移（1+3+2+32+1）
     inline constexpr std::size_t SessionIdStart = 1 + 3 + 2 + TlsRndSize + 1;
 
     /// 首包认证标签：客户端 "C"，服务端 "S"
     inline constexpr char TagClient = 'C';
     inline constexpr char TagServer = 'S';
+
+    /// application-data HMAC 链的初始种子模式
+    enum class RecordSeed : std::uint8_t
+    {
+        /// HMAC(password, serverRandom + direction)
+        Directional,
+        /// ShadowTLS v3 外层 TLS 握手 flight 使用 HMAC(password, serverRandom)
+        ServerRandomOnly,
+    };
 
 } // namespace Preview::Shadowtls

@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -25,6 +26,7 @@
 #include <preview/Transport/Transmission.hpp>
 #include <preview/Protocols/Trusttunnel/Codec.hpp>
 #include <preview/Protocols/Trusttunnel/Conn.hpp>
+#include <preview/Protocols/Trusttunnel/Http2.hpp>
 #include <preview/Protocols/Trusttunnel/Dgram.hpp>
 #include <preview/Protocols/Trusttunnel/Types.hpp>
 
@@ -34,32 +36,6 @@ namespace Preview::Trusttunnel
     // =========================================================================
     // 配置（客户端与服务端字段分开定义）
     // =========================================================================
-
-    /**
-     * @struct ClientConfig
-     * @brief TrustTunnel 客户端配置
-     * @details 控制客户端的行为：认证凭据。构造后只读。
-     */
-    struct ClientConfig
-    {
-        /// 认证用户名
-        std::string username;
-        /// 认证密码
-        std::string password;
-    };
-
-    /**
-     * @struct ServerConfig
-     * @brief TrustTunnel 服务端配置
-     * @details 控制服务端的行为：认证凭据。构造后只读。
-     */
-    struct ServerConfig
-    {
-        /// 认证用户名
-        std::string username;
-        /// 认证密码
-        std::string password;
-    };
 
     /**
      * @struct ConnectParameters
@@ -84,21 +60,21 @@ namespace Preview::Trusttunnel
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(Params.Upstream), Params.Config.username,
-                                          Params.Config.password);
-        const auto Err = co_await C->WriteHandshake(Params.Target, Params.Port);
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(
+            std::move(Params.Upstream), Params.Config.username, Params.Config.password);
+        const auto ErrorCode = co_await Connection->WriteHandshake(Params.Target, Params.Port);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{ErrorCode, std::move(Result)};
     }
 
     /**
@@ -107,55 +83,62 @@ namespace Preview::Trusttunnel
      * @return 错误码与包连接（失败时连接为空）
      */
     [[nodiscard]] inline auto ConnectPacket(ConnectParameters Params)
-        -> net::awaitable<std::pair<Error, SharedDgram>>
+        -> Net::awaitable<std::pair<Error, SharedDgram>>
     {
-        auto [Err, Conn] = co_await Connect(std::move(Params));
-        if (Err != Error::None)
+        auto [ErrorCode, Connection] = co_await Connect(std::move(Params));
+        if (ErrorCode != Error::None)
         {
-            co_return std::pair{Err, SharedDgram{}};
+            co_return std::pair{ErrorCode, SharedDgram{}};
         }
-        co_return std::pair{Error::None, std::make_shared<Dgram>(std::move(Conn))};
+        co_return std::pair{Error::None, std::make_shared<Dgram>(std::move(Connection))};
     }
 
     /**
      * @brief 接收服务端流连接并完成 CONNECT 认证
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码、解析的目标与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, std::string, SharedConn>>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Upstream,
+        const ServerConfig &Config) -> Net::awaitable<std::tuple<Error, std::string, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.username, cfg.password);
+        auto Connection = std::make_shared<Conn<>>(
+            std::move(Upstream), Config.username, Config.password);
         std::string Target;
-        const auto Err = co_await C->ReadHandshake(Target);
-        SharedConn Conn;
-        if (Err == Error::None)
+        const auto ErrorCode = co_await Connection->ReadHandshake(Target);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::tuple{Err, std::move(Target), std::move(Conn)};
+        co_return std::tuple{ErrorCode, std::move(Target), std::move(Result)};
     }
 
     /**
      * @brief 接收服务端 UDP 包连接
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码、解析的目标与包连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto AcceptPacket(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::tuple<Error, std::string, SharedDgram>>
+    [[nodiscard]] inline auto AcceptPacket(
+        SharedTransmission Upstream,
+        const ServerConfig &Config)
+        -> Net::awaitable<std::tuple<Error, std::string, SharedDgram>>
     {
-        auto [Err, Target, Conn] = co_await Accept(std::move(upstream), cfg);
-        if (Err != Error::None)
+        auto [ErrorCode, Target, Connection] = co_await Accept(std::move(Upstream), Config);
+        if (ErrorCode != Error::None)
         {
-            co_return std::tuple{Err, std::move(Target), SharedDgram{}};
+            co_return std::tuple{ErrorCode, std::move(Target), SharedDgram{}};
         }
-        co_return std::tuple{Error::None, std::move(Target), std::make_shared<Dgram>(std::move(Conn))};
+        co_return std::tuple{
+            Error::None,
+            std::move(Target),
+            std::make_shared<Dgram>(std::move(Connection))};
     }
 
 } // namespace Preview::Trusttunnel

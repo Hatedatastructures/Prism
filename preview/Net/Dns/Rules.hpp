@@ -100,11 +100,11 @@ namespace Preview::Network::Dns
          */
         auto Insert(std::string_view domain) -> Node &
         {
-            Node *cur = &Root_;
-            ForEachReversed(domain, [&cur](std::string_view label)
-                            { cur = &EnsureChild(*cur, label); });
-            cur->HasValue = true;
-            return *cur;
+            Node *Current = &Root_;
+            ForEachReversed(domain, [&Current](std::string_view Label)
+                            { Current = &EnsureChild(*Current, Label); });
+            Current->HasValue = true;
+            return *Current;
         }
 
         /**
@@ -118,16 +118,19 @@ namespace Preview::Network::Dns
         auto InsertWildcard(std::string_view domain) -> Node &
         {
             const auto Dot = domain.find('.');
-            const auto ParentPath =
-                Dot == std::string_view::npos ? std::string_view{} : domain.substr(Dot + 1);
-            Node *cur = &Root_;
+            std::string_view ParentPath;
+            if (Dot != std::string_view::npos)
+            {
+                ParentPath = domain.substr(Dot + 1);
+            }
+            Node *Current = &Root_;
             if (!ParentPath.empty())
             {
-                ForEachReversed(ParentPath, [&cur](std::string_view label)
-                                { cur = &EnsureChild(*cur, label); });
+                ForEachReversed(ParentPath, [&Current](std::string_view Label)
+                                { Current = &EnsureChild(*Current, Label); });
             }
-            cur->Wildcard = true;
-            return *cur;
+            Current->Wildcard = true;
+            return *Current;
         }
 
         /**
@@ -149,47 +152,53 @@ namespace Preview::Network::Dns
         [[nodiscard]] auto Search(std::string_view domain) const -> Hit
         {
             // 栈上固定 labels 数组（>16 级标签的罕见域名退化为堆）
-            std::array<std::string_view, 16> buf{};
-            std::size_t count = 0;
-            std::vector<std::string_view> overflow;
-            SplitForEach(domain, [&](std::string_view label)
+            std::array<std::string_view, 16> Buffer{};
+            std::size_t Count = 0;
+            std::vector<std::string_view> Overflow;
+            SplitForEach(domain, [&](std::string_view Label)
                          {
-                             if (count < buf.size())
+                             if (Count < Buffer.size())
                              {
-                                 buf[count++] = label;
+                                 Buffer[Count++] = Label;
                              }
                              else
                              {
-                                 overflow.push_back(label);
+                                 Overflow.push_back(Label);
                              } });
-            const std::span<const std::string_view> labels =
-                overflow.empty() ? std::span<const std::string_view>(buf.data(), count)
-                                 : std::span<const std::string_view>(overflow);
-
-            Hit hit;
-            const Node *cur = &Root_;
-            for (std::size_t i = labels.size(); i > 0; --i)
+            std::span<const std::string_view> Labels;
+            if (Overflow.empty())
             {
-                const auto child = cur->Children.find(labels[i - 1]);
-                if (child == cur->Children.end())
+                Labels = std::span<const std::string_view>(Buffer.data(), Count);
+            }
+            else
+            {
+                Labels = std::span<const std::string_view>(Overflow);
+            }
+
+            Hit Result;
+            const Node *Current = &Root_;
+            for (std::size_t Index = Labels.size(); Index > 0; --Index)
+            {
+                const auto Child = Current->Children.find(Labels[Index - 1]);
+                if (Child == Current->Children.end())
                 {
                     break;
                 }
-                cur = child->second.get();
-                const auto Remaining = i - 1; ///< 前端尚未消费的标签数
+                Current = Child->second.get();
+                const auto Remaining = Index - 1; ///< 前端尚未消费的标签数
                 if (Remaining == 0)
                 {
-                    if (cur->HasValue)
+                    if (Current->HasValue)
                     {
-                        hit.Exact = cur;
+                        Result.Exact = Current;
                     }
                 }
-                else if (cur->WildValue_ != nullptr)
+                else if (Current->WildValue_ != nullptr)
                 {
-                    hit.Wild = cur;
+                    Result.Wild = Current;
                 }
             }
-            return hit;
+            return Result;
         }
 
         /**
@@ -203,35 +212,39 @@ namespace Preview::Network::Dns
     private:
         /// 按标签从左到右遍历域名（自动忽略空标签）
         template <typename Fn>
-        static void SplitForEach(std::string_view domain, Fn &&fn)
+        static void SplitForEach(std::string_view Domain, Fn &&Function)
         {
-            std::size_t start = 0;
-            while (start <= domain.size())
+            std::size_t Start = 0;
+            while (Start <= Domain.size())
             {
-                const auto Dot = domain.find('.', start);
-                const auto End = Dot == std::string_view::npos ? domain.size() : Dot;
-                if (End > start)
+                const auto Dot = Domain.find('.', Start);
+                std::size_t End = Domain.size();
+                if (Dot != std::string_view::npos)
                 {
-                    fn(domain.substr(start, End - start));
+                    End = Dot;
+                }
+                if (End > Start)
+                {
+                    Function(Domain.substr(Start, End - Start));
                 }
                 if (Dot == std::string_view::npos)
                 {
                     break;
                 }
-                start = Dot + 1;
+                Start = Dot + 1;
             }
         }
 
         /// 按标签从右到左遍历域名（TLD 优先，与反转存储序一致）
         template <typename Fn>
-        static void ForEachReversed(std::string_view domain, Fn &&fn)
+        static void ForEachReversed(std::string_view Domain, Fn &&Function)
         {
-            std::vector<std::string_view> labels;
-            SplitForEach(domain, [&labels](std::string_view label)
-                         { labels.push_back(label); });
-            for (std::size_t i = labels.size(); i > 0; --i)
+            std::vector<std::string_view> Labels;
+            SplitForEach(Domain, [&Labels](std::string_view Label)
+                         { Labels.push_back(Label); });
+            for (std::size_t Index = Labels.size(); Index > 0; --Index)
             {
-                fn(labels[i - 1]);
+                Function(Labels[Index - 1]);
             }
         }
 
@@ -272,8 +285,14 @@ namespace Preview::Network::Dns
                 }
                 else
                 {
-                    result->Action =
-                        rule.Addresses.empty() ? RuleAction::Block : RuleAction::Rewrite;
+                    if (rule.Addresses.empty())
+                    {
+                        result->Action = RuleAction::Block;
+                    }
+                    else
+                    {
+                        result->Action = RuleAction::Rewrite;
+                    }
                 }
                 // AddressRule.Addresses 装载期已是 address：直接持有，查询期零解析
                 for (const auto &addr : rule.Addresses)
@@ -288,10 +307,10 @@ namespace Preview::Network::Dns
             // 字符串黑名单装载期解析为地址（无效字面量忽略）
             for (const auto &item : options.Blacklist)
             {
-                boost::system::error_code ec;
-                if (auto addr = boost::asio::ip::make_address(item, ec); !ec)
+                boost::system::error_code ErrorCode;
+                if (auto Address = boost::asio::ip::make_address(item, ErrorCode); !ErrorCode)
                 {
-                    Blacklist_.push_back(addr);
+                    Blacklist_.push_back(Address);
                 }
             }
             Blacklist_.insert(Blacklist_.end(),
@@ -406,16 +425,19 @@ namespace Preview::Network::Dns
         }
 
         /// IPv6 CIDR 前缀匹配（按字节掩码比较）
-        [[nodiscard]] static auto MatchesV6(const boost::asio::ip::network_v6 &net,
-                                            const std::array<unsigned char, 16> &bytes) -> bool
+        [[nodiscard]] static auto MatchesV6(const boost::asio::ip::network_v6 &Network,
+                                            const std::array<unsigned char, 16> &Bytes) -> bool
         {
-            const auto NetBytes = net.address().to_bytes();
-            const auto Prefix = net.prefix_length();
-            for (std::size_t i = 0; i < 16 && i * 8 < Prefix; ++i)
+            const auto NetBytes = Network.address().to_bytes();
+            const auto Prefix = Network.prefix_length();
+            for (std::size_t Index = 0; Index < 16 && Index * 8 < Prefix; ++Index)
             {
-                const auto Bits = static_cast<unsigned char>(
-                    i * 8 + 8 <= Prefix ? 0xFF : 0xFF << (8 - (Prefix - i * 8)));
-                if ((bytes[i] & Bits) != (NetBytes[i] & Bits))
+                unsigned char Bits = 0xFF;
+                if (Index * 8 + 8 > Prefix)
+                {
+                    Bits = static_cast<unsigned char>(0xFF << (8 - (Prefix - Index * 8)));
+                }
+                if ((Bytes[Index] & Bits) != (NetBytes[Index] & Bits))
                 {
                     return false;
                 }

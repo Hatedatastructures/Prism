@@ -11,6 +11,7 @@
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <chrono>
 #include <memory>
 #include <string>
 
@@ -23,19 +24,30 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+
+    std::chrono::steady_clock::time_point ProbeNow{};
+    auto FakeProbeNow() -> std::chrono::steady_clock::time_point
+    {
+        return ProbeNow;
+    }
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
+                      {
+                          Exception = ErrorValue;
+                          IoContext.stop();
+                      });
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
@@ -52,27 +64,52 @@ namespace
                   Preview::Recognition::AddressHash::FromV6(ip6));
     }
 
+    TEST(ProbeDefense, QueriesExpireRecordsWithoutExplicitExpireCall)
+    {
+        ProbeNow = {};
+        const auto source = Preview::Recognition::AddressHash::FromV4(0x7F000001);
+        Preview::Recognition::ProbeDefenseTracker tracker(10, 2, 8, FakeProbeNow);
+
+        tracker.Record(source, 1);
+        tracker.Record(source, 1);
+        ASSERT_TRUE(tracker.ShouldChallenge(source));
+
+        ProbeNow += std::chrono::seconds(11);
+        EXPECT_EQ(tracker.FailCount(source), 0u);
+        EXPECT_FALSE(tracker.ShouldChallenge(source));
+    }
+
+    TEST(ProbeDefense, ZeroMaxRecordsDoesNotRetainSources)
+    {
+        Preview::Recognition::ProbeDefenseTracker tracker(300, 1, 0, FakeProbeNow);
+        const auto source = Preview::Recognition::AddressHash::FromV4(0x7F000001);
+
+        tracker.Record(source, 1);
+        EXPECT_EQ(tracker.FailCount(source), 0u);
+        EXPECT_FALSE(tracker.ShouldChallenge(source));
+    }
+
     TEST(CoreModules, PadRoundtrip)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         Preview::Transport::PadConfig cfg;
         cfg.PadTargets = "64";
         cfg.StopAfter = 2;
         auto pad = std::make_shared<Preview::Transport::PadTransport>(
             std::make_shared<MemoryStream>(std::move(b)), cfg);
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(ioc, [&]() -> Net::awaitable<void>
         {
             EXPECT_TRUE(cfg.Enabled());
 
-            auto sink = [&]() -> net::awaitable<void>
+            auto sink = [&]() -> Net::awaitable<void>
             {
                 std::array<std::byte, 512> buf{};
                 std::error_code ec;
                 const auto n = co_await pad->async_read_some(buf, ec);
                 EXPECT_GT(n, 0u);
             };
-            auto sink_task = net::co_spawn(ioc.get_executor(), std::move(sink), net::use_awaitable);
+            auto sink_task = Net::co_spawn(ioc.get_executor(), std::move(sink), Net::use_awaitable);
 
             const std::string Data = "pad-roundtrip-Data";
             std::error_code ec;
@@ -85,24 +122,24 @@ namespace
 
     TEST(CoreModules, PadDisabledPassthrough)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         Preview::Transport::PadConfig cfg;
         cfg.PadTargets = "";
         auto pad = std::make_shared<Preview::Transport::PadTransport>(
             std::make_shared<MemoryStream>(std::move(b)), cfg);
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(ioc, [&]() -> Net::awaitable<void>
         {
             EXPECT_FALSE(cfg.Enabled());
 
-            auto sink = [&]() -> net::awaitable<void>
+            auto sink = [&]() -> Net::awaitable<void>
             {
                 std::array<std::byte, 128> buf{};
                 std::error_code ec;
                 const auto n = co_await pad->async_read_some(buf, ec);
                 EXPECT_EQ(n, 5u);
             };
-            auto sink_task = net::co_spawn(ioc.get_executor(), std::move(sink), net::use_awaitable);
+            auto sink_task = Net::co_spawn(ioc.get_executor(), std::move(sink), Net::use_awaitable);
 
             const std::string Data = "hello";
             std::error_code ec;
@@ -114,9 +151,9 @@ namespace
 
     TEST(CoreModules, PreviewPreread)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(ioc, [&]() -> Net::awaitable<void>
         {
             const std::string head = "preread";
             auto PrereadTx = std::make_shared<Preview::Transport::PreviewTransport>(
@@ -132,9 +169,9 @@ namespace
 
     TEST(CoreModules, SnapshotRead)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        RunCoroutine(ioc, [&]() -> Net::awaitable<void>
         {
             auto snap = std::make_shared<Preview::Transport::Snapshot>(
                 std::make_shared<MemoryStream>(std::move(b)));

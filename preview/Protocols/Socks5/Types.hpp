@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include <preview/Foundation/Authenticator.hpp>
 
@@ -174,10 +175,27 @@ namespace Preview::Socks5
         std::string username;
         /// 认证密码（EnableAuth 为 true 时有效）
         std::string password;
-        /// 认证器（非拥有；nullptr = 静态比对 username/password）
+        /// 认证器（旧兼容字段；优先使用 AuthenticatorOwner）
         const Preview::Authenticator *Authenticator{nullptr};
         /// 延迟 CONNECT 成功应答：true = 由调用方在拨号完成后发送
         bool DeferConnectReply = false;
+        /// 认证器共享所有权；用于长期存活的 handler/Profile
+        Preview::SharedAuthenticator AuthenticatorOwner{};
+
+        /**
+         * @brief 获取服务端认证器
+         * @return 优先返回共享所有权中的认证器，否则返回兼容的非拥有指针
+         * @note 返回值不转移认证器所有权。
+         */
+        [[nodiscard]] auto ResolveAuthenticator() const noexcept
+            -> const Preview::Authenticator *
+        {
+            if (AuthenticatorOwner)
+            {
+                return AuthenticatorOwner.get();
+            }
+            return Authenticator;
+        }
     };
 
 } // namespace Preview::Socks5

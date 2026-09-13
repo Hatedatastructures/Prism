@@ -10,8 +10,10 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -23,47 +25,63 @@ namespace Preview::Gun
 
     /**
      * @brief 编码 protobuf varint（LEB128）
-     * @param value 数值
-     * @param out 输出缓冲区
+     * @param Value 数值
+     * @param Output 输出缓冲区
      * @return 写入字节数
      */
-    [[nodiscard]] inline auto EncodeVarint(std::uint32_t value, std::span<std::uint8_t> out) -> std::size_t
+    [[nodiscard]] inline auto EncodeVarint(
+        std::uint32_t Value,
+        std::span<std::uint8_t> Output) -> std::size_t
     {
-        std::uint32_t V = value;
-        std::size_t N = 0;
-        while (V >= 0x80)
+        std::uint32_t Probe = Value;
+        std::size_t Required = 1;
+        while (Probe >= 0x80)
         {
-            if (N >= out.size())
-            {
-                return 0;
-            }
-            out[N++] = static_cast<std::uint8_t>((V & 0x7F) | 0x80);
-            V >>= 7;
+            ++Required;
+            Probe >>= 7;
         }
-        if (N >= out.size())
+        if (Required > Output.size())
         {
             return 0;
         }
-        out[N++] = static_cast<std::uint8_t>(V);
-        return N;
+
+        std::uint32_t Remaining = Value;
+        std::size_t Written = 0;
+        while (Remaining >= 0x80)
+        {
+            Output[Written++] = static_cast<std::uint8_t>((Remaining & 0x7F) | 0x80);
+            Remaining >>= 7;
+        }
+        Output[Written++] = static_cast<std::uint8_t>(Remaining);
+        return Written;
     }
 
     /**
      * @brief 解码 protobuf varint
-     * @param in 输入数据
-     * @param value 输出数值
+     * @param Input 输入数据
+     * @param Value 输出数值
      * @return 消耗字节数，0 = 数据不足或非法
      */
-    [[nodiscard]] inline auto DecodeVarint(std::span<const std::uint8_t> in, std::uint32_t &value)
+    [[nodiscard]] inline auto DecodeVarint(
+        std::span<const std::uint8_t> Input,
+        std::uint32_t &Value)
         -> std::size_t
     {
+        Value = 0;
         std::uint32_t V = 0;
-        for (std::size_t I = 0; I < in.size() && I < MaxVarintLen; ++I)
+        for (std::size_t I = 0; I < Input.size() && I < MaxVarintLen; ++I)
         {
-            V |= static_cast<std::uint32_t>(in[I] & 0x7F) << (7 * I);
-            if ((in[I] & 0x80) == 0)
+            const auto Byte = Input[I];
+            const auto Chunk = static_cast<std::uint32_t>(Byte & 0x7F);
+            if (I == MaxVarintLen - 1 &&
+                (Chunk > 0x0F || (Byte & 0x80) != 0))
             {
-                value = V;
+                return 0;
+            }
+            V |= Chunk << (7 * I);
+            if ((Byte & 0x80) == 0)
+            {
+                Value = V;
                 return I + 1;
             }
         }
@@ -81,54 +99,81 @@ namespace Preview::Gun
 
     /**
      * @brief 编码一个 gun 帧
-     * @param payload 帧载荷
+     * @param Payload 帧载荷
      * @return 帧字节 [0x00][u32 BE len][0x0A][uvarint][payload]
      */
-    [[nodiscard]] inline auto EncodeFrame(std::span<const std::uint8_t> payload) -> std::vector<std::uint8_t>
+    [[nodiscard]] inline auto EncodeFrame(
+        std::span<const std::uint8_t> Payload) -> std::vector<std::uint8_t>
     {
+        if (Payload.size() > MaxPayloadLen ||
+            Payload.size() > (std::numeric_limits<std::uint32_t>::max)())
+        {
+            return {};
+        }
         std::array<std::uint8_t, MaxVarintLen> VarintBuf{};
-        const auto VarintLen = EncodeVarint(static_cast<std::uint32_t>(payload.size()), VarintBuf);
-        std::vector<std::uint8_t> out;
-        out.reserve(HeaderFixedLen + VarintLen + payload.size());
-        out.push_back(0x00);
-        const auto Total = static_cast<std::uint32_t>(1 + VarintLen + payload.size());
-        out.push_back(static_cast<std::uint8_t>((Total >> 24) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((Total >> 16) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>((Total >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(Total & 0xFF));
-        out.push_back(0x0A);
-        out.insert(out.end(), VarintBuf.begin(), VarintBuf.begin() + VarintLen);
-        out.insert(out.end(), payload.begin(), payload.end());
-        return out;
+        const auto VarintLen = EncodeVarint(static_cast<std::uint32_t>(Payload.size()), VarintBuf);
+        if (VarintLen == 0)
+        {
+            return {};
+        }
+        const auto TotalSize = std::size_t{1} + VarintLen + Payload.size();
+        if (TotalSize > (std::numeric_limits<std::uint32_t>::max)())
+        {
+            return {};
+        }
+        const auto Total = static_cast<std::uint32_t>(TotalSize);
+        std::vector<std::uint8_t> Output;
+        Output.reserve(HeaderFixedLen + VarintLen + Payload.size());
+        Output.push_back(0x00);
+        Output.push_back(static_cast<std::uint8_t>((Total >> 24) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>((Total >> 16) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>((Total >> 8) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>(Total & 0xFF));
+        Output.push_back(0x0A);
+        Output.insert(Output.end(), VarintBuf.begin(), VarintBuf.begin() + VarintLen);
+        Output.insert(Output.end(), Payload.begin(), Payload.end());
+        return Output;
     }
 
     /**
      * @brief 解析帧头
-     * @param in 输入数据（至少含 6 字节定长头）
+     * @param Input 输入数据（至少含 6 字节定长头）
      * @param Header 输出帧头信息
      * @return true = 解析成功（数据不足或长度非法返回 false）
      */
-    [[nodiscard]] inline auto ParseFrameHeader(std::span<const std::uint8_t> in, FrameHeader &Header)
+    [[nodiscard]] inline auto ParseFrameHeader(
+        std::span<const std::uint8_t> Input,
+        FrameHeader &Header)
         -> bool
     {
-        if (in.size() < HeaderFixedLen + 1)
+        Header = {};
+        if (Input.size() < HeaderFixedLen + 1)
         {
             return false;
         }
-        if (in[0] != 0x00 || in[5] != 0x0A)
+        if (Input[0] != 0x00 || Input[5] != 0x0A)
         {
             return false;
         }
-        const auto Total = static_cast<std::uint32_t>(in[1]) << 24 | static_cast<std::uint32_t>(in[2]) << 16 |
-                           static_cast<std::uint32_t>(in[3]) << 8 | static_cast<std::uint32_t>(in[4]);
-        std::uint32_t Plen = 0;
-        const auto Vlen = DecodeVarint(in.subspan(HeaderFixedLen), Plen);
-        if (Vlen == 0 || Total != 1 + Vlen + Plen)
+        const auto Total = static_cast<std::uint32_t>(Input[1]) << 24 |
+                           static_cast<std::uint32_t>(Input[2]) << 16 |
+                           static_cast<std::uint32_t>(Input[3]) << 8 |
+                           static_cast<std::uint32_t>(Input[4]);
+        std::uint32_t PayloadLength = 0;
+        const auto VarintLength = DecodeVarint(
+            Input.subspan(HeaderFixedLen), PayloadLength);
+        if (VarintLength == 0 || PayloadLength > MaxPayloadLen)
         {
             return false;
         }
-        Header.PayloadLen = Plen;
-        Header.HeaderLen = HeaderFixedLen + Vlen;
+        const auto ExpectedTotal = std::size_t{1} + VarintLength + PayloadLength;
+        if (ExpectedTotal > (std::numeric_limits<std::uint32_t>::max)() ||
+            Total != ExpectedTotal)
+        {
+            return false;
+        }
+        Header.PayloadLen = PayloadLength;
+        Header.HeaderLen = HeaderFixedLen + VarintLength;
         return true;
     }
 

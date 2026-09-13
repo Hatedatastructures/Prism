@@ -26,23 +26,23 @@ namespace Preview::Network::Dns::Detail
      * @return 后台协程
      */
     template <typename State>
-    [[nodiscard]] inline auto MaintenanceLoop(std::shared_ptr<State> state)
+    [[nodiscard]] inline auto MaintenanceLoop(std::shared_ptr<State> StateObject)
         -> boost::asio::awaitable<void>
     {
-        while (state->Alive_->load(std::memory_order_acquire))
+        while (StateObject->Alive_->load(std::memory_order_acquire))
         {
-            state->MaintenanceTimer_.expires_after(std::chrono::seconds(30));
-            boost::system::error_code ec;
-            co_await state->MaintenanceTimer_.async_wait(
-                boost::asio::redirect_error(boost::asio::use_awaitable, ec));
-            if (ec == boost::asio::error::operation_aborted ||
-                !state->Alive_->load(std::memory_order_acquire))
+            StateObject->MaintenanceTimer_.expires_after(std::chrono::seconds(30));
+            boost::system::error_code ErrorCode;
+            co_await StateObject->MaintenanceTimer_.async_wait(
+                boost::asio::redirect_error(boost::asio::use_awaitable, ErrorCode));
+            if (ErrorCode == boost::asio::error::operation_aborted ||
+                !StateObject->Alive_->load(std::memory_order_acquire))
             {
                 co_return;
             }
-            state->Cache_.EvictExpired();
-            state->Coalescer_.FlushCleanup();
-            state->Upstream_->ClearIdleConns();
+            StateObject->Cache_.EvictExpired();
+            StateObject->Coalescer_.FlushCleanup();
+            StateObject->Upstream_->ClearIdleConns();
         }
     }
 

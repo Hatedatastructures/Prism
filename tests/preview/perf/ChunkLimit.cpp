@@ -23,91 +23,98 @@
 #include <preview/Transport/Reliable.hpp>
 #include <preview/Protocols/Vmess/Codec.hpp>
 
-using clk = std::chrono::steady_clock;
-namespace net = boost::asio;
+using Clock = std::chrono::steady_clock;
+namespace Net = boost::asio;
+namespace Vmess = Preview::Vmess;
 
 namespace
 {
-    auto now_ns() -> std::int64_t
+    auto NowNanoseconds() -> std::int64_t
     {
-        return std::chrono::duration_cast<std::chrono::nanoseconds>(clk::now().time_since_epoch()).count();
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                   Clock::now().time_since_epoch())
+            .count();
     }
 
     // 手动：Seal chunk_size 明文 → send 密文（raw TCP）
-    auto bench(const std::size_t Total, const std::size_t chunk_size) -> std::int64_t
+    auto RunBenchmark(const std::size_t Total, const std::size_t ChunkSize) -> std::int64_t
     {
-        using namespace Preview;
-        net::io_context ioc;
-        net::ip::tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
-        const auto port = acceptor.local_endpoint().port();
+        Net::io_context IoContext;
+        Net::ip::tcp::acceptor Acceptor(
+            IoContext,
+            Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
+        const auto Port = Acceptor.local_endpoint().port();
         const auto key = std::array<std::uint8_t, 16>{};
         const auto Nonce = std::array<std::uint8_t, 12>{};
-        Vmess::ChunkEncryptor enc(key, Nonce);
-        std::vector<std::uint8_t> plain(chunk_size, 0x5A);
-        std::vector<std::uint8_t> out(chunk_size + Vmess::ChunkEncryptor::Overhead);
+        Vmess::ChunkEncryptor Encryptor(key, Nonce);
+        std::vector<std::uint8_t> Plain(ChunkSize, 0x5A);
+        std::vector<std::uint8_t> Output(ChunkSize + Vmess::ChunkEncryptor::Overhead);
         std::vector<std::uint8_t> Rx(262144);
 
-        const std::int64_t t0 = now_ns();
-        int completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
-        net::co_spawn(ioc, [&]() -> net::awaitable<void>
+        const std::int64_t StartNanoseconds = NowNanoseconds();
+        int Completed = 1; // 数据面完成标志（0 = 断链/未写完，门禁 FAIL）
+        Net::co_spawn(IoContext, [&]() -> Net::awaitable<void>
         {
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                net::ip::tcp::socket sock(ioc);
-                co_await acceptor.async_accept(sock, net::use_awaitable);
+                Net::ip::tcp::socket Socket(IoContext);
+                co_await Acceptor.async_accept(Socket, Net::use_awaitable);
                 std::size_t Done = 0;
                 while (Done < Total)
                 {
-                    const auto n = co_await sock.async_read_some(net::buffer(Rx), net::use_awaitable);
-                    if (n == 0)
+                    const auto Count = co_await Socket.async_read_some(
+                        Net::buffer(Rx), Net::use_awaitable);
+                    if (Count == 0)
                     {
                         break;
                     }
-                    Done += n;
+                    Done += Count;
                 }
             };
-            net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+            Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::detached);
 
-            net::ip::tcp::socket sock(ioc);
-            co_await sock.async_connect(net::ip::tcp::endpoint(net::ip::address_v4::loopback(), port),
-                                        net::use_awaitable);
+            Net::ip::tcp::socket Socket(IoContext);
+            const auto Endpoint = Net::ip::tcp::endpoint(
+                Net::ip::address_v4::loopback(), Port);
+            co_await Socket.async_connect(Endpoint, Net::use_awaitable);
             std::size_t Done = 0;
             while (Done < Total)
             {
-                const auto enc_n = enc.Seal(plain, out);
-                std::size_t off = 0;
-                while (off < enc_n)
+                const auto EncryptedSize = Encryptor.Seal(Plain, Output);
+                std::size_t Offset = 0;
+                while (Offset < EncryptedSize)
                 {
-                    const auto n = co_await sock.async_write_some(
-                        net::buffer(out.data() + off, enc_n - off), net::use_awaitable);
-                    if (n == 0)
+                    const auto Count = co_await Socket.async_write_some(
+                        Net::buffer(Output.data() + Offset, EncryptedSize - Offset),
+                        Net::use_awaitable);
+                    if (Count == 0)
                     {
-                        break; // 断链：completed=0 门禁 FAIL
+                        break; // 断链：Completed=0 门禁 FAIL
                     }
-                    off += n;
+                    Offset += Count;
                 }
-                if (off < enc_n)
+                if (Offset < EncryptedSize)
                 {
-                    completed = 0;
+                    Completed = 0;
                     break;
                 }
-                Done += chunk_size;
+                Done += ChunkSize;
             }
             if (Done < Total)
             {
-                completed = 0;
+                Completed = 0;
             }
-        }, [&](std::exception_ptr) { ioc.stop(); });
-        ioc.run();
-        if (completed == 0)
+        }, [&](std::exception_ptr) { IoContext.stop(); });
+        IoContext.run();
+        if (Completed == 0)
         {
             return 0;
         }
-        return now_ns() - t0;
+        return NowNanoseconds() - StartNanoseconds;
     }
 } // namespace
 
-int main()
+auto main() -> int
 {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     constexpr std::size_t kTotal = 256ULL * 1024 * 1024;
@@ -117,7 +124,7 @@ int main()
         std::array<std::int64_t, 3> s{};
         for (int i = 0; i < 3; ++i)
         {
-            s[i] = bench(kTotal, cs);
+            s[i] = RunBenchmark(kTotal, cs);
         }
         std::sort(s.begin(), s.end());
         const double mbps = (kTotal / 1024.0 / 1024.0) / (s[1] / 1e9);

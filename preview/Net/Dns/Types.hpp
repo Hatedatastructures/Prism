@@ -21,7 +21,7 @@
 namespace Preview::Network::Dns
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @struct QueryResult
@@ -32,7 +32,7 @@ namespace Preview::Network::Dns
     struct QueryResult
     {
         AnswerSet Response;                ///< 响应摘要
-        std::vector<net::ip::address> Ips; ///< 提取的 IP 地址列表
+        std::vector<Net::ip::address> Ips; ///< 提取的 IP 地址列表
         std::uint64_t RttMs{0};            ///< 往返耗时（毫秒）
         std::string ServerAddr;            ///< 响应来源上游地址
         boost::system::error_code Error;   ///< 错误码（默认成功）

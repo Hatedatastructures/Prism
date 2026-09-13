@@ -21,112 +21,115 @@
 
 namespace
 {
-    using namespace Preview;
+    namespace Net = boost::asio;
+    namespace Trojan = Preview::Trojan;
+    using Preview::Error;
+    using Preview::make_error_code;
 
     /**
      * @brief 从初始值列表构造字节向量
      */
-    auto make_bytes(std::initializer_list<std::uint8_t> List) -> std::vector<std::uint8_t>
+    auto MakeBytes(std::initializer_list<std::uint8_t> List) -> std::vector<std::uint8_t>
     {
         return std::vector<std::uint8_t>(List);
     }
 
     TEST(TrojanCodecDeep, EncodeAddressIpv6)
     {
-        Trojan::Address addr{};
-        addr.Type = Trojan::AddressType::Ipv6;
-        addr.Host.assign(16, 'q');
-        addr.Port = 8080;
-        const auto wire = Trojan::EncodeAddress(addr);
-        EXPECT_EQ(wire.size(), 19u);
-        EXPECT_EQ(wire[0], 0x04);
-        EXPECT_EQ(wire[1], 'q');
-        EXPECT_EQ(wire[17], 0x1F);
-        EXPECT_EQ(wire[18], 0x90);
+        Trojan::Address Address{};
+        Address.Type = Trojan::AddressType::Ipv6;
+        Address.Host.assign(16, 'q');
+        Address.Port = 8080;
+        const auto Wire = Trojan::EncodeAddress(Address);
+        EXPECT_EQ(Wire.size(), 19u);
+        EXPECT_EQ(Wire[0], 0x04);
+        EXPECT_EQ(Wire[1], 'q');
+        EXPECT_EQ(Wire[17], 0x1F);
+        EXPECT_EQ(Wire[18], 0x90);
 
         // Credential 输出 hex
-        const auto cred = Trojan::Credential("pw");
-        EXPECT_EQ(cred.size(), Trojan::CredentialLen);
-        for (const auto c : cred)
+        const auto Credential = Trojan::Credential("pw");
+        EXPECT_EQ(Credential.size(), Trojan::CredentialLen);
+        for (const auto Char : Credential)
         {
-            EXPECT_TRUE((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'));
+            EXPECT_TRUE((Char >= '0' && Char <= '9') || (Char >= 'a' && Char <= 'f'));
         }
     }
 
     TEST(TrojanCodecDeep, ParseRequestAddressBranches)
     {
-        const auto cred = Trojan::Credential("pw");
-        std::vector<std::uint8_t> base(cred.begin(), cred.end());
-        base.push_back('\r');
-        base.push_back('\n');
-        base.push_back(0x01); // cmd Connect
+        const auto Credential = Trojan::Credential("pw");
+        std::vector<std::uint8_t> Base(Credential.begin(), Credential.end());
+        Base.push_back('\r');
+        Base.push_back('\n');
+        Base.push_back(0x01); // cmd Connect
 
-        Trojan::RequestHeader hdr{};
-        std::size_t consumed = 0;
+        Trojan::RequestHeader Header{};
+        std::size_t Consumed = 0;
 
         // ipv4 数据不足
-        std::vector<std::uint8_t> v4 = base;
-        v4.push_back(0x01);
-        v4.push_back(8);
-        v4.push_back(8);
-        EXPECT_EQ(Trojan::ParseRequest(v4, hdr, consumed), Error::NeedMore);
+        std::vector<std::uint8_t> V4 = Base;
+        V4.push_back(0x01);
+        V4.push_back(8);
+        V4.push_back(8);
+        EXPECT_EQ(Trojan::ParseRequest(V4, Header, Consumed), Error::NeedMore);
 
         // ipv6 数据不足
-        std::vector<std::uint8_t> v6 = base;
-        v6.push_back(0x04);
-        v6.insert(v6.end(), 3, 0x42);
-        EXPECT_EQ(Trojan::ParseRequest(v6, hdr, consumed), Error::NeedMore);
+        std::vector<std::uint8_t> V6 = Base;
+        V6.push_back(0x04);
+        V6.insert(V6.end(), 3, 0x42);
+        EXPECT_EQ(Trojan::ParseRequest(V6, Header, Consumed), Error::NeedMore);
 
         // ipv6 成功
-        std::vector<std::uint8_t> v6ok = base;
-        v6ok.push_back(0x04);
-        v6ok.insert(v6ok.end(), 16, 0x42);
-        v6ok.push_back(0x01);
-        v6ok.push_back(0xBB);
-        v6ok.push_back('\r');
-        v6ok.push_back('\n');
-        EXPECT_EQ(Trojan::ParseRequest(v6ok, hdr, consumed), Error::None);
-        EXPECT_EQ(hdr.Target.Type, Trojan::AddressType::Ipv6);
-        EXPECT_EQ(hdr.Target.Host, std::string(16, '\x42'));
-        EXPECT_EQ(hdr.Target.Port, 443u);
+        std::vector<std::uint8_t> V6Ok = Base;
+        V6Ok.push_back(0x04);
+        V6Ok.insert(V6Ok.end(), 16, 0x42);
+        V6Ok.push_back(0x01);
+        V6Ok.push_back(0xBB);
+        V6Ok.push_back('\r');
+        V6Ok.push_back('\n');
+        EXPECT_EQ(Trojan::ParseRequest(V6Ok, Header, Consumed), Error::None);
+        EXPECT_EQ(Header.Target.Type, Trojan::AddressType::Ipv6);
+        EXPECT_EQ(Header.Target.Host, std::string(16, '\x42'));
+        EXPECT_EQ(Header.Target.Port, 443u);
     }
 
     TEST(TrojanCodecDeep, ParserErrorBranches)
     {
-        const auto cred = Trojan::Credential("pw");
-        Trojan::Parser p("pw");
-        std::error_code ec;
+        const auto Credential = Trojan::Credential("pw");
+        Trojan::Parser Parser("pw");
+        std::error_code ErrorCode;
 
         // need_more
-        EXPECT_EQ(p.Put(boost::asio::buffer(make_bytes({0x01})), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::NeedMore));
-        p.Reset();
+        EXPECT_EQ(Parser.Put(Net::buffer(MakeBytes({0x01})), ErrorCode), 0u);
+        EXPECT_EQ(ErrorCode, make_error_code(Error::NeedMore));
+        Parser.Reset();
 
         // bad_magic（CRLF 缺失）
-        std::vector<std::uint8_t> bad(cred.begin(), cred.end());
-        bad.push_back('X');
-        bad.push_back('\n');
-        EXPECT_EQ(p.Put(boost::asio::buffer(bad), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::BadMagic));
-        p.Reset();
+        std::vector<std::uint8_t> Bad(Credential.begin(), Credential.end());
+        Bad.push_back('X');
+        Bad.push_back('\n');
+        EXPECT_EQ(Parser.Put(Net::buffer(Bad), ErrorCode), 0u);
+        EXPECT_EQ(ErrorCode, make_error_code(Error::BadMagic));
+        Parser.Reset();
 
         // auth_failed（CRLF 正确但凭据不匹配）
-        std::vector<std::uint8_t> wrong(cred.size(), 'f');
-        wrong.push_back('\r');
-        wrong.push_back('\n');
-        wrong.push_back(0x01);
-        wrong.push_back(0x01);
-        wrong.insert(wrong.end(), 4, 8);
-        wrong.push_back(0x00);
-        wrong.push_back(0x35);
-        wrong.push_back('\r');
-        wrong.push_back('\n');
-        EXPECT_EQ(p.Put(boost::asio::buffer(wrong), ec), 0u);
-        EXPECT_EQ(ec, make_error_code(Error::AuthFailed));
-        p.Reset();
+        std::vector<std::uint8_t> Wrong(Credential.size(), 'f');
+        Wrong.push_back('\r');
+        Wrong.push_back('\n');
+        Wrong.push_back(0x01);
+        Wrong.push_back(0x01);
+        Wrong.insert(Wrong.end(), 4, 8);
+        Wrong.push_back(0x00);
+        Wrong.push_back(0x35);
+        Wrong.push_back('\r');
+        Wrong.push_back('\n');
+        EXPECT_EQ(Parser.Put(Net::buffer(Wrong), ErrorCode), 0u);
+        EXPECT_EQ(ErrorCode, make_error_code(Error::AuthFailed));
+        Parser.Reset();
 
         // 成功（正确凭据 + ipv4 + CRLF 结尾）
-        std::vector<std::uint8_t> Ok(cred.begin(), cred.end());
+        std::vector<std::uint8_t> Ok(Credential.begin(), Credential.end());
         Ok.push_back('\r');
         Ok.push_back('\n');
         Ok.push_back(0x01);
@@ -136,17 +139,17 @@ namespace
         Ok.push_back(0x35);
         Ok.push_back('\r');
         Ok.push_back('\n');
-        EXPECT_EQ(p.Put(boost::asio::buffer(Ok), ec), Ok.size());
-        EXPECT_TRUE(p.IsDone());
-        EXPECT_TRUE(p.Get().valid);
-        EXPECT_FALSE(p.Get().udp);
-        EXPECT_EQ(p.Get().dst.Host, "8.8.8.8");
+        EXPECT_EQ(Parser.Put(Net::buffer(Ok), ErrorCode), Ok.size());
+        EXPECT_TRUE(Parser.IsDone());
+        EXPECT_TRUE(Parser.Get().valid);
+        EXPECT_FALSE(Parser.Get().udp);
+        EXPECT_EQ(Parser.Get().dst.Host, "8.8.8.8");
 
         // UDP 命令 → udp 标志
-        p.Reset();
+        Parser.Reset();
         Ok[57 + 1] = 0x03; // cmd = udp_associate
-        EXPECT_EQ(p.Put(boost::asio::buffer(Ok), ec), Ok.size());
-        EXPECT_TRUE(p.Get().udp);
+        EXPECT_EQ(Parser.Put(Net::buffer(Ok), ErrorCode), Ok.size());
+        EXPECT_TRUE(Parser.Get().udp);
     }
 
 } // namespace

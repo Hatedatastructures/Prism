@@ -2,8 +2,9 @@
  * @file Shadowtls.hpp
  * @brief ShadowTLS v3 协议入口（聚合头 + 工厂函数）
  * @details 协议族统一入口：
- * - 工厂函数（本文件）：Connect / Accept ——认证握手在工厂内部完成
- * - 配置：ClientConfig / ServerConfig（本文件，字段分开定义）
+ * - 工厂函数（本文件）：Connect / ConnectStandard / Accept / AcceptStandard
+ *   ——认证握手在工厂内部完成
+ * - 配置：ClientConfig / ServerConfig（Types.hpp，字段分开定义）
  * - 连接：Conn（流，Conn.hpp，SessionId HMAC 认证 + 数据透传）
  * - 编解码/认证：Codec.hpp（SessionId 生成/校验 + 帧 HMAC + KDF）
  */
@@ -14,10 +15,13 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 #include <preview/Foundation/Error.hpp>
 #include <preview/Transport/Transmission.hpp>
@@ -29,30 +33,8 @@ namespace Preview::Shadowtls
 {
 
     // =========================================================================
-    // 配置（客户端与服务端字段分开定义）
+    // 参数（客户端与服务端装配参数）
     // =========================================================================
-
-    /**
-     * @struct ClientConfig
-     * @brief ShadowTLS 客户端配置
-     * @details 控制客户端的行为：认证密码。构造后只读。
-     */
-    struct ClientConfig
-    {
-        /// 客户端认证密码
-        std::string password;
-    };
-
-    /**
-     * @struct ServerConfig
-     * @brief ShadowTLS 服务端配置
-     * @details 控制服务端的行为：认证密码。构造后只读。
-     */
-    struct ServerConfig
-    {
-        /// 服务端认证密码
-        std::string password;
-    };
 
     /**
      * @struct ConnectParameters
@@ -67,6 +49,17 @@ namespace Preview::Shadowtls
         std::span<const std::uint8_t> ClientRandom;
     };
 
+    /**
+     * @struct StandardConnectParameters
+     * @brief 标准 TLS ClientHello 模板的客户端连接参数
+     */
+    struct StandardConnectParameters
+    {
+        SharedTransmission Upstream;
+        const ClientConfig &Config;
+        std::span<const std::uint8_t> ClientHelloWire;
+    };
+
     // =========================================================================
     // 工厂（自由函数，握手在内部完成）
     // =========================================================================
@@ -77,43 +70,88 @@ namespace Preview::Shadowtls
      * @return 错误码与协议连接（失败时连接为空）
      */
     [[nodiscard]] inline auto Connect(ConnectParameters Params)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(Params.Upstream), Params.Config.password);
-        const auto Err = co_await C->WriteHandshake(Params.ServerRandom, Params.ClientRandom);
-        SharedConn Conn;
+        auto Connection = std::make_shared<Conn<>>(std::move(Params.Upstream), Params.Config.password);
+        const auto Err = co_await Connection->WriteHandshake(Params.ServerRandom, Params.ClientRandom);
+        SharedConn Result;
         if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Result = SharedConn{};
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Result)};
+    }
+
+    /**
+     * @brief 使用真实 TLS 构造器提供的 ClientHello 完成 ShadowTLS SessionId 认证
+     * @param Params 客户端连接参数
+     * @return 错误码与协议连接
+     * @note 只发送并认证 ClientHello，不驱动外层 TLS 状态机。
+     */
+    [[nodiscard]] inline auto ConnectStandard(StandardConnectParameters Params)
+        -> Net::awaitable<std::pair<Error, SharedConn>>
+    {
+        auto Connection = std::make_shared<Conn<>>(std::move(Params.Upstream), Params.Config.password);
+        const auto Err = co_await Connection->WriteStandardHandshake(Params.ClientHelloWire);
+        SharedConn Result;
+        if (Err == Error::None)
+        {
+            Result = SharedConn(std::move(Connection));
+        }
+        co_return std::pair{Err, std::move(Result)};
     }
 
     /**
      * @brief 接收服务端流连接并完成 SessionId 认证校验
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Upstream,
+        const ServerConfig &Config) -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto Err = co_await C->ReadHandshake();
-        SharedConn Conn;
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), Config.password);
+        const auto Err = co_await Connection->ReadHandshake();
+        SharedConn Result;
         if (Err == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Result = SharedConn{};
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{Err, std::move(Result)};
+    }
+
+    /**
+     * @brief 接收并校验标准 TLS ClientHello
+     * @param Upstream 底层传输（所有权移交）
+     * @param Config 服务端配置
+     * @return 错误码、完整 ClientHello wire 与协议连接
+     */
+    [[nodiscard]] inline auto AcceptStandard(
+        SharedTransmission Upstream,
+        const ServerConfig &Config)
+        -> Net::awaitable<std::tuple<Error, std::vector<std::uint8_t>, SharedConn>>
+    {
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), Config.password);
+        const auto Err = co_await Connection->ReadStandardHandshake();
+        std::vector<std::uint8_t> Wire;
+        SharedConn Result;
+        if (Err == Error::None)
+        {
+            Wire = Connection->TakeClientHelloWire();
+            Result = SharedConn(std::move(Connection));
+        }
+        co_return std::tuple{Err, std::move(Wire), std::move(Result)};
     }
 
 } // namespace Preview::Shadowtls
+
+#include <preview/Protocols/Shadowtls/Server.hpp>

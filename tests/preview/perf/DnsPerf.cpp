@@ -36,7 +36,7 @@
 
 namespace
 {
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
     using Preview::Network::Dns::Cache;
     using Preview::Network::Dns::CacheOptions;
     using Preview::Network::Dns::Message;
@@ -53,19 +53,19 @@ namespace
     }
 
     /// 大端写入
-    void PutU16(std::vector<std::uint8_t> &out, const std::uint16_t v)
+    void PutU16(std::vector<std::uint8_t> &Output, const std::uint16_t Value)
     {
-        out.push_back(static_cast<std::uint8_t>(v >> 8));
-        out.push_back(static_cast<std::uint8_t>(v & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>(Value >> 8));
+        Output.push_back(static_cast<std::uint8_t>(Value & 0xFF));
     }
 
     /// 回环 UDP fake DNS（固定 A 记录应答）
     class PerfDnsServer : public std::enable_shared_from_this<PerfDnsServer>
     {
     public:
-        explicit PerfDnsServer(net::io_context &ioc)
-            : Ex_(ioc.get_executor()),
-              Udp_(ioc, net::ip::udp::endpoint(net::ip::make_address("127.0.0.1"), 0))
+        explicit PerfDnsServer(Net::io_context &IoContext)
+            : Ex_(IoContext.get_executor()),
+              Udp_(IoContext, Net::ip::udp::endpoint(Net::ip::make_address("127.0.0.1"), 0))
         {
         }
 
@@ -73,7 +73,7 @@ namespace
         {
             Port_ = Udp_.local_endpoint().port();
             auto self = shared_from_this();
-            net::co_spawn(Ex_, [self]() { return self->Loop(); }, net::detached);
+            Net::co_spawn(Ex_, [self]() { return self->Loop(); }, Net::detached);
         }
 
         [[nodiscard]] auto Port() const -> std::uint16_t
@@ -83,55 +83,55 @@ namespace
 
         void Close()
         {
-            boost::system::error_code ec;
-            Udp_.close(ec);
+            boost::system::error_code ErrorCode;
+            Udp_.close(ErrorCode);
         }
 
     private:
-        auto Loop() -> net::awaitable<void>
+        auto Loop() -> Net::awaitable<void>
         {
-            std::vector<std::uint8_t> buf(4096);
-            net::ip::udp::endpoint sender;
+            std::vector<std::uint8_t> Buffer(4096);
+            Net::ip::udp::endpoint Sender;
             for (;;)
             {
-                boost::system::error_code ec;
-                const auto n = co_await Udp_.async_receive_from(
-                    net::buffer(buf), sender, net::redirect_error(net::use_awaitable, ec));
-                if (ec || n < 12)
+                boost::system::error_code ErrorCode;
+                const auto Count = co_await Udp_.async_receive_from(
+                    Net::buffer(Buffer), Sender, Net::redirect_error(Net::use_awaitable, ErrorCode));
+                if (ErrorCode || Count < 12)
                 {
                     co_return;
                 }
                 // 问题段结束
-                std::size_t off = 12;
-                while (off < static_cast<std::size_t>(n) && buf[off] != 0)
+                std::size_t Offset = 12;
+                while (Offset < static_cast<std::size_t>(Count) && Buffer[Offset] != 0)
                 {
-                    off += static_cast<std::size_t>(buf[off]) + 1;
+                    Offset += static_cast<std::size_t>(Buffer[Offset]) + 1;
                 }
-                const auto QEnd = off + 5;
-                if (QEnd > static_cast<std::size_t>(n))
+                const auto QEnd = Offset + 5;
+                if (QEnd > static_cast<std::size_t>(Count))
                 {
                     continue;
                 }
-                std::vector<std::uint8_t> out;
-                PutU16(out, static_cast<std::uint16_t>((buf[0] << 8) | buf[1]));
-                PutU16(out, 0x8180u);
-                PutU16(out, 1);
-                PutU16(out, 1);
-                PutU16(out, 0);
-                PutU16(out, 0);
-                out.insert(out.end(), buf.begin() + 12,
-                           buf.begin() + static_cast<std::ptrdiff_t>(QEnd));
-                PutU16(out, 0xC00Cu);
-                PutU16(out, 1);
-                PutU16(out, 1);
-                out.insert(out.end(), {0, 0, 0, 60, 0, 4, 1, 2, 3, 4});
-                co_await Udp_.async_send_to(net::buffer(out), sender,
-                                            net::redirect_error(net::use_awaitable, ec));
+                std::vector<std::uint8_t> Output;
+                PutU16(Output, static_cast<std::uint16_t>((Buffer[0] << 8) | Buffer[1]));
+                PutU16(Output, 0x8180u);
+                PutU16(Output, 1);
+                PutU16(Output, 1);
+                PutU16(Output, 0);
+                PutU16(Output, 0);
+                Output.insert(Output.end(), Buffer.begin() + 12,
+                           Buffer.begin() + static_cast<std::ptrdiff_t>(QEnd));
+                PutU16(Output, 0xC00Cu);
+                PutU16(Output, 1);
+                PutU16(Output, 1);
+                Output.insert(Output.end(), {0, 0, 0, 60, 0, 4, 1, 2, 3, 4});
+                co_await Udp_.async_send_to(Net::buffer(Output), Sender,
+                                            Net::redirect_error(Net::use_awaitable, ErrorCode));
             }
         }
 
-        net::any_io_executor Ex_;
-        net::ip::udp::socket Udp_;
+        Net::any_io_executor Ex_;
+        Net::ip::udp::socket Udp_;
         std::uint16_t Port_{0};
     };
 } // namespace
@@ -142,34 +142,34 @@ auto main() -> int
 
     // ── 1. Cache 命中路径 ─────────────────────────────
     {
-        CacheOptions opts;
-        opts.MaxEntries = 4096;
-        Cache cache(opts);
-        constexpr std::size_t kKeys = 1000;
+        CacheOptions Options;
+        Options.MaxEntries = 4096;
+        Cache cache(Options);
+        constexpr std::size_t KeyCount = 1000;
         std::vector<std::string> keys;
-        keys.reserve(kKeys);
-        for (std::size_t i = 0; i < kKeys; ++i)
+        keys.reserve(KeyCount);
+        for (std::size_t Index = 0; Index < KeyCount; ++Index)
         {
-            auto domain = "host" + std::to_string(i) + ".example.com";
-            Preview::Network::Dns::PutInput in;
-            in.Domain = domain;
-            in.QType = 1;
-            in.Ips.assign(1, net::ip::make_address("10.0.0.1"));
-            in.Ttl = std::chrono::seconds(3600);
-            cache.Put(in);
+            auto domain = "host" + std::to_string(Index) + ".example.com";
+            Preview::Network::Dns::PutInput Input;
+            Input.Domain = domain;
+            Input.QType = 1;
+            Input.Ips.assign(1, Net::ip::make_address("10.0.0.1"));
+            Input.Ttl = std::chrono::seconds(3600);
+            cache.Put(Input);
             keys.push_back(std::move(domain));
         }
-        std::mt19937 rng(1U);
-        const auto IpExpect = net::ip::make_address("10.0.0.1");
-        constexpr std::size_t kOps = 200000;
+        std::mt19937 RandomGenerator(1U);
+        const auto IpExpect = Net::ip::make_address("10.0.0.1");
+        constexpr std::size_t OperationCount = 200000;
         const auto Start = NowNs();
-        std::uint64_t hits = 0;
-        for (std::size_t i = 0; i < kOps; ++i)
+        std::uint64_t Hits = 0;
+        for (std::size_t Index = 0; Index < OperationCount; ++Index)
         {
-            const auto &key = keys[rng() % kKeys];
-            if (auto hit = cache.Get(key, 1))
+            const auto &Key = keys[RandomGenerator() % KeyCount];
+            if (auto hit = cache.Get(Key, 1))
             {
-                ++hits;
+                ++Hits;
                 if (!hit->empty() && (*hit)[0] != IpExpect)
                 {
                     std::printf("[FAIL] 缓存值不一致\n");
@@ -178,40 +178,40 @@ auto main() -> int
             }
         }
         const auto Ns = NowNs() - Start;
-        if (hits != kOps)
+        if (Hits != OperationCount)
         {
             std::printf("[FAIL] 缓存命中率 < 100%%：%llu/%llu\n",
-                        static_cast<unsigned long long>(hits), kOps);
+                        static_cast<unsigned long long>(Hits), OperationCount);
             return 1;
         }
         std::printf("1. Cache 命中路径      : %8llu ns/op （%llu 次全命中）\n",
-                    static_cast<unsigned long long>(Ns / kOps), kOps);
+                    static_cast<unsigned long long>(Ns / OperationCount), OperationCount);
     }
 
     // ── 2. AnswerScan vs Unpack ───────────────────────
     {
-        Message m = Message::MakeQuery("bench.example.com", QType::A);
-        m.Id = 0x1234;
-        m.Qr = true;
+        Message Message = Message::MakeQuery("bench.example.com", QType::A);
+        Message.Id = 0x1234;
+        Message.Qr = true;
         Preview::Network::Dns::Record a;
         a.Name = "bench.example.com";
         a.Type = QType::A;
         a.Ttl = 60;
         a.Rdata = {9, 8, 7, 6};
-        m.Answers.push_back(a);
-        const auto wire = m.Pack();
+        Message.Answers.push_back(a);
+        const auto Wire = Message.Pack();
 
-        constexpr std::size_t kOps = 50000;
+        constexpr std::size_t OperationCount = 50000;
         auto RunScan = [&]() -> std::uint64_t
         {
             const auto Start = NowNs();
-            std::optional<Preview::Network::Dns::AnswerSet> last;
-            for (std::size_t i = 0; i < kOps; ++i)
+            std::optional<Preview::Network::Dns::AnswerSet> Last;
+            for (std::size_t Index = 0; Index < OperationCount; ++Index)
             {
-                last = Preview::Network::Dns::ScanAnswers(wire, 1);
+                Last = Preview::Network::Dns::ScanAnswers(Wire, 1);
             }
-            if (!last || last->Ips.size() != 1 ||
-                last->Ips[0] != net::ip::make_address("9.8.7.6"))
+            if (!Last || Last->Ips.size() != 1 ||
+                Last->Ips[0] != Net::ip::make_address("9.8.7.6"))
             {
                 std::printf("[FAIL] Scan 提取地址不一致\n");
                 std::exit(1);
@@ -221,12 +221,12 @@ auto main() -> int
         auto RunUnpack = [&]() -> std::uint64_t
         {
             const auto Start = NowNs();
-            std::optional<Message> last;
-            for (std::size_t i = 0; i < kOps; ++i)
+            std::optional<Preview::Network::Dns::Message> Last;
+            for (std::size_t Index = 0; Index < OperationCount; ++Index)
             {
-                last = Message::Unpack(wire);
+                Last = Preview::Network::Dns::Message::Unpack(Wire);
             }
-            if (!last || last->ExtractIps().size() != 1)
+            if (!Last || Last->ExtractIps().size() != 1)
             {
                 std::printf("[FAIL] Unpack 提取地址不一致\n");
                 std::exit(1);
@@ -236,74 +236,74 @@ auto main() -> int
         const auto ScanNs = RunScan();
         const auto UnpackNs = RunUnpack();
         std::printf("2. AnswerScan          : %8llu ns/op （Unpack 物化 %llu ns/op，加速 %.1fx）\n",
-                    static_cast<unsigned long long>(ScanNs / kOps),
-                    static_cast<unsigned long long>(UnpackNs / kOps),
+                    static_cast<unsigned long long>(ScanNs / OperationCount),
+                    static_cast<unsigned long long>(UnpackNs / OperationCount),
                     static_cast<double>(UnpackNs) / static_cast<double>(ScanNs));
     }
 
     // ── 3. 回环端到端 QPS ─────────────────────────────
     {
-        net::io_context ioc;
-        auto server = std::make_shared<PerfDnsServer>(ioc);
-        server->Start();
+        Net::io_context IoContext;
+        auto Server = std::make_shared<PerfDnsServer>(IoContext);
+        Server->Start();
 
         Preview::Network::Dns::Config cfg;
         Preview::Network::Dns::Server s;
         s.Address = "127.0.0.1";
-        s.Port = server->Port();
+        s.Port = Server->Port();
         s.TimeoutMs = 2000;
         cfg.Servers.push_back(s);
         cfg.DisableIpv6 = true;
         cfg.CacheEnabled = false; // 打上游全链路
-        Preview::Network::Dns::Resolver resolver(ioc.get_executor(), cfg);
+        Preview::Network::Dns::Resolver resolver(IoContext.get_executor(), cfg);
 
         constexpr std::size_t kQueries = 500;
-        std::size_t done = 0;
-        std::size_t ok = 0;
-        std::exception_ptr ep;
+        std::size_t Done = 0;
+        std::size_t Ok = 0;
+        std::exception_ptr Exception;
         const auto Start = NowNs();
-        for (std::size_t i = 0; i < kQueries; ++i)
+        for (std::size_t Index = 0; Index < kQueries; ++Index)
         {
-            net::co_spawn(
-                ioc,
-                [&, i]() -> net::awaitable<void>
+            Net::co_spawn(
+                IoContext,
+                [&, Index]() -> Net::awaitable<void>
                 {
-                    std::error_code ec;
-                    auto addrs = co_await resolver.AsyncResolve(
-                        "q" + std::to_string(i) + ".perf.example.com", ec);
-                    if (!ec && addrs.size() == 1)
+                    std::error_code ErrorCode;
+                    auto Addresses = co_await resolver.AsyncResolve(
+                        "q" + std::to_string(Index) + ".perf.example.com", ErrorCode);
+                    if (!ErrorCode && Addresses.size() == 1)
                     {
-                        ++ok;
+                        ++Ok;
                     }
-                    if (++done == kQueries)
+                    if (++Done == kQueries)
                     {
-                        ioc.stop();
+                        IoContext.stop();
                     }
                 },
                 [&](std::exception_ptr e)
                 {
                     if (e)
                     {
-                        ep = e;
+                        Exception = e;
                     }
                 });
         }
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
         const auto Ns = NowNs() - Start;
-        server->Close();
-        if (ok != kQueries)
+        Server->Close();
+        if (Ok != kQueries)
         {
             std::printf("[FAIL] E2E 成功率 < 100%%：%llu/%llu\n",
-                        static_cast<unsigned long long>(ok), kQueries);
+                        static_cast<unsigned long long>(Ok), kQueries);
             return 1;
         }
         const auto Qps = static_cast<double>(kQueries) *
                          (1e9 / static_cast<double>(Ns));
-        std::printf("3. 回环 E2E（并发 500） : %8.0f QPS （UDP 全链路，含本地 fake server）\n", Qps);
+        std::printf("3. 回环 E2E（并发 500） : %8.0f QPS （UDP 全链路，含本地 fake Server）\n", Qps);
     }
 
     std::printf("== 门禁通过 ==\n");

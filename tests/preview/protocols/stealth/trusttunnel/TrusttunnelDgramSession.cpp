@@ -9,217 +9,286 @@
  */
 
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include <preview/Transport/MemoryStream.hpp>
 #include <preview/Protocols/Trusttunnel/Trusttunnel.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <gtest/gtest.h>
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Trusttunnel = Preview::Trusttunnel;
+    using Preview::AsU8Span;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::PreviewMockTransport;
+
+    using CompletionChannel = Net::experimental::channel<void(boost::system::error_code)>;
 
     /// 运行协程直至完成（异常重抛）
-    template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    template <typename Awaitable>
+    auto RunCoro(
+        Net::io_context &IoContext,
+        Awaitable Operation) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        auto Completion = [&](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(IoContext, std::move(Operation), std::move(Completion));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
     TEST(TrusttunnelDgramSession, SendReceiveRoundtrip)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 服务端：AcceptPacket 完成 CONNECT 认证 → Dgram 收包回发
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         Trusttunnel::ServerConfig cfg;
-                         cfg.username = "admin";
-                         cfg.password = "Secret";
-                         auto [err, Target, dg] =
-                             co_await Trusttunnel::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
-                                                                 cfg);
-                         if (err != Error::None || !dg)
-                         {
-                             EXPECT_TRUE(false) << "AcceptPacket Failed";
-                             co_return;
-                         }
-                         EXPECT_EQ(Target, "example.com");
-                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::Udp);
-                         std::string host;
-                         std::uint16_t port = 0;
-                         std::vector<std::uint8_t> payload;
-                         const auto rerr = co_await dg->AsyncReceiveFrom(host, port, payload);
-                         EXPECT_EQ(rerr, Error::None);
-                         EXPECT_EQ(host, "dns.google");
-                         EXPECT_EQ(port, 53u);
-                         EXPECT_EQ(std::string(payload.begin(), payload.end()), "Dgram hello");
-                         // 回发
-                         const auto serr = co_await dg->AsyncSendTo(host, port, payload);
-                         EXPECT_EQ(serr, Error::None);
-                         // 透传读写（passthrough）
-                         std::array<std::byte, 8> raw{};
-                         std::error_code ec;
-                         const auto w = co_await dg->async_write_some(
-                             std::span<const std::byte>(raw.data(), 4), ec);
-                         EXPECT_EQ(w, 4u);
-                         const auto r = co_await dg->async_read_some(raw, ec);
-                         EXPECT_GT(r, 0u); // 客户端透传写的数据
-                         EXPECT_TRUE(dg->Stream());
-                         EXPECT_NE(dg->NextLayer(), nullptr);
-                         EXPECT_NE(dg->lowest_layer<MemoryStream>(), nullptr);
-                         const Trusttunnel::Dgram *const_dg = dg.get();
-                         EXPECT_NE(const_dg->NextLayer(), nullptr);
-                         // 底层 Conn 的 const 装饰器导航
-                         auto Inner = dg->Stream();
-                         const auto *const_conn = dynamic_cast<const Trusttunnel::Conn<> *>(Inner.get());
-                         EXPECT_NE(const_conn, nullptr);
-                         if (const_conn)
-                         {
-                             EXPECT_NE(const_conn->NextLayer(), nullptr);
-                         }
-                         dg->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    auto ServerDone = std::make_shared<CompletionChannel>(
+                        IoContext.get_executor(), 1);
+                    auto ServerTransport = std::make_shared<MemoryStream>(std::move(ServerMemory));
+                    auto ServerCoroutine = [ServerDone,
+                                            ServerTransport = std::move(ServerTransport)]() mutable
+                        -> Net::awaitable<void>
+                    {
+                        Trusttunnel::ServerConfig ServerConfig;
+                        ServerConfig.username = "admin";
+                        ServerConfig.password = "Secret";
+                        auto [AcceptError, Target, Datagram] = co_await Trusttunnel::AcceptPacket(
+                            std::move(ServerTransport), ServerConfig);
+                        if (AcceptError != Error::None || !Datagram)
+                        {
+                            EXPECT_TRUE(false) << "AcceptPacket Failed";
+                            co_return;
+                        }
+                        EXPECT_EQ(Target, "example.com");
+                        EXPECT_EQ(Datagram->TransportType(), Preview::Transmission::Type::Udp);
+                        std::string Host;
+                        std::uint16_t Port = 0;
+                        std::vector<std::uint8_t> Payload;
+                        const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(Host, Port, Payload);
+                        EXPECT_EQ(ReceiveError, Error::None);
+                        EXPECT_EQ(Host, "dns.google");
+                        EXPECT_EQ(Port, 53u);
+                        EXPECT_EQ(std::string(Payload.begin(), Payload.end()), "Dgram hello");
+                        const auto SendError = co_await Datagram->AsyncSendTo(Host, Port, Payload);
+                        EXPECT_EQ(SendError, Error::None);
 
-                     Trusttunnel::ClientConfig cfg;
-                     cfg.username = "admin";
-                     cfg.password = "Secret";
-                     auto [herr, dg] = co_await Trusttunnel::ConnectPacket(
-                         {std::make_shared<MemoryStream>(std::move(a)), cfg, "example.com", 443});
-                     EXPECT_EQ(herr, Error::None);
-                     if (!dg)
-                     {
-                         co_return;
-                     }
-                     EXPECT_TRUE(dg->Executor());
-                     const std::string p = "Dgram hello";
-                     const auto serr = co_await dg->AsyncSendTo(
-                         "dns.google", 53,
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
-                                                       p.size()));
-                     EXPECT_EQ(serr, Error::None);
-                     // 读取回发帧（1B hostlen + host + 2B port + payload）
-                     std::string host;
-                     std::uint16_t port = 0;
-                     std::vector<std::uint8_t> back;
-                     const auto rerr = co_await dg->AsyncReceiveFrom(host, port, back);
-                     EXPECT_EQ(rerr, Error::None);
-                     EXPECT_EQ(host, "dns.google");
-                     EXPECT_EQ(port, 53u);
-                     EXPECT_EQ(std::string(back.begin(), back.end()), "Dgram hello");
-                     // 透传写（服务端透传读的数据）
-                     const std::array<std::byte, 8> raw{};
-                     std::error_code ec;
-                     const auto w = co_await dg->async_write_some(
-                         std::span<const std::byte>(raw.data(), 4), ec);
-                     EXPECT_EQ(w, 4u);
-                     dg->Close();
-                     dg->Cancel();
-                     auto released = dg->Release();
-                     EXPECT_TRUE(released);
-                     EXPECT_EQ(dg->NextLayer(), nullptr);
-                 });
+                        std::array<std::byte, 8> RawBuffer{};
+                        std::error_code ErrorCode;
+                        const auto RawWriteBuffer = std::span<const std::byte>(RawBuffer.data(), 4);
+                        const auto Written = co_await Datagram->async_write_some(
+                            RawWriteBuffer, ErrorCode);
+                        EXPECT_EQ(Written, 4u);
+                        const auto ReadSize = co_await Datagram->async_read_some(RawBuffer, ErrorCode);
+                        EXPECT_GT(ReadSize, 0u);
+                        EXPECT_TRUE(Datagram->Stream());
+                        EXPECT_NE(Datagram->NextLayer(), nullptr);
+                        const Trusttunnel::Dgram *ConstDatagram = Datagram.get();
+                        EXPECT_NE(ConstDatagram->NextLayer(), nullptr);
+                        auto InnerStream = Datagram->Stream();
+                        const auto *ConstConnection = dynamic_cast<const Trusttunnel::Conn<> *>(
+                            InnerStream.get());
+                        EXPECT_NE(ConstConnection, nullptr);
+                        if (ConstConnection)
+                        {
+                            EXPECT_NE(ConstConnection->NextLayer(), nullptr);
+                        }
+                        Datagram->Close();
+                    };
+                    auto ServerCompletion = [ServerDone](std::exception_ptr) -> void
+                    {
+                        (void)ServerDone->try_send(boost::system::error_code{});
+                    };
+                    Net::co_spawn(
+                        IoContext.get_executor(), std::move(ServerCoroutine), std::move(ServerCompletion));
+
+                    Trusttunnel::ClientConfig ClientConfig;
+                    ClientConfig.username = "admin";
+                    ClientConfig.password = "Secret";
+                    auto ClientTransport = std::make_shared<MemoryStream>(std::move(ClientMemory));
+                    Trusttunnel::ConnectParameters ConnectParams{
+                        std::move(ClientTransport), ClientConfig, "example.com", 443};
+                    auto [ConnectError, Datagram] = co_await Trusttunnel::ConnectPacket(
+                        std::move(ConnectParams));
+                    EXPECT_EQ(ConnectError, Error::None);
+                    if (!Datagram)
+                    {
+                        co_return;
+                    }
+                    EXPECT_TRUE(Datagram->Executor());
+                    const std::string Message = "Dgram hello";
+                    const auto MessageBytes = AsU8Span(Message);
+                    const auto SendError = co_await Datagram->AsyncSendTo(
+                        "dns.google", 53, MessageBytes);
+                    EXPECT_EQ(SendError, Error::None);
+                    std::string Host;
+                    std::uint16_t Port = 0;
+                    std::vector<std::uint8_t> Response;
+                    const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(Host, Port, Response);
+                    EXPECT_EQ(ReceiveError, Error::None);
+                    EXPECT_EQ(Host, "dns.google");
+                    EXPECT_EQ(Port, 53u);
+                    EXPECT_EQ(std::string(Response.begin(), Response.end()), "Dgram hello");
+
+                    const std::array<std::byte, 8> RawBuffer{};
+                    std::error_code ErrorCode;
+                    const auto RawWriteBuffer = std::span<const std::byte>(RawBuffer.data(), 4);
+                    const auto Written = co_await Datagram->async_write_some(RawWriteBuffer, ErrorCode);
+                    EXPECT_EQ(Written, 4u);
+                    Datagram->Close();
+                    Datagram->Cancel();
+                    auto Released = Datagram->Release();
+                    EXPECT_TRUE(Released);
+                    EXPECT_EQ(Datagram->NextLayer(), nullptr);
+                    co_await ServerDone->async_receive(Net::use_awaitable);
+                });
     }
 
     TEST(TrusttunnelDgramSession, BadAuthRejected)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 服务端：凭据不匹配 → bad_auth
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         Trusttunnel::ServerConfig cfg;
-                         cfg.username = "admin";
-                         cfg.password = "Secret";
-                         auto [err, Target, dg] =
-                             co_await Trusttunnel::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
-                                                                 cfg);
-                         EXPECT_EQ(err, Error::BadAuth);
-                         EXPECT_FALSE(dg);
-                         (void)Target;
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    auto ServerDone = std::make_shared<CompletionChannel>(
+                        IoContext.get_executor(), 1);
+                    auto ServerTransport = std::make_shared<MemoryStream>(std::move(ServerMemory));
+                    auto ServerCoroutine = [ServerTransport = std::move(ServerTransport)]() mutable
+                        -> Net::awaitable<void>
+                    {
+                        Trusttunnel::ServerConfig ServerConfig;
+                        ServerConfig.username = "admin";
+                        ServerConfig.password = "Secret";
+                        auto [AcceptError, Target, Datagram] = co_await Trusttunnel::AcceptPacket(
+                            std::move(ServerTransport), ServerConfig);
+                        EXPECT_EQ(AcceptError, Error::BadAuth);
+                        EXPECT_FALSE(Datagram);
+                        (void)Target;
+                    };
+                    auto ServerCompletion = [ServerDone](std::exception_ptr) -> void
+                    {
+                        (void)ServerDone->try_send(boost::system::error_code{});
+                    };
+                    Net::co_spawn(
+                        IoContext.get_executor(), std::move(ServerCoroutine), std::move(ServerCompletion));
 
-                     Trusttunnel::ClientConfig cfg;
-                     cfg.username = "admin";
-                     cfg.password = "wrong";
-                     auto [herr, dg] = co_await Trusttunnel::ConnectPacket(
-                         {std::make_shared<MemoryStream>(std::move(a)), cfg, "example.com", 443});
-                     EXPECT_EQ(herr, Error::None); // 客户端只发送 CONNECT，不感知认证结果
-                     if (dg)
-                     {
-                         dg->Close();
-                     }
-                 });
+                    Trusttunnel::ClientConfig ClientConfig;
+                    ClientConfig.username = "admin";
+                    ClientConfig.password = "wrong";
+                    auto ClientTransport = std::make_shared<MemoryStream>(std::move(ClientMemory));
+                    Trusttunnel::ConnectParameters ConnectParams{
+                        std::move(ClientTransport), ClientConfig, "example.com", 443};
+                    auto [ConnectError, Datagram] = co_await Trusttunnel::ConnectPacket(
+                        std::move(ConnectParams));
+                    EXPECT_EQ(ConnectError, Error::None);
+                    if (Datagram)
+                    {
+                        Datagram->Close();
+                    }
+                    co_await ServerDone->async_receive(Net::use_awaitable);
+                });
     }
 
     TEST(TrusttunnelDgramSession, SendToClosedPeer)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     auto dg = std::make_shared<Trusttunnel::Dgram>(
-                         std::make_shared<MemoryStream>(std::move(a)));
-                     b.Close(); // 对端关闭 → 写失败 → io_error
-                     const std::string p = "x";
-                     const auto err = co_await dg->AsyncSendTo(
-                         "example.com", 80,
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
-                                                       p.size()));
-                     EXPECT_EQ(err, Error::IoError);
-                     dg->Close();
-                 });
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    auto Datagram = std::make_shared<Trusttunnel::Dgram>(
+                        std::make_shared<MemoryStream>(std::move(ClientMemory)));
+                    ServerMemory.Close();
+                    const std::string Message = "x";
+                    const auto MessageBytes = AsU8Span(Message);
+                    const auto SendError = co_await Datagram->AsyncSendTo(
+                        "example.com", 80, MessageBytes);
+                    EXPECT_EQ(SendError, Error::IoError);
+                    Datagram->Close();
+                });
     }
 
     TEST(TrusttunnelDgramSession, PeerClosedEof)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     auto dg = std::make_shared<Trusttunnel::Dgram>(
-                         std::make_shared<MemoryStream>(std::move(b)));
-                     a.Close(); // 对端关闭 → 读 EOF → unexpected_eof
-                     std::string host;
-                     std::uint16_t port = 0;
-                     std::vector<std::uint8_t> payload;
-                     const auto err = co_await dg->AsyncReceiveFrom(host, port, payload);
-                     EXPECT_EQ(err, Error::UnexpectedEof);
-                     dg->Close();
-                 });
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    auto Datagram = std::make_shared<Trusttunnel::Dgram>(
+                        std::make_shared<MemoryStream>(std::move(ServerMemory)));
+                    ClientMemory.Close();
+                    std::string Host;
+                    std::uint16_t Port = 0;
+                    std::vector<std::uint8_t> Payload;
+                    const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(Host, Port, Payload);
+                    EXPECT_EQ(ReceiveError, Error::UnexpectedEof);
+                    Datagram->Close();
+                });
+    }
+
+    TEST(TrusttunnelDgramSession, RejectsOverreportedWrite)
+    {
+        Net::io_context IoContext;
+        auto RawTransport = std::make_shared<PreviewMockTransport>(IoContext.get_executor());
+        RawTransport->OverreportWrite = true;
+        auto Datagram = std::make_shared<Trusttunnel::Dgram>(RawTransport);
+
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    const auto Payload = AsU8Span(std::string_view{"overreport"});
+                    const auto SendError = co_await Datagram->AsyncSendTo(
+                        "example.com", 443, Payload);
+                    EXPECT_EQ(SendError, Error::BadLength);
+                });
+    }
+
+    TEST(TrusttunnelDgramSession, RejectsOverreportedRead)
+    {
+        Net::io_context IoContext;
+        auto RawTransport = std::make_shared<PreviewMockTransport>(IoContext.get_executor());
+        RawTransport->OverreportRead = true;
+        auto Datagram = std::make_shared<Trusttunnel::Dgram>(RawTransport);
+
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    std::string Host;
+                    std::uint16_t Port = 0;
+                    std::vector<std::uint8_t> Payload;
+                    const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(
+                        Host, Port, Payload);
+                    EXPECT_EQ(ReceiveError, Error::BadLength);
+                });
     }
 
 } // namespace

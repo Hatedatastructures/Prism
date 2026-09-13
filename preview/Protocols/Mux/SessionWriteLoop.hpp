@@ -7,8 +7,10 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
+#include <system_error>
 
 #include <preview/Foundation/ByteSpan.hpp>
 #include <preview/Foundation/Error.hpp>
@@ -23,22 +25,27 @@ namespace Preview::Mux::Detail
      * @param Buffer 待写入帧
      * @return 协议错误码
      */
-    [[nodiscard]] inline auto WriteFrame(const SharedTransmission &Raw,
-                                          std::span<const std::uint8_t> Buffer)
-        -> net::awaitable<ProtocolEc>
+    [[nodiscard]] inline auto WriteFrame(
+        SharedTransmission Raw,
+        std::span<const std::uint8_t> Buffer) -> Net::awaitable<ProtocolEc>
     {
+        if (!Raw)
+        {
+            co_return make_error_code(Error::BrokenPipe);
+        }
+
         std::size_t Offset = 0;
         while (Offset < Buffer.size())
         {
             const auto Remaining = Buffer.size() - Offset;
-            std::error_code Ec;
+            std::error_code ErrorCode;
             const auto Written = co_await Raw->async_write_some(
-                Preview::AsBytes(Buffer.subspan(Offset)), Ec);
-            if (Ec)
+                Preview::AsBytes(Buffer.subspan(Offset)), ErrorCode);
+            if (ErrorCode)
             {
-                if (Ec == make_error_code(Error::BrokenPipe))
+                if (ErrorCode == make_error_code(Error::BrokenPipe))
                 {
-                    co_return Ec;
+                    co_return ErrorCode;
                 }
                 co_return make_error_code(Error::IoError);
             }

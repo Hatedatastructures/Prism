@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -70,25 +71,28 @@ namespace Preview::Http3::Qpack::Detail
     /// 构建方式：对每个符号（len ≤ 8），在对应 len 表中 Code 位置写入符号索引
     constexpr auto BuildHuffmanLookup() -> std::array<std::array<std::int16_t, 256>, 9>
     {
-        std::array<std::array<std::int16_t, 256>, 9> tbl{};
-        for (auto &row : tbl)
+        std::array<std::array<std::int16_t, 256>, 9> Lookup{};
+        for (auto &Row : Lookup)
         {
-            row.fill(-1);
+            Row.fill(-1);
         }
         for (std::uint16_t Sym = 0; Sym < 256; ++Sym)
         {
             const auto Len = HuffmanLens[Sym];
             if (Len <= 8)
             {
-                tbl[Len][static_cast<std::size_t>(HuffmanCodes[Sym])] = static_cast<std::int16_t>(Sym);
+                Lookup[Len][static_cast<std::size_t>(HuffmanCodes[Sym])] =
+                    static_cast<std::int16_t>(Sym);
             }
         }
-        return tbl;
+        return Lookup;
     }
     constexpr auto HuffmanLookup = BuildHuffmanLookup();
 
     /// 快速 huffman 符号解码：len ≤ 8 查表，否则线性扫描
-    [[nodiscard]] inline auto HuffmanFindSym(const std::uint32_t Code, const std::uint16_t Len)
+    [[nodiscard]] inline auto HuffmanFindSym(
+        const std::uint32_t Code,
+        const std::uint16_t Len)
         -> std::int16_t
     {
         if (Len <= 8)
@@ -108,32 +112,40 @@ namespace Preview::Http3::Qpack::Detail
 
     /**
      * @brief huffman 解码：位累积式查表（RFC 7541 附录 B，MSB 优先）
-     * @param in 编码后的字节序列
-     * @param out 解码结果
+     * @param Input 编码后的字节序列
+     * @param Output 解码结果（成功时追加，失败时回滚本次追加）
      * @return 是否解码成功
      */
-    [[nodiscard]] auto HuffmanDecodeImpl(std::span<const std::uint8_t> in,
-                                           std::vector<std::uint8_t> &out) -> bool
+    [[nodiscard]] auto HuffmanDecodeImpl(
+        std::span<const std::uint8_t> Input,
+        std::vector<std::uint8_t> &Output) -> bool
     {
+        const auto InitialSize = Output.size();
+        const auto Fail = [&]() -> bool
+        {
+            Output.resize(InitialSize);
+            return false;
+        };
         std::uint64_t Acc = 0;
         std::uint32_t AccBits = 0;
-        for (const auto B : in)
+        for (const auto Byte : Input)
         {
-            Acc = (Acc << 8) | B;
+            Acc = (Acc << 8) | Byte;
             AccBits += 8;
             // 每读入一字节即尝试从高位匹配最短符号
             while (AccBits > 0)
             {
                 bool Matched = false;
-                for (std::uint16_t Len = 1; Len <= AccBits && Len <= 30; ++Len)
+                for (std::uint16_t Length = 1; Length <= AccBits && Length <= 30; ++Length)
                 {
-                    const std::uint64_t Mask = (1ULL << Len) - 1;
-                    const auto Code = static_cast<std::uint32_t>((Acc >> (AccBits - Len)) & Mask);
-                    const auto Sym = HuffmanFindSym(Code, Len);
-                    if (Sym >= 0)
+                    const std::uint64_t Mask = (1ULL << Length) - 1;
+                    const auto Code = static_cast<std::uint32_t>(
+                        (Acc >> (AccBits - Length)) & Mask);
+                    const auto Symbol = HuffmanFindSym(Code, Length);
+                    if (Symbol >= 0)
                     {
-                        out.push_back(static_cast<std::uint8_t>(Sym));
-                        AccBits -= Len;
+                        Output.push_back(static_cast<std::uint8_t>(Symbol));
+                        AccBits -= Length;
                         Matched = true;
                         break;
                     }
@@ -142,7 +154,7 @@ namespace Preview::Http3::Qpack::Detail
                 {
                     if (AccBits > 30)
                     {
-                        return false;
+                        return Fail();
                     }
                     break; // 数据不足，等待更多字节
                 }
@@ -153,7 +165,7 @@ namespace Preview::Http3::Qpack::Detail
         {
             if (AccBits > 7)
             {
-                return false;
+                return Fail();
             }
             std::uint64_t Mask = 0;
             if (AccBits >= 64)
@@ -166,7 +178,7 @@ namespace Preview::Http3::Qpack::Detail
             }
             if ((Acc & Mask) != Mask)
             {
-                return false;
+                return Fail();
             }
         }
         return true;
@@ -174,39 +186,46 @@ namespace Preview::Http3::Qpack::Detail
 
     /**
      * @brief huffman 解码到定长缓冲（热路径零分配版本）
-     * @param in 编码字节
-     * @param out 栈缓冲
+     * @param Input 编码字节
+     * @param Output 栈缓冲
      * @param OutN 输出字节数
      * @return 是否解码成功
      * @note 与 HuffmanDecodeImpl 逻辑一致，但写入固定 span 避免堆分配
      */
-    [[nodiscard]] auto HuffmanDecodeTo(std::span<const std::uint8_t> in,
-                                         const std::span<std::uint8_t> out,
-                                         std::size_t &OutN) -> bool
+    [[nodiscard]] auto HuffmanDecodeTo(
+        std::span<const std::uint8_t> Input,
+        const std::span<std::uint8_t> Output,
+        std::size_t &OutN) -> bool
     {
+        const auto Fail = [&]() -> bool
+        {
+            OutN = 0;
+            return false;
+        };
         std::uint64_t Acc = 0;
         std::uint32_t AccBits = 0;
         OutN = 0;
-        for (const auto B : in)
+        for (const auto Byte : Input)
         {
-            Acc = (Acc << 8) | B;
+            Acc = (Acc << 8) | Byte;
             AccBits += 8;
             while (AccBits > 0)
             {
                 bool Matched = false;
-                for (std::uint16_t Len = 1; Len <= AccBits && Len <= 30; ++Len)
+                for (std::uint16_t Length = 1; Length <= AccBits && Length <= 30; ++Length)
                 {
-                    const std::uint64_t Mask = (1ULL << Len) - 1;
-                    const auto Code = static_cast<std::uint32_t>((Acc >> (AccBits - Len)) & Mask);
-                    const auto Sym = HuffmanFindSym(Code, Len);
-                    if (Sym >= 0)
+                    const std::uint64_t Mask = (1ULL << Length) - 1;
+                    const auto Code = static_cast<std::uint32_t>(
+                        (Acc >> (AccBits - Length)) & Mask);
+                    const auto Symbol = HuffmanFindSym(Code, Length);
+                    if (Symbol >= 0)
                     {
-                        if (OutN >= out.size())
+                        if (OutN >= Output.size())
                         {
-                            return false;
+                            return Fail();
                         }
-                        out[OutN++] = static_cast<std::uint8_t>(Sym);
-                        AccBits -= Len;
+                        Output[OutN++] = static_cast<std::uint8_t>(Symbol);
+                        AccBits -= Length;
                         Matched = true;
                         break;
                     }
@@ -215,7 +234,7 @@ namespace Preview::Http3::Qpack::Detail
                 {
                     if (AccBits > 30)
                     {
-                        return false;
+                        return Fail();
                     }
                     break;
                 }
@@ -225,7 +244,7 @@ namespace Preview::Http3::Qpack::Detail
         {
             if (AccBits > 7)
             {
-                return false;
+                return Fail();
             }
             std::uint64_t Mask = 0;
             if (AccBits >= 64)
@@ -238,7 +257,7 @@ namespace Preview::Http3::Qpack::Detail
             }
             if ((Acc & Mask) != Mask)
             {
-                return false;
+                return Fail();
             }
         }
         return true;
@@ -246,79 +265,103 @@ namespace Preview::Http3::Qpack::Detail
 
     /**
      * @brief huffman 编码到定长缓冲（MSB 优先，RFC 7541 附录 B）
-     * @param in 待编码的字符串
-     * @param out 输出缓冲
+     * @param Input 待编码的字符串
+     * @param Output 输出缓冲
      * @return 编码字节数；缓冲不足返回 0
-     * @note 最坏膨胀 30 bit/符号 ≈ 4 B/字符，调用方预留 in.size()*4
-     *       字节即可保证不失败（热路径栈缓冲零分配）
+     * @note 最坏膨胀 30 bit/符号，调用方预留 Input.size()*4
+     *       字节即可保证不失败（热路径栈缓冲零分配）。
      */
-    [[nodiscard]] auto HuffmanEncodeTo(std::string_view in, std::span<std::uint8_t> out)
+    [[nodiscard]] auto HuffmanEncodeTo(
+        std::string_view Input,
+        std::span<std::uint8_t> Output)
         -> std::size_t
     {
+        std::size_t TotalBits = 0;
+        for (const auto Character : Input)
+        {
+            const auto Length = HuffmanLens[static_cast<std::uint8_t>(Character)];
+            if (Length > (std::numeric_limits<std::size_t>::max)() - TotalBits)
+            {
+                return 0;
+            }
+            TotalBits += Length;
+        }
+        std::size_t RequiredBytes = TotalBits / 8;
+        if ((TotalBits % 8) != 0)
+        {
+            ++RequiredBytes;
+        }
+        if (RequiredBytes > Output.size())
+        {
+            return 0;
+        }
+
         std::uint64_t Acc = 0;
         std::uint32_t AccBits = 0;
-        std::size_t N = 0;
-        for (const auto c : in)
+        std::size_t EncodedCount = 0;
+        for (const auto Character : Input)
         {
-            const auto Sym = static_cast<std::uint8_t>(c);
-            const auto Len = HuffmanLens[Sym];
-            Acc = (Acc << Len) | HuffmanCodes[Sym];
-            AccBits += Len;
+            const auto Symbol = static_cast<std::uint8_t>(Character);
+            const auto Length = HuffmanLens[Symbol];
+            Acc = (Acc << Length) | HuffmanCodes[Symbol];
+            AccBits += Length;
             // 防止 64 位溢出：累积超 32 位即冲刷整字节
             while (AccBits >= 8)
             {
-                if (N >= out.size())
+                if (EncodedCount >= Output.size())
                 {
                     return 0;
                 }
-                out[N++] = static_cast<std::uint8_t>(Acc >> (AccBits - 8));
+                Output[EncodedCount++] = static_cast<std::uint8_t>(Acc >> (AccBits - 8));
                 AccBits -= 8;
             }
         }
         // 尾部不足 8 位：高位补 1 填充（RFC 7541 5.2 EOS 前缀）
         if (AccBits > 0)
         {
-            if (N >= out.size())
+            if (EncodedCount >= Output.size())
             {
                 return 0;
             }
             const auto Pad = 8 - AccBits;
-            out[N++] = static_cast<std::uint8_t>((Acc << Pad) | (0xFFU >> AccBits));
+            Output[EncodedCount++] = static_cast<std::uint8_t>((Acc << Pad) | (0xFFU >> AccBits));
         }
-        return N;
+        return EncodedCount;
     }
 
     /**
      * @brief huffman 编码：按符号输出码字（MSB 优先，RFC 7541 附录 B）
-     * @param in 待编码的字符串
-     * @param out 编码结果
+     * @param Input 待编码的字符串
+     * @param Output 编码结果（追加写入）
      * @return 是否编码成功
      */
-    [[nodiscard]] auto HuffmanEncodeImpl(std::string_view in, std::vector<std::uint8_t> &out) -> bool
+    [[nodiscard]] auto HuffmanEncodeImpl(
+        std::string_view Input,
+        std::vector<std::uint8_t> &Output) -> bool
     {
         std::uint64_t Acc = 0;
         std::uint32_t AccBits = 0;
-        for (const auto c : in)
+        for (const auto Character : Input)
         {
-            const auto Sym = static_cast<std::uint8_t>(c);
-            const auto Len = HuffmanLens[Sym];
-            Acc = (Acc << Len) | HuffmanCodes[Sym];
-            AccBits += Len;
+            const auto Symbol = static_cast<std::uint8_t>(Character);
+            const auto Length = HuffmanLens[Symbol];
+            Acc = (Acc << Length) | HuffmanCodes[Symbol];
+            AccBits += Length;
             // 防止 64 位溢出：累积超 32 位即冲刷整字节
             while (AccBits >= 8)
             {
-                out.push_back(static_cast<std::uint8_t>(Acc >> (AccBits - 8)));
+                Output.push_back(static_cast<std::uint8_t>(Acc >> (AccBits - 8)));
                 AccBits -= 8;
             }
         }
         // 尾部不足 8 位：高位补 1 填充（RFC 7541 5.2 EOS 前缀）
         if (AccBits > 0)
         {
-            const auto Over = AccBits;
-            const auto Pad = 8 - Over;
+            const auto OverBits = AccBits;
+            const auto Pad = 8 - OverBits;
             const std::uint8_t EosPadByte = 0xFF; // EOS 0x3fffffff 的最高 8 位
-            Acc = (Acc << Pad) | (EosPadByte >> Over);
-            out.push_back(static_cast<std::uint8_t>(Acc));
+            Acc = (Acc << Pad) | (EosPadByte >> OverBits);
+            Output.push_back(static_cast<std::uint8_t>(Acc));
         }
         return true;
     }

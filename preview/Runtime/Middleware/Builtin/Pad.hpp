@@ -9,6 +9,11 @@
 
 #pragma once
 
+#include <boost/asio/awaitable.hpp>
+
+#include <algorithm>
+#include <limits>
+#include <string>
 #include <string_view>
 
 #include <preview/Foundation/Fault/Code.hpp>
@@ -20,6 +25,8 @@
 
 namespace Preview::Middleware::Builtin
 {
+
+    namespace Net = boost::asio;
 
     /**
      * @class PadMiddleware
@@ -44,12 +51,21 @@ namespace Preview::Middleware::Builtin
          * @return success 恒（pad 是可选装饰）
          */
         auto Handle(Preview::SharedTransmission &Inbound, Context &ctx)
-            -> net::awaitable<Preview::Fault::Code> override
+            -> Net::awaitable<Preview::Fault::Code> override
         {
             if (ctx.pad && ctx.pad->Enabled && Inbound)
             {
                 Preview::Transport::PadConfig cfg;
-                cfg.PadTargets = "17,30-50,30-50,80-150";
+                constexpr auto MaxTarget = static_cast<std::size_t>((std::numeric_limits<std::uint16_t>::max)());
+                const auto MinSize = (std::min)(ctx.pad->MinSize, MaxTarget);
+                const auto MaxSize = (std::min)((std::max)(MinSize, ctx.pad->MaxSize), MaxTarget);
+                cfg.PadTargets = std::to_string(MinSize);
+                if (MinSize != MaxSize)
+                {
+                    cfg.PadTargets += '-';
+                    cfg.PadTargets += std::to_string(MaxSize);
+                }
+                cfg.MaxPadBytes = static_cast<std::uint16_t>(MaxSize);
                 Inbound = std::make_shared<Preview::Transport::PadTransport>(Inbound, cfg);
             }
             co_return Preview::Fault::Code::Success;

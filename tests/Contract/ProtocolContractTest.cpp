@@ -13,6 +13,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <openssl/evp.h>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -28,6 +29,7 @@
 #include <prism/protocol/socks5/codec/framing.hpp>
 #include <prism/protocol/vless/codec/framing.hpp>
 #include <prism/protocol/vmess/codec/kdf.hpp>
+#include <prism/protocol/vmess/codec/header.hpp>
 #include <prism/protocol/trojan/codec/framing.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
 
@@ -255,6 +257,54 @@ namespace
             std::span<const std::uint8_t, 16>(Uuid));
 
         EXPECT_EQ(Production, PreviewKey);
+    }
+
+    TEST(ProtocolContract, VmessResponseHeaderWireMatchesProduction)
+    {
+        constexpr std::array<std::uint8_t, 16> RequestKey{
+            0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87,
+            0x98, 0xA9, 0xBA, 0xCB, 0xDC, 0xED, 0xFE, 0x0F};
+        constexpr std::array<std::uint8_t, 16> RequestNonce{
+            0xF0, 0xE1, 0xD2, 0xC3, 0xB4, 0xA5, 0x96, 0x87,
+            0x78, 0x69, 0x5A, 0x4B, 0x3C, 0x2D, 0x1E, 0x0D};
+        constexpr std::uint8_t ResponseHeader = 0x6A;
+        constexpr std::uint8_t Option =
+            static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_stream) |
+            static_cast<std::uint8_t>(psm::protocol::vmess::option::chunk_masking);
+
+        std::array<std::uint8_t, 32> RequestKeyHash{};
+        std::array<std::uint8_t, 32> RequestNonceHash{};
+        EVP_Digest(RequestKey.data(), RequestKey.size(), RequestKeyHash.data(), nullptr, EVP_sha256(), nullptr);
+        EVP_Digest(RequestNonce.data(), RequestNonce.size(), RequestNonceHash.data(), nullptr, EVP_sha256(), nullptr);
+        const auto ProductionLenKey = psm::protocol::vmess::codec::kdf(
+            std::span<const std::uint8_t>(RequestKeyHash.data(), 16),
+            psm::protocol::vmess::kdf_resp_len_key);
+        const auto PreviewLenKey = Preview::Vmess::Kdf(
+            std::span<const std::uint8_t>(RequestKeyHash.data(), 16), Preview::Vmess::KdfRespLenKey);
+        EXPECT_EQ(std::vector<std::uint8_t>(ProductionLenKey.begin(), ProductionLenKey.end()),
+                  std::vector<std::uint8_t>(PreviewLenKey.begin(), PreviewLenKey.end()));
+        const auto ProductionLenIv = psm::protocol::vmess::codec::kdf(
+            std::span<const std::uint8_t>(RequestNonceHash.data(), 16),
+            psm::protocol::vmess::kdf_resp_len_iv);
+        const auto PreviewLenIv = Preview::Vmess::Kdf(
+            std::span<const std::uint8_t>(RequestNonceHash.data(), 16), Preview::Vmess::KdfRespLenIv);
+        EXPECT_EQ(std::vector<std::uint8_t>(ProductionLenIv.begin(), ProductionLenIv.end()),
+                  std::vector<std::uint8_t>(PreviewLenIv.begin(), PreviewLenIv.end()));
+
+        std::array<std::uint8_t, 38> Production{};
+        ASSERT_EQ(psm::protocol::vmess::codec::build_response(
+                      RequestKey, RequestNonce, ResponseHeader, Option, false, Production),
+                  psm::fault::code::success);
+
+        Preview::Vmess::Message Message;
+        Message.RequestKey = RequestKey;
+        Message.RequestNonce = RequestNonce;
+        Message.RespHeader = ResponseHeader;
+        Message.Option = Option;
+        std::string PreviewWire;
+        EXPECT_FALSE(Preview::Vmess::MakeResponse(Message, PreviewWire));
+        EXPECT_EQ(std::vector<std::uint8_t>(Production.begin(), Production.end()),
+                  std::vector<std::uint8_t>(PreviewWire.begin(), PreviewWire.end()));
     }
 
     TEST(ProtocolContract, ShadowsocksAddressParseMatchesProduction)

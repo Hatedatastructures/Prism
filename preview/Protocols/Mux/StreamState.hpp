@@ -10,6 +10,7 @@
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/dispatch.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -23,6 +24,7 @@
 #include <deque>
 #include <memory>
 #include <span>
+#include <utility>
 
 #include <preview/Foundation/Error.hpp>
 #include <preview/Foundation/Memory/Container.hpp>
@@ -49,19 +51,19 @@ namespace Preview::Mux
          * @return 错误码
          */
         virtual auto PushData(std::uint32_t StreamId, std::span<const std::uint8_t> Data)
-            -> net::awaitable<ProtocolEc> = 0;
+            -> Net::awaitable<ProtocolEc> = 0;
 
         /**
          * @brief 发送 FIN（半关）
          * @param StreamId 流标识符
          */
-        virtual auto SendFin(std::uint32_t StreamId) -> net::awaitable<void> = 0;
+        virtual auto SendFin(std::uint32_t StreamId) -> Net::awaitable<void> = 0;
 
         /**
          * @brief 发送 RST（重置流）
          * @param StreamId 流标识符
          */
-        virtual auto SendRst(std::uint32_t StreamId) -> net::awaitable<void> = 0;
+        virtual auto SendRst(std::uint32_t StreamId) -> Net::awaitable<void> = 0;
 
         /**
          * @brief 流从表中移除
@@ -79,7 +81,15 @@ namespace Preview::Mux
          * @brief 获取执行器
          * @return 会话执行器
          */
-        [[nodiscard]] virtual auto Executor() const -> net::any_io_executor = 0;
+        [[nodiscard]] virtual auto Executor() const -> Net::any_io_executor = 0;
+
+        /**
+         * @brief 流消费接收队列字节后的预算归还
+         * @param StreamId 流标识符
+         * @param Bytes 已消费/释放的字节数
+         * @details 会话据此维护会话级接收字节预算；实现必须幂等且不抛异常。
+         */
+        virtual void OnStreamRxConsumed(std::uint32_t StreamId, std::size_t Bytes) noexcept = 0;
     };
 
     /**
@@ -102,10 +112,13 @@ namespace Preview::Mux
          * @param Session 所属会话（共享所有权）
          * @param Executor 执行器
          */
-        StreamHandle(std::uint32_t Id, std::shared_ptr<SessionIface> Session,
-                     net::any_io_executor Executor)
+        StreamHandle(
+            std::uint32_t Id,
+            std::shared_ptr<SessionIface> Session,
+            Net::any_io_executor Executor,
+            std::size_t MaxRxBytes = 0)
             : Id_(Id), Session_(std::move(Session)), Ex_(std::move(Executor)),
-              Notify_(Ex_, 1), Timer_(Ex_)
+              Notify_(Ex_, 1), Timer_(Ex_), MaxRxBytes_(MaxRxBytes)
         {
         }
 
@@ -123,9 +136,15 @@ namespace Preview::Mux
          * @param Buffer 接收缓冲区
          * @return 实际读取字节数；0 = EOF/关闭/超时/取消
          */
-        auto ReadSome(std::span<std::uint8_t> Buffer) -> net::awaitable<std::size_t> override
+        auto ReadSome(std::span<std::uint8_t> Buffer) -> Net::awaitable<std::size_t> override
         {
-            using namespace boost::asio::experimental::awaitable_operators;
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
+            using Net::experimental::awaitable_operators::operator||;
+
+            if (Buffer.empty())
+            {
+                co_return 0;
+            }
 
             while (true)
             {
@@ -148,6 +167,7 @@ namespace Preview::Mux
                     {
                         Rx_.pop_front();
                     }
+                    ReleaseRx(N);
                     co_return N;
                 }
                 if (PeerEof_)
@@ -159,8 +179,8 @@ namespace Preview::Mux
                 if (Timeout_.count() > 0)
                 {
                     Timer_.expires_after(Timeout_);
-                    auto Result = co_await (Notify_.async_receive(net::use_awaitable) ||
-                                            Timer_.async_wait(net::use_awaitable));
+                    auto Result = co_await (Notify_.async_receive(Net::use_awaitable) ||
+                                            Timer_.async_wait(Net::use_awaitable));
                     if (Result.index() == 1)
                     {
                         co_return 0;
@@ -168,7 +188,7 @@ namespace Preview::Mux
                 }
                 else
                 {
-                    co_await Notify_.async_receive(net::use_awaitable);
+                    co_await Notify_.async_receive(Net::use_awaitable);
                 }
             }
         }
@@ -178,9 +198,11 @@ namespace Preview::Mux
          * @param Buffer 待写数据
          * @return 协议错误码
          */
-        auto WriteAll(std::span<const std::uint8_t> Buffer) -> net::awaitable<ProtocolEc> override
+        auto WriteAll(std::span<const std::uint8_t> Buffer)
+            -> Net::awaitable<ProtocolEc> override
         {
-            if (Closed_ || !Session_ || !Session_->IsOpen())
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
+            if (Closed_ || FinSent_ || !Session_ || !Session_->IsOpen())
             {
                 co_return make_error_code(Error::BrokenPipe);
             }
@@ -190,8 +212,9 @@ namespace Preview::Mux
         /**
          * @brief 半关并发送 FIN
          */
-        auto Shutdown() -> net::awaitable<void> override
+        auto Shutdown() -> Net::awaitable<void> override
         {
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             if (FinSent_)
             {
                 co_return;
@@ -207,13 +230,16 @@ namespace Preview::Mux
         /**
          * @brief 本地关闭并从流表移除
          */
-        auto Close() -> net::awaitable<void> override
+        auto Close() -> Net::awaitable<void> override
         {
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             Closed_ = true;
+            DropRx();
             Notify_.try_send(boost::system::error_code{});
-            if (Session_)
+            auto Session = std::move(Session_);
+            if (Session)
             {
-                Session_->RemoveStream(Id_);
+                Session->RemoveStream(Id_);
             }
             co_return;
         }
@@ -221,14 +247,17 @@ namespace Preview::Mux
         /**
          * @brief 发送 RST 并从流表移除
          */
-        auto Reset() -> net::awaitable<void>
+        auto Reset() -> Net::awaitable<void>
         {
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             Closed_ = true;
+            DropRx();
             Notify_.try_send(boost::system::error_code{});
-            if (Session_)
+            auto Session = std::move(Session_);
+            if (Session)
             {
-                co_await Session_->SendRst(Id_);
-                Session_->RemoveStream(Id_);
+                co_await Session->SendRst(Id_);
+                Session->RemoveStream(Id_);
             }
             co_return;
         }
@@ -264,7 +293,7 @@ namespace Preview::Mux
          * @brief 获取执行器
          * @return 流执行器
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
             return Ex_;
         }
@@ -300,14 +329,20 @@ namespace Preview::Mux
          * @brief 推送数据到接收队列
          * @param Data 负载数据
          */
-        auto PushRx(std::span<const std::uint8_t> Data) -> void
+        [[nodiscard]] auto PushRx(std::span<const std::uint8_t> Data) -> bool
         {
             if (Closed_ || PeerEof_)
             {
-                return;
+                return true; // 流已结束：保持原有静默丢弃语义
+            }
+            if (MaxRxBytes_ != 0 && Data.size() > MaxRxBytes_ - std::min(RxBytes_, MaxRxBytes_))
+            {
+                return false; // 超过每流接收预算
             }
             Rx_.emplace_back(Data.begin(), Data.end(), Mem_.Arena());
+            RxBytes_ += Data.size();
             Notify_.try_send(boost::system::error_code{});
+            return true;
         }
 
         /**
@@ -325,22 +360,60 @@ namespace Preview::Mux
         auto OnRst() -> void
         {
             Closed_ = true;
+            DropRx();
             Notify_.try_send(boost::system::error_code{});
+            Session_.reset();
+        }
+
+        /**
+         * @brief 当前接收队列中尚未被消费的字节数
+         */
+        [[nodiscard]] auto QueuedRxBytes() const noexcept -> std::size_t
+        {
+            return RxBytes_;
         }
 
     private:
+        /**
+         * @brief 归还已消费字节给会话预算
+         */
+        auto ReleaseRx(std::size_t Bytes) -> void
+        {
+            const auto Released = std::min(RxBytes_, Bytes);
+            if (Released == 0)
+            {
+                return;
+            }
+            RxBytes_ -= Released;
+            if (Session_)
+            {
+                Session_->OnStreamRxConsumed(Id_, Released);
+            }
+        }
+
+        /**
+         * @brief 丢弃全部接收队列并归还预算（关流/RST 路径）
+         */
+        auto DropRx() -> void
+        {
+            Rx_.clear();
+            ReleaseRx(RxBytes_);
+        }
+
         std::uint32_t Id_;                                                            ///< 流标识符
         std::shared_ptr<SessionIface> Session_;                                      ///< 所属会话
-        net::any_io_executor Ex_;                                                    ///< 执行器
+        Net::any_io_executor Ex_;                                                    ///< 执行器
         Memory Mem_;                                                                  ///< 会话内存策略
         std::deque<typename Memory::template Buffer<std::uint8_t>> Rx_;              ///< 接收队列
-        boost::asio::experimental::channel<void(boost::system::error_code)> Notify_; ///< 数据通知
-        net::steady_timer Timer_;                                                    ///< 读超时定时器
+        Net::experimental::channel<void(boost::system::error_code)> Notify_; ///< 数据通知
+        Net::steady_timer Timer_;                                                    ///< 读超时定时器
         std::chrono::milliseconds Timeout_{0};                                       ///< 读超时
         bool PeerEof_{false};                                                        ///< 对端 FIN
-        bool Closed_{false};                                                         ///< 本地关闭或对端 RST
+        bool Closed_{false}; ///< 本地关闭或对端 RST
         bool FinSent_{false};                                                        ///< 本端 FIN
         bool Canceled_{false};                                                       ///< 一次性取消
+        std::size_t MaxRxBytes_{0}; ///< 每流接收预算（0 = 不限）
+        std::size_t RxBytes_{0};                                                      ///< 接收队列当前字节数
     };
 
 } // namespace Preview::Mux

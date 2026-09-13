@@ -55,10 +55,10 @@ namespace Preview::Crypto
      */
     struct SealInput
     {
-        std::span<std::uint8_t> out;             ///< 输出缓冲区（密文 + tag）
-        std::span<const std::uint8_t> plaintext; ///< 明文
+        std::span<std::uint8_t> Out;             ///< 输出缓冲区（密文 + tag）
+        std::span<const std::uint8_t> Plaintext; ///< 明文
         std::span<const std::uint8_t> Nonce;     ///< 显式 Nonce（12 或 24 字节）
-        std::span<const std::uint8_t> ad;        ///< 附加数据
+        std::span<const std::uint8_t> AdditionalData; ///< 附加数据
     };
 
     /**
@@ -69,10 +69,10 @@ namespace Preview::Crypto
      */
     struct OpenInput
     {
-        std::span<std::uint8_t> out;              ///< 输出缓冲区（明文）
-        std::span<const std::uint8_t> ciphertext; ///< 密文 + tag
+        std::span<std::uint8_t> Out;              ///< 输出缓冲区（明文）
+        std::span<const std::uint8_t> Ciphertext; ///< 密文 + tag
         std::span<const std::uint8_t> Nonce;      ///< 显式 Nonce（12 或 24 字节）
-        std::span<const std::uint8_t> ad;         ///< 附加数据
+        std::span<const std::uint8_t> AdditionalData; ///< 附加数据
     };
 
     /**
@@ -93,7 +93,7 @@ namespace Preview::Crypto
          * @param cipher 加密算法
          * @param key 密钥（16 或 32 字节）
          */
-        explicit AeadContext(AeadCipher cipher, std::span<const std::uint8_t> key);
+        explicit AeadContext(AeadCipher Cipher, std::span<const std::uint8_t> Key);
 
         /**
          * @brief 析构 AEAD 上下文
@@ -140,8 +140,8 @@ namespace Preview::Crypto
          * @param ad 附加数据（可选）
          * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
          */
-        [[nodiscard]] auto Seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext,
-                                std::span<const std::uint8_t> ad = {}) -> Fault::Code;
+        [[nodiscard]] auto Seal(std::span<std::uint8_t> Out, std::span<const std::uint8_t> Plaintext,
+                                std::span<const std::uint8_t> AdditionalData = {}) -> Fault::Code;
 
         /**
          * @brief AEAD 解密（自动递增 Nonce）
@@ -152,8 +152,8 @@ namespace Preview::Crypto
          * @param ad 附加数据（可选）
          * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
          */
-        [[nodiscard]] auto Open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext,
-                                std::span<const std::uint8_t> ad = {}) -> Fault::Code;
+        [[nodiscard]] auto Open(std::span<std::uint8_t> Out, std::span<const std::uint8_t> Ciphertext,
+                                std::span<const std::uint8_t> AdditionalData = {}) -> Fault::Code;
 
         /**
          * @brief AEAD 加密（显式 Nonce，不修改内部状态）
@@ -162,7 +162,7 @@ namespace Preview::Crypto
          * @param input 加密参数（输出缓冲区、明文、Nonce、附加数据）
          * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
          */
-        [[nodiscard]] auto Seal(SealInput input) -> Fault::Code;
+        [[nodiscard]] auto Seal(SealInput Input) -> Fault::Code;
 
         /**
          * @brief AEAD 解密（显式 Nonce，不修改内部状态）
@@ -171,7 +171,7 @@ namespace Preview::Crypto
          * @param input 解密参数（输出缓冲区、密文、Nonce、附加数据）
          * @return 成功返回 Fault::Code::Success，失败返回 crypto_error
          */
-        [[nodiscard]] auto Open(OpenInput input) -> Fault::Code;
+        [[nodiscard]] auto Open(OpenInput Input) -> Fault::Code;
 
         /**
          * @brief AEAD tag 长度（固定 16 字节）
@@ -246,7 +246,7 @@ namespace Preview::Crypto
          */
         [[nodiscard]] auto IsNonceExhausted() const noexcept -> bool;
 
-        static void ReleaseCtx(evp_aead_ctx_st *ctx) noexcept;
+        static void ReleaseCtx(evp_aead_ctx_st *Context) noexcept;
 
         std::unique_ptr<evp_aead_ctx_st, void (*)(evp_aead_ctx_st *) noexcept> Ctx_; // BoringSSL AEAD 上下文
         std::array<std::uint8_t, 24> Nonce_{}; // 当前 Nonce 值（最大 24 字节）
@@ -256,48 +256,48 @@ namespace Preview::Crypto
 
 
 
-    inline void AeadContext::ReleaseCtx(evp_aead_ctx_st *ctx) noexcept
+    inline void AeadContext::ReleaseCtx(evp_aead_ctx_st *Context) noexcept
     {
-        if (ctx)
+        if (Context)
         {
-            EVP_AEAD_CTX_cleanup(ctx);
-            delete ctx;
+            EVP_AEAD_CTX_cleanup(Context);
+            delete Context;
         }
     }
 
-    inline AeadContext::AeadContext(const AeadCipher cipher, std::span<const std::uint8_t> key)
-        : Ctx_(nullptr, &ReleaseCtx), KeyLength_(key.size())
+    inline AeadContext::AeadContext(const AeadCipher Cipher, std::span<const std::uint8_t> Key)
+        : Ctx_(nullptr, &ReleaseCtx), KeyLength_(Key.size())
     {
-        const EVP_AEAD *aead = nullptr;
-        switch (cipher)
+        const EVP_AEAD *Aead = nullptr;
+        switch (Cipher)
         {
         case AeadCipher::Aes128Gcm:
-            aead = EVP_aead_aes_128_gcm();
+            Aead = EVP_aead_aes_128_gcm();
             NonceLen_ = 12;
             break;
         case AeadCipher::Aes256Gcm:
-            aead = EVP_aead_aes_256_gcm();
+            Aead = EVP_aead_aes_256_gcm();
             NonceLen_ = 12;
             break;
         case AeadCipher::Chacha20Poly1305:
-            aead = EVP_aead_chacha20_poly1305();
+            Aead = EVP_aead_chacha20_poly1305();
             NonceLen_ = 12;
             break;
         case AeadCipher::Xchacha20Poly1305:
-            aead = EVP_aead_xchacha20_poly1305();
+            Aead = EVP_aead_xchacha20_poly1305();
             NonceLen_ = 24;
             break;
         default: return;
         }
 
-        if (!aead)
+        if (!Aead)
         {
             return;
         }
 
         auto *RawCtx = new EVP_AEAD_CTX;
         EVP_AEAD_CTX_zero(RawCtx);
-        if (!EVP_AEAD_CTX_init(RawCtx, aead, key.data(), key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr))
+        if (!EVP_AEAD_CTX_init(RawCtx, Aead, Key.data(), Key.size(), EVP_AEAD_DEFAULT_TAG_LENGTH, nullptr))
         {
             EVP_AEAD_CTX_cleanup(RawCtx);
             delete RawCtx;
@@ -328,8 +328,9 @@ namespace Preview::Crypto
         return *this;
     }
 
-    inline auto AeadContext::Seal(std::span<std::uint8_t> out, std::span<const std::uint8_t> plaintext,
-                            const std::span<const std::uint8_t> ad) -> Fault::Code
+    inline auto AeadContext::Seal(std::span<std::uint8_t> Out,
+                                  std::span<const std::uint8_t> Plaintext,
+                                  const std::span<const std::uint8_t> AdditionalData) -> Fault::Code
     {
         if (!Ctx_)
         {
@@ -343,8 +344,8 @@ namespace Preview::Crypto
 
         std::size_t OutLen = 0;
         const auto Result =
-            EVP_AEAD_CTX_seal(Ctx_.get(), out.data(), &OutLen, out.size(), Nonce_.data(), NonceLen_,
-                              plaintext.data(), plaintext.size(), ad.data(), ad.size());
+            EVP_AEAD_CTX_seal(Ctx_.get(), Out.data(), &OutLen, Out.size(), Nonce_.data(), NonceLen_,
+                              Plaintext.data(), Plaintext.size(), AdditionalData.data(), AdditionalData.size());
 
         if (!Result)
         {
@@ -355,8 +356,9 @@ namespace Preview::Crypto
         return Fault::Code::Success;
     }
 
-    inline auto AeadContext::Open(std::span<std::uint8_t> out, std::span<const std::uint8_t> ciphertext,
-                            const std::span<const std::uint8_t> ad) -> Fault::Code
+    inline auto AeadContext::Open(std::span<std::uint8_t> Out,
+                                  std::span<const std::uint8_t> Ciphertext,
+                                  const std::span<const std::uint8_t> AdditionalData) -> Fault::Code
     {
         if (!Ctx_)
         {
@@ -370,8 +372,8 @@ namespace Preview::Crypto
 
         std::size_t OutLen = 0;
         const auto Result =
-            EVP_AEAD_CTX_open(Ctx_.get(), out.data(), &OutLen, out.size(), Nonce_.data(), NonceLen_,
-                              ciphertext.data(), ciphertext.size(), ad.data(), ad.size());
+            EVP_AEAD_CTX_open(Ctx_.get(), Out.data(), &OutLen, Out.size(), Nonce_.data(), NonceLen_,
+                              Ciphertext.data(), Ciphertext.size(), AdditionalData.data(), AdditionalData.size());
 
         if (!Result)
         {
@@ -382,7 +384,7 @@ namespace Preview::Crypto
         return Fault::Code::Success;
     }
 
-    inline auto AeadContext::Seal(SealInput input) -> Fault::Code
+    inline auto AeadContext::Seal(SealInput Input) -> Fault::Code
     {
         if (!Ctx_)
         {
@@ -390,9 +392,10 @@ namespace Preview::Crypto
         }
 
         std::size_t OutLen = 0;
-        const auto Result = EVP_AEAD_CTX_seal(Ctx_.get(), input.out.data(), &OutLen, input.out.size(),
-                                              input.Nonce.data(), input.Nonce.size(), input.plaintext.data(),
-                                              input.plaintext.size(), input.ad.data(), input.ad.size());
+        const auto Result = EVP_AEAD_CTX_seal(Ctx_.get(), Input.Out.data(), &OutLen, Input.Out.size(),
+                                              Input.Nonce.data(), Input.Nonce.size(), Input.Plaintext.data(),
+                                              Input.Plaintext.size(), Input.AdditionalData.data(),
+                                              Input.AdditionalData.size());
 
         if (!Result)
         {
@@ -402,7 +405,7 @@ namespace Preview::Crypto
         return Fault::Code::Success;
     }
 
-    inline auto AeadContext::Open(OpenInput input) -> Fault::Code
+    inline auto AeadContext::Open(OpenInput Input) -> Fault::Code
     {
         if (!Ctx_)
         {
@@ -410,9 +413,10 @@ namespace Preview::Crypto
         }
 
         std::size_t OutLen = 0;
-        const auto Result = EVP_AEAD_CTX_open(Ctx_.get(), input.out.data(), &OutLen, input.out.size(),
-                                              input.Nonce.data(), input.Nonce.size(), input.ciphertext.data(),
-                                              input.ciphertext.size(), input.ad.data(), input.ad.size());
+        const auto Result = EVP_AEAD_CTX_open(Ctx_.get(), Input.Out.data(), &OutLen, Input.Out.size(),
+                                              Input.Nonce.data(), Input.Nonce.size(), Input.Ciphertext.data(),
+                                              Input.Ciphertext.size(), Input.AdditionalData.data(),
+                                              Input.AdditionalData.size());
 
         if (!Result)
         {

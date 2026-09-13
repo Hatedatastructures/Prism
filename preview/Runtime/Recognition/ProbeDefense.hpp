@@ -13,6 +13,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <unordered_map>
 
@@ -85,10 +86,24 @@ namespace Preview::Recognition
     class ProbeDefenseTracker
     {
     public:
-        explicit ProbeDefenseTracker(std::uint32_t WindowSec = 300, std::uint32_t Threshold = 2,
-                         std::uint32_t MaxRecords = 100000) noexcept
-            : WindowSec_(WindowSec), Threshold_(Threshold), MaxRecords_(MaxRecords)
+        using Clock = std::chrono::steady_clock;
+        using NowFn = Clock::time_point (*)();
+
+        [[nodiscard]] static auto DefaultNow() noexcept -> Clock::time_point
         {
+            return Clock::now();
+        }
+
+        explicit ProbeDefenseTracker(std::uint32_t WindowSec = 300, std::uint32_t Threshold = 2,
+                                     std::uint32_t MaxRecords = 100000,
+                                     NowFn Now = &DefaultNow) noexcept
+            : WindowSec_(WindowSec), Threshold_(Threshold), MaxRecords_(MaxRecords),
+              Now_(Now)
+        {
+            if (Now_ == nullptr)
+            {
+                Now_ = &DefaultNow;
+            }
         }
 
         /**
@@ -124,13 +139,14 @@ namespace Preview::Recognition
         /**
          * @brief 清除过期记录,超出 MaxRecords 时淘汰最旧记录
          */
-        auto Expire() -> void;
+        auto Expire() const -> void;
 
     private:
         std::uint32_t WindowSec_;
         std::uint32_t Threshold_;
         std::uint32_t MaxRecords_;
-        std::unordered_map<AddressHash, ProbeRecord, AddressHasher> Records_;
+        NowFn Now_;
+        mutable std::unordered_map<AddressHash, ProbeRecord, AddressHasher> Records_;
     };
 
 
@@ -190,20 +206,46 @@ namespace Preview::Recognition
 
     inline auto ProbeDefenseTracker::Record(const AddressHash &src, std::uint16_t tier) -> void
     {
-        auto Now = std::chrono::steady_clock::now();
+        if (MaxRecords_ == 0)
+        {
+            return;
+        }
+
+        const auto Now = Now_();
+        Expire();
         auto It = Records_.find(src);
         if (It == Records_.end())
         {
             if (Records_.size() >= MaxRecords_)
             {
                 Expire();
+                if (Records_.size() >= MaxRecords_)
+                {
+                    auto Oldest = Records_.begin();
+                    for (auto Candidate = Records_.begin(); Candidate != Records_.end(); ++Candidate)
+                    {
+                        if (Candidate->second.timestamp < Oldest->second.timestamp)
+                        {
+                            Oldest = Candidate;
+                        }
+                    }
+                    Records_.erase(Oldest);
+                }
             }
             Records_.emplace(src, ProbeRecord{Now, 1, tier});
         }
         else
         {
+            const auto Window = std::chrono::seconds(WindowSec_);
+            if (Now - It->second.timestamp > Window)
+            {
+                It->second.FailCount = 1;
+            }
+            else if (It->second.FailCount < std::numeric_limits<std::uint16_t>::max())
+            {
+                ++It->second.FailCount;
+            }
             It->second.timestamp = Now;
-            It->second.FailCount++;
             It->second.tier = tier;
         }
     }
@@ -211,6 +253,7 @@ namespace Preview::Recognition
     inline auto ProbeDefenseTracker::FailCount(const AddressHash &src) const noexcept 
         -> std::uint16_t
     {
+        Expire();
         auto It = Records_.find(src);
         if (It == Records_.end())
         {
@@ -234,9 +277,9 @@ namespace Preview::Recognition
         Records_.erase(src);
     }
 
-    inline auto ProbeDefenseTracker::Expire() -> void
+    inline auto ProbeDefenseTracker::Expire() const -> void
     {
-        const auto Now = std::chrono::steady_clock::now();
+        const auto Now = Now_();
         const auto Window = std::chrono::seconds(WindowSec_);
 
         // 清除过期记录

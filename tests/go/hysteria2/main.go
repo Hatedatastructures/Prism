@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -14,8 +15,8 @@ import (
 	"github.com/metacubex/quic-go"
 	qtls "github.com/metacubex/sing-quic"
 	"github.com/metacubex/sing-quic/hysteria2"
-	"github.com/metacubex/tls"
 	M "github.com/metacubex/sing/common/metadata"
+	"github.com/metacubex/tls"
 )
 
 func echoServer() (uint16, error) {
@@ -39,6 +40,11 @@ func echoServer() (uint16, error) {
 }
 
 func main() {
+	server := flag.String("server", "127.0.0.1:8081", "Hysteria2 server address")
+	password := flag.String("password", "hysteria2_password", "Hysteria2 password")
+	udp := flag.Bool("udp", false, "run UDP authenticated echo instead of TCP")
+	flag.Parse()
+
 	port, err := echoServer()
 	if err != nil {
 		fmt.Printf("FAIL: echo server: %v\n", err)
@@ -84,11 +90,12 @@ func main() {
 
 	client, err := hysteria2.NewClient(hysteria2.ClientOptions{
 		Context:        context.Background(),
-		ServerAddress:  M.ParseSocksaddr("127.0.0.1:8081"),
-		Password:       "hysteria2_password",
+		ServerAddress:  M.ParseSocksaddr(*server),
+		Password:       *password,
 		TLSConfig:      tlsConfig,
 		PacketListener: packetListener,
 		QuicDialer:     quicDialer,
+		UdpMTU:         1200,
 	})
 	if err != nil {
 		fmt.Printf("FAIL: NewClient: %v\n", err)
@@ -97,6 +104,37 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if *udp {
+		packetConn, err := client.ListenPacket(ctx)
+		if err != nil {
+			fmt.Printf("FAIL: ListenPacket: %v\n", err)
+			os.Exit(1)
+		}
+		defer packetConn.Close()
+		target, err := net.ResolveUDPAddr("udp", "127.0.0.1:53")
+		if err != nil {
+			fmt.Printf("FAIL: UDP target: %v\n", err)
+			os.Exit(1)
+		}
+		payload := []byte("hello hysteria2 udp from go")
+		if _, err := packetConn.WriteTo(payload, target); err != nil {
+			fmt.Printf("FAIL: UDP write: %v\n", err)
+			os.Exit(1)
+		}
+		buffer := make([]byte, 128)
+		packetConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, _, err := packetConn.ReadFrom(buffer)
+		if err != nil {
+			fmt.Printf("FAIL: UDP read echo: %v\n", err)
+			os.Exit(1)
+		}
+		if string(buffer[:n]) != string(payload) {
+			fmt.Printf("FAIL: UDP echo mismatch: got %q want %q\n", string(buffer[:n]), string(payload))
+			os.Exit(1)
+		}
+		fmt.Printf("PASS: hysteria2 UDP echo ok (%d bytes)\n", n)
+		return
+	}
 
 	conn, err := client.DialConn(ctx, M.ParseSocksaddr(fmt.Sprintf("127.0.0.1:%d", port)))
 	if err != nil {

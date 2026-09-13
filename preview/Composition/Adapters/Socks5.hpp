@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <boost/asio/awaitable.hpp>
+
 #include <preview/Foundation/Utility/Diagnose/Log.hpp>
 #include <preview/Foundation/Fault/Handling.hpp>
 #include <preview/Runtime/Contract/Handler.hpp>
@@ -12,6 +14,8 @@
 
 namespace Preview::Runtime::Handler
 {
+    namespace Net = boost::asio;
+
     /// fault 错误码 → SOCKS5 BND 应答码
     [[nodiscard]] inline auto ToReplyCode(Preview::Fault::Code ec)
         -> Preview::Socks5::ReplyCode
@@ -36,7 +40,7 @@ namespace Preview::Runtime::Handler
 
     /// 拨号完成后补发 CONNECT 应答（DeferConnectReply 语义）
     [[nodiscard]] inline auto SendDeferredReply(std::shared_ptr<Preview::Socks5::Conn<>> Keep,
-                                                  Preview::Fault::Code ec) -> net::awaitable<void>
+                                                  Preview::Fault::Code ec) -> Net::awaitable<void>
     {
         const auto ReplyErr = co_await Keep->SendConnectReply(ToReplyCode(ec));
         if (ReplyErr != Preview::Error::None)
@@ -56,7 +60,7 @@ namespace Preview::Runtime::Handler
         explicit Socks5(Preview::Socks5::ServerConfig cfg) : Cfg_(std::move(cfg)) {}
 
         auto Accept(Preview::SharedTransmission Inbound)
-            -> net::awaitable<AcceptResult> override
+            -> Net::awaitable<AcceptResult> override
         {
             auto Local = Cfg_;
             Local.DeferConnectReply = true;
@@ -66,6 +70,8 @@ namespace Preview::Runtime::Handler
             if (err != Preview::Error::None || !Conn) co_return r;
             r.Target.Host = req.Target.Host;
             r.Target.Port = std::to_string(req.Target.Port);
+            r.ProtocolAuthenticated = Cfg_.EnableAuth;
+            r.AccountLease = Conn->TakeAuthLease();
             // identity 留空：RFC 1929 用户名在 Conn 内部校验，未回填 Request（后续可在 Conn 层暴露）
             if (req.Cmd == Preview::Socks5::Command::UdpAssociate)
             {
@@ -76,7 +82,7 @@ namespace Preview::Runtime::Handler
             }
             auto Keep = Conn;
             r.Transmission = std::move(Conn);
-            r.PostDial = [Keep](Preview::Fault::Code ec) -> net::awaitable<void>
+            r.PostDial = [Keep](Preview::Fault::Code ec) -> Net::awaitable<void>
             {
                 co_await SendDeferredReply(Keep, ec);
             };

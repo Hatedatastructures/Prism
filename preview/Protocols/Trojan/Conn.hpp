@@ -7,7 +7,7 @@
  * - 客户端：WriteHandshake 发送请求头（凭据 + 命令 + 地址）
  * - 服务端：ReadHandshake 解析校验请求头
  * UDP 数据面由 Dgram.hpp 提供（独立包连接类型，嵌入本连接）。
- * @note 对齐 mihomo transport：TCP = net.Conn（纯流语义）。
+ * @note 对齐 mihomo transport：TCP 采用纯流传输语义。
  * @note 模板参数仅 Memory（会话内存策略：Arena 复用零分配），
  *      上游传输类型经 Transmission 虚接口擦除，装饰器链统一。
  */
@@ -17,15 +17,17 @@
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -39,6 +41,8 @@
 
 namespace Preview::Trojan
 {
+
+    namespace Net = boost::asio;
 
     /**
      * @class Conn
@@ -54,36 +58,49 @@ namespace Preview::Trojan
     public:
         /**
          * @brief 构造函数（工厂调用）
-         * @param upstream 上游传输（所有权移交）
-         * @param password 协议密码（派生 SHA224 hex 凭据）
-         * @param Auth 认证器（非拥有；nullptr = 静态比对 password）
+         * @param Upstream 上游传输（所有权移交）
+         * @param Password 协议密码（派生 SHA224 hex 凭据）
+         * @param Auth 认证器（旧兼容裸指针；nullptr = 静态比对 password）
+         * @param AuthOwner 认证器共享所有权（可选）
          */
-        explicit Conn(SharedTransmission upstream, std::string password,
-                      const Preview::Authenticator *Auth = nullptr)
-            : NextLayer_(std::move(upstream)), Auth_(Auth)
+        explicit Conn(
+            SharedTransmission Upstream,
+            std::string Password,
+            const Preview::Authenticator *Auth = nullptr,
+            Preview::SharedAuthenticator AuthOwner = {})
+            : NextLayer_(std::move(Upstream)), AuthOwner_(std::move(AuthOwner)), Auth_(Auth)
         {
-            Cred_ = Credential(password);
+            if (AuthOwner_)
+            {
+                Auth_ = AuthOwner_.get();
+            }
+            Cred_ = Credential(Password);
         }
 
         /**
          * @brief 获取执行器（静态分派到上游）
          */
-        [[nodiscard]] auto Executor() const -> net::any_io_executor override
+        [[nodiscard]] auto Executor() const -> Net::any_io_executor override
         {
+            if (!NextLayer_)
+            {
+                return {};
+            }
             return NextLayer_->Executor();
         }
 
         /**
          * @brief 异步读取（预读缓冲优先）
          * @param Buffer 接收缓冲区
-         * @param ec 错误码输出参数
+         * @param ErrorCode 错误码输出参数
          * @return 实际读取字节数
          * @details 握手阶段预读的剩余字节先被消费，清空后透传底层。
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            ec.clear();
+            ErrorCode.clear();
             if (Used_ > 0)
             {
                 const auto N = std::min(Buffer.size(), Used_);
@@ -99,37 +116,55 @@ namespace Preview::Trojan
                 Used_ -= N;
                 co_return N;
             }
-            co_return co_await NextLayer_->async_read_some(Buffer, ec);
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_read_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 异步写入（静态分派透传）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
-            co_return co_await NextLayer_->async_write_some(Buffer, ec);
+            ErrorCode.clear();
+            if (!NextLayer_)
+            {
+                ErrorCode = make_error_code(Error::NotOpen);
+                co_return 0;
+            }
+            co_return co_await NextLayer_->async_write_some(Buffer, ErrorCode);
         }
 
         /**
          * @brief 异步读取直至缓冲区读满（组合操作）
          * @param Buffer 接收缓冲区
-         * @param ec 错误码输出参数
+         * @param ErrorCode 错误码输出参数
          * @return 实际读取字节数（满 = Buffer.size()；EOF 提前返回）
          */
-        [[nodiscard]] auto AsyncRead(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+        [[nodiscard]] auto AsyncRead(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t>
         {
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
-                const auto N = co_await async_read_some(Buffer.subspan(Done), ec);
-                if (ec)
+                const auto N = co_await async_read_some(Buffer.subspan(Done), ErrorCode);
+                if (ErrorCode)
                 {
                     co_return Done;
                 }
                 if (N == 0)
                 {
+                    co_return Done;
+                }
+                if (N > Buffer.size() - Done)
+                {
+                    ErrorCode = make_error_code(Error::BrokenPipe);
                     co_return Done;
                 }
                 Done += N;
@@ -140,23 +175,29 @@ namespace Preview::Trojan
         /**
          * @brief 异步写入直至缓冲区写满（组合操作）
          * @param Buffer 发送缓冲区
-         * @param ec 错误码输出参数
+         * @param ErrorCode 错误码输出参数
          * @return 实际写入字节数（满 = Buffer.size()）
          */
-        [[nodiscard]] auto AsyncWrite(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t>
+        [[nodiscard]] auto AsyncWrite(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t>
         {
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
-                const auto N = co_await async_write_some(Buffer.subspan(Done), ec);
-                if (ec)
+                const auto N = co_await async_write_some(Buffer.subspan(Done), ErrorCode);
+                if (ErrorCode)
                 {
                     co_return Done;
                 }
                 if (N == 0)
                 {
-                    ec = make_error_code(Error::BrokenPipe);
+                    ErrorCode = make_error_code(Error::BrokenPipe);
+                    co_return Done;
+                }
+                if (N > Buffer.size() - Done)
+                {
+                    ErrorCode = make_error_code(Error::BrokenPipe);
                     co_return Done;
                 }
                 Done += N;
@@ -167,23 +208,29 @@ namespace Preview::Trojan
         /**
          * @brief 关闭传输层（静态分派）
          */
-        void Close() override
+        auto Close() -> void override
         {
-            NextLayer_->Close();
+            if (NextLayer_)
+            {
+                NextLayer_->Close();
+            }
         }
 
         /**
          * @brief 取消挂起操作（静态分派）
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
-            NextLayer_->Cancel();
+            if (NextLayer_)
+            {
+                NextLayer_->Cancel();
+            }
         }
 
         /**
          * @brief 获取内层传输（装饰器链导航）
          */
-        [[nodiscard]] auto NextLayer() noexcept 
+        [[nodiscard]] auto NextLayer() noexcept
             -> Preview::Transmission * override
         {
             return NextLayer_.get();
@@ -192,7 +239,7 @@ namespace Preview::Trojan
         /**
          * @brief 获取内层传输（const 版本）
          */
-        [[nodiscard]] auto NextLayer() const noexcept 
+        [[nodiscard]] auto NextLayer() const noexcept
             -> const Preview::Transmission * override
         {
             return NextLayer_.get();
@@ -237,15 +284,24 @@ namespace Preview::Trojan
         /**
          * @brief 客户端握手：发送请求头（凭据 + 命令 + 地址）
          * @param Target 目标地址
-         * @param cmd 命令（CONNECT / udp_associate / mux）
+         * @param Cmd 命令（CONNECT / udp_associate / mux）
          * @return 错误码
          * @details 构造并发送请求头，不读响应（对齐主库 trojan）。
          * 由工厂 Connect 内部调用。
          */
-        [[nodiscard]] auto WriteHandshake(const Address &Target, Command Cmd = Command::Connect)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto WriteHandshake(
+            const Address &Target,
+            Command Cmd = Command::Connect) -> Net::awaitable<Error>
         {
+            if (Cmd != Command::Connect && Cmd != Command::UdpAssociate && Cmd != Command::Mux)
+            {
+                co_return Error::BadMessage;
+            }
             const auto Wire = BuildRequest(Cred_, Cmd, Target);
+            if (Wire.empty())
+            {
+                co_return Error::BadAddress;
+            }
             const bool Failed = co_await SendBytes(Wire); // true = 发送失败
             Handshaken_ = !Failed;
             if (Failed)
@@ -265,7 +321,7 @@ namespace Preview::Trojan
          * 由工厂 Accept 内部调用。
          */
         [[nodiscard]] auto ReadHandshake(bool EnableTcp = true, bool EnableUdp = false)
-            -> net::awaitable<std::pair<Error, RequestHeader>>
+            -> Net::awaitable<std::pair<Error, RequestHeader>>
         {
             // 1. 凭据前缀：Credential(56) + CRLF(2)
             std::array<std::uint8_t, CredentialLen + 2> Prefix{};
@@ -273,15 +329,22 @@ namespace Preview::Trojan
             {
                 co_return std::pair{Error::IoError, RequestHeader{}};
             }
-            const std::string_view got(reinterpret_cast<const char *>(Prefix.data()), CredentialLen);
+            const std::string_view CredentialValue(
+                reinterpret_cast<const char *>(Prefix.data()),
+                CredentialLen);
             bool BadAuth = false;
             if (Auth_)
             {
-                BadAuth = !Auth_->Check("", got).Ok;
+                auto AuthenticationResult = Auth_->Check("", CredentialValue);
+                BadAuth = !AuthenticationResult.Ok;
+                if (!BadAuth && AuthenticationResult.Lease)
+                {
+                    AuthLease_ = std::move(AuthenticationResult.Lease);
+                }
             }
             else
             {
-                BadAuth = (got != Cred_);
+                BadAuth = !Preview::ConstantTimeEqual(CredentialValue, Cred_);
             }
             if (BadAuth)
             {
@@ -293,12 +356,12 @@ namespace Preview::Trojan
             }
 
             // 2. 头部：Cmd(1) + Atyp(1)
-            std::array<std::uint8_t, 2> head{};
-            if (co_await ReadExactImpl(std::span<std::uint8_t>(head)))
+            std::array<std::uint8_t, 2> Head{};
+            if (co_await ReadExactImpl(std::span<std::uint8_t>(Head)))
             {
                 co_return std::pair{Error::IoError, RequestHeader{}};
             }
-            const auto Cmd = static_cast<Command>(head[0]);
+            const auto Cmd = static_cast<Command>(Head[0]);
             if (Cmd != Command::Connect && Cmd != Command::UdpAssociate && Cmd != Command::Mux)
             {
                 co_return std::pair{Error::BadMessage, RequestHeader{}};
@@ -311,37 +374,42 @@ namespace Preview::Trojan
             {
                 co_return std::pair{Error::NotSupported, RequestHeader{}};
             }
-            const auto Atyp = static_cast<AddressType>(head[1]);
-            if (Atyp != AddressType::Ipv4 && Atyp != AddressType::Domain && Atyp != AddressType::Ipv6)
+            const auto AddressTypeValue = static_cast<AddressType>(Head[1]);
+            if (AddressTypeValue != AddressType::Ipv4 && AddressTypeValue != AddressType::Domain &&
+                AddressTypeValue != AddressType::Ipv6)
             {
                 co_return std::pair{Error::BadMessage, RequestHeader{}};
             }
 
             // 3. 地址体
-            RequestHeader req;
-            req.Cmd = Cmd;
-            req.Target.Type = Atyp;
-            auto Err = co_await ReadAddressBody(req.Target);
-            if (Err != Error::None)
+            RequestHeader RequestValue;
+            RequestValue.Cmd = Cmd;
+            RequestValue.Target.Type = AddressTypeValue;
+            const auto AddressError = co_await ReadAddressBody(RequestValue.Target);
+            if (AddressError != Error::None)
             {
-                co_return std::pair{Err, RequestHeader{}};
+                co_return std::pair{AddressError, RequestHeader{}};
+            }
+            if (RequestValue.Target.Type == AddressType::Domain && RequestValue.Target.Host.empty())
+            {
+                co_return std::pair{Error::BadMessage, RequestHeader{}};
             }
 
             // 4. 尾部：Port(2 BE) + CRLF(2)
-            std::array<std::uint8_t, 4> tail{};
-            if (co_await ReadExactImpl(std::span<std::uint8_t>(tail)))
+            std::array<std::uint8_t, 4> Tail{};
+            if (co_await ReadExactImpl(std::span<std::uint8_t>(Tail)))
             {
                 co_return std::pair{Error::IoError, RequestHeader{}};
             }
-            req.Target.Port = static_cast<std::uint16_t>(tail[0]) << 8 | tail[1];
-            if (tail[2] != '\r' || tail[3] != '\n')
+            RequestValue.Target.Port = static_cast<std::uint16_t>(Tail[0]) << 8 | Tail[1];
+            if (Tail[2] != '\r' || Tail[3] != '\n')
             {
                 co_return std::pair{Error::BadMagic, RequestHeader{}};
             }
 
-            Request_ = req;
+            Request_ = RequestValue;
             Handshaken_ = true;
-            co_return std::pair{Error::None, std::move(req)};
+            co_return std::pair{Error::None, std::move(RequestValue)};
         }
 
         /**
@@ -354,45 +422,58 @@ namespace Preview::Trojan
         }
 
         /**
+         * @brief 转移协议认证产生的账户租约
+         * @return 已认证账户租约；静态密码认证时为空
+         */
+        [[nodiscard]] auto TakeAuthLease() -> std::optional<Preview::Account::Lease>
+        {
+            return std::move(AuthLease_);
+        }
+
+        /**
          * @brief 精确分段读取（供包连接复用预读缓冲）
-         * @param dst 目标缓冲区
+         * @param Buffer 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> dst) -> net::awaitable<bool>
+        [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Buffer)
+            -> Net::awaitable<bool>
         {
-            return ReadExactImpl(dst);
+            return ReadExactImpl(Buffer);
         }
 
     private:
         /**
          * @brief 读取地址体（ATYP 已由调用方解析）
-         * @param addr 输出地址
+         * @param Output 输出地址
          * @return 错误码
          * @note 转发层：统一实现见 Protocol/common::ReadAddressBody
          */
-        [[nodiscard]] auto ReadAddressBody(Address &addr)
-            -> net::awaitable<Error>
+        [[nodiscard]] auto ReadAddressBody(Address &Output) -> Net::awaitable<Error>
         {
             return Preview::Protocol::Common::ReadAddressBody(
-                addr, [this](std::span<std::uint8_t> dst) -> net::awaitable<bool> { return ReadExactImpl(dst); });
+                Output,
+                [this](std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
+                {
+                    return ReadExactImpl(Buffer);
+                });
         }
 
         /**
          * @brief 精确读取指定字节数（内部缓冲优先 + 底层补充）
-         * @param dst 目标缓冲区
+         * @param Buffer 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          * @details 超读字节保留在内部缓冲供后续消费。
          */
-        [[nodiscard]] auto ReadExactImpl(std::span<std::uint8_t> dst) 
-            -> net::awaitable<bool>
+        [[nodiscard]] auto ReadExactImpl(std::span<std::uint8_t> Buffer)
+            -> Net::awaitable<bool>
         {
             std::size_t Done = 0;
-            while (Done < dst.size())
+            while (Done < Buffer.size())
             {
                 if (Used_ > 0)
                 {
-                    const auto N = std::min(dst.size() - Done, Used_);
-                    std::memcpy(dst.data() + Done, Buf_.data(), N);
+                    const auto N = std::min(Buffer.size() - Done, Used_);
+                    std::memcpy(Buffer.data() + Done, Buf_.data(), N);
                     if (N < Used_)
                     {
                         std::memmove(Buf_.data(), Buf_.data() + N, Used_ - N);
@@ -406,15 +487,23 @@ namespace Preview::Trojan
                     Done += N;
                     continue;
                 }
-                std::array<std::uint8_t, 512> chunk{};
-                std::error_code ec;
-                const auto N = co_await NextLayer_->async_read_some(
-                    std::span<std::byte>(reinterpret_cast<std::byte *>(chunk.data()), chunk.size()), ec);
-                if (ec || N == 0)
+                if (!NextLayer_)
                 {
                     co_return true;
                 }
-                Buf_.insert(Buf_.end(), chunk.begin(), chunk.begin() + static_cast<std::ptrdiff_t>(N));
+                std::array<std::uint8_t, 512> Chunk{};
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_read_some(
+                    std::span<std::byte>(reinterpret_cast<std::byte *>(Chunk.data()), Chunk.size()), ErrorCode);
+                if (ErrorCode || N == 0)
+                {
+                    co_return true;
+                }
+                if (N > Chunk.size())
+                {
+                    co_return true;
+                }
+                Buf_.insert(Buf_.end(), Chunk.begin(), Chunk.begin() + static_cast<std::ptrdiff_t>(N));
                 Used_ += N;
             }
             co_return false;
@@ -425,23 +514,33 @@ namespace Preview::Trojan
          * @param Data 数据
          * @return true = 失败
          */
-        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const -> net::awaitable<bool>
+        [[nodiscard]] auto SendBytes(std::span<const std::uint8_t> Data) const
+            -> Net::awaitable<bool>
         {
             std::size_t Done = 0;
             while (Done < Data.size())
             {
-                std::error_code ec;
+                if (!NextLayer_)
+                {
+                    co_return true;
+                }
+                std::error_code ErrorCode;
+                ErrorCode.clear();
                 const auto N = co_await NextLayer_->async_write_some(
                     std::span<const std::byte>(reinterpret_cast<const std::byte *>(Data.data() + Done),
                                                Data.size() - Done),
-                    ec);
-                if (ec)
+                    ErrorCode);
+                if (ErrorCode)
                 {
                     co_return true;
                 }
                 if (N == 0)
                 {
                     co_return true; // 底层零字节写入，防死循环
+                }
+                if (N > Data.size() - Done)
+                {
+                    co_return true;
                 }
                 Done += N;
             }
@@ -450,7 +549,9 @@ namespace Preview::Trojan
 
         SharedTransmission NextLayer_;              ///< 上游传输（基类传参，运行时多态）
         std::string Cred_;                            ///< 预计算凭据（SHA224 hex）
-        const Preview::Authenticator *Auth_{nullptr}; ///< 认证器（非拥有）
+        Preview::SharedAuthenticator AuthOwner_{}; ///< 认证器共享所有权
+        const Preview::Authenticator *Auth_{nullptr}; ///< 认证器（兼容裸指针）
+        std::optional<Preview::Account::Lease> AuthLease_{}; ///< 协议认证租约
         RequestHeader Request_;                      ///< 服务端握手解析结果
         Memory Mem_;                                  ///< 会话内存策略（Arena，热路径零释放分配）
         typename Memory::template Buffer<std::uint8_t> Buf_{Mem_.Arena()}; ///< 预读缓冲（隧道数据暂存）

@@ -18,6 +18,7 @@
 #include <boost/asio.hpp>
 
 #include <preview/Foundation/Utility/Crypto/Crypto.hpp>
+#include <preview/Foundation/Utility/Crypto/Random.hpp>
 #include <preview/Foundation/Utility/Crypto/X25519.hpp>
 #include <preview/Foundation/Exception/Network.hpp>
 #include <preview/Foundation/Exception/Protocol.hpp>
@@ -45,27 +46,28 @@ namespace
      * @param hex 十六进制字符串（无 0x 前缀，成对字符）
      * @return 解码后的字节序列
      */
-    auto hex_to_bytes(const std::string_view hex) -> std::vector<std::uint8_t>
+    auto HexToBytes(const std::string_view Hex) -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> out;
-        out.reserve(hex.size() / 2);
-        for (std::size_t i = 0; i + 1 < hex.size(); i += 2)
+        std::vector<std::uint8_t> Output;
+        Output.reserve(Hex.size() / 2);
+        for (std::size_t Index = 0; Index + 1 < Hex.size(); Index += 2)
         {
-            const auto nib = [](const char c) -> std::uint8_t
+            const auto Nibble = [](const char Character) -> std::uint8_t
             {
-                if (c >= '0' && c <= '9')
+                if (Character >= '0' && Character <= '9')
                 {
-                    return static_cast<std::uint8_t>(c - '0');
+                    return static_cast<std::uint8_t>(Character - '0');
                 }
-                if (c >= 'a' && c <= 'f')
+                if (Character >= 'a' && Character <= 'f')
                 {
-                    return static_cast<std::uint8_t>(c - 'a' + 10);
+                    return static_cast<std::uint8_t>(Character - 'a' + 10);
                 }
-                return static_cast<std::uint8_t>(c - 'A' + 10);
+                return static_cast<std::uint8_t>(Character - 'A' + 10);
             };
-            out.push_back(static_cast<std::uint8_t>((nib(hex[i]) << 4) | nib(hex[i + 1])));
+            Output.push_back(static_cast<std::uint8_t>((Nibble(Hex[Index]) << 4) |
+                                                        Nibble(Hex[Index + 1])));
         }
-        return out;
+        return Output;
     }
 
     /**
@@ -112,7 +114,7 @@ namespace
     TEST(AeadCoverage, SealEmptyPlaintextAutoNonce)
     {
         // 空明文 Seal：输出仅 16 字节 tag，且内部 Nonce 正常递增
-        const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        const auto key = HexToBytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
         crypto::AeadContext ctx(crypto::AeadCipher::Aes256Gcm, key);
         std::array<std::uint8_t, 16> out{};
         EXPECT_EQ(ctx.Seal(out, std::span<const std::uint8_t>{}), fault::Code::Success);
@@ -122,7 +124,7 @@ namespace
     TEST(AeadCoverage, OpenEmptyCiphertext)
     {
         // 空密文 Open：密文长度 < tag 长度 → 认证失败
-        const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f");
+        const auto key = HexToBytes("000102030405060708090a0b0c0d0e0f");
         crypto::AeadContext ctx(crypto::AeadCipher::Aes128Gcm, key);
         std::array<std::uint8_t, 16> out{};
         EXPECT_EQ(ctx.Open(out, std::span<const std::uint8_t>{}), fault::Code::CryptoError);
@@ -131,7 +133,7 @@ namespace
     TEST(AeadCoverage, OpenCiphertextShorterThanTag)
     {
         // 密文长度 8 字节（不足 16 字节 tag）→ 解密失败
-        const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f");
+        const auto key = HexToBytes("000102030405060708090a0b0c0d0e0f");
         crypto::AeadContext ctx(crypto::AeadCipher::Aes128Gcm, key);
         const std::array<std::uint8_t, 8> short_ct{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
         std::array<std::uint8_t, 8> out{};
@@ -141,7 +143,7 @@ namespace
     TEST(AeadCoverage, OpenEmptyCiphertextExplicitNonce)
     {
         // 显式 Nonce 重载：空密文同样失败，且不修改内部状态
-        const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f");
+        const auto key = HexToBytes("000102030405060708090a0b0c0d0e0f");
         crypto::AeadContext ctx(crypto::AeadCipher::Aes128Gcm, key);
         const std::array<std::uint8_t, 12> Nonce{};
         std::array<std::uint8_t, 16> out{};
@@ -232,12 +234,36 @@ namespace
         EXPECT_EQ(std::string(crypto::Base64Decode("==")), "");
     }
 
+    TEST(Base64Coverage, DecodeRejectsNonCanonicalPadding)
+    {
+        EXPECT_EQ(std::string(crypto::Base64Decode("T=WE")), "");
+        EXPECT_EQ(std::string(crypto::Base64Decode("TWE=AAAA")), "");
+        EXPECT_EQ(std::string(crypto::Base64Decode("TR==")), "");
+    }
+
     TEST(Base64Coverage, DecodeNonMultipleOfFour)
     {
         // 无 padding 且有效字符数不是 4 的倍数 → 返回空串
         EXPECT_EQ(std::string(crypto::Base64Decode("TWF")), "");
         EXPECT_EQ(std::string(crypto::Base64Decode("T")), "");
         EXPECT_EQ(std::string(crypto::Base64Decode("TW")), "");
+    }
+
+    TEST(RandomCoverage, ReportsSourceFailure)
+    {
+        std::array<std::uint8_t, 4> Bytes{};
+        const auto Failed = crypto::FillRandom(
+            std::span<std::uint8_t>(Bytes), [](std::uint8_t *, int) { return 0; });
+        EXPECT_FALSE(Failed);
+
+        const auto Succeeded = crypto::FillRandom(
+            std::span<std::uint8_t>(Bytes), [](std::uint8_t *Data, int Size)
+            {
+                std::fill(Data, Data + Size, 0x5A);
+                return 1;
+            });
+        EXPECT_TRUE(Succeeded);
+        EXPECT_EQ(Bytes, (std::array<std::uint8_t, 4>{0x5A, 0x5A, 0x5A, 0x5A}));
     }
 
     // ──────────────────────── crypto: blake3 ────────────────────────
@@ -278,31 +304,46 @@ namespace
     TEST(Blake3Coverage, KeyedHashIncrementalEqualsOneshot)
     {
         // KeyedHasher 增量更新（分块）与 KeyedHash 一次性结果一致
-        const std::vector<std::uint8_t> key = hex_to_bytes("000102030405060708090a0b0c0d0e0f"
+        const std::vector<std::uint8_t> key = HexToBytes("000102030405060708090a0b0c0d0e0f"
                                                            "101112131415161718191a1b1c1d1e1f");
         const std::string Data = "incremental keyed hashing";
         const auto Bytes = std::span<const std::uint8_t>(
             reinterpret_cast<const std::uint8_t *>(Data.data()), Data.size());
 
         auto hasher = crypto::KeyedHasher(key);
-        blake3_hasher_update(&hasher, Bytes.data(), 5);
-        blake3_hasher_update(&hasher, Bytes.data() + 5, Bytes.size() - 5);
+        ASSERT_TRUE(hasher);
+        blake3_hasher_update(&*hasher, Bytes.data(), 5);
+        blake3_hasher_update(&*hasher, Bytes.data() + 5, Bytes.size() - 5);
         std::array<std::uint8_t, 32> incremental{};
-        blake3_hasher_finalize(&hasher, incremental.data(), incremental.size());
+        blake3_hasher_finalize(&*hasher, incremental.data(), incremental.size());
 
-        EXPECT_EQ(incremental, crypto::KeyedHash(key, Bytes));
+        const auto Oneshot = crypto::KeyedHash(key, Bytes);
+        ASSERT_TRUE(Oneshot);
+        EXPECT_EQ(incremental, *Oneshot);
     }
 
     TEST(Blake3Coverage, KeyedHashKeySeparation)
     {
         // 不同密钥 → 不同 keyed Hash；空输入可计算
-        const std::vector<std::uint8_t> key_a = hex_to_bytes(
+        const std::vector<std::uint8_t> key_a = HexToBytes(
             "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
         std::vector<std::uint8_t> key_b = key_a;
         key_b[0] ^= 0x01;
         const auto empty_hash_a = crypto::KeyedHash(key_a, {});
         const auto empty_hash_b = crypto::KeyedHash(key_b, {});
-        EXPECT_NE(empty_hash_a, empty_hash_b);
+        ASSERT_TRUE(empty_hash_a);
+        ASSERT_TRUE(empty_hash_b);
+        EXPECT_NE(*empty_hash_a, *empty_hash_b);
+    }
+
+    TEST(Blake3Coverage, RejectsInvalidKeyLengths)
+    {
+        const std::vector<std::uint8_t> EmptyKey;
+        const std::vector<std::uint8_t> ShortKey(31, 0x11);
+        const std::vector<std::uint8_t> LongKey(33, 0x22);
+        EXPECT_EQ(crypto::KeyedHasher(EmptyKey), Preview::Error::BadLength);
+        EXPECT_EQ(crypto::KeyedHasher(ShortKey), Preview::Error::BadLength);
+        EXPECT_EQ(crypto::KeyedHash(LongKey, {}), Preview::Error::BadLength);
     }
 
     TEST(Blake3Coverage, DeriveKeyContextAndMaterialSeparation)
@@ -331,38 +372,59 @@ namespace
     TEST(BlockCoverage, Aes128Fips197Vector)
     {
         // FIPS-197 附录 B 已知向量
-        const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f");
+        const auto key = HexToBytes("000102030405060708090a0b0c0d0e0f");
         const std::array<std::uint8_t, 16> block = {
             0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
         const auto ct = crypto::EcbEncrypt(block, key);
-        EXPECT_EQ(ToHex(ct), "69c4e0d86a7b0430d8cdb78070b4c55a");
-        EXPECT_EQ(crypto::EcbDecrypt(ct, key), block);
+        ASSERT_TRUE(ct);
+        EXPECT_EQ(ToHex(*ct), "69c4e0d86a7b0430d8cdb78070b4c55a");
+        const auto Plain = crypto::EcbDecrypt(*ct, key);
+        ASSERT_TRUE(Plain);
+        EXPECT_EQ(*Plain, block);
     }
 
     TEST(BlockCoverage, Aes256RoundTrip)
     {
         // AES-256（32 字节密钥）：加密后解密还原
-        const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f"
+        const auto key = HexToBytes("000102030405060708090a0b0c0d0e0f"
                                       "101112131415161718191a1b1c1d1e1f");
         const std::array<std::uint8_t, 16> block = {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
             0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F};
         const auto ct = crypto::EcbEncrypt(block, key);
-        EXPECT_NE(ct, block);
-        EXPECT_EQ(crypto::EcbDecrypt(ct, key), block);
+        ASSERT_TRUE(ct);
+        EXPECT_NE(*ct, block);
+        const auto Plain = crypto::EcbDecrypt(*ct, key);
+        ASSERT_TRUE(Plain);
+        EXPECT_EQ(*Plain, block);
     }
 
     TEST(BlockCoverage, WrongKeyLengthInitFailure)
     {
-        // 24 字节密钥：非 16 → 走 AES-256 分支；BoringSSL 支持 AES-192（24 字节），
-        // 加解密正常往返（safe 路径覆盖 else 分支）
-        const auto key = hex_to_bytes("000102030405060708090a0b0c0d0e0f1011121314151617");
+        // 24 字节密钥使用 AES-192；合法长度必须正常往返。
+        const auto key = HexToBytes("000102030405060708090a0b0c0d0e0f1011121314151617");
         const std::array<std::uint8_t, 16> block = {
             0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
             0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F};
         const auto ct = crypto::EcbEncrypt(block, key);
-        EXPECT_NE(ct, block);
-        EXPECT_EQ(crypto::EcbDecrypt(ct, key), block);
+        ASSERT_TRUE(ct);
+        EXPECT_NE(*ct, block);
+        const auto Plain = crypto::EcbDecrypt(*ct, key);
+        ASSERT_TRUE(Plain);
+        EXPECT_EQ(*Plain, block);
+    }
+
+    TEST(BlockCoverage, RejectsInvalidKeyLengths)
+    {
+        const std::array<std::uint8_t, 16> block{};
+        for (const auto Length : std::array<std::size_t, 5>{0, 15, 17, 31, 33})
+        {
+            const std::vector<std::uint8_t> Key(Length, 0xA5);
+            EXPECT_EQ(crypto::EcbEncrypt(block, Key), Preview::Error::BadLength)
+                << "length=" << Length;
+            EXPECT_EQ(crypto::EcbDecrypt(block, Key), Preview::Error::BadLength)
+                << "length=" << Length;
+        }
     }
 
     // ──────────────────────── crypto: hkdf ────────────────────────
@@ -400,7 +462,7 @@ namespace
     TEST(HkdfCoverage, ExtractRfc5869Prk)
     {
         // RFC 5869 测试用例 1：PRK = HMAC-SHA256(salt, IKM)
-        const auto salt = hex_to_bytes("000102030405060708090a0b0c");
+        const auto salt = HexToBytes("000102030405060708090a0b0c");
         const std::vector<std::uint8_t> ikm(22, 0x0B);
         const auto prk = crypto::HkdfExtract(salt, ikm);
         EXPECT_EQ(ToHex(prk), "077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
@@ -417,15 +479,15 @@ namespace
     TEST(HkdfCoverage, ExtractEmptyIkm)
     {
         // 空 IKM 可提取（HMAC(salt, "")），且确定性
-        const std::vector<std::uint8_t> salt = hex_to_bytes("000102030405060708090a0b0c");
+        const std::vector<std::uint8_t> salt = HexToBytes("000102030405060708090a0b0c");
         EXPECT_EQ(crypto::HkdfExtract(salt, {}), crypto::HkdfExtract(salt, {}));
     }
 
     TEST(HkdfCoverage, ExpandRfc5869Okm)
     {
         // RFC 5869 测试用例 1：L=42 的 OKM
-        const auto prk = hex_to_bytes("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
-        const auto Info = hex_to_bytes("f0f1f2f3f4f5f6f7f8f9");
+        const auto prk = HexToBytes("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
+        const auto Info = HexToBytes("f0f1f2f3f4f5f6f7f8f9");
         const auto [ec, okm] = crypto::HkdfExpand(prk, Info, 42);
         EXPECT_EQ(ec, fault::Code::Success);
         EXPECT_EQ(ToHex(okm), "3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf"
@@ -435,7 +497,7 @@ namespace
     TEST(HkdfCoverage, ExpandInvalidArguments)
     {
         // 非法参数：长度超限 / PRK 过短 / Info 过长
-        const auto prk = hex_to_bytes("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
+        const auto prk = HexToBytes("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
         EXPECT_EQ(crypto::HkdfExpand(prk, {}, 255 * crypto::Sha256Len + 1).first,
                   fault::Code::InvalidArgument);
 
@@ -449,7 +511,7 @@ namespace
     TEST(HkdfCoverage, ExpandZeroAndMaxLength)
     {
         // 边界：length=0 成功且为空；length=8160（255×32）成功
-        const auto prk = hex_to_bytes("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
+        const auto prk = HexToBytes("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5");
         const auto [ec_zero, out_zero] = crypto::HkdfExpand(prk, {}, 0);
         EXPECT_EQ(ec_zero, fault::Code::Success);
         EXPECT_TRUE(out_zero.empty());
@@ -462,7 +524,7 @@ namespace
     TEST(HkdfCoverage, ExpandLabelEquivalenceAndInvalid)
     {
         // ExpandLabel 与手构 HkdfLabel 的 HkdfExpand 结果一致
-        const auto Secret = hex_to_bytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        const auto Secret = HexToBytes("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
         const std::array<std::uint8_t, 3> Context = {0x01, 0x02, 0x03};
 
         const auto [ec, out] = crypto::ExpandLabel(
@@ -591,14 +653,14 @@ namespace
         // 密钥对：私钥非零，公钥 = DerivePubkey(私钥)
         const auto kp = crypto::GenerateKeypair();
         const std::array<std::uint8_t, crypto::X25519Klen> zero{};
-        EXPECT_NE(kp.private_key, zero);
-        EXPECT_EQ(crypto::DerivePubkey(kp.private_key), kp.PublicKey);
+        EXPECT_NE(kp.PrivateKey, zero);
+        EXPECT_EQ(crypto::DerivePubkey(kp.PrivateKey), kp.PublicKey);
     }
 
     TEST(X25519Coverage, DerivePubkeyRfc7748)
     {
         // RFC 7748 测试向量 1：Alice 私钥 → 公钥
-        const auto priv = hex_to_bytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+        const auto priv = HexToBytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
         const auto pub = crypto::DerivePubkey(priv);
         EXPECT_EQ(ToHex(pub), "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
     }
@@ -608,7 +670,7 @@ namespace
         // 非法长度：0/16/64 字节私钥 → 全零公钥
         const auto bad = crypto::DerivePubkey({});
         EXPECT_EQ(ToHex(bad), std::string(64, '0'));
-        const auto key16 = hex_to_bytes("000102030405060708090a0b0c0d0e0f");
+        const auto key16 = HexToBytes("000102030405060708090a0b0c0d0e0f");
         EXPECT_EQ(ToHex(crypto::DerivePubkey(key16)), std::string(64, '0'));
     }
 
@@ -618,8 +680,8 @@ namespace
         const auto alice = crypto::GenerateKeypair();
         const auto bob = crypto::GenerateKeypair();
 
-        const auto [ec1, s1] = crypto::X25519(alice.private_key, bob.PublicKey);
-        const auto [ec2, s2] = crypto::X25519(bob.private_key, alice.PublicKey);
+        const auto [ec1, s1] = crypto::X25519(alice.PrivateKey, bob.PublicKey);
+        const auto [ec2, s2] = crypto::X25519(bob.PrivateKey, alice.PublicKey);
         EXPECT_EQ(ec1, fault::Code::Success);
         EXPECT_EQ(ec2, fault::Code::Success);
         EXPECT_EQ(s1, s2);
@@ -630,8 +692,8 @@ namespace
     TEST(X25519Coverage, SharedSecretRfc7748)
     {
         // RFC 7748 测试向量 1：Alice/Bob 共享密钥
-        const auto alice_priv = hex_to_bytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
-        const auto bob_pub = hex_to_bytes("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
+        const auto alice_priv = HexToBytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a");
+        const auto bob_pub = HexToBytes("de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
         const auto [ec, shared] = crypto::X25519(alice_priv, bob_pub);
         EXPECT_EQ(ec, fault::Code::Success);
         EXPECT_EQ(ToHex(shared), "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
@@ -640,8 +702,8 @@ namespace
     TEST(X25519Coverage, InvalidLengthsAndLowOrder)
     {
         // 非法长度 → invalid_argument
-        const auto short_priv = hex_to_bytes("000102030405060708090a0b0c0d0e0f1011121314151617");
-        const auto pub = hex_to_bytes("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
+        const auto short_priv = HexToBytes("000102030405060708090a0b0c0d0e0f1011121314151617");
+        const auto pub = HexToBytes("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
         EXPECT_EQ(crypto::X25519(short_priv, pub).first, fault::Code::InvalidArgument);
         const std::vector<std::uint8_t> long_pub(33, 0x11);
         EXPECT_EQ(crypto::X25519(short_priv, long_pub).first, fault::Code::InvalidArgument);
@@ -649,7 +711,7 @@ namespace
         // 低阶点（全零对端公钥）：共享密钥全零 → kexfail
         const std::array<std::uint8_t, crypto::X25519Klen> zero_key{};
         const auto kp = crypto::GenerateKeypair();
-        EXPECT_EQ(crypto::X25519(kp.private_key, zero_key).first, fault::Code::Kexfail);
+        EXPECT_EQ(crypto::X25519(kp.PrivateKey, zero_key).first, fault::Code::Kexfail);
 
         // 全零私钥经 RFC 7748 钳制（e[31]|=64）后是有效标量 → 成功且共享密钥非零
         const auto [ec, shared] = crypto::X25519(zero_key, kp.PublicKey);

@@ -28,23 +28,31 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Vless = Preview::Vless;
+    using Preview::AsBytes;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
+                      {
+                          Exception = ErrorValue;
+                          IoContext.stop();
+                      });
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
-    constexpr auto make_uuid = []() -> std::array<std::uint8_t, 16>
+    constexpr auto MakeUuid = []() -> std::array<std::uint8_t, 16>
     {
         return {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
     };
@@ -62,7 +70,7 @@ namespace
     TEST(VlessCodec, ParseRequestRejectsUnknownAtyp)
     {
         std::vector<std::uint8_t> Wire{Vless::ProtocolVersion};
-        const auto Uuid = make_uuid();
+        const auto Uuid = MakeUuid();
         Wire.insert(Wire.end(), Uuid.begin(), Uuid.end());
         Wire.insert(Wire.end(), {0x00, static_cast<std::uint8_t>(Vless::Command::Tcp), 0x01, 0xBB,
                                  0x09});
@@ -85,135 +93,135 @@ namespace
 
     TEST(VlessConnErrorMatrix, BadUuid)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
         {
-            Vless::ServerConfig cfg;
-            cfg.uuid = make_uuid();
+            Vless::ServerConfig Config;
+            Config.uuid = MakeUuid();
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                auto [err, req, Conn] = co_await Vless::Accept(
-                    std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::BadAuth);
+                auto [ErrorValue, Request, Conn] = co_await Vless::Accept(
+                    std::make_shared<MemoryStream>(std::move(ServerMemory)), Config);
+                EXPECT_EQ(ErrorValue, Error::BadAuth);
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto ServerTask = Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::use_awaitable);
 
-            std::vector<std::uint8_t> wire{Vless::ProtocolVersion};
-            wire.insert(wire.end(), 16, 0xAB); // 错误 UUID
+            std::vector<std::uint8_t> Wire{Vless::ProtocolVersion};
+            Wire.insert(Wire.end(), 16, 0xAB); // 错误 UUID
             // addonsLen + cmd + port + atyp + addr(4B)：完整合法请求，仅 UUID 错误
-            wire.insert(wire.end(), {0x00, 0x01, 0x01, 0xBB, 0x01, 0x01, 0x00, 0x50, 0x01});
-            std::error_code ec;
-            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-            EXPECT_FALSE(ec);
-            a.Close();
-            co_await std::move(server_task);
+            Wire.insert(Wire.end(), {0x00, 0x01, 0x01, 0xBB, 0x01, 0x01, 0x00, 0x50, 0x01});
+            std::error_code ErrorCode;
+            co_await ClientMemory.async_write_some(AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+            EXPECT_FALSE(ErrorCode);
+            ClientMemory.Close();
+            co_await std::move(ServerTask);
         });
     }
 
     TEST(VlessConnErrorMatrix, BadVersion)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
         {
-            Vless::ServerConfig cfg;
-            cfg.uuid = make_uuid();
+            Vless::ServerConfig Config;
+            Config.uuid = MakeUuid();
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                auto [err, req, Conn] = co_await Vless::Accept(
-                    std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::BadMagic);
+                auto [ErrorValue, Request, Conn] = co_await Vless::Accept(
+                    std::make_shared<MemoryStream>(std::move(ServerMemory)), Config);
+                EXPECT_EQ(ErrorValue, Error::BadMagic);
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto ServerTask = Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::use_awaitable);
 
-            std::vector<std::uint8_t> wire{0x99}; // 错误版本
-            wire.insert(wire.end(), 16, 0x01);
-            wire.insert(wire.end(), {0x00, 0x01, 0x01, 0xBB, 0x01, 0x01, 0x00, 0x50});
-            std::error_code ec;
-            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-            co_await std::move(server_task);
+            std::vector<std::uint8_t> Wire{0x99}; // 错误版本
+            Wire.insert(Wire.end(), 16, 0x01);
+            Wire.insert(Wire.end(), {0x00, 0x01, 0x01, 0xBB, 0x01, 0x01, 0x00, 0x50});
+            std::error_code ErrorCode;
+            co_await ClientMemory.async_write_some(AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+            co_await std::move(ServerTask);
         });
     }
 
     TEST(VlessConnErrorMatrix, BadCommand)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
         {
-            Vless::ServerConfig cfg;
-            cfg.uuid = make_uuid();
+            Vless::ServerConfig Config;
+            Config.uuid = MakeUuid();
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                auto [err, req, Conn] = co_await Vless::Accept(
-                    std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::BadMessage); // 命令 0x99 不在 Tcp/udp/mux 白名单
+                auto [ErrorValue, Request, Conn] = co_await Vless::Accept(
+                    std::make_shared<MemoryStream>(std::move(ServerMemory)), Config);
+                EXPECT_EQ(ErrorValue, Error::BadMessage); // 命令 0x99 不在 Tcp/udp/mux 白名单
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto ServerTask = Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::use_awaitable);
 
-            std::vector<std::uint8_t> wire{Vless::ProtocolVersion};
-            wire.insert(wire.end(), 16, 0x01);
-            wire.insert(wire.end(), {0x00, 0x99, 0x01, 0xBB, 0x01, 0x01, 0x00, 0x50}); // 命令 0x99
-            std::error_code ec;
-            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-            co_await std::move(server_task);
+            std::vector<std::uint8_t> Wire{Vless::ProtocolVersion};
+            Wire.insert(Wire.end(), 16, 0x01);
+            Wire.insert(Wire.end(), {0x00, 0x99, 0x01, 0xBB, 0x01, 0x01, 0x00, 0x50}); // 命令 0x99
+            std::error_code ErrorCode;
+            co_await ClientMemory.async_write_some(AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+            co_await std::move(ServerTask);
         });
     }
 
     TEST(VlessConnErrorMatrix, BadAddressType)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
         {
-            Vless::ServerConfig cfg;
-            cfg.uuid = make_uuid();
+            Vless::ServerConfig Config;
+            Config.uuid = MakeUuid();
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                auto [err, req, Conn] = co_await Vless::Accept(
-                    std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::BadMessage); // ATYP=9 非法
+                auto [ErrorValue, Request, Conn] = co_await Vless::Accept(
+                    std::make_shared<MemoryStream>(std::move(ServerMemory)), Config);
+                EXPECT_EQ(ErrorValue, Error::BadMessage); // ATYP=9 非法
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto ServerTask = Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::use_awaitable);
 
-            std::vector<std::uint8_t> wire{Vless::ProtocolVersion};
-            wire.insert(wire.end(), 16, 0x01);
-            wire.insert(wire.end(), {0x00, 0x01, 0x01, 0xBB, 0x09, 0x01, 0x00, 0x50}); // ATYP=9
-            std::error_code ec;
-            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-            co_await std::move(server_task);
+            std::vector<std::uint8_t> Wire{Vless::ProtocolVersion};
+            Wire.insert(Wire.end(), 16, 0x01);
+            Wire.insert(Wire.end(), {0x00, 0x01, 0x01, 0xBB, 0x09, 0x01, 0x00, 0x50}); // ATYP=9
+            std::error_code ErrorCode;
+            co_await ClientMemory.async_write_some(AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+            co_await std::move(ServerTask);
         });
     }
 
     TEST(VlessConnErrorMatrix, TruncatedHeader)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
         {
-            Vless::ServerConfig cfg;
-            cfg.uuid = make_uuid();
+            Vless::ServerConfig Config;
+            Config.uuid = MakeUuid();
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                auto [err, req, Conn] = co_await Vless::Accept(
-                    std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Error::IoError); // 半包后 EOF
+                auto [ErrorValue, Request, Conn] = co_await Vless::Accept(
+                    std::make_shared<MemoryStream>(std::move(ServerMemory)), Config);
+                EXPECT_EQ(ErrorValue, Error::IoError); // 半包后 EOF
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto ServerTask = Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::use_awaitable);
 
-            std::vector<std::uint8_t> wire{Vless::ProtocolVersion};
-            wire.insert(wire.end(), 16, 0x01);
-            wire.insert(wire.end(), {0x00, 0x01, 0x01, 0xBB}); // 截断
-            std::error_code ec;
-            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-            a.Close();
-            co_await std::move(server_task);
+            std::vector<std::uint8_t> Wire{Vless::ProtocolVersion};
+            Wire.insert(Wire.end(), 16, 0x01);
+            Wire.insert(Wire.end(), {0x00, 0x01, 0x01, 0xBB}); // 截断
+            std::error_code ErrorCode;
+            co_await ClientMemory.async_write_some(AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+            ClientMemory.Close();
+            co_await std::move(ServerTask);
         });
     }
 

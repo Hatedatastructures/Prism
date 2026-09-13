@@ -13,6 +13,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <span>
 
 #include <preview/Protocols/Mux/Smux/Codec.hpp>
@@ -20,8 +21,37 @@
 
 namespace
 {
-    using namespace Preview;
-    using namespace Preview::Mux;
+    namespace Smux = Preview::Mux::Smux;
+    using Error = Preview::Error;
+    using Preview::Parser;
+    using Preview::Mux::StreamEvent;
+
+    struct OversizedFrameConfig
+    {
+        struct FrameType
+        {
+            std::size_t Payload{0};
+        };
+
+        static constexpr std::size_t HeaderLen = 1;
+        static constexpr std::size_t MaxPayloadLen = 4;
+
+        static auto ParseHeader(std::span<const std::uint8_t>, FrameType &Frame) -> Error
+        {
+            Frame.Payload = std::numeric_limits<std::size_t>::max();
+            return Error::None;
+        }
+
+        static auto PayloadLen(const FrameType &Frame) -> std::size_t
+        {
+            return Frame.Payload;
+        }
+
+        static auto ParsePayload(FrameType &, std::span<const std::uint8_t>) -> Error
+        {
+            return Error::None;
+        }
+    };
 
     TEST(SmuxFrameError, ParseHeaderEmpty)
     {
@@ -116,6 +146,16 @@ namespace
         EXPECT_EQ(p.Frame().StreamId, 7u);
     }
 
+    TEST(SmuxFrameError, ParserWantReportsRemainingPayload)
+    {
+        Parser<Smux::Codec> p;
+        const std::array<std::uint8_t, 3> payload{0xAA, 0xBB, 0xCC};
+        const auto Frame = Smux::BuildPush(7, payload);
+
+        EXPECT_EQ(p.Put(std::span(Frame).first(9)), Error::NeedMore);
+        EXPECT_EQ(p.Want(), 2u);
+    }
+
     TEST(SmuxFrameError, ParserRejectsBadHeader)
     {
         Parser<Smux::Codec> p;
@@ -124,6 +164,16 @@ namespace
         EXPECT_TRUE(p.Failed()) << "Parser: 状态进入 Failed";
         // Failed 后拒绝继续喂数据
         EXPECT_EQ(p.Put(hdr), Error::ProtocolError) << "Parser: Failed 后 -> protocol_error";
+    }
+
+    TEST(SmuxFrameError, ParserRejectsPayloadBeyondConfiguredLimit)
+    {
+        Parser<OversizedFrameConfig> p;
+        const std::array<std::uint8_t, 1> header{0x00};
+
+        EXPECT_EQ(p.Put(header), Error::BadLength);
+        EXPECT_TRUE(p.Failed());
+        EXPECT_TRUE(p.Residual().empty());
     }
 
     TEST(SmuxFrameError, StreamIdBoundary)

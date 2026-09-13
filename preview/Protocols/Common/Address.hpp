@@ -17,8 +17,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <limits>
 #include <span>
 #include <string_view>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -39,7 +42,7 @@
 namespace Preview::Protocol::Common
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
     /**
      * @struct Ipv4Address
      * @brief IPv4 地址结构
@@ -82,15 +85,16 @@ namespace Preview::Protocol::Common
 
         /**
          * @brief 转换为字符串
-         * @param mr 内存资源指针
+         * @param MemoryResource 内存资源指针
          * @return std::string 域名字符串
          * @details 根据指定的内存资源创建域名字符串，支持自定义
          * 内存分配器。返回的字符串包含有效的域名内容。
          */
-        [[nodiscard]] auto ToString(Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource()) const
+        [[nodiscard]] auto ToString(
+            Preview::Memory::ResourcePointer MemoryResource = Preview::Memory::CurrentResource()) const
             -> Preview::Memory::String
         {
-            return Preview::Memory::String(value.data(), length, mr);
+            return Preview::Memory::String(value.data(), length, MemoryResource);
         }
     };
 
@@ -103,95 +107,103 @@ namespace Preview::Protocol::Common
 
     /**
      * @brief 获取地址的字符串表示
-     * @param addr 地址变体
-     * @param mr 内存资源指针
+     * @param AddressValue 地址变体
+     * @param MemoryResource 内存资源指针
      * @return std::string 地址字符串
      * @details 将地址变体转换为可读的字符串表示。IPv4 和 IPv6 地址
      * 使用 inet_ntop 进行格式化，域名直接返回原始内容。支持
      * 自定义内存分配器，适用于日志记录和调试输出场景。
      */
-    [[nodiscard]] inline auto AddrToStr(const Address &addr, Preview::Memory::ResourcePointer mr = Preview::Memory::CurrentResource())
+    [[nodiscard]] inline auto AddrToStr(
+        const Address &AddressValue,
+        Preview::Memory::ResourcePointer MemoryResource = Preview::Memory::CurrentResource())
         -> Preview::Memory::String
     {
-        auto Translate = [mr]<typename A>(const A &arg) -> Preview::Memory::String
+        auto Translate = [MemoryResource]<typename A>(const A &Argument) -> Preview::Memory::String
         {
             using Type = std::decay_t<A>;
             if constexpr (std::is_same_v<Type, Ipv4Address>)
             {
                 std::array<char, INET_ADDRSTRLEN> Buffer;
-                const char *Result = inet_ntop(AF_INET, arg.Bytes.data(), Buffer.data(), Buffer.size());
+                const char *Result = inet_ntop(AF_INET, Argument.Bytes.data(), Buffer.data(), Buffer.size());
                 if (Result == nullptr)
                 {
-                    return Preview::Memory::String(mr);
+                    return Preview::Memory::String(MemoryResource);
                 }
-                return Preview::Memory::String(Buffer.data(), mr);
+                return Preview::Memory::String(Buffer.data(), MemoryResource);
             }
             else if constexpr (std::is_same_v<Type, Ipv6Address>)
             {
                 std::array<char, INET6_ADDRSTRLEN> Buffer;
-                const char *Result = inet_ntop(AF_INET6, arg.Bytes.data(), Buffer.data(), Buffer.size());
+                const char *Result = inet_ntop(AF_INET6, Argument.Bytes.data(), Buffer.data(), Buffer.size());
                 if (Result == nullptr)
                 {
-                    return Preview::Memory::String(mr);
+                    return Preview::Memory::String(MemoryResource);
                 }
-                return Preview::Memory::String(Buffer.data(), mr);
+                return Preview::Memory::String(Buffer.data(), MemoryResource);
             }
             else if constexpr (std::is_same_v<Type, DomainAddress>)
             {
-                return arg.ToString(mr);
+                return Argument.ToString(MemoryResource);
             }
             else
             {
                 return {};
             }
         };
-        return std::visit(Translate, addr);
+        return std::visit(Translate, AddressValue);
     }
 
     /**
      * @brief 解析点分十进制 IPv4 文本为 4 字节（严格校验）
-     * @param text 待解析文本
-     * @param out 输出字节（非法输入时置全零）
+     * @param Text 待解析文本
+     * @param Output 输出字节（非法输入时置全零）
      * @return true = 合法 IPv4 文本
      */
-    [[nodiscard]] inline auto ParseIpv4Text(std::string_view text, std::array<std::uint8_t, 4> &out)
-        -> bool
+    [[nodiscard]] inline auto ParseIpv4Text(
+        std::string_view Text,
+        std::array<std::uint8_t, 4> &Output) -> bool
     {
-        out.fill(0);
-        std::size_t Seg = 0, val = 0;
-        for (const char ch : text)
+        Output.fill(0);
+        std::size_t Segment = 0;
+        std::size_t Value = 0;
+        bool HasDigit = false;
+        for (const char Character : Text)
         {
-            if (ch == '.')
+            if (Character == '.')
             {
-                if (Seg >= 3 || val > 255)
+                if (!HasDigit || Segment >= 3)
                 {
-                    out.fill(0);
+                    Output.fill(0);
                     return false;
                 }
-                out[Seg++] = static_cast<std::uint8_t>(val);
-                val = 0;
+                Output[Segment++] = static_cast<std::uint8_t>(Value);
+                Value = 0;
+                HasDigit = false;
             }
-            else if (ch >= '0' && ch <= '9')
+            else if (Character >= '0' && Character <= '9')
             {
-                val = val * 10 + static_cast<std::size_t>(ch - '0');
-                if (val > 255)
+                const auto Digit = static_cast<std::size_t>(Character - '0');
+                if (Value > (255 - Digit) / 10)
                 {
-                    out.fill(0);
+                    Output.fill(0);
                     return false;
                 }
+                Value = Value * 10 + Digit;
+                HasDigit = true;
             }
             else
             {
-                out.fill(0);
+                Output.fill(0);
                 return false;
             }
         }
-        if (Seg != 3 || val > 255)
+        if (Segment != 3 || !HasDigit)
         {
-            out.fill(0);
+            Output.fill(0);
             return false;
         }
-        out[3] = static_cast<std::uint8_t>(val);
+        Output[3] = static_cast<std::uint8_t>(Value);
         return true;
     }
 
@@ -199,66 +211,74 @@ namespace Preview::Protocol::Common
      * @brief 编码地址为字节（ATYP + ADDR + PORT 2B BE，追加到缓冲）
      * @tparam Addr 协议地址结构（须含 Type/host/port 字段与嵌套 AddressType 枚举）
      * @tparam Alloc 输出缓冲分配器
-     * @param addr 目标地址
-     * @param out 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
-     * @details 各协议共享实现：IPv4 点分十进制校验解析（非法输入输出
-     *          0.0.0.0，保证 wire 格式合法）；IPv6 文本解析为 16 字节二进制
-     *          （非法文本或已是二进制的输入原样拷贝）；域名长度前缀。
+     * @param AddressValue 目标地址
+     * @param Output 输出缓冲（追加到末尾；调用方持有复用，热路径零分配）
+     * @details 各协议共享实现：IPv4 点分十进制校验解析；IPv6 文本解析为
+     *          16 字节二进制（长度为 16 的输入视为已编码二进制）；域名长度前缀。
+     *          非法输入不会追加部分 wire，返回 false。
      *          ATYP 字节取 addr.Type 枚举值（各协议枚举值即 wire 值）。
      */
     template <typename Addr, typename Alloc>
-    inline auto EncodeAddress(const Addr &addr, std::vector<std::uint8_t, Alloc> &out) -> void
+    inline auto EncodeAddress(
+        const Addr &AddressValue,
+        std::vector<std::uint8_t, Alloc> &Output) -> bool
     {
-        using EnumT = std::decay_t<decltype(addr.Type)>;
-        out.push_back(static_cast<std::uint8_t>(addr.Type));
-        if (addr.Type == EnumT::Ipv4)
+        using EnumT = std::decay_t<decltype(AddressValue.Type)>;
+        if (AddressValue.Type == EnumT::Ipv4)
         {
-            std::array<std::uint8_t, 4> ip{};
-            static_cast<void>(ParseIpv4Text(addr.Host, ip));
-            // 非法 IPv4（段数/段值/字符不符）保持全零 0.0.0.0，保证 wire 格式合法
-            out.insert(out.end(), ip.begin(), ip.end());
-        }
-        else if (addr.Type == EnumT::Ipv6)
-        {
-            // 文本形式（如 "::1"）解析为 16 字节二进制（线缆约定）；
-            // 非法文本或已为 16 字节二进制的输入解析失败，原样拷贝（与既有测试断言一致）
-            boost::system::error_code ec;
-            const auto V6 = net::ip::make_address_v6(addr.Host, ec);
-            if (!ec)
+            std::array<std::uint8_t, 4> Ipv4Bytes{};
+            if (!ParseIpv4Text(AddressValue.Host, Ipv4Bytes))
             {
-                const auto Bytes = V6.to_bytes();
-                out.insert(out.end(), Bytes.begin(), Bytes.end());
+                return false;
+            }
+            Output.push_back(static_cast<std::uint8_t>(AddressValue.Type));
+            Output.insert(Output.end(), Ipv4Bytes.begin(), Ipv4Bytes.end());
+        }
+        else if (AddressValue.Type == EnumT::Ipv6)
+        {
+            std::array<std::uint8_t, 16> Bytes{};
+            boost::system::error_code ErrorCode;
+            const auto Ipv6 = Net::ip::make_address_v6(AddressValue.Host, ErrorCode);
+            if (!ErrorCode)
+            {
+                Bytes = Ipv6.to_bytes();
+            }
+            else if (AddressValue.Host.size() == Bytes.size())
+            {
+                std::memcpy(Bytes.data(), AddressValue.Host.data(), Bytes.size());
             }
             else
             {
-                out.insert(out.end(), addr.Host.begin(), addr.Host.end());
+                return false;
             }
+            Output.push_back(static_cast<std::uint8_t>(AddressValue.Type));
+            Output.insert(Output.end(), Bytes.begin(), Bytes.end());
+        }
+        else if (AddressValue.Type == EnumT::Domain)
+        {
+            if (AddressValue.Host.empty() || AddressValue.Host.size() > 0xFF)
+            {
+                return false;
+            }
+            Output.push_back(static_cast<std::uint8_t>(AddressValue.Type));
+            Output.push_back(static_cast<std::uint8_t>(AddressValue.Host.size()));
+            Output.insert(Output.end(), AddressValue.Host.begin(), AddressValue.Host.end());
         }
         else
         {
-            if (addr.Host.size() > 0xFF)
-            {
-                // 超长域名无法用单字节长度表达：编码为空域名（接收方解析失败），
-                // 禁止静默回绕——回绕会把后续 PORT 字节当长度字节，整帧错位静默损坏
-                Preview::Diagnose::Error("EncodeAddress: domain too long ({} Bytes)", addr.Host.size());
-                out.push_back(0x00);
-            }
-            else
-            {
-                out.push_back(static_cast<std::uint8_t>(addr.Host.size()));
-                out.insert(out.end(), addr.Host.begin(), addr.Host.end());
-            }
+            return false;
         }
-        out.push_back(static_cast<std::uint8_t>((addr.Port >> 8) & 0xFF));
-        out.push_back(static_cast<std::uint8_t>(addr.Port & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>((AddressValue.Port >> 8) & 0xFF));
+        Output.push_back(static_cast<std::uint8_t>(AddressValue.Port & 0xFF));
+        return true;
     }
 
     /**
      * @brief 读取地址体（ADDR 部分，ATYP 已由调用方解析；不含 PORT）
      * @tparam Addr 协议地址结构（须含 Type/host 字段与嵌套 AddressType 枚举）
      * @tparam ReadExact 精确读取调用器（span → awaitable<bool>，true = 失败）
-     * @param addr 输出地址（Type 预置，host 填充）
-     * @param ReadFn 读取辅助（协议各自包装 ReadExact/ReadExactImpl）
+     * @param AddressValue 输出地址（Type 预置，host 填充）
+     * @param ReadFunction 读取辅助（协议各自包装 ReadExact/ReadExactImpl）
      * @return 错误码；io_error = 读取失败，bad_message = 非法 ATYP
      * @details 各协议 Conn/Dgram 类内 ReadAddressBody 的统一实现：
      *          IPv4 读 4 字节格式化为点分十进制文本；IPv6 与域名原样拷贝。
@@ -266,43 +286,51 @@ namespace Preview::Protocol::Common
      *          引用形参在调用表达式结束后悬垂（协程挂起恢复后 UB）。
      */
     template <typename Addr, typename ReadExact>
-    [[nodiscard]] inline auto ReadAddressBody(Addr &addr, ReadExact ReadFn)
-        -> net::awaitable<Preview::Error>
+    [[nodiscard]] inline auto ReadAddressBody(
+        Addr &AddressValue,
+        ReadExact ReadFunction) -> Net::awaitable<Preview::Error>
     {
-        using EnumT = std::decay_t<decltype(addr.Type)>;
-        if (addr.Type == EnumT::Ipv4)
+        using EnumT = std::decay_t<decltype(AddressValue.Type)>;
+        if (AddressValue.Type == EnumT::Ipv4)
         {
-            std::array<std::uint8_t, 4> ip{};
-            if (co_await ReadFn(std::span<std::uint8_t>(ip)))
+            std::array<std::uint8_t, 4> Ipv4Bytes{};
+            if (co_await ReadFunction(std::span<std::uint8_t>(Ipv4Bytes)))
             {
                 co_return Preview::Error::IoError;
             }
-            std::array<char, 16> buf{};
-            std::snprintf(buf.data(), buf.size(), "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]);
-            addr.Host = buf.data();
+            std::array<char, 16> Buffer{};
+            std::snprintf(
+                Buffer.data(),
+                Buffer.size(),
+                "%u.%u.%u.%u",
+                Ipv4Bytes[0],
+                Ipv4Bytes[1],
+                Ipv4Bytes[2],
+                Ipv4Bytes[3]);
+            AddressValue.Host = Buffer.data();
         }
-        else if (addr.Type == EnumT::Ipv6)
+        else if (AddressValue.Type == EnumT::Ipv6)
         {
-            std::array<std::uint8_t, 16> ip{};
-            if (co_await ReadFn(std::span<std::uint8_t>(ip)))
+            std::array<std::uint8_t, 16> Ipv6Bytes{};
+            if (co_await ReadFunction(std::span<std::uint8_t>(Ipv6Bytes)))
             {
                 co_return Preview::Error::IoError;
             }
-            addr.Host.assign(reinterpret_cast<const char *>(ip.data()), 16);
+            AddressValue.Host.assign(reinterpret_cast<const char *>(Ipv6Bytes.data()), Ipv6Bytes.size());
         }
-        else if (addr.Type == EnumT::Domain)
+        else if (AddressValue.Type == EnumT::Domain)
         {
-            std::array<std::uint8_t, 1> len{};
-            if (co_await ReadFn(std::span<std::uint8_t>(len)))
+            std::array<std::uint8_t, 1> Length{};
+            if (co_await ReadFunction(std::span<std::uint8_t>(Length)))
             {
                 co_return Preview::Error::IoError;
             }
-            std::vector<std::uint8_t> host(len[0]);
-            if (co_await ReadFn(host))
+            std::vector<std::uint8_t> Host(Length[0]);
+            if (co_await ReadFunction(Host))
             {
                 co_return Preview::Error::IoError;
             }
-            addr.Host.assign(reinterpret_cast<const char *>(host.data()), host.size());
+            AddressValue.Host.assign(reinterpret_cast<const char *>(Host.data()), Host.size());
         }
         else
         {

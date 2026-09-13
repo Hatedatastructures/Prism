@@ -44,14 +44,14 @@ namespace Preview::Network::Dns::Detail
      * @return DNS 应答字节或传输错误
      */
     template <typename Link>
-    [[nodiscard]] inline auto ExchangeOnce(Link &link, std::span<const std::uint8_t> Wire)
+    [[nodiscard]] inline auto ExchangeOnce(Link &LinkObject, std::span<const std::uint8_t> Wire)
         -> boost::asio::awaitable<EcResult<std::vector<std::uint8_t>>>
     {
-        if (auto ec = co_await link.Send(Wire))
+        if (auto ErrorCode = co_await LinkObject.Send(Wire))
         {
-            co_return std::unexpected(ec);
+            co_return std::unexpected(ErrorCode);
         }
-        co_return co_await link.Receive();
+        co_return co_await LinkObject.Receive();
     }
 
     /**
@@ -63,33 +63,33 @@ namespace Preview::Network::Dns::Detail
      * @return DNS 应答字节或传输错误
      */
     template <PoolableTransport Link, typename Factory>
-    [[nodiscard]] inline auto ExchangePooled(PooledExchangeRequest<Link> Request, Factory makeLink)
+    [[nodiscard]] inline auto ExchangePooled(PooledExchangeRequest<Link> Request, Factory MakeLink)
         -> boost::asio::awaitable<EcResult<std::vector<std::uint8_t>>>
     {
         if (Request.ServerConfig.KeepAlive)
         {
-            auto lease = Request.Pool.Acquire(Request.Key);
-            if (lease.Conn)
+            auto Lease = Request.Pool.Acquire(Request.Key);
+            if (Lease.Conn)
             {
-                if (auto result = co_await ExchangeOnce(*lease.Conn, Request.Wire))
+                if (auto Result = co_await ExchangeOnce(*Lease.Conn, Request.Wire))
                 {
-                    Request.Pool.Release(Request.Key, lease.Conn);
-                    co_return result;
+                    Request.Pool.Release(Request.Key, Lease.Conn);
+                    co_return Result;
                 }
             }
         }
 
-        auto fresh = co_await makeLink(Request.Endpoint, Request.ServerConfig);
-        if (!fresh)
+        auto Fresh = co_await MakeLink(Request.Endpoint, Request.ServerConfig);
+        if (!Fresh)
         {
-            co_return std::unexpected(fresh.error());
+            co_return std::unexpected(Fresh.error());
         }
-        auto result = co_await ExchangeOnce(**fresh, Request.Wire);
-        if (result && Request.ServerConfig.KeepAlive)
+        auto Result = co_await ExchangeOnce(**Fresh, Request.Wire);
+        if (Result && Request.ServerConfig.KeepAlive)
         {
-            Request.Pool.Release(Request.Key, *fresh);
+            Request.Pool.Release(Request.Key, *Fresh);
         }
-        co_return result;
+        co_return Result;
     }
 
 } // namespace Preview::Network::Dns::Detail

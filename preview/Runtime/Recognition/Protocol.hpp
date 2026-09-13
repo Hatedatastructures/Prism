@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string_view>
@@ -55,13 +56,13 @@ namespace Preview::Recognition
         }
     }
 
-    /// VMess 特征字节（命令头）
+    /// VMess 兼容常量；仅供协议候选使用，legacy 探测不得据此判定
     inline constexpr std::uint8_t VmessMagic = 0x01;
 
-    /// Trojan 特征（前 4 字节 CRLF）
+    /// Trojan 兼容常量；真实凭据首包无稳定魔数，legacy 探测不使用
     inline constexpr std::array<std::uint8_t, 4> TrojanMagic = {0x0D, 0x0A, 0x0D, 0x0A};
 
-    /// VLESS 特征（"VLESS"）
+    /// VLESS 兼容常量；标准首包为二进制版本/UUID，legacy 探测不使用
     inline constexpr std::array<std::uint8_t, 5> VlessMagic = {0x56, 0x4C, 0x45, 0x53, 0x53};
 
     /**
@@ -71,10 +72,9 @@ namespace Preview::Recognition
      * @details 特征匹配：
      *          - 0x05 → socks5
      *          - 0x16 0x03 → tls
-     *          - "VLESS" 或结构化特征（version 0x00 + 合法 cmd/atyp，
-     *            预读窗口内）→ vless
+     *          - 结构化特征（version 0x00 + 合法 cmd/atyp，预读窗口内）→ vless
      *          - 0x0D 0x0A 0x0D 0x0A → trojan
-     *          - 0x01 且后续 4 字节版本特征 → vmess
+     *          - VMess 首包认证字段随机，legacy 探测不猜测，交给配置候选认证
      *          - "GET/POST/CONNECT " 前缀 → http
      *          - 其余 → unknown（ss2022 需 salt 分析，此处保守 unknown）
      */
@@ -87,7 +87,17 @@ namespace Preview::Recognition
         switch (Data[0])
         {
         case 0x05:
-            return ProtocolType::Socks5;
+            // SOCKS5 Greeting 至少包含版本和 NMETHODS；限定方法数量范围，
+            // 避免随机 SS2022 salt 仅因首字节为 0x05 被误判。
+            if (Data.size() < 2)
+            {
+                return ProtocolType::Unknown;
+            }
+            if (Data[1] >= 1 && Data[1] <= 16)
+            {
+                return ProtocolType::Socks5;
+            }
+            return ProtocolType::Unknown;
         case 0x16:
             if (Data.size() >= 2 && Data[1] == 0x03)
             {
@@ -95,11 +105,6 @@ namespace Preview::Recognition
             }
             return ProtocolType::Unknown;
         default: break;
-        }
-        if (Data.size() >= 5 && Data[0] == VlessMagic[0] && Data[1] == VlessMagic[1] &&
-            Data[2] == VlessMagic[2] && Data[3] == VlessMagic[3] && Data[4] == VlessMagic[4])
-        {
-            return ProtocolType::Vless;
         }
         // VLESS 结构化识别（Xray 首字节为 version 0x00）：仅在预读窗口内有效——
         // Probe 最多预读 24 字节（见 Probe.hpp MaxProbeSize），头部固定部分
@@ -120,21 +125,16 @@ namespace Preview::Recognition
                 }
             }
         }
-        if (Data.size() >= 4 && Data[0] == TrojanMagic[0] && Data[1] == TrojanMagic[1] &&
-            Data[2] == TrojanMagic[2] && Data[3] == TrojanMagic[3])
+        // Trojan 首包以 SHA-224 凭据文本开始；没有配置密码时不能安全猜测。
+        // VMess AuthID 首字节没有稳定魔数；任意 0x01 都可能是随机流量，
+        // 不在无配置的 legacy 探测路径中误判，MixedTrial 由候选认证确认。
+        // HTTP 方法前缀；保持与生产 analyzer 的方法集合一致。
+        constexpr std::string_view Methods[] = {"GET ", "POST ", "CONNECT ", "PUT ", "DELETE ",
+                                                "HEAD ", "OPTIONS ", "TRACE ", "PATCH "};
+        for (const auto &Method : Methods)
         {
-            return ProtocolType::Trojan;
-        }
-        if (Data.size() >= 1 && Data[0] == VmessMagic)
-        {
-            return ProtocolType::Vmess;
-        }
-        // HTTP 方法前缀
-        constexpr std::string_view methods[] = {"GET ", "POST ", "CONNECT ", "PUT ", "DELETE ", "HEAD "};
-        for (const auto &m : methods)
-        {
-            if (Data.size() >= m.size() &&
-                std::string_view(reinterpret_cast<const char *>(Data.data()), m.size()) == m)
+            if (Data.size() >= Method.size() &&
+                std::string_view(reinterpret_cast<const char *>(Data.data()), Method.size()) == Method)
             {
                 return ProtocolType::Http;
             }

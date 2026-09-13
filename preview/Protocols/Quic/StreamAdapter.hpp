@@ -27,7 +27,7 @@
 namespace Preview::Quic
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @class StreamProvider
@@ -43,25 +43,37 @@ namespace Preview::Quic
         /**
          * @brief 异步读取流数据
          * @param Buffer 接收缓冲区
-         * @param ec 错误码输出
+         * @param ErrorCode 错误码输出
          * @return 实际读取字节数
          */
-        [[nodiscard]] virtual auto Read(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> = 0;
+        [[nodiscard]] virtual auto Read(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> = 0;
 
         /**
          * @brief 异步写入流数据
          * @param Buffer 待写数据
-         * @param ec 错误码输出
+         * @param ErrorCode 错误码输出
          * @return 实际写入字节数
          */
-        [[nodiscard]] virtual auto Write(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> = 0;
+        [[nodiscard]] virtual auto Write(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> = 0;
 
         /**
          * @brief 关闭流（发送 FIN）
          */
-        virtual void Close() = 0;
+        virtual auto Close() -> void = 0;
+
+        /**
+         * @brief 只关闭写方向并保留读方向
+         * @details 默认实现回退为完整关闭；支持半关闭的 QUIC provider
+         *          应覆盖该方法。
+         */
+        virtual auto ShutdownWrite() -> void
+        {
+            Close();
+        }
 
         /**
          * @brief 获取流 ID
@@ -91,11 +103,11 @@ namespace Preview::Quic
     public:
         /**
          * @brief 构造函数
-         * @param ex 执行器
-         * @param provider 流提供者（所有权移交）
+         * @param Executor 执行器
+         * @param Provider 流提供者（所有权移交）
          */
-        StreamAdapter(net::any_io_executor ex, SharedStreamProvider provider)
-            : Ex_(std::move(ex)), Provider_(std::move(provider))
+        StreamAdapter(Net::any_io_executor Executor, SharedStreamProvider Provider)
+            : Ex_(std::move(Executor)), Provider_(std::move(Provider))
         {
         }
 
@@ -110,35 +122,37 @@ namespace Preview::Quic
         /**
          * @brief 异步读取（委托提供者）
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
             if (!Provider_)
             {
-                ec = std::make_error_code(std::errc::bad_file_descriptor);
+                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await Provider_->Read(Buffer, ec);
+            co_return co_await Provider_->Read(Buffer, ErrorCode);
         }
 
         /**
          * @brief 异步写入（委托提供者）
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
             if (!Provider_)
             {
-                ec = std::make_error_code(std::errc::bad_file_descriptor);
+                ErrorCode = std::make_error_code(std::errc::bad_file_descriptor);
                 co_return 0;
             }
-            co_return co_await Provider_->Write(Buffer, ec);
+            co_return co_await Provider_->Write(Buffer, ErrorCode);
         }
 
         /**
          * @brief 关闭流
          */
-        void Close() override
+        auto Close() -> void override
         {
             if (Provider_)
             {
@@ -149,8 +163,23 @@ namespace Preview::Quic
         /**
          * @brief 取消挂起操作
          */
-        void Cancel() override
+        auto Cancel() -> void override
         {
+            if (Provider_)
+            {
+                Provider_->Close();
+            }
+        }
+
+        /**
+         * @brief 半关闭流的写方向并发送 FIN
+         */
+        auto Shutdown() -> void override
+        {
+            if (Provider_)
+            {
+                Provider_->ShutdownWrite();
+            }
         }
 
         /**
@@ -162,8 +191,8 @@ namespace Preview::Quic
         }
 
     private:
-        net::any_io_executor Ex_;           ///< 执行器
-        SharedStreamProvider Provider_;   ///< 流提供者（独占所有权）
+        Net::any_io_executor Ex_;       ///< 执行器
+        SharedStreamProvider Provider_; ///< 流提供者（独占所有权）
     };
 
     /// 适配器共享指针

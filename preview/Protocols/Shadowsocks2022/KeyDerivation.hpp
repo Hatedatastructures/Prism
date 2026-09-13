@@ -20,26 +20,48 @@ namespace Preview::Shadowsocks2022
 {
 
     /**
+     * @brief 将会话子密钥派生到调用方缓冲区
+     * @param Psk 预共享密钥
+     * @param Salt 会话随机盐
+     * @param Output 输出缓冲区
+     * @details 分段更新 BLAKE3，避免为 Psk+Salt 构造临时 material。
+     */
+    inline auto SessionKey(std::span<const std::uint8_t> Psk,
+                           std::span<const std::uint8_t> Salt,
+                           std::span<std::uint8_t> Output) -> void
+    {
+        if (Output.empty())
+        {
+            return;
+        }
+        blake3_hasher Hasher;
+        blake3_hasher_init_derive_key(&Hasher, KdfContext.data());
+        if (!Psk.empty())
+        {
+            blake3_hasher_update(&Hasher, Psk.data(), Psk.size());
+        }
+        if (!Salt.empty())
+        {
+            blake3_hasher_update(&Hasher, Salt.data(), Salt.size());
+        }
+        blake3_hasher_finalize(&Hasher, Output.data(), Output.size());
+    }
+
+    /**
      * @brief 派生会话子密钥
      * @param Psk 预共享密钥
      * @param Salt 会话随机盐
-     * @param OutLen 输出长度
+     * @param OutputLength 输出长度
      * @return 会话子密钥
      */
     [[nodiscard]] inline auto SessionKey(std::span<const std::uint8_t> Psk,
                                           std::span<const std::uint8_t> Salt,
-                                          std::size_t OutLen = 16) -> std::vector<std::uint8_t>
+                                          std::size_t OutputLength = 16)
+        -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> Material;
-        Material.reserve(Psk.size() + Salt.size());
-        Material.insert(Material.end(), Psk.begin(), Psk.end());
-        Material.insert(Material.end(), Salt.begin(), Salt.end());
-        std::vector<std::uint8_t> Out(OutLen);
-        blake3_hasher Hasher;
-        blake3_hasher_init_derive_key(&Hasher, KdfContext.data());
-        blake3_hasher_update(&Hasher, Material.data(), Material.size());
-        blake3_hasher_finalize(&Hasher, Out.data(), OutLen);
-        return Out;
+        std::vector<std::uint8_t> Output(OutputLength);
+        SessionKey(Psk, Salt, std::span<std::uint8_t>(Output));
+        return Output;
     }
 
 } // namespace Preview::Shadowsocks2022

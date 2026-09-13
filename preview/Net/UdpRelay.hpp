@@ -14,10 +14,13 @@
 #pragma once
 
 #include <array>
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -35,7 +38,7 @@
 namespace Preview::Network::Udp
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @struct RelayOptions
@@ -44,6 +47,7 @@ namespace Preview::Network::Udp
     struct RelayOptions
     {
         std::chrono::milliseconds IdleTimeout{std::chrono::seconds(60)}; ///< 会话空闲超时（0=禁用）
+        std::size_t MaxAssociations{256}; ///< 最大并发关联数（0=不限）
     };
 
     /**
@@ -61,9 +65,10 @@ namespace Preview::Network::Udp
          * @param b 端 B（Unreliable 包装）
          * @param opts 中继选项
          */
-        UdpRelay(std::shared_ptr<Preview::Transport::Unreliable> a,
-                  std::shared_ptr<Preview::Transport::Unreliable> b, RelayOptions opts = {})
-            : A_(std::move(a)), B_(std::move(b)), Opts_(opts)
+        UdpRelay(std::shared_ptr<Preview::Transport::Unreliable> EndpointA,
+                  std::shared_ptr<Preview::Transport::Unreliable> EndpointB,
+                  RelayOptions Options = {})
+            : A_(std::move(EndpointA)), B_(std::move(EndpointB)), Opts_(Options)
         {
         }
 
@@ -71,47 +76,47 @@ namespace Preview::Network::Udp
          * @brief 运行双向中继
          * @return 隧道结束后完成
          */
-        [[nodiscard]] auto Run() -> net::awaitable<void>
+        [[nodiscard]] auto Run() -> Net::awaitable<void>
         {
-            using boost::asio::experimental::awaitable_operators::operator||;
+            using Net::experimental::awaitable_operators::operator||;
 
-            auto Assoc = std::make_shared<AssocTable>();
+            auto Assoc = std::make_shared<AssocTable>(Opts_.IdleTimeout, Opts_.MaxAssociations);
 
             // 单向转发：from 收 → 按会话表配对目标发 to
-            auto RelayOne = [&](Preview::Transport::Unreliable &from,
-                                 Preview::Transport::Unreliable &to,
+            auto RelayOne = [&](Preview::Transport::Unreliable &Source,
+                                 Preview::Transport::Unreliable &Destination,
                                  std::shared_ptr<AssocTable> Table,
-                                 bool FromIsA) -> net::awaitable<void>
+                                 bool FromIsA) -> Net::awaitable<void>
             {
                 // 64KB 缓冲堆分配：协程帧只留 8 字节 shared_ptr（两方向各持独立缓冲，避免读写竞争）
                 auto Buf = std::make_shared<std::array<std::byte, 65535>>();
                 while (true)
                 {
-                    net::ip::udp::endpoint src;
+                    Net::ip::udp::endpoint SourceEndpoint;
                     boost::system::error_code REc;
-                    const auto N = co_await from.NativeSocket().async_receive_from(
-                        net::buffer(Buf->data(), Buf->size()), src,
-                        net::redirect_error(net::use_awaitable, REc));
+                    const auto N = co_await Source.NativeSocket().async_receive_from(
+                        Net::buffer(Buf->data(), Buf->size()), SourceEndpoint,
+                        Net::redirect_error(Net::use_awaitable, REc));
                     if (REc || N == 0)
                     {
                         co_return;
                     }
                     // 先学习/配对，再查转发目标（首包即配对）
-                    Table->Touch(src, FromIsA);
-                    const auto Peer = Table->PeerOf(src, FromIsA);
+                    Table->Touch(SourceEndpoint, FromIsA);
+                    const auto Peer = Table->PeerOf(SourceEndpoint, FromIsA);
                     if (!Peer)
                     {
                         continue; // 未配对/已回收：丢弃
                     }
                     boost::system::error_code WEc;
-                    co_await to.NativeSocket().async_send_to(
-                        net::buffer(Buf->data(), N), *Peer,
-                        net::redirect_error(net::use_awaitable, WEc));
+                    co_await Destination.NativeSocket().async_send_to(
+                        Net::buffer(Buf->data(), N), *Peer,
+                        Net::redirect_error(Net::use_awaitable, WEc));
                     if (WEc)
                     {
                         co_return;
                     }
-                    Table->Touch(src, FromIsA);
+                    Table->Touch(SourceEndpoint, FromIsA);
                 }
             };
 
@@ -129,10 +134,15 @@ namespace Preview::Network::Udp
          */
         struct AssocTable
         {
+            AssocTable(std::chrono::milliseconds IdleTimeout, std::size_t MaxAssociations)
+                : Timeout_(IdleTimeout), MaxAssociations_(MaxAssociations)
+            {
+            }
+
             /// 单侧条目：配对端点 + 最后活动时刻
             struct Entry
             {
-                net::ip::udp::endpoint Peer{}; ///< 对端（配对端点）
+                Net::ip::udp::endpoint Peer{}; ///< 对端（配对端点）
                 std::uint64_t LastSeen{0};    ///< 最后活动（毫秒）
             };
 
@@ -142,8 +152,8 @@ namespace Preview::Network::Udp
              * @param FromA 来源是否 A 侧
              * @return 配对目标（未配对返回 nullopt）
              */
-            [[nodiscard]] auto PeerOf(const net::ip::udp::endpoint &src, bool FromA) const
-                -> std::optional<net::ip::udp::endpoint>
+            [[nodiscard]] auto PeerOf(const Net::ip::udp::endpoint &SourceEndpoint, bool FromA) const
+                -> std::optional<Net::ip::udp::endpoint>
             {
                 const auto &Table = [&]() -> const decltype(AToB_) & {
                     if (FromA)
@@ -152,8 +162,8 @@ namespace Preview::Network::Udp
                     }
                     return BToA_;
                 }();
-                const auto It = Table.find(src);
-                if (It == Table.end() || It->second.Peer == net::ip::udp::endpoint{})
+                const auto It = Table.find(SourceEndpoint);
+                if (It == Table.end() || It->second.Peer == Net::ip::udp::endpoint{})
                 {
                     return std::nullopt; // 未学习或未配对
                 }
@@ -165,16 +175,16 @@ namespace Preview::Network::Udp
              * @param src 来源端点（本侧）
              * @param FromA 来源是否 A 侧
              */
-            void Touch(const net::ip::udp::endpoint &src, bool FromA)
+            void Touch(const Net::ip::udp::endpoint &SourceEndpoint, bool FromA)
             {
-                auto &self = [&]() -> decltype(AToB_) & {
+                auto &Self = [&]() -> decltype(AToB_) & {
                     if (FromA)
                     {
                         return AToB_;
                     }
                     return BToA_;
                 }();
-                auto &other = [&]() -> decltype(AToB_) & {
+                auto &Other = [&]() -> decltype(AToB_) & {
                     if (FromA)
                     {
                         return BToA_;
@@ -182,69 +192,155 @@ namespace Preview::Network::Udp
                     return AToB_;
                 }();
                 const auto Now = NowMs();
-                auto It = self.find(src);
-                if (It == self.end())
+                auto It = Self.find(SourceEndpoint);
+                if (It == Self.end())
                 {
                     // 新来源：移除本侧旧的未配对条目（单活跃会话简化）
-                    for (auto I = self.begin(); I != self.end();)
+                    for (auto I = Self.begin(); I != Self.end();)
                     {
-                        if (I->second.Peer == net::ip::udp::endpoint{})
+                        if (I->second.Peer == Net::ip::udp::endpoint{})
                         {
-                            I = self.erase(I);
+                            I = Self.erase(I);
                         }
                         else
                         {
                             ++I;
                         }
                     }
-                    It = self.emplace(src, Entry{{}, Now}).first;
+                    It = Self.emplace(SourceEndpoint, Entry{{}, Now}).first;
                 }
                 else
                 {
                     It->second.LastSeen = Now;
                 }
-                if (It->second.Peer != net::ip::udp::endpoint{})
+                if (It->second.Peer != Net::ip::udp::endpoint{})
                 {
                     return; // 已配对
                 }
-                // 与对侧未配对来源配对（先到者等后到者）
-                for (auto &[OtherSrc, oe] : other)
+                // 与对侧最新的未配对来源配对；过期候选直接回收，避免新来源
+                // 与陈旧端点配对造成跨会话流量混淆。
+                std::optional<Net::ip::udp::endpoint> Best;
+                std::uint64_t BestSeen = 0;
+                for (auto I = Other.begin(); I != Other.end();)
                 {
-                    if (oe.Peer == net::ip::udp::endpoint{})
+                    if (I->second.Peer != Net::ip::udp::endpoint{})
                     {
-                        It->second.Peer = OtherSrc;
-                        oe.Peer = src;
-                        return;
+                        ++I;
+                        continue;
                     }
+                    if (Timeout_.count() > 0 &&
+                        Now - I->second.LastSeen > static_cast<std::uint64_t>(Timeout_.count()))
+                    {
+                        I = Other.erase(I);
+                        continue;
+                    }
+                    if (!Best || I->second.LastSeen > BestSeen)
+                    {
+                        Best = I->first;
+                        BestSeen = I->second.LastSeen;
+                    }
+                    ++I;
                 }
+                if (!Best)
+                {
+                    return; // 无可用候选：等对侧来源
+                }
+                if (MaxAssociations_ != 0 && PairedCount_ >= MaxAssociations_)
+                {
+                    // 达到关联上限：拒绝新会话，丢弃两侧未配对占位
+                    Other.erase(*Best);
+                    Self.erase(It);
+                    return;
+                }
+                It->second.Peer = *Best;
+                Other[*Best].Peer = SourceEndpoint;
+                ++PairedCount_;
             }
 
             /**
-             * @brief 回收超时会话
-             * @param timeout 超时（0 = 禁用）
-             * @return 回收数
+             * @brief 对称回收超时条目
+             * @return 回收条目数
+             * @details 未配对条目按自身时间回收；配对条目按两侧最后活动的
+             *          较大值判定空闲，并同时移除两侧映射。仅扫描单侧会
+             *          让先到且长期未配对的另一侧条目永久残留。
              */
-            auto Reap(std::chrono::milliseconds timeout) -> std::size_t
+            auto Reap() -> std::size_t
             {
-                if (timeout.count() <= 0)
+                if (Timeout_.count() <= 0)
                 {
                     return 0;
                 }
                 const auto Now = NowMs();
+                const auto Limit = static_cast<std::uint64_t>(Timeout_.count());
+                const auto Idle = [&](const std::uint64_t Last) { return Now - Last > Limit; };
                 std::size_t Removed = 0;
+                // A 侧：未配对按自身时间；配对按两侧最大值
                 for (auto It = AToB_.begin(); It != AToB_.end();)
                 {
-                    if (Now - It->second.LastSeen >
-                        static_cast<std::uint64_t>(timeout.count()))
+                    auto &Slot = It->second;
+                    if (Slot.Peer == Net::ip::udp::endpoint{})
                     {
-                        BToA_.erase(It->second.Peer);
+                        if (Idle(Slot.LastSeen))
+                        {
+                            It = AToB_.erase(It);
+                            ++Removed;
+                        }
+                        else
+                        {
+                            ++It;
+                        }
+                        continue;
+                    }
+                    const auto PeerIt = BToA_.find(Slot.Peer);
+                    if (PeerIt == BToA_.end() || Idle(std::max(Slot.LastSeen, PeerIt->second.LastSeen)))
+                    {
+                        if (PeerIt != BToA_.end())
+                        {
+                            BToA_.erase(PeerIt);
+                        }
                         It = AToB_.erase(It);
+                        if (PairedCount_ > 0)
+                        {
+                            --PairedCount_;
+                        }
                         ++Removed;
+                        continue;
                     }
-                    else
+                    ++It;
+                }
+                // B 侧：未配对同样回收；配对残项（A 侧缺失/已超时）清理
+                for (auto It = BToA_.begin(); It != BToA_.end();)
+                {
+                    auto &Slot = It->second;
+                    if (Slot.Peer == Net::ip::udp::endpoint{})
                     {
-                        ++It;
+                        if (Idle(Slot.LastSeen))
+                        {
+                            It = BToA_.erase(It);
+                            ++Removed;
+                        }
+                        else
+                        {
+                            ++It;
+                        }
+                        continue;
                     }
+                    const auto PeerIt = AToB_.find(Slot.Peer);
+                    if (PeerIt == AToB_.end() || Idle(std::max(Slot.LastSeen, PeerIt->second.LastSeen)))
+                    {
+                        if (PeerIt != AToB_.end())
+                        {
+                            AToB_.erase(PeerIt);
+                        }
+                        It = BToA_.erase(It);
+                        if (PairedCount_ > 0)
+                        {
+                            --PairedCount_;
+                        }
+                        ++Removed;
+                        continue;
+                    }
+                    ++It;
                 }
                 return Removed;
             }
@@ -257,37 +353,40 @@ namespace Preview::Network::Udp
                         .count());
             }
 
-            std::map<net::ip::udp::endpoint, Entry> AToB_; ///< A 来源 → 配对
-            std::map<net::ip::udp::endpoint, Entry> BToA_; ///< B 来源 → 配对
+            std::chrono::milliseconds Timeout_{std::chrono::seconds(60)}; ///< 空闲超时（0 = 禁用）
+            std::size_t MaxAssociations_{256};                            ///< 最大并发关联（0 = 不限）
+            std::size_t PairedCount_{0};                                  ///< 当前已配对关联数
+            std::map<Net::ip::udp::endpoint, Entry> AToB_; ///< A 来源 → 配对
+            std::map<Net::ip::udp::endpoint, Entry> BToA_; ///< B 来源 → 配对
         };
 
         /**
          * @brief 会话回收循环：周期扫描超时会话
          * @param Table 关联表
          */
-        [[nodiscard]] auto RecycleLoop(std::shared_ptr<AssocTable> Table) -> net::awaitable<void>
+        [[nodiscard]] auto RecycleLoop(std::shared_ptr<AssocTable> Table) -> Net::awaitable<void>
         {
             if (Opts_.IdleTimeout.count() <= 0)
             {
                 // 禁用回收：超长 timer 挂起（不占 socket 读，避免与转发竞争）
-                net::steady_timer t(co_await net::this_coro::executor);
-                t.expires_after(std::chrono::hours(24));
-                boost::system::error_code ec;
-                co_await t.async_wait(net::redirect_error(net::use_awaitable, ec));
+                Net::steady_timer Timer(co_await Net::this_coro::executor);
+                Timer.expires_after(std::chrono::hours(24));
+                boost::system::error_code ErrorCode;
+                co_await Timer.async_wait(Net::redirect_error(Net::use_awaitable, ErrorCode));
                 co_return;
             }
             while (true)
             {
-                net::steady_timer t(co_await net::this_coro::executor);
-                t.expires_after(Opts_.IdleTimeout);
-                boost::system::error_code ec;
-                co_await t.async_wait(net::redirect_error(net::use_awaitable, ec));
-                if (ec == net::error::operation_aborted)
+                Net::steady_timer Timer(co_await Net::this_coro::executor);
+                Timer.expires_after(Opts_.IdleTimeout);
+                boost::system::error_code ErrorCode;
+                co_await Timer.async_wait(Net::redirect_error(Net::use_awaitable, ErrorCode));
+                if (ErrorCode == Net::error::operation_aborted)
                 {
                     // 组取消是一次性的：吞掉取消将使 || 组永不完成并泄漏 socket
                     co_return;
                 }
-                Table->Reap(Opts_.IdleTimeout);
+                Table->Reap();
             }
         }
 

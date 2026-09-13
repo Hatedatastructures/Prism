@@ -19,7 +19,7 @@
 #include "TestSupport/Production/ProductionMockTransport.hpp"
 #include <gtest/gtest.h>
 
-namespace net = boost::asio;
+namespace Net = boost::asio;
 
 namespace
 {
@@ -165,16 +165,16 @@ namespace
         auto result_rec = std::make_shared<psm::tls::record>();
         auto result_ec = std::make_shared<std::error_code>();
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [m = mock.get(), result_rec, result_ec]() -> net::awaitable<void>
+            [m = mock.get(), result_rec, result_ec]() -> Net::awaitable<void>
             {
                 auto [ec, rec] = co_await psm::tls::record::read(*m);
                 *result_ec = ec;
                 *result_rec = std::move(rec);
                 co_return;
             },
-            net::detached);
+            Net::detached);
 
         mock->GetIoContext().run();
 
@@ -189,15 +189,15 @@ namespace
 
         auto result_ec = std::make_shared<psm::fault::code>();
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [m = mock.get(), result_ec]() -> net::awaitable<void>
+            [m = mock.get(), result_ec]() -> Net::awaitable<void>
             {
                 auto [ec, rec] = co_await psm::tls::record::read(*m);
                 *result_ec = ec;
                 co_return;
             },
-            net::detached);
+            Net::detached);
 
         mock->GetIoContext().run();
         EXPECT_EQ(*result_ec, psm::fault::code::io_error)
@@ -215,15 +215,15 @@ namespace
 
         auto result_ec = std::make_shared<std::error_code>();
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [m = mock.get(), result_ec]() -> net::awaitable<void>
+            [m = mock.get(), result_ec]() -> Net::awaitable<void>
             {
                 auto [ec, rec] = co_await psm::tls::record::read(*m);
                 *result_ec = ec;
                 co_return;
             },
-            net::detached);
+            Net::detached);
 
         mock->GetIoContext().run();
         EXPECT_TRUE(!!*result_ec) << "async Read oversized: Error Code set for oversized Record";
@@ -236,14 +236,14 @@ namespace
 
         auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [m = mock.get(), r = rec]() -> net::awaitable<void>
+            [m = mock.get(), r = rec]() -> Net::awaitable<void>
             {
                 co_await r.write(*m);
                 co_return;
             },
-            net::detached);
+            Net::detached);
 
         mock->GetIoContext().run();
 
@@ -262,14 +262,14 @@ namespace
         auto mock = std::make_shared<Psm::Testing::ProductionMockTransport>();
         mock->SetWriteError(std::make_error_code(std::errc::broken_pipe));
 
-        net::co_spawn(
+        Net::co_spawn(
             mock->GetIoContext(),
-            [m = mock.get(), r = rec]() -> net::awaitable<void>
+            [m = mock.get(), r = rec]() -> Net::awaitable<void>
             {
                 co_await r.write(*m);
                 co_return;
             },
-            net::detached);
+            Net::detached);
 
         mock->GetIoContext().run();
         EXPECT_TRUE(mock->WrittenData().empty()) << "async Write Error: no Data written on Write failure";

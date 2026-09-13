@@ -9,23 +9,27 @@
 
 #pragma once
 
-#include <openssl/rand.h>
-
 #include <preview/Foundation/Memory/Container.hpp>
+#include <preview/Foundation/Utility/Crypto/Random.hpp>
 #include <preview/Transport/Transmission.hpp>
 
 #include <boost/asio.hpp>
 
 #include <array>
+#include <charconv>
 #include <cstdint>
+#include <cstring>
+#include <functional>
 #include <span>
+#include <string>
+#include <string_view>
 
 #include <blake3.h>
 
 namespace Preview::Transport {
 
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @struct PadTarget
@@ -67,12 +71,15 @@ namespace Preview::Transport {
     class PadTransport final : public Transmission
     {
     public:
+        using RandomSource = std::function<int(std::uint8_t *, int)>;
+
         /**
          * @brief 构造填充装饰器
          * @param Inner 被包装的内层传输
          * @param cfg 填充配置
          */
-        explicit PadTransport(SharedTransmission Inner, const PadConfig &cfg);
+        explicit PadTransport(SharedTransmission Inner, const PadConfig &Config,
+                              RandomSource Source = {});
 
         ~PadTransport() noexcept override = default;
 
@@ -119,8 +126,8 @@ namespace Preview::Transport {
          * @param ec 错误码输出参数
          * @return 异步操作，完成后返回读取的字节数
          */
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override;
+        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override;
 
         /**
          * @brief 异步写入数据
@@ -130,8 +137,9 @@ namespace Preview::Transport {
          * @param ec 错误码输出参数
          * @return 异步操作，完成后返回写入的字节数
          */
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override;
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer,
+                                            std::error_code &ErrorCode)
+            -> Net::awaitable<std::size_t> override;
 
         /**
          * @brief 关闭传输层
@@ -143,6 +151,12 @@ namespace Preview::Transport {
          */
         void Cancel() override;
 
+        /// 随机源初始化成功且可执行填充时返回 true
+        [[nodiscard]] auto IsValid() const noexcept -> bool
+        {
+            return Valid_;
+        }
+
     private:
         SharedTransmission Inner_;                    // 被包装的内层传输
         PadConfig Cfg_;                               // 填充配置
@@ -152,6 +166,7 @@ namespace Preview::Transport {
 
         /// BLAKE3 CSPRNG 状态
         std::array<std::uint8_t, 32> RngKey_{};       // CSPRNG 密钥
+        bool Valid_{false};                            // CSPRNG 初始化状态
         std::uint64_t RngCounter_{0};                 // CSPRNG 计数器
         std::array<std::uint8_t, 32> RngCache_{};     // CSPRNG 输出缓存
         std::size_t RngCachePos_{32};                // CSPRNG 缓存读取位置
@@ -180,7 +195,7 @@ namespace Preview::Transport {
          * @brief 从 CSPRNG 填充指定缓冲区
          * @param out 目标缓冲区
          */
-        auto RngNextBytes(std::span<std::byte> out) -> void;
+        auto RngNextBytes(std::span<std::byte> Output) -> void;
 
         /**
          * @brief 解析 PadTargets 字符串为目标列表
@@ -188,37 +203,52 @@ namespace Preview::Transport {
          * @param mr 内存资源指针
          * @return 解析后的填充目标列表
          */
-        [[nodiscard]] static auto ParseTargets(std::string_view spec, Preview::Memory::ResourcePointer mr)
+        [[nodiscard]] static auto ParseTargets(std::string_view Specification,
+                                               Preview::Memory::ResourcePointer Resource)
             -> Preview::Memory::Vector<PadTarget>;
     };
 
 
 
 
-    inline PadTransport::PadTransport(SharedTransmission Inner, const PadConfig &cfg)
-        : Inner_(std::move(Inner)), Cfg_(cfg),
-          Targets_(ParseTargets(cfg.PadTargets, Preview::Memory::CurrentResource())),
+    inline PadTransport::PadTransport(SharedTransmission Inner, const PadConfig &Config,
+                                      RandomSource Source)
+        : Inner_(std::move(Inner)), Cfg_(Config),
+          Targets_(ParseTargets(Config.PadTargets, Preview::Memory::CurrentResource())),
           PadBuf_(16384 + 256, Preview::Memory::CurrentResource())
     {
         /// 从 BoringSSL 获取 CSPRNG 种子
-        RAND_bytes(RngKey_.data(), static_cast<int>(RngKey_.size()));
+        if (Source)
+        {
+            Valid_ = Preview::Crypto::FillRandom(std::span<std::uint8_t>(RngKey_), std::move(Source));
+        }
+        else
+        {
+            Valid_ = Preview::Crypto::FillRandom(std::span<std::uint8_t>(RngKey_));
+        }
     }
 
-    inline auto PadTransport::async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t>
+    inline auto PadTransport::async_read_some(std::span<std::byte> Buffer, std::error_code &ErrorCode)
+        -> Net::awaitable<std::size_t>
     {
-        co_return co_await Inner_->async_read_some(Buffer, ec);
+        co_return co_await Inner_->async_read_some(Buffer, ErrorCode);
     }
 
-    inline auto PadTransport::async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-        -> net::awaitable<std::size_t>
+    inline auto PadTransport::async_write_some(std::span<const std::byte> Buffer,
+                                               std::error_code &ErrorCode)
+        -> Net::awaitable<std::size_t>
     {
-        ec.clear();
+        ErrorCode.clear();
 
         /// 未启用或超过 StopAfter 后直接透传,零开销
         if (!Cfg_.Enabled() || WriteCount_ >= Cfg_.StopAfter || Buffer.empty())
         {
-            co_return co_await Inner_->async_write_some(Buffer, ec);
+            co_return co_await Inner_->async_write_some(Buffer, ErrorCode);
+        }
+        if (!Valid_)
+        {
+            ErrorCode = Preview::make_error_code(Preview::Error::IoError);
+            co_return 0;
         }
 
         const auto DataLen = Buffer.size();
@@ -228,7 +258,7 @@ namespace Preview::Transport {
         /// 如果 PadBuf_ 不够大,直接透传(极端情况)
         if (Total > PadBuf_.size())
         {
-            co_return co_await Inner_->async_write_some(Buffer, ec);
+            co_return co_await Inner_->async_write_some(Buffer, ErrorCode);
         }
 
         std::memcpy(PadBuf_.data(), Buffer.data(), DataLen);
@@ -237,11 +267,11 @@ namespace Preview::Transport {
             RngNextBytes(std::span<std::byte>(PadBuf_.data() + DataLen, PadSize));
         }
 
-        co_await Inner_->AsyncWrite(std::span<const std::byte>(PadBuf_.data(), Total), ec);
+        co_await Inner_->AsyncWrite(std::span<const std::byte>(PadBuf_.data(), Total), ErrorCode);
 
         ++WriteCount_;
 
-        if (ec)
+        if (ErrorCode)
         {
             co_return 0;
         }
@@ -284,12 +314,13 @@ namespace Preview::Transport {
             return MinVal;
         }
 
-        std::array<std::byte, 2> buf{};
-        RngNextBytes(buf);
+        std::array<std::byte, 2> RandomBytes{};
+        RngNextBytes(RandomBytes);
 
         const auto Raw =
-            static_cast<std::uint16_t>((static_cast<std::uint16_t>(static_cast<std::uint8_t>(buf[0])) << 8) |
-                                       static_cast<std::uint16_t>(static_cast<std::uint8_t>(buf[1])));
+            static_cast<std::uint16_t>(
+                (static_cast<std::uint16_t>(static_cast<std::uint8_t>(RandomBytes[0])) << 8) |
+                static_cast<std::uint16_t>(static_cast<std::uint8_t>(RandomBytes[1])));
 
         // 用 uint32 计算区间，避免 MaxVal=65535 时 uint16 溢出为 0
         // 导致取模除零
@@ -299,8 +330,8 @@ namespace Preview::Transport {
 
     inline void PadTransport::RngRefill()
     {
-        blake3_hasher hasher;
-        blake3_hasher_init_keyed(&hasher, RngKey_.data());
+        blake3_hasher Hasher;
+        blake3_hasher_init_keyed(&Hasher, RngKey_.data());
 
         std::array<std::uint8_t, 8> CounterBytes{};
         auto Ctr = RngCounter_;
@@ -309,17 +340,17 @@ namespace Preview::Transport {
             CounterBytes[I] = static_cast<std::uint8_t>(Ctr & 0xFF);
             Ctr >>= 8;
         }
-        blake3_hasher_update(&hasher, CounterBytes.data(), 8);
-        blake3_hasher_finalize(&hasher, RngCache_.data(), 32);
+        blake3_hasher_update(&Hasher, CounterBytes.data(), 8);
+        blake3_hasher_finalize(&Hasher, RngCache_.data(), 32);
 
         RngCachePos_ = 0;
         ++RngCounter_;
     }
 
-    inline void PadTransport::RngNextBytes(std::span<std::byte> out)
+    inline void PadTransport::RngNextBytes(std::span<std::byte> Output)
     {
         std::size_t Offset = 0;
-        while (Offset < out.size())
+        while (Offset < Output.size())
         {
             if (RngCachePos_ >= 32)
             {
@@ -327,38 +358,39 @@ namespace Preview::Transport {
             }
 
             std::size_t Chunk = 0;
-            if (out.size() - Offset < 32 - RngCachePos_)
+            if (Output.size() - Offset < 32 - RngCachePos_)
             {
-                Chunk = out.size() - Offset;
+                Chunk = Output.size() - Offset;
             }
             else
             {
                 Chunk = 32 - RngCachePos_;
             }
-            std::memcpy(out.data() + Offset, RngCache_.data() + RngCachePos_, Chunk);
+            std::memcpy(Output.data() + Offset, RngCache_.data() + RngCachePos_, Chunk);
             RngCachePos_ += Chunk;
             Offset += Chunk;
         }
     }
 
-    inline auto PadTransport::ParseTargets(std::string_view spec, Preview::Memory::ResourcePointer mr)
+    inline auto PadTransport::ParseTargets(std::string_view Specification,
+                                           Preview::Memory::ResourcePointer Resource)
         -> Preview::Memory::Vector<PadTarget>
     {
-        Preview::Memory::Vector<PadTarget> targets(mr);
+        Preview::Memory::Vector<PadTarget> Targets(Resource);
 
         std::size_t Start = 0;
-        while (Start <= spec.size())
+        while (Start <= Specification.size())
         {
-            auto end = spec.find(',', Start);
-            if (end == std::string_view::npos)
+            auto End = Specification.find(',', Start);
+            if (End == std::string_view::npos)
             {
-                end = spec.size();
+                End = Specification.size();
             }
 
-            const auto Token = spec.substr(Start, end - Start);
+            const auto Token = Specification.substr(Start, End - Start);
             if (!Token.empty())
             {
-                PadTarget t{};
+                PadTarget Target{};
 
                 auto Dash = Token.find('-');
                 if (Dash != std::string_view::npos)
@@ -369,24 +401,24 @@ namespace Preview::Transport {
                     std::uint16_t Mx = 0;
                     std::from_chars(MinStr.data(), MinStr.data() + MinStr.size(), Mn);
                     std::from_chars(MaxStr.data(), MaxStr.data() + MaxStr.size(), Mx);
-                    t.MinVal = Mn;
-                    t.MaxVal = Mx;
+                    Target.MinVal = Mn;
+                    Target.MaxVal = Mx;
                 }
                 else
                 {
                     std::uint16_t Val = 0;
                     std::from_chars(Token.data(), Token.data() + Token.size(), Val);
-                    t.MinVal = Val;
-                    t.MaxVal = Val;
+                    Target.MinVal = Val;
+                    Target.MaxVal = Val;
                 }
 
-                targets.push_back(t);
+                Targets.push_back(Target);
             }
 
-            Start = end + 1;
+            Start = End + 1;
         }
 
-        return targets;
+        return Targets;
     }
 
 

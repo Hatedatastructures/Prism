@@ -12,27 +12,26 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using namespace Preview;
+    namespace Net = boost::asio;
     using Preview::Network::Dns::Message;
     using Preview::Network::Dns::QType;
     using Preview::Network::Dns::Question;
     using Preview::Network::Dns::Record;
 
     /// 构造 A 记录 RDATA（4 字节大端 IPv4）
-    auto MakeV4Rdata(std::uint8_t a, std::uint8_t b, std::uint8_t c, std::uint8_t d)
+    auto MakeV4Rdata(std::uint8_t A, std::uint8_t B, std::uint8_t C, std::uint8_t D)
         -> std::vector<std::uint8_t>
     {
-        return {a, b, c, d};
+        return {A, B, C, D};
     }
 
     /// 构造 AAAA 记录 RDATA（16 字节，前缀 2001:db8:: 风格填充）
     auto MakeV6Rdata() -> std::vector<std::uint8_t>
     {
-        std::vector<std::uint8_t> out(16);
-        out[0] = 0x20;
-        out[1] = 0x01;
-        return out;
+        std::vector<std::uint8_t> Output(16);
+        Output[0] = 0x20;
+        Output[1] = 0x01;
+        return Output;
     }
 } // namespace
 
@@ -92,7 +91,7 @@ TEST(DnsFormat, TestResponseRoundtripAndExtractIps)
 
     const auto ips = parsed->ExtractIps();
     ASSERT_EQ(ips.size(), 2u);
-    EXPECT_EQ(ips[0], net::ip::make_address_v4("1.2.3.4"));
+    EXPECT_EQ(ips[0], Net::ip::make_address_v4("1.2.3.4"));
     EXPECT_TRUE(ips[1].is_v6());
     // 最小 TTL 跨三段记录取最小值
     EXPECT_EQ(parsed->MinTtl(), 120u);
@@ -244,5 +243,5 @@ TEST(DnsFormat, TestExtractIpsSkipsMalformed)
 
     const auto ips = m.ExtractIps();
     ASSERT_EQ(ips.size(), 1u);
-    EXPECT_EQ(ips[0], net::ip::make_address_v4("9.9.9.9"));
+    EXPECT_EQ(ips[0], Net::ip::make_address_v4("9.9.9.9"));
 }

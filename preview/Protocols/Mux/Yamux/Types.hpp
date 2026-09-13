@@ -4,6 +4,7 @@
  * @details 定义 yamux 多路复用协议的常量、消息类型、标志位与帧头结构。
  *          帧头为 12 字节定长，多字节字段大端序：
  *          [Version 1B][Type 1B][Flags 2B][StreamID 4B][Length 4B]。
+ * @note FrameHeader 字段名称和聚合初始化顺序属于公共兼容面，保持现有形式。
  * @note 协议规范见 include/prism/Protocol/multiplex/yamux/Frame.hpp。
  */
 
@@ -54,24 +55,25 @@ namespace Preview::Mux::Yamux
 
     /**
      * @brief 标志位按位与
-     * @param a 左操作数
-     * @param b 右操作数
+     * @param Left 左操作数
+     * @param Right 右操作数
      * @return 按位与结果
      */
-    [[nodiscard]] constexpr auto operator&(Flags a, Flags b) noexcept -> Flags
+    [[nodiscard]] constexpr auto operator&(Flags Left, Flags Right) noexcept -> Flags
     {
-        return static_cast<Flags>(static_cast<std::uint16_t>(a) & static_cast<std::uint16_t>(b));
+        return static_cast<Flags>(static_cast<std::uint16_t>(Left) &
+                                  static_cast<std::uint16_t>(Right));
     }
 
     /**
      * @brief 检查标志组合
-     * @param f 标志组合
-     * @param flag 待检查标志
+     * @param FlagsValue 标志组合
+     * @param FlagValue 待检查标志
      * @return true = 包含该标志
      */
-    [[nodiscard]] constexpr auto HasFlag(Flags f, Flags flag) noexcept -> bool
+    [[nodiscard]] constexpr auto HasFlag(Flags FlagsValue, Flags FlagValue) noexcept -> bool
     {
-        return (f & flag) != Flags::None;
+        return (FlagsValue & FlagValue) != Flags::None;
     }
 
     /// GoAway 终止原因码
@@ -81,7 +83,7 @@ namespace Preview::Mux::Yamux
         ProtocolError = 1,
     };
 
-    /// yamux 帧头
+    /// yamux 帧头（字段名称保持公共聚合初始化兼容）
     struct FrameHeader
     {
         /// 协议版本

@@ -13,10 +13,12 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace Preview::Codec
@@ -48,8 +50,8 @@ namespace Preview::Codec
     {
         std::int64_t StreamId{0};                  ///< 所属流 ID（无流语义的协议填 0）
         std::uint64_t Type{0};                      ///< 帧类型（协议自定编码）
-        std::span<const std::uint8_t> payload{};    ///< 帧载荷视图（不含帧头）
-        bool fin{false};                            ///< 是否伴随流结束（END_STREAM 语义）
+        std::span<const std::uint8_t> Payload{};    ///< 帧载荷视图（不含帧头）
+        bool Fin{false};                            ///< 是否伴随流结束（END_STREAM 语义）
     };
 
     /**
@@ -63,8 +65,8 @@ namespace Preview::Codec
     struct ParseResult
     {
         CodecError Error{CodecError::None};       ///< 解析错误码
-        std::size_t consumed{0};                    ///< 已消费字节数
-        std::optional<FrameEvent> event;           ///< 解码事件（Error == none 时有效）
+        std::size_t Consumed{0};                    ///< 已消费字节数
+        std::optional<FrameEvent> Event;           ///< 解码事件（Error == none 时有效）
 
         /**
          * @brief 快速构造成功结果
@@ -72,9 +74,9 @@ namespace Preview::Codec
          * @param n 消费字节数
          * @return 成功解析结果
          */
-        [[nodiscard]] static auto Ok(FrameEvent ev, std::size_t N) noexcept -> ParseResult
+        [[nodiscard]] static auto Ok(FrameEvent Event, std::size_t N) noexcept -> ParseResult
         {
-            return ParseResult{CodecError::None, N, std::move(ev)};
+            return ParseResult{CodecError::None, N, std::move(Event)};
         }
 
         /**
@@ -83,9 +85,9 @@ namespace Preview::Codec
          * @param n 消费字节数（解析失败时通常为 0）
          * @return 失败解析结果
          */
-        [[nodiscard]] static auto Fail(CodecError ec, std::size_t N = 0) noexcept -> ParseResult
+        [[nodiscard]] static auto Fail(CodecError ErrorCode, std::size_t N = 0) noexcept -> ParseResult
         {
-            return ParseResult{ec, N, std::nullopt};
+            return ParseResult{ErrorCode, N, std::nullopt};
         }
 
         /**
@@ -94,7 +96,7 @@ namespace Preview::Codec
          */
         [[nodiscard]] auto HasEvent() const noexcept -> bool
         {
-            return Error == CodecError::None && event.has_value();
+            return Error == CodecError::None && Event.has_value();
         }
     };
 
@@ -110,9 +112,10 @@ namespace Preview::Codec
      * @tparam T 编解码器类型
      */
     template <typename T>
-    concept FrameCodec = requires(T &c, std::span<const std::uint8_t> input, const FrameEvent &event) {
-        { c.Parse(input) } -> std::same_as<ParseResult>;
-        { c.Build(event) } -> std::convertible_to<Bytes>;
+    concept FrameCodec = requires(T &Codec, std::span<const std::uint8_t> Input,
+                                  const FrameEvent &Event) {
+        { Codec.Parse(Input) } -> std::same_as<ParseResult>;
+        { Codec.Build(Event) } -> std::convertible_to<Bytes>;
     };
 
     /**
@@ -124,9 +127,9 @@ namespace Preview::Codec
      * c.Parse(input).Error == CodecError::None。
      */
     template <FrameCodec C>
-    [[nodiscard]] inline auto CanParse(C &c, std::span<const std::uint8_t> input) -> bool
+    [[nodiscard]] inline auto CanParse(C &Codec, std::span<const std::uint8_t> Input) -> bool
     {
-        return c.Parse(input).Error == CodecError::None;
+        return Codec.Parse(Input).Error == CodecError::None;
     }
 
 } // namespace Preview::Codec

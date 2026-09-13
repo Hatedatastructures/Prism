@@ -26,7 +26,13 @@
 #include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/experimental/concurrent_channel.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/redirect_error.hpp>
 #include <boost/asio/ssl.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+#include <openssl/ssl.h>
 
 #include <array>
 #include <cstddef>
@@ -41,11 +47,13 @@
 namespace Preview::Xhttp
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
     namespace h2 = Preview::Http2;
 
     /// h2 会话共享指针
     using SharedH2Session = std::shared_ptr<h2::SessionImpl>;
+
+    using boost::asio::experimental::awaitable_operators::operator||;
 
     /**
      * @class WireWriter
@@ -56,17 +64,17 @@ namespace Preview::Xhttp
     class WireWriter final : public std::enable_shared_from_this<WireWriter>
     {
     public:
-        using Sink = std::function<net::awaitable<void>(std::span<const std::byte>)>;
+        using Sink = std::function<Net::awaitable<void>(std::span<const std::byte>)>;
 
-        WireWriter(net::any_io_executor ex, Sink sink)
-            : Ex_(std::move(ex)), Sink_(std::move(sink))
+        WireWriter(Net::any_io_executor Executor, Sink SinkFunction)
+            : Ex_(std::move(Executor)), Sink_(std::move(SinkFunction))
         {
         }
 
         WireWriter(const WireWriter &) = delete;
         auto operator=(const WireWriter &) -> WireWriter & = delete;
 
-        [[nodiscard]] auto Write(std::span<const std::byte> Data) -> net::awaitable<void>
+        [[nodiscard]] auto Write(std::span<const std::byte> Data) -> Net::awaitable<void>
         {
             if (Data.empty())
             {
@@ -83,10 +91,14 @@ namespace Preview::Xhttp
 
             boost::system::error_code WaitEc;
             const auto Failed = co_await Request->Done.async_receive(
-                net::redirect_error(net::use_awaitable, WaitEc));
+                Net::redirect_error(Net::use_awaitable, WaitEc));
             if (WaitEc || Failed != 0)
             {
-                const auto Value = WaitEc ? WaitEc.value() : static_cast<int>(std::errc::io_error);
+                int Value = static_cast<int>(std::errc::io_error);
+                if (WaitEc)
+                {
+                    Value = WaitEc.value();
+                }
                 throw std::system_error(Value, std::system_category());
             }
         }
@@ -98,12 +110,12 @@ namespace Preview::Xhttp
         }
 
     private:
-        using Completion = net::experimental::channel<void(boost::system::error_code, int)>;
+        using Completion = Net::experimental::channel<void(boost::system::error_code, int)>;
 
         struct RequestState
         {
-            RequestState(net::any_io_executor ex, std::span<const std::byte> Data)
-                : Data(Data.begin(), Data.end()), Done(ex, 1)
+            RequestState(Net::any_io_executor Executor, std::span<const std::byte> Data)
+                : Data(Data.begin(), Data.end()), Done(Executor, 1)
             {
             }
 
@@ -119,7 +131,7 @@ namespace Preview::Xhttp
             }
             WriterRunning_ = true;
             auto Self = shared_from_this();
-            net::co_spawn(Ex_, [Self]() -> net::awaitable<void> { co_await Self->Loop(); }, net::detached);
+            Net::co_spawn(Ex_, [Self]() -> Net::awaitable<void> { co_await Self->Loop(); }, Net::detached);
         }
 
         void FailQueued(boost::system::error_code Ec)
@@ -128,7 +140,12 @@ namespace Preview::Xhttp
             {
                 auto Request = std::move(Queue_.front());
                 Queue_.pop_front();
-                (void)Request->Done.try_send(Ec, Ec ? 1 : 0);
+                int Failed = 0;
+                if (Ec)
+                {
+                    Failed = 1;
+                }
+                (void)Request->Done.try_send(Ec, Failed);
             }
         }
 
@@ -137,7 +154,7 @@ namespace Preview::Xhttp
             return boost::system::errc::make_error_code(boost::system::errc::io_error);
         }
 
-        auto Loop() -> net::awaitable<void>
+        auto Loop() -> Net::awaitable<void>
         {
             while (!Queue_.empty())
             {
@@ -160,7 +177,12 @@ namespace Preview::Xhttp
                     Ec = IoError();
                 }
 
-                (void)Request->Done.try_send(Ec, Ec ? 1 : 0);
+                int Failed = 0;
+                if (Ec)
+                {
+                    Failed = 1;
+                }
+                (void)Request->Done.try_send(Ec, Failed);
                 if (Ec)
                 {
                     Closed_ = true;
@@ -172,7 +194,7 @@ namespace Preview::Xhttp
             co_return;
         }
 
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
         Sink Sink_;
         std::deque<std::shared_ptr<RequestState>> Queue_;
         bool WriterRunning_{false};
@@ -193,16 +215,25 @@ namespace Preview::Xhttp
          * @param StreamId 目标流
          * @param Data 载荷
          */
-        using WriteCb = std::function<net::awaitable<void>(std::int32_t StreamId,
-                                                            std::span<const std::byte>)>;
+        using WriteCb = std::function<Net::awaitable<void>(std::int32_t StreamId,
+                                                             std::span<const std::byte>)>;
+
+        /// 请求方向半关闭回调（发送空 DATA + END_STREAM）
+        using FinishCb = std::function<Net::awaitable<void>(std::int32_t StreamId)>;
 
         /**
          * @brief 构造
-         * @param ex 执行器
+         * @param Executor 执行器
          * @param WriteFn 写回调（提交 DATA 帧）
          */
-        explicit XhttpTransport(net::any_io_executor ex, WriteCb WriteFn)
-            : Ex_(std::move(ex)), WriteFn_(std::move(WriteFn)), Notify_(Ex_, 64)
+        explicit XhttpTransport(
+            Net::any_io_executor Executor,
+            WriteCb WriteFn,
+            FinishCb FinishFn = {})
+            : Ex_(std::move(Executor)),
+              WriteFn_(std::move(WriteFn)),
+              FinishFn_(std::move(FinishFn)),
+              Notify_(Ex_, 64)
         {
         }
 
@@ -211,40 +242,46 @@ namespace Preview::Xhttp
             return Ex_;
         }
 
-        [[nodiscard]] auto async_read_some(std::span<std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_read_some(
+            std::span<std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
+            if (Buffer.empty())
+            {
+                ErrorCode.clear();
+                co_return 0;
+            }
             while (RxOffset_ >= RxCurrent_.size())
             {
                 if (Closed_)
                 {
-                    ec = std::make_error_code(std::errc::not_connected);
+                    ErrorCode = std::make_error_code(std::errc::not_connected);
                     co_return 0;
                 }
                 if (Eof_)
                 {
-                    ec = make_error_code(Error::UnexpectedEof);
+                    ErrorCode = make_error_code(Error::UnexpectedEof);
                     co_return 0;
                 }
                 if (EofPending_ && !Notify_.ready())
                 {
                     EofPending_ = false;
                     Eof_ = true;
-                    ec.clear();
+                    ErrorCode.clear();
                     co_return 0;
                 }
                 boost::system::error_code ChEc;
                 auto Block = co_await Notify_.async_receive(
-                    net::redirect_error(net::use_awaitable, ChEc));
+                    Net::redirect_error(Net::use_awaitable, ChEc));
                 if (ChEc)
                 {
-                    ec = std::make_error_code(std::errc::not_connected);
+                    ErrorCode = std::make_error_code(std::errc::not_connected);
                     co_return 0;
                 }
                 if (Block.empty())
                 {
                     Eof_ = true;
-                    ec.clear();
+                    ErrorCode.clear();
                     co_return 0;
                 }
                 RxCurrent_ = std::move(Block);
@@ -253,28 +290,29 @@ namespace Preview::Xhttp
             const auto N = std::min(Buffer.size(), RxCurrent_.size() - RxOffset_);
             std::memcpy(Buffer.data(), RxCurrent_.data() + RxOffset_, N);
             RxOffset_ += N;
-            ec.clear();
+            ErrorCode.clear();
             co_return N;
         }
 
-        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &ec)
-            -> net::awaitable<std::size_t> override
+        [[nodiscard]] auto async_write_some(
+            std::span<const std::byte> Buffer,
+            std::error_code &ErrorCode) -> Net::awaitable<std::size_t> override
         {
             if (Buffer.empty())
             {
-                ec.clear();
+                ErrorCode.clear();
                 co_return 0;
             }
-            if (Closed_ || !WriteFn_)
+            if (Closed_ || Finished_ || !WriteFn_)
             {
-                ec = std::make_error_code(std::errc::not_connected);
+                ErrorCode = std::make_error_code(std::errc::not_connected);
                 co_return 0;
             }
             if (StreamId_ < 0)
             {
                 // 流未匹配：缓冲写
                 WritePending_.insert(WritePending_.end(), Buffer.begin(), Buffer.end());
-                ec.clear();
+                ErrorCode.clear();
                 co_return Buffer.size();
             }
 
@@ -287,19 +325,19 @@ namespace Preview::Xhttp
             try
             {
                 Written = co_await Request->Done->async_receive(
-                    net::redirect_error(net::use_awaitable, WaitEc));
+                    Net::redirect_error(Net::use_awaitable, WaitEc));
             }
             catch (...)
             {
-                ec = std::make_error_code(std::errc::not_connected);
+                ErrorCode = std::make_error_code(std::errc::not_connected);
                 co_return 0;
             }
             if (WaitEc)
             {
-                ec = std::make_error_code(std::errc::io_error);
+                ErrorCode = std::make_error_code(std::errc::io_error);
                 co_return Written;
             }
-            ec.clear();
+            ErrorCode.clear();
             co_return Written;
         }
 
@@ -313,6 +351,38 @@ namespace Preview::Xhttp
         void Cancel() override
         {
             Close();
+        }
+
+        /**
+         * @brief 半关闭 XHTTP 请求方向
+         * @details 发送 END_STREAM，但继续保留响应方向，供标准 HTTP/2
+         *          服务器在收到完整请求体后返回 echo 或最终响应。
+         */
+        [[nodiscard]] auto Finish() -> Net::awaitable<void>
+        {
+            if (Closed_ || Finished_ || StreamId_ < 0 || !FinishFn_)
+            {
+                throw std::system_error(std::make_error_code(std::errc::not_connected));
+            }
+            Finished_ = true;
+            auto Request = std::make_shared<WriteRequest>(Ex_, StreamId_, std::span<const std::byte>{}, true);
+            WriteQueue_.push_back(Request);
+            StartWriter();
+
+            boost::system::error_code WaitEc;
+            try
+            {
+                (void)co_await Request->Done->async_receive(
+                    Net::redirect_error(Net::use_awaitable, WaitEc));
+            }
+            catch (...)
+            {
+                throw std::system_error(std::make_error_code(std::errc::not_connected));
+            }
+            if (WaitEc)
+            {
+                throw std::system_error(std::make_error_code(std::errc::io_error));
+            }
         }
 
         [[nodiscard]] auto NextLayer() noexcept -> Transmission * override
@@ -379,19 +449,20 @@ namespace Preview::Xhttp
         std::int32_t StreamId_{-1};
 
     private:
-        using CompletionChannel = net::experimental::channel<void(boost::system::error_code, std::size_t)>;
+        using CompletionChannel = Net::experimental::channel<void(boost::system::error_code, std::size_t)>;
 
         struct WriteRequest
         {
-            WriteRequest(net::any_io_executor ex, std::int32_t StreamId,
-                         std::span<const std::byte> Data)
-                : StreamId(StreamId), Data(Data.begin(), Data.end()),
-                  Done(std::make_shared<CompletionChannel>(ex, 1))
+            WriteRequest(Net::any_io_executor Executor, std::int32_t StreamId,
+                         std::span<const std::byte> Data, bool EndStream = false)
+                : StreamId(StreamId), Data(Data.begin(), Data.end()), EndStream(EndStream),
+                  Done(std::make_shared<CompletionChannel>(Executor, 1))
             {
             }
 
             std::int32_t StreamId;
             std::vector<std::byte> Data;
+            bool EndStream{false};
             std::shared_ptr<CompletionChannel> Done;
         };
 
@@ -416,7 +487,7 @@ namespace Preview::Xhttp
             }
             WriterRunning_ = true;
             auto Self = std::static_pointer_cast<XhttpTransport>(Transmission::shared_from_this());
-            net::co_spawn(Ex_, [Self]() -> net::awaitable<void> { co_await Self->WriteLoop(); }, net::detached);
+            Net::co_spawn(Ex_, [Self]() -> Net::awaitable<void> { co_await Self->WriteLoop(); }, Net::detached);
         }
 
         void FailQueued(boost::system::error_code Ec)
@@ -432,7 +503,7 @@ namespace Preview::Xhttp
             }
         }
 
-        auto WriteLoop() -> net::awaitable<void>
+        auto WriteLoop() -> Net::awaitable<void>
         {
             while (!WriteQueue_.empty())
             {
@@ -442,9 +513,18 @@ namespace Preview::Xhttp
                 std::size_t Written = 0;
                 try
                 {
-                    if (!Closed_ && WriteFn_)
+                    if (!Closed_ && ((Request->EndStream && FinishFn_) ||
+                                     (!Request->EndStream && WriteFn_)))
                     {
-                        co_await WriteFn_(Request->StreamId, std::span<const std::byte>(Request->Data));
+                        if (Request->EndStream)
+                        {
+                            co_await FinishFn_(Request->StreamId);
+                        }
+                        else
+                        {
+                            co_await WriteFn_(Request->StreamId,
+                                              std::span<const std::byte>(Request->Data));
+                        }
                         Written = Request->Data.size();
                     }
                     else
@@ -473,10 +553,11 @@ namespace Preview::Xhttp
         }
 
         using ChannelType =
-            net::experimental::concurrent_channel<void(boost::system::error_code, std::vector<std::byte>)>;
+            Net::experimental::concurrent_channel<void(boost::system::error_code, std::vector<std::byte>)>;
 
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
         WriteCb WriteFn_;
+        FinishCb FinishFn_;
         ChannelType Notify_;
         std::vector<std::byte> RxCurrent_;
         std::size_t RxOffset_{0};
@@ -484,6 +565,7 @@ namespace Preview::Xhttp
         std::deque<std::shared_ptr<WriteRequest>> WriteQueue_;
         bool WriterRunning_{false};
         bool Closed_{false};
+        bool Finished_{false};
         bool Eof_{false};
         bool EofPending_{false};
     };
@@ -497,12 +579,15 @@ namespace Preview::Xhttp
     public:
         /**
          * @brief 构造
-         * @param raw 底层传输（所有权转移）
+         * @param Raw 底层传输（所有权转移）
          * @param SslCtx TLS 服务端上下文
-         * @param cfg xhttp 配置
+         * @param ConfigValue XHTTP 配置
          */
-        XhttpAccept(SharedTransmission raw, net::ssl::context &SslCtx, const Config &cfg)
-            : Raw_(std::move(raw)), SslCtx_(SslCtx), Cfg_(cfg)
+        XhttpAccept(
+            SharedTransmission Raw,
+            Net::ssl::context &SslCtx,
+            const Config &ConfigValue)
+            : Raw_(std::move(Raw)), SslCtx_(SslCtx), Cfg_(ConfigValue)
         {
         }
 
@@ -510,18 +595,21 @@ namespace Preview::Xhttp
          * @brief 执行握手并等待流匹配
          * @return 匹配流的双向传输；失败返回 nullptr
          */
-        [[nodiscard]] auto Run() -> net::awaitable<SharedTransmission>
+        [[nodiscard]] auto Run() -> Net::awaitable<SharedTransmission>
         {
             if (!Raw_)
             {
                 co_return nullptr;
             }
-            auto [Code, Stream, recovered] =
+            auto [Code, Stream, Recovered] =
                 co_await Preview::Transport::Encrypted::SslHandshake(std::move(Raw_), SslCtx_);
-            (void)Code;
-            (void)recovered;
-            if (!Stream)
+            if (Code != Preview::Fault::Code::Success || !Stream)
             {
+                if (Recovered)
+                {
+                    Recovered->Cancel();
+                    Recovered->Close();
+                }
                 co_return nullptr;
             }
             Encrypted_ = std::make_shared<Preview::Transport::Encrypted>(std::move(Stream));
@@ -529,13 +617,17 @@ namespace Preview::Xhttp
             Session_ = std::make_shared<h2::SessionImpl>(Encrypted_->Executor(), true);
             auto Wire = std::make_shared<WireWriter>(
                 Encrypted_->Executor(),
-                [Encrypted = Encrypted_](std::span<const std::byte> Data) -> net::awaitable<void>
+                [Encrypted = Encrypted_](std::span<const std::byte> Data) -> Net::awaitable<void>
                 {
-                    std::error_code ec;
-                    const auto N = co_await Encrypted->AsyncWrite(Data, ec);
-                    if (ec || N != Data.size())
+                    std::error_code ErrorCode;
+                    const auto N = co_await Encrypted->AsyncWrite(Data, ErrorCode);
+                    if (ErrorCode || N != Data.size())
                     {
-                        throw std::system_error(ec ? ec : std::make_error_code(std::errc::io_error));
+                        if (ErrorCode)
+                        {
+                            throw std::system_error(ErrorCode);
+                        }
+                        throw std::system_error(std::make_error_code(std::errc::io_error));
                     }
                     co_return;
                 });
@@ -544,20 +636,20 @@ namespace Preview::Xhttp
             auto Session = Session_;
             Transport_ = std::make_shared<XhttpTransport>(
                 Encrypted_->Executor(),
-                [Session, Wire](std::int32_t sid, std::span<const std::byte> Data)
-                    -> net::awaitable<void>
+                [Session, Wire](std::int32_t StreamId, std::span<const std::byte> Data)
+                    -> Net::awaitable<void>
                 {
-                    (void)Session->SubmitData(sid, Data, false);
-                    std::vector<std::byte> out;
-                    if (Session->Collect(out) && !out.empty())
+                    (void)Session->SubmitData(StreamId, Data, false);
+                    std::vector<std::byte> Output;
+                    if (Session->Collect(Output) && !Output.empty())
                     {
-                        co_await Wire->Write(out);
+                        co_await Wire->Write(Output);
                     }
                     co_return;
                 });
 
-            Session_->OnHeaders = [Transport = Transport_, Session = Session_, path_cfg = Cfg_.Path]
-                (std::int32_t sid, const h2::HeaderList &headers, bool)
+            Session_->OnHeaders = [Transport = Transport_, Session = Session_, PathValue = Cfg_.Path]
+                (std::int32_t StreamId, const h2::HeaderList &Headers, bool)
             {
                 if (Transport->StreamId_ >= 0)
                 {
@@ -565,44 +657,45 @@ namespace Preview::Xhttp
                 }
                 bool IsPost = false;
                 std::string_view Path;
-                for (const auto &h : headers)
+                for (const auto &Header : Headers)
                 {
-                    if (h.Name == ":method" && h.value == "POST")
+                    if (Header.Name == ":method" && Header.value == "POST")
                     {
                         IsPost = true;
                     }
-                    else if (h.Name == ":path")
+                    else if (Header.Name == ":path")
                     {
-                        Path = h.value;
+                        Path = Header.value;
                     }
                 }
-                const std::string_view base(path_cfg.data(), path_cfg.size());
+                const std::string_view Base(PathValue.data(), PathValue.size());
                 bool PathOk;
-                if (base == "/")
+                if (Base == "/")
                 {
                     PathOk = Path.rfind('/', 0) == 0;
                 }
                 else
                 {
-                    PathOk = Path.rfind(base, 0) == 0;
+                    PathOk = Path.rfind(Base, 0) == 0;
                 }
                 if (IsPost && PathOk)
                 {
-                    Transport->BindStream(sid);
-                    h2::HeaderList resp = {{":status", "200"}, {"content-type", "text/event-stream"}};
-                    (void)Session->SubmitHeaders(sid, resp, false);
+                    Transport->BindStream(StreamId);
+                    h2::HeaderList Response = {{":status", "200"}, {"content-type", "text/event-stream"}};
+                    (void)Session->SubmitHeaders(StreamId, Response, false);
                 }
             };
-            Session_->OnData = [Transport = Transport_](std::int32_t sid, std::span<const std::byte> Data)
+            Session_->OnData = [Transport = Transport_](std::int32_t StreamId,
+                                                        std::span<const std::byte> Data)
             {
-                if (sid == Transport->StreamId_)
+                if (StreamId == Transport->StreamId_)
                 {
                     Transport->Push(Data);
                 }
             };
-            Session_->OnStreamClose = [Transport = Transport_](std::int32_t sid, std::uint32_t)
+            Session_->OnStreamClose = [Transport = Transport_](std::int32_t StreamId, std::uint32_t)
             {
-                if (sid == Transport->StreamId_)
+                if (StreamId == Transport->StreamId_)
                 {
                     Transport->NotifyEof();
                 }
@@ -610,28 +703,35 @@ namespace Preview::Xhttp
 
             // driver 与数据回调共享同一个物理写入器。
             auto Transport = Transport_;
-            net::co_spawn(Encrypted_->Executor(),
-                          [Session, Wire, Transport, Encrypted = Encrypted_]() mutable -> net::awaitable<void>
+            Net::co_spawn(Encrypted_->Executor(),
+                          [Session, Wire, Transport, Encrypted = Encrypted_]() mutable -> Net::awaitable<void>
                           {
-                              std::array<std::byte, 16384> buf{};
+                              std::array<std::byte, 16384> Buffer{};
                               while (true)
                               {
-                                  std::error_code ec;
-                                  const auto N = co_await Encrypted->async_read_some(buf, ec);
-                                  if (ec || N == 0)
+                                  std::error_code ErrorCode;
+                                  const auto N = co_await Encrypted->async_read_some(Buffer, ErrorCode);
+                                  if (ErrorCode || N == 0)
                                   {
                                       break;
                                   }
-                                  if (!Session->Feed(std::span<const std::byte>(buf.data(), N), ec))
+                                  if (N > Buffer.size())
                                   {
                                       break;
                                   }
-                                  std::vector<std::byte> out;
-                                  if (Session->Collect(out) && !out.empty())
+                                  if (!Session->Feed(
+                                          std::span<const std::byte>(Buffer.data(), N),
+                                          ErrorCode) &&
+                                      ErrorCode != make_error_code(Error::NeedMore))
+                                  {
+                                      break;
+                                  }
+                                  std::vector<std::byte> Output;
+                                  if (Session->Collect(Output) && !Output.empty())
                                   {
                                       try
                                       {
-                                          co_await Wire->Write(out);
+                                          co_await Wire->Write(Output);
                                       }
                                       catch (...)
                                       {
@@ -642,13 +742,13 @@ namespace Preview::Xhttp
                               Transport->NotifyEof();
                               co_return;
                           },
-                          net::detached);
+                          Net::detached);
             co_return Transport_;
         }
 
     private:
         SharedTransmission Raw_;
-        net::ssl::context &SslCtx_;
+        Net::ssl::context &SslCtx_;
         Config Cfg_;
         Preview::SharedTransmission Encrypted_;
         SharedH2Session Session_;
@@ -656,16 +756,351 @@ namespace Preview::Xhttp
     };
 
     /**
+     * @brief 建立 XHTTP 客户端 TLS 连接
+     * @param Raw 底层传输（所有权转移）
+     * @param SslCtx TLS 客户端上下文
+     * @param Host SNI 主机名
+     * @return 完成 TLS 握手的流；失败返回空
+     */
+    [[nodiscard]] inline auto ConnectTls(
+        SharedTransmission Raw,
+        Net::ssl::context &SslCtx,
+        std::string_view Host) -> Net::awaitable<Preview::Transport::Encrypted::SharedStream>
+    {
+        if (!Raw)
+        {
+            co_return nullptr;
+        }
+
+        Preview::Transport::Connector Connector(std::move(Raw), {});
+        auto Stream = std::make_shared<Preview::Transport::Encrypted::StreamType>(
+            std::move(Connector), SslCtx);
+        if (!Host.empty())
+        {
+            const auto HostName = std::string(Host);
+            if (SSL_set_tlsext_host_name(Stream->native_handle(), HostName.c_str()) != 1)
+            {
+                auto Recovered = Stream->next_layer().Release();
+                if (Recovered)
+                {
+                    Recovered->Close();
+                }
+                co_return nullptr;
+            }
+        }
+
+        // XHTTP stream-one 使用标准 HTTP/2 ALPN，避免把 TLS 连接误协商为 HTTP/1.1。
+        constexpr unsigned char Alpn[] = {2, 'h', '2'};
+        if (SSL_set_alpn_protos(Stream->native_handle(), Alpn, sizeof(Alpn)) != 0)
+        {
+            auto Recovered = Stream->next_layer().Release();
+            if (Recovered)
+            {
+                Recovered->Close();
+            }
+            co_return nullptr;
+        }
+
+        Net::steady_timer Deadline(Stream->get_executor());
+        Deadline.expires_after(std::chrono::seconds(30));
+        auto DoHandshake = [Stream]() -> Net::awaitable<boost::system::error_code>
+        {
+            boost::system::error_code Error;
+            co_await Stream->async_handshake(
+                Net::ssl::stream_base::client,
+                Net::redirect_error(Net::use_awaitable, Error));
+            co_return Error;
+        };
+        const auto Result = co_await (DoHandshake() || Deadline.async_wait(Net::use_awaitable));
+        const auto Failed = Result.index() == 1 || std::get<0>(Result);
+        if (Failed)
+        {
+            auto Recovered = Stream->next_layer().Release();
+            if (Recovered)
+            {
+                Recovered->Cancel();
+                Recovered->Close();
+            }
+            co_return nullptr;
+        }
+        co_return Stream;
+    }
+
+    using ResponseChannel = Net::experimental::channel<void(boost::system::error_code, bool)>;
+
+    struct ClientState final
+    {
+        std::shared_ptr<Preview::Transport::Encrypted> Encrypted;
+        SharedH2Session Session;
+        std::shared_ptr<WireWriter> Wire;
+        std::shared_ptr<XhttpTransport> Transport;
+        std::shared_ptr<ResponseChannel> Response;
+    };
+
+    [[nodiscard]] inline auto MakeClientState(Preview::Transport::Encrypted::SharedStream Stream)
+        -> std::shared_ptr<ClientState>
+    {
+        auto State = std::make_shared<ClientState>();
+        State->Encrypted = std::make_shared<Preview::Transport::Encrypted>(std::move(Stream));
+        State->Session = std::make_shared<h2::SessionImpl>(State->Encrypted->Executor(), false);
+        State->Wire = std::make_shared<WireWriter>(
+            State->Encrypted->Executor(),
+            [Encrypted = State->Encrypted](std::span<const std::byte> Data) -> Net::awaitable<void>
+            {
+                std::error_code ErrorCode;
+                const auto N = co_await Encrypted->AsyncWrite(Data, ErrorCode);
+                if (ErrorCode || N != Data.size())
+                {
+                    if (ErrorCode)
+                    {
+                        throw std::system_error(ErrorCode);
+                    }
+                    throw std::system_error(std::make_error_code(std::errc::io_error));
+                }
+                co_return;
+            });
+        State->Transport = std::make_shared<XhttpTransport>(
+            State->Encrypted->Executor(),
+            [Session = State->Session, Wire = State->Wire](std::int32_t StreamId,
+                                                             std::span<const std::byte> Data)
+                -> Net::awaitable<void>
+            {
+                if (Session->SubmitData(StreamId, Data, false) != 0)
+                {
+                    throw std::system_error(std::make_error_code(std::errc::broken_pipe));
+                }
+                std::vector<std::byte> Out;
+                if (Session->Collect(Out) && !Out.empty())
+                {
+                    co_await Wire->Write(Out);
+                }
+                co_return;
+            },
+            [Session = State->Session, Wire = State->Wire](std::int32_t StreamId)
+                -> Net::awaitable<void>
+            {
+                if (Session->SubmitData(StreamId, {}, true) != 0)
+                {
+                    throw std::system_error(std::make_error_code(std::errc::broken_pipe));
+                }
+                std::vector<std::byte> Out;
+                if (Session->Collect(Out) && !Out.empty())
+                {
+                    co_await Wire->Write(Out);
+                }
+                co_return;
+            });
+        State->Response = std::make_shared<ResponseChannel>(State->Encrypted->Executor(), 1);
+        State->Session->OnHeaders = [Transport = State->Transport, Response = State->Response](
+                                         std::int32_t StreamId, const h2::HeaderList &Headers, bool)
+        {
+            if (StreamId != Transport->StreamId_)
+            {
+                return;
+            }
+            bool StatusOk = false;
+            bool ContentTypeOk = false;
+            for (const auto &Header : Headers)
+            {
+                if (Header.Name == ":status" && Header.value == "200")
+                {
+                    StatusOk = true;
+                }
+                else if (Header.Name == "content-type" && Header.value == "text/event-stream")
+                {
+                    ContentTypeOk = true;
+                }
+            }
+            (void)Response->try_send(boost::system::error_code{}, StatusOk && ContentTypeOk);
+        };
+        State->Session->OnData = [Transport = State->Transport](std::int32_t StreamId,
+                                                                 std::span<const std::byte> Data)
+        {
+            if (StreamId == Transport->StreamId_)
+            {
+                Transport->Push(Data);
+            }
+        };
+        State->Session->OnStreamClose = [Transport = State->Transport](std::int32_t StreamId,
+                                                                         std::uint32_t)
+        {
+            if (StreamId == Transport->StreamId_)
+            {
+                Transport->NotifyEof();
+            }
+        };
+        return State;
+    }
+
+    inline auto CloseClientState(const std::shared_ptr<ClientState> &State) -> void
+    {
+        State->Transport->Close();
+        State->Wire->Close();
+        State->Encrypted->Close();
+    }
+
+    inline auto CloseClientStream(Preview::Transport::Encrypted::SharedStream &Stream) -> void
+    {
+        if (!Stream)
+        {
+            return;
+        }
+        auto Recovered = Stream->next_layer().Release();
+        if (Recovered)
+        {
+            Recovered->Cancel();
+            Recovered->Close();
+        }
+        Stream.reset();
+    }
+
+    inline auto StartClientDriver(const std::shared_ptr<ClientState> &State) -> void
+    {
+        Net::co_spawn(
+            State->Encrypted->Executor(),
+            [State]() -> Net::awaitable<void>
+            {
+                std::array<std::byte, 16384> Buffer{};
+                while (true)
+                {
+                    std::error_code ErrorCode;
+                    const auto N = co_await State->Encrypted->async_read_some(Buffer, ErrorCode);
+                    if (ErrorCode || N == 0)
+                    {
+                        break;
+                    }
+                    if (N > Buffer.size())
+                    {
+                        break;
+                    }
+                    if (!State->Session->Feed(
+                            std::span<const std::byte>(Buffer.data(), N),
+                            ErrorCode) &&
+                        ErrorCode != make_error_code(Error::NeedMore))
+                    {
+                        break;
+                    }
+                    std::vector<std::byte> Out;
+                    if (State->Session->Collect(Out) && !Out.empty())
+                    {
+                        try
+                        {
+                            co_await State->Wire->Write(Out);
+                        }
+                        catch (...)
+                        {
+                            break;
+                        }
+                    }
+                }
+                State->Transport->NotifyEof();
+                (void)State->Response->try_send(boost::system::error_code{}, false);
+                co_return;
+            },
+            Net::detached);
+    }
+
+    [[nodiscard]] inline auto OpenClientStream(const std::shared_ptr<ClientState> &State,
+                                               const Config &Cfg, std::string_view Host) -> bool
+    {
+        State->Session->SendSettings();
+        const auto StreamId = State->Session->OpenStream(
+            {{":method", "POST"}, {":path", Cfg.Path}, {":scheme", "https"},
+             {":authority", std::string(Host)}, {"content-type", "text/event-stream"}},
+            false);
+        if (StreamId < 0)
+        {
+            return false;
+        }
+        State->Transport->BindStream(StreamId);
+        return true;
+    }
+
+    [[nodiscard]] inline auto FlushClientFrames(const std::shared_ptr<ClientState> &State)
+        -> Net::awaitable<void>
+    {
+        std::vector<std::byte> Out;
+        if (State->Session->Collect(Out) && !Out.empty())
+        {
+            co_await State->Wire->Write(Out);
+        }
+    }
+
+    [[nodiscard]] inline auto WaitClientResponse(const std::shared_ptr<ClientState> &State)
+        -> Net::awaitable<SharedTransmission>
+    {
+        boost::system::error_code ResponseEc;
+        Net::steady_timer Deadline(State->Encrypted->Executor());
+        Deadline.expires_after(std::chrono::seconds(30));
+        auto Receive = State->Response->async_receive(
+            Net::redirect_error(Net::use_awaitable, ResponseEc));
+        const auto Result = co_await (std::move(Receive) || Deadline.async_wait(Net::use_awaitable));
+        if (Result.index() == 1 || ResponseEc || !std::get<0>(Result))
+        {
+            CloseClientState(State);
+            co_return nullptr;
+        }
+        co_return State->Transport;
+    }
+
+    /**
+     * @brief 执行 XHTTP 客户端 stream-one 握手
+     * @param Raw 底层传输（所有权转移）
+     * @param SslCtx TLS 客户端上下文
+     * @param Cfg XHTTP 配置
+     * @param Host SNI 与 HTTP/2 authority
+     * @return 已完成响应头协商的双向传输；失败返回空
+     */
+    [[nodiscard]] inline auto Connect(
+        SharedTransmission Raw,
+        Net::ssl::context &SslCtx,
+        const Config &Cfg,
+        std::string_view Host = {}) -> Net::awaitable<SharedTransmission>
+    {
+        const auto ConfigValue = Cfg;
+        const auto HostValue = std::string(Host);
+        auto Stream = co_await ConnectTls(std::move(Raw), SslCtx, HostValue);
+        if (!Stream)
+        {
+            co_return nullptr;
+        }
+        if (!ConfigValue.Enabled())
+        {
+            CloseClientStream(Stream);
+            co_return nullptr;
+        }
+        auto State = MakeClientState(std::move(Stream));
+        StartClientDriver(State);
+        if (!OpenClientStream(State, ConfigValue, HostValue))
+        {
+            CloseClientState(State);
+            co_return nullptr;
+        }
+        try
+        {
+            co_await FlushClientFrames(State);
+        }
+        catch (...)
+        {
+            CloseClientState(State);
+            co_return nullptr;
+        }
+        co_return co_await WaitClientResponse(State);
+    }
+
+    /**
      * @brief 服务端 Accept 便捷入口
-     * @param raw 底层传输（所有权转移）
+     * @param Raw 底层传输（所有权转移）
      * @param SslCtx TLS 服务端上下文
-     * @param cfg xhttp 配置
+     * @param ConfigValue XHTTP 配置
      * @return 匹配流的双向传输；失败返回 nullptr
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission raw, net::ssl::context &SslCtx,
-                                     const Config &cfg) -> net::awaitable<SharedTransmission>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Raw,
+        Net::ssl::context &SslCtx,
+        const Config &ConfigValue) -> Net::awaitable<SharedTransmission>
     {
-        auto Handler = std::make_shared<XhttpAccept>(std::move(raw), SslCtx, cfg);
+        auto Handler = std::make_shared<XhttpAccept>(std::move(Raw), SslCtx, ConfigValue);
         co_return co_await Handler->Run();
     }
 

@@ -40,7 +40,7 @@ namespace Preview::Anytls
     struct ClientConfig
     {
         /// 客户端认证密码
-        std::string password;
+        std::string Password;
     };
 
     /**
@@ -51,7 +51,7 @@ namespace Preview::Anytls
     struct ServerConfig
     {
         /// 服务端认证密码
-        std::string password;
+        std::string Password;
     };
 
     // =========================================================================
@@ -60,48 +60,50 @@ namespace Preview::Anytls
 
     /**
      * @brief 创建客户端流连接并完成认证握手
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 客户端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 客户端配置
      * @return 错误码与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Connect(SharedTransmission upstream, const ClientConfig &cfg)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Connect(
+        SharedTransmission Upstream,
+        const ClientConfig &Config) -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto Err = co_await C->WriteHandshake();
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), Config.Password);
+        const auto ErrorCode = co_await Connection->WriteHandshake();
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{ErrorCode, std::move(Result)};
     }
 
     /**
      * @brief 接收服务端流连接并完成认证校验
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @return 错误码与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Upstream,
+        const ServerConfig &Config) -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto Err = co_await C->ReadHandshake();
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), Config.Password);
+        const auto ErrorCode = co_await Connection->ReadHandshake();
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{ErrorCode, std::move(Result)};
     }
 
 } // namespace Preview::Anytls

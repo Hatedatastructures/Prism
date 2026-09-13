@@ -51,16 +51,16 @@ namespace Preview::Memory
         [[nodiscard]] static auto GlobalPool() 
             -> SynchronizedPool *
         {
-            static auto *pool = []()
+            static auto *Pool = []()
             {
-                std::pmr::pool_options opts;
-                opts.largest_required_pool_block = Policy::MaxSize;
-                opts.max_blocks_per_chunk = Policy::MaxBlocks;
+                std::pmr::pool_options Options;
+                Options.largest_required_pool_block = Policy::MaxSize;
+                Options.max_blocks_per_chunk = Policy::MaxBlocks;
 
                 // new 出来的资源随进程销毁，避免静态析构顺序问题
-                return new SynchronizedPool(opts, std::pmr::new_delete_resource());
+                return new SynchronizedPool(Options, std::pmr::new_delete_resource());
             }();
-            return pool;
+            return Pool;
         }
 
         /**
@@ -74,15 +74,15 @@ namespace Preview::Memory
             -> UnsynchronizedPool *
         {
             // thread_local 保证每个线程一份
-            thread_local auto *pool = []()
+            thread_local auto *Pool = []()
             {
-                std::pmr::pool_options opts;
-                opts.largest_required_pool_block = Policy::MaxSize;
-                opts.max_blocks_per_chunk = Policy::MaxBlocks;
+                std::pmr::pool_options Options;
+                Options.largest_required_pool_block = Policy::MaxSize;
+                Options.max_blocks_per_chunk = Policy::MaxBlocks;
 
-                return new UnsynchronizedPool(opts, std::pmr::new_delete_resource());
+                return new UnsynchronizedPool(Options, std::pmr::new_delete_resource());
             }();
-            return pool;
+            return Pool;
         }
 
         /**
@@ -172,15 +172,15 @@ namespace Preview::Memory
          * @param Count 待释放的字节数
          * @details 必须与 operator new 对应，归还到正确的位置。
          */
-        void operator delete(void *ptr, const std::size_t Count)
+        void operator delete(void *Pointer, const std::size_t Count)
         {
             if (Count <= Policy::MaxSize)
             {
-                PooledObject::TargetPool()->deallocate(ptr, Count);
+                PooledObject::TargetPool()->deallocate(Pointer, Count);
             }
             else
             {
-                ::operator delete(ptr);
+                ::operator delete(Pointer);
             }
         }
 
@@ -203,15 +203,15 @@ namespace Preview::Memory
          * @param ptr 待释放的内存指针
          * @param Count 待释放的字节数
          */
-        void operator delete[](void *ptr, std::size_t Count)
+        void operator delete[](void *Pointer, std::size_t Count)
         {
             if (Count <= Policy::MaxSize)
             {
-                PooledObject::TargetPool()->deallocate(ptr, Count);
+                PooledObject::TargetPool()->deallocate(Pointer, Count);
             }
             else
             {
-                ::operator delete[](ptr);
+                ::operator delete[](Pointer);
             }
         }
     }; // class PooledObject

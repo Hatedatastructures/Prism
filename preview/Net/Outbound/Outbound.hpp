@@ -23,7 +23,7 @@
 namespace Preview::Network::Outbound
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /**
      * @struct Target
@@ -33,7 +33,7 @@ namespace Preview::Network::Outbound
     {
         std::string_view Host;      ///< 目标主机
         std::uint16_t Port{0};      ///< 目标端口
-        bool positive{false};       ///< 是否强制正向（不查反向路由）
+        bool Positive{false};       ///< 是否强制正向（不查反向路由）
     };
 
     /**
@@ -48,8 +48,9 @@ namespace Preview::Network::Outbound
          * @param ex 执行器
          * @param routes 路由表（共享所有权）
          */
-        explicit Outbound(net::any_io_executor ex, std::shared_ptr<Preview::Network::Route::RouteTable> routes)
-            : Ex_(std::move(ex)), Routes_(std::move(routes))
+        explicit Outbound(Net::any_io_executor Executor,
+                          std::shared_ptr<Preview::Network::Route::RouteTable> Routes)
+            : Ex_(std::move(Executor)), Routes_(std::move(Routes))
         {
         }
 
@@ -60,13 +61,14 @@ namespace Preview::Network::Outbound
          * @return 连接成功的传输；失败返回 nullptr
          * @details 反向映射命中 → 用映射端点；否则用原目标。
          */
-        [[nodiscard]] auto Dial(const Target &tgt, std::error_code &ec) -> net::awaitable<SharedTransmission>
+        [[nodiscard]] auto Dial(const Target &TargetValue, std::error_code &ErrorCode)
+            -> Net::awaitable<SharedTransmission>
         {
-            std::string_view DialHost = tgt.Host;
-            std::uint16_t DialPort = tgt.Port;
-            if (!tgt.positive && Routes_)
+            std::string_view DialHost = TargetValue.Host;
+            std::uint16_t DialPort = TargetValue.Port;
+            if (!TargetValue.Positive && Routes_)
             {
-                if (const auto Route = Routes_->Lookup(tgt.Host); Route.has_value())
+                if (const auto Route = Routes_->Lookup(TargetValue.Host); Route.has_value())
                 {
                     DialHost = Route->Host;
                     DialPort = Route->Port;
@@ -74,15 +76,15 @@ namespace Preview::Network::Outbound
             }
             if (DialPort == 0)
             {
-                ec = make_error_code(Error::BadAddress);
+                ErrorCode = make_error_code(Error::BadAddress);
                 co_return nullptr;
             }
             Preview::Network::Dialer::Dialer Dialer(Ex_);
-            co_return co_await Dialer.Connect(DialHost, DialPort, ec);
+            co_return co_await Dialer.Connect(DialHost, DialPort, ErrorCode);
         }
 
     private:
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
         std::shared_ptr<Preview::Network::Route::RouteTable> Routes_;
     };
 

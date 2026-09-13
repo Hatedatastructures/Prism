@@ -16,6 +16,7 @@
 #include <string>
 
 #include <preview/Transport/MemoryStream.hpp>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <preview/Protocols/Mux/Smux/Smux.hpp>
 #include <preview/Protocols/Mux/Stream.hpp>
 #include <preview/Protocols/Tuic/Conn.hpp>
@@ -26,37 +27,196 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Anytls = Preview::Anytls;
+    namespace Gun = Preview::Gun;
+    namespace Mux = Preview::Mux;
+    namespace Reality = Preview::Reality;
+    namespace Tuic = Preview::Tuic;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     /**
      * @brief 驱动协程运行
      */
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
         // 同一 io_context 可能被多次驱动，restart() 重置 stopped 标志
-        ioc.restart();
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
+        IoContext.restart();
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
                       {
-                          ep = e;
-                          ioc.stop();
+                          Exception = ErrorValue;
+                          IoContext.stop();
                       });
-        ioc.run();
-        if (ep)
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
+    }
+
+    class ZeroProgressTransport final : public Preview::Transmission
+    {
+    public:
+        explicit ZeroProgressTransport(Net::any_io_executor Executor)
+            : Executor_(std::move(Executor))
+        {
+        }
+
+        [[nodiscard]] auto Executor() const -> ExecutorType override
+        {
+            return Executor_;
+        }
+
+        [[nodiscard]] auto async_read_some(std::span<std::byte>, std::error_code &Error)
+            -> Net::awaitable<std::size_t> override
+        {
+            Error = std::make_error_code(std::errc::operation_canceled);
+            co_return 0;
+        }
+
+        [[nodiscard]] auto async_write_some(std::span<const std::byte> Buffer, std::error_code &Error)
+            -> Net::awaitable<std::size_t> override
+        {
+            ++Writes_;
+            BufferSize_ = Buffer.size();
+            if (Writes_ == 1)
+            {
+                Error.clear();
+                if (Overreport_)
+                {
+                    co_return BufferSize_ + 1;
+                }
+                co_return 0;
+            }
+            Error = std::make_error_code(std::errc::broken_pipe);
+            co_return 0;
+        }
+
+        void Close() override {}
+        void Cancel() override {}
+
+        std::size_t Writes_{0};
+        std::size_t BufferSize_{0};
+        bool Overreport_{false};
+
+    private:
+        Net::any_io_executor Executor_;
+    };
+
+    TEST(ConnDecorator, AnytlsZeroProgressWriteFailsImmediately)
+    {
+        Net::io_context ioc;
+        auto transport = std::make_shared<ZeroProgressTransport>(ioc.get_executor());
+        auto Conn = std::make_shared<Anytls::Conn<>>(transport, "password");
+        Error Result = Error::None;
+
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     Result = co_await Conn->WriteHandshake(0);
+                 });
+
+        EXPECT_EQ(Result, Error::IoError);
+        EXPECT_EQ(transport->Writes_, 1u);
+    }
+
+    TEST(ConnDecorator, AnytlsOverreportedWriteFailsImmediately)
+    {
+        Net::io_context ioc;
+        auto transport = std::make_shared<ZeroProgressTransport>(ioc.get_executor());
+        transport->Overreport_ = true;
+        auto Conn = std::make_shared<Anytls::Conn<>>(transport, "password");
+        Error Result = Error::None;
+
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     Result = co_await Conn->WriteHandshake(0);
+                 });
+
+        EXPECT_EQ(Result, Error::IoError);
+        EXPECT_EQ(transport->Writes_, 1u);
+    }
+
+    TEST(ConnDecorator, AnytlsOverreportedReadFailsImmediately)
+    {
+        Net::io_context ioc;
+        auto transport = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        transport->OverreportRead = true;
+        auto Conn = std::make_shared<Anytls::Conn<>>(transport, "password");
+        Error Result = Error::None;
+
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     Result = co_await Conn->ReadHandshake();
+                 });
+
+        EXPECT_EQ(Result, Error::UnexpectedEof);
+        EXPECT_EQ(transport->ReadsDone, 1u);
+    }
+
+    TEST(ConnDecorator, RealityOverreportedReadFailsImmediately)
+    {
+        Net::io_context ioc;
+        auto transport = std::make_shared<Preview::PreviewMockTransport>(ioc.get_executor());
+        transport->OverreportRead = true;
+        std::array<std::uint8_t, Reality::KeyLen> PrivateKey{};
+        std::array<std::uint8_t, Reality::KeyLen> PeerPublicKey{};
+        ASSERT_FALSE(Reality::GenerateKeypair(PrivateKey, PeerPublicKey));
+        auto Conn = std::make_shared<Reality::Conn<>>(transport, PrivateKey);
+        const std::array<std::uint8_t, 40> ClientRandom{};
+        const std::array<std::uint8_t, 1> Hello{};
+        const Reality::HandshakeParams Params{ClientRandom, Hello};
+        std::array<std::uint8_t, Reality::MaxShortIdLen> ShortId{};
+        Error Result = Error::None;
+
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     Result = co_await Conn->ReadHandshake(PeerPublicKey, Params, ShortId);
+                 });
+
+        EXPECT_EQ(Result, Error::UnexpectedEof);
+        EXPECT_EQ(transport->ReadsDone, 1u);
+    }
+
+    TEST(ConnDecorator, RealityOverreportedWriteFailsImmediately)
+    {
+        Net::io_context ioc;
+        auto transport = std::make_shared<ZeroProgressTransport>(ioc.get_executor());
+        transport->Overreport_ = true;
+        std::array<std::uint8_t, Reality::KeyLen> PrivateKey{};
+        std::array<std::uint8_t, Reality::KeyLen> PeerPublicKey{};
+        ASSERT_FALSE(Reality::GenerateKeypair(PrivateKey, PeerPublicKey));
+        auto Conn = std::make_shared<Reality::Conn<>>(transport, PrivateKey);
+        const std::array<std::uint8_t, 40> ClientRandom{};
+        const std::array<std::uint8_t, 71> Hello{};
+        const Reality::HandshakeParams Params{ClientRandom, Hello};
+        Error Result = Error::None;
+
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     Result = co_await Conn->WriteHandshake(PeerPublicKey, Params);
+                 });
+
+        EXPECT_EQ(Result, Error::IoError);
+        EXPECT_EQ(transport->Writes_, 1u);
     }
 
     /**
      * @brief 断言装饰器透传方法（Executor/Cancel/NextLayer/Release/Close）
      */
     template <typename DecoT>
-    auto check_decorator(const std::shared_ptr<DecoT> &ConnT, net::io_context &ioc) -> void
+    auto CheckDecorator(const std::shared_ptr<DecoT> &ConnT, Net::io_context &IoContext) -> void
     {
+        (void)IoContext;
         (void)ConnT->Executor();
         EXPECT_NE(ConnT->NextLayer(), nullptr);
         const auto *cconn = ConnT.get();
@@ -71,14 +231,14 @@ namespace
 
     TEST(ConnDecorator, GunConn)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto peer = std::make_shared<MemoryStream>(std::move(b));
         auto Conn = std::make_shared<Gun::Conn<>>(std::make_shared<MemoryStream>(std::move(a)));
 
         // 未握手读写 → not_open
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      std::error_code ec;
                      std::array<std::byte, 4> buf{};
@@ -93,8 +253,8 @@ namespace
                  });
 
         // 客户端握手 → 数据面透传
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      EXPECT_EQ(co_await Conn->WriteHandshake("example.com"), Error::None);
                      std::array<std::byte, 8> wbuf{std::byte{0x42}};
@@ -115,39 +275,39 @@ namespace
                      }
                  });
 
-        check_decorator(Conn, ioc);
+        CheckDecorator(Conn, ioc);
     }
 
     TEST(ConnDecorator, RealityConn)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto Conn = std::make_shared<Reality::Conn<>>(
             std::make_shared<MemoryStream>(std::move(a)), std::array<std::uint8_t, 32>{});
-        check_decorator(Conn, ioc);
+        CheckDecorator(Conn, ioc);
     }
 
     TEST(ConnDecorator, AnyTlsConn)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto Conn =
             std::make_shared<Anytls::Conn<>>(std::make_shared<MemoryStream>(std::move(a)), "Secret");
-        check_decorator(Conn, ioc);
+        CheckDecorator(Conn, ioc);
     }
 
     TEST(ConnDecorator, TuicConn)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
         auto Conn = std::make_shared<Tuic::Conn<>>(std::make_shared<MemoryStream>(std::move(a)),
                                                  std::array<std::uint8_t, 16>{});
-        check_decorator(Conn, ioc);
+        CheckDecorator(Conn, ioc);
     }
 
     TEST(ConnDecorator, StreamTransmission)
     {
-        net::io_context ioc;
+        Net::io_context ioc;
         auto [a, b] = MakeMemoryPair(ioc.get_executor());
 
         // 空句柄：Executor 返回默认执行器，Cancel 空操作
@@ -158,8 +318,8 @@ namespace
         EXPECT_EQ(Empty->Handle(), nullptr);
         Empty->Close();
         Empty->Reset();
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      std::error_code ec;
                      std::array<std::byte, 4> buf{};
@@ -176,8 +336,8 @@ namespace
         auto Client = Mux::Smux::Connect(std::make_shared<MemoryStream>(std::move(a)));
         auto Session = Client.Session();
         EXPECT_TRUE(Client.IsOpen());
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
+        RunCoroutine(ioc,
+                 [&]() -> Net::awaitable<void>
                  {
                      auto Handle = co_await Session->OpenStream();
                      if (!Handle)
@@ -196,7 +356,7 @@ namespace
                      // 非空句柄 Close / Reset（co_spawn 投递）
                      Stream->Close();
                      Stream->Reset();
-                     co_await net::post(ioc.get_executor(), net::use_awaitable);
+                     co_await Net::post(ioc.get_executor(), Net::use_awaitable);
                      EXPECT_FALSE(Stream->IsOpen());
                  });
     }

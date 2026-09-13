@@ -27,23 +27,31 @@
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
+    namespace Vmess = Preview::Vmess;
+    using Preview::AsBytes;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
 
     template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    auto RunCoroutine(Net::io_context &IoContext, A Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e)
-                      { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(IoContext, std::move(Coroutine),
+                      [&](std::exception_ptr ErrorValue)
+                      {
+                          Exception = ErrorValue;
+                          IoContext.stop();
+                      });
+        IoContext.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 
-    constexpr auto make_uuid = []() -> std::array<std::uint8_t, 16>
+    constexpr auto MakeUuid = []() -> std::array<std::uint8_t, 16>
     {
         return {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16};
     };
@@ -52,27 +60,61 @@ namespace
 
     TEST(VmessConnErrorMatrix, TruncatedHeader)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
-        run_coro(ioc, [&]() -> net::awaitable<void>
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
         {
-            Vmess::ServerConfig cfg;
-            cfg.uuid = make_uuid();
+            Vmess::ServerConfig Config;
+            Config.uuid = MakeUuid();
 
-            auto server_coro = [&]() -> net::awaitable<void>
+            auto ServerCoroutine = [&]() -> Net::awaitable<void>
             {
-                auto [err, req, Conn] = co_await Vmess::Accept(
-                    std::make_shared<MemoryStream>(std::move(b)), cfg);
-                EXPECT_EQ(err, Preview::Error::IoError); // 只发 4 字节后 EOF（len_enc 读不满）
+                auto [ErrorValue, Request, Conn] = co_await Vmess::Accept(
+                    std::make_shared<MemoryStream>(std::move(ServerMemory)), Config);
+                EXPECT_EQ(ErrorValue, Preview::Error::IoError); // 只发 4 字节后 EOF（len_enc 读不满）
             };
-            auto server_task = net::co_spawn(ioc.get_executor(), server_coro(), net::use_awaitable);
+            auto ServerTask = Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::use_awaitable);
 
             // 只发 4 字节（半包）
-            const std::vector<std::uint8_t> wire{0x01, 0x02, 0x03, 0x04};
-            std::error_code ec;
-            co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-            a.Close();
-            co_await std::move(server_task);
+            const std::vector<std::uint8_t> Wire{0x01, 0x02, 0x03, 0x04};
+            std::error_code ErrorCode;
+            co_await ClientMemory.async_write_some(AsBytes(std::span<const std::uint8_t>(Wire)), ErrorCode);
+            ClientMemory.Close();
+            co_await std::move(ServerTask);
+        });
+    }
+
+    TEST(VmessConnErrorMatrix, ClientHandshakeRejectsAuthNonceRandomFailure)
+    {
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        (void)ServerMemory;
+        RunCoroutine(IoContext, [&]() -> Net::awaitable<void>
+        {
+            const auto Uuid = MakeUuid();
+            int Calls = 0;
+            const Vmess::RandomSource Source = [&Calls](std::uint8_t *Bytes, int Size)
+            {
+                ++Calls;
+                if (Calls == 5)
+                {
+                    return 0;
+                }
+                for (int I = 0; I < Size; ++I)
+                {
+                    Bytes[I] = 0x42;
+                }
+                return 1;
+            };
+            auto Client = std::make_shared<Vmess::Conn<>>(Uuid, Source);
+            Vmess::Address Target;
+            Target.Type = Vmess::AddressType::Domain;
+            Target.Host = "example.com";
+            Target.Port = 443;
+            const auto Err = co_await Client->WriteHandshake(
+                std::make_shared<MemoryStream>(std::move(ClientMemory)), Target);
+            EXPECT_EQ(Err, Error::CryptoError);
+            EXPECT_EQ(Calls, 5);
         });
     }
 

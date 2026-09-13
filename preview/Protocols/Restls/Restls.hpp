@@ -15,6 +15,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -39,7 +40,7 @@ namespace Preview::Restls
      */
     struct ClientConfig
     {
-        /// 客户端认证密码
+        /// 客户端认证密码（字段名称保持现有配置兼容）
         std::string password;
     };
 
@@ -50,7 +51,7 @@ namespace Preview::Restls
      */
     struct ServerConfig
     {
-        /// 服务端认证密码
+        /// 服务端认证密码（字段名称保持现有配置兼容）
         std::string password;
     };
 
@@ -60,52 +61,56 @@ namespace Preview::Restls
 
     /**
      * @brief 创建客户端流连接并完成认证握手
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 客户端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 客户端配置
      * @param ServerRandom 服务端随机数（32 字节）
      * @return 错误码与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Connect(SharedTransmission upstream, const ClientConfig &cfg,
-                                      std::span<const std::uint8_t> ServerRandom)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Connect(
+        SharedTransmission Upstream,
+        const ClientConfig &Config,
+        std::span<const std::uint8_t> ServerRandom)
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto Err = co_await C->WriteHandshake(ServerRandom);
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), Config.password);
+        const auto ErrorCode = co_await Connection->WriteHandshake(ServerRandom);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{ErrorCode, std::move(Result)};
     }
 
     /**
      * @brief 接收服务端流连接并完成认证握手
-     * @param upstream 上游传输（所有权移交）
-     * @param cfg 服务端配置
+     * @param Upstream 上游传输（所有权移交）
+     * @param Config 服务端配置
      * @param ServerRandom 服务端随机数（32 字节）
      * @return 错误码与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission upstream, const ServerConfig &cfg,
-                                     std::span<const std::uint8_t> ServerRandom)
-        -> net::awaitable<std::pair<Error, SharedConn>>
+    [[nodiscard]] inline auto Accept(
+        SharedTransmission Upstream,
+        const ServerConfig &Config,
+        std::span<const std::uint8_t> ServerRandom)
+        -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto C = std::make_shared<Conn<>>(std::move(upstream), cfg.password);
-        const auto Err = co_await C->ReadHandshake(ServerRandom);
-        SharedConn Conn;
-        if (Err == Error::None)
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), Config.password);
+        const auto ErrorCode = co_await Connection->ReadHandshake(ServerRandom);
+        SharedConn Result;
+        if (ErrorCode == Error::None)
         {
-            Conn = SharedConn(std::move(C));
+            Result = SharedConn(std::move(Connection));
         }
         else
         {
-            Conn = SharedConn{};
+            Connection->Close();
         }
-        co_return std::pair{Err, std::move(Conn)};
+        co_return std::pair{ErrorCode, std::move(Result)};
     }
 
 } // namespace Preview::Restls

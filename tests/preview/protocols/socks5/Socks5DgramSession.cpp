@@ -9,320 +9,524 @@
  * @note 使用 MakeMemoryPair 建立内存传输对，同一进程内双向互操作。
  */
 
+#include <gtest/gtest.h>
+
 #include <boost/asio/co_spawn.hpp>
-#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <cstdint>
+#include <exception>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include <preview/Transport/MemoryStream.hpp>
 #include <preview/Protocols/Socks5/Socks5.hpp>
-#include <gtest/gtest.h>
+#include <TestSupport/Preview/PreviewMockTransport.hpp>
+
+namespace Net = boost::asio;
 
 namespace
 {
-    using namespace Preview;
-    namespace net = boost::asio;
+    namespace Preview = ::Preview;
+    namespace Socks5 = Preview::Socks5;
+
+    using Address = Socks5::Address;
+    using AddressType = Socks5::AddressType;
+    using ClientConfig = Socks5::ClientConfig;
+    using Dgram = Socks5::Dgram<>;
+    using Error = Preview::Error;
+    using ExecutorType = Net::any_io_executor;
+    using MemoryStream = Preview::MemoryStream;
+    using PreviewMockTransport = Preview::PreviewMockTransport;
+    using ServerConfig = Socks5::ServerConfig;
+    using Transmission = Preview::Transmission;
+    using CompletionChannel =
+        Net::experimental::channel<void(boost::system::error_code, bool)>;
+
+    using Preview::AsBytes;
+    using Preview::AsU8Span;
+    using Preview::MakeMemoryPair;
 
     /// 运行协程直至完成（异常重抛）
-    template <typename A>
-    auto run_coro(net::io_context &ioc, A coro) -> void
+    template <typename Awaitable>
+    auto RunCoro(Net::io_context &IoContext, Awaitable Coroutine) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro),
-                      [&](std::exception_ptr e)
-                      {
-                          ep = e;
-                          ioc.stop();
-                      });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        auto CompletionHandler =
+            [&Exception, &IoContext](std::exception_ptr ErrorValue) -> void
         {
-            std::rethrow_exception(ep);
+            Exception = ErrorValue;
+            IoContext.stop();
+        };
+        Net::co_spawn(
+            IoContext,
+            std::move(Coroutine),
+            std::move(CompletionHandler));
+        IoContext.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
         }
     }
 
-    /// 构造 socks5 目标地址
-    auto make_addr(Socks5::AddressType Type, std::string host, std::uint16_t port)
-        -> Socks5::Address
+    /// 立即启动并观察服务端协程，避免异常或未完成操作被静默丢弃。
+    [[nodiscard]] auto SpawnServer(
+        ExecutorType Executor,
+        Net::awaitable<void> Coroutine)
+        -> std::shared_ptr<CompletionChannel>
     {
-        Socks5::Address addr{};
-        addr.Type = Type;
-        addr.Host = std::move(host);
-        addr.Port = port;
-        return addr;
+        const auto Done =
+            std::make_shared<CompletionChannel>(Executor, 1);
+        auto CompletionHandler =
+            [Done](std::exception_ptr Exception) -> void
+        {
+            (void)Done->try_send(
+                boost::system::error_code{},
+                Exception == nullptr);
+        };
+        Net::co_spawn(
+            Executor,
+            std::move(Coroutine),
+            std::move(CompletionHandler));
+        return Done;
+    }
+
+    /// 构造 SOCKS5 目标地址。
+    [[nodiscard]] auto MakeAddress(
+        const AddressType Type,
+        std::string Host,
+        const std::uint16_t Port) -> Address
+    {
+        Address Result{};
+        Result.Type = Type;
+        Result.Host = std::move(Host);
+        Result.Port = Port;
+        return Result;
     }
 
     TEST(Socks5DgramSession, SendReceiveRoundtrip)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 服务端：AcceptPacket 完成 UDP_ASSOCIATE 握手 → Dgram 收包回发
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         Socks5::ServerConfig cfg;
-                         cfg.EnableUdp = true;
-                         auto [err, req, dg] =
-                             co_await Socks5::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
-                                                            cfg);
-                         if (err != Error::None || !dg)
-                         {
-                             EXPECT_TRUE(false) << "AcceptPacket Failed";
-                             co_return;
-                         }
-                         EXPECT_EQ(req.Cmd, Socks5::Command::UdpAssociate);
-                         EXPECT_EQ(dg->TransportType(), Preview::Transmission::Type::Udp);
-                         // 接收两个包（域名 + IPv4）
-                         for (int i = 0; i < 2; ++i)
-                         {
-                             Socks5::Address src;
-                             std::vector<std::uint8_t> payload;
-                             const auto rerr = co_await dg->AsyncReceiveFrom(src, payload);
-                             EXPECT_EQ(rerr, Error::None);
-                             if (i == 0)
-                             {
-                                 EXPECT_EQ(src.Type, Socks5::AddressType::Domain);
-                                 EXPECT_EQ(src.Host, "example.com");
-                                 EXPECT_EQ(src.Port, 53u);
-                                 EXPECT_EQ(std::string(payload.begin(), payload.end()), "dns query");
-                             }
-                             else
-                             {
-                                 EXPECT_EQ(src.Type, Socks5::AddressType::Ipv4);
-                                 EXPECT_EQ(src.Host, "8.8.8.8");
-                                 EXPECT_EQ(src.Port, 443u);
-                                 EXPECT_EQ(std::string(payload.begin(), payload.end()), "second pkt");
-                             }
-                         }
-                         EXPECT_TRUE(dg->Stream());
-                         EXPECT_NE(dg->NextLayer(), nullptr);
-                         EXPECT_NE(dg->lowest_layer<MemoryStream>(), nullptr);
-                         const Socks5::Dgram<> *const_dg = dg.get();
-                         EXPECT_NE(const_dg->NextLayer(), nullptr);
-                         EXPECT_TRUE(dg->Executor());
-                         // 透传读（客户端透传写的数据）
-                         std::array<std::byte, 8> raw{};
-                         std::error_code ec;
-                         const auto r = co_await dg->async_read_some(raw, ec);
-                         EXPECT_EQ(r, 4u);
-                         dg->Close();
-                         dg->Cancel();
-                         auto released = dg->Release();
-                         EXPECT_TRUE(released);
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+        RunCoro(
+            IoContext,
+            [&]() -> Net::awaitable<void>
+            {
+                auto ServerStream =
+                    std::make_shared<MemoryStream>(std::move(ServerMemory));
+                auto ServerCoroutine =
+                    [ServerStream]() -> Net::awaitable<void>
+                {
+                    ServerConfig Config;
+                    Config.EnableUdp = true;
+                    auto [ErrorValue, Request, Datagram] =
+                        co_await Socks5::AcceptPacket(ServerStream, Config);
+                    if (ErrorValue != Error::None || !Datagram)
+                    {
+                        EXPECT_TRUE(false) << "AcceptPacket Failed";
+                        co_return;
+                    }
+                    EXPECT_EQ(Request.Cmd, Socks5::Command::UdpAssociate);
+                    EXPECT_EQ(
+                        Datagram->TransportType(),
+                        Transmission::Type::Udp);
 
-                     auto [herr, dg] = co_await Socks5::ConnectPacket(
-                         std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{},
-                         make_addr(Socks5::AddressType::Domain, "example.com", 53));
-                     EXPECT_EQ(herr, Error::None);
-                     if (!dg)
-                     {
-                         co_return;
-                     }
-                     const std::string p1 = "dns query";
-                     auto serr = co_await dg->AsyncSendTo(
-                         make_addr(Socks5::AddressType::Domain, "example.com", 53),
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p1.data()),
-                                                       p1.size()));
-                     EXPECT_EQ(serr, Error::None);
-                     const std::string p2 = "second pkt";
-                     serr = co_await dg->AsyncSendTo(
-                         make_addr(Socks5::AddressType::Ipv4, "8.8.8.8", 443),
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p2.data()),
-                                                       p2.size()));
-                     EXPECT_EQ(serr, Error::None);
-                     // 透传写（服务端读端无消费，仅覆盖 passthrough）
-                     const std::array<std::byte, 4> raw{};
-                     std::error_code ec;
-                     const auto w = co_await dg->async_write_some(
-                         std::span<const std::byte>(raw.data(), 4), ec);
-                     EXPECT_EQ(w, 4u);
-                 });
+                    for (int Index = 0; Index < 2; ++Index)
+                    {
+                        Address Source;
+                        std::vector<std::uint8_t> Payload;
+                        const auto ReceiveError =
+                            co_await Datagram->AsyncReceiveFrom(Source, Payload);
+                        EXPECT_EQ(ReceiveError, Error::None);
+                        if (Index == 0)
+                        {
+                            EXPECT_EQ(Source.Type, AddressType::Domain);
+                            EXPECT_EQ(Source.Host, "example.com");
+                            EXPECT_EQ(Source.Port, 53u);
+                            EXPECT_EQ(
+                                std::string(Payload.begin(), Payload.end()),
+                                "dns query");
+                        }
+                        else
+                        {
+                            EXPECT_EQ(Source.Type, AddressType::Ipv4);
+                            EXPECT_EQ(Source.Host, "8.8.8.8");
+                            EXPECT_EQ(Source.Port, 443u);
+                            EXPECT_EQ(
+                                std::string(Payload.begin(), Payload.end()),
+                                "second pkt");
+                        }
+                    }
+
+                    EXPECT_TRUE(Datagram->Stream());
+                    EXPECT_NE(Datagram->NextLayer(), nullptr);
+                    EXPECT_NE(
+                        Datagram->lowest_layer<MemoryStream>(),
+                        nullptr);
+                    const Dgram *ConstDatagram = Datagram.get();
+                    EXPECT_NE(ConstDatagram->NextLayer(), nullptr);
+                    EXPECT_TRUE(Datagram->Executor());
+
+                    std::array<std::byte, 8> RawBuffer{};
+                    const std::span<std::byte> RawSpan(RawBuffer);
+                    std::error_code ErrorCode;
+                    const auto BytesRead =
+                        co_await Datagram->async_read_some(RawSpan, ErrorCode);
+                    EXPECT_EQ(BytesRead, 4u);
+                    Datagram->Close();
+                    Datagram->Cancel();
+                    auto Released = Datagram->Release();
+                    EXPECT_TRUE(Released);
+                };
+                const auto ServerDone = SpawnServer(
+                    IoContext.get_executor(),
+                    ServerCoroutine());
+
+                auto [HandshakeError, Datagram] =
+                    co_await Socks5::ConnectPacket(
+                        std::make_shared<MemoryStream>(std::move(ClientMemory)),
+                        ClientConfig{},
+                        MakeAddress(AddressType::Domain, "example.com", 53));
+                EXPECT_EQ(HandshakeError, Error::None);
+                if (!Datagram)
+                {
+                    ServerStream->Close();
+                    const auto ServerCompleted =
+                        co_await ServerDone->async_receive(Net::use_awaitable);
+                    EXPECT_TRUE(ServerCompleted);
+                    co_return;
+                }
+
+                const std::string FirstPayloadText = "dns query";
+                const auto FirstPayload =
+                    AsU8Span(std::string_view(FirstPayloadText));
+                const auto FirstError = co_await Datagram->AsyncSendTo(
+                    MakeAddress(AddressType::Domain, "example.com", 53),
+                    FirstPayload);
+                EXPECT_EQ(FirstError, Error::None);
+
+                const std::string SecondPayloadText = "second pkt";
+                const auto SecondPayload =
+                    AsU8Span(std::string_view(SecondPayloadText));
+                const auto SecondError = co_await Datagram->AsyncSendTo(
+                    MakeAddress(AddressType::Ipv4, "8.8.8.8", 443),
+                    SecondPayload);
+                EXPECT_EQ(SecondError, Error::None);
+
+                std::array<std::byte, 4> RawBuffer{};
+                const std::span<const std::byte> RawSpan(RawBuffer);
+                std::error_code ErrorCode;
+                const auto BytesWritten =
+                    co_await Datagram->async_write_some(RawSpan, ErrorCode);
+                EXPECT_EQ(BytesWritten, 4u);
+                Datagram->Close();
+                const auto ServerCompleted =
+                    co_await ServerDone->async_receive(Net::use_awaitable);
+                EXPECT_TRUE(ServerCompleted);
+            });
     }
 
     TEST(Socks5DgramSession, Ipv6Receive)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 服务端：IPv6 地址解析
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         Socks5::ServerConfig cfg;
-                         cfg.EnableUdp = true;
-                         auto [err, req, dg] =
-                             co_await Socks5::AcceptPacket(std::make_shared<MemoryStream>(std::move(b)),
-                                                            cfg);
-                         if (err != Error::None || !dg)
-                         {
-                             co_return;
-                         }
-                         Socks5::Address src;
-                         std::vector<std::uint8_t> payload;
-                         const auto rerr = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(rerr, Error::None);
-                         EXPECT_EQ(src.Type, Socks5::AddressType::Ipv6);
-                         EXPECT_EQ(src.Host, std::string(16, '\x21'));
-                         EXPECT_EQ(src.Port, 8080u);
-                         EXPECT_EQ(std::string(payload.begin(), payload.end()), "v6 pkt");
-                         dg->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+        RunCoro(
+            IoContext,
+            [&]() -> Net::awaitable<void>
+            {
+                auto ServerStream =
+                    std::make_shared<MemoryStream>(std::move(ServerMemory));
+                auto ServerCoroutine =
+                    [ServerStream]() -> Net::awaitable<void>
+                {
+                    ServerConfig Config;
+                    Config.EnableUdp = true;
+                    auto [ErrorValue, Request, Datagram] =
+                        co_await Socks5::AcceptPacket(ServerStream, Config);
+                    if (ErrorValue != Error::None || !Datagram)
+                    {
+                        co_return;
+                    }
+                    Address Source;
+                    std::vector<std::uint8_t> Payload;
+                    const auto ReceiveError =
+                        co_await Datagram->AsyncReceiveFrom(Source, Payload);
+                    EXPECT_EQ(ReceiveError, Error::None);
+                    EXPECT_EQ(Source.Type, AddressType::Ipv6);
+                    EXPECT_EQ(Source.Host, std::string(16, '\x21'));
+                    EXPECT_EQ(Source.Port, 8080u);
+                    EXPECT_EQ(
+                        std::string(Payload.begin(), Payload.end()),
+                        "v6 pkt");
+                    Datagram->Close();
+                    (void)Request;
+                };
+                const auto ServerDone = SpawnServer(
+                    IoContext.get_executor(),
+                    ServerCoroutine());
 
-                     auto [herr, dg] = co_await Socks5::ConnectPacket(
-                         std::make_shared<MemoryStream>(std::move(a)), Socks5::ClientConfig{},
-                         make_addr(Socks5::AddressType::Domain, "example.com", 53));
-                     EXPECT_EQ(herr, Error::None);
-                     if (!dg)
-                     {
-                         co_return;
-                     }
-                     const std::string p = "v6 pkt";
-                     const auto serr = co_await dg->AsyncSendTo(
-                         make_addr(Socks5::AddressType::Ipv6, std::string(16, '\x21'), 8080),
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
-                                                       p.size()));
-                     EXPECT_EQ(serr, Error::None);
-                 });
+                auto [HandshakeError, Datagram] =
+                    co_await Socks5::ConnectPacket(
+                        std::make_shared<MemoryStream>(std::move(ClientMemory)),
+                        ClientConfig{},
+                        MakeAddress(AddressType::Domain, "example.com", 53));
+                EXPECT_EQ(HandshakeError, Error::None);
+                if (!Datagram)
+                {
+                    ServerStream->Close();
+                    const auto ServerCompleted =
+                        co_await ServerDone->async_receive(Net::use_awaitable);
+                    EXPECT_TRUE(ServerCompleted);
+                    co_return;
+                }
+
+                const std::string PayloadText = "v6 pkt";
+                const auto Payload =
+                    AsU8Span(std::string_view(PayloadText));
+                const auto SendError = co_await Datagram->AsyncSendTo(
+                    MakeAddress(
+                        AddressType::Ipv6,
+                        std::string(16, '\x21'),
+                        8080),
+                    Payload);
+                EXPECT_EQ(SendError, Error::None);
+                Datagram->Close();
+                const auto ServerCompleted =
+                    co_await ServerDone->async_receive(Net::use_awaitable);
+                EXPECT_TRUE(ServerCompleted);
+            });
     }
 
     TEST(Socks5DgramSession, BadRsvRejected)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 服务端：RSV/FRAG 非零 → bad_message
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto dg = std::make_shared<Socks5::Dgram<>>(
-                             std::make_shared<MemoryStream>(std::move(b)));
-                         Socks5::Address src;
-                         std::vector<std::uint8_t> payload;
-                         const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::BadMessage);
-                         dg->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+        RunCoro(
+            IoContext,
+            [&]() -> Net::awaitable<void>
+            {
+                auto ServerStream =
+                    std::make_shared<MemoryStream>(std::move(ServerMemory));
+                auto ServerCoroutine =
+                    [ServerStream]() -> Net::awaitable<void>
+                {
+                    auto Datagram = std::make_shared<Dgram>(ServerStream);
+                    Address Source;
+                    std::vector<std::uint8_t> Payload;
+                    const auto ReceiveError =
+                        co_await Datagram->AsyncReceiveFrom(Source, Payload);
+                    EXPECT_EQ(ReceiveError, Error::BadMessage);
+                    Datagram->Close();
+                };
+                const auto ServerDone = SpawnServer(
+                    IoContext.get_executor(),
+                    ServerCoroutine());
 
-                     const std::array<std::uint8_t, 3> wire{0x00, 0x00, 0x01}; // FRAG 非零
-                     std::error_code ec;
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-                     a.Close();
-                 });
+                const std::array<std::uint8_t, 3> Wire{0x00, 0x00, 0x01};
+                const std::span<const std::uint8_t> WireSpan(Wire);
+                const auto WireBuffer = AsBytes(WireSpan);
+                std::error_code ErrorCode;
+                co_await ClientMemory.async_write_some(WireBuffer, ErrorCode);
+                ClientMemory.Close();
+                const auto ServerCompleted =
+                    co_await ServerDone->async_receive(Net::use_awaitable);
+                EXPECT_TRUE(ServerCompleted);
+            });
     }
 
     TEST(Socks5DgramSession, BadAtypRejected)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 服务端：ATYP 非法 → bad_message
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto dg = std::make_shared<Socks5::Dgram<>>(
-                             std::make_shared<MemoryStream>(std::move(b)));
-                         Socks5::Address src;
-                         std::vector<std::uint8_t> payload;
-                         const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::BadMessage);
-                         dg->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+        RunCoro(
+            IoContext,
+            [&]() -> Net::awaitable<void>
+            {
+                auto ServerStream =
+                    std::make_shared<MemoryStream>(std::move(ServerMemory));
+                auto ServerCoroutine =
+                    [ServerStream]() -> Net::awaitable<void>
+                {
+                    auto Datagram = std::make_shared<Dgram>(ServerStream);
+                    Address Source;
+                    std::vector<std::uint8_t> Payload;
+                    const auto ReceiveError =
+                        co_await Datagram->AsyncReceiveFrom(Source, Payload);
+                    EXPECT_EQ(ReceiveError, Error::BadMessage);
+                    Datagram->Close();
+                };
+                const auto ServerDone = SpawnServer(
+                    IoContext.get_executor(),
+                    ServerCoroutine());
 
-                     const std::array<std::uint8_t, 4> wire{0x00, 0x00, 0x00, 0x99}; // ATYP 非法
-                     std::error_code ec;
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-                     a.Close();
-                 });
+                const std::array<std::uint8_t, 4> Wire{
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x99};
+                const std::span<const std::uint8_t> WireSpan(Wire);
+                const auto WireBuffer = AsBytes(WireSpan);
+                std::error_code ErrorCode;
+                co_await ClientMemory.async_write_some(WireBuffer, ErrorCode);
+                ClientMemory.Close();
+                const auto ServerCompleted =
+                    co_await ServerDone->async_receive(Net::use_awaitable);
+                EXPECT_TRUE(ServerCompleted);
+            });
     }
 
     TEST(Socks5DgramSession, HeaderWithoutPayload)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     // 服务端：地址头完整但无载荷 → unexpected_eof
-                     auto server_coro = [&]() -> net::awaitable<void>
-                     {
-                         auto dg = std::make_shared<Socks5::Dgram<>>(
-                             std::make_shared<MemoryStream>(std::move(b)));
-                         Socks5::Address src;
-                         std::vector<std::uint8_t> payload;
-                         const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                         EXPECT_EQ(err, Error::UnexpectedEof);
-                         dg->Close();
-                     };
-                     net::co_spawn(ioc.get_executor(), server_coro(), net::detached);
+        RunCoro(
+            IoContext,
+            [&]() -> Net::awaitable<void>
+            {
+                auto ServerStream =
+                    std::make_shared<MemoryStream>(std::move(ServerMemory));
+                auto ServerCoroutine =
+                    [ServerStream]() -> Net::awaitable<void>
+                {
+                    auto Datagram = std::make_shared<Dgram>(ServerStream);
+                    Address Source;
+                    std::vector<std::uint8_t> Payload;
+                    const auto ReceiveError =
+                        co_await Datagram->AsyncReceiveFrom(Source, Payload);
+                    EXPECT_EQ(ReceiveError, Error::UnexpectedEof);
+                    Datagram->Close();
+                };
+                const auto ServerDone = SpawnServer(
+                    IoContext.get_executor(),
+                    ServerCoroutine());
 
-                     // [RSV 3B][ATYP=1][IPv4 4B][Port 2B] 无载荷，随后关闭
-                     const std::array<std::uint8_t, 10> wire{0, 0, 0, 0x01, 1, 2, 3, 4, 0x00, 0x50};
-                     std::error_code ec;
-                     co_await a.async_write_some(AsBytes(std::span<const std::uint8_t>(wire)), ec);
-                     a.Close();
-                 });
+                const std::array<std::uint8_t, 10> Wire{
+                    0x00,
+                    0x00,
+                    0x00,
+                    0x01,
+                    0x01,
+                    0x02,
+                    0x03,
+                    0x04,
+                    0x00,
+                    0x50};
+                const std::span<const std::uint8_t> WireSpan(Wire);
+                const auto WireBuffer = AsBytes(WireSpan);
+                std::error_code ErrorCode;
+                co_await ClientMemory.async_write_some(WireBuffer, ErrorCode);
+                ClientMemory.Close();
+                const auto ServerCompleted =
+                    co_await ServerDone->async_receive(Net::use_awaitable);
+                EXPECT_TRUE(ServerCompleted);
+            });
     }
 
     TEST(Socks5DgramSession, PeerClosedEof)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     auto dg = std::make_shared<Socks5::Dgram<>>(std::make_shared<MemoryStream>(std::move(b)));
-                     a.Close(); // 对端关闭 → 读 EOF → io_error
-                     Socks5::Address src;
-                     std::vector<std::uint8_t> payload;
-                     const auto err = co_await dg->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(err, Error::IoError);
-                     dg->Close();
-                     dg->Cancel();
-                     EXPECT_NE(dg->NextLayer(), nullptr);
-                     auto released = dg->Release();
-                     EXPECT_TRUE(released);
-                 });
+        RunCoro(
+            IoContext,
+            [&]() -> Net::awaitable<void>
+            {
+                auto Datagram = std::make_shared<Dgram>(
+                    std::make_shared<MemoryStream>(std::move(ServerMemory)));
+                ClientMemory.Close();
+                Address Source;
+                std::vector<std::uint8_t> Payload;
+                const auto ReceiveError =
+                    co_await Datagram->AsyncReceiveFrom(Source, Payload);
+                EXPECT_EQ(ReceiveError, Error::IoError);
+                Datagram->Close();
+                Datagram->Cancel();
+                EXPECT_NE(Datagram->NextLayer(), nullptr);
+                auto Released = Datagram->Release();
+                EXPECT_TRUE(Released);
+            });
     }
 
     TEST(Socks5DgramSession, SendToClosedPeer)
     {
-        net::io_context ioc;
-        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] =
+            MakeMemoryPair(IoContext.get_executor());
 
-        run_coro(ioc,
-                 [&]() -> net::awaitable<void>
-                 {
-                     auto dg = std::make_shared<Socks5::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)));
-                     b.Close(); // 对端关闭 → 写失败 → io_error
-                     const std::string p = "x";
-                     const auto err = co_await dg->AsyncSendTo(
-                         make_addr(Socks5::AddressType::Domain, "example.com", 53),
-                         std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>(p.data()),
-                                                       p.size()));
-                     EXPECT_EQ(err, Error::IoError);
-                     dg->Close();
-                 });
+        RunCoro(
+            IoContext,
+            [&]() -> Net::awaitable<void>
+            {
+                auto Datagram = std::make_shared<Dgram>(
+                    std::make_shared<MemoryStream>(std::move(ClientMemory)));
+                ServerMemory.Close();
+                const std::string PayloadText = "x";
+                const auto Payload =
+                    AsU8Span(std::string_view(PayloadText));
+                const auto Target =
+                    MakeAddress(AddressType::Domain, "example.com", 53);
+                const auto SendError =
+                    co_await Datagram->AsyncSendTo(Target, Payload);
+                EXPECT_EQ(SendError, Error::IoError);
+                Datagram->Close();
+            });
     }
 
+    TEST(Socks5DgramSession, RejectsOverreportedWrite)
+    {
+        Net::io_context IoContext;
+        auto Raw = std::make_shared<PreviewMockTransport>(
+            IoContext.get_executor());
+        Raw->OverreportWrite = true;
+        auto Datagram = std::make_shared<Dgram>(Raw);
+        const auto Target =
+            MakeAddress(AddressType::Domain, "example.com", 443);
+        const auto Payload = AsU8Span(std::string_view{"overreport"});
+
+        auto TestCoroutine = [&]() -> Net::awaitable<void>
+        {
+            const auto SendError =
+                co_await Datagram->AsyncSendTo(Target, Payload);
+            EXPECT_EQ(SendError, Error::BadLength);
+        };
+        RunCoro(IoContext, std::move(TestCoroutine));
+    }
+
+    TEST(Socks5DgramSession, RejectsOverreportedRead)
+    {
+        Net::io_context IoContext;
+        auto Raw = std::make_shared<PreviewMockTransport>(
+            IoContext.get_executor());
+        Raw->OverreportRead = true;
+        auto Datagram = std::make_shared<Dgram>(Raw);
+
+        auto TestCoroutine = [&]() -> Net::awaitable<void>
+        {
+            Address Source;
+            std::vector<std::uint8_t> Payload;
+            const auto ReceiveError =
+                co_await Datagram->AsyncReceiveFrom(Source, Payload);
+            EXPECT_EQ(ReceiveError, Error::BadLength);
+        };
+        RunCoro(IoContext, std::move(TestCoroutine));
+    }
 } // namespace

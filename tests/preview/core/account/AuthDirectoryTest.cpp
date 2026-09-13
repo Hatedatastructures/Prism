@@ -29,13 +29,13 @@
 namespace
 {
 
-    namespace net = boost::asio;
+    namespace Net = boost::asio;
 
     /// 可注入时钟
-    std::uint64_t fake_now = 0;
-    auto fake_clock() -> std::uint64_t
+    std::uint64_t FakeNow = 0;
+    auto FakeClock() -> std::uint64_t
     {
-        return fake_now;
+        return FakeNow;
     }
 
     TEST(DirectoryAuthenticator, HitPassesWithLease)
@@ -46,7 +46,7 @@ namespace
         const Preview::Account::DirectoryAuthenticator Auth(&dir);
         auto r = Auth.CheckDirectory("user", "Secret-1");
         EXPECT_TRUE(r.Ok);
-        EXPECT_EQ(r.identity, "Secret-1");
+        EXPECT_EQ(r.Identity, "Secret-1");
         EXPECT_TRUE(r.Lease);
 
         auto e = dir.Find("Secret-1");
@@ -61,7 +61,7 @@ namespace
         const Preview::Account::DirectoryAuthenticator Auth(&dir);
         auto r = Auth.CheckDirectory("user", "unknown");
         EXPECT_FALSE(r.Ok);
-        EXPECT_EQ(r.reason, Preview::Account::AuthReason::NotFound);
+        EXPECT_EQ(r.Reason, Preview::Account::AuthReason::NotFound);
     }
 
     TEST(DirectoryAuthenticator, DisabledRejected)
@@ -72,7 +72,7 @@ namespace
         const Preview::Account::DirectoryAuthenticator Auth(&dir);
         auto r = Auth.CheckDirectory("user", "blocked");
         EXPECT_FALSE(r.Ok);
-        EXPECT_EQ(r.reason, Preview::Account::AuthReason::Disabled);
+        EXPECT_EQ(r.Reason, Preview::Account::AuthReason::Disabled);
     }
 
     TEST(DirectoryAuthenticator, ExpiredRejected)
@@ -80,14 +80,14 @@ namespace
         Preview::Account::Directory dir;
         dir.Upsert("old", {.MaxConnections = 5, .ExpireAt = 1000});
 
-        fake_now = 500;
-        const Preview::Account::DirectoryAuthenticator Auth(&dir, fake_clock);
+        FakeNow = 500;
+        const Preview::Account::DirectoryAuthenticator Auth(&dir, FakeClock);
         EXPECT_TRUE(Auth.CheckDirectory("user", "old").Ok);
 
-        fake_now = 1000; // 过期
+        FakeNow = 1000; // 过期
         auto r = Auth.CheckDirectory("user", "old");
         EXPECT_FALSE(r.Ok);
-        EXPECT_EQ(r.reason, Preview::Account::AuthReason::Expired);
+        EXPECT_EQ(r.Reason, Preview::Account::AuthReason::Expired);
     }
 
     TEST(DirectoryAuthenticator, QuotaLimitRejected)
@@ -104,7 +104,7 @@ namespace
 
     TEST(DirectoryAuthenticator, MiddlewareIntegration)
     {
-        net::io_context ioc;
+        Net::io_context IoContext;
         Preview::Account::Directory dir;
         dir.Upsert("cred-a", 5);
 
@@ -119,8 +119,8 @@ namespace
         Preview::Fault::Code rc_ok = Preview::Fault::Code::Success;
         Preview::Fault::Code rc_bad = Preview::Fault::Code::Success;
         std::exception_ptr ep;
-        net::co_spawn(ioc,
-                      [&]() -> net::awaitable<void>
+        Net::co_spawn(IoContext,
+                      [&]() -> Net::awaitable<void>
                        {
                            rc_ok = co_await mw.Handle(Inbound, ctx);
                            EXPECT_EQ(ctx.identity, "cred-a");
@@ -130,8 +130,12 @@ namespace
                            ctx.RawSecret = "wrong";
                            rc_bad = co_await mw.Handle(Inbound, ctx);
                       },
-                      [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
+                      [&](std::exception_ptr Exception)
+                      {
+                          ep = Exception;
+                          IoContext.stop();
+                      });
+        IoContext.run();
         ASSERT_FALSE(ep);
         EXPECT_EQ(rc_ok, Preview::Fault::Code::Success);
         EXPECT_EQ(rc_bad, Preview::Fault::Code::AuthFailed);

@@ -20,42 +20,43 @@
 
 namespace
 {
-    namespace net = boost::asio;
-    using Tcp = net::ip::tcp;
-    using namespace Preview;
+    namespace Net = boost::asio;
+    using Tcp = Net::ip::tcp;
+    using Preview::SharedTransmission;
 
     template <typename A>
-    void run_coro(net::io_context &ioc, A coro)
+    auto RunCoro(Net::io_context &Ioc, A Coro) -> void
     {
-        std::exception_ptr ep;
-        net::co_spawn(ioc, std::move(coro), [&](std::exception_ptr e) { ep = e; ioc.stop(); });
-        ioc.run();
-        if (ep)
+        std::exception_ptr Exception;
+        Net::co_spawn(Ioc, std::move(Coro), [&](std::exception_ptr Error)
+                      { Exception = Error; Ioc.stop(); });
+        Ioc.run();
+        if (Exception)
         {
-            std::rethrow_exception(ep);
+            std::rethrow_exception(Exception);
         }
     }
 } // namespace
 
 TEST(Dialer, ConnectSuccess)
 {
-    net::io_context ioc;
-    Tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+    Net::io_context ioc;
+    Tcp::acceptor acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
     const auto port = acceptor.local_endpoint().port();
 
     std::error_code ec;
     SharedTransmission Conn;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
-                 net::co_spawn(
+                 Net::co_spawn(
                      ioc.get_executor(),
-                     [&]() -> net::awaitable<void>
+                     [&]() -> Net::awaitable<void>
                      {
-                         auto sock = co_await acceptor.async_accept(net::use_awaitable);
+                         auto sock = co_await acceptor.async_accept(Net::use_awaitable);
                          sock.close();
                      },
-                     net::detached);
+                     Net::detached);
                  Preview::Network::Dialer::Dialer d(ioc.get_executor());
                  Conn = co_await d.Connect("127.0.0.1", port, ec);
              });
@@ -65,16 +66,16 @@ TEST(Dialer, ConnectSuccess)
 
 TEST(Dialer, ConnectRefused)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     // 找一个未监听端口
-    Tcp::acceptor Probe(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+    Tcp::acceptor Probe(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
     const auto port = Probe.local_endpoint().port();
     Probe.close();
 
     std::error_code ec;
     SharedTransmission Conn;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  Preview::Network::Dialer::Dialer d(ioc.get_executor());
                  Conn = co_await d.Connect("127.0.0.1", port, ec);
@@ -85,14 +86,14 @@ TEST(Dialer, ConnectRefused)
 
 TEST(Dialer, ConnectTimeout)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::error_code ec;
     SharedTransmission Conn;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  Preview::Network::Dialer::DialOptions opts;
-                 opts.timeout = std::chrono::milliseconds(100);
+                 opts.Timeout = std::chrono::milliseconds(100);
                  Preview::Network::Dialer::Dialer d(ioc.get_executor(), opts);
                  // 不可达地址（TEST-NET 保留段）
                  Conn = co_await d.Connect("192.0.2.1", 8080, ec);
@@ -103,11 +104,11 @@ TEST(Dialer, ConnectTimeout)
 
 TEST(Dialer, InvalidPortZero)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::error_code ec;
     SharedTransmission Conn;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  Preview::Network::Dialer::Dialer d(ioc.get_executor());
                  Conn = co_await d.Connect("127.0.0.1", 0, ec);
@@ -118,11 +119,11 @@ TEST(Dialer, InvalidPortZero)
 
 TEST(Dialer, Ipv6Disabled)
 {
-    net::io_context ioc;
+    Net::io_context ioc;
     std::error_code ec;
     SharedTransmission Conn;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  Preview::Network::Dialer::DialOptions opts;
                  opts.EnableIpv6 = false;
@@ -135,39 +136,39 @@ TEST(Dialer, Ipv6Disabled)
 
 TEST(Dialer, ConnectEchoTransfer)
 {
-    net::io_context ioc;
-    Tcp::acceptor acceptor(ioc, net::ip::tcp::endpoint(net::ip::tcp::v4(), 0));
+    Net::io_context ioc;
+    Tcp::acceptor acceptor(ioc, Net::ip::tcp::endpoint(Net::ip::tcp::v4(), 0));
     const auto port = acceptor.local_endpoint().port();
 
     std::error_code ec;
     SharedTransmission Conn;
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
-                 net::co_spawn(
+                 Net::co_spawn(
                      ioc.get_executor(),
-                     [&]() -> net::awaitable<void>
+                     [&]() -> Net::awaitable<void>
                      {
-                         auto sock = co_await acceptor.async_accept(net::use_awaitable);
+                         auto sock = co_await acceptor.async_accept(Net::use_awaitable);
                          // echo 一次
                          std::array<std::byte, 64> buf{};
                          boost::system::error_code r_ec;
-                         const auto n = co_await sock.async_read_some(net::buffer(buf), net::redirect_error(net::use_awaitable, r_ec));
+                         const auto n = co_await sock.async_read_some(Net::buffer(buf), Net::redirect_error(Net::use_awaitable, r_ec));
                          if (n > 0)
                          {
-                             co_await sock.async_write_some(net::buffer(buf, n), net::redirect_error(net::use_awaitable, r_ec));
+                             co_await sock.async_write_some(Net::buffer(buf, n), Net::redirect_error(Net::use_awaitable, r_ec));
                          }
                          sock.close();
                      },
-                     net::detached);
+                     Net::detached);
                  Preview::Network::Dialer::Dialer d(ioc.get_executor());
                  Conn = co_await d.Connect("127.0.0.1", port, ec);
              });
     ASSERT_NE(Conn, nullptr);
 
     // echo 数据往返
-    run_coro(ioc,
-             [&]() -> net::awaitable<void>
+    RunCoro(ioc,
+             [&]() -> Net::awaitable<void>
              {
                  const std::string msg = "Dialer-echo";
                  std::error_code w_ec;

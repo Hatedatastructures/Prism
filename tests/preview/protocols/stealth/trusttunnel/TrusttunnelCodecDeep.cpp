@@ -12,56 +12,65 @@
 
 namespace
 {
-    using namespace Preview;
+    namespace Trusttunnel = Preview::Trusttunnel;
 
     TEST(TrusttunnelCodecDeep, BasicAuthRoundtrip)
     {
-        const auto encoded = Trusttunnel::BasicAuth("user", "pass");
-        EXPECT_FALSE(encoded.empty());
-        EXPECT_EQ(encoded.substr(0, 6), "Basic ");
+        const auto Encoded = Trusttunnel::BasicAuth("user", "pass");
+        EXPECT_FALSE(Encoded.empty());
+        EXPECT_EQ(Encoded.substr(0, 6), "Basic ");
 
-        std::string user;
-        std::string pass;
-        const auto Ok = Trusttunnel::ParseBasicAuth(encoded, user, pass);
-        EXPECT_TRUE(Ok);
-        EXPECT_EQ(user, "user");
-        EXPECT_EQ(pass, "pass");
+        std::string User;
+        std::string Password;
+        const auto IsValid = Trusttunnel::ParseBasicAuth(Encoded, User, Password);
+        EXPECT_TRUE(IsValid);
+        EXPECT_EQ(User, "user");
+        EXPECT_EQ(Password, "pass");
     }
 
     TEST(TrusttunnelCodecDeep, BasicAuthSpecialChars)
     {
         // 密码含空格/冒号的凭据（Basic 协议按首个冒号分隔用户名）
-        const auto encoded = Trusttunnel::BasicAuth("alice", "p a:ss");
-        std::string user;
-        std::string pass;
-        EXPECT_TRUE(Trusttunnel::ParseBasicAuth(encoded, user, pass));
-        EXPECT_EQ(user, "alice");
-        EXPECT_EQ(pass, "p a:ss");
+        const auto Encoded = Trusttunnel::BasicAuth("alice", "p a:ss");
+        std::string User;
+        std::string Password;
+        EXPECT_TRUE(Trusttunnel::ParseBasicAuth(Encoded, User, Password));
+        EXPECT_EQ(User, "alice");
+        EXPECT_EQ(Password, "p a:ss");
     }
 
     TEST(TrusttunnelCodecDeep, ParseBasicAuthErrors)
     {
-        std::string user;
-        std::string pass;
+        std::string User;
+        std::string Password;
         // 非 Basic 前缀
-        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("Bearer abc", user, pass));
+        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("Bearer abc", User, Password));
         // 空串
-        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("", user, pass));
+        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("", User, Password));
         // 非法 base64
-        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("Basic !!!not-base64!!!", user, pass));
+        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("Basic !!!not-base64!!!", User, Password));
         // 无冒号分隔（解码成功但缺分隔符）
-        const auto no_colon = Trusttunnel::BasicAuth("onlyuser", "x");
-        (void)no_colon;
+        const auto NoColon = Trusttunnel::BasicAuth("onlyuser", "x");
+        (void)NoColon;
         // 边界：只有 Basic 前缀
-        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("Basic ", user, pass));
+        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("Basic ", User, Password));
+    }
+
+    TEST(TrusttunnelCodecDeep, RejectsNonCanonicalBase64)
+    {
+        std::string User;
+        std::string Password;
+        // padding 后的尾随字节和非规范补位不能被当成同一凭据。
+        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("Basic dXNlcjpwYXNz=", User, Password));
+        EXPECT_FALSE(Trusttunnel::ParseBasicAuth("Basic dXNlcjpwYXNz=AAAA", User, Password));
     }
 
     TEST(TrusttunnelCodecDeep, VerifyBasicAuth)
     {
-        const auto encoded = Trusttunnel::BasicAuth("alice", "s3cret");
-        EXPECT_TRUE(Trusttunnel::VerifyBasicAuth(encoded, "alice", "s3cret"));
-        EXPECT_FALSE(Trusttunnel::VerifyBasicAuth(encoded, "alice", "wrong"));
-        EXPECT_FALSE(Trusttunnel::VerifyBasicAuth(encoded, "bob", "s3cret"));
+        const auto Encoded = Trusttunnel::BasicAuth("alice", "s3cret");
+        EXPECT_TRUE(Trusttunnel::VerifyBasicAuth(Encoded, "alice", "s3cret"));
+        EXPECT_FALSE(Trusttunnel::VerifyBasicAuth(Encoded, "alice", "wrong"));
+        EXPECT_FALSE(Trusttunnel::VerifyBasicAuth(Encoded, "bob", "s3cret"));
         EXPECT_FALSE(Trusttunnel::VerifyBasicAuth("garbage", "alice", "s3cret"));
     }
 

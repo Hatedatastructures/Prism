@@ -50,9 +50,9 @@ jobs:
         shell: pwsh
         run: |
           if ('${{ runner.os }}' -eq 'Windows') {
-            cmake -B build -G 'MinGW Makefiles' -DCMAKE_BUILD_TYPE=Release -DPRISM_ENABLE_INTEROP=ON -DPRISM_ENABLE_PERF_CONTRACT=ON -DPRISM_ENABLE_BENCHMARK=OFF -DPRISM_ENABLE_STRESS=OFF
+            cmake -B build -G 'MinGW Makefiles' -DCMAKE_BUILD_TYPE=Release -DPRISM_ENABLE_INTEROP=ON -DPRISM_ENABLE_PERF_CONTRACT=ON -DPRISM_ENABLE_BENCHMARK=ON -DPRISM_ENABLE_STRESS=ON
           } else {
-            cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DPRISM_ENABLE_INTEROP=ON -DPRISM_ENABLE_PERF_CONTRACT=ON -DPRISM_ENABLE_BENCHMARK=OFF -DPRISM_ENABLE_STRESS=OFF
+            cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++-13 -DPRISM_ENABLE_INTEROP=ON -DPRISM_ENABLE_PERF_CONTRACT=ON -DPRISM_ENABLE_BENCHMARK=ON -DPRISM_ENABLE_STRESS=ON
           }
 
       - name: Build
@@ -65,29 +65,69 @@ jobs:
 
       - name: Run Performance Contract
         shell: pwsh
-        run: ctest --test-dir build --no-tests=error --output-on-failure --timeout 120 -j 1 -R '^PerformanceContract\.'
+        run: |
+          $env:PRISM_PERF_OUTPUT = Join-Path $pwd 'build/perf-contract-results.json'
+          ctest --test-dir build --no-tests=error --output-on-failure --timeout 120 -j 1 -R '^PerformanceContract\.'
+
+      - name: Run Preview Recognition Performance
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/preview-evidence | Out-Null
+          & ctest --test-dir build -L perf -R '^Perf_Recognition$' --no-tests=error --output-on-failure --timeout 1800 -j 1 -V *>&1 | Tee-Object -FilePath build/preview-evidence/recognition-perf.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run Preview Recognition Stability
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path build/preview-evidence | Out-Null
+          & ctest --test-dir build --no-tests=error --output-on-failure --timeout 120 -j 1 -V -R '^RecognitionStability\.' *>&1 | Tee-Object -FilePath build/preview-evidence/recognition-stability.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build Go reference tools
         shell: pwsh
         working-directory: tests/go
         run: |
           New-Item -ItemType Directory -Force -Path ../../build/tests/go | Out-Null
-          $Tools = @('anytlscmp', 'guncmp', 'realitycmp', 'restlscmp', 'shadowtlscmp', 'trusttunnelcmp', 'wscmp')
+          $Tools = @('anytlscmp', 'guncmp', 'realitycmp', 'restlscmp', 'shadowtlscmp', 'trusttunnelcmp', 'wscmp', 'httpcmp', 'socks5cmp', 'trojancmp', 'vlesscmp', 'hysteria2cmp', 'tuiccmp', 'xhttpcmp', 'vmesscmp')
           foreach ($Tool in $Tools) {
             go build -o ("../../build/tests/go/{0}.exe" -f $Tool) ("./{0}" -f $Tool)
           }
           go build -o ../../build/tests/go/ss2022_client.exe ./interop/ss2022_client
           go build -o ../../build/tests/go/ss2022_server.exe ./interop/ss2022_server
+          go build -o ../../build/tests/go/websocket.exe ./websocket
+          go build -o ../../build/tests/go/anytls.exe ./anytls
+          go build -o ../../build/tests/go/gun.exe ./gun
+          go build -o ../../build/tests/go/xhttp.exe ./xhttp
+          go build -o ../../build/tests/go/trusttunnel.exe ./trusttunnel
+
+      - name: Select Prism executable
+        id: prism
+        shell: pwsh
+        run: |
+          if ('${{ runner.os }}' -eq 'Windows') {
+            $Path = 'build/src/Prism.exe'
+          } else {
+            $Path = 'build/src/Prism'
+          }
+          "path=$Path" >> $env:GITHUB_OUTPUT
+
+      - name: Run Interop Classifier Tests
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/interop/InteropRunner.Tests.ps1
 
       - name: Run External Interop Matrix
         shell: pwsh
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/interop/Run-Matrix.ps1 -RepoRoot $pwd -OutputDirectory build/interop-results -Platform '${{ runner.os }}-${{ runner.arch }}' -PrismExe build/src/Prism.exe -AllowBlocked
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/interop/Run-Matrix.ps1 -RepoRoot $pwd -OutputDirectory build/interop-results -Platform '${{ runner.os }}-${{ runner.arch }}' -PrismExe '${{ steps.prism.outputs.path }}' -AllowBlocked
 
       - name: Fail on protocol or implementation mismatch
         shell: pwsh
         run: |
           $Summary = Get-Content -Raw build/interop-results/summary.json | ConvertFrom-Json
-          Write-Host ("Interop evidence: total={0}, pass={1}, blocked={2}, failed={3}" -f $Summary.total, $Summary.pass, $Summary.blocked, $Summary.failed)
+          Write-Host ("Interop evidence: scope={0}, production_prerequisite_included={1}, total={2}, pass={3}, blocked={4}, failed={5}" -f $Summary.scope, $Summary.production_prerequisite_included, $Summary.total, $Summary.pass, $Summary.blocked, $Summary.failed)
+          if ($Summary.scope -ne 'full' -or -not $Summary.production_prerequisite_included) {
+            Write-Error 'Preview Gate D requires full interop scope with production prerequisite records'
+            exit 1
+          }
           if ($Summary.failed -gt 0) { exit 1 }
 
       - name: Upload Evidence
@@ -100,3 +140,4 @@ jobs:
             build/interop-results/**
             build/**/preview-production-perf.json
             build/**/perf-contract*.json
+            build/preview-evidence/**

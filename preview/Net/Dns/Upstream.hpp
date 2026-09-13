@@ -30,7 +30,10 @@
 #include <preview/Foundation/Error.hpp>
 
 #include <boost/asio.hpp>
+#include <boost/asio/bind_cancellation_slot.hpp>
+#include <boost/asio/cancellation_signal.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/ssl.hpp>
 
 #include <atomic>
@@ -48,8 +51,8 @@
 namespace Preview::Network::Dns
 {
 
-    namespace net = boost::asio;
-    namespace ssl = net::ssl;
+    namespace Net = boost::asio;
+    namespace Ssl = Net::ssl;
 
     /**
      * @class Upstream
@@ -63,12 +66,12 @@ namespace Preview::Network::Dns
          * @param ex 执行器
          * @param options 上游服务器、策略、超时和连接池配置
          */
-        explicit Upstream(net::any_io_executor ex, UpstreamOptions options = {})
-            : Ex_(std::move(ex)), Servers_(std::move(options.Servers)),
-              Mode_(options.QueryMode), Timeout_(options.DefaultTimeout),
-              TcpPool_(options.MaxConnsPerServer, PoolIdleTtl),
-              TlsPool_(options.MaxConnsPerServer, PoolIdleTtl),
-              DohPool_(options.MaxConnsPerServer, PoolIdleTtl)
+        explicit Upstream(Net::any_io_executor Executor, UpstreamOptions Options = {})
+            : Ex_(std::move(Executor)), Servers_(std::move(Options.Servers)),
+              Mode_(Options.QueryMode), Timeout_(Options.DefaultTimeout),
+              TcpPool_(Options.MaxConnsPerServer, PoolIdleTtl),
+              TlsPool_(Options.MaxConnsPerServer, PoolIdleTtl),
+              DohPool_(Options.MaxConnsPerServer, PoolIdleTtl)
         {
         }
 
@@ -78,9 +81,9 @@ namespace Preview::Network::Dns
          * @param servers 上游服务器列表
          * @param mode 多上游查询策略
          */
-        explicit Upstream(net::any_io_executor ex, std::vector<Server> servers,
-                          const Mode mode = Mode::Fastest)
-            : Upstream(std::move(ex), UpstreamOptions{std::move(servers), mode})
+        explicit Upstream(Net::any_io_executor Executor, std::vector<Server> Servers,
+                          const Mode QueryMode = Mode::Fastest)
+            : Upstream(std::move(Executor), UpstreamOptions{std::move(Servers), QueryMode})
         {
         }
 
@@ -88,27 +91,27 @@ namespace Preview::Network::Dns
          * @brief 替换上游服务器列表
          * @param servers 新列表
          */
-        void SetServers(const std::vector<Server> &servers)
+        void SetServers(const std::vector<Server> &Servers)
         {
-            Servers_ = servers;
+            Servers_ = Servers;
         }
 
         /**
          * @brief 设置解析策略
          * @param mode Fallback / First / Fastest
          */
-        void SetMode(const Mode mode)
+        void SetMode(const Mode QueryMode)
         {
-            Mode_ = mode;
+            Mode_ = QueryMode;
         }
 
         /**
          * @brief 设置默认超时
          * @param ms 毫秒数
          */
-        void SetTimeout(const std::chrono::milliseconds ms)
+        void SetTimeout(const std::chrono::milliseconds Timeout)
         {
-            Timeout_ = ms;
+            Timeout_ = Timeout;
         }
 
         /**
@@ -146,7 +149,7 @@ namespace Preview::Network::Dns
          * @return 查询结果；无上游或全部失败时 Error 非 success
          */
         [[nodiscard]] auto Resolve(std::string_view domain, const QType qt)
-            -> net::awaitable<QueryResult>
+            -> Net::awaitable<QueryResult>
         {
             auto query = Message::MakeQuery(domain, qt);
             query.Id = static_cast<std::uint16_t>(
@@ -199,14 +202,23 @@ namespace Preview::Network::Dns
         /// 池键：按地址、端口、TLS/HTTP 身份区分可复用连接
         [[nodiscard]] static auto PoolKey(const Server &server) -> std::string
         {
-            return server.Address + '|' + std::to_string(server.Port) + '|' + server.Hostname +
-                   '|' + server.HttpPath + '|' + (server.SkipCertCheck ? '1' : '0');
+            std::string Key = server.Address + '|' + std::to_string(server.Port) + '|' + server.Hostname +
+                              '|' + server.HttpPath + '|';
+            if (server.SkipCertCheck)
+            {
+                Key += '1';
+            }
+            else
+            {
+                Key += '0';
+            }
+            return Key;
         }
 
         /// 单服务器查询分发
         [[nodiscard]] auto QueryServer(const Server &server, const Message &query,
                                        const std::uint16_t qtNum)
-            -> net::awaitable<QueryResult>
+            -> Net::awaitable<QueryResult>
         {
             switch (server.Proto)
             {
@@ -228,15 +240,15 @@ namespace Preview::Network::Dns
          * @param timeout 超时时长
          * @return 成功返回结果；超时返回 Error=Timeout 的占位结果
          */
-        [[nodiscard]] auto WithTimeout(net::awaitable<QueryResult> task,
+        [[nodiscard]] auto WithTimeout(Net::awaitable<QueryResult> task,
                                        const std::chrono::milliseconds timeout)
-            -> net::awaitable<QueryResult>
+            -> Net::awaitable<QueryResult>
         {
-            using namespace boost::asio::experimental::awaitable_operators;
+            using Net::experimental::awaitable_operators::operator||;
 
-            net::steady_timer timer(Ex_);
+            Net::steady_timer timer(Ex_);
             timer.expires_after(timeout);
-            auto outcome = co_await (std::move(task) || timer.async_wait(net::use_awaitable));
+            auto outcome = co_await (std::move(task) || timer.async_wait(Net::use_awaitable));
             if (outcome.index() == 1)
             {
                 QueryResult timedOut;
@@ -255,19 +267,19 @@ namespace Preview::Network::Dns
          */
         [[nodiscard]] auto ResolveEndpoint(const std::string &host, const std::uint16_t port,
                                            boost::system::error_code &ec)
-            -> net::awaitable<net::ip::basic_endpoint<net::ip::tcp>>
+            -> Net::awaitable<Net::ip::basic_endpoint<Net::ip::tcp>>
         {
             const auto CacheKey = host + ':' + std::to_string(port);
             if (const auto It = EndpointCache_.find(CacheKey); It != EndpointCache_.end())
             {
                 co_return It->second;
             }
-            net::ip::tcp::resolver resolver(Ex_);
+            Net::ip::tcp::resolver resolver(Ex_);
             auto results = co_await resolver.async_resolve(
-                host, std::to_string(port), net::redirect_error(net::use_awaitable, ec));
+                host, std::to_string(port), Net::redirect_error(Net::use_awaitable, ec));
             if (ec)
             {
-                co_return net::ip::tcp::endpoint{};
+                co_return Net::ip::tcp::endpoint{};
             }
             const auto Ep = results.begin()->endpoint();
             EndpointCache_.emplace(CacheKey, Ep);
@@ -275,8 +287,8 @@ namespace Preview::Network::Dns
         }
 
         /// 构造已建连的 TCP 传输（工厂用）
-        [[nodiscard]] auto MakeTcp(const net::ip::tcp::endpoint &ep, const Server &server)
-            -> net::awaitable<EcResult<std::shared_ptr<TcpTransport>>>
+        [[nodiscard]] auto MakeTcp(const Net::ip::tcp::endpoint &ep, const Server &server)
+            -> Net::awaitable<EcResult<std::shared_ptr<TcpTransport>>>
         {
             auto link = std::make_shared<TcpTransport>(Ex_, TimeoutFor(server));
             if (auto ec = co_await link->Connect(ep, server))
@@ -287,8 +299,8 @@ namespace Preview::Network::Dns
         }
 
         /// 构造已建连的 DoT 传输（工厂用）
-        [[nodiscard]] auto MakeTls(const net::ip::tcp::endpoint &ep, const Server &server)
-            -> net::awaitable<EcResult<std::shared_ptr<TlsTransport>>>
+        [[nodiscard]] auto MakeTls(const Net::ip::tcp::endpoint &ep, const Server &server)
+            -> Net::awaitable<EcResult<std::shared_ptr<TlsTransport>>>
         {
             auto link = std::make_shared<TlsTransport>(Ex_, TimeoutFor(server), GetSslContext(server));
             if (auto ec = co_await link->Connect(ep, server))
@@ -299,10 +311,14 @@ namespace Preview::Network::Dns
         }
 
         /// 构造已建连的 DoH 传输（工厂用）
-        [[nodiscard]] auto MakeDoh(const net::ip::tcp::endpoint &ep, const Server &server)
-            -> net::awaitable<EcResult<std::shared_ptr<DohTransport>>>
+        [[nodiscard]] auto MakeDoh(const Net::ip::tcp::endpoint &ep, const Server &server)
+            -> Net::awaitable<EcResult<std::shared_ptr<DohTransport>>>
         {
-            const auto HostHeader = !server.Hostname.empty() ? server.Hostname : server.Address;
+            std::string HostHeader = server.Address;
+            if (!server.Hostname.empty())
+            {
+                HostHeader = server.Hostname;
+            }
             DohOptions options;
             options.Executor = Ex_;
             options.Timeout = TimeoutFor(server);
@@ -322,7 +338,7 @@ namespace Preview::Network::Dns
          */
         [[nodiscard]] auto QueryUdp(const Server &server, const Message &query,
                                     const std::uint16_t qtNum)
-            -> net::awaitable<QueryResult>
+            -> Net::awaitable<QueryResult>
         {
             const auto Start = std::chrono::steady_clock::now();
             auto wire = query.Pack();
@@ -331,7 +347,7 @@ namespace Preview::Network::Dns
             auto ep = co_await ResolveEndpoint(server.Address, server.Port, ec);
             if (!ec)
             {
-                const net::ip::udp::endpoint UdpEp(ep.address(), server.Port);
+                const Net::ip::udp::endpoint UdpEp(ep.address(), server.Port);
                 UdpTransport udp(Ex_, TimeoutFor(server));
                 ec = co_await udp.Connect(UdpEp, server);
                 if (!ec)
@@ -360,7 +376,11 @@ namespace Preview::Network::Dns
                     }
                 }
             }
-            co_return Detail::FailResult(server.Address, ec ? ec : make_error_code(Error::IoError));
+            if (!ec)
+            {
+                ec = make_error_code(Error::IoError);
+            }
+            co_return Detail::FailResult(server.Address, ec);
         }
 
         /**
@@ -368,7 +388,7 @@ namespace Preview::Network::Dns
          */
         [[nodiscard]] auto QueryTcp(const Server &server, const Message &query,
                                     const std::uint16_t qtNum)
-            -> net::awaitable<QueryResult>
+            -> Net::awaitable<QueryResult>
         {
             const auto Start = std::chrono::steady_clock::now();
             auto wire = query.Pack();
@@ -379,7 +399,7 @@ namespace Preview::Network::Dns
             {
                 auto received = co_await Detail::ExchangePooled(
                     Detail::PooledExchangeRequest<TcpTransport>{TcpPool_, PoolKey(server), ep, server, wire},
-                    [&](const net::ip::tcp::endpoint &end, const Server &srv)
+                    [&](const Net::ip::tcp::endpoint &end, const Server &srv)
                     { return MakeTcp(end, srv); });
                 if (!received)
                 {
@@ -394,7 +414,11 @@ namespace Preview::Network::Dns
                     ec = make_error_code(Error::BadMessage);
                 }
             }
-            co_return Detail::FailResult(server.Address, ec ? ec : make_error_code(Error::IoError));
+            if (!ec)
+            {
+                ec = make_error_code(Error::IoError);
+            }
+            co_return Detail::FailResult(server.Address, ec);
         }
 
         /**
@@ -402,7 +426,7 @@ namespace Preview::Network::Dns
          */
         [[nodiscard]] auto QueryTls(const Server &server, const Message &query,
                                     const std::uint16_t qtNum)
-            -> net::awaitable<QueryResult>
+            -> Net::awaitable<QueryResult>
         {
             const auto Start = std::chrono::steady_clock::now();
             auto wire = query.Pack();
@@ -413,7 +437,7 @@ namespace Preview::Network::Dns
             {
                 auto received = co_await Detail::ExchangePooled(
                     Detail::PooledExchangeRequest<TlsTransport>{TlsPool_, PoolKey(server), ep, server, wire},
-                    [&](const net::ip::tcp::endpoint &end, const Server &srv)
+                    [&](const Net::ip::tcp::endpoint &end, const Server &srv)
                     { return MakeTls(end, srv); });
                 if (!received)
                 {
@@ -428,7 +452,11 @@ namespace Preview::Network::Dns
                     ec = make_error_code(Error::BadMessage);
                 }
             }
-            co_return Detail::FailResult(server.Address, ec ? ec : make_error_code(Error::IoError));
+            if (!ec)
+            {
+                ec = make_error_code(Error::IoError);
+            }
+            co_return Detail::FailResult(server.Address, ec);
         }
 
         /**
@@ -436,7 +464,7 @@ namespace Preview::Network::Dns
          */
         [[nodiscard]] auto QueryHttps(const Server &server, const Message &query,
                                       const std::uint16_t qtNum)
-            -> net::awaitable<QueryResult>
+            -> Net::awaitable<QueryResult>
         {
             const auto Start = std::chrono::steady_clock::now();
             auto wire = query.Pack();
@@ -447,7 +475,7 @@ namespace Preview::Network::Dns
             {
                 auto received = co_await Detail::ExchangePooled(
                     Detail::PooledExchangeRequest<DohTransport>{DohPool_, PoolKey(server), ep, server, wire},
-                    [&](const net::ip::tcp::endpoint &end, const Server &srv)
+                    [&](const Net::ip::tcp::endpoint &end, const Server &srv)
                     { return MakeDoh(end, srv); });
                 if (!received)
                 {
@@ -462,7 +490,11 @@ namespace Preview::Network::Dns
                     ec = make_error_code(Error::BadMessage);
                 }
             }
-            co_return Detail::FailResult(server.Address, ec ? ec : make_error_code(Error::IoError));
+            if (!ec)
+            {
+                ec = make_error_code(Error::IoError);
+            }
+            co_return Detail::FailResult(server.Address, ec);
         }
 
         /// 热路径扫描并校验报文 Id（Id 不匹配视为坏报文）
@@ -483,22 +515,30 @@ namespace Preview::Network::Dns
          * @param server 目标服务器
          * @return 共享 ssl context
          */
-        [[nodiscard]] auto GetSslContext(const Server &server) -> std::shared_ptr<ssl::context>
+        [[nodiscard]] auto GetSslContext(const Server &server) -> std::shared_ptr<Ssl::context>
         {
-            const auto Key = server.Hostname + '|' + (server.SkipCertCheck ? '0' : '1');
+            std::string Key = server.Hostname + '|';
+            if (server.SkipCertCheck)
+            {
+                Key += '0';
+            }
+            else
+            {
+                Key += '1';
+            }
             if (const auto it = SslCtxs_.find(Key); it != SslCtxs_.end())
             {
                 return it->second;
             }
-            auto ctx = std::make_shared<ssl::context>(ssl::context::tls_client);
+            auto ctx = std::make_shared<Ssl::context>(Ssl::context::tls_client);
             if (!server.SkipCertCheck)
             {
                 ctx->set_default_verify_paths();
-                ctx->set_verify_mode(ssl::verify_peer);
+                ctx->set_verify_mode(Ssl::verify_peer);
             }
             else
             {
-                ctx->set_verify_mode(ssl::verify_none);
+                ctx->set_verify_mode(Ssl::verify_none);
             }
             return SslCtxs_.emplace(Key, std::move(ctx)).first->second;
         }
@@ -508,39 +548,43 @@ namespace Preview::Network::Dns
          * @return 首个成功结果；全部失败返回最后一个错误
          */
         [[nodiscard]] auto ResolveFallback(const Message &query, const std::uint16_t qtNum)
-            -> net::awaitable<QueryResult>
+            -> Net::awaitable<QueryResult>
         {
             co_return co_await Detail::ResolveFallback(
                 Servers_, query, qtNum,
                 [this](const Server &server, const Message &message, const std::uint16_t type)
-                    -> net::awaitable<QueryResult>
+                    -> Net::awaitable<QueryResult>
                 { co_return co_await QueryServer(server, message, type); },
-                [this](net::awaitable<QueryResult> task, const Server &server)
-                    -> net::awaitable<QueryResult>
+                [this](Net::awaitable<QueryResult> task, const Server &server)
+                    -> Net::awaitable<QueryResult>
                 { co_return co_await WithTimeout(std::move(task), TimeoutFor(server)); });
         }
 
         /**
          * @brief 并发查询所有上游（First / Fastest 策略）
-         * @details completion_signal 定时器信号驱动：worker 完成后 cancel
-         *          唤醒主协程，First 收获首个成功即返回，Fastest 等全部完成
-         *          后选 RTT 最低者。结构与主项目 resolve_concurrent 一致。
+         * @details 完成通道与计数器驱动：worker 完成后发送通知并递增计数，
+         *          等待方收到通知后重检计数，First 收获首个成功即返回，
+         *          Fastest 等全部完成后选 RTT 最低者。
          */
         [[nodiscard]] auto ResolveConcurrent(const Message &query, const std::uint16_t qtNum,
                                              std::shared_ptr<Upstream> Owner)
-            -> net::awaitable<QueryResult>
+            -> Net::awaitable<QueryResult>
         {
             const auto Total = Servers_.size();
             auto results = std::make_shared<std::vector<QueryResult>>(Total);
             auto completed = std::make_shared<std::atomic<std::size_t>>(0);
-            auto wake = std::make_shared<net::steady_timer>(Ex_);
-            wake->expires_at(net::steady_timer::time_point::max());
+            using CompletionChannel = Net::experimental::channel<void(boost::system::error_code)>;
+            auto completion = std::make_shared<CompletionChannel>(Ex_, 1);
+            auto cancels = std::make_shared<std::vector<std::shared_ptr<Net::cancellation_signal>>>();
+            cancels->reserve(Total);
 
             for (std::size_t i = 0; i < Total; ++i)
             {
                 const auto server = Servers_[i]; // 按值捕获：与 Servers_ 生命周期解耦
-                auto task = [Owner, server, query, qtNum, results, i, completed, wake]()
-                    -> net::awaitable<void>
+                auto cancel = std::make_shared<Net::cancellation_signal>();
+                cancels->push_back(cancel);
+                auto task = [Owner, server, query, qtNum, results, i, completed, completion]()
+                    -> Net::awaitable<void>
                 {
                     try
                     {
@@ -557,22 +601,29 @@ namespace Preview::Network::Dns
                         (*results)[i] = std::move(failed);
                     }
                     completed->fetch_add(1);
-                    wake->cancel();
+                    (void)completion->try_send(boost::system::error_code{});
                 };
-                net::co_spawn(Ex_, std::move(task), net::detached);
+                Net::co_spawn(Ex_, std::move(task),
+                              Net::bind_cancellation_slot(cancel->slot(), Net::detached));
             }
 
             const auto IsSuccess = [](const QueryResult &r)
             { return !r.Error && !r.Ips.empty(); };
 
+            const auto WaitForAll = [&]() -> Net::awaitable<void>
+            {
+                while (completed->load() < Total)
+                {
+                    boost::system::error_code WaitError;
+                    co_await completion->async_receive(Net::redirect_error(Net::use_awaitable, WaitError));
+                }
+                co_return;
+            };
+
             while (true)
             {
                 boost::system::error_code waitEc;
-                co_await wake->async_wait(net::redirect_error(net::use_awaitable, waitEc));
-                if (waitEc == net::error::operation_aborted)
-                {
-                    wake->expires_at(net::steady_timer::time_point::max());
-                }
+                co_await completion->async_receive(Net::redirect_error(Net::use_awaitable, waitEc));
 
                 // First：首个成功即返回
                 if (Mode_ == Mode::First)
@@ -581,6 +632,11 @@ namespace Preview::Network::Dns
                     {
                         if (IsSuccess(r))
                         {
+                            for (const auto &Signal : *cancels)
+                            {
+                                Signal->emit(Net::cancellation_type::all);
+                            }
+                            co_await WaitForAll();
                             co_return std::move(r);
                         }
                     }
@@ -596,15 +652,19 @@ namespace Preview::Network::Dns
         /// 服务器独立超时优先，否则用默认值
         [[nodiscard]] auto TimeoutFor(const Server &server) const -> std::chrono::milliseconds
         {
-            return server.TimeoutMs > 0 ? std::chrono::milliseconds(server.TimeoutMs) : Timeout_;
+            if (server.TimeoutMs > 0)
+            {
+                return std::chrono::milliseconds(server.TimeoutMs);
+            }
+            return Timeout_;
         }
 
-        net::any_io_executor Ex_;
+        Net::any_io_executor Ex_;
         std::vector<Server> Servers_;
         Mode Mode_;
         std::chrono::milliseconds Timeout_{4000};
-        std::map<std::string, std::shared_ptr<ssl::context>> SslCtxs_; ///< TLS 上下文缓存
-        std::unordered_map<std::string, net::ip::tcp::endpoint> EndpointCache_; ///< 上游端点解析缓存（host:port）
+        std::map<std::string, std::shared_ptr<Ssl::context>> SslCtxs_; ///< TLS 上下文缓存
+        std::unordered_map<std::string, Net::ip::tcp::endpoint> EndpointCache_; ///< 上游端点解析缓存（host:port）
         ConnPool<TcpTransport> TcpPool_;   ///< TCP 帧连接池
         ConnPool<TlsTransport> TlsPool_;   ///< DoT 连接池
         ConnPool<DohTransport> DohPool_;   ///< DoH 连接池
