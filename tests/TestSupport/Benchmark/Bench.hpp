@@ -23,8 +23,8 @@
 #include <span>
 #include <vector>
 
-#include <preview/Foundation/ByteSpan.hpp>
-#include <preview/Transport/Stream.hpp>
+#include <Preview/Foundation/ByteSpan.hpp>
+#include <Preview/Transport/Stream.hpp>
 
 namespace Preview
 {

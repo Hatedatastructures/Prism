@@ -66,6 +66,7 @@ namespace psm::resource
 
     auto worker::stop() -> void
     {
+        alive_.store(false, std::memory_order_release);
         ioc.stop();
     }
 

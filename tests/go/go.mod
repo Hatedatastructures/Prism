@@ -12,6 +12,7 @@ require (
 	github.com/metacubex/sing-vmess v0.2.5
 	github.com/metacubex/tls v0.1.8
 	github.com/metacubex/wireguard-go v0.0.0-20250820062549-a6cecdd7f57f
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

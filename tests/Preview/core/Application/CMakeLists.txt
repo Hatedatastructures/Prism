@@ -1,0 +1,2 @@
+AddPreviewTest(ApplicationTest.cpp)
+target_link_libraries(ApplicationTest PRIVATE PreviewApplication)

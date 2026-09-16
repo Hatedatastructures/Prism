@@ -1,7 +1,0 @@
-# account 子模块测试
-AddPreviewTest(AccountNgxTest.cpp)
-target_link_libraries(AccountNgxTest PRIVATE PreviewFoundation PreviewTestSupport)
-AddPreviewTest(AuthDirectoryTest.cpp)
-target_link_libraries(AuthDirectoryTest PRIVATE PreviewFoundation PreviewRuntime PreviewTestSupport)
-AddPreviewTest(AuthenticatorTest.cpp)
-target_link_libraries(AuthenticatorTest PRIVATE PreviewTransport PreviewProtocolHysteria2 PreviewProtocolSocks5 PreviewProtocolTrojan PreviewProtocolVless PreviewTestSupport)

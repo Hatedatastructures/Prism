@@ -1,0 +1,733 @@
+# Preview Foundation and the standalone Preview target graph.
+
+include(CMake/PreviewBoundary.cmake)
+
+function(ConfigurePreviewTarget Target)
+    if(NOT "${Target}" MATCHES "^[A-Z][A-Za-z0-9]*$")
+        message(FATAL_ERROR "Preview/TestSupport target 必须使用 PascalCase：${Target}")
+    endif()
+    target_include_directories(${Target} INTERFACE ${CMAKE_SOURCE_DIR})
+endfunction()
+
+# Production tests must see only the production source/include trees and the
+# dedicated tests root.  Keeping this separate from ConfigurePreviewTarget
+# prevents a production test from resolving Preview/... by accident.
+function(ConfigureProductionTestSupportTarget Target)
+    if(NOT "${Target}" MATCHES "^[A-Z][A-Za-z0-9]*$")
+        message(FATAL_ERROR "Production test support target must use PascalCase: ${Target}")
+    endif()
+    target_include_directories(${Target} INTERFACE
+        ${CMAKE_SOURCE_DIR}/tests
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/include
+        ${boost_include_dir}
+        ${Boost_INCLUDE_DIRS}
+    )
+endfunction()
+
+add_library(PreviewFoundation INTERFACE)
+ConfigurePreviewTarget(PreviewFoundation)
+target_sources(PreviewFoundation INTERFACE
+        Foundation/CodecTraits.hpp
+        Foundation/Error.hpp
+        Foundation/Authenticator.hpp
+        Foundation/ByteSpan.hpp
+        Foundation/FlatBuffer.hpp
+        Foundation/Foundation.hpp
+        Foundation/Parser.hpp
+        Foundation/Role.hpp
+        Foundation/SessionBase.hpp
+        Foundation/Utility/TrafficSink.hpp
+        Foundation/Utility/Account/Authenticator.hpp
+        Foundation/Utility/Account/Directory.hpp
+        Foundation/Utility/Coroutine/Registry.hpp
+        Foundation/Utility/Crypto/Aead.hpp
+        Foundation/Utility/Crypto/Base64.hpp
+        Foundation/Utility/Crypto/Blake3.hpp
+        Foundation/Utility/Crypto/Block.hpp
+        Foundation/Utility/Crypto/Crypto.hpp
+        Foundation/Utility/Crypto/Hkdf.hpp
+        Foundation/Utility/Crypto/Random.hpp
+        Foundation/Utility/Crypto/Sha224.hpp
+        Foundation/Utility/Crypto/X25519.hpp
+        Foundation/Utility/Diagnose/Context.hpp
+        Foundation/Utility/Diagnose/Logger.hpp
+        Foundation/Utility/Diagnose/Observability.hpp
+        Foundation/Utility/Diagnose/Log.hpp
+        Foundation/Exception/Deviant.hpp
+        Foundation/Exception/Network.hpp
+        Foundation/Exception/Protocol.hpp
+        Foundation/Exception/Security.hpp
+        Foundation/Fault/Code.hpp
+        Foundation/Fault/Compatible.hpp
+        Foundation/Fault/Handling.hpp
+        Foundation/Cancellation/Mode.hpp
+        Foundation/Cancellation/Types.hpp
+        Foundation/Error/Code.hpp
+        Foundation/Error/Error.hpp
+        Foundation/Error/Expected.hpp
+        Foundation/Executor/Affinity.hpp
+        Foundation/Executor/Types.hpp
+        Foundation/Identifier/Id.hpp
+        Foundation/Identifier/Identifier.hpp
+        Foundation/Identifier/Types.hpp
+        Foundation/Memory/Container.hpp
+        Foundation/Memory/CowMap.hpp
+        Foundation/Memory/Domain.hpp
+        Foundation/Memory/Pointer.hpp
+        Foundation/Memory/Pool.hpp
+        Foundation/Memory/Types.hpp
+        Foundation/Utility/Rate/TokenBucket.hpp
+)
+target_link_libraries(PreviewFoundation INTERFACE
+        OpenSSL::Crypto
+        Blake3C
+        BoostSystemHeaderOnly
+)
+
+add_library(PreviewAccount INTERFACE)
+ConfigurePreviewTarget(PreviewAccount)
+target_sources(PreviewAccount INTERFACE
+        Account/Account.hpp
+        Account/Authenticator.hpp
+        Account/Credential.hpp
+        Account/Directory.hpp
+        Account/Lease.hpp
+        Account/Rate.hpp
+        Account/Record.hpp
+        Account/Runtime.hpp
+        Account/SecureBytes.hpp
+)
+LinkPreviewTargets(PreviewAccount PreviewFoundation)
+
+add_library(PreviewLifecycle INTERFACE)
+ConfigurePreviewTarget(PreviewLifecycle)
+target_sources(PreviewLifecycle INTERFACE
+        Lifecycle/CancellationDomain.hpp
+        Lifecycle/DrainBarrier.hpp
+        Lifecycle/FailureBoundary.hpp
+        Lifecycle/Lifecycle.hpp
+        Lifecycle/TaskRegistry.hpp
+        Lifecycle/TaskState.hpp
+)
+LinkPreviewTargets(PreviewLifecycle PreviewFoundation)
+
+add_library(PreviewResource INTERFACE)
+ConfigurePreviewTarget(PreviewResource)
+target_sources(PreviewResource INTERFACE
+        Resource/ExecutorReclaimer.hpp
+        Resource/ProcessResources.hpp
+        Resource/Resource.hpp
+        Resource/SessionResources.hpp
+        Resource/StreamResources.hpp
+        Resource/WorkerResources.hpp
+)
+LinkPreviewTargets(PreviewResource PreviewFoundation PreviewLifecycle)
+
+add_library(PreviewScheduler INTERFACE)
+ConfigurePreviewTarget(PreviewScheduler)
+target_sources(PreviewScheduler INTERFACE
+        Scheduler/Detail/FixedTable.hpp
+        Scheduler/FairScheduler.hpp
+        Scheduler/PriorityScheduler.hpp
+        Scheduler/Scheduler.hpp
+        Scheduler/Types.hpp
+)
+LinkPreviewTargets(PreviewScheduler PreviewFoundation)
+
+add_library(PreviewStatistics INTERFACE)
+ConfigurePreviewTarget(PreviewStatistics)
+target_sources(PreviewStatistics INTERFACE
+        Statistics/Counters.hpp
+        Statistics/EventRing.hpp
+        Statistics/Events.hpp
+        Statistics/Redaction.hpp
+        Statistics/Snapshots.hpp
+        Statistics/SparseCounters.hpp
+        Statistics/Statistics.hpp
+        Statistics/TrafficDelta.hpp
+        Statistics/Trace.hpp
+        Statistics/Types.hpp
+)
+LinkPreviewTargets(PreviewStatistics PreviewFoundation)
+
+add_library(PreviewOperations STATIC
+        Operations/HttpServer.cpp
+)
+ConfigurePreviewTarget(PreviewOperations)
+target_include_directories(PreviewOperations PRIVATE ${CMAKE_SOURCE_DIR})
+target_sources(PreviewOperations INTERFACE
+        Operations/Commands.hpp
+        Operations/HttpServer.hpp
+        Operations/Models.hpp
+        Operations/Operations.hpp
+        Operations/Queries.hpp
+        Operations/Redaction.hpp
+        Operations/Router.hpp
+)
+AssertPreviewDependency(PreviewOperations PreviewStatistics)
+target_link_libraries(PreviewOperations PUBLIC PreviewStatistics)
+
+add_library(PreviewTransport INTERFACE)
+ConfigurePreviewTarget(PreviewTransport)
+target_sources(PreviewTransport INTERFACE
+        Transport/Transmission.hpp
+        Transport/Algorithm.hpp
+        Transport/Connector.hpp
+        Transport/Encrypted.hpp
+        Transport/NativeTls.hpp
+        Transport/MemoryStream.hpp
+        Transport/Pad.hpp
+        Transport/Preview.hpp
+        Transport/Reliable.hpp
+        Transport/Snapshot.hpp
+        Transport/Stream.hpp
+        Transport/Unreliable.hpp
+)
+LinkPreviewTargets(PreviewTransport PreviewFoundation)
+if(WIN32)
+    target_link_libraries(PreviewTransport INTERFACE ws2_32 mswsock crypt32)
+endif()
+
+add_library(PreviewNet INTERFACE)
+ConfigurePreviewTarget(PreviewNet)
+target_sources(PreviewNet INTERFACE
+        Net/Target.hpp
+        Net/Services/WorkerDialService.hpp
+        Net/Dialer/Dialer.hpp
+        Net/Route/Route.hpp
+        Net/Outbound/Outbound.hpp
+        Net/Dns/Config.hpp
+        Net/Dns/Format.hpp
+        Net/Dns/Types.hpp
+        Net/Dns/Answer.hpp
+        Net/Dns/Transport.hpp
+        Net/Dns/ConnPool.hpp
+        Net/Dns/Doh.hpp
+        Net/Dns/Cache.hpp
+        Net/Dns/Coalescer.hpp
+        Net/Dns/Rules.hpp
+        Net/Dns/Upstream.hpp
+        Net/Dns/Resolver.hpp
+        Net/Dns/Detail/ConfigOptions.hpp
+        Net/Dns/Detail/Exchange.hpp
+        Net/Dns/Detail/Maintenance.hpp
+        Net/Dns/Detail/Fallback.hpp
+        Net/UdpRelay.hpp
+)
+LinkPreviewTargets(PreviewNet PreviewTransport PreviewFoundation)
+
+add_library(PreviewIngress INTERFACE)
+ConfigurePreviewTarget(PreviewIngress)
+target_sources(PreviewIngress INTERFACE
+        Ingress/UdpAssociation.hpp
+        Ingress/UdpDemux.hpp
+        Ingress/UdpListener.hpp
+        Ingress/QuicGateway.hpp
+        Ingress/IngressDispatcher.hpp
+)
+LinkPreviewTargets(PreviewIngress PreviewFoundation)
+
+add_library(PreviewRuntime INTERFACE)
+ConfigurePreviewTarget(PreviewRuntime)
+target_sources(PreviewRuntime INTERFACE
+        # Runtime middleware
+        Runtime/Middleware/Context.hpp
+        Runtime/Middleware/Pipeline.hpp
+        Runtime/Middleware/Builtin/Auth.hpp
+        Runtime/Middleware/Builtin/Dial.hpp
+        Runtime/Middleware/Builtin/Mux.hpp
+        Runtime/Middleware/Builtin/Pad.hpp
+        Runtime/Middleware/Builtin/Relay.hpp
+        Runtime/Middleware/Builtin/Throttle.hpp
+        # Runtime recognition
+        Runtime/Recognition/Protocol.hpp
+        Runtime/Recognition/Probe.hpp
+        Runtime/Recognition/Types.hpp
+        Runtime/Recognition/ProbeBuffer.hpp
+        Runtime/Recognition/DecisionTable.hpp
+        Runtime/Recognition/Profile.hpp
+        Runtime/Recognition/ConfiguredMode.hpp
+        Runtime/Recognition/DeterministicMode.hpp
+        Runtime/Recognition/MixedTrialMode.hpp
+        Runtime/Recognition/ProbeDefense.hpp
+        Runtime/Recognition/Recognition.hpp
+        Runtime/Recognition/Route.hpp
+        Runtime/Recognition/SchemeExecutor.hpp
+        Runtime/Recognition/Tls.hpp
+        Runtime/Recognition/RawIngressProbe.hpp
+        # Runtime session/front/resource and stable protocol contract
+        Runtime/SessionControl.hpp
+        Runtime/SessionServices.hpp
+        Runtime/Session.hpp
+        Runtime/Listener.hpp
+        Runtime/SessionRegistry.hpp
+        Runtime/Statistics.hpp
+        Runtime/Contract/DataPlane.hpp
+        Runtime/Contract/Handler.hpp
+        Runtime/Front/QuicFront.hpp
+        Runtime/Front/UdpFront.hpp
+        Runtime/Mailbox.cpp
+        Runtime/Mailbox.hpp
+        Runtime/Process.hpp
+        Runtime/Worker.hpp
+        Runtime/WorkerGroup.hpp
+)
+LinkPreviewTargets(PreviewRuntime
+        PreviewNet
+        PreviewTransport
+        PreviewFoundation
+        PreviewLifecycle
+        PreviewAccount
+        PreviewResource
+        PreviewScheduler
+)
+
+add_library(PreviewComposition INTERFACE)
+ConfigurePreviewTarget(PreviewComposition)
+target_sources(PreviewComposition INTERFACE
+        # Composition adapters; protocol binding remains outside Runtime
+        Composition/Carrier/FacadeCarrier.hpp
+        Composition/Adapters/Anytls.hpp
+        Composition/Adapters/Common.hpp
+        Composition/Adapters/DataPlane.hpp
+        Composition/Adapters/Hysteria2.hpp
+        Composition/Adapters/ProtocolAdapter.hpp
+        Composition/Adapters/Socks5.hpp
+        Composition/Adapters/Ss2022.hpp
+        Composition/Adapters/Trojan.hpp
+        Composition/Adapters/Vless.hpp
+        Composition/Adapters/Vmess.hpp
+        Composition/Adapters/Tuic.hpp
+        Composition/Adapters/TypedResult.hpp
+        Composition/Recognition/CandidateRegistry.hpp
+        Composition/Recognition/CandidateFactory.hpp
+        Composition/Recognition/ProfileBuilder.hpp
+        Composition/Recognition/SettingsBuilder.hpp
+        Composition/Recognition/TlsCandidateFactory.hpp
+        Composition/Recognition/LayeredCandidateFactory.hpp
+        Composition/Recognition/ProtocolMatrix.hpp
+        Composition/Api/Api.hpp
+        Composition/Api/ApiManager.hpp
+        Composition/Api/OperationsApi.hpp
+        Composition/Api/StatisticsApi.hpp
+        Composition/MuxService.hpp
+        Composition/UdpService.hpp
+        Composition/Settings/Json.hpp
+        Composition/Settings/Loader.hpp
+        Composition/Builtin/Builtin.hpp
+        Composition/Builtin/Capability.hpp
+        Composition/Builtin/Descriptor.hpp
+        Composition/Builtin/Freeze.hpp
+        Composition/Builtin/ProtocolBuiltins.hpp
+        Composition/Builtin/Registry.hpp
+        Composition/Builtin/Snapshot.hpp
+        Composition/Protocol/ProtocolCatalog.hpp
+)
+LinkPreviewTargets(PreviewComposition
+        PreviewRuntime
+        PreviewProtocolMux
+)
+target_link_libraries(PreviewComposition INTERFACE
+        PreviewOperations
+        PreviewStatistics
+)
+
+add_library(PreviewConfiguration INTERFACE)
+ConfigurePreviewTarget(PreviewConfiguration)
+target_sources(PreviewConfiguration INTERFACE
+        Application/Configuration/Configuration.hpp
+        Application/Configuration/ConfigurationError.hpp
+        Application/Configuration/ConfigurationGeneration.hpp
+        Application/Configuration/ConfigurationParser.hpp
+        Application/Configuration/ConfigurationStore.hpp
+        Application/Configuration/ConfigurationValidator.hpp
+        Application/Configuration/GenerationBuilder.hpp
+        Application/Configuration/PreviewConfiguration.hpp
+        Application/Configuration/PreviewConfiguration.json
+        Application/Configuration/PreviewConfigurationJson.hpp
+        Application/Configuration/ReloadCoordinator.hpp
+        Application/Configuration/ResolvedSecrets.hpp
+        Application/Configuration/SecretRefResolver.hpp
+)
+LinkPreviewTargets(PreviewConfiguration PreviewFoundation)
+target_link_libraries(PreviewConfiguration INTERFACE PreviewAccount)
+target_link_libraries(PreviewConfiguration INTERFACE glaze::glaze)
+LinkPreviewTargets(PreviewRuntime PreviewConfiguration)
+
+add_library(PreviewProtocolsCommon INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolsCommon)
+target_sources(PreviewProtocolsCommon INTERFACE
+        Protocols/Common/Address.hpp
+        Protocols/Common/Form.hpp
+        Protocols/Common/Framing.hpp
+        Protocols/Common/Mux.hpp
+        Protocols/Common/Read.hpp
+)
+
+add_library(PreviewProtocolHttp2 INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolHttp2)
+target_sources(PreviewProtocolHttp2 INTERFACE
+        Protocols/Http2/Session.hpp
+        Protocols/Http2/Stream.hpp
+        Protocols/Http2/Frame.hpp
+        Protocols/Http2/Codec.hpp
+        Protocols/Http2/Impl.hpp
+)
+
+# HTTP/2 and Hysteria2 reuse the header-only QPACK/Huffman/authentication
+# primitives without requiring the full nghttp3/ngtcp2 HTTP/3 stack.
+add_library(PreviewProtocolHttp3Core INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolHttp3Core)
+target_sources(PreviewProtocolHttp3Core INTERFACE
+        Protocols/Http3/Auth.hpp
+        Protocols/Http3/Detail/Varint.hpp
+        Protocols/Http3/Huffman.hpp
+        Protocols/Http3/StaticTable.hpp
+        Protocols/Http3/DynamicTable.hpp
+        Protocols/Http3/Decoder.hpp
+        Protocols/Http3/Encoder.hpp
+        Protocols/Http3/Qpack.hpp
+)
+LinkPreviewTargets(PreviewProtocolHttp3Core PreviewProtocolsCommon)
+
+add_library(PreviewProtocolQuic INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolQuic)
+target_sources(PreviewProtocolQuic INTERFACE
+        Protocols/Quic/GatewayCommon.hpp
+        Protocols/Quic/DatagramAdapter.hpp
+        Protocols/Quic/Native.hpp
+        Protocols/Quic/StreamAdapter.hpp
+)
+
+add_library(PreviewProtocolQuicNative STATIC)
+ConfigurePreviewTarget(PreviewProtocolQuicNative)
+target_sources(PreviewProtocolQuicNative
+        PRIVATE
+        Protocols/Quic/Native.cpp
+)
+target_include_directories(PreviewProtocolQuicNative PRIVATE
+        ${ngtcp2_SOURCE_DIR}/lib/includes
+        ${ngtcp2_SOURCE_DIR}/crypto/includes
+)
+target_link_libraries(PreviewProtocolQuicNative PUBLIC
+        PreviewProtocolQuic
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        ngtcp2_static
+        ngtcp2_crypto_boringssl_static
+)
+LinkPreviewTargets(PreviewProtocolQuicNative PreviewProtocolQuic)
+
+add_library(PreviewProtocolHttp INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolHttp)
+target_sources(PreviewProtocolHttp INTERFACE
+        Protocols/Http1/Parser.hpp
+        Protocols/Http1/Conn.hpp
+)
+
+add_library(PreviewProtocolHttp3 INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolHttp3)
+target_sources(PreviewProtocolHttp3 INTERFACE
+        Protocols/Http3/Server.hpp
+        Protocols/Http3/Session.hpp
+        Protocols/Http3/NativeServer.hpp
+        Protocols/Http3/NativeClient.hpp
+)
+LinkPreviewTargets(PreviewProtocolHttp3 PreviewProtocolHttp3Core)
+LinkPreviewTargets(PreviewProtocolHttp3 PreviewProtocolQuic)
+target_include_directories(PreviewProtocolHttp3 INTERFACE
+        ${nghttp3_SOURCE_DIR}/lib/includes
+        ${ngtcp2_SOURCE_DIR}/lib/includes
+        ${ngtcp2_SOURCE_DIR}/crypto/includes
+)
+target_link_libraries(PreviewProtocolHttp3 INTERFACE
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        ngtcp2_static
+        ngtcp2_crypto_boringssl_static
+        nghttp3_static
+)
+
+add_library(PreviewProtocolHysteria2 INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolHysteria2)
+target_sources(PreviewProtocolHysteria2 INTERFACE
+        Protocols/Hysteria2/Types.hpp
+        Protocols/Hysteria2/Codec.hpp
+        Protocols/Hysteria2/Conn.hpp
+        Protocols/Hysteria2/Dgram.hpp
+        Protocols/Hysteria2/Hysteria2.hpp
+)
+
+add_library(PreviewProtocolShadowsocks2022 INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolShadowsocks2022)
+target_sources(PreviewProtocolShadowsocks2022 INTERFACE
+        Protocols/Shadowsocks2022/Types.hpp
+        Protocols/Shadowsocks2022/ChunkCodec.hpp
+        Protocols/Shadowsocks2022/KeyDerivation.hpp
+        Protocols/Shadowsocks2022/RequestCodec.hpp
+        Protocols/Shadowsocks2022/ResponseCodec.hpp
+        Protocols/Shadowsocks2022/Codec.hpp
+        Protocols/Shadowsocks2022/Conn.hpp
+        Protocols/Shadowsocks2022/Dgram.hpp
+        Protocols/Shadowsocks2022/Shadowsocks2022.hpp
+)
+
+add_library(PreviewProtocolSocks5 INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolSocks5)
+target_sources(PreviewProtocolSocks5 INTERFACE
+        Protocols/Socks5/Types.hpp
+        Protocols/Socks5/Codec.hpp
+        Protocols/Socks5/Conn.hpp
+        Protocols/Socks5/Dgram.hpp
+        Protocols/Socks5/UdpAssoc.hpp
+        Protocols/Socks5/Socks5.hpp
+)
+
+add_library(PreviewProtocolTrojan INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolTrojan)
+target_sources(PreviewProtocolTrojan INTERFACE
+        Protocols/Trojan/Types.hpp
+        Protocols/Trojan/Codec.hpp
+        Protocols/Trojan/Conn.hpp
+        Protocols/Trojan/Dgram.hpp
+        Protocols/Trojan/Trojan.hpp
+)
+
+add_library(PreviewProtocolTuic INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolTuic)
+target_sources(PreviewProtocolTuic INTERFACE
+        Protocols/Tuic/Types.hpp
+        Protocols/Tuic/Codec.hpp
+        Protocols/Tuic/Conn.hpp
+        Protocols/Tuic/Dgram.hpp
+        Protocols/Tuic/Tuic.hpp
+)
+
+add_library(PreviewProtocolVless INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolVless)
+target_sources(PreviewProtocolVless INTERFACE
+        Protocols/Vless/Types.hpp
+        Protocols/Vless/Codec.hpp
+        Protocols/Vless/Conn.hpp
+        Protocols/Vless/Dgram.hpp
+        Protocols/Vless/UdpTunnel.hpp
+        Protocols/Vless/Vless.hpp
+)
+
+add_library(PreviewProtocolVmess INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolVmess)
+target_sources(PreviewProtocolVmess INTERFACE
+        Protocols/Vmess/Types.hpp
+        Protocols/Vmess/Auth.hpp
+        Protocols/Vmess/ChunkCodec.hpp
+        Protocols/Vmess/RequestCodec.hpp
+        Protocols/Vmess/ResponseCodec.hpp
+        Protocols/Vmess/Codec.hpp
+        Protocols/Vmess/Conn.hpp
+        Protocols/Vmess/Dgram.hpp
+        Protocols/Vmess/Vmess.hpp
+)
+
+add_library(PreviewProtocolMux INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolMux)
+target_sources(PreviewProtocolMux INTERFACE
+        Protocols/Mux/Types.hpp
+        Protocols/Mux/Codec.hpp
+        Protocols/Mux/StreamState.hpp
+        Protocols/Mux/SessionReadLoop.hpp
+        Protocols/Mux/SessionWriteLoop.hpp
+        Protocols/Mux/Stream.hpp
+        Protocols/Mux/Session.hpp
+        Protocols/Mux/Client.hpp
+        Protocols/Mux/Server.hpp
+        Protocols/Mux/Smux/Types.hpp
+        Protocols/Mux/Smux/Codec.hpp
+        Protocols/Mux/Smux/Session.hpp
+        Protocols/Mux/Smux/Client.hpp
+        Protocols/Mux/Smux/Server.hpp
+        Protocols/Mux/Smux/Smux.hpp
+        Protocols/Mux/Yamux/Types.hpp
+        Protocols/Mux/Yamux/Codec.hpp
+        Protocols/Mux/Yamux/Session.hpp
+        Protocols/Mux/Yamux/Client.hpp
+        Protocols/Mux/Yamux/Server.hpp
+        Protocols/Mux/Yamux/Yamux.hpp
+        Protocols/Mux/H2Mux/Types.hpp
+        Protocols/Mux/H2Mux/Codec.hpp
+        Protocols/Mux/H2Mux/Session.hpp
+        Protocols/Mux/H2Mux/Client.hpp
+        Protocols/Mux/H2Mux/Server.hpp
+        Protocols/Mux/H2Mux/H2Mux.hpp
+)
+
+add_library(PreviewProtocolAnytls INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolAnytls)
+target_sources(PreviewProtocolAnytls INTERFACE
+        Protocols/Anytls/Types.hpp
+        Protocols/Anytls/Codec.hpp
+        Protocols/Anytls/Conn.hpp
+        Protocols/Anytls/Anytls.hpp
+)
+
+add_library(PreviewProtocolEch INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolEch)
+target_sources(PreviewProtocolEch INTERFACE
+        Protocols/Ech/Types.hpp
+        Protocols/Ech/Keygen.hpp
+        Protocols/Ech/Scan.hpp
+        Protocols/Ech/Ech.hpp
+)
+
+add_library(PreviewProtocolGun INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolGun)
+target_sources(PreviewProtocolGun INTERFACE
+        Protocols/Gun/Types.hpp
+        Protocols/Gun/Codec.hpp
+        Protocols/Gun/Conn.hpp
+        Protocols/Gun/Gun.hpp
+)
+
+add_library(PreviewProtocolNative INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolNative)
+target_sources(PreviewProtocolNative INTERFACE
+        Protocols/Native/Types.hpp
+        Protocols/Native/Conn.hpp
+        Protocols/Native/Native.hpp
+)
+
+add_library(PreviewProtocolReality INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolReality)
+target_sources(PreviewProtocolReality INTERFACE
+        Protocols/Reality/Types.hpp
+        Protocols/Reality/Codec.hpp
+        Protocols/Reality/Conn.hpp
+        Protocols/Reality/Carrier.hpp
+        Protocols/Reality/Reality.hpp
+)
+
+add_library(PreviewProtocolRestls INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolRestls)
+target_sources(PreviewProtocolRestls INTERFACE
+        Protocols/Restls/Types.hpp
+        Protocols/Restls/Codec.hpp
+        Protocols/Restls/Conn.hpp
+        Protocols/Restls/Carrier.hpp
+        Protocols/Restls/Restls.hpp
+)
+
+add_library(PreviewProtocolShadowtls INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolShadowtls)
+target_sources(PreviewProtocolShadowtls INTERFACE
+        Protocols/Shadowtls/Types.hpp
+        Protocols/Shadowtls/Codec.hpp
+        Protocols/Shadowtls/Conn.hpp
+        Protocols/Shadowtls/Carrier.hpp
+        Protocols/Shadowtls/Shadowtls.hpp
+        Protocols/Shadowtls/Server.hpp
+)
+
+add_library(PreviewProtocolTrusttunnel INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolTrusttunnel)
+target_sources(PreviewProtocolTrusttunnel INTERFACE
+        Protocols/Trusttunnel/Types.hpp
+        Protocols/Trusttunnel/Codec.hpp
+        Protocols/Trusttunnel/Conn.hpp
+        Protocols/Trusttunnel/Http2.hpp
+        Protocols/Trusttunnel/Dgram.hpp
+        Protocols/Trusttunnel/Trusttunnel.hpp
+)
+
+add_library(PreviewProtocolWs INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolWs)
+target_sources(PreviewProtocolWs INTERFACE
+        Protocols/Ws/Types.hpp
+        Protocols/Ws/Codec.hpp
+        Protocols/Ws/Conn.hpp
+        Protocols/Ws/Ws.hpp
+)
+
+add_library(PreviewProtocolXhttp INTERFACE)
+ConfigurePreviewTarget(PreviewProtocolXhttp)
+target_sources(PreviewProtocolXhttp INTERFACE
+        Protocols/Xhttp/Types.hpp
+        Protocols/Xhttp/Conn.hpp
+        Protocols/Xhttp/Xhttp.hpp
+)
+
+# Protocol dependencies are declared beside the Preview targets they compose.
+# tests/common no longer owns Preview production headers; its CMake file is
+# retained only as a compatibility subdirectory for downstream test layouts.
+LinkPreviewTargets(PreviewProtocolsCommon PreviewTransport PreviewFoundation)
+
+foreach(ProtocolTarget IN ITEMS
+        PreviewProtocolHttp
+        PreviewProtocolHttp3
+        PreviewProtocolHttp2
+        PreviewProtocolQuic
+        PreviewProtocolHysteria2
+        PreviewProtocolShadowsocks2022
+        PreviewProtocolSocks5
+        PreviewProtocolTrojan
+        PreviewProtocolTuic
+        PreviewProtocolVless
+        PreviewProtocolVmess
+        PreviewProtocolMux
+        PreviewProtocolAnytls
+        PreviewProtocolEch
+        PreviewProtocolGun
+        PreviewProtocolNative
+        PreviewProtocolReality
+        PreviewProtocolRestls
+        PreviewProtocolShadowtls
+        PreviewProtocolTrusttunnel
+        PreviewProtocolWs
+        PreviewProtocolXhttp)
+    LinkPreviewTargets(${ProtocolTarget} PreviewProtocolsCommon)
+endforeach()
+
+add_subdirectory(Application)
+target_sources(PreviewApplication INTERFACE
+        Application/Application.hpp
+)
+
+foreach(PreviewTarget IN ITEMS
+        PreviewFoundation
+        PreviewAccount
+        PreviewLifecycle
+        PreviewResource
+        PreviewScheduler
+        PreviewStatistics
+        PreviewOperations
+        PreviewTransport
+        PreviewNet
+        PreviewIngress
+        PreviewRuntime
+        PreviewComposition
+        PreviewConfiguration
+        PreviewProtocolsCommon
+        PreviewApplication
+        PrismPreview)
+    AssertPreviewTargetSources(${PreviewTarget})
+    AssertPreviewTargetIncludes(${PreviewTarget})
+endforeach()
+
+LinkPreviewTargets(PreviewProtocolHttp2 PreviewProtocolsCommon PreviewProtocolHttp3Core)
+LinkPreviewTargets(PreviewProtocolQuic PreviewProtocolsCommon)
+LinkPreviewTargets(PreviewProtocolHysteria2 PreviewProtocolsCommon PreviewProtocolHttp3Core)
+LinkPreviewTargets(PreviewProtocolHysteria2 PreviewProtocolQuic)
+LinkPreviewTargets(PreviewProtocolTuic PreviewProtocolQuic)
+LinkPreviewTargets(PreviewProtocolXhttp PreviewProtocolHttp2)
+LinkPreviewTargets(PreviewProtocolTrusttunnel PreviewProtocolHttp2)
+
+LinkPreviewTargets(PreviewComposition
+        PreviewProtocolsCommon
+        PreviewProtocolSocks5
+        PreviewProtocolVmess
+        PreviewProtocolVless
+        PreviewProtocolTrojan
+        PreviewProtocolShadowsocks2022
+        PreviewProtocolAnytls
+)
+
+AssertPreviewStandaloneClosure(PrismPreview)

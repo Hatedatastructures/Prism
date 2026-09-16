@@ -413,7 +413,7 @@ FetchContent_MakeAvailable(nghttp3)
 
 # 依赖 src 的所有子目录必须在 nghttp3/ngtcp2 之后（src 用到其 include 变量）
 add_subdirectory(src)
-add_subdirectory(preview)
+add_subdirectory(Preview)
 add_subdirectory(tests/TestSupport)
 add_subdirectory(benchmarks)
 add_subdirectory(tests)

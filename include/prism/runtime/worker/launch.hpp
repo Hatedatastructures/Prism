@@ -12,7 +12,11 @@
 
 #include <boost/asio.hpp>
 
+#include <atomic>
+#include <functional>
+#include <memory>
 #include <optional>
+#include <vector>
 
 namespace psm::runtime::worker::launch
 {
@@ -38,8 +42,40 @@ namespace psm::runtime::worker::launch
     struct launch_params
     {
         std::shared_ptr<psm::resource::worker> worker; ///< worker 资源（共享所有权）
-        psm::stats::runtime::worker_load &metrics;     ///< 负载监控
-        tcp::socket socket;                            ///< 已连接的 socket
+        std::shared_ptr<psm::stats::runtime::worker_load> metrics; ///< 负载监控
+        tcp::socket socket;                                        ///< 已连接的 socket
+    };
+
+    /**
+     * @brief 连接会话启动回调
+     * @details 回调在目标 worker 的 io_context 上执行，参数持有 L2 资源共享所有权。
+     */
+    using ConnectionLauncher = std::function<void(launch_params)>;
+
+    struct dispatch_entry;
+
+    /**
+     * @class dispatch_state
+     * @brief 已入队连接的无阻塞取消状态
+     * @details stop 只取消尚未开始的 entry；已开始的 entry 仍在 worker
+     *          executor 上收口，避免 launcher 在调用 stop 的线程执行。
+     */
+    class dispatch_state final
+    {
+    public:
+        dispatch_state();
+        ~dispatch_state();
+
+        dispatch_state(const dispatch_state &) = delete;
+        auto operator=(const dispatch_state &) -> dispatch_state & = delete;
+
+        [[nodiscard]] auto add(std::shared_ptr<dispatch_entry> entry) -> bool;
+        auto remove(const std::shared_ptr<dispatch_entry> &entry) -> void;
+        auto cancel() noexcept -> void;
+
+    private:
+        std::atomic<bool> stopped_{false};
+        std::atomic<std::shared_ptr<const std::vector<std::shared_ptr<dispatch_entry>>>> pending_;
     };
 
     /**
@@ -50,6 +86,7 @@ namespace psm::runtime::worker::launch
     /**
      * @brief 将 socket 分发到目标 worker 的事件循环
      */
-    auto dispatch(launch_params params) -> void;
+    auto dispatch(launch_params params, ConnectionLauncher launcher = {},
+                  std::shared_ptr<dispatch_state> state = {}) -> void;
 
 } // namespace psm::runtime::worker::launch

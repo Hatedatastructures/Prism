@@ -1,7 +1,7 @@
 /**
  * @file RuntimeTestHelpers.hpp
  * @brief runtime E2E 测试公共样板（RunCoro / echo 上游 / 链路状态等）
- * @details 收敛 tests/preview/core/runtime 下 19 个测试文件的逐字重复样板。
+ * @details 收敛 tests/Preview/core/runtime 下 19 个测试文件的逐字重复样板。
  *          仅测试代码使用，不属于生产库；Runtime fixtures 位于 Preview::Testing，
  *          与 Psm::Testing::ProductionMockTransport 明确分属两套类型体系。
  * @note AcceptEchoUpstream 的 acceptor 以 shared_ptr 捕获进 detached 协程——
@@ -33,10 +33,10 @@
 #include <system_error>
 #include <utility>
 
-#include <preview/Foundation/Fault/Code.hpp>
-#include <preview/Net/Dialer/Dialer.hpp>
-#include <preview/Transport/Transmission.hpp>
-#include <preview/Foundation/Utility/TrafficSink.hpp>
+#include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Net/Dialer/Dialer.hpp>
+#include <Preview/Transport/Transmission.hpp>
+#include <Preview/Foundation/Utility/TrafficSink.hpp>
 
 namespace Preview::Testing
 {

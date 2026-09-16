@@ -1,0 +1,6 @@
+# diagnose 子模块测试
+AddPreviewTest(ObservabilityTest.cpp)
+target_link_libraries(ObservabilityTest PRIVATE PreviewFoundation PreviewTestSupport)
+
+AddPreviewTest(LoggerTest.cpp)
+target_link_libraries(LoggerTest PRIVATE PreviewFoundation PreviewTestSupport)

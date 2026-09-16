@@ -41,6 +41,27 @@ function Get-InteropMatrixScope {
     return 'full'
 }
 
+function Get-GateDClassification {
+    param(
+        [Parameter(Mandatory = $true)][ValidateSet('full', 'preview-only')][string]$Scope,
+        [Parameter(Mandatory = $true)][ValidateSet('pass', 'failed', 'blocked-production-prerequisite', 'environment-unavailable', 'interface-gap')][string]$Status
+    )
+
+    if ($Status -eq 'blocked-production-prerequisite') {
+        if ($Scope -eq 'full') {
+            return 'production-blocked'
+        }
+        return 'preview-only-blocked'
+    }
+    if ($Status -in @('environment-unavailable', 'interface-gap')) {
+        return 'preview-only-blocked'
+    }
+    if ($Status -eq 'failed') {
+        return 'failed'
+    }
+    return 'pass'
+}
+
 function Get-InteropReferenceVersions {
     param(
         [Parameter(Mandatory = $true)][string]$RepoRoot

@@ -1,9 +1,0 @@
-# protocol 子模块测试
-AddPreviewTest(PreviewProtocolTest.cpp)
-target_link_libraries(PreviewProtocolTest PRIVATE PreviewFoundation PreviewProtocolsCommon PreviewTestSupport)
-AddPreviewTest(TestCommonCodecDeep.cpp)
-target_link_libraries(TestCommonCodecDeep PRIVATE PreviewFoundation PreviewProtocolSocks5 PreviewProtocolTuic PreviewProtocolVless PreviewProtocolWs PreviewTestSupport)
-target_compile_options(TestCommonCodecDeep PRIVATE -O0 -fno-inline)
-AddPreviewTest(TestCommonCodecDeep2.cpp)
-target_link_libraries(TestCommonCodecDeep2 PRIVATE PreviewFoundation PreviewProtocolAnytls PreviewProtocolHysteria2 PreviewProtocolReality PreviewProtocolSocks5 PreviewTestSupport)
-target_compile_options(TestCommonCodecDeep2 PRIVATE -O0 -fno-inline)

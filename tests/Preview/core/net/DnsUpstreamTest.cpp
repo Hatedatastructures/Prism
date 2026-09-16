@@ -1,0 +1,695 @@
+/**
+ * @file DnsUpstreamTest.cpp
+ * @brief DNS 上游查询层测试（本地 fake DNS server）
+ * @details 内置回环 UDP/TCP fake DNS server（可配置应答/空应答/截断/静默/
+ *          延迟行为），覆盖：UDP 查询成功、TC 截断回退 TCP、Fallback 顺序
+ *          容错、First 按序首胜、Fastest RTT 选优、超时失败
+ * @note 全部走 127.0.0.1/127.0.0.2 回环，无外部网络依赖
+ */
+
+#include <Preview/Net/Dns/Format.hpp>
+#include <Preview/Net/Dns/Upstream.hpp>
+#include <TestSupport/Tls/MockTlsServer.hpp>
+
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ip/udp.hpp>
+#include <boost/asio/read.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/write.hpp>
+
+#include <array>
+#include <chrono>
+#include <cstddef>
+#include <functional>
+#include <span>
+#include <cstdint>
+#include <memory>
+#include <vector>
+
+#include <gtest/gtest.h>
+
+namespace
+{
+    namespace Net = boost::asio;
+    using Preview::Network::Dns::Message;
+    using Preview::Network::Dns::QType;
+    using Preview::Network::Dns::QueryResult;
+    using Preview::Network::Dns::Server;
+    using Preview::Network::Dns::Upstream;
+
+    using Net::ip::tcp;
+    using Net::ip::udp;
+
+    /// 大端写入 16 位整数
+    auto PutU16(std::vector<std::uint8_t> &Output, const std::uint16_t Value) -> void
+    {
+        Output.push_back(static_cast<std::uint8_t>(Value >> 8));
+        Output.push_back(static_cast<std::uint8_t>(Value & 0xFF));
+    }
+
+    /**
+     * @class FakeDnsServer
+     * @brief 回环 fake DNS 服务器（UDP 必备，Truncate 行为附加 TCP）
+     */
+    class FakeDnsServer : public std::enable_shared_from_this<FakeDnsServer>
+    {
+    public:
+        enum class Behavior
+        {
+            Answer,    ///< 正常返回固定 A 记录
+            EmptyAnswer, ///< 返回合法但零应答报文（模拟无记录）
+            Truncate,  ///< UDP 回 TC=1，TCP 回完整应答
+            Silent,    ///< 收到查询不应答（触发客户端超时）
+            NxDomain,  ///< 返回 NXDOMAIN（Rcode=3，零应答）
+        };
+
+        FakeDnsServer(Net::io_context &Ioc, const Behavior BehaviorValue,
+                      std::chrono::milliseconds Delay = std::chrono::milliseconds(0))
+            : Ex_(Ioc.get_executor()), QueryNotify_(Ex_, 1), Behavior_(BehaviorValue), Delay_(Delay),
+              Udp_(Ioc, udp::endpoint(Net::ip::make_address("127.0.0.1"), 0))
+        {
+        }
+
+        /// 绑定端口并启动收发循环；Truncate 行为同时监听 TCP
+        auto Start() -> void
+        {
+            Port_ = Udp_.local_endpoint().port();
+            Addr_ = Udp_.local_endpoint().address().to_string();
+            Net::co_spawn(Ex_, [Self = shared_from_this()]() { return Self->UdpLoop(); }, Net::detached);
+            if (Behavior_ == Behavior::Truncate)
+            {
+                Acceptor_.emplace(Ex_, tcp::endpoint(Udp_.local_endpoint().address(), Port_));
+                Net::co_spawn(Ex_, [Self = shared_from_this()]() { return Self->AcceptLoop(); }, Net::detached);
+            }
+        }
+
+        [[nodiscard]] auto Port() const -> std::uint16_t
+        {
+            return Port_;
+        }
+
+        /// Server.Address 形式的地址串（用于断言响应来源）
+        [[nodiscard]] auto Addr() const -> const std::string &
+        {
+            return Addr_;
+        }
+
+        /// 构造对应 Upstream 配置项
+        [[nodiscard]] auto MakeConfig() const -> Server
+        {
+            Server s;
+            s.Address = Addr_;
+            s.Port = Port_;
+            return s;
+        }
+
+        /// 等待至少一个 UDP 查询抵达，供生命周期测试释放调用方 owner
+        auto WaitForQuery() -> Net::awaitable<void>
+        {
+            (void)co_await QueryNotify_.async_receive(Net::use_awaitable);
+        }
+
+        /// 停止服务：关闭套接字使挂起协程以 operation_aborted 退出
+        void Close()
+        {
+            Stopped_ = true;
+            boost::system::error_code ec;
+            Udp_.close(ec);
+            if (Acceptor_)
+            {
+                Acceptor_->close(ec);
+            }
+            for (auto &conn : Conns_)
+            {
+                conn->close(ec);
+            }
+        }
+
+    private:
+        /// 解析查询报文中问题段结束偏移（跳过 QNAME + QTYPE + QCLASS）
+        [[nodiscard]] static auto QuestionEnd(std::span<const std::uint8_t> query)
+            -> std::size_t
+        {
+            std::size_t off = 12;
+            while (off < query.size() && query[off] != 0)
+            {
+                off += static_cast<std::size_t>(query[off]) + 1;
+            }
+            return off + 5;
+        }
+
+        /// 构造应答报文（回显问题段 + 固定 A 记录 1.2.3.4）
+        [[nodiscard]] auto BuildResponse(std::span<const std::uint8_t> query,
+                                         const bool truncate) const -> std::vector<std::uint8_t>
+        {
+            const auto QEnd = QuestionEnd(query);
+            if (QEnd > query.size())
+            {
+                return {};
+            }
+            std::vector<std::uint8_t> out;
+            const bool Nx = Behavior_ == Behavior::NxDomain;
+            const bool Full = !truncate && Behavior_ != Behavior::EmptyAnswer && !Nx;
+            PutU16(out, static_cast<std::uint16_t>((query[0] << 8) | query[1]));
+            // QR|RD|RA (+TC / Rcode=3)
+                std::uint16_t Flags = 0x8180u;
+                if (truncate)
+                {
+                    Flags |= 0x0200u;
+                }
+                if (Nx)
+                {
+                    Flags |= 0x0003u;
+                }
+                PutU16(out, Flags);
+            PutU16(out, 1);              // qdcount
+                std::uint16_t AnswerCount = 0;
+                if (Full)
+                {
+                    AnswerCount = 1;
+                }
+                PutU16(out, AnswerCount); // ancount
+            PutU16(out, 0);
+            PutU16(out, 0);
+            out.insert(out.end(), query.begin() + 12, query.begin() + static_cast<std::ptrdiff_t>(QEnd));
+            if (Full)
+            {
+                PutU16(out, 0xC00Cu); // 压缩指针指向问题段名字
+                PutU16(out, 1);       // type A
+                PutU16(out, 1);       // class IN
+                PutU32Ttl(out);
+                PutU16(out, 4);       // rdlength
+                out.insert(out.end(), {1, 2, 3, 4});
+            }
+            return out;
+        }
+
+        void PutU32Ttl(std::vector<std::uint8_t> &out) const
+        {
+            out.push_back(0);
+            out.push_back(0);
+            out.push_back(0);
+            out.push_back(60);
+        }
+
+        /// 延迟后发送（模拟慢上游，供 Fastest RTT 选优测试区分）
+        auto MaybeDelay() -> Net::awaitable<void>
+        {
+            if (Delay_.count() > 0)
+            {
+                Net::steady_timer Timer(Ex_);
+                Timer.expires_after(Delay_);
+                co_await Timer.async_wait(Net::use_awaitable);
+            }
+        }
+
+        auto UdpLoop() -> Net::awaitable<void>
+        {
+            std::vector<std::uint8_t> buf(4096);
+            udp::endpoint sender;
+            for (;;)
+            {
+                boost::system::error_code ec;
+                const auto n = co_await Udp_.async_receive_from(
+                    Net::buffer(buf), sender,
+                    Net::redirect_error(Net::use_awaitable, ec));
+                if (ec || Stopped_ || n < 12)
+                {
+                    co_return;
+                }
+                (void)QueryNotify_.try_send(boost::system::error_code{});
+                const bool truncate = Behavior_ == Behavior::Truncate;
+                if (Behavior_ == Behavior::Silent)
+                {
+                    continue;
+                }
+                co_await MaybeDelay();
+                if (Stopped_)
+                {
+                    co_return;
+                }
+                auto resp = BuildResponse({buf.data(), n}, truncate);                if (resp.empty())
+                {
+                    continue;
+                }
+                (void)co_await Udp_.async_send_to(
+                    Net::buffer(resp), sender,
+                    Net::redirect_error(Net::use_awaitable, ec));
+            }
+        }
+
+        auto AcceptLoop() -> Net::awaitable<void>
+        {
+            for (;;)
+            {
+                boost::system::error_code ec;
+                auto sock = std::make_shared<tcp::socket>(
+                    co_await Acceptor_->async_accept(
+                        Net::redirect_error(Net::use_awaitable, ec)));
+                if (ec || Stopped_)
+                {
+                    co_return;
+                }
+                Conns_.push_back(sock);
+                auto self = shared_from_this();
+                Net::co_spawn(Ex_,
+                              [self, sock]() { return self->TcpConn(sock); },
+                              Net::detached);
+            }
+        }
+
+        auto TcpConn(std::shared_ptr<tcp::socket> Socket) -> Net::awaitable<void>
+        {
+            for (;;)
+            {
+                std::array<std::uint8_t, 2> lenBuf{};
+                boost::system::error_code ec;
+                co_await Net::async_read(*Socket, Net::buffer(lenBuf),
+                                         Net::redirect_error(Net::use_awaitable, ec));
+                if (ec || Stopped_)
+                {
+                    co_return;
+                }
+                const auto Len = static_cast<std::size_t>((lenBuf[0] << 8) | lenBuf[1]);
+                std::vector<std::uint8_t> body(Len);
+                co_await Net::async_read(*Socket, Net::buffer(body),
+                                         Net::redirect_error(Net::use_awaitable, ec));
+                if (ec || Stopped_)
+                {
+                    co_return;
+                }
+                co_await MaybeDelay();
+                auto resp = BuildResponse(body, false);
+                std::vector<std::uint8_t> frame;
+                PutU16(frame, static_cast<std::uint16_t>(resp.size()));
+                frame.insert(frame.end(), resp.begin(), resp.end());
+                (void)co_await Net::async_write(*Socket, Net::buffer(frame),
+                                                Net::redirect_error(Net::use_awaitable, ec));
+            }
+        }
+
+        Net::any_io_executor Ex_;
+        Net::experimental::channel<void(boost::system::error_code)> QueryNotify_;
+        Behavior Behavior_;
+        std::chrono::milliseconds Delay_;
+        udp::socket Udp_;
+        std::optional<tcp::acceptor> Acceptor_; ///< 仅 Truncate 行为使用
+        std::vector<std::shared_ptr<tcp::socket>> Conns_;
+        std::uint16_t Port_{0};
+        std::string Addr_;
+        bool Stopped_{false};
+    };
+
+    template <typename A>
+    auto RunCoro(Net::io_context &Ioc, A Coro) -> void
+    {
+        std::exception_ptr Exception;
+        Net::co_spawn(Ioc, std::move(Coro), [&](std::exception_ptr Error)
+                      { Exception = Error; Ioc.stop(); });
+        Ioc.run();
+        if (Exception)
+        {
+            std::rethrow_exception(Exception);
+        }
+    }
+} // namespace
+
+TEST(DnsUpstream, TestUdpQuerySuccess)
+{
+Net::io_context ioc;
+    auto server = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    server->Start();
+
+    Upstream up(ioc.get_executor(), {server->MakeConfig()});
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("example.com", QType::A);
+                server->Close();
+            });
+
+    EXPECT_FALSE(result.Error);
+    ASSERT_EQ(result.Ips.size(), 1u);
+    EXPECT_EQ(result.Ips[0], Net::ip::make_address_v4("1.2.3.4"));
+    EXPECT_EQ(result.ServerAddr, server->Addr());
+    EXPECT_EQ(result.Response.MinTtl, 60u);
+}
+
+TEST(DnsUpstream, TestTruncatedFallsBackToTcp)
+{
+Net::io_context ioc;
+    auto server = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Truncate);
+    server->Start();
+
+    Upstream up(ioc.get_executor(), {server->MakeConfig()});
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("big.example.com", QType::A);
+                server->Close();
+            });
+
+    // UDP TC=1 → 自动改走 TCP 取得完整应答
+    EXPECT_FALSE(result.Error);
+    ASSERT_EQ(result.Ips.size(), 1u);
+    EXPECT_EQ(result.Ips[0], Net::ip::make_address_v4("1.2.3.4"));
+}
+
+TEST(DnsUpstream, TestFallbackSkipsFailedServer)
+{
+Net::io_context ioc;
+    auto empty = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::EmptyAnswer);
+    auto good = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    empty->Start();
+    good->Start();
+
+    Upstream up(ioc.get_executor(),
+                {empty->MakeConfig(), good->MakeConfig()},
+                Preview::Network::Dns::Mode::Fallback);
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("fallback.com", QType::A);
+                empty->Close();
+                good->Close();
+            });
+
+    // 首个上游零应答视为失败 → 顺序尝试第二个
+    EXPECT_FALSE(result.Error);
+    ASSERT_EQ(result.Ips.size(), 1u);
+    EXPECT_EQ(result.ServerAddr, good->Addr());
+}
+
+TEST(DnsUpstream, TestFirstReturnsFirstSuccessfulServer)
+{
+Net::io_context ioc;
+    // 首个上游故意延迟：First 策略返回先完成的成功响应
+    auto slow = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer,
+                                                std::chrono::milliseconds(50));
+    auto fast = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    slow->Start();
+    fast->Start();
+
+    auto up = std::make_shared<Upstream>(ioc.get_executor(),
+                                         std::vector<Server>{slow->MakeConfig(), fast->MakeConfig()},
+                                         Preview::Network::Dns::Mode::First);
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up->Resolve("first.com", QType::A);
+                slow->Close();
+                fast->Close();
+            });
+
+    EXPECT_FALSE(result.Error);
+    EXPECT_EQ(result.ServerAddr, fast->Addr());
+}
+
+TEST(DnsUpstream, FirstReleasesOwnerAfterLosersAreCanceled)
+{
+Net::io_context ioc;
+    auto fast = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    auto silent = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Silent);
+    fast->Start();
+    silent->Start();
+    auto Owner = std::make_shared<Upstream>(ioc.get_executor(),
+                                             std::vector<Server>{fast->MakeConfig(), silent->MakeConfig()},
+                                             Preview::Network::Dns::Mode::First);
+    const std::weak_ptr<Upstream> WeakOwner = Owner;
+    QueryResult result;
+
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await Owner->Resolve("first-owner-release.example.com", QType::A);
+                Owner.reset();
+            });
+
+    EXPECT_FALSE(result.Error);
+    EXPECT_TRUE(WeakOwner.expired());
+    fast->Close();
+    silent->Close();
+}
+
+TEST(DnsUpstream, TestFastestPicksLowerRtt)
+{
+Net::io_context ioc;
+    auto instant = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    auto sluggish = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer,
+                                                    std::chrono::milliseconds(200));
+    instant->Start();
+    sluggish->Start();
+
+    auto up = std::make_shared<Upstream>(ioc.get_executor(),
+                                         std::vector<Server>{sluggish->MakeConfig(), instant->MakeConfig()},
+                                         Preview::Network::Dns::Mode::Fastest);
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up->Resolve("fastest.com", QType::A);
+                instant->Close();
+                sluggish->Close();
+            });
+
+    // Fastest 等全部完成后选 RTT 最低者
+    EXPECT_FALSE(result.Error);
+    EXPECT_EQ(result.ServerAddr, instant->Addr());
+}
+
+TEST(DnsUpstream, RejectsUnownedConcurrentUpstream)
+{
+Net::io_context ioc;
+    auto first = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    auto second = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    first->Start();
+    second->Start();
+
+    Upstream up(ioc.get_executor(),
+                std::vector<Server>{first->MakeConfig(), second->MakeConfig()},
+                Preview::Network::Dns::Mode::First);
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("unowned.example.com", QType::A);
+            });
+
+    EXPECT_EQ(result.Error, Preview::make_error_code(Preview::Error::NotSupported));
+    first->Close();
+    second->Close();
+}
+
+TEST(DnsUpstream, SharedConcurrentOwnerSurvivesCallerRelease)
+{
+Net::io_context ioc;
+    auto first = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer,
+                                                 std::chrono::milliseconds(30));
+    auto second = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    first->Start();
+    second->Start();
+
+    auto Holder = std::make_shared<std::shared_ptr<Upstream>>(std::make_shared<Upstream>(
+        ioc.get_executor(), std::vector<Server>{first->MakeConfig(), second->MakeConfig()},
+        Preview::Network::Dns::Mode::First));
+    QueryResult result;
+    std::exception_ptr Failure;
+
+Net::co_spawn(
+        ioc,
+        [Holder, &result]() -> Net::awaitable<void>
+        {
+            auto Client = *Holder;
+            auto Query = Client->Resolve("owner-release.example.com", QType::A);
+            Client.reset();
+            result = co_await std::move(Query);
+        },
+        [&](std::exception_ptr Error)
+        {
+            Failure = std::move(Error);
+            ioc.stop();
+        });
+Net::co_spawn(
+        ioc,
+        [Holder, first]() -> Net::awaitable<void>
+        {
+            co_await first->WaitForQuery();
+            Holder->reset();
+        },
+        Net::detached);
+    ioc.run();
+
+    ASSERT_FALSE(Failure);
+    EXPECT_FALSE(result.Error);
+    ASSERT_EQ(result.Ips.size(), 1u);
+    EXPECT_EQ(result.Ips[0], Net::ip::make_address_v4("1.2.3.4"));
+    first->Close();
+    second->Close();
+}
+
+TEST(DnsUpstream, TestTimeoutOnSilentServer)
+{
+Net::io_context ioc;
+    auto silent = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Silent);
+    silent->Start();
+
+    Server cfg = silent->MakeConfig();
+    cfg.TimeoutMs = 300;
+    Upstream up(ioc.get_executor(), {cfg});
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("silent.com", QType::A);
+                silent->Close();
+            });
+
+    EXPECT_TRUE(result.Error);
+    EXPECT_TRUE(result.Ips.empty());
+}
+
+TEST(DnsUpstream, TestAllServersFail)
+{
+Net::io_context ioc;
+    auto a = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::EmptyAnswer);
+    auto b = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Silent);
+    a->Start();
+    b->Start();
+
+    Server bCfg = b->MakeConfig();
+    bCfg.TimeoutMs = 200;
+    Upstream up(ioc.get_executor(), {a->MakeConfig(), bCfg},
+                Preview::Network::Dns::Mode::Fallback);
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("none.com", QType::A);
+                a->Close();
+                b->Close();
+            });
+
+    EXPECT_TRUE(result.Error);
+    EXPECT_TRUE(result.Ips.empty());
+}
+
+TEST(DnsUpstream, TestNxDomainReturnsSuccessEmpty)
+{
+    // NXDOMAIN 是"成功+空"：无错误码、空 IP（由上层负缓存），而非错误
+Net::io_context ioc;
+    auto server = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::NxDomain);
+    server->Start();
+
+    Upstream up(ioc.get_executor(), {server->MakeConfig()});
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("nx.example.com", QType::A);
+                server->Close();
+            });
+
+    EXPECT_FALSE(result.Error);
+    EXPECT_TRUE(result.Ips.empty());
+    EXPECT_EQ(result.Response.Rcode, 3u);
+}
+
+TEST(DnsUpstream, TestFallbackNxDomainStopsAtFirst)
+{
+    // 1.3 修复验证：首个上游回 NXDOMAIN 即终态，不再重试第二个上游
+Net::io_context ioc;
+    auto nx = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::NxDomain);
+    auto good = std::make_shared<FakeDnsServer>(ioc, FakeDnsServer::Behavior::Answer);
+    nx->Start();
+    good->Start();
+
+    Upstream up(ioc.get_executor(),
+                {nx->MakeConfig(), good->MakeConfig()},
+                Preview::Network::Dns::Mode::Fallback);
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("nx.example.com", QType::A);
+                nx->Close();
+                good->Close();
+            });
+
+    // 应答来源是首个（NXDOMAIN）服务器而非被"跳过"到第二个
+    EXPECT_FALSE(result.Error);
+    EXPECT_TRUE(result.Ips.empty());
+    EXPECT_EQ(result.ServerAddr, nx->Addr());
+}
+
+TEST(DnsUpstream, TestDotHandshakeAndFrameRead)
+{
+    // DoT 路径覆盖（此前零覆盖）：TLS 握手 HandshakeTls + 帧读取 ReadTcpFrame。
+    // MockTlsServer 是 echo 服务器，回声即查询帧本身（QR=0、零应答），
+    // 因此断言"无错误 + 空 IP"：能完成 TLS 往返且应答被成功解析为报文，
+    // 而非握手失败/超时/非法报文
+Net::io_context ioc;
+    tcp::acceptor acceptor(ioc, tcp::endpoint(Net::ip::make_address("127.0.0.1"), 0));
+    const auto Port = acceptor.local_endpoint().port();
+    Net::co_spawn(ioc, Preview::Testing::Tls::MockTlsServer::Run(acceptor, 1), Net::detached);
+
+    Preview::Network::Dns::Server cfg;
+    cfg.Address = "127.0.0.1";
+    cfg.Port = Port;
+    cfg.Proto = Preview::Network::Dns::Protocol::Tls;
+    cfg.Hostname = "127.0.0.1";
+    cfg.SkipCertCheck = true;
+
+    Upstream up(ioc.get_executor(), {cfg});
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("dot.example.com", QType::A);
+                acceptor.close();
+            });
+
+    EXPECT_EQ(result.Error, boost::system::error_code{});
+    EXPECT_TRUE(result.Ips.empty());
+}
+
+TEST(DnsUpstream, TestDohHandshakeAndHttpRead)
+{
+    // DoH 路径覆盖（此前零覆盖）：TLS 握手 + HTTP 响应解析
+    // （状态码校验、Content-Length 头区解析、\r\n\r\n 扫描、报文体收满）。
+    // 应答体为查询回显：Unpack 成功、Id 匹配、零应答记录 → 成功 + 空 IP
+Net::io_context ioc;
+    tcp::acceptor acceptor(ioc, tcp::endpoint(Net::ip::make_address("127.0.0.1"), 0));
+    const auto Port = acceptor.local_endpoint().port();
+    Net::co_spawn(ioc,
+                  Preview::Testing::Tls::MockTlsServer::Run(
+                      acceptor, 1, Preview::Testing::Tls::MakeDohResponder("HTTP/1.1 200 OK")),
+                  Net::detached);
+
+    Preview::Network::Dns::Server cfg;
+    cfg.Address = "127.0.0.1";
+    cfg.Port = Port;
+    cfg.Proto = Preview::Network::Dns::Protocol::Https;
+    cfg.Hostname = "127.0.0.1";
+    cfg.SkipCertCheck = true;
+    cfg.HttpPath = "/dns-query";
+
+    Upstream up(ioc.get_executor(), {cfg});
+    QueryResult result;
+    RunCoro(ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                result = co_await up.Resolve("doh.example.com", QType::A);
+                acceptor.close();
+            });
+
+    EXPECT_EQ(result.Error, boost::system::error_code{});
+    EXPECT_TRUE(result.Ips.empty());
+}

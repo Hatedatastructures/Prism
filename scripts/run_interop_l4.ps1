@@ -23,7 +23,7 @@
 #>
 param(
     [string]$PrismExe = "build/src/Prism.exe",
-    [string]$InteropExe = "build/tests/preview/integration/InteropPrismL4.exe",
+    [string]$InteropExe = "build/tests/Preview/integration/InteropPrismL4.exe",
     [string]$Config = "src/configuration.json",
     [string]$Addr = "127.0.0.1:18081",
     [int]$WaitSecs = 15

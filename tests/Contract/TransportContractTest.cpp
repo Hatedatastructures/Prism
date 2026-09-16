@@ -31,11 +31,11 @@
 #include <prism/net/dns/upstream.hpp>
 #include <prism/protocol/multiplex/multiplexer.hpp>
 #include <prism/protocol/multiplex/smux/frame.hpp>
-#include <preview/Foundation/Error.hpp>
-#include <preview/Net/Dns/Upstream.hpp>
-#include <preview/Protocols/Mux/Session.hpp>
-#include <preview/Protocols/Mux/Smux/Codec.hpp>
-#include <preview/Transport/Transmission.hpp>
+#include <Preview/Foundation/Error.hpp>
+#include <Preview/Net/Dns/Upstream.hpp>
+#include <Preview/Protocols/Mux/Session.hpp>
+#include <Preview/Protocols/Mux/Smux/Codec.hpp>
+#include <Preview/Transport/Transmission.hpp>
 #include <TestSupport/Preview/PreviewMockTransport.hpp>
 #include <TestSupport/Production/ProductionMockTransport.hpp>
 

@@ -1,0 +1,2 @@
+AddPreviewTest(TaskLifecycle.cpp)
+target_link_libraries(TaskLifecycle PRIVATE PreviewLifecycle PreviewRuntime)

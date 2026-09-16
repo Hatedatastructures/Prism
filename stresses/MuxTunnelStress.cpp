@@ -9,8 +9,8 @@
 #include <prism/foundation/memory/pool.hpp>
 
 #include <tests/TestSupport/Benchmark/Bench.hpp>
-#include <preview/Transport/MemoryStream.hpp>
-#include <preview/Transport/Stream.hpp>
+#include <Preview/Transport/MemoryStream.hpp>
+#include <Preview/Transport/Stream.hpp>
 #include <common/mux/smux/client.hpp>
 #include <common/mux/smux/server.hpp>
 #include <common/mux/yamux/client.hpp>

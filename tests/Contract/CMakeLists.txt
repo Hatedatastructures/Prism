@@ -10,6 +10,12 @@ target_link_libraries(ProtocolContractTest PRIVATE
 AddContractTest(TransportContractTest.cpp)
 target_link_libraries(TransportContractTest PRIVATE PreviewTransport PreviewNet ContractTestSupport )
 
+AddContractTest(PreviewProductionBridgeTest.cpp)
+target_link_libraries(PreviewProductionBridgeTest PRIVATE PreviewRuntime)
+
+AddContractTest(PreviewConfigurationTest.cpp)
+target_link_libraries(PreviewConfigurationTest PRIVATE PreviewRuntime)
+
 if(PRISM_ENABLE_PERF_CONTRACT)
     AddContractTest(PerformanceContract.cpp)
     target_link_libraries(PerformanceContract PRIVATE

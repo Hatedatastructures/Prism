@@ -1,0 +1,607 @@
+# PrismPreview LAN configuration status matrix.
+# This manifest is the static status companion to PrismPreviewClient.yaml.
+# The exhaustive node set is copied from docs/clash/config.yaml; it is not a
+# claim that every node is currently enabled by the Preview server.
+
+schema-version: 1
+
+baseline:
+  file: docs/clash/config.yaml
+  proxy-node-count: 74
+  policy-groups:
+    - PrismPreview-Active
+    - PrismPreview-ProtocolMatrix
+    - PrismPreview-Xiaomi-Health
+
+server:
+  address: 192.168.0.106
+  port: 18080
+  credentials:
+    username: local
+    password: "PrismPreview-106-20260914"
+  listeners:
+    tcp: active
+    udp: "server-side pending"
+    quic: "server-side pending"
+  capability-contract:
+    transport: tcp
+    tls: "protocol-native for Trojan; false for other active entries"
+    native-tls: true
+    udp: false
+    quic: false
+    carriers: []
+  active-protocols:
+    - http
+    - socks5
+    - vless
+    - trojan
+    - vmess
+    - ss2022
+  pending-protocols:
+    - anytls
+    - hysteria2
+    - tuic
+  pending-variants:
+    - http-tls
+    - socks5-udp
+    - trojan-udp
+    - vless-tls
+    - vless-udp
+    - vmess-udp
+    - shadowsocks2022-carrier
+    - mux
+  pending-carriers:
+    - shadowtls
+    - restls
+    - reality
+    - anytls
+    - quic
+  pending-mux-variants:
+    - smux
+    - yamux
+
+client:
+  file: PrismPreviewClient.yaml
+  log-level: info
+  external-controller: 192.168.0.106:19091
+  active-group: PrismPreview-Active
+  protocol-matrix-group: PrismPreview-ProtocolMatrix
+  health-group: PrismPreview-Xiaomi-Health
+  health:
+    url: "http://connect.rom.miui.com/generate_204"
+    interval-seconds: 300
+    probes:
+      - "SOCKS5 TCP Cert"
+
+status-contract:
+  active:
+    - "Http"
+    - "SOCKS5 TCP Cert"
+    - "VLESS TCP"
+    - "Trojan TCP"
+    - "VMess TCP"
+    - "SS2022 TCP"
+  pending-rule: >-
+    The six active entries use TCP. Trojan uses its protocol-native TLS
+    admission with the Preview NativeTls context; the other five active
+    entries use bare TCP with tls false and udp false. Every other matrix
+    entry is server-side pending.
+    The client retains the complete protocol, carrier, SNI, UDP, QUIC, and mux
+    matrix for manual staged testing, but pending entries are excluded from
+    the active/default and health groups.
+
+entries:
+  - name: "Smux UCUS TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: smux
+    mux-only-tcp: true
+  - name: "Smux UCUS UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: smux
+    mux-only-tcp: false
+  - name: "Smux 4C TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: smux
+    mux-profile: 4C64S
+    max-connections: 4
+    max-streams: 64
+    mux-only-tcp: true
+  - name: "Smux 4C UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: smux
+    mux-profile: 4C64S
+    max-connections: 4
+    max-streams: 64
+    mux-only-tcp: false
+  - name: "Smux 1C TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: smux
+    mux-profile: 1C256S
+    max-connections: 1
+    max-streams: 256
+    mux-only-tcp: true
+  - name: "Smux 1C UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: smux
+    mux-profile: 1C256S
+    max-connections: 1
+    max-streams: 256
+    mux-only-tcp: false
+  - name: "Yamux UCUS TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: yamux
+    mux-only-tcp: true
+  - name: "Yamux UCUS UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: yamux
+    mux-only-tcp: false
+  - name: "Yamux 4C TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: yamux
+    mux-profile: 4C64S
+    max-connections: 4
+    max-streams: 64
+    mux-only-tcp: true
+  - name: "Yamux 4C UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: yamux
+    mux-profile: 4C64S
+    max-connections: 4
+    max-streams: 64
+    mux-only-tcp: false
+  - name: "Yamux 1C TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: yamux
+    mux-profile: 1C256S
+    max-connections: 1
+    max-streams: 256
+    mux-only-tcp: true
+  - name: "Yamux 1C UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    mux: yamux
+    mux-profile: 1C256S
+    max-connections: 1
+    max-streams: 256
+    mux-only-tcp: false
+
+  - name: "SOCKS5 UDP Cert"
+    status: "server-side pending"
+    protocol: socks5
+    carrier: native
+    udp: true
+  - name: "SOCKS5 TCP Cert"
+    status: active
+    protocol: socks5
+    carrier: native
+    transport: tcp
+    tls: false
+    udp: false
+  - name: "SOCKS5 Native TLS TCP"
+    status: "server-side pending"
+    protocol: socks5
+    carrier: native
+    sni: www.bing.com
+
+  - name: "Http"
+    status: active
+    protocol: http
+    carrier: native
+    transport: tcp
+    tls: false
+    udp: false
+  - name: "HTTP Native TLS"
+    status: "server-side pending"
+    protocol: http
+    carrier: native
+    sni: www.bing.com
+  - name: "Trojan TCP"
+    status: active
+    protocol: trojan
+    carrier: native
+    transport: tcp
+    tls: protocol-native
+    udp: false
+  - name: "Trojan UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    sni: www.bing.com
+    udp: true
+  - name: "Trojan Native TLS TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: native
+    sni: www.bing.com
+
+  - name: "SS2022 TCP"
+    status: active
+    protocol: ss2022
+    carrier: native
+    transport: tcp
+    tls: false
+    udp: false
+  - name: "SS2022 UDP"
+    status: "server-side pending"
+    protocol: ss2022
+    carrier: native
+    udp: true
+  - name: "SS2022 ShadowTLS TCP"
+    status: "server-side pending"
+    protocol: ss2022
+    carrier: shadowtls
+    sni: www.apple.com
+  - name: "SS2022 ShadowTLS UDP"
+    status: "server-side pending"
+    protocol: ss2022
+    carrier: shadowtls
+    sni: www.apple.com
+  - name: "Trojan ShadowTLS TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: shadowtls
+    sni: www.apple.com
+  - name: "Trojan ShadowTLS UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: shadowtls
+    sni: www.apple.com
+    udp: true
+  - name: "SS2022 Restls TLS13 TCP"
+    status: "server-side pending"
+    protocol: ss2022
+    carrier: restls
+    sni: www.nvidia.com
+  - name: "SS2022 Restls TLS13 UDP"
+    status: "server-side pending"
+    protocol: ss2022
+    carrier: restls
+    sni: www.nvidia.com
+
+  - name: "Trojan Restls TLS13 TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: restls
+    sni: www.nvidia.com
+
+  - name: "VLESS TCP"
+    status: active
+    protocol: vless
+    carrier: native
+    transport: tcp
+    tls: false
+    udp: false
+  - name: "VLESS UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: native
+    sni: www.bing.com
+    udp: true
+  - name: "VLESS Native TLS TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: native
+    sni: www.bing.com
+  - name: "VLESS Smux TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: native
+    sni: www.bing.com
+    mux: smux
+    mux-only-tcp: true
+  - name: "VLESS Smux UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: native
+    sni: www.bing.com
+    mux: smux
+    mux-only-tcp: false
+  - name: "VLESS Yamux TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: native
+    sni: www.bing.com
+    mux: yamux
+    mux-only-tcp: true
+  - name: "VLESS Yamux UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: native
+    sni: www.bing.com
+    mux: yamux
+    mux-only-tcp: false
+  - name: "VLESS Reality TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    udp: false
+  - name: "VLESS Reality UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    udp: true
+  - name: "VLESS ShadowTLS TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: shadowtls
+    sni: www.apple.com
+  - name: "VLESS Restls TLS13 TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: restls
+    sni: www.nvidia.com
+  - name: "VLESS Reality Smux TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: smux
+    mux-only-tcp: true
+  - name: "VLESS Reality Smux UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: smux
+    mux-only-tcp: false
+  - name: "VLESS Reality Yamux TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: yamux
+    mux-only-tcp: true
+  - name: "VLESS Reality Yamux UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: yamux
+    mux-only-tcp: false
+
+  - name: "AnyTLS TCP"
+    status: "server-side pending"
+    protocol: anytls
+    carrier: anytls
+    sni: www.cloudflare.com
+    udp: false
+  - name: "AnyTLS UDP"
+    status: "server-side pending"
+    protocol: anytls
+    carrier: anytls
+    sni: www.cloudflare.com
+    udp: true
+  - name: "AnyTLS ShadowTLS TCP"
+    status: "server-side pending"
+    protocol: anytls
+    carrier: shadowtls
+    sni: www.apple.com
+  - name: "AnyTLS Restls TLS13 TCP"
+    status: "server-side pending"
+    protocol: anytls
+    carrier: restls
+    sni: www.nvidia.com
+  - name: "AnyTLS Smux TCP"
+    status: "server-side pending"
+    protocol: anytls
+    carrier: anytls
+    sni: www.cloudflare.com
+    mux: smux
+    mux-only-tcp: true
+  - name: "AnyTLS Smux UDP"
+    status: "server-side pending"
+    protocol: anytls
+    carrier: anytls
+    sni: www.cloudflare.com
+    mux: smux
+    mux-only-tcp: false
+  - name: "AnyTLS Yamux TCP"
+    status: "server-side pending"
+    protocol: anytls
+    carrier: anytls
+    sni: www.cloudflare.com
+    mux: yamux
+    mux-only-tcp: true
+  - name: "AnyTLS Yamux UDP"
+    status: "server-side pending"
+    protocol: anytls
+    carrier: anytls
+    sni: www.cloudflare.com
+    mux: yamux
+    mux-only-tcp: false
+
+  - name: "SS2022 Smux TCP"
+    status: "server-side pending"
+    protocol: ss2022
+    carrier: native
+    mux: smux
+    mux-only-tcp: true
+  - name: "SS2022 ShadowTLS Smux TCP"
+    status: "server-side pending"
+    protocol: ss2022
+    carrier: shadowtls
+    sni: www.apple.com
+    mux: smux
+    mux-only-tcp: true
+  - name: "SS2022 Restls TLS13 Smux TCP"
+    status: "server-side pending"
+    protocol: ss2022
+    carrier: restls
+    sni: www.nvidia.com
+    mux: smux
+    mux-only-tcp: true
+  - name: "VMess TCP"
+    status: active
+    protocol: vmess
+    carrier: native
+    transport: tcp
+    tls: false
+    udp: false
+  - name: "VMess UDP"
+    status: "server-side pending"
+    protocol: vmess
+    carrier: native
+    udp: true
+  - name: "VMess Reality TCP"
+    status: "server-side pending"
+    protocol: vmess
+    carrier: reality
+    sni: www.microsoft.com
+  - name: "Hysteria2 QUIC"
+    status: "server-side pending"
+    protocol: hysteria2
+    carrier: quic
+    transport: quic/udp
+    sni: quic-gateway-e2e
+  - name: "TUIC v5 QUIC"
+    status: "server-side pending"
+    protocol: tuic
+    carrier: quic
+    transport: quic/udp
+    sni: disabled
+
+  - name: "VLESS Reality Smux 4C TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: smux
+    mux-profile: 4C64S
+    max-connections: 4
+    max-streams: 64
+    mux-only-tcp: true
+  - name: "VLESS Reality Smux 4C UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: smux
+    mux-profile: 4C64S
+    max-connections: 4
+    max-streams: 64
+    mux-only-tcp: false
+  - name: "VLESS Reality Smux 1C TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: smux
+    mux-profile: 1C256S
+    max-connections: 1
+    max-streams: 256
+    mux-only-tcp: true
+  - name: "VLESS Reality Smux 1C UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: smux
+    mux-profile: 1C256S
+    max-connections: 1
+    max-streams: 256
+    mux-only-tcp: false
+  - name: "VLESS Reality Yamux 4C TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: yamux
+    mux-profile: 4C64S
+    max-connections: 4
+    max-streams: 64
+    mux-only-tcp: true
+  - name: "VLESS Reality Yamux 4C UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: yamux
+    mux-profile: 4C64S
+    max-connections: 4
+    max-streams: 64
+    mux-only-tcp: false
+  - name: "VLESS Reality Yamux 1C TCP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: yamux
+    mux-profile: 1C256S
+    max-connections: 1
+    max-streams: 256
+    mux-only-tcp: true
+  - name: "VLESS Reality Yamux 1C UDP"
+    status: "server-side pending"
+    protocol: vless
+    carrier: reality
+    sni: www.microsoft.com
+    mux: yamux
+    mux-profile: 1C256S
+    max-connections: 1
+    max-streams: 256
+    mux-only-tcp: false
+  - name: "Trojan Reality TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: reality
+    sni: www.microsoft.com
+    udp: false
+  - name: "Trojan Reality UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: reality
+    sni: www.microsoft.com
+    udp: true
+  - name: "Trojan Reality Smux TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: reality
+    sni: www.microsoft.com
+    mux: smux
+    mux-only-tcp: true
+  - name: "Trojan Reality Smux UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: reality
+    sni: www.microsoft.com
+    mux: smux
+    mux-only-tcp: false
+  - name: "Trojan Reality Yamux TCP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: reality
+    sni: www.microsoft.com
+    mux: yamux
+    mux-only-tcp: true
+  - name: "Trojan Reality Yamux UDP"
+    status: "server-side pending"
+    protocol: trojan
+    carrier: reality
+    sni: www.microsoft.com
+    mux: yamux
+    mux-only-tcp: false

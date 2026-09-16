@@ -5,10 +5,10 @@
 
 #include <gtest/gtest.h>
 
-#include <preview/Runtime/Recognition/Recognition.hpp>
-#include <preview/Runtime/Recognition/Protocol.hpp>
-#include <preview/Transport/MemoryStream.hpp>
-#include <preview/Transport/Preview.hpp>
+#include <Preview/Runtime/Recognition/Recognition.hpp>
+#include <Preview/Runtime/Recognition/Protocol.hpp>
+#include <Preview/Transport/MemoryStream.hpp>
+#include <Preview/Transport/Preview.hpp>
 
 TEST(RecognitionPipeline, DeterministicHit)
 {

@@ -11,4 +11,5 @@ AddProductionTest(WorkerTlsDeep.cpp)
 AddProductionTest(QuicGatewayE2E.cpp)
 # WorkerDeep.cpp 暂时禁用：待 session_resources 测试适配
 # AddProductionTest(WorkerDeep.cpp)
+AddProductionTest(WorkerLauncher.cpp)
 AddProductionTest(HandshakeTimeout.cpp)

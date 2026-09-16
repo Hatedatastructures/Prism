@@ -7,6 +7,7 @@
 #include <prism/settings/settings.hpp>
 #include <prism/user/directory.hpp>
 
+#include <cstdint>
 #include <cstring>
 
 #ifndef _WIN32
@@ -17,6 +18,211 @@ using namespace psm::diagnose;
 
 namespace psm::runtime::worker::launch
 {
+
+    namespace
+    {
+        auto close_socket(tcp::socket &socket) noexcept -> void
+        {
+            boost::system::error_code ec;
+            socket.close(ec);
+        }
+    } // namespace
+
+    enum class dispatch_phase : std::uint8_t
+    {
+        pending,
+        running,
+        cancelled,
+        completed,
+    };
+
+    struct dispatch_entry
+    {
+        dispatch_entry(std::shared_ptr<psm::resource::worker> Worker,
+                       std::shared_ptr<psm::stats::runtime::worker_load> Metrics,
+                       ConnectionLauncher Launcher, tcp::socket Socket)
+            : worker(std::move(Worker)), metrics(std::move(Metrics)), launcher(std::move(Launcher)),
+              socket(std::move(Socket))
+        {
+        }
+
+        [[nodiscard]] auto try_start() noexcept -> bool
+        {
+            auto expected = dispatch_phase::pending;
+            return phase.compare_exchange_strong(expected, dispatch_phase::running,
+                                                 std::memory_order_acq_rel,
+                                                 std::memory_order_acquire);
+        }
+
+        auto cancel() noexcept -> void
+        {
+            auto expected = dispatch_phase::pending;
+            if (!phase.compare_exchange_strong(expected, dispatch_phase::cancelled,
+                                               std::memory_order_acq_rel,
+                                               std::memory_order_acquire))
+            {
+                return;
+            }
+            metrics->handoff_pop();
+            close_socket(socket);
+        }
+
+        auto execute() -> void
+        {
+            metrics->handoff_pop();
+
+            if (!worker->alive())
+            {
+                close_socket(socket);
+                complete();
+                return;
+            }
+
+            auto migrated = migrate_executor(socket, worker->ioc);
+            if (!migrated)
+            {
+                complete();
+                return;
+            }
+
+            prime(*migrated);
+            if (!worker->alive())
+            {
+                close_socket(*migrated);
+                complete();
+                return;
+            }
+
+            try
+            {
+                launch_params params{worker, metrics, std::move(*migrated)};
+                if (launcher)
+                {
+                    launcher(std::move(params));
+                }
+                else
+                {
+                    start(std::move(params));
+                }
+            }
+            catch (const std::exception &e)
+            {
+                diagnose::error("connection launch failed: {}", e.what());
+            }
+            catch (...)
+            {
+                diagnose::error("connection launch failed: unknown exception");
+            }
+            complete();
+        }
+
+        auto complete() noexcept -> void
+        {
+            phase.store(dispatch_phase::completed, std::memory_order_release);
+        }
+
+        std::shared_ptr<psm::resource::worker> worker;
+        std::shared_ptr<psm::stats::runtime::worker_load> metrics;
+        ConnectionLauncher launcher;
+        tcp::socket socket;
+        std::atomic<dispatch_phase> phase{dispatch_phase::pending};
+    };
+
+    dispatch_state::dispatch_state()
+        : pending_(std::make_shared<const std::vector<std::shared_ptr<dispatch_entry>>>())
+    {
+    }
+
+    dispatch_state::~dispatch_state()
+    {
+        cancel();
+    }
+
+    auto dispatch_state::add(std::shared_ptr<dispatch_entry> entry) -> bool
+    {
+        while (!stopped_.load(std::memory_order_acquire))
+        {
+            auto current = pending_.load(std::memory_order_acquire);
+            if (stopped_.load(std::memory_order_acquire))
+            {
+                return false;
+            }
+
+            auto next = std::make_shared<std::vector<std::shared_ptr<dispatch_entry>>>(*current);
+            next->push_back(entry);
+            std::shared_ptr<const std::vector<std::shared_ptr<dispatch_entry>>> published(std::move(next));
+            if (pending_.compare_exchange_weak(current, published,
+                                                std::memory_order_acq_rel,
+                                                std::memory_order_acquire))
+            {
+                if (stopped_.load(std::memory_order_acquire))
+                {
+                    remove(entry);
+                    entry->cancel();
+                    return false;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    auto dispatch_state::remove(const std::shared_ptr<dispatch_entry> &entry) -> void
+    {
+        for (;;)
+        {
+            auto current = pending_.load(std::memory_order_acquire);
+            if (!current)
+            {
+                return;
+            }
+            auto next = std::make_shared<std::vector<std::shared_ptr<dispatch_entry>>>();
+            next->reserve(current->size());
+            bool found = false;
+            for (const auto &candidate : *current)
+            {
+                if (candidate == entry)
+                {
+                    found = true;
+                    continue;
+                }
+                next->push_back(candidate);
+            }
+            if (!found)
+            {
+                return;
+            }
+
+            std::shared_ptr<const std::vector<std::shared_ptr<dispatch_entry>>> published(std::move(next));
+            if (pending_.compare_exchange_weak(current, published,
+                                                std::memory_order_acq_rel,
+                                                std::memory_order_acquire))
+            {
+                return;
+            }
+        }
+    }
+
+    auto dispatch_state::cancel() noexcept -> void
+    {
+        if (stopped_.exchange(true, std::memory_order_acq_rel))
+        {
+            return;
+        }
+
+        const auto current = pending_.exchange({}, std::memory_order_acq_rel);
+        if (!current)
+        {
+            return;
+        }
+        for (const auto &entry : *current)
+        {
+            if (entry)
+            {
+                entry->cancel();
+            }
+        }
+    }
 
     // 仅设 TCP_NODELAY；收发缓冲不设固定值，交由 Windows 自动调优
     // 自适应 RTT/丢包（固定 256KB 会在手机 Wi-Fi 等高 RTT 下截断带宽）
@@ -63,7 +269,7 @@ namespace psm::runtime::worker::launch
     auto start(launch_params params) -> void
     {
         auto &worker_res = params.worker;
-        auto &metrics = params.metrics;
+        auto &metrics = *params.metrics;
 
         // L1 入口层：构造 request_metadata + context
         auto meta = std::make_shared<psm::resource::metadata>();
@@ -132,36 +338,54 @@ namespace psm::runtime::worker::launch
         }
     }
 
-    auto dispatch(launch_params params) -> void
+    auto dispatch(launch_params params, ConnectionLauncher launcher,
+                  std::shared_ptr<dispatch_state> state) -> void
     {
-        auto &worker_res = params.worker;
-        auto &metrics = params.metrics;
-
-        metrics.handoff_push();
-
-        auto start_session =
-            [worker_res, &metrics, sock = std::move(params.socket), ioc = &worker_res->ioc]() mutable
+        if (!params.worker || !params.metrics || !params.worker->alive())
         {
-            metrics.handoff_pop();
+            close_socket(params.socket);
+            return;
+        }
 
-            auto migrated = migrate_executor(sock, *ioc);
-            if (!migrated)
-            {
-                return;
-            }
+        if (!state)
+        {
+            state = std::make_shared<dispatch_state>();
+        }
 
-            prime(*migrated);
+        auto entry = std::make_shared<dispatch_entry>(params.worker, params.metrics,
+                                                       std::move(launcher), std::move(params.socket));
+        entry->metrics->handoff_push();
+        if (!state->add(entry))
+        {
+            entry->cancel();
+            return;
+        }
 
-            try
-            {
-                start(launch_params{worker_res, metrics, std::move(*migrated)});
-            }
-            catch (const std::exception &e)
-            {
-                diagnose::error("session launch failed: {}", e.what());
-            }
-        };
-        net::post(worker_res->ioc, std::move(start_session));
+        try
+        {
+            net::post(entry->worker->ioc,
+                      [state, entry]() mutable
+                      {
+                          if (!entry->try_start())
+                          {
+                              return;
+                          }
+                          state->remove(entry);
+                          entry->execute();
+                      });
+        }
+        catch (const std::exception &e)
+        {
+            state->remove(entry);
+            entry->cancel();
+            diagnose::error("connection dispatch failed: {}", e.what());
+        }
+        catch (...)
+        {
+            state->remove(entry);
+            entry->cancel();
+            diagnose::error("connection dispatch failed: unknown exception");
+        }
     }
 
 } // namespace psm::runtime::worker::launch

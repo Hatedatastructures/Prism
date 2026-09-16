@@ -74,8 +74,8 @@ $CodecVectorTools = @{
     websocket = 'wscmp'
 }
 
-$CppClient = Join-Path $RepoRoot 'build/tests/preview/integration/InteropSs2022Client.exe'
-$CppServer = Join-Path $RepoRoot 'build/tests/preview/integration/InteropSs2022Server.exe'
+$CppClient = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropSs2022Client.exe'
+$CppServer = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropSs2022Server.exe'
 $LegacyCppClient = Join-Path $RepoRoot 'build/tests/InteropSs2022Client.exe'
 $LegacyCppServer = Join-Path $RepoRoot 'build/tests/InteropSs2022Server.exe'
 if (-not (Test-Path -LiteralPath $CppClient -PathType Leaf) -and
@@ -111,58 +111,58 @@ if ((Test-Path -LiteralPath $CppClient -PathType Leaf) -and
         'SS2022 C++/Go interop executables or PowerShell runner are unavailable'
 }
 
-$TrojanCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropTrojan.exe'
+$TrojanCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropTrojan.exe'
 $TrojanGo = Join-Path $RepoRoot 'build/tests/go/trojan.exe'
 $TrojanPort = 19082
-$VmessCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropVmess.exe'
+$VmessCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropVmess.exe'
 $VmessGo = Join-Path $RepoRoot 'build/tests/go/singvmess.exe'
 $VmessGoServer = Join-Path $RepoRoot 'build/tests/go/vmess_server.exe'
 $VmessPort = 19083
-$VlessCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropVless.exe'
+$VlessCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropVless.exe'
 $VlessGo = Join-Path $RepoRoot 'build/tests/go/vless.exe'
 $VlessPort = 19084
-$Socks5Cpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropSocks5.exe'
+$Socks5Cpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropSocks5.exe'
 $Socks5Go = Join-Path $RepoRoot 'build/tests/go/socks5.exe'
 $Socks5Port = 19085
-$HttpCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropHttp.exe'
+$HttpCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropHttp.exe'
 $HttpGo = Join-Path $RepoRoot 'build/tests/go/http.exe'
 $HttpPort = 19086
-$RecognitionCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropRecognition.exe'
+$RecognitionCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropRecognition.exe'
 $RecognitionDeterministicPort = 19110
 $RecognitionDeterministicSocks5Port = 19112
 $RecognitionMixedTrialPort = 19111
 $RecognitionMixedTrojanPort = 19113
 $RecognitionMixedVmessPort = 19114
 $RecognitionMixedSs2022Port = 19115
-$NativeTlsCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropNativeTls.exe'
+$NativeTlsCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropNativeTls.exe'
 $NativeTlsGo = Join-Path $RepoRoot 'build/tests/go/native_tls.exe'
 $NativeTlsPort = 19092
-$WsCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropWs.exe'
+$WsCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropWs.exe'
 $WsGo = Join-Path $RepoRoot 'build/tests/go/websocket.exe'
 $WsPort = 19093
-$AnytlsCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropAnytls.exe'
+$AnytlsCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropAnytls.exe'
 $AnytlsGo = Join-Path $RepoRoot 'build/tests/go/anytls.exe'
 $AnytlsPort = 19094
-$GunCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropGun.exe'
+$GunCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropGun.exe'
 $GunGo = Join-Path $RepoRoot 'build/tests/go/gun.exe'
 $GunPort = 19095
-$XhttpCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropXhttp.exe'
+$XhttpCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropXhttp.exe'
 $XhttpGo = Join-Path $RepoRoot 'build/tests/go/xhttp.exe'
 $XhttpPort = 19096
-$TrusttunnelCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropTrusttunnel.exe'
+$TrusttunnelCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropTrusttunnel.exe'
 $TrusttunnelGo = Join-Path $RepoRoot 'build/tests/go/trusttunnel.exe'
 $TrusttunnelPort = 19097
-$ShadowtlsCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropShadowtls.exe'
+$ShadowtlsCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropShadowtls.exe'
 $ShadowtlsGo = Join-Path $RepoRoot 'build/tests/go/shadowtls.exe'
 $ShadowtlsPort = 19100
 $ShadowtlsTargetPort = 19101
-$TuicCpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropTuic.exe'
+$TuicCpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropTuic.exe'
 $TuicGo = Join-Path $RepoRoot 'build/tests/go/tuic.exe'
 $TuicGoServer = Join-Path $RepoRoot 'build/tests/go/tuic_server.exe'
 $TuicPort = 19087
 $TuicReferencePort = 19091
-$Hysteria2Cpp = Join-Path $RepoRoot 'build/tests/preview/integration/InteropHysteria2.exe'
-$Hysteria2CppClient = Join-Path $RepoRoot 'build/tests/preview/integration/InteropHysteria2Client.exe'
+$Hysteria2Cpp = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropHysteria2.exe'
+$Hysteria2CppClient = Join-Path $RepoRoot 'build/tests/Preview/integration/InteropHysteria2Client.exe'
 $Hysteria2Go = Join-Path $RepoRoot 'build/tests/go/hysteria2.exe'
 $Hysteria2GoServer = Join-Path $RepoRoot 'build/tests/go/hysteria2_server.exe'
 $Hysteria2Port = 19088
@@ -1527,11 +1527,22 @@ $Summary = [ordered]@{
     total = $Results.Count
     pass = @($Results | Where-Object { $_.status -eq 'pass' }).Count
     blocked = @($Results | Where-Object { $_.status -in @('environment-unavailable', 'interface-gap', 'blocked-production-prerequisite') }).Count
+    production_blocked = @($Results | Where-Object { $_.status -eq 'blocked-production-prerequisite' }).Count
+    preview_only_blocked = @($Results | Where-Object { $_.status -in @('environment-unavailable', 'interface-gap') }).Count
     failed = @($Results | Where-Object { $_.status -in @('protocol-failure', 'implementation-mismatch') }).Count
     recognition_coverage = $RecognitionCoverage
     recognition_coverage_complete = $RecognitionCoverageComplete
     reference_versions = $ReferenceVersions
     results = @($Results)
+}
+$Summary.gate_d_classification = if ($Summary.failed -gt 0) {
+    'failed'
+} elseif ($Summary.production_blocked -gt 0 -and $Summary.scope -eq 'full') {
+    'production-blocked'
+} elseif ($Summary.blocked -gt 0) {
+    'preview-only-blocked'
+} else {
+    'pass'
 }
 Write-InteropResult -Result $Summary -Path $SummaryPath
 

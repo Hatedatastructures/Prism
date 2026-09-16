@@ -10,7 +10,7 @@ target_sources(PreviewTestSupport INTERFACE
         Stress/StressHelper.hpp
 )
 target_include_directories(PreviewTestSupport INTERFACE
-        ${CMAKE_SOURCE_DIR}/preview
+        ${CMAKE_SOURCE_DIR}/Preview
         ${CMAKE_SOURCE_DIR}/tests
 )
 target_link_libraries(PreviewTestSupport INTERFACE

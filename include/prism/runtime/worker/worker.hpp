@@ -10,6 +10,7 @@
 
 #include <prism/resource/worker.hpp>
 #include <prism/runtime/front/balancer.hpp>
+#include <prism/runtime/worker/launch.hpp>
 #include <prism/user/stats/runtime.hpp>
 
 #include <boost/asio.hpp>
@@ -21,6 +22,8 @@ namespace psm::runtime::worker
 
     namespace net = boost::asio;
     using tcp = boost::asio::ip::tcp;
+    using ConnectionLauncher = launch::ConnectionLauncher;
+    using launch_params = launch::launch_params;
 
     /**
      * @class worker
@@ -41,7 +44,8 @@ namespace psm::runtime::worker
          * @brief 构造 worker 实例
          * @param global_ctx 进程级资源（与所有 worker 共享）
          */
-        explicit worker(std::shared_ptr<psm::resource::process> global_ctx);
+        explicit worker(std::shared_ptr<psm::resource::process> global_ctx,
+                        ConnectionLauncher launcher = {});
 
         /**
          * @brief 运行 worker 事件循环（线程入口）
@@ -83,7 +87,7 @@ namespace psm::runtime::worker
          */
         [[nodiscard]] auto alive() const noexcept -> bool
         {
-            return true;
+            return resources_ && resources_->alive();
         }
 
         /**
@@ -97,7 +101,9 @@ namespace psm::runtime::worker
 
     private:
         std::shared_ptr<psm::resource::worker> resources_; ///< worker 资源（L2）
-        psm::stats::runtime::worker_load metrics_;         ///< worker 负载统计
+        std::shared_ptr<psm::stats::runtime::worker_load> metrics_; ///< worker 负载统计
+        ConnectionLauncher launcher_;                              ///< 可选连接启动器
+        std::shared_ptr<launch::dispatch_state> dispatch_state_;   ///< 待分发连接状态
     };
 
 } // namespace psm::runtime::worker

@@ -1,0 +1,660 @@
+/**
+ * @file Ss2022CodecDeep.cpp
+ * @brief Shadowsocks 2022 Codec / Conn / Dgram 剩余分支深度测试
+ * @details 覆盖 EncodeAddress / ParseAddress / ParseVarHeader 的
+ *          ipv6 与截断分支、ChunkCodec 的起始 Nonce 与全部错误路径、
+ *          UDP 数据报编解码的成功与错误路径、握手 Parser 的错误分支，
+ *          Conn / Dgram 装饰器透传方法。
+ */
+
+#include <boost/asio/buffer.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/steady_timer.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
+#include <array>
+#include <chrono>
+#include <cstdint>
+#include <cstring>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include <Preview/Transport/MemoryStream.hpp>
+#include <Preview/Protocols/Shadowsocks2022/Codec.hpp>
+#include <Preview/Protocols/Shadowsocks2022/Conn.hpp>
+#include <Preview/Protocols/Shadowsocks2022/Dgram.hpp>
+#include <Preview/Protocols/Shadowsocks2022/Shadowsocks2022.hpp>
+#include <gtest/gtest.h>
+
+namespace
+{
+    namespace Net = boost::asio;
+    namespace SS2022 = Preview::Shadowsocks2022;
+    namespace ss = SS2022;
+    namespace Shadowsocks2022 = SS2022;
+    using Net::experimental::awaitable_operators::operator&&;
+    using Preview::AsBytes;
+    using Preview::AsU8Span;
+    using Preview::Error;
+    using Preview::MakeMemoryPair;
+    using Preview::MemoryStream;
+    using Preview::Transmission;
+
+    struct FactoryHandshakeResult
+    {
+        Error ClientError{Error::IoError};
+        Error ServerError{Error::IoError};
+        bool ClientConnected{false};
+        ss::Message Request{};
+    };
+
+    auto RunAcceptFactory(const std::shared_ptr<MemoryStream> &Endpoint,
+                          ss::ServerConfig Config)
+        -> Net::awaitable<std::tuple<Error, SS2022::Message, SS2022::SharedConn>>
+    {
+        auto KeepAlive = Endpoint;
+        auto Result = co_await ss::Accept(Endpoint, Config);
+        if (std::get<0>(Result) != Error::None)
+        {
+            KeepAlive->Close();
+        }
+        co_return Result;
+    }
+
+    auto RunFactoryHandshake(const ss::ClientConfig &ClientConfig,
+                             const ss::ServerConfig &ServerConfig)
+        -> Net::awaitable<FactoryHandshakeResult>
+    {
+        auto [ClientRawValue, ServerRawValue] = MakeMemoryPair(co_await Net::this_coro::executor);
+        auto ClientRaw = std::make_shared<MemoryStream>(std::move(ClientRawValue));
+        auto ServerRaw = std::make_shared<MemoryStream>(std::move(ServerRawValue));
+        const ss::Address Target{ss::AddressType::Domain, "example.com", 443};
+
+        auto ServerTask = Net::co_spawn(
+            ServerRaw->Executor(), RunAcceptFactory(ServerRaw, ServerConfig), Net::use_awaitable);
+        auto ClientTask = Net::co_spawn(
+            ClientRaw->Executor(), ss::Connect(ClientRaw, ClientConfig, Target), Net::use_awaitable);
+        auto Combined = co_await (std::move(ServerTask) && std::move(ClientTask));
+
+        FactoryHandshakeResult Result;
+        Result.ServerError = std::get<0>(Combined);
+        Result.Request = std::get<1>(std::move(Combined));
+        Result.ClientError = std::get<3>(Combined).first;
+        Result.ClientConnected = std::get<3>(Combined).second != nullptr;
+        ClientRaw->Close();
+        ServerRaw->Close();
+        co_return Result;
+    }
+
+    /**
+     * @brief 驱动协程运行
+     * @details 同一 io_context 可能被多次驱动，restart() 重置
+     * stopped 标志；对从未运行的 ioc 调用同样安全。
+     */
+    template <typename A>
+    auto run_coro(Net::io_context &ioc, A coro) -> void
+    {
+        ioc.restart();
+        std::exception_ptr ep;
+        Net::co_spawn(ioc, std::move(coro),
+                      [&](std::exception_ptr e)
+                      {
+                          ep = e;
+                          ioc.stop();
+                      });
+        ioc.run();
+        if (ep)
+        {
+            std::rethrow_exception(ep);
+        }
+    }
+
+    /**
+     * @brief 从初始值列表构造字节向量
+     */
+    auto make_bytes(std::initializer_list<std::uint8_t> List) -> std::vector<std::uint8_t>
+    {
+        return std::vector<std::uint8_t>(List);
+    }
+
+    TEST(Ss2022CodecDeep, AddressBranches)
+    {
+        // EncodeAddress ipv6
+        ss::Address addr{};
+        addr.Type = ss::AddressType::Ipv6;
+        addr.Host.assign(16, 'q');
+        addr.Port = 8080;
+        const auto v6 = ss::EncodeAddress(addr);
+        EXPECT_EQ(v6.size(), 19u);
+        EXPECT_EQ(v6[0], 0x04);
+
+        // ParseAddress ipv4 截断
+        std::size_t off = 0;
+        EXPECT_EQ(ss::ParseAddress(std::span<const std::uint8_t>(make_bytes({0x01, 8, 8})), addr, off),
+                  Error::NeedMore);
+        // ParseAddress ipv6 截断 + 成功
+        off = 0;
+        std::vector<std::uint8_t> p6{0x04};
+        p6.insert(p6.end(), 5, 0x42);
+        EXPECT_EQ(ss::ParseAddress(p6, addr, off), Error::NeedMore);
+        off = 0;
+        p6.assign(17, 0);
+        p6[0] = 0x04;
+        p6.insert(p6.end(), 2, 0);
+        EXPECT_EQ(ss::ParseAddress(p6, addr, off), Error::None);
+        EXPECT_EQ(addr.Host, std::string(16, 0));
+
+        // ParseVarHeader 各分支
+        std::span<const std::uint8_t> payload;
+        // ipv4 截断
+        EXPECT_EQ(ss::ParseVarHeader(std::span<const std::uint8_t>(make_bytes({0x01, 8, 8})), addr, payload),
+                  Error::NeedMore);
+        // ipv6 截断
+        EXPECT_EQ(ss::ParseVarHeader(std::span<const std::uint8_t>(make_bytes({0x04, 1})), addr, payload),
+                  Error::NeedMore);
+        // ipv6 成功
+        std::vector<std::uint8_t> var6{0x04};
+        var6.insert(var6.end(), 16, 0x42);
+        var6.push_back(0x00);
+        var6.push_back(0x50);
+        var6.push_back(0x00);
+        var6.push_back(0x00);
+        var6.push_back('x');
+        EXPECT_EQ(ss::ParseVarHeader(var6, addr, payload), Error::None);
+        EXPECT_EQ(addr.Type, ss::AddressType::Ipv6);
+        EXPECT_EQ(addr.Port, 80u);
+        EXPECT_EQ(payload.size(), 1u);
+        // domain 长度截断
+        std::vector<std::uint8_t> dom{0x03, 0x05, 'a'};
+        EXPECT_EQ(ss::ParseVarHeader(dom, addr, payload), Error::NeedMore);
+        // domain 成功
+        std::vector<std::uint8_t> dom_ok{0x03, 0x03, 'a', 'b', 'c', 0x00, 0x50, 0x00, 0x00};
+        EXPECT_EQ(ss::ParseVarHeader(dom_ok, addr, payload), Error::None);
+        EXPECT_EQ(addr.Host, "abc");
+    }
+
+    TEST(Ss2022CodecDeep, AcceptFactoryUsesRawPsk)
+    {
+        const std::array<std::uint8_t, 16> Psk{
+            0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF,
+            0x10, 0x32, 0x54, 0x76, 0x98, 0xBA, 0xDC, 0xFE};
+        ss::ClientConfig Client;
+        Client.UsePsk = true;
+        Client.Psk = Psk;
+        ss::ServerConfig Server;
+        Server.UsePsk = true;
+        Server.Psk = Psk;
+
+        Net::io_context ioc;
+        FactoryHandshakeResult Result;
+        run_coro(ioc, [&]() -> Net::awaitable<void>
+        {
+            Result = co_await RunFactoryHandshake(Client, Server);
+        }());
+
+        EXPECT_EQ(Result.ClientError, Error::None);
+        EXPECT_EQ(Result.ServerError, Error::None);
+        EXPECT_TRUE(Result.ClientConnected);
+        EXPECT_EQ(Result.Request.dst.Host, "example.com");
+        EXPECT_EQ(Result.Request.dst.Port, 443u);
+    }
+
+    TEST(Ss2022CodecDeep, AcceptFactoryRejectsWrongRawPsk)
+    {
+        ss::ClientConfig Client;
+        Client.UsePsk = true;
+        Client.Psk.fill(0xA5);
+        ss::ServerConfig Server;
+        Server.UsePsk = true;
+        Server.Psk.fill(0x5A);
+
+        Net::io_context ioc;
+        FactoryHandshakeResult Result;
+        run_coro(ioc, [&]() -> Net::awaitable<void>
+        {
+            Result = co_await RunFactoryHandshake(Client, Server);
+        }());
+
+        EXPECT_EQ(Result.ServerError, Error::BadAuth);
+        EXPECT_NE(Result.ClientError, Error::None);
+        EXPECT_FALSE(Result.ClientConnected);
+    }
+
+    TEST(Ss2022CodecDeep, AcceptFactoryKeepsPasswordCompatibility)
+    {
+        ss::ClientConfig Client;
+        Client.password = "password-compatibility";
+        ss::ServerConfig Server;
+        Server.password = Client.password;
+
+        Net::io_context ioc;
+        FactoryHandshakeResult Result;
+        run_coro(ioc, [&]() -> Net::awaitable<void>
+        {
+            Result = co_await RunFactoryHandshake(Client, Server);
+        }());
+
+        EXPECT_EQ(Result.ClientError, Error::None);
+        EXPECT_EQ(Result.ServerError, Error::None);
+        EXPECT_TRUE(Result.ClientConnected);
+    }
+
+    TEST(Ss2022CodecDeep, ChunkCodecErrors)
+    {
+        std::array<std::uint8_t, 16> key{};
+
+        // AEAD 参数长度错误必须在调用 EVP 前拒绝，不能把越界读取后的结果当成密文。
+        const std::array<std::uint8_t, 15> short_key{};
+        const std::array<std::uint8_t, 12> nonce{};
+        const std::array<std::uint8_t, 11> short_nonce{};
+        std::vector<std::uint8_t> sealed;
+        EXPECT_EQ(ss::detail::AeadSeal(short_key, nonce, std::array<std::uint8_t, 1>{0x42}, sealed), 0U);
+        EXPECT_EQ(ss::detail::AeadSeal(key, short_nonce, std::array<std::uint8_t, 1>{0x42}, sealed), 0U);
+        EXPECT_TRUE(ss::ChunkCodec(short_key).Seal(std::array<std::uint8_t, 1>{0x42}).empty());
+
+        // StartNonce > 0 → IncNonce 路径
+        ss::ChunkCodec Codec(std::span<const std::uint8_t>(key), 3);
+        ss::ChunkCodec dec(std::span<const std::uint8_t>(key), 3);
+
+        // OpenLen：头部不足
+        EXPECT_FALSE(Codec.OpenLen(std::span<const std::uint8_t>(make_bytes({1, 2}))).has_value());
+        // 坏密文
+        std::vector<std::uint8_t> bad(18, 0);
+        bad[17] = 0xFF;
+        EXPECT_FALSE(Codec.OpenLen(bad).has_value());
+
+        // Seal + Open 成功路径
+        const auto wire = dec.Seal(AsU8Span(std::string_view{"hello"}));
+        std::size_t consumed = 0;
+        const auto plain = Codec.Open(wire, consumed);
+        EXPECT_EQ(plain.size(), 5u);
+        EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(plain.data()), plain.size()), "hello");
+        EXPECT_EQ(consumed, wire.size());
+
+        // 结束块
+        ss::ChunkCodec codec2(std::span<const std::uint8_t>(key), 3);
+        ss::ChunkCodec dec2(std::span<const std::uint8_t>(key), 3);
+        const auto fin = dec2.Finish();
+        std::size_t fin_consumed = 0;
+        EXPECT_TRUE(codec2.Open(fin, fin_consumed).empty());
+        EXPECT_EQ(fin_consumed, 18u);
+
+        // Open：数据不足（长度块后缺载荷）
+        ss::ChunkCodec codec3(std::span<const std::uint8_t>(key), 3);
+        ss::ChunkCodec dec3(std::span<const std::uint8_t>(key), 3);
+        const auto big = dec3.Seal(AsU8Span(std::string_view{"12345678"}));
+        std::size_t c3 = 0;
+        EXPECT_TRUE(codec3.Open(std::span<const std::uint8_t>(big).first(20), c3).empty());
+
+        // OpenPayload：载荷过短 / 校验失败
+        ss::ChunkCodec codec4(std::span<const std::uint8_t>(key), 3);
+        EXPECT_TRUE(codec4.OpenPayload(std::span<const std::uint8_t>(make_bytes({1, 2}))).empty());
+        std::vector<std::uint8_t> bad_body(17, 0);
+        bad_body[16] = 0xFF;
+        EXPECT_TRUE(codec4.OpenPayload(bad_body).empty());
+
+        // 合法最大长度与超出 uint16 的长度边界
+        ss::ChunkCodec codec5(std::span<const std::uint8_t>(key), 3);
+        ss::ChunkCodec dec5(std::span<const std::uint8_t>(key), 3);
+        std::vector<std::uint8_t> max_payload(ss::MaxChunkSize, 0xAB);
+        const auto max_wire = dec5.Seal(max_payload);
+        EXPECT_FALSE(max_wire.empty());
+        std::vector<std::uint8_t> too_large(static_cast<std::size_t>(ss::MaxChunkSize) + 1, 0xAB);
+        EXPECT_TRUE(codec5.Seal(too_large).empty());
+
+        // 短读不能提前消耗 nonce，补齐同一块后必须仍可解密。
+        ss::ChunkCodec retry_encoder{std::span<const std::uint8_t>(key)};
+        ss::ChunkCodec retry_decoder{std::span<const std::uint8_t>(key)};
+        const auto retry_wire = retry_encoder.Seal(AsU8Span(std::string_view{"retry"}));
+        std::size_t retry_consumed = 0;
+        EXPECT_TRUE(retry_decoder.Open(std::span<const std::uint8_t>(retry_wire).first(20), retry_consumed).empty());
+        const auto retry_plain = retry_decoder.Open(retry_wire, retry_consumed);
+        EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(retry_plain.data()), retry_plain.size()), "retry");
+
+        // 解密长度块后长度仍必须受 uint16 表示范围约束。
+        ss::ChunkCodec codec6(std::span<const std::uint8_t>(key), 3);
+        ss::ChunkCodec dec6(std::span<const std::uint8_t>(key), 3);
+        std::vector<std::uint8_t> big_payload(20000, 0xAB);
+        const auto big_wire = dec6.Seal(big_payload);
+        EXPECT_TRUE(codec6.OpenLen(std::span<const std::uint8_t>(big_wire).first(18)).has_value());
+    }
+
+    TEST(Ss2022CodecDeep, SessionKeyOutputBufferMatchesVector)
+    {
+        const std::array<std::uint8_t, 16> Psk{0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+                                               0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x00};
+        const std::array<std::uint8_t, 16> Salt{0x00, 0xFF, 0xEE, 0xDD, 0xCC, 0xBB, 0xAA, 0x99,
+                                                0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11};
+        const auto VectorResult = ss::SessionKey(Psk, Salt, 16);
+        std::array<std::uint8_t, 16> BufferResult{};
+        ss::SessionKey(Psk, Salt, std::span<std::uint8_t>(BufferResult));
+        EXPECT_EQ(std::vector<std::uint8_t>(BufferResult.begin(), BufferResult.end()), VectorResult);
+    }
+
+    TEST(Ss2022CodecDeep, SessionKeyAndUdp)
+    {
+        std::array<std::uint8_t, 16> psk{};
+        psk.fill(0x11);
+        std::array<std::uint8_t, 16> salt{};
+        salt.fill(0x22);
+        const auto key = ss::SessionKey(psk, salt, 16);
+        EXPECT_EQ(key.size(), 16u);
+
+        // BuildUdpPacket 成功
+        ss::Address dst{};
+        dst.Type = ss::AddressType::Ipv4;
+        dst.Host = "1.2.3.4";
+        dst.Port = 443;
+        const auto packet = ss::BuildUdpPacket(
+            ss::UdpBuildInput{key, 7, &dst, AsU8Span(std::string_view{"Data"})});
+        EXPECT_GT(packet.size(), 16u);
+
+        // ParseUdpPacket 成功
+        ss::Address out_dst{};
+        std::vector<std::uint8_t> out_payload;
+        EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{key, packet, &out_dst, &out_payload}), Error::None);
+        EXPECT_EQ(out_dst.Host, "1.2.3.4");
+        EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(out_payload.data()), out_payload.size()),
+                  "Data");
+
+        // AES-128-GCM 的 Build/Parse 必须严格拒绝非 16 字节密钥；
+        // SessionIdLen=8 只表示报文头字段宽度，不能作为密钥宽度。
+        for (const auto Length : std::array<std::size_t, 6>{0, 7, 8, 15, 17, 32})
+        {
+            const std::vector<std::uint8_t> short_key(Length, 0x33);
+            EXPECT_TRUE(ss::BuildUdpPacket(
+                            ss::UdpBuildInput{short_key, 7, &dst, AsU8Span(std::string_view{"Data"})})
+                            .empty())
+                << "Build 应拒绝 key length=" << Length;
+            EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{short_key, packet, &out_dst, &out_payload}),
+                      Error::BadLength)
+                << "Parse 应拒绝 key length=" << Length;
+        }
+
+        // UDP 明文超过协议上限必须拒绝，避免构造非法数据报
+        std::vector<std::uint8_t> oversized(ss::MaxUdpPayload + 1, 0xAA);
+        EXPECT_TRUE(ss::BuildUdpPacket(
+                        ss::UdpBuildInput{key, 8, &dst, oversized})
+                        .empty());
+
+        // 空 Target → bad_length
+        EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{key, packet, nullptr, &out_payload}),
+                  Error::BadLength);
+        // 短包 → bad_length
+        EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{key, std::span<const std::uint8_t>(packet).first(10),
+                                                           &out_dst, &out_payload}),
+                  Error::BadLength);
+        // SessionID 不匹配 → bad_auth
+        std::array<std::uint8_t, 16> wrong_key{};
+        wrong_key.fill(0x99);
+        EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{wrong_key, packet, &out_dst, &out_payload}),
+                  Error::BadAuth);
+        // 翻转密文首字节以确定破坏 AEAD，不能因随机原值相同而保持有效
+        auto bad_type = packet;
+        bad_type[16] ^= 0x01;
+        EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{key, bad_type, &out_dst, &out_payload}),
+                  Error::BadAuth);
+        // 载荷 tag 校验失败 → bad_auth
+        auto bad_tag = packet;
+        bad_tag.back() ^= 0x01;
+        EXPECT_EQ(ss::ParseUdpPacket(ss::UdpParseInput{key, bad_tag, &out_dst, &out_payload}),
+                  Error::BadAuth);
+    }
+
+    TEST(Ss2022CodecDeep, RejectsUnknownAddressTypeInVarHeader)
+    {
+        const std::vector<std::uint8_t> Wire{0xFF, 0x00, 0x00, 0x50, 0x00, 0x00};
+        ss::Address Target{};
+        std::span<const std::uint8_t> Payload;
+
+        EXPECT_EQ(ss::ParseVarHeader(Wire, Target, Payload), Error::BadAddress);
+    }
+
+    TEST(Ss2022CodecDeep, DistinguishesEmptyPayloadFromBadAuthentication)
+    {
+        const std::array<std::uint8_t, 16> Key{0x01, 0x02, 0x03, 0x04,
+                                                0x05, 0x06, 0x07, 0x08,
+                                                0x09, 0x0A, 0x0B, 0x0C,
+                                                0x0D, 0x0E, 0x0F, 0x10};
+        ss::Address Target{};
+        Target.Type = ss::AddressType::Ipv4;
+        Target.Host = "192.0.2.1";
+        Target.Port = 443;
+
+        const auto EmptyPacket = ss::BuildUdpPacket(
+            ss::UdpBuildInput{Key, 99, &Target, std::span<const std::uint8_t>{}});
+        ASSERT_FALSE(EmptyPacket.empty());
+
+        ss::Address ParsedTarget{};
+        std::vector<std::uint8_t> ParsedPayload{0xFF};
+        EXPECT_EQ(ss::ParseUdpPacket(
+                      ss::UdpParseInput{Key, EmptyPacket, &ParsedTarget, &ParsedPayload}),
+                  Error::None);
+        EXPECT_TRUE(ParsedPayload.empty());
+
+        auto TamperedPacket = EmptyPacket;
+        TamperedPacket.back() ^= 0x01;
+        EXPECT_EQ(ss::ParseUdpPacket(
+                      ss::UdpParseInput{Key, TamperedPacket, &ParsedTarget, &ParsedPayload}),
+                  Error::BadAuth);
+    }
+
+    TEST(Ss2022CodecDeep, HandshakeParserErrors)
+    {
+        std::array<std::uint8_t, 16> psk{};
+        psk.fill(0x11);
+
+        // Serializer 生成合法握手包
+        ss::Serializer ser(psk);
+        ss::Message msg{};
+        msg.dst.Type = ss::AddressType::Ipv4;
+        msg.dst.Host = "8.8.8.8";
+        msg.dst.Port = 53;
+        msg.InitialPayload = "hello";
+        ser.Reset(msg, 1000);
+        std::array<std::uint8_t, 2048> buf{};
+        std::error_code ec;
+        const auto n = ser.Get(Net::buffer(buf.data(), buf.size()), ec);
+        const auto wire = std::vector<std::uint8_t>(buf.begin(), buf.begin() + n);
+
+        // Parser 成功
+        ss::Parser p(psk);
+        EXPECT_EQ(p.Put(Net::buffer(wire), ec), wire.size());
+        EXPECT_TRUE(p.IsDone());
+        EXPECT_EQ(p.Get().dst.Host, "8.8.8.8");
+        EXPECT_EQ(p.Get().InitialPayload, "hello");
+
+        // 数据不足
+        p.Reset();
+        EXPECT_EQ(p.Put(Net::buffer(make_bytes({0x01})), ec), 0u);
+        EXPECT_EQ(ec, make_error_code(Error::NeedMore));
+
+        // 固定头解密失败（篡改）→ auth_failed
+        p.Reset();
+        auto tampered = wire;
+        tampered[30] ^= 0x01;
+        EXPECT_EQ(p.Put(Net::buffer(tampered), ec), 0u);
+        EXPECT_EQ(ec, make_error_code(Error::AuthFailed));
+
+        // 变长头不足（截断尾部）→ need_more
+        p.Reset();
+        const auto truncated = std::vector<std::uint8_t>(wire.begin(), wire.end() - 40);
+        EXPECT_EQ(p.Put(Net::buffer(truncated), ec), 0u);
+        EXPECT_EQ(ec, make_error_code(Error::NeedMore));
+
+        // 变长头解密失败 → auth_failed
+        p.Reset();
+        auto tampered2 = wire;
+        tampered2[tampered2.size() - 1] ^= 0x01;
+        EXPECT_EQ(p.Put(Net::buffer(tampered2), ec), 0u);
+        EXPECT_EQ(ec, make_error_code(Error::AuthFailed));
+    }
+
+    TEST(Ss2022CodecDeep, ConnAndDgramDecorators)
+    {
+        Net::io_context ioc;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        auto peer = std::make_shared<MemoryStream>(std::move(b));
+        std::array<std::uint8_t, 16> key{};
+        key.fill(0x55);
+
+        // Dgram 装饰器
+        auto dg = std::make_shared<Shadowsocks2022::Dgram<>>(std::make_shared<MemoryStream>(std::move(a)), key);
+        EXPECT_EQ(dg->TransportType(), Transmission::Type::Udp);
+        (void)dg->Executor();
+        EXPECT_NE(dg->NextLayer(), nullptr);
+        const auto *cdg = dg.get();
+        EXPECT_NE(cdg->NextLayer(), nullptr);
+        EXPECT_NE(dg->Stream(), nullptr);
+        dg->Cancel();
+        dg->Close();
+        EXPECT_NE(dg->Release(), nullptr);
+
+        // Dgram 收发往返
+        auto [c, d] = MakeMemoryPair(ioc.get_executor());
+        auto peer2 = std::make_shared<MemoryStream>(std::move(d));
+        auto dg2 = std::make_shared<Shadowsocks2022::Dgram<>>(std::make_shared<MemoryStream>(std::move(c)), key);
+        run_coro(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     ss::Address dst{};
+                     dst.Type = ss::AddressType::Domain;
+                     dst.Host = "example.com";
+                     dst.Port = 80;
+                     const auto serr = co_await dg2->AsyncSendTo(dst, AsU8Span(std::string_view{"pkt"}));
+                     EXPECT_EQ(serr, Error::None);
+                      std::array<std::uint8_t, 2048> raw{};
+                      std::error_code ec;
+                      const auto rn = co_await peer2->async_read_some(AsBytes(std::span<std::uint8_t>(raw)), ec);
+                      const auto request = std::vector<std::uint8_t>(raw.begin(), raw.begin() + rn);
+                      ss::Address requestTarget{};
+                      std::vector<std::uint8_t> requestPayload;
+                      std::array<std::uint8_t, ss::SessionIdLen> clientSession{};
+                      std::uint64_t requestPacketId = 0;
+                      std::uint64_t requestTimestamp = 0;
+                      std::uint8_t requestType = 0;
+                      const auto parseErr = ss::ParseUdpPacket(
+                          ss::UdpParseInput{key, request, &requestTarget, &requestPayload,
+                                            &clientSession, &requestPacketId, &requestTimestamp,
+                                            &requestType, nullptr});
+                      EXPECT_EQ(parseErr, Error::None);
+                      EXPECT_EQ(requestType, ss::HeaderTypeClient);
+                      std::array<std::uint8_t, ss::SessionIdLen> serverSession{0xA0, 0xA1, 0xA2, 0xA3,
+                                                                                 0xA4, 0xA5, 0xA6, 0xA7};
+                      const auto response = ss::BuildUdpPacket(ss::UdpBuildInput{
+                          key, 0, &requestTarget, requestPayload, serverSession, 0, clientSession,
+                          ss::HeaderTypeServer});
+                      const auto werr = co_await peer2->WriteAll(response);
+                      EXPECT_FALSE(werr);
+                     ss::Address src{};
+                     std::vector<std::uint8_t> payload;
+                     const auto rerr = co_await dg2->AsyncReceiveFrom(src, payload);
+                     EXPECT_EQ(rerr, Error::None);
+                     // SIP022 服务端响应不携带目标地址，客户端沿用请求目标。
+                     EXPECT_TRUE(src.Host.empty());
+                 });
+
+        // Conn：完整握手（fake Server 响应）+ 装饰器方法 + 数据面
+        auto [e, f] = MakeMemoryPair(ioc.get_executor());
+        auto server_side = std::make_shared<MemoryStream>(std::move(f));
+        const std::array<std::uint8_t, 16> ConnPsk{0x61, 0x62, 0x63, 0x64,
+                                                   0x65, 0x66, 0x67, 0x68,
+                                                   0x69, 0x6A, 0x6B, 0x6C,
+                                                   0x6D, 0x6E, 0x6F, 0x70};
+        auto cn = std::make_shared<Shadowsocks2022::Conn<>>(ConnPsk);
+
+        // 未握手读写 → not_open
+        run_coro(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     std::error_code ec;
+                     std::array<std::byte, 4> buf{};
+                     const auto r = co_await cn->async_read_some(std::span<std::byte>(buf), ec);
+                     EXPECT_EQ(r, 0u);
+                     EXPECT_TRUE(ec);
+                     ec.clear();
+                     const auto w = co_await cn->async_write_some(std::span<const std::byte>(buf), ec);
+                     EXPECT_EQ(w, 0u);
+                     EXPECT_TRUE(ec);
+                 });
+
+        // fake Server（解析 salt → 按标准响应帧回复）与客户端握手必须并发运行：
+        // 服务端先读 salt，客户端握手后才有数据，串行驱动会互相等待
+        // （server salt(16) + 裸块固定头：27B 明文 + 16B tag）
+        run_coro(ioc,
+                 [&]() -> Net::awaitable<void>
+                 {
+                     bool server_done = false;
+                     auto server_coro = [&]() -> Net::awaitable<void>
+                     {
+                         std::array<std::uint8_t, 16 + 45 + 128> buf{};
+                         std::error_code ec;
+                         const auto n = co_await server_side->async_read_some(
+                             AsBytes(std::span<std::uint8_t>(buf)), ec);
+                         EXPECT_GT(n, 16u + 45u);
+                         const auto salt = std::span<const std::uint8_t>(buf.data(), 16);
+                         std::array<std::uint8_t, 16> ServerSalt{};
+                         ServerSalt.fill(0x77);
+                          const auto resp_key = ss::SessionKey(ConnPsk, ServerSalt, 16);
+                         ss::ChunkCodec RespCodec(resp_key);
+                         std::array<std::uint8_t, ss::RespFixedHdrPlain> plain{};
+                         plain[0] = ss::HeaderTypeServer;
+                         // requestSalt 回显（[9..24]），初始载荷长度 [25..26] = 0
+                         std::memcpy(plain.data() + 9, salt.data(), 16);
+                         const auto werr = co_await server_side->WriteAll(ServerSalt);
+                         EXPECT_FALSE(werr);
+                         const auto werr2 = co_await server_side->WriteAll(RespCodec.SealRaw(plain));
+                         EXPECT_FALSE(werr2);
+                         // payloadLen=0 的标准响应仍须跟一个 16B 空 AEAD 块（SIP022 chunk 对齐），
+                         // 否则客户端读响应阶段会永久挂起
+                         const auto werr3 =
+                             co_await server_side->WriteAll(RespCodec.SealRaw({}));
+                         EXPECT_FALSE(werr3);
+                         server_done = true;
+                     };
+                     Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
+
+                     ss::Address Target{};
+                     Target.Type = ss::AddressType::Domain;
+                     Target.Host = "example.com";
+                     Target.Port = 443;
+                     const auto herr = co_await cn->WriteHandshake(std::make_shared<MemoryStream>(std::move(e)),
+                                                                   Target);
+                     EXPECT_EQ(herr, Error::None);
+
+                     // 装饰器方法
+                     (void)cn->Executor();
+                     EXPECT_NE(cn->NextLayer(), nullptr);
+                     const auto *ccn = cn.get();
+                     EXPECT_NE(ccn->NextLayer(), nullptr);
+                     cn->Cancel();
+
+                     // UDP 数据面（握手后，须在 Release 之前执行）
+                     ss::Address dst{};
+                     dst.Type = ss::AddressType::Ipv4;
+                     dst.Host = "1.2.3.4";
+                     dst.Port = 53;
+                     const auto serr =
+                         co_await cn->AsyncSendDatagram(dst, AsU8Span(std::string_view{"udp"}));
+                     EXPECT_EQ(serr, Error::None);
+
+                     // 最后释放内层传输
+                     EXPECT_NE(cn->Release(), nullptr);
+
+                     // 等待服务端协程结束，保证 server_side 存活至 detached 协程退出
+                     Net::steady_timer wait(ioc.get_executor());
+                     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                     while (!server_done && std::chrono::steady_clock::now() < deadline)
+                     {
+                         wait.expires_after(std::chrono::milliseconds(1));
+                         co_await wait.async_wait(Net::use_awaitable);
+                     }
+                 });
+    }
+
+} // namespace

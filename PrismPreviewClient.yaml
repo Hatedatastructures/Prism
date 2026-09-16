@@ -1,0 +1,1298 @@
+# PrismPreview exhaustive Mihomo/Clash test matrix.
+# Server target: 192.168.0.106:18080
+# Current running server capability: six TCP protocol bindings are declared active:
+# HTTP, SOCKS5, VLESS, Trojan, VMess and Shadowsocks2022.
+# Status contract: the six base TCP nodes are active; additional TLS carrier variants,
+# mux variants and UDP/QUIC nodes remain pending exact-process verification.
+# The full protocol matrix is kept for staged protocol testing after the
+# matching server-side protocol/carrier is enabled. The default rule uses the
+# active TCP group so unsupported carrier/UDP/QUIC entries are never probed automatically.
+# Health checks use Xiaomi's low-cost endpoint only when the health group is
+# explicitly selected by the client.
+
+# 全局端口设置
+mixed-port: 7890
+socks-port: 7891
+allow-lan: true                # 允许局域网连接（手机可通过局域网IP连接）
+bind-address: '*'              # 监听所有网卡
+mode: rule
+log-level: info
+external-controller: 192.168.0.106:19091
+global-client-fingerprint: none  # 禁用全局 uTLS 指纹模拟，ShadowTLS 需要标准 TLS
+
+# DNS 设置
+# 测试：当前开发环境没有ipv6，只能使用v4
+dns:
+  enable: true                  # 启用 Clash 内置 DNS
+  ipv6: false                   # 禁止查询 AAAA 记录，只返回 IPv4 地址，避免客户端把 IPv6 地址发给代理导致连接失败
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - https://dns.alidns.com/dns-query
+    - https://doh.pub/dns-query
+  # fallback:
+  #   - https://1.1.1.1/dns-query
+  #   - https://dns.google/dns-query
+  # fallback-filter:
+  #   geoip: true  # 现在禁用掉，避免误伤国内IP导致无法访问国内站点
+  #   geoip-code: CN
+
+# ---------- pending carrier notes ----------
+# The SNI mappings below describe staged carrier variants only:
+#   - www.microsoft.com   -> Reality
+#   - www.apple.com       -> ShadowTLS
+#   - www.nvidia.com      -> Restls
+#   - www.cloudflare.com  -> AnyTLS
+#   - www.amazon.com      -> TrustTunnel
+# They remain outside the active and health groups until the server exposes
+# the matching TLS carrier and each exact client combination is verified.
+# Hysteria2 and TUIC remain pending because the current server has no UDP/QUIC
+# listener. VMess and SS2022 use the active bare TCP probe path.
+
+# ---------- 协议测试节点 ----------
+proxies:
+  - name: "Smux UCUS TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "Smux UCUS UDP" # status: server-side pending; UDP uses default transport
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "Smux 4C TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "Smux 4C UDP" # status: server-side pending; UDP uses default transport
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "Smux 1C TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "Smux 1C UDP" # status: server-side pending; UDP uses default transport
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "Yamux UCUS TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "Yamux UCUS UDP" # status: server-side pending; UDP uses default transport
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "Yamux 4C TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "Yamux 4C UDP" # status: server-side pending; UDP uses default transport
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "Yamux 1C TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "Yamux 1C UDP" # status: server-side pending; UDP uses default transport
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 1
+
+
+  # SOCKS5 代理（启用认证后无认证不可用，只测带认证）
+  - name: "SOCKS5 UDP Cert" # status: server-side pending
+    type: socks5
+    server: 192.168.0.106
+    port: 18080
+    username: "local"
+    password: "PrismPreview-106-20260914"
+    udp: true
+
+  - name: "SOCKS5 TCP Cert" # status: active
+    type: socks5
+    server: 192.168.0.106
+    port: 18080
+    username: "local"
+    password: "PrismPreview-106-20260914"
+    udp: false
+
+  - name: "SOCKS5 Native TLS TCP" # status: server-side pending
+    type: socks5
+    server: 192.168.0.106
+    port: 18080
+    username: "local"
+    password: "PrismPreview-106-20260914"
+    tls: true
+    skip-cert-verify: true
+    sni: "www.bing.com"
+
+  # http
+  - name: "Http" # status: active
+    type: http
+    server: 192.168.0.106
+    port: 18080
+    username: local
+    password: "PrismPreview-106-20260914"
+
+
+  # https (TLS 内层协议检测已由 session 层自动完成)
+  - name: "HTTP Native TLS" # status: server-side pending
+    type: http
+    server: 192.168.0.106
+    port: 18080
+    username: local
+    password: "PrismPreview-106-20260914"
+    tls: true
+    skip-cert-verify: true
+    sni: "www.bing.com"
+
+  - name: "Trojan TCP" # status: active
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+
+  - name: "Trojan UDP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    sni: "www.bing.com"
+
+  - name: "Trojan Native TLS TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    skip-cert-verify: true
+    sni: "www.bing.com"
+
+  # SS2022 (Shadowsocks 2022 / SIP022)
+  # SS2022 直接走裸 TCP（mihomo 不支持 SS2022 + tls: true）
+  # 要套 TLS 需使用 plugin: shadow-tls 或 plugin: restls
+  # cipher 必须使用 2022-blake3-aes-128-gcm 或 2022-blake3-aes-256-gcm
+  # password 为 base64 编码的随机密钥（16 字节对应 AES-128，32 字节对应 AES-256）
+  - name: "SS2022 TCP" # status: active
+    type: ss
+    server: 192.168.0.106
+    port: 18080
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    udp: false
+
+  - name: "SS2022 UDP" # status: server-side pending
+    type: ss
+    server: 192.168.0.106
+    port: 18080
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    udp: true
+
+  # SS2022 + ShadowTLS (SS2022 嵌入 ShadowTLS v3 的 TLS 伪装层)
+  # ShadowTLS 通过 HMAC-SHA1 认证，将 SS2022 流量包装成标准 TLS 连接
+  # SNI 必须与服务端 server_names 配置一致: www.apple.com
+  # 注意: client-fingerprint 在代理顶层（用于 TLS 指纹伪装）
+  #       plugin-opts 中不要放 fingerprint（那是用于证书 pinning 的）
+  - name: "SS2022 ShadowTLS TCP" # status: server-side pending
+    type: ss
+    server: 192.168.0.106
+    port: 18080
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: shadow-tls
+    plugin-opts:
+      host: "www.apple.com"              # SNI: 与服务端 server_names 一致
+      password: "shadowtls_password"      # HMAC 密码: 与服务端 users.password 一致
+      version: 3
+
+  - name: "SS2022 ShadowTLS UDP" # status: server-side pending
+    type: ss
+    server: 192.168.0.106
+    port: 18080
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    udp: true
+    plugin: shadow-tls
+    plugin-opts:
+      host: "www.apple.com"              # SNI: 与服务端 server_names 一致
+      password: "shadowtls_password"      # HMAC 密码: 与服务端 users.password 一致
+      version: 3
+
+  # Trojan + ShadowTLS (Trojan 嵌入 ShadowTLS v3 的 TLS 伪装层)
+  # 验证 ShadowTLS 伪装层与非 SS2022 内层协议的兼容性
+  - name: "Trojan ShadowTLS TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    sni: "www.apple.com"
+    skip-cert-verify: true
+    shadow-tls-opts:
+      version: 3
+      password: "shadowtls_password"
+
+  - name: "Trojan ShadowTLS UDP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    sni: "www.apple.com"
+    skip-cert-verify: true
+    udp: true
+    shadow-tls-opts:
+      version: 3
+      password: "shadowtls_password"
+
+  - name: "Trojan Restls TLS13 TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    sni: "www.nvidia.com"
+    skip-cert-verify: true
+    restls-opts:
+      password: "restls_password"
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  # SS2022 + Restls TLS13 (SS2022 嵌入 Restls 的 TLS 1.3 伪装层)
+  # Restls 通过 TLS 应用数据中的认证信息验证客户端
+  # restls-script 用于控制握手后的流量模式，隐藏代理特征
+  # SNI 必须与服务端 server_names 配置一致: www.nvidia.com
+  - name: "SS2022 Restls TLS13 TCP" # status: server-side pending
+    type: ss
+    server: 192.168.0.106
+    port: 18080
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: restls
+    plugin-opts:
+      host: "www.nvidia.com"             # SNI: 与服务端 server_names 一致
+      password: "restls_password"        # 认证密码: 与服务端 password 一致
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  - name: "SS2022 Restls TLS13 UDP" # status: server-side pending
+    type: ss
+    server: 192.168.0.106
+    port: 18080
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    udp: true
+    plugin: restls
+    plugin-opts:
+      host: "www.nvidia.com"             # SNI: 与服务端 server_names 一致
+      password: "restls_password"        # 认证密码: 与服务端 password 一致
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  # VLESS
+  - name: "VLESS TCP" # status: active
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: false
+    udp: false
+
+  - name: "VLESS UDP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    servername: "www.bing.com"
+
+  - name: "VLESS Native TLS TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "www.bing.com"
+
+  - name: "VLESS Smux TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    tls: true
+    skip-cert-verify: true
+    servername: "www.bing.com"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "VLESS Smux UDP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    servername: "www.bing.com"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "VLESS Yamux TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    tls: true
+    skip-cert-verify: true
+    servername: "www.bing.com"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "VLESS Yamux UDP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    udp: true
+    tls: true
+    skip-cert-verify: true
+    servername: "www.bing.com"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "VLESS ShadowTLS TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "www.apple.com"
+    shadow-tls-opts:
+      version: 3
+      password: "shadowtls_password"
+
+  - name: "VLESS Restls TLS13 TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "www.nvidia.com"
+    restls-opts:
+      password: "restls_password"
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  # VLESS + Reality（无需自签证书，使用目标网站真实证书）
+  # servername (SNI) 必须与服务端 server_names 配置一致: www.microsoft.com
+  - name: "VLESS Reality TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+
+  - name: "VLESS Reality UDP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+
+  - name: "VLESS Reality Smux TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "VLESS Reality Smux UDP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "VLESS Reality Yamux TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "VLESS Reality Yamux UDP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    servername: www.microsoft.com      # SNI: 与服务端 reality.server_names 一致
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  # AnyTLS (Mihomo 支持)
+  # 使用标准 TLS 证书，通过应用层认证实现代理功能
+  # SNI 必须与服务端 server_names 配置一致: www.cloudflare.com
+  - name: "AnyTLS TCP" # status: server-side pending
+    type: anytls
+    server: 192.168.0.106
+    port: 18080
+    password: "anytls_password"         # 认证密码: 与服务端 users.password 一致
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: false
+
+  - name: "AnyTLS UDP" # status: server-side pending
+    type: anytls
+    server: 192.168.0.106
+    port: 18080
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: true
+
+  - name: "AnyTLS Smux TCP" # status: server-side pending
+    type: anytls
+    server: 192.168.0.106
+    port: 18080
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: false
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "AnyTLS Smux UDP" # status: server-side pending
+    type: anytls
+    server: 192.168.0.106
+    port: 18080
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: true
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "AnyTLS Yamux TCP" # status: server-side pending
+    type: anytls
+    server: 192.168.0.106
+    port: 18080
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: false
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "AnyTLS Yamux UDP" # status: server-side pending
+    type: anytls
+    server: 192.168.0.106
+    port: 18080
+    password: "anytls_password"
+    sni: "www.cloudflare.com"           # SNI: 与服务端 server_names 一致
+    skip-cert-verify: true
+    udp: true
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "AnyTLS ShadowTLS TCP" # status: server-side pending
+    type: anytls
+    server: 192.168.0.106
+    port: 18080
+    password: "anytls_password"
+    tls: true
+    sni: "www.apple.com"
+    skip-cert-verify: true
+    udp: false
+    shadow-tls-opts:
+      version: 3
+      password: "shadowtls_password"
+
+  - name: "AnyTLS Restls TLS13 TCP" # status: server-side pending
+    type: anytls
+    server: 192.168.0.106
+    port: 18080
+    password: "anytls_password"
+    tls: true
+    sni: "www.nvidia.com"
+    skip-cert-verify: true
+    udp: false
+    restls-opts:
+      password: "restls_password"
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+
+  # SS2022 + mux (验证 SS2022 内层 + SingMux)
+  - name: "SS2022 Smux TCP" # status: server-side pending
+    type: ss
+    server: 192.168.0.106
+    port: 18080
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "SS2022 ShadowTLS Smux TCP" # status: server-side pending
+    type: ss
+    server: 192.168.0.106
+    port: 18080
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: shadow-tls
+    plugin-opts:
+      host: "www.apple.com"
+      password: "shadowtls_password"
+      version: 3
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "SS2022 Restls TLS13 Smux TCP" # status: server-side pending
+    type: ss
+    server: 192.168.0.106
+    port: 18080
+    cipher: 2022-blake3-aes-128-gcm
+    password: "5n5ESu953i/pjIp02oZvHA=="
+    plugin: restls
+    plugin-opts:
+      host: "www.nvidia.com"
+      password: "restls_password"
+      version-hint: "tls13"
+      restls-script: "300?100<1,400~100,350~100,600~100,300~200,300~100"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  # VMess (AEAD, alterId=0) — 与 SS2022 共享裸 TCP 18080 探测通道
+  # Prism 在 SS2022 握手失败后回退尝试 VMess 认证头
+  - name: "VMess TCP" # status: active
+    type: vmess
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    network: tcp
+    tls: false
+    udp: false
+
+  - name: "VMess UDP" # status: server-side pending
+    type: vmess
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    udp: true
+
+  - name: "VMess Reality TCP" # status: server-side pending
+    type: vmess
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "www.microsoft.com"
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+
+  # Hysteria2 (QUIC/UDP 18080)
+  # password 与服务端 stealth.hysteria2.users 一致
+  - name: "Hysteria2 QUIC" # status: server-side pending
+    type: hysteria2
+    server: 192.168.0.106
+    port: 18080
+    udp: true
+    password: "hysteria2_password"
+    sni: "quic-gateway-e2e"
+    skip-cert-verify: true
+
+  # TUIC v5 (QUIC/UDP 18080)
+  # uuid/password 与服务端 stealth.tuic.users 一致
+  - name: "TUIC v5 QUIC" # status: server-side pending
+    type: tuic
+    server: 192.168.0.106
+    port: 18080
+    udp: true
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    password: "tuic_password"
+    disable-sni: true
+    reduce-rtt: true
+    udp-relay-mode: native
+
+  # VLESS Reality connection-limit variants (max-connections and max-streams
+  # are mutually exclusive in Mihomo, so each entry configures only one axis).
+  - name: "VLESS Reality Smux 4C TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "VLESS Reality Smux 4C UDP" # status: server-side pending; UDP uses default transport
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "VLESS Reality Smux 1C TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "VLESS Reality Smux 1C UDP" # status: server-side pending; UDP uses default transport
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "VLESS Reality Yamux 4C TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "VLESS Reality Yamux 4C UDP" # status: server-side pending; UDP uses default transport
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "VLESS Reality Yamux 1C TCP" # status: server-side pending
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "VLESS Reality Yamux 1C UDP" # status: server-side pending; UDP uses default transport
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    servername: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 1
+
+  # Trojan Reality 系列
+  - name: "Trojan Reality TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    udp: false
+
+  - name: "Trojan Reality UDP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    udp: true
+
+  - name: "Trojan Reality Smux TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "Trojan Reality Smux UDP" # status: server-side pending; UDP uses default transport
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+
+  - name: "Trojan Reality Yamux TCP" # status: server-side pending
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+  - name: "Trojan Reality Yamux UDP" # status: server-side pending; UDP uses default transport
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: true
+    skip-cert-verify: true
+    sni: www.microsoft.com
+    client-fingerprint: chrome
+    reality-opts:
+      public-key: "BkKPzEJtz8Qv1yR_cTydzm5mmfiui8OL2Zqd9dV--To"
+      short-id: "45587ac66ce007e4"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+
+
+# ---------- 策略组 ----------
+proxy-groups:
+  # Safe default for the currently running server.
+  - name: "PrismPreview-Active"
+    type: select
+    proxies:
+      - "Http"
+      - "SOCKS5 TCP Cert"
+      - "VLESS TCP"
+      - "Trojan TCP"
+      - "VMess TCP"
+      - "SS2022 TCP"
+      - DIRECT
+
+  # Explicit manual-only group for entries whose server capability is pending.
+  - name: "PrismPreview-Pending"
+    type: select
+    proxies:
+      - "Smux UCUS TCP"
+      - "Smux UCUS UDP"
+      - "Smux 4C TCP"
+      - "Smux 4C UDP"
+      - "Smux 1C TCP"
+      - "Smux 1C UDP"
+      - "Yamux UCUS TCP"
+      - "Yamux UCUS UDP"
+      - "Yamux 4C TCP"
+      - "Yamux 4C UDP"
+      - "Yamux 1C TCP"
+      - "Yamux 1C UDP"
+      - "SOCKS5 UDP Cert"
+      - "SOCKS5 Native TLS TCP"
+      - "HTTP Native TLS"
+      - "Trojan UDP"
+      - "Trojan Native TLS TCP"
+      - "Trojan Restls TLS13 TCP"
+      - "SS2022 UDP"
+      - "VLESS UDP"
+      - "VLESS Native TLS TCP"
+      - "VLESS ShadowTLS TCP"
+      - "VLESS Restls TLS13 TCP"
+      - "VLESS Smux TCP"
+      - "VLESS Smux UDP"
+      - "VLESS Yamux TCP"
+      - "VLESS Yamux UDP"
+      - "VLESS Reality TCP"
+      - "VLESS Reality UDP"
+      - "VLESS Reality Smux TCP"
+      - "VLESS Reality Smux UDP"
+      - "VLESS Reality Yamux TCP"
+      - "VLESS Reality Yamux UDP"
+      - "SS2022 ShadowTLS TCP"
+      - "SS2022 ShadowTLS UDP"
+      - "Trojan ShadowTLS TCP"
+      - "Trojan ShadowTLS UDP"
+      - "SS2022 Restls TLS13 TCP"
+      - "SS2022 Restls TLS13 UDP"
+      - "SS2022 Smux TCP"
+      - "SS2022 ShadowTLS Smux TCP"
+      - "SS2022 Restls TLS13 Smux TCP"
+      - "AnyTLS TCP"
+      - "AnyTLS UDP"
+      - "AnyTLS Smux TCP"
+      - "AnyTLS Smux UDP"
+      - "AnyTLS Yamux TCP"
+      - "AnyTLS Yamux UDP"
+      - "AnyTLS ShadowTLS TCP"
+      - "AnyTLS Restls TLS13 TCP"
+      - "VLESS Reality Smux 4C TCP"
+      - "VLESS Reality Smux 4C UDP"
+      - "VLESS Reality Smux 1C TCP"
+      - "VLESS Reality Smux 1C UDP"
+      - "VLESS Reality Yamux 4C TCP"
+      - "VLESS Reality Yamux 4C UDP"
+      - "VLESS Reality Yamux 1C TCP"
+      - "VLESS Reality Yamux 1C UDP"
+      - "Trojan Reality TCP"
+      - "Trojan Reality UDP"
+      - "Trojan Reality Smux TCP"
+      - "Trojan Reality Smux UDP"
+      - "Trojan Reality Yamux TCP"
+      - "Trojan Reality Yamux UDP"
+      - "VMess UDP"
+      - "VMess Reality TCP"
+      - "Hysteria2 QUIC"
+      - "TUIC v5 QUIC"
+
+  # Exhaustive matrix group. Select an entry manually only when the server
+  # side configuration has the corresponding protocol and carrier enabled.
+  - name: "PrismPreview-ProtocolMatrix"
+    type: select
+    proxies:
+      - "Smux UCUS TCP"
+      - "Smux UCUS UDP"
+      - "Smux 4C TCP"
+      - "Smux 4C UDP"
+      - "Smux 1C TCP"
+      - "Smux 1C UDP"
+      - "Yamux UCUS TCP"
+      - "Yamux UCUS UDP"
+      - "Yamux 4C TCP"
+      - "Yamux 4C UDP"
+      - "Yamux 1C TCP"
+      - "Yamux 1C UDP"
+      - "SOCKS5 TCP Cert"
+      - "SOCKS5 UDP Cert"
+      - "SOCKS5 Native TLS TCP"
+      - "Http"
+      - "HTTP Native TLS"
+      - "Trojan TCP"
+      - "Trojan UDP"
+      - "Trojan Native TLS TCP"
+      - "Trojan Restls TLS13 TCP"
+      - "VLESS TCP"
+      - "VLESS UDP"
+      - "VLESS Native TLS TCP"
+      - "VLESS ShadowTLS TCP"
+      - "VLESS Restls TLS13 TCP"
+      - "VLESS Smux TCP"
+      - "VLESS Smux UDP"
+      - "VLESS Yamux TCP"
+      - "VLESS Yamux UDP"
+      - "VLESS Reality TCP"
+      - "VLESS Reality UDP"
+      - "VLESS Reality Smux TCP"
+      - "VLESS Reality Smux UDP"
+      - "VLESS Reality Yamux TCP"
+      - "VLESS Reality Yamux UDP"
+      - "SS2022 TCP"
+      - "SS2022 UDP"
+      - "SS2022 ShadowTLS TCP"
+      - "SS2022 ShadowTLS UDP"
+      - "Trojan ShadowTLS TCP"
+      - "Trojan ShadowTLS UDP"
+      - "SS2022 Restls TLS13 TCP"
+      - "SS2022 Restls TLS13 UDP"
+      - "SS2022 Smux TCP"
+      - "SS2022 ShadowTLS Smux TCP"
+      - "SS2022 Restls TLS13 Smux TCP"
+      - "AnyTLS TCP"
+      - "AnyTLS UDP"
+      - "AnyTLS Smux TCP"
+      - "AnyTLS Smux UDP"
+      - "AnyTLS Yamux TCP"
+      - "AnyTLS Yamux UDP"
+      - "AnyTLS ShadowTLS TCP"
+      - "AnyTLS Restls TLS13 TCP"
+      - "VLESS Reality Smux 4C TCP"
+      - "VLESS Reality Smux 4C UDP"
+      - "VLESS Reality Smux 1C TCP"
+      - "VLESS Reality Smux 1C UDP"
+      - "VLESS Reality Yamux 4C TCP"
+      - "VLESS Reality Yamux 4C UDP"
+      - "VLESS Reality Yamux 1C TCP"
+      - "VLESS Reality Yamux 1C UDP"
+      - "Trojan Reality TCP"
+      - "Trojan Reality UDP"
+      - "Trojan Reality Smux TCP"
+      - "Trojan Reality Smux UDP"
+      - "Trojan Reality Yamux TCP"
+      - "Trojan Reality Yamux UDP"
+      - "VMess TCP"
+      - "VMess UDP"
+      - "VMess Reality TCP"
+      - "Hysteria2 QUIC"
+      - "TUIC v5 QUIC"
+
+  - name: "PrismPreview-Xiaomi-Health"
+    type: url-test
+    proxies:
+      - "Http"
+      - "SOCKS5 TCP Cert"
+      - "VLESS TCP"
+      - "Trojan TCP"
+      - "VMess TCP"
+      - "SS2022 TCP"
+
+    url: "http://connect.rom.miui.com/generate_204"
+    interval: 300
+
+# ---------- 规则 ----------
+rules:
+  # 阻止访问 IPv6 网站（当前开发环境没有 IPv6，避免一直 warning 一直输出连接失败）
+  - IP-CIDR6,::/0,REJECT
+  # 局域网直连（避免代理回环）
+  - IP-CIDR,192.168.0.0/16,DIRECT
+  - IP-CIDR,10.0.0.0/8,DIRECT
+  - IP-CIDR,172.16.0.0/12,DIRECT
+  - IP-CIDR,127.0.0.0/8,DIRECT
+
+  - MATCH,PrismPreview-Active

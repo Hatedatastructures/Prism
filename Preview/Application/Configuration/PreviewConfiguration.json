@@ -1,0 +1,97 @@
+{
+    "SchemaVersion": 1,
+    "Runtime": {
+        "WorkerCount": 2,
+        "RequiredCapabilities": [],
+        "SessionTimeout": 30000
+    },
+    "Listeners": {
+        "Tcp": [
+            {
+                "Id": "tcp-main",
+                "Address": "127.0.0.1",
+                "Port": 1080,
+                "Timeout": 5000
+            }
+        ],
+        "Udp": [
+            {
+                "Id": "udp-main",
+                "Address": "127.0.0.1",
+                "Port": 1080,
+                "Timeout": 5000
+            }
+        ],
+        "Quic": [],
+        "Timeout": 5000
+    },
+    "NativeTls": {
+        "Enabled": false,
+        "CertificateFile": "",
+        "PrivateKeyFile": ""
+    },
+    "Builtins": [],
+    "Protocols": [
+        {
+            "Id": "protocol-socks5",
+            "Name": "socks5",
+            "Builtin": "socks5",
+            "Requires": []
+        }
+    ],
+    "Carriers": [],
+    "ProtocolBindings": [
+        {
+            "Id": "binding-socks5",
+            "ProtocolId": "protocol-socks5",
+            "TcpEnabled": true,
+            "UdpEnabled": false,
+            "MuxModes": [],
+            "Priority": 0,
+            "Recognition": {}
+        }
+    ],
+    "Accounts": [
+        {
+            "Id": "local",
+            "SecretRef": "",
+            "Credential": "local-token"
+        }
+    ],
+    "Routes": [],
+    "Dns": {
+        "Servers": ["1.1.1.1"],
+        "Timeout": 1000
+    },
+    "Logging": {
+        "Level": "Info",
+        "Directory": "logs",
+        "FileName": "preview.log",
+        "Console": false,
+        "RotateBytes": 67108864,
+        "RotateFiles": 8,
+        "FlushIntervalMs": 250
+    },
+    "Trace": {
+        "IncludeCorrelation": true,
+        "IncludeWorker": true,
+        "IncludeSession": true,
+        "IncludeStream": false
+    },
+    "Statistics": {
+        "Enabled": true,
+        "Interval": 1000
+    },
+    "Operations": {
+        "Enabled": true,
+        "Endpoint": "127.0.0.1:9090",
+        "Timeout": 1000
+    },
+    "HotReload": {
+        "Enabled": true,
+        "AckTimeout": 5000
+    },
+    "Shutdown": {
+        "Timeout": 5000
+    }
+}

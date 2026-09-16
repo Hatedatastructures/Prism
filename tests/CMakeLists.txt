@@ -32,7 +32,7 @@ function(AddTestExecutable source_file test_mode support_target main_source)
     if("${test_mode}" STREQUAL "Preview")
         target_include_directories(${test_name} BEFORE PRIVATE
             ${CMAKE_SOURCE_DIR}/tests
-            ${CMAKE_SOURCE_DIR}/preview)
+            ${CMAKE_SOURCE_DIR}/Preview)
     else()
         target_include_directories(${test_name} BEFORE PRIVATE
             ${CMAKE_SOURCE_DIR}/tests
@@ -62,10 +62,16 @@ function(AddTestExecutable source_file test_mode support_target main_source)
     # 不得硬编码开发者本机 MSYS2 路径（CI 的 MinGW 位于 C:/mingw64/bin，
     # 硬编码会使测试进程 PATH 无法解析 DLL → 0xc0000135），
     # 从编译器位置推导运行时 DLL 目录
+    if("${test_name}" STREQUAL "SessionLifecycleTest")
+        set(_test_prefix TEST_PREFIX "SessionLifecycleTest.")
+    else()
+        set(_test_prefix)
+    endif()
     if(MINGW)
         set_target_properties(${test_name} PROPERTIES CROSSCOMPILING_EMULATOR "")
         get_filename_component(_test_runtime_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
         gtest_discover_tests(${test_name}
+            ${_test_prefix}
             PROPERTIES TIMEOUT 60
                        ${_test_labels}
                        ENVIRONMENT "PATH=${_test_runtime_bin};C:/Windows/System32;C:/Windows"
@@ -74,6 +80,7 @@ function(AddTestExecutable source_file test_mode support_target main_source)
         # 非 MinGW：继承执行环境 PATH（注入 Windows 风格 PATH 会毁掉
         # Linux 测试进程的共享库解析）
         gtest_discover_tests(${test_name}
+            ${_test_prefix}
             PROPERTIES TIMEOUT 60
                        ${_test_labels}
             DISCOVERY_MODE PRE_TEST)
@@ -180,7 +187,7 @@ function(AssertProductionSourceBoundaries)
             message(FATAL_ERROR "Production test source does not exist: ${_source}")
         endif()
         file(READ "${_source}" _content)
-        if(_content MATCHES "#[ \t]*include[ \t]*[<\"]preview/")
+        if(_content MATCHES "#[ \t]*include[ \t]*[<\"]Preview/")
             message(FATAL_ERROR
                 "Production test source directly includes Preview headers: ${_source}")
         endif()
@@ -193,7 +200,7 @@ endfunction()
 function(AssertProductionFoundationBoundaries)
     file(READ "${CMAKE_SOURCE_DIR}/include/prism/foundation/fault/handling.hpp"
          _production_fault_handling)
-    if(_production_fault_handling MATCHES "prism\\.protocol|<preview/|Preview::")
+    if(_production_fault_handling MATCHES "prism\\.protocol|<Preview/|Preview::")
         message(FATAL_ERROR
             "Production Foundation must not depend on Preview protocol categories: "
             "include/prism/foundation/fault/handling.hpp")
@@ -202,7 +209,7 @@ function(AssertProductionFoundationBoundaries)
 endfunction()
 
 function(AssertPreviewProductionBoundaries)
-    get_property(_preview_targets DIRECTORY "${CMAKE_SOURCE_DIR}/preview" PROPERTY BUILDSYSTEM_TARGETS)
+    get_property(_preview_targets DIRECTORY "${CMAKE_SOURCE_DIR}/Preview" PROPERTY BUILDSYSTEM_TARGETS)
     foreach(_target IN LISTS _preview_targets)
         if(NOT _target MATCHES "^Preview" OR
            _target MATCHES "^PreviewTestSupport$")
@@ -220,11 +227,11 @@ function(AssertPreviewProductionBoundaries)
 endfunction()
 
 function(AssertPreviewDnsResolverBoundaries)
-    file(READ "${CMAKE_SOURCE_DIR}/preview/Net/Dns/Resolver.hpp" _preview_resolver_source)
+    file(READ "${CMAKE_SOURCE_DIR}/Preview/Net/Dns/Resolver.hpp" _preview_resolver_source)
     if(_preview_resolver_source MATCHES "\\[this, *&name")
         message(FATAL_ERROR
             "Preview DNS OS resolver must not capture Resolver or borrowed name: "
-            "preview/Net/Dns/Resolver.hpp")
+            "Preview/Net/Dns/Resolver.hpp")
     endif()
     message(STATUS "AssertPreviewDnsResolverBoundaries passed: OS resolver captures are value-owned")
 endfunction()
@@ -240,11 +247,11 @@ function(AssertProductionDnsConcurrentBoundaries)
 endfunction()
 
 function(AssertPreviewIdentityTrafficBoundaries)
-    file(READ "${CMAKE_SOURCE_DIR}/preview/Runtime/Statistics.hpp" _statistics_source)
+    file(READ "${CMAKE_SOURCE_DIR}/Preview/Runtime/Statistics.hpp" _statistics_source)
     string(FIND "${_statistics_source}" "class IdentityTraffic" _identity_start)
     string(FIND "${_statistics_source}" "class TrafficCounter" _identity_end)
     if(_identity_start LESS 0 OR _identity_end LESS 0 OR _identity_end LESS _identity_start)
-        message(FATAL_ERROR "Cannot locate IdentityTraffic section in preview/Runtime/Statistics.hpp")
+        message(FATAL_ERROR "Cannot locate IdentityTraffic section in Preview/Runtime/Statistics.hpp")
     endif()
     math(EXPR _identity_length "${_identity_end} - ${_identity_start}")
     string(SUBSTRING "${_statistics_source}" ${_identity_start} ${_identity_length}
@@ -252,7 +259,7 @@ function(AssertPreviewIdentityTrafficBoundaries)
     if(_identity_section MATCHES "std::mutex|lock_guard|scoped_lock|unique_lock")
         message(FATAL_ERROR
             "IdentityTraffic must use atomic COW snapshots without blocking locks: "
-            "preview/Runtime/Statistics.hpp")
+            "Preview/Runtime/Statistics.hpp")
     endif()
     message(STATUS "AssertPreviewIdentityTrafficBoundaries passed: IdentityTraffic is lock-free COW")
 endfunction()
@@ -268,7 +275,7 @@ function(AssertMuxAsyncDriverBoundaries)
 endfunction()
 
 function(AssertStealthExecutorAsyncBoundaries)
-    file(READ "${CMAKE_SOURCE_DIR}/tests/preview/protocols/stealth/executor/StealthExecutorDeep3.cpp"
+    file(READ "${CMAKE_SOURCE_DIR}/tests/Preview/protocols/stealth/executor/StealthExecutorDeep3.cpp"
          _stealth_executor_source)
     if(_stealth_executor_source MATCHES "\\[&\\][ \\t]*\\([ \\t]*\\)[ \\t]*->[ \\t]*net::awaitable")
         message(FATAL_ERROR
@@ -287,7 +294,7 @@ function(AssertContractAsyncBoundaries)
 endfunction()
 
 function(AssertMuxWriteAsyncBoundaries)
-    file(READ "${CMAKE_SOURCE_DIR}/tests/preview/protocols/mux/core/MuxWriteContract.cpp"
+    file(READ "${CMAKE_SOURCE_DIR}/tests/Preview/protocols/mux/core/MuxWriteContract.cpp"
          _mux_write_source)
     if(_mux_write_source MATCHES "\\[[^]]*\\][ \\t]*\\([^)]*\\)[ \\t]*->[ \\t]*net::awaitable")
         message(FATAL_ERROR
@@ -310,7 +317,7 @@ add_subdirectory(foundation)
 add_subdirectory(runtime)
 add_subdirectory(settings)
 add_subdirectory(infrastructure)
-add_subdirectory(preview)
+add_subdirectory(Preview)
 add_subdirectory(integration)
 add_subdirectory(concurrency)
 add_subdirectory(stress)
@@ -338,6 +345,12 @@ if(GO_EXECUTABLE AND MINGW)
     set(_GoSrcDir ${CMAKE_CURRENT_SOURCE_DIR}/go)
     set(_GoBinDir ${CMAKE_BINARY_DIR}/tests/go)
     file(MAKE_DIRECTORY ${_GoBinDir})
+    add_test(NAME PreviewClientConfigValidation
+        COMMAND ${GO_EXECUTABLE} test ./previewclient)
+    set_tests_properties(PreviewClientConfigValidation PROPERTIES
+        WORKING_DIRECTORY ${_GoSrcDir}
+        TIMEOUT 60
+        LABELS "configuration;preview")
     set(_GoTestTargets)
 
     # --- handshake 方案字节级对照工具（纯逻辑，无 Prism 依赖） ---

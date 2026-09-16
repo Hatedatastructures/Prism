@@ -1,0 +1,2 @@
+AddPreviewTest(Task10StatisticsTest.cpp)
+target_link_libraries(Task10StatisticsTest PRIVATE PreviewStatistics)

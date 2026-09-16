@@ -1,0 +1,210 @@
+{
+    "SchemaVersion": 1,
+    "Runtime": {
+        "WorkerCount": 2,
+        "RequiredCapabilities": [],
+        "SessionTimeout": 30000
+    },
+    "Listeners": {
+        "Tcp": [
+            {
+                "Id": "tcp-lan",
+                "Address": "192.168.0.106",
+                "Port": 18080,
+                "Timeout": 5000
+            }
+        ],
+        "Udp": [],
+        "Quic": [],
+    "Timeout": 5000
+  },
+  "NativeTls": {
+    "Enabled": true,
+    "CertificateFile": "cert.pem",
+    "PrivateKeyFile": "key.pem"
+  },
+  "Builtins": [],
+    "Protocols": [
+        {
+            "Id": "protocol-http",
+            "Name": "http",
+            "Builtin": "http",
+            "Requires": []
+        },
+        {
+            "Id": "protocol-socks5",
+            "Name": "socks5",
+            "Builtin": "socks5",
+            "Requires": []
+        },
+        {
+            "Id": "protocol-vless",
+            "Name": "vless",
+            "Builtin": "vless",
+            "Requires": []
+        },
+        {
+            "Id": "protocol-trojan",
+            "Name": "trojan",
+            "Builtin": "trojan",
+            "Requires": []
+        },
+        {
+            "Id": "protocol-vmess",
+            "Name": "vmess",
+            "Builtin": "vmess",
+            "Requires": []
+        },
+        {
+            "Id": "protocol-shadowsocks2022",
+            "Name": "shadowsocks2022",
+            "Builtin": "shadowsocks2022",
+            "Requires": []
+        },
+        {
+            "Id": "protocol-anytls",
+            "Name": "anytls",
+            "Builtin": "anytls",
+            "Requires": []
+        }
+    ],
+    "Carriers": [
+        {
+            "Id": "carrier-native-anytls",
+            "Name": "native-anytls",
+            "Builtin": "native",
+            "Requires": [],
+            "Match": {
+                "ServerNames": ["www.cloudflare.com"],
+                "Alpn": ["h2"],
+                "Priority": 1,
+                "Fallback": false
+            },
+            "Options": {
+                "Type": "NativeTls",
+                "CertificateFile": "cert.pem",
+                "PrivateKeyFile": "key.pem"
+            }
+        }
+    ],
+    "ProtocolBindings": [
+        {
+            "Id": "binding-http",
+            "ProtocolId": "protocol-http",
+            "TcpEnabled": true,
+            "UdpEnabled": false,
+            "MuxModes": [],
+            "Priority": 0,
+            "Recognition": {}
+        },
+        {
+            "Id": "binding-socks5",
+            "ProtocolId": "protocol-socks5",
+            "TcpEnabled": true,
+            "UdpEnabled": false,
+            "MuxModes": [],
+            "Priority": 0,
+            "Recognition": {}
+        },
+        {
+            "Id": "binding-vless",
+            "ProtocolId": "protocol-vless",
+            "TcpEnabled": true,
+            "UdpEnabled": false,
+            "MuxModes": [],
+            "Priority": 0,
+            "Recognition": {}
+        },
+        {
+            "Id": "binding-trojan",
+            "ProtocolId": "protocol-trojan",
+            "TcpEnabled": true,
+            "UdpEnabled": false,
+            "MuxModes": [],
+            "Priority": 0,
+            "Recognition": {}
+        },
+        {
+            "Id": "binding-vmess",
+            "ProtocolId": "protocol-vmess",
+            "TcpEnabled": true,
+            "UdpEnabled": false,
+            "MuxModes": [],
+            "Priority": 0,
+            "Recognition": {}
+        },
+        {
+            "Id": "binding-shadowsocks2022",
+            "ProtocolId": "protocol-shadowsocks2022",
+            "TcpEnabled": true,
+            "UdpEnabled": false,
+            "MuxModes": [],
+            "Priority": 0,
+            "Recognition": {}
+        },
+        {
+            "Id": "binding-anytls",
+            "ProtocolId": "protocol-anytls",
+            "CarrierId": "carrier-native-anytls",
+            "TcpEnabled": true,
+            "UdpEnabled": false,
+            "MuxModes": [],
+            "Priority": 1,
+            "Recognition": {
+                "Domain": "www.cloudflare.com"
+            }
+        }
+    ],
+    "Accounts": [
+        {
+            "Id": "local",
+            "SecretRef": "",
+            "Credential": "PrismPreview-106-20260914",
+            "Credentials": {
+                "Http": "PrismPreview-106-20260914",
+                "Socks5": "PrismPreview-106-20260914",
+                "Vless": "123e4567-e89b-12d3-a456-426614174000",
+                "Trojan": "PrismPreview-106-20260914",
+                "Vmess": "123e4567-e89b-12d3-a456-426614174000",
+                "Shadowsocks2022": "5n5ESu953i/pjIp02oZvHA==",
+                "AnyTls": "anytls_password"
+            }
+        }
+    ],
+    "Routes": [],
+    "Dns": {
+        "Servers": ["223.5.5.5", "119.29.29.29", "1.1.1.1"],
+        "Timeout": 2000
+    },
+    "Logging": {
+        "Level": "Info",
+        "Directory": "logs",
+        "FileName": "preview-lan.log",
+        "Console": false,
+        "RotateBytes": 67108864,
+        "RotateFiles": 8,
+        "FlushIntervalMs": 250
+    },
+    "Trace": {
+        "IncludeCorrelation": true,
+        "IncludeWorker": true,
+        "IncludeSession": true,
+        "IncludeStream": false
+    },
+    "Statistics": {
+        "Enabled": true,
+        "Interval": 1000
+    },
+    "Operations": {
+        "Enabled": true,
+        "Endpoint": "127.0.0.1:19090",
+        "Timeout": 1000
+    },
+    "HotReload": {
+        "Enabled": true,
+        "AckTimeout": 5000
+    },
+    "Shutdown": {
+        "Timeout": 5000
+    }
+}

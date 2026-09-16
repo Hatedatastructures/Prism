@@ -31,9 +31,9 @@
 #include <span>
 #include <vector>
 
-#include <preview/Foundation/Error.hpp>
-#include <preview/Protocols/Quic/DatagramAdapter.hpp>
-#include <preview/Transport/Transmission.hpp>
+#include <Preview/Foundation/Error.hpp>
+#include <Preview/Protocols/Quic/DatagramAdapter.hpp>
+#include <Preview/Transport/Transmission.hpp>
 
 namespace Preview
 {
@@ -118,6 +118,16 @@ namespace Preview
                 }
                 if (ReadError_.has_value())
                 {
+                    const auto Count = (std::min)(ReadErrorBytes, Buffer.size());
+                    if (Count > 0 && ReadPos_ < ToRead.size())
+                    {
+                        const auto Available = (std::min)(Count, ToRead.size() - ReadPos_);
+                        std::memcpy(Buffer.data(), ToRead.data() + ReadPos_, Available);
+                        ReadPos_ += Available;
+                        ec = ReadError_.value();
+                        ReadError_.reset();
+                        co_return Available;
+                    }
                     ec = ReadError_.value();
                     ReadError_.reset();
                     co_return 0;
@@ -158,6 +168,15 @@ namespace Preview
             -> net::awaitable<std::size_t> override
         {
             ec.clear();
+            if (WriteError_.has_value())
+            {
+                const auto Count = (std::min)(WriteErrorBytes, Buffer.size());
+                const auto *Source = reinterpret_cast<const std::uint8_t *>(Buffer.data());
+                Written.insert(Written.end(), Source, Source + Count);
+                ec = WriteError_.value();
+                WriteError_.reset();
+                co_return Count;
+            }
             ++WritesDone;
             if (FailNextWrite || WritesDone == WriteFailAt || Closed_)
             {
@@ -234,6 +253,15 @@ namespace Preview
             Notify();
         }
 
+        /**
+         * @brief 注入下一次写入错误并可同时报告有效字节
+         * @param Error 写入错误码
+         */
+        void SetWriteError(std::error_code Error)
+        {
+            WriteError_ = Error;
+        }
+
         /// 读取字节流（由测试初始化；耗尽后等待事件）
         std::vector<std::uint8_t> ToRead;
         /// 捕获的全部写入数据
@@ -256,6 +284,10 @@ namespace Preview
         bool OverreportWrite{false};
         /// 读取返回超过请求长度（用于验证协议层的防御性检查）
         bool OverreportRead{false};
+        /// 下一次读取返回错误时一并报告的有效字节数
+        std::size_t ReadErrorBytes{0};
+        /// 下一次写入返回错误时一并报告的有效字节数
+        std::size_t WriteErrorBytes{0};
         /// 底层传输类型（Dgram 测试设为 Udp，默认 Tcp）
         Type TransportKind{Type::Tcp};
         /// 有限注入流耗尽后返回 EOF；false 时空读事件驱动等待
@@ -297,6 +329,7 @@ namespace Preview
         bool Shutdown_{false};
         bool Cancelled_{false};
         std::optional<std::error_code> ReadError_;
+        std::optional<std::error_code> WriteError_;
     };
 
     namespace Testing

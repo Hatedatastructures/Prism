@@ -111,6 +111,30 @@ jobs:
           }
           "path=$Path" >> $env:GITHUB_OUTPUT
 
+      - name: Run PrismPreview evidence runner when supplied
+        shell: pwsh
+        env:
+          PRISM_PREVIEW_EXE: ${{ vars.PRISM_PREVIEW_EXE }}
+          PRISM_PREVIEW_CONFIG: ${{ vars.PRISM_PREVIEW_CONFIG }}
+        run: |
+          New-Item -ItemType Directory -Force -Path build/preview-runner | Out-Null
+          if ([string]::IsNullOrWhiteSpace($env:PRISM_PREVIEW_EXE) -or
+              [string]::IsNullOrWhiteSpace($env:PRISM_PREVIEW_CONFIG)) {
+            [ordered]@{
+              schema = 'prism.preview-runner.v1'
+              status = 'environment-unavailable'
+              reason = 'PRISM_PREVIEW_EXE and PRISM_PREVIEW_CONFIG were not supplied'
+              mode = 'preview-only'
+            } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath build/preview-runner/summary.json -Encoding UTF8
+            Write-Host 'PrismPreview evidence blocked: executable/config variables were not supplied.'
+          } else {
+            pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/interop/Run-PrismPreview.ps1 `
+              -PrismPreviewExe $env:PRISM_PREVIEW_EXE `
+              -Config $env:PRISM_PREVIEW_CONFIG `
+              -OutputDirectory build/preview-runner
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
       - name: Run Interop Classifier Tests
         shell: pwsh
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/interop/InteropRunner.Tests.ps1
@@ -123,12 +147,12 @@ jobs:
         shell: pwsh
         run: |
           $Summary = Get-Content -Raw build/interop-results/summary.json | ConvertFrom-Json
-          Write-Host ("Interop evidence: scope={0}, production_prerequisite_included={1}, total={2}, pass={3}, blocked={4}, failed={5}" -f $Summary.scope, $Summary.production_prerequisite_included, $Summary.total, $Summary.pass, $Summary.blocked, $Summary.failed)
+          Write-Host ("Interop evidence: scope={0}, production_prerequisite_included={1}, total={2}, pass={3}, blocked={4}, production_blocked={5}, preview_only_blocked={6}, failed={7}" -f $Summary.scope, $Summary.production_prerequisite_included, $Summary.total, $Summary.pass, $Summary.blocked, $Summary.production_blocked, $Summary.preview_only_blocked, $Summary.failed)
           if ($Summary.scope -ne 'full' -or -not $Summary.production_prerequisite_included) {
             Write-Error 'Preview Gate D requires full interop scope with production prerequisite records'
             exit 1
           }
-          if ($Summary.failed -gt 0) { exit 1 }
+          if ($Summary.failed -gt 0 -or ($Summary.scope -eq 'full' -and $Summary.production_blocked -gt 0)) { exit 1 }
 
       - name: Upload Evidence
         if: always()
