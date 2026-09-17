@@ -11,6 +11,8 @@
 
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/post.hpp>
+#include <boost/asio/use_awaitable.hpp>
 
 #include <algorithm>
 #include <array>
@@ -251,6 +253,7 @@ namespace Preview::Shadowtls
                 Result.Status = Error::IoError;
                 co_return Result;
             }
+            co_await Net::post(Net::use_awaitable);
 
             auto StateValue = std::make_shared<State>();
             StateValue->Accepted = Client;
@@ -262,6 +265,51 @@ namespace Preview::Shadowtls
             {
                 Stop(StateValue, false);
                 Result.Status = ForwardError;
+                co_return Result;
+            }
+
+            // Complete the target's first flight before starting the bidirectional
+            // application relay. This makes the client-visible ServerHello
+            // deterministic and prevents a client read deadline from racing the
+            // target coroutine's first write.
+            std::vector<std::uint8_t> ServerHello;
+            const auto ServerHelloReadError = co_await Detail::ReadRecord(
+                StateValue->Target, ServerHello);
+            if (ServerHelloReadError != Error::None || ServerHello.size() < TlsHdrsize + 6 ||
+                ServerHello[5] != 2)
+            {
+                Stop(StateValue, false);
+                Result.Status = ServerHelloReadError == Error::None
+                                    ? Error::BadMessage
+                                    : ServerHelloReadError;
+                co_return Result;
+            }
+            ServerHelloRecord ParsedServerHello;
+            const auto ParseServerHelloError = ParseServerHelloRecord(ServerHello, ParsedServerHello);
+            if (ParseServerHelloError != Error::None)
+            {
+                Stop(StateValue, false);
+                Result.Status = ParseServerHelloError;
+                co_return Result;
+            }
+            StateValue->ServerRandom.assign(ParsedServerHello.Random.begin(),
+                                            ParsedServerHello.Random.end());
+            StateValue->ClientProtector.emplace(StateValue->Password, StateValue->ServerRandom,
+                                                TagClient);
+            StateValue->FlightProtector.emplace(StateValue->Password, StateValue->ServerRandom,
+                                                 TagServer, RecordSeed::ServerRandomOnly, true, false);
+            if (!StateValue->ClientProtector->IsValid() || !StateValue->FlightProtector->IsValid())
+            {
+                Stop(StateValue, false);
+                Result.Status = Error::IoError;
+                co_return Result;
+            }
+            const auto ServerHelloForwardError = co_await Detail::WriteAll(
+                StateValue->Client, ServerHello);
+            if (ServerHelloForwardError != Error::None)
+            {
+                Stop(StateValue, false);
+                Result.Status = ServerHelloForwardError;
                 co_return Result;
             }
 

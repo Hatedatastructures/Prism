@@ -51,8 +51,8 @@ namespace Preview::Gun
          * @brief 构造函数
          * @param Upstream 底层传输（所有权移交）
          */
-        explicit Conn(SharedTransmission Upstream)
-            : NextLayer_(std::move(Upstream))
+        explicit Conn(SharedTransmission Upstream, Config ConfigValue = {})
+            : NextLayer_(std::move(Upstream)), Config_(std::move(ConfigValue))
         {
         }
 
@@ -82,7 +82,16 @@ namespace Preview::Gun
             Handshaken_ = false;
             PendingWire_.clear();
             PendingOffset_ = 0;
-            const std::string Header = "CONNECT " + std::string(Host) + " HTTP/2\r\n\r\n";
+            std::string Header = "CONNECT " + std::string(Host) + " HTTP/2\r\n";
+            if (!Config_.Path.empty())
+            {
+                Header += ":path: " + Config_.Path + "\r\n";
+            }
+            if (!Config_.ServiceName.empty())
+            {
+                Header += ":service: " + Config_.ServiceName + "\r\n";
+            }
+            Header += "\r\n";
             if (co_await SendBytes(AsU8Span(Header)))
                 co_return Error::IoError;
             Handshaken_ = true;
@@ -129,6 +138,12 @@ namespace Preview::Gun
             if (HostEnd == std::string::npos || HostEnd > FirstLineEnd || HostEnd == 8)
                 co_return Error::BadMagic;
             Host = Header.substr(8, HostEnd - 8);
+            if ((!Config_.Path.empty() && HeaderValue(Header, ":path") != Config_.Path) ||
+                (!Config_.ServiceName.empty() &&
+                 HeaderValue(Header, ":service") != Config_.ServiceName))
+            {
+                co_return Error::BadMagic;
+            }
             PreserveHandshakeTail(Header, HeaderEnd + 4);
             Handshaken_ = true;
             co_return Error::None;
@@ -269,7 +284,36 @@ namespace Preview::Gun
             }
         }
 
+        [[nodiscard]] static auto HeaderValue(std::string_view Header,
+                                               std::string_view Name) noexcept
+            -> std::string_view
+        {
+            std::size_t Begin = 0;
+            while (Begin < Header.size())
+            {
+                const auto End = Header.find("\r\n", Begin);
+                if (End == std::string_view::npos)
+                {
+                    return {};
+                }
+                const auto Line = Header.substr(Begin, End - Begin);
+                const auto Prefix = std::string(Name) + ":";
+                if (Line.starts_with(Prefix))
+                {
+                    auto Value = Line.substr(Prefix.size());
+                    while (!Value.empty() && (Value.front() == ' ' || Value.front() == '\t'))
+                    {
+                        Value.remove_prefix(1);
+                    }
+                    return Value;
+                }
+                Begin = End + 2;
+            }
+            return {};
+        }
+
         SharedTransmission NextLayer_;  ///< 底层传输（独占所有权）
+        Config Config_;
         bool Handshaken_{false};          ///< 握手完成标志
         std::vector<std::byte> PendingWire_; ///< 握手读取时回注的后续数据
         std::size_t PendingOffset_{0};       ///< 回注数据消费位置

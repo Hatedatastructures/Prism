@@ -1,2 +1,5 @@
 AddPreviewTest(GunCodecDeep.cpp)
 target_link_libraries(GunCodecDeep PRIVATE PreviewProtocolGun PreviewTestSupport)
+
+AddPreviewTest(GunGrpcContractTest.cpp)
+target_link_libraries(GunGrpcContractTest PRIVATE PreviewProtocolGun PreviewProtocolHttp2 PreviewTestSupport)

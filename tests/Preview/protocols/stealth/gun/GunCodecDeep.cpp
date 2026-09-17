@@ -143,4 +143,35 @@ namespace
         EXPECT_TRUE(IsValid);
     }
 
+    TEST(GunCodecDeep, EnforcesConfiguredPathAndServiceHeaders)
+    {
+        Net::io_context IoContext;
+        auto [Client, Server] = MakeMemoryPair(IoContext.get_executor());
+        bool IsValid = false;
+
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    auto ServerTransport = std::make_shared<MemoryStream>(std::move(Server));
+                    auto Connection = std::make_shared<Gun::Conn<>>(
+                        std::move(ServerTransport), Gun::Config{"/GunService/Tun", "GunService"});
+                    const std::string Wire =
+                        "CONNECT example.com HTTP/2\r\n"
+                        ":path: /GunService/Tun\r\n"
+                        ":service: GunService\r\n\r\n";
+                    std::error_code WriteError;
+                    const auto WireBytes = AsU8Span(Wire);
+                    co_await Client.async_write_some(AsBytes(WireBytes), WriteError);
+                    EXPECT_FALSE(WriteError);
+                    Client.Shutdown();
+
+                    std::string Host;
+                    const auto HandshakeError = co_await Connection->ReadHandshake(Host);
+                    IsValid = HandshakeError == Error::None && Host == "example.com";
+                    Connection->Close();
+                });
+
+        EXPECT_TRUE(IsValid);
+    }
+
 } // namespace

@@ -197,10 +197,20 @@ namespace
             Ioc, Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 0));
         const auto ServerEndpoint = ServerSocket->local_endpoint();
 
-        auto Server = std::make_shared<Preview::Quic::Server>(Preview::Quic::ServerOptions{
-            Ioc.get_executor(), ServerSocket, ServerTls.native_handle()});
-        auto Client = std::make_shared<Preview::Quic::Client>(Preview::Quic::ClientOptions{
-            Ioc.get_executor(), ClientSocket, ServerEndpoint, ClientTls.native_handle(), "localhost"});
+        Preview::Quic::ServerOptions ServerOptions;
+        ServerOptions.Executor = Ioc.get_executor();
+        ServerOptions.Socket = ServerSocket;
+        ServerOptions.TlsContext = ServerTls.native_handle();
+        ServerOptions.ExpectedAlpn = "h3";
+        auto Server = std::make_shared<Preview::Quic::Server>(ServerOptions);
+
+        Preview::Quic::ClientOptions ClientOptions;
+        ClientOptions.Executor = Ioc.get_executor();
+        ClientOptions.Socket = ClientSocket;
+        ClientOptions.Peer = ServerEndpoint;
+        ClientOptions.TlsContext = ClientTls.native_handle();
+        ClientOptions.ServerName = "localhost";
+        auto Client = std::make_shared<Preview::Quic::Client>(ClientOptions);
 
         RunLoopback(
             Ioc,
@@ -357,10 +367,20 @@ namespace
         auto ClientSocket = std::make_shared<Net::ip::udp::socket>(
             Ioc, Net::ip::udp::endpoint(Net::ip::address_v4::loopback(), 0));
         const auto ServerEndpoint = ServerSocket->local_endpoint();
-        auto Server = std::make_shared<Preview::Quic::Server>(Preview::Quic::ServerOptions{
-            Ioc.get_executor(), ServerSocket, ServerTls.native_handle()});
-        auto Client = std::make_shared<Preview::Quic::Client>(Preview::Quic::ClientOptions{
-            Ioc.get_executor(), ClientSocket, ServerEndpoint, ClientTls.native_handle(), "localhost"});
+        Preview::Quic::ServerOptions ServerOptions;
+        ServerOptions.Executor = Ioc.get_executor();
+        ServerOptions.Socket = ServerSocket;
+        ServerOptions.TlsContext = ServerTls.native_handle();
+        ServerOptions.ExpectedAlpn = "h3";
+        auto Server = std::make_shared<Preview::Quic::Server>(ServerOptions);
+
+        Preview::Quic::ClientOptions ClientOptions;
+        ClientOptions.Executor = Ioc.get_executor();
+        ClientOptions.Socket = ClientSocket;
+        ClientOptions.Peer = ServerEndpoint;
+        ClientOptions.TlsContext = ClientTls.native_handle();
+        ClientOptions.ServerName = "localhost";
+        auto Client = std::make_shared<Preview::Quic::Client>(ClientOptions);
 
         RunLoopback(
             Ioc,

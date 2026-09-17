@@ -179,6 +179,21 @@ namespace Preview::Application::Configuration
                 }
             }
 
+            for (std::size_t Index = 0; Index < Options.Configuration.Protocols.size(); ++Index)
+            {
+                const auto &Protocol = Options.Configuration.Protocols[Index];
+                if (Protocol.Quic)
+                {
+                    if (const auto Error = AddSecret(
+                            Protocol.Quic->CredentialSecretRef,
+                            "Protocols[" + std::to_string(Index) + "].Quic.CredentialSecretRef");
+                        Error)
+                    {
+                        return std::unexpected(*Error);
+                    }
+                }
+            }
+
             return SharedConfigurationGeneration(new ConfigurationGeneration(
                 ConfigurationGenerationData{
                     Options.Generation,

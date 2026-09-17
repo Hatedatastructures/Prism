@@ -35,14 +35,21 @@ func readHandshake(reader *bufio.Reader) error {
 	if !strings.HasPrefix(header, "CONNECT ") || !strings.Contains(header, " HTTP/2\r\n") {
 		return fmt.Errorf("invalid gun-lite handshake")
 	}
-	blank, err := reader.ReadString('\n')
-	if err != nil {
-		return err
+	for {
+		line, readErr := reader.ReadString('\n')
+		if readErr != nil {
+			return readErr
+		}
+		if line == "\r\n" {
+			return nil
+		}
+		// Preview's gun contract carries the configured gRPC path and service
+		// as HTTP/2-style pseudo headers; the reference client may omit them.
+		if strings.HasPrefix(line, ":path: ") || strings.HasPrefix(line, ":service: ") {
+			continue
+		}
+		return fmt.Errorf("invalid gun-lite header line")
 	}
-	if blank != "\r\n" {
-		return fmt.Errorf("invalid gun-lite header terminator")
-	}
-	return nil
 }
 
 func runServer(addr string) error {

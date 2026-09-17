@@ -499,6 +499,7 @@ namespace
   "Options": {
     "Type": "Gun",
     "ServerNames": ["www.example.com"],
+    "Mode": "Grpc",
     "Path": "/GunService/Tun",
     "ServiceName": "GunService"
   }
@@ -534,6 +535,65 @@ namespace
                       Parsed->Carriers[1].Options)
                       .PasswordSecretRef,
                   "secret/shadowtls/password");
+        const auto &Gun = std::get<Preview::Application::Configuration::GunOptions>(
+            Parsed->Carriers[5].Options);
+        EXPECT_EQ(Gun.Path, "/GunService/Tun");
+        EXPECT_EQ(Gun.ServiceName, "GunService");
+        EXPECT_EQ(Gun.Mode, "Grpc");
+        const auto &Xhttp = std::get<Preview::Application::Configuration::XhttpOptions>(
+            Parsed->Carriers[4].Options);
+        EXPECT_EQ(Xhttp.Path, "/xhttp");
+        EXPECT_EQ(Xhttp.Host, "www.example.com");
+        EXPECT_EQ(Xhttp.Mode, "StreamOne");
+    }
+
+    TEST(PreviewTask4Configuration, AcceptsXhttpModes)
+    {
+        constexpr std::string_view XhttpOnly = R"json(
+{
+  "Id": "carrier-xhttp",
+  "Name": "xhttp",
+  "Builtin": "xhttp",
+  "Requires": [],
+  "Match": {"ServerNames": ["www.xhttp.example.com"]},
+  "Options": {
+    "Type": "Xhttp",
+    "Path": "/xhttp",
+    "Host": "www.example.com",
+    "Mode": "StreamOne"
+  }
+}
+)json";
+        const auto Parsed = Parser::Parse(
+            {.Json = MakeConfigurationJson(NativeProtocol, XhttpOnly, {}),
+             .Options = {.CheckSecrets = false}});
+        ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
+        for (const auto Mode : {"StreamOne", "StreamUp", "PacketUp"})
+        {
+            auto Configuration = *Parsed;
+            std::get<Preview::Application::Configuration::XhttpOptions>(
+                Configuration.Carriers[0].Options)
+                .Mode = Mode;
+            const auto Result = Parser::Validate(
+                Preview::Application::Configuration::ValidationRequest{
+                    Configuration,
+                    Preview::Application::Configuration::ValidationOptions{
+                        .CheckSecrets = false, .CheckCapabilities = false}});
+            EXPECT_TRUE(Result.has_value()) << Mode;
+        }
+
+        auto InvalidConfiguration = *Parsed;
+        std::get<Preview::Application::Configuration::XhttpOptions>(
+            InvalidConfiguration.Carriers[0].Options)
+            .Mode = "Unknown";
+        const auto InvalidResult = Parser::Validate(
+            Preview::Application::Configuration::ValidationRequest{
+                InvalidConfiguration,
+                Preview::Application::Configuration::ValidationOptions{
+                    .CheckSecrets = false, .CheckCapabilities = false}});
+        ASSERT_FALSE(InvalidResult.has_value());
+        EXPECT_EQ(InvalidResult.error().Path, "Carriers[0].Options.Mode");
+        EXPECT_EQ(InvalidResult.error().Code, ConfigurationErrorCode::InvalidValue);
     }
 
     TEST(PreviewTask4Configuration, RejectsLegacyRealityFieldNames)
@@ -574,6 +634,20 @@ namespace
         EXPECT_EQ(Binding.Recognition.Pattern, "example.com");
         EXPECT_EQ(Binding.Recognition.Domain, "example.com");
         EXPECT_TRUE(Binding.Recognition.Fallback);
+    }
+
+    TEST(PreviewTask4Configuration, ParsesTopLevelRecognitionMode)
+    {
+        const auto Json = ReplaceFirst(
+            std::string(ValidJson),
+            "  \"ProtocolBindings\": [],",
+            "  \"ProtocolBindings\": [],\n  \"Recognition\": {\"Mode\": \"Configured\", \"ConfiguredCandidate\": 1},");
+        const auto Parsed = Parser::Parse(
+            {.Json = Json, .Options = {.CheckSecrets = false}});
+
+        ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
+        EXPECT_EQ(Parsed->Recognition.Mode, "Configured");
+        EXPECT_EQ(Parsed->Recognition.ConfiguredCandidate, 1);
     }
 
     TEST(PreviewTask4Configuration, AllowsAnyTlsAsAProtocolWithoutAnyTlsCarrier)
@@ -1938,12 +2012,49 @@ namespace
         EXPECT_EQ(Result.error().Path, "ProtocolBindings[0].MuxModes");
     }
 
+    TEST(PreviewTask3Generation, RejectsUnimplementedPhysicalMuxProfiles)
+    {
+        GenerationBuildOptions Options;
+        Options.Configuration = MakeBoundProtocolConfiguration({"socks5", true, false, {"4C64S"}});
+        Options.Builtins = MakeDescriptorSnapshot({
+            "protocol", "socks5",
+            CapabilitySet{Capability::Stream, Capability::Datagram, Capability::Multiplex}, {}});
+
+        const auto Result = GenerationBuilder::Build(std::move(Options));
+
+        ASSERT_FALSE(Result.has_value());
+        EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::InvalidValue);
+        EXPECT_EQ(Result.error().Path, "ProtocolBindings[0].MuxModes[0]");
+    }
+
+    TEST(PreviewTask3Generation, AcceptsH2MuxWhenProtocolProvidesMultiplex)
+    {
+        GenerationBuildOptions Options;
+        Options.Configuration = MakeBoundProtocolConfiguration({"socks5", true, false, {"H2Mux"}});
+        Options.Builtins = MakeDescriptorSnapshot({
+            "protocol", "socks5",
+            CapabilitySet{Capability::Stream, Capability::Datagram, Capability::Multiplex}, {}});
+
+        const auto Result = GenerationBuilder::Build(std::move(Options));
+
+        ASSERT_TRUE(Result.has_value()) << Result.error().Message;
+    }
+
     TEST(PreviewTask3Generation, AcceptsQuicProtocolDescriptorForUdpBinding)
     {
         GenerationBuildOptions Options;
         Options.Configuration = MakeBoundProtocolConfiguration({"hysteria2", false, true, {}});
+        Options.Configuration.Protocols.back().Quic =
+            ProtocolConfiguration::QuicOptions{
+                "h3", "quic.example", "secret/quic/password", 32, 64};
         Options.Builtins = MakeDescriptorSnapshot({
             "protocol", "hysteria2", CapabilitySet{Capability::Quic}, {}});
+        Options.SecretResolver = [](std::string_view Reference) -> std::optional<std::string>
+        {
+            return Reference == "secret/quic/password"
+                       ? std::optional<std::string>{"quic-password"}
+                       : std::nullopt;
+        };
 
         const auto Result = GenerationBuilder::Build(std::move(Options));
 
@@ -1954,8 +2065,17 @@ namespace
     {
         GenerationBuildOptions Options;
         Options.Configuration = MakeBoundProtocolConfiguration({"hysteria2", true, false, {}});
+        Options.Configuration.Protocols.back().Quic =
+            ProtocolConfiguration::QuicOptions{
+                "h3", "quic.example", "secret/quic/password", 32, 64};
         Options.Builtins = MakeDescriptorSnapshot({
             "protocol", "hysteria2", CapabilitySet{Capability::Quic}, {}});
+        Options.SecretResolver = [](std::string_view Reference) -> std::optional<std::string>
+        {
+            return Reference == "secret/quic/password"
+                       ? std::optional<std::string>{"quic-password"}
+                       : std::nullopt;
+        };
         ASSERT_NE(Options.Builtins, nullptr);
         const auto *Descriptor = Options.Builtins->Find(Preview::BuiltinId{1});
         ASSERT_NE(Descriptor, nullptr);
@@ -2019,6 +2139,74 @@ namespace
         Snapshot.reset();
         EXPECT_FALSE(SnapshotPin.expired());
         EXPECT_NE((*Result)->Builtins(), nullptr);
+    }
+
+    TEST(PreviewQuicConfiguration, BuildsHysteriaCredentialContextPerGeneration)
+    {
+        auto Configuration = ParseValid();
+        Configuration.Protocols.clear();
+        Configuration.Protocols.push_back(ProtocolConfiguration{
+            "protocol-hysteria2",
+            "hysteria2",
+            "hysteria2",
+            {},
+            ProtocolConfiguration::QuicOptions{
+                "h3", "quic.example", "secret/hysteria/password", 32, 64}});
+        Configuration.ProtocolBindings.clear();
+        ProtocolBindingConfiguration Binding;
+        Binding.Id = "binding-hysteria2";
+        Binding.ProtocolId = "protocol-hysteria2";
+        Binding.TcpEnabled = false;
+        Binding.UdpEnabled = true;
+        Configuration.ProtocolBindings.push_back(std::move(Binding));
+
+        GenerationBuildOptions Options;
+        Options.Configuration = std::move(Configuration);
+        Options.Builtins = MakeStaticBuiltinSnapshot();
+        Options.SecretResolver = [](std::string_view Reference) -> std::optional<std::string>
+        {
+            if (Reference == "secret/hysteria/password")
+            {
+                return "hysteria-password";
+            }
+            return std::nullopt;
+        };
+        const auto Result = GenerationBuilder::Build(std::move(Options));
+
+        ASSERT_TRUE(Result.has_value()) << Result.error().Message;
+        ASSERT_TRUE((*Result)->Configuration().Protocols.front().Quic.has_value());
+        EXPECT_EQ((*Result)->Configuration().Protocols.front().Quic->Alpn, "h3");
+        EXPECT_EQ((*Result)->LookupSecret("secret/hysteria/password").size(), 17U);
+    }
+
+    TEST(PreviewQuicConfiguration, RejectsMissingOrWrongHysteriaCredentialAndAlpn)
+    {
+        auto Configuration = ParseValid();
+        Configuration.Protocols.clear();
+        Configuration.Protocols.push_back(ProtocolConfiguration{
+            "protocol-hysteria2", "hysteria2", "hysteria2", {},
+            ProtocolConfiguration::QuicOptions{
+                "h2", "quic.example", "secret/hysteria/password", 32, 64}});
+        Configuration.ProtocolBindings.clear();
+        ProtocolBindingConfiguration Binding;
+        Binding.Id = "binding-hysteria2";
+        Binding.ProtocolId = "protocol-hysteria2";
+        Binding.TcpEnabled = false;
+        Binding.UdpEnabled = true;
+        Configuration.ProtocolBindings.push_back(std::move(Binding));
+
+        GenerationBuildOptions Options;
+        Options.Configuration = std::move(Configuration);
+        Options.Builtins = MakeStaticBuiltinSnapshot();
+        Options.SecretResolver = [](std::string_view) -> std::optional<std::string>
+        {
+            return std::nullopt;
+        };
+        const auto Result = GenerationBuilder::Build(std::move(Options));
+
+        ASSERT_FALSE(Result.has_value());
+        EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::InvalidValue);
+        EXPECT_EQ(Result.error().Path, "Protocols[0].Quic.Alpn");
     }
 
 } // namespace

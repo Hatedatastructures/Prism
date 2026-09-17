@@ -155,7 +155,10 @@ namespace Preview::Ws
          * @param Key 输出客户端 Sec-WebSocket-Key
          * @return 错误码；bad_magic = 非 Upgrade 请求
          */
-        [[nodiscard]] auto ReadHandshake(std::string &Key) -> Net::awaitable<Error>
+        [[nodiscard]] auto ReadHandshake(std::string &Key,
+                                         std::string_view ExpectedPath = {},
+                                         std::string_view ExpectedHost = {})
+            -> Net::awaitable<Error>
         {
             if (!NextLayer_)
             {
@@ -193,13 +196,26 @@ namespace Preview::Ws
                 !IsGetRequest(std::string_view(Header).substr(0, RequestEnd)))
                 co_return Error::BadMagic;
 
+            const auto RequestLine = std::string_view(Header).substr(0, RequestEnd);
+            const auto TargetEnd = RequestLine.find(' ', 4);
+            if (TargetEnd == std::string_view::npos || TargetEnd <= 4)
+            {
+                co_return Error::BadMagic;
+            }
+            if (!ExpectedPath.empty() && RequestLine.substr(4, TargetEnd - 4) != ExpectedPath)
+            {
+                co_return Error::BadMagic;
+            }
+
             const auto Upgrade = HeaderValue(Header, "Upgrade");
             const auto Connection = HeaderValue(Header, "Connection");
+            const auto Host = HeaderValue(Header, "Host");
             const auto KeyHeader = HeaderValue(Header, "Sec-WebSocket-Key");
             const auto Version = HeaderValue(Header, "Sec-WebSocket-Version");
             if (!Upgrade || !ContainsToken(*Upgrade, "websocket") || !Connection ||
                 !ContainsToken(*Connection, "upgrade") || !KeyHeader || KeyHeader->empty() ||
-                !Version || *Version != "13")
+                !Version || *Version != "13" ||
+                (!ExpectedHost.empty() && (!Host || !EqualInsensitive(Trim(*Host), ExpectedHost))))
                 co_return Error::BadMagic;
             Key = std::string(*KeyHeader);
 

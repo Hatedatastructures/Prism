@@ -9,6 +9,7 @@
 #include <boost/asio/detached.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/steady_timer.hpp>
+#include <boost/asio/ssl.hpp>
 #include <boost/asio/use_awaitable.hpp>
 #include <boost/system/error_code.hpp>
 
@@ -24,10 +25,13 @@
 #include <vector>
 
 #include <Preview/Composition/Recognition/TlsCandidateFactory.hpp>
+#include <Preview/Composition/Recognition/ShadowtlsCarrier.hpp>
 #include <Preview/Composition/Recognition/CandidateFactory.hpp>
 #include <Preview/Composition/Recognition/CandidateRegistry.hpp>
 #include <Preview/Protocols/Shadowtls/Server.hpp>
 #include <Preview/Protocols/Anytls/Anytls.hpp>
+#include <Preview/Protocols/Gun/Gun.hpp>
+#include <Preview/Protocols/Xhttp/Xhttp.hpp>
 #include <Preview/Protocols/Ws/Ws.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Runtime/Recognition/Recognition.hpp>
@@ -820,6 +824,57 @@ namespace
         EXPECT_EQ(Result.Commit.Metadata.Carrier, "shadowtls");
     }
 
+    TEST(RecognitionCarrier, ShadowtlsConfiguredCarrierRequiresDialContextAndDestination)
+    {
+        Composition::ShadowtlsCarrierOptions Options;
+        Options.HandshakeDest = "target.example:443";
+        Options.Password = "shadowtls-test-password";
+
+        EXPECT_FALSE(Composition::MakeConfiguredShadowtlsServerAccept(Options).has_value());
+
+        Options.Dial = [](const Preview::Network::Target &)
+            -> Net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
+        {
+            co_return std::pair{Preview::Fault::Code::NotSupported,
+                                Preview::SharedTransmission{}};
+        };
+        const auto Accept = Composition::MakeConfiguredShadowtlsServerAccept(std::move(Options));
+        ASSERT_TRUE(Accept.has_value());
+
+        Composition::TlsCandidateOptions Candidate;
+        Candidate.Id = 32;
+        Candidate.Name = "shadowtls-configured";
+        Candidate.Scheme = "shadowtls";
+        const auto Binding = Composition::TlsCandidateFactory::Make(
+            std::move(Candidate), std::move(*Accept));
+        EXPECT_EQ(Binding.Spec.Scheme, "shadowtls");
+        EXPECT_TRUE(static_cast<bool>(Binding.Spec.Commit));
+    }
+
+    TEST(RecognitionCarrier, WebsocketServerAcceptFactoryRunsRealHandshake)
+    {
+        Composition::TlsCandidateOptions Options;
+        Options.Id = 31;
+        Options.Name = "ws-real";
+        Options.Scheme = "ws";
+        Options.ServerNames = {"edge.example"};
+        Options.Alpn = {"http/1.1"};
+        const auto Binding = Composition::TlsCandidateFactory::Make(
+            std::move(Options),
+            Composition::MakeWebsocketServerAccept(
+                Preview::Ws::ServerConfig{"/", "edge.example"}));
+
+        const auto Result = RunConcreteHandshake(
+            std::move(Binding), [](Preview::SharedTransmission Inbound)
+            {
+                return RunWsClient(std::move(Inbound), "edge.example");
+            });
+
+        EXPECT_EQ(Result.ClientError, Preview::Error::None);
+        EXPECT_EQ(Result.Commit.Status, Core::RecognitionStatus::Accepted);
+        EXPECT_EQ(Result.Commit.Metadata.Carrier, "ws");
+    }
+
     TEST(RecognitionCarrier, WebsocketConcreteAcceptRunsOnlyAtCommit)
     {
         auto State = std::make_shared<WsAcceptState>();
@@ -872,6 +927,95 @@ namespace
         EXPECT_EQ(State->Error, Preview::Error::BadMagic);
         EXPECT_EQ(Result.Commit.Status, Core::RecognitionStatus::NoMatch);
         EXPECT_EQ(NativeCalls, 0U);
+    }
+
+    TEST(RecognitionCarrier, XhttpServerAcceptFactoryRunsRealHandshake)
+    {
+        auto TlsContext = std::make_shared<Net::ssl::context>(Net::ssl::context::tls_server);
+        Preview::Xhttp::Config Config;
+        Config.Path = "/xhttp";
+        Config.Host = "edge.example";
+        Config.Mode = "StreamOne";
+        Composition::TlsCandidateOptions Options;
+        Options.Id = 33;
+        Options.Name = "xhttp-real";
+        Options.Scheme = "xhttp";
+        Options.ServerNames = {"edge.example"};
+        Options.Alpn = {"h2"};
+        const auto Binding = Composition::TlsCandidateFactory::Make(
+            std::move(Options),
+            Composition::MakeXhttpServerAccept(TlsContext, std::move(Config)));
+
+        const auto Result = RunConcreteHandshake(
+            std::move(Binding), [](Preview::SharedTransmission Inbound)
+            -> Net::awaitable<Preview::Error>
+            {
+                const std::array<std::byte, 2> Invalid{std::byte{0x16}, std::byte{0x03}};
+                std::error_code ErrorCode;
+                (void)co_await Inbound->async_write_some(Invalid, ErrorCode);
+                Inbound->Close();
+                co_return Preview::Error::None;
+            });
+
+        EXPECT_EQ(Result.Commit.Status, Core::RecognitionStatus::NoMatch);
+        EXPECT_EQ(Result.Commit.Metadata.Carrier, "xhttp");
+        EXPECT_TRUE(Preview::Fault::Failed(Result.Commit.FaultCode));
+    }
+
+    TEST(RecognitionCarrier, GunServerAcceptFactoryRunsRealHandshake)
+    {
+        auto TlsContext = std::make_shared<Net::ssl::context>(Net::ssl::context::tls_server);
+        Composition::TlsCandidateOptions Options;
+        Options.Id = 34;
+        Options.Name = "gun-real";
+        Options.Scheme = "gun";
+        Options.ServerNames = {"edge.example"};
+        Options.Alpn = {"h2"};
+        const auto Binding = Composition::TlsCandidateFactory::Make(
+            std::move(Options),
+            Composition::MakeGunServerAccept(
+                TlsContext, "/GunService/Tun", "GunService"));
+
+        const auto Result = RunConcreteHandshake(
+            std::move(Binding), [](Preview::SharedTransmission Inbound)
+            -> Net::awaitable<Preview::Error>
+            {
+                const std::array<std::byte, 2> Invalid{std::byte{0x16}, std::byte{0x03}};
+                std::error_code ErrorCode;
+                (void)co_await Inbound->async_write_some(Invalid, ErrorCode);
+                Inbound->Close();
+                co_return Preview::Error::None;
+            });
+
+        EXPECT_EQ(Result.Commit.Status, Core::RecognitionStatus::NoMatch);
+        EXPECT_EQ(Result.Commit.Metadata.Carrier, "gun");
+        EXPECT_TRUE(Preview::Fault::Failed(Result.Commit.FaultCode));
+    }
+
+    TEST(RecognitionCarrier, RealityPreparedFactoryRejectsMissingPreparedHello)
+    {
+        std::array<std::uint8_t, Preview::Reality::KeyLen> PrivateKey{};
+        std::vector<std::array<std::uint8_t, Preview::Reality::MaxShortIdLen>> ShortIds(1);
+        Composition::TlsCandidateOptions Options;
+        Options.Id = 35;
+        Options.Name = "reality-prepared";
+        Options.Scheme = "reality";
+        Options.ServerNames = {"edge.example"};
+        Options.Alpn = {"h2"};
+        const auto Binding = Composition::TlsCandidateFactory::MakePrepared(
+            std::move(Options),
+            Composition::MakeRealityServerAccept(PrivateKey, std::move(ShortIds)));
+        const auto Result = RunConcreteHandshake(
+            std::move(Binding), [](Preview::SharedTransmission Inbound)
+            -> Net::awaitable<Preview::Error>
+            {
+                Inbound->Close();
+                co_return Preview::Error::None;
+            });
+
+        EXPECT_EQ(Result.Commit.Status, Core::RecognitionStatus::NoMatch);
+        EXPECT_EQ(Result.Commit.Metadata.Carrier, "reality");
+        EXPECT_TRUE(Preview::Fault::Failed(Result.Commit.FaultCode));
     }
 
     TEST(RecognitionCarrier, AnytlsProtocolAuthenticatesAndPreservesWirePayload)

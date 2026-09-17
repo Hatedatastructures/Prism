@@ -20,6 +20,7 @@
 #include <Preview/Lifecycle/TaskState.hpp>
 #include <Preview/Protocols/Mux/Smux/Smux.hpp>
 #include <Preview/Protocols/Mux/Stream.hpp>
+#include <Preview/Protocols/Mux/H2Mux/H2Mux.hpp>
 #include <Preview/Protocols/Mux/Yamux/Yamux.hpp>
 #include <Preview/Runtime/SessionControl.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
@@ -42,6 +43,7 @@ namespace Preview::Composition
         Auto,
         Smux,
         Yamux,
+        H2Mux,
     };
 
     struct MuxServiceOptions final
@@ -97,6 +99,9 @@ namespace Preview::Composition
             {
             case MuxMode::Yamux:
                 co_return co_await RunServer<Preview::Mux::Yamux::Server<>>(
+                    std::move(Inbound), std::move(Control), Context.TaskIdentity);
+            case MuxMode::H2Mux:
+                co_return co_await RunServer<Preview::Mux::H2Mux::Server<>>(
                     std::move(Inbound), std::move(Control), Context.TaskIdentity);
             case MuxMode::Auto:
             case MuxMode::Smux:

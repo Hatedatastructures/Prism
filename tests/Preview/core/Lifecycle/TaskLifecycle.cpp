@@ -755,21 +755,17 @@ namespace
         Net::io_context Ioc;
         Preview::Lifecycle::TaskRegistry Registry(Ioc.get_executor());
         auto Release = std::make_shared<Signal>(Ioc.get_executor(), 1);
-        std::atomic<bool> Started{false};
+        auto Started = std::make_shared<std::atomic<bool>>(false);
+        auto Completed = std::make_shared<std::atomic<bool>>(false);
         auto Task = Registry.SpawnTracked(
             Request(Identity()),
-            [&Started, Release]() -> Net::awaitable<void>
-            {
-                Started.store(true, std::memory_order_release);
-                Started.notify_all();
-                co_await WaitForSignal(Release);
-            }());
+            WaitForSignalAndMark(Release, Started, Completed));
         ASSERT_NE(Task, nullptr);
 
         std::thread IoThread([&Ioc] { Ioc.run(); });
-        while (!Started.load(std::memory_order_acquire))
+        while (!Started->load(std::memory_order_acquire))
         {
-            Started.wait(false, std::memory_order_acquire);
+            Started->wait(false, std::memory_order_acquire);
         }
         Registry.Reclaimer()->Quarantine();
         (void)Registry.Cancel();
@@ -790,6 +786,7 @@ namespace
 
         EXPECT_EQ(Status, std::future_status::ready);
         EXPECT_TRUE(Registry.IsDrainBlocked());
+        EXPECT_FALSE(Completed->load(std::memory_order_acquire));
     }
 
     TEST(TaskLifecycle, QuarantinedParentCancellationBlocksChildTaskAdmission)

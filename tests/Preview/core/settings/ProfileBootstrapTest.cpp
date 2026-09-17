@@ -209,6 +209,30 @@ TEST(ProfileBootstrap, BuildsProfileThroughCandidateRegistry)
     EXPECT_TRUE(static_cast<bool>(Result->Resolve(14)));
 }
 
+TEST(ProfileBootstrap, BuildsAnyTlsProfileThroughCandidateRegistry)
+{
+    Preview::Settings::RecognitionConfig Config;
+    Config.Explicit = true;
+    Config.Mode = Core::RecognitionMode::Configured;
+    Config.ConfiguredCandidate = 22;
+    Config.Candidates.push_back(
+        Preview::Settings::RecognitionCandidate{22, "registry-anytls", "anytls", 0, 0, false});
+
+    Composition::CandidateRegistry Registry;
+    Preview::Anytls::ServerConfig AnyTlsConfig;
+    AnyTlsConfig.Password = "profile-test-password";
+    ASSERT_TRUE(Registry.RegisterAnytls(std::move(AnyTlsConfig)));
+
+    const auto Result = Composition::BuildProfileFromSettings(Config, Registry);
+
+    ASSERT_TRUE(Result.has_value());
+    ASSERT_TRUE(Result->Profile);
+    const auto Handle = Result->Profile->FindCandidate(22);
+    ASSERT_TRUE(Handle.IsValid());
+    EXPECT_EQ(Handle.Protocol(), Core::ProtocolType::AnyTls);
+    EXPECT_TRUE(static_cast<bool>(Result->Resolve(22)));
+}
+
 TEST(ProfileBootstrap, RejectsQuicCandidateInTcpProfile)
 {
     Preview::Settings::RecognitionConfig Config;

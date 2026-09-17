@@ -87,6 +87,7 @@ namespace Preview::Application::Configuration
     struct GunOptions final
     {
         std::vector<std::string> ServerNames;
+        std::string Mode{"GunLite"};
         std::string Path{"/GunService/Tun"};
         std::string ServiceName{"GunService"};
     };
@@ -142,6 +143,16 @@ namespace Preview::Application::Configuration
         std::string Name;
         std::string Builtin;
         std::vector<std::string> Requires;
+        struct QuicOptions final
+        {
+            std::string Alpn{"h3"};
+            std::string ServerName;
+            std::string CredentialSecretRef;
+            std::uint32_t MaxStreams{64};
+            std::uint32_t MaxDatagrams{64};
+            std::string Uuid;
+        };
+        std::optional<QuicOptions> Quic;
     };
 
     struct RecognitionRouteConfiguration final
@@ -161,6 +172,12 @@ namespace Preview::Application::Configuration
         std::vector<std::string> MuxModes;
         std::int32_t Priority{0};
         RecognitionRouteConfiguration Recognition{};
+    };
+
+    struct RecognitionConfiguration final
+    {
+        std::string Mode{"MixedTrial"};
+        std::int32_t ConfiguredCandidate{-1};
     };
 
     struct CarrierConfiguration final
@@ -249,6 +266,7 @@ namespace Preview::Application::Configuration
         std::vector<ProtocolConfiguration> Protocols;
         std::vector<CarrierConfiguration> Carriers;
         std::vector<ProtocolBindingConfiguration> ProtocolBindings;
+        RecognitionConfiguration Recognition{};
         std::vector<AccountConfiguration> Accounts;
         std::vector<RouteConfiguration> Routes;
         DnsConfiguration Dns{};

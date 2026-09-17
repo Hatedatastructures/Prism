@@ -1,6 +1,15 @@
 AddProductionTest(Shadowsocks.cpp)
 AddProductionTest(ShadowsocksConnPure.cpp)
 AddProductionTest(ShadowsocksDatagram.cpp)
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+        # Match the unoptimized production library used by Debug builds.
+        target_compile_options(ShadowsocksDatagram PRIVATE -O0 -U_FORTIFY_SOURCE)
+    else()
+        # Match PrismStaticLibrary's optimized Release ABI.
+        target_compile_options(ShadowsocksDatagram PRIVATE -O3)
+    endif()
+endif()
 AddProductionTest(ShadowsocksDatagramPure.cpp)
 AddProductionTest(ShadowsocksDatagramDeep.cpp)
 AddProductionTest(ShadowsocksFramingPure.cpp)

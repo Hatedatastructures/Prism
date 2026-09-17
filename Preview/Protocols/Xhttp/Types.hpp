@@ -21,6 +21,8 @@ namespace Preview::Xhttp
     struct Config
     {
         std::string Path{"/"}; ///< POST 路径前缀
+        std::string Host{}; ///< 可选的 :authority 约束
+        std::string Mode{"StreamOne"}; ///< StreamOne / StreamUp / PacketUp
 
         /**
          * @brief 方案是否启用
@@ -28,7 +30,13 @@ namespace Preview::Xhttp
          */
         [[nodiscard]] auto Enabled() const noexcept -> bool
         {
-            return !Path.empty();
+            return !Path.empty() &&
+                   (Mode == "StreamOne" || Mode == "StreamUp" || Mode == "PacketUp");
+        }
+
+        [[nodiscard]] auto IsSplit() const noexcept -> bool
+        {
+            return Mode == "StreamUp" || Mode == "PacketUp";
         }
     };
 

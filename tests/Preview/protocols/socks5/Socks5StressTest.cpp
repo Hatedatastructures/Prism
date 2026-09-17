@@ -262,15 +262,18 @@ namespace
         auto [ClientStream, ServerStream] = MakeMemoryPair(IoContext.get_executor());
         // 服务端：接受 + 统计接收字节
         std::atomic<std::size_t> ReceivedBytes{0};
+        std::atomic<bool> ServerDone{false};
         Net::co_spawn(
             IoContext.get_executor(),
-            [ServerStream = std::move(ServerStream), &ReceivedBytes]() mutable -> Net::awaitable<void>
+            [ServerStream = std::move(ServerStream), &ReceivedBytes, &ServerDone]() mutable
+                -> Net::awaitable<void>
             {
                 auto [ErrorValue, Request, Conn] =
                     co_await Socks5::Accept(std::make_shared<MemoryStream>(std::move(ServerStream)),
                                             Socks5::ServerConfig{});
                 if (ErrorValue != Error::None || !Conn)
                 {
+                    ServerDone.store(true);
                     co_return;
                 }
                 std::array<std::byte, Chunk> Buffer{};
@@ -286,6 +289,7 @@ namespace
                     ReceivedTotal += Count;
                 }
                 ReceivedBytes.store(ReceivedTotal);
+                ServerDone.store(true);
                 Conn->Close();
             },
             Net::detached);
@@ -326,7 +330,16 @@ namespace
                              break;
                          }
                      }
-                });
+                     Net::steady_timer Timer(IoContext);
+                     const auto Deadline =
+                         std::chrono::steady_clock::now() + std::chrono::seconds(10);
+                     while (!ServerDone.load() && std::chrono::steady_clock::now() < Deadline)
+                     {
+                         Timer.expires_after(std::chrono::milliseconds(1));
+                         co_await Timer.async_wait(Net::use_awaitable);
+                     }
+                     co_return;
+            });
         EXPECT_EQ(ReceivedBytes.load(), Total);
     }
 

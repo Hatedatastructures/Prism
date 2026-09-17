@@ -225,8 +225,18 @@ target_sources(PreviewIngress INTERFACE
         Ingress/UdpListener.hpp
         Ingress/QuicGateway.hpp
         Ingress/IngressDispatcher.hpp
+        Ingress/Ss2022Gateway.hpp
+        Ingress/QuicCidRegistry.hpp
+        Ingress/QuicAdmissionContext.hpp
 )
-LinkPreviewTargets(PreviewIngress PreviewFoundation)
+LinkPreviewTargets(PreviewIngress
+        PreviewFoundation
+        PreviewNet
+        PreviewProtocolQuic
+        PreviewProtocolQuicNative
+        PreviewProtocolHysteria2
+        PreviewProtocolTuic
+        PreviewProtocolShadowsocks2022)
 
 add_library(PreviewRuntime INTERFACE)
 ConfigurePreviewTarget(PreviewRuntime)
@@ -305,6 +315,9 @@ target_sources(PreviewComposition INTERFACE
         Composition/Recognition/ProfileBuilder.hpp
         Composition/Recognition/SettingsBuilder.hpp
         Composition/Recognition/TlsCandidateFactory.hpp
+        Composition/Recognition/ShadowtlsCarrier.hpp
+        Composition/Quic/Hysteria2Factory.hpp
+        Composition/Quic/TuicFactory.hpp
         Composition/Recognition/LayeredCandidateFactory.hpp
         Composition/Recognition/ProtocolMatrix.hpp
         Composition/Api/Api.hpp
@@ -327,6 +340,11 @@ target_sources(PreviewComposition INTERFACE
 LinkPreviewTargets(PreviewComposition
         PreviewRuntime
         PreviewProtocolMux
+        PreviewProtocolXhttp
+        PreviewProtocolGun
+        PreviewProtocolTuic
+        PreviewProtocolReality
+        PreviewProtocolHttp3
 )
 target_link_libraries(PreviewComposition INTERFACE
         PreviewOperations
@@ -585,8 +603,10 @@ target_sources(PreviewProtocolGun INTERFACE
         Protocols/Gun/Types.hpp
         Protocols/Gun/Codec.hpp
         Protocols/Gun/Conn.hpp
+        Protocols/Gun/Grpc.hpp
         Protocols/Gun/Gun.hpp
 )
+LinkPreviewTargets(PreviewProtocolGun PreviewProtocolHttp2)
 
 add_library(PreviewProtocolNative INTERFACE)
 ConfigurePreviewTarget(PreviewProtocolNative)

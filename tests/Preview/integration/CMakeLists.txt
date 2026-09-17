@@ -76,6 +76,12 @@ target_compile_options(InteropGun PRIVATE -g1 -Os)
 target_link_libraries(InteropGun PRIVATE PreviewFoundation PreviewTransport PreviewNet PreviewProtocolGun
         BoostSystemHeaderOnly)
 
+# Standard gRPC/HTTP2 Gun endpoint external interop (h2c reference).
+add_executable(InteropGunGrpc InteropGunGrpc.cpp)
+target_compile_options(InteropGunGrpc PRIVATE -g1 -Os)
+target_link_libraries(InteropGunGrpc PRIVATE PreviewFoundation PreviewTransport PreviewNet
+        PreviewProtocolGun PreviewProtocolHttp2 BoostSystemHeaderOnly)
+
 # XHTTP Stream-one 外部互操作：Go x/net/http2 client → Preview TLS/h2 server。
 add_executable(InteropXhttp InteropXhttp.cpp)
 target_compile_options(InteropXhttp PRIVATE -g1 -Os)

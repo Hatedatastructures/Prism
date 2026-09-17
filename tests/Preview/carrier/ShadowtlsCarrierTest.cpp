@@ -257,10 +257,20 @@ namespace
             {
                 std::fprintf(stderr, "client: start\n");
                 const auto ClientConfig = Shadowtls::ClientConfig{Password};
-                auto AcceptTask = Net::co_spawn(
+                const auto AcceptDone = std::make_shared<Net::experimental::channel<void(
+                    boost::system::error_code)>>(Context.get_executor(), 1);
+                const auto AcceptResult =
+                    std::make_shared<std::optional<Carrier::CarrierAcceptResult>>();
+                Net::co_spawn(
                     Context,
-                    CarrierValue.Accept(Carrier::CarrierAcceptRequest{Server, {}, {}}),
-                    Net::use_awaitable);
+                    [CarrierValue, Server, AcceptDone, AcceptResult]() mutable -> Net::awaitable<void>
+                    {
+                        *AcceptResult = co_await CarrierValue.Accept(
+                            Carrier::CarrierAcceptRequest{Server, {}, {}});
+                        AcceptDone->try_send(boost::system::error_code{});
+                        co_return;
+                    },
+                    Net::detached);
                 auto [ClientError, ClientConnection] = co_await Shadowtls::ConnectStandard(
                     Shadowtls::StandardConnectParameters{Client, ClientConfig, MakeClientHelloTemplate()});
                 EXPECT_EQ(ClientError, Error::None);
@@ -277,12 +287,13 @@ namespace
                 const auto ReceivedServerHelloOk = co_await ReadRecord(ClientTransport, ReceivedServerHello);
                 if (!ReceivedServerHelloOk)
                 {
-                    const auto FailureResult = co_await std::move(AcceptTask);
+                    co_await AcceptDone->async_receive(Net::use_awaitable);
+                    const auto FailureResult = std::move(*AcceptResult);
                     std::fprintf(stderr, "carrier: accepted=%d failure=%d protocol=%d detail=%s\n",
-                                 FailureResult.Accepted(),
-                                 static_cast<int>(FailureResult.Failure.Code),
-                                 static_cast<int>(FailureResult.Failure.ProtocolCode),
-                                 FailureResult.Failure.Detail.c_str());
+                                 FailureResult ? FailureResult->Accepted() : false,
+                                 FailureResult ? static_cast<int>(FailureResult->Failure.Code) : -1,
+                                 FailureResult ? static_cast<int>(FailureResult->Failure.ProtocolCode) : -1,
+                                 FailureResult ? FailureResult->Failure.Detail.c_str() : "missing");
                     EXPECT_TRUE(false) << "server hello was not relayed";
                     co_return;
                 }
@@ -303,7 +314,13 @@ namespace
                 EXPECT_EQ(Written, ClientPayload.size());
                 std::fprintf(stderr, "client: application record sent\n");
 
-                const auto Result = co_await std::move(AcceptTask);
+                co_await AcceptDone->async_receive(Net::use_awaitable);
+                if (!*AcceptResult)
+                {
+                    ADD_FAILURE() << "ShadowTLS carrier did not publish an accept result";
+                    co_return;
+                }
+                const auto Result = std::move(**AcceptResult);
                 std::fprintf(stderr, "client: carrier result received\n");
                 EXPECT_TRUE(Result.Accepted());
                 EXPECT_EQ(Result.Metadata.Kind, Carrier::CarrierKind::Shadowtls);

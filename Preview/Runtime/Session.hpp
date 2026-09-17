@@ -417,7 +417,7 @@ namespace Preview::Runtime
                 }
             };
 
-            const auto WriteRecognition = [&WriteLog, Trace, Identity, LogState](
+            const auto WriteRecognition = [&WriteLog, Trace, Identity, LogState, Profile](
                                               const Preview::Diagnose::LogLevel Level,
                                               const std::string_view Stage,
                                               const Preview::Recognition::RecognizeResult &Result,
@@ -471,6 +471,12 @@ namespace Preview::Runtime
                 {
                     auto Message = FormatRecognitionLog(
                         DiagnosticStage, Result, EffectiveFaultCode, Identity);
+                    Message.insert(
+                        0,
+                        "mode=" +
+                            std::string(Profile ? Preview::Recognition::ToStringView(Profile->Mode())
+                                                : "legacy") +
+                            " ");
                     if (CarrierFailure)
                     {
                         Message.insert(0, "event=" + std::string(Status) + " ");

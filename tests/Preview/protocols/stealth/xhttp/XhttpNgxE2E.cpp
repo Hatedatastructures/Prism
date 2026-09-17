@@ -530,6 +530,96 @@ namespace
         co_return;
     }
 
+    auto RunSplitClient(FactoryScenarioRequest Request) -> Net::awaitable<void>
+    {
+        *Request.ClientSucceeded = false;
+        auto Transport = co_await Xhttp::Connect(
+            std::move(Request.ClientRaw), *Request.ClientContext, Request.Config, "example.com");
+        if (!Transport)
+        {
+            co_return;
+        }
+        const auto PayloadBytes = std::span<const std::byte>(
+            reinterpret_cast<const std::byte *>(Request.Payload.data()), Request.Payload.size());
+        std::error_code WriteError;
+        const auto Written = co_await Transport->AsyncWrite(PayloadBytes, WriteError);
+        if (WriteError || Written != PayloadBytes.size())
+        {
+            Transport->Close();
+            co_return;
+        }
+        std::vector<std::byte> Received(Request.Payload.size());
+        std::error_code ReadError;
+        const auto Read = co_await Transport->AsyncRead(Received, ReadError);
+        *Request.ClientSucceeded = !ReadError && Read == Received.size() &&
+                                   std::equal(Received.begin(), Received.end(), PayloadBytes.begin());
+        Transport->Close();
+        co_return;
+    }
+
+    auto RunSplitServer(FactoryScenarioRequest Request) -> Net::awaitable<void>
+    {
+        *Request.ServerSucceeded = false;
+        auto Transport = co_await Xhttp::Accept(
+            std::move(Request.ServerRaw), *Request.ServerContext, Request.Config);
+        if (!Transport)
+        {
+            co_return;
+        }
+        std::vector<std::byte> Received(Request.Payload.size());
+        std::error_code ReadError;
+        const auto Read = co_await Transport->AsyncRead(Received, ReadError);
+        if (ReadError || Read != Received.size())
+        {
+            Transport->Close();
+            co_return;
+        }
+        std::error_code WriteError;
+        const auto Written = co_await Transport->AsyncWrite(Received, WriteError);
+        *Request.ServerSucceeded = !WriteError && Written == Received.size();
+        Transport->Close();
+        co_return;
+    }
+
+    auto RunSplitPair(FactoryScenarioRequest Request) -> Net::awaitable<void>
+    {
+        auto ClientOperation = Net::co_spawn(
+            Request.Executor, RunSplitClient(Request), Net::use_awaitable);
+        auto ServerOperation = Net::co_spawn(
+            Request.Executor, RunSplitServer(Request), Net::use_awaitable);
+        co_await (std::move(ClientOperation) && std::move(ServerOperation));
+        co_return;
+    }
+
+    auto RunSplitScenario(FactoryScenarioRequest Request) -> Net::awaitable<void>
+    {
+        auto PairOperation = Net::co_spawn(
+            Request.Executor, RunSplitPair(Request), Net::use_awaitable);
+        auto WatchdogOperation = Net::co_spawn(
+            Request.Executor,
+            RunWatchdog(Request.Executor, std::chrono::seconds(5), Request.TimedOut),
+            Net::use_awaitable);
+        try
+        {
+            auto RaceResult = co_await (std::move(PairOperation) || std::move(WatchdogOperation));
+            (void)RaceResult;
+        }
+        catch (...)
+        {
+            *Request.ClientSucceeded = false;
+            *Request.ServerSucceeded = false;
+        }
+        if (Request.ClientRaw)
+        {
+            Request.ClientRaw->Close();
+        }
+        if (Request.ServerRaw)
+        {
+            Request.ServerRaw->Close();
+        }
+        co_return;
+    }
+
     template <typename Awaitable>
     auto RunCoroutine(
         const std::shared_ptr<Net::io_context> &IoContext,
@@ -612,4 +702,43 @@ TEST(XhttpNgxE2E, ClientFactoryProvidesStreamOneTransport)
     EXPECT_FALSE(*TimedOut);
     EXPECT_TRUE(*ServerSucceeded);
     EXPECT_TRUE(*ClientSucceeded);
+}
+
+TEST(XhttpNgxE2E, SplitModesEcho)
+{
+    for (const auto Mode : {"StreamUp", "PacketUp"})
+    {
+        auto IoContext = std::make_shared<Net::io_context>();
+        auto ServerContext = std::make_shared<SSL::context>(SSL::context::tlsv13);
+        LoadSelfSigned(*ServerContext);
+        auto ClientContext = std::make_shared<SSL::context>(SSL::context::tlsv13_client);
+        ClientContext->set_verify_mode(SSL::verify_none);
+
+        auto [A, B] = Preview::MakeMemoryPair(IoContext->get_executor());
+        auto ClientRaw = std::make_shared<Preview::MemoryStream>(std::move(A));
+        auto ServerRaw = std::make_shared<Preview::MemoryStream>(std::move(B));
+        Xhttp::Config Config;
+        Config.Path = "/xhttp";
+        Config.Mode = Mode;
+        const std::string Payload = std::string("xhttp-") + Mode + "-echo";
+        auto ClientSucceeded = std::make_shared<bool>(false);
+        auto ServerSucceeded = std::make_shared<bool>(false);
+        auto TimedOut = std::make_shared<bool>(false);
+        FactoryScenarioRequest Request{
+            IoContext->get_executor(),
+            ClientRaw,
+            ServerRaw,
+            ClientContext,
+            ServerContext,
+            Config,
+            Payload,
+            ClientSucceeded,
+            ServerSucceeded,
+            TimedOut};
+
+        RunCoroutine(IoContext, RunSplitScenario(std::move(Request)));
+        EXPECT_FALSE(*TimedOut) << Mode;
+        EXPECT_TRUE(*ServerSucceeded) << Mode;
+        EXPECT_TRUE(*ClientSucceeded) << Mode;
+    }
 }

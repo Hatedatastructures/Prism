@@ -82,6 +82,11 @@ namespace
         const auto rec_len = ch.size() - 5;
         ch[3] = static_cast<std::byte>((rec_len >> 8) & 0xFF);
         ch[4] = static_cast<std::byte>(rec_len & 0xFF);
+        // 更新 ClientHello handshake 长度（记录头之后的 handshake body）。
+        const auto hs_len = ch.size() - 9;
+        ch[6] = static_cast<std::byte>((hs_len >> 16) & 0xFF);
+        ch[7] = static_cast<std::byte>((hs_len >> 8) & 0xFF);
+        ch[8] = static_cast<std::byte>(hs_len & 0xFF);
     }
 } // namespace
 
@@ -140,6 +145,17 @@ TEST(EchKeygen, ClientHelloWithEch)
     std::array<std::byte, 4> ech_ext{std::byte{0x00}, std::byte{0x20}, std::byte{0x01}, std::byte{0x02}};
     add_extension(ch, Ech::EchExtensionType, ech_ext);
     EXPECT_TRUE(Ech::ContainsEchExtension(ch));
+}
+
+TEST(EchKeygen, ClientHelloWithTruncatedEchExtensionIsRejected)
+{
+    auto ch = make_client_hello();
+    std::array<std::byte, 2> ech_ext{std::byte{0x01}, std::byte{0x02}};
+    add_extension(ch, Ech::EchExtensionType, ech_ext);
+    ASSERT_GE(ch.size(), std::size_t{4});
+    ch[ch.size() - 4] = std::byte{0xff};
+    ch[ch.size() - 3] = std::byte{0xff};
+    EXPECT_FALSE(Ech::ContainsEchExtension(ch));
 }
 
 TEST(EchKeygen, ClientHelloOtherExtension)

@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.23)
 project(Prism LANGUAGES C CXX)
 
+# Project-owned test switch. Third-party FetchContent projects temporarily use
+# BUILD_TESTING=OFF below, but Preview/Contract tests are enabled by default
+# and can only be disabled explicitly with -DPRISM_BUILD_TESTING=OFF.
+option(PRISM_BUILD_TESTING "Build Prism Preview and Contract tests" ON)
+message(STATUS "PRISM_BUILD_TESTING=${PRISM_BUILD_TESTING}")
+
 # CMake 4.0+ 将 CMP0167 行为改为 NEW（FindBoost 弃用），此处显式设置避免警告
 if(POLICY CMP0167)
     cmake_policy(SET CMP0167 NEW)
@@ -106,6 +112,15 @@ FetchContent_MakeAvailable(glaze)
 
 # 自动获取 NASM 汇编器：先查找系统已安装的，找不到则下载到 _deps/nasm
 # NASM 是 BoringSSL 汇编优化的必需工具
+option(PRISM_ENABLE_NASM_DOWNLOAD
+       "Allow CMake to download NASM when no system or cached binary exists"
+       ON)
+set(_PRISM_NASM_DOWNLOAD_ALLOWED ${PRISM_ENABLE_NASM_DOWNLOAD})
+if(FETCHCONTENT_FULLY_DISCONNECTED)
+    set(_PRISM_NASM_DOWNLOAD_ALLOWED OFF)
+endif()
+message(STATUS "PRISM_ENABLE_NASM_DOWNLOAD=${PRISM_ENABLE_NASM_DOWNLOAD}")
+message(STATUS "PRISM_NASM_DOWNLOAD_ALLOWED=${_PRISM_NASM_DOWNLOAD_ALLOWED}")
 
 # 先尝试查找系统中的 NASM
 find_program(NASM_PROGRAM nasm)
@@ -137,7 +152,7 @@ else()
         message(STATUS "Using cached NASM: ${NASM_EXE}")
         set(CMAKE_ASM_NASM_COMPILER "${NASM_EXE}")
         set(OPENSSL_NO_ASM OFF CACHE BOOL "" FORCE)
-    elseif(NASM_URL)
+    elseif(NASM_URL AND _PRISM_NASM_DOWNLOAD_ALLOWED)
         # 下载并解压
         message(STATUS "Downloading NASM from ${NASM_URL} ...")
 
@@ -171,6 +186,11 @@ else()
             message(WARNING "Failed to download NASM: ${DOWNLOAD_MSG}, disabling assembly optimizations")
             set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
         endif()
+    elseif(NASM_URL)
+        message(STATUS
+                "NASM download disabled by PRISM_ENABLE_NASM_DOWNLOAD=OFF or "
+                "FETCHCONTENT_FULLY_DISCONNECTED=ON; disabling assembly optimizations")
+        set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
     else()
         message(WARNING "Unsupported platform, disabling BoringSSL assembly optimizations")
         set(OPENSSL_NO_ASM ON CACHE BOOL "" FORCE)
@@ -416,5 +436,11 @@ add_subdirectory(src)
 add_subdirectory(Preview)
 add_subdirectory(tests/TestSupport)
 add_subdirectory(benchmarks)
-add_subdirectory(tests)
+set(BUILD_TESTING ${PRISM_BUILD_TESTING} CACHE BOOL "Build Prism tests" FORCE)
+if(PRISM_BUILD_TESTING)
+    message(STATUS "Prism Preview/Contract test targets: ENABLED")
+    add_subdirectory(tests)
+else()
+    message(STATUS "Prism Preview/Contract test targets: DISABLED by explicit PRISM_BUILD_TESTING=OFF")
+endif()
 add_subdirectory(stresses)

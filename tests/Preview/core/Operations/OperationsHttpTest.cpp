@@ -167,10 +167,9 @@ namespace
 
     [[nodiscard]] auto MakeServer(Router RouterValue, Net::io_context &Io) -> HttpServer
     {
-        return HttpServer(HttpServer::Options{
-            Io.get_executor(),
-            Tcp::endpoint(Net::ip::address_v4::loopback(), 0),
-            std::move(RouterValue)});
+        return HttpServer(Io.get_executor(),
+                          Tcp::endpoint(Net::ip::address_v4::loopback(), 0),
+                          RouterValue);
     }
 
 } // namespace

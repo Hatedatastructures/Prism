@@ -35,9 +35,10 @@ namespace Preview::Gun
      */
     [[nodiscard]] inline auto Connect(
         SharedTransmission Upstream,
-        std::string_view Host) -> Net::awaitable<std::pair<Error, SharedConn>>
+        std::string_view Host,
+        const Config &ConfigValue = {}) -> Net::awaitable<std::pair<Error, SharedConn>>
     {
-        auto Connection = std::make_shared<Conn<>>(std::move(Upstream));
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), ConfigValue);
         const auto ErrorCode = co_await Connection->WriteHandshake(Host);
         SharedConn Result;
         if (ErrorCode == Error::None)
@@ -56,10 +57,10 @@ namespace Preview::Gun
      * @param Upstream 上游传输（所有权移交）
      * @return 错误码、解析的目标与协议连接（失败时连接为空）
      */
-    [[nodiscard]] inline auto Accept(SharedTransmission Upstream)
+    [[nodiscard]] inline auto Accept(SharedTransmission Upstream, const Config &ConfigValue = {})
         -> Net::awaitable<std::tuple<Error, std::string, SharedConn>>
     {
-        auto Connection = std::make_shared<Conn<>>(std::move(Upstream));
+        auto Connection = std::make_shared<Conn<>>(std::move(Upstream), ConfigValue);
         std::string Host;
         const auto ErrorCode = co_await Connection->ReadHandshake(Host);
         SharedConn Result;

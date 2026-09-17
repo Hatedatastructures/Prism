@@ -64,6 +64,8 @@ namespace Preview::Http3
             AcceptUnidirectional;
         std::function<Net::awaitable<Preview::Quic::SharedStreamProvider>()>
             AcceptBidirectional;
+        std::function<Net::awaitable<void>(Preview::Quic::SharedStreamProvider)>
+            OnRawStream;
         std::function<NativeServerRawData(std::int64_t, std::span<const std::byte>, bool)> OnRawData;
         std::function<void()> OnAuthenticated;
     };
@@ -341,6 +343,23 @@ namespace Preview::Http3
             }
             const auto StreamId = EventValue.Provider->StreamId();
             Streams_[StreamId] = EventValue.Provider;
+            if (Authenticated_ && !EventValue.Unidirectional && Options_.OnRawStream)
+            {
+                StartRawStream(EventValue.Provider);
+                co_return Fault::Code::Success;
+            }
+            if (!Authenticated_ && !EventValue.Unidirectional && Options_.OnRawStream)
+            {
+                if (AuthCandidate_ < 0 && StreamId == 0)
+                {
+                    AuthCandidate_ = StreamId;
+                }
+                if (StreamId != AuthCandidate_)
+                {
+                    PendingRawStreams_.push_back(EventValue.Provider);
+                    co_return Fault::Code::Success;
+                }
+            }
             auto Self = shared_from_this();
             const auto Provider = EventValue.Provider;
             const auto Unidirectional = EventValue.Unidirectional;
@@ -388,6 +407,11 @@ namespace Preview::Http3
                     }
                     Authenticated_ = true;
                     AuthStream_ = Server_->AuthStreamId();
+                    for (const auto &Provider : PendingRawStreams_)
+                    {
+                        StartRawStream(Provider);
+                    }
+                    PendingRawStreams_.clear();
                     if (Options_.OnAuthenticated)
                     {
                         Options_.OnAuthenticated();
@@ -424,6 +448,26 @@ namespace Preview::Http3
                 Close();
             }
             co_return Fault::Code::Success;
+        }
+
+        auto StartRawStream(const Preview::Quic::SharedStreamProvider &Provider) -> void
+        {
+            if (!Provider || !Options_.OnRawStream)
+            {
+                return;
+            }
+            const auto Handler = Options_.OnRawStream;
+            Net::co_spawn(
+                Options_.Executor,
+                [Provider, Handler]() mutable -> Net::awaitable<void>
+                {
+                    co_await Handler(Provider);
+                    if (Provider)
+                    {
+                        Provider->Close();
+                    }
+                },
+                Net::detached);
         }
 
         [[nodiscard]] auto DrainOutput() -> Net::awaitable<Fault::Code>
@@ -514,7 +558,9 @@ namespace Preview::Http3
         std::unordered_map<std::int64_t, Preview::Quic::SharedStreamProvider> Streams_;
         bool Closed_{false};
         bool Authenticated_{false};
+        std::int64_t AuthCandidate_{-1};
         std::int64_t AuthStream_{-1};
+        std::vector<Preview::Quic::SharedStreamProvider> PendingRawStreams_;
         Fault::Code TerminalCode_{Fault::Code::Canceled};
         std::int64_t StopStream_{-1};
     };

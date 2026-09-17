@@ -377,7 +377,7 @@ namespace Preview::Restls
                 Output.clear();
                 return;
             }
-            Output = std::error_code(static_cast<int>(ErrorValue), std::generic_category());
+            Output = make_error_code(ErrorValue);
         }
 
         [[nodiscard]] auto ReadExact(std::span<std::uint8_t> Buffer)

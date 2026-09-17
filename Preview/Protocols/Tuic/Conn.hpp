@@ -193,6 +193,17 @@ namespace Preview::Tuic
             return Identity_;
         }
 
+        /** @brief 复用已完成的连接级认证结果接入后续 bidi stream。 */
+        auto MarkAuthenticated(Preview::AccountId AccountId = {},
+                               Preview::Account::AccountLease Lease = {},
+                               std::string Identity = {}) -> void
+        {
+            Authenticated_ = true;
+            AccountId_ = AccountId;
+            AuthLease_ = std::move(Lease);
+            Identity_ = std::move(Identity);
+        }
+
         /**
          * @brief 获取执行器（委托底层传输）
          */

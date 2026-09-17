@@ -75,7 +75,7 @@ namespace Preview::Middleware::Builtin
          * @brief 幂等关闭 relay 两端
          * @param State relay 共享状态
          */
-        auto CloseRelay(const std::shared_ptr<RelayState> &State) -> void
+        inline auto CloseRelay(const std::shared_ptr<RelayState> &State) -> void
         {
             if (State->closed.exchange(true, std::memory_order_acq_rel))
             {
@@ -90,7 +90,7 @@ namespace Preview::Middleware::Builtin
          * @brief 记录一个 relay 方向已完成
          * @param State relay 共享状态
          */
-        auto CompleteDirection(const std::shared_ptr<RelayState> &State) -> void
+        inline auto CompleteDirection(const std::shared_ptr<RelayState> &State) -> void
         {
             State->CompletedDirections.fetch_add(1, std::memory_order_release);
         }
@@ -99,7 +99,7 @@ namespace Preview::Middleware::Builtin
          * @brief 重置 relay 空闲计时器
          * @param State relay 共享状态
          */
-        auto ResetIdleTimer(const std::shared_ptr<RelayState> &State) -> void
+        inline auto ResetIdleTimer(const std::shared_ptr<RelayState> &State) -> void
         {
             if (State->IdleTimeout > std::chrono::milliseconds::zero())
             {
@@ -221,7 +221,7 @@ namespace Preview::Middleware::Builtin
          * @param State relay 共享状态
          * @note 转发层：统一实现见 RelayDirection
          */
-        auto RelayUp(const std::shared_ptr<RelayState> &State)
+        inline auto RelayUp(const std::shared_ptr<RelayState> &State)
             -> Net::awaitable<void>
         {
             co_await RelayDirection<0>(State, "relay uplink terminated by exception");
@@ -232,7 +232,7 @@ namespace Preview::Middleware::Builtin
          * @param State relay 共享状态
          * @note 转发层：统一实现见 RelayDirection
          */
-        auto RelayDown(const std::shared_ptr<RelayState> &State)
+        inline auto RelayDown(const std::shared_ptr<RelayState> &State)
             -> Net::awaitable<void>
         {
             co_await RelayDirection<1>(State, "relay downlink terminated by exception");
@@ -242,7 +242,7 @@ namespace Preview::Middleware::Builtin
          * @brief 等待 relay 空闲超时
          * @param State relay 共享状态
          */
-        auto RelayIdle(const std::shared_ptr<RelayState> &State)
+        inline auto RelayIdle(const std::shared_ptr<RelayState> &State)
             -> Net::awaitable<void>
         {
             if (State->IdleTimeout <= std::chrono::milliseconds::zero())

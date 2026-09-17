@@ -63,6 +63,10 @@ namespace Preview::Composition::Recognition
             {
                 return Core::ProtocolType::Shadowsocks;
             }
+            if (Normalized == "anytls")
+            {
+                return Core::ProtocolType::AnyTls;
+            }
             if (Normalized == "hysteria2")
             {
                 return Core::ProtocolType::Hysteria2;

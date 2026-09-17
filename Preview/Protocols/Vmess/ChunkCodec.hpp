@@ -7,8 +7,6 @@
 
 #pragma once
 
-#include <openssl/evp.h>
-
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -23,6 +21,7 @@
 #include <vector>
 
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Utility/Crypto/Aead.hpp>
 #include <Preview/Protocols/Vmess/Types.hpp>
 
 namespace Preview::Vmess
@@ -30,127 +29,6 @@ namespace Preview::Vmess
 
     namespace detail
     {
-
-        /**
-         * @brief 单次 AES-128-GCM 加密（Nonce 由调用方控制）
-         * @param Key 密钥
-         * @param Nonce 12 字节 Nonce
-         * @param Plain 明文
-         * @param Out 输出密文（含 tag）
-         * @return 密封成功返回 true；参数或 OpenSSL 失败返回 false
-         */
-        [[nodiscard]] inline auto ChunkSeal(
-            std::span<const std::uint8_t> Key,
-            std::span<const std::uint8_t, 12> Nonce,
-            std::span<const std::uint8_t> Plain,
-            std::span<std::uint8_t> Out) -> bool
-        {
-            constexpr auto AeadTagLength = std::size_t{16};
-            constexpr auto MaxInt = static_cast<std::size_t>((std::numeric_limits<int>::max)());
-            if (Key.size() != 16 ||
-                Plain.size() > MaxInt ||
-                Plain.size() > (std::numeric_limits<std::size_t>::max)() - AeadTagLength ||
-                Out.size() < Plain.size() + AeadTagLength)
-            {
-                return false;
-            }
-            EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
-            if (!Ctx)
-            {
-                return false;
-            }
-            int Len = 0;
-            bool Ok = EVP_EncryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, nullptr, nullptr) == 1;
-            Ok = Ok && EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, nullptr) == 1;
-            Ok = Ok && EVP_EncryptInit_ex(Ctx, nullptr, nullptr, Key.data(), Nonce.data()) == 1;
-            int OutputLength = 0;
-            if (Ok && !Plain.empty())
-            {
-                Ok = EVP_EncryptUpdate(
-                         Ctx, Out.data(), &Len, Plain.data(), static_cast<int>(Plain.size())) == 1;
-                OutputLength = Len;
-            }
-            if (Ok)
-            {
-                Ok = EVP_EncryptFinal_ex(Ctx, Out.data() + OutputLength, &Len) == 1;
-                OutputLength += Len;
-            }
-            if (Ok)
-            {
-                Ok = EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_GCM_GET_TAG, 16, Out.data() + OutputLength) == 1;
-            }
-            Ok = Ok && OutputLength == static_cast<int>(Plain.size());
-            EVP_CIPHER_CTX_free(Ctx);
-            return Ok;
-        }
-
-        /**
-         * @brief 单次 AES-128-GCM 解密
-         * @param Key 密钥
-         * @param Nonce 12 字节 Nonce
-         * @param Cipher 密文（含 tag）
-         * @param Out 输出明文
-         * @return 校验成功返回 true
-         */
-        [[nodiscard]] inline auto ChunkOpen(
-            std::span<const std::uint8_t> Key,
-            std::span<const std::uint8_t, 12> Nonce,
-            std::span<const std::uint8_t> Cipher,
-            std::span<std::uint8_t> Out) -> bool
-        {
-            constexpr auto AeadTagLength = std::size_t{16};
-            constexpr auto MaxInt = static_cast<std::size_t>((std::numeric_limits<int>::max)());
-            if (Key.size() != 16 || Cipher.size() < AeadTagLength)
-            {
-                return false;
-            }
-            const auto CipherLength = Cipher.size() - AeadTagLength;
-            if (CipherLength > MaxInt || Out.size() < CipherLength)
-            {
-                return false;
-            }
-            EVP_CIPHER_CTX *Ctx = EVP_CIPHER_CTX_new();
-            if (!Ctx)
-            {
-                return false;
-            }
-            int Len = 0;
-            bool Ok = EVP_DecryptInit_ex(Ctx, EVP_aes_128_gcm(), nullptr, nullptr, nullptr) == 1;
-            Ok = Ok && EVP_CIPHER_CTX_ctrl(Ctx, EVP_CTRL_AEAD_SET_IVLEN, 12, nullptr) == 1;
-            Ok = Ok && EVP_DecryptInit_ex(Ctx, nullptr, nullptr, Key.data(), Nonce.data()) == 1;
-            int OutputLength = 0;
-            if (Ok && CipherLength > 0)
-            {
-                Ok = EVP_DecryptUpdate(
-                         Ctx, Out.data(), &Len, Cipher.data(), static_cast<int>(CipherLength)) == 1;
-                OutputLength = Len;
-            }
-            if (Ok)
-            {
-                Ok = EVP_CIPHER_CTX_ctrl(
-                         Ctx,
-                         EVP_CTRL_GCM_SET_TAG,
-                         16,
-                         const_cast<std::uint8_t *>(Cipher.data()) + CipherLength) == 1;
-            }
-            if (Ok)
-            {
-                std::array<std::uint8_t, 16> FinalOutput{};
-                std::uint8_t *FinalData = nullptr;
-                if (Out.empty())
-                {
-                    FinalData = FinalOutput.data();
-                }
-                else
-                {
-                    FinalData = Out.data() + OutputLength;
-                }
-                Ok = EVP_DecryptFinal_ex(Ctx, FinalData, &Len) == 1;
-                OutputLength += Len;
-            }
-            EVP_CIPHER_CTX_free(Ctx);
-            return Ok && OutputLength == static_cast<int>(CipherLength);
-        }
 
         /**
          * @brief Nonce 递增（大端 +1）
@@ -330,7 +208,9 @@ namespace Preview::Vmess
          */
         explicit ChunkEncryptor(std::span<const std::uint8_t, 16> Key,
                                 std::span<const std::uint8_t, 12> Nonce)
-            : Key_(), NonceSeed_(), LegacyNonce_(), Options_(static_cast<std::uint8_t>(Option::AuthenticatedLength))
+            : Key_(), NonceSeed_(), LegacyNonce_(),
+              Aead_(Preview::Crypto::AeadCipher::Aes128Gcm, Key),
+              Options_(static_cast<std::uint8_t>(Option::AuthenticatedLength))
         {
             std::memcpy(Key_.data(), Key.data(), 16);
             std::memcpy(NonceSeed_.data(), Nonce.data(), 12);
@@ -346,7 +226,8 @@ namespace Preview::Vmess
         explicit ChunkEncryptor(std::span<const std::uint8_t, 16> Key,
                                 std::span<const std::uint8_t, 16> Nonce,
                                 std::uint8_t OptionsValue)
-            : Key_(), NonceSeed_(), LegacyNonce_(), Options_(OptionsValue)
+            : Key_(), NonceSeed_(), LegacyNonce_(),
+              Aead_(Preview::Crypto::AeadCipher::Aes128Gcm, Key), Options_(OptionsValue)
         {
             std::memcpy(Key_.data(), Key.data(), 16);
             std::memcpy(NonceSeed_.data(), Nonce.data(), 16);
@@ -384,7 +265,7 @@ namespace Preview::Vmess
                 Out[0] = static_cast<std::uint8_t>(WireLength >> 8);
                 Out[1] = static_cast<std::uint8_t>(WireLength & 0xFF);
                 const auto Nonce = detail::MakeNonce(NonceCount_, NonceSeed_);
-                if (!detail::ChunkSeal(Key_, Nonce, Plain, Out.subspan(2)))
+                if (!SealChunk(Nonce, Plain, Out.subspan(2)))
                 {
                     return 0;
                 }
@@ -402,14 +283,14 @@ namespace Preview::Vmess
             LenPlain[1] = static_cast<std::uint8_t>(N & 0xFF);
             std::array<std::uint8_t, 2 + 16> LenEnc{};
             auto NextNonce = LegacyNonce_;
-            if (!detail::ChunkSeal(Key_, NextNonce, LenPlain, LenEnc))
+            if (!SealChunk(NextNonce, LenPlain, LenEnc))
             {
                 return 0;
             }
             detail::IncNonce(NextNonce);
 
             std::memcpy(Out.data(), LenEnc.data(), LenEnc.size());
-            if (!detail::ChunkSeal(Key_, NextNonce, Plain, Out.subspan(LenEnc.size())))
+            if (!SealChunk(NextNonce, Plain, Out.subspan(LenEnc.size())))
             {
                 return 0;
             }
@@ -440,6 +321,14 @@ namespace Preview::Vmess
         }
 
     private:
+        [[nodiscard]] auto SealChunk(std::span<const std::uint8_t> Nonce,
+                                     std::span<const std::uint8_t> Plain,
+                                     std::span<std::uint8_t> Out) -> bool
+        {
+            return Aead_.Seal(Preview::Crypto::SealInput{Out, Plain, Nonce, {}}) ==
+                   Preview::Fault::Code::Success;
+        }
+
         [[nodiscard]] auto UseAuthenticatedLength() const noexcept -> bool
         {
             return detail::HasOption(Options_, Option::AuthenticatedLength);
@@ -459,6 +348,7 @@ namespace Preview::Vmess
         std::array<std::uint8_t, 16> Key_;
         std::array<std::uint8_t, 16> NonceSeed_;
         std::array<std::uint8_t, 12> LegacyNonce_;
+        Preview::Crypto::AeadContext Aead_;
         std::uint8_t Options_{static_cast<std::uint8_t>(Option::AuthenticatedLength)};
         std::uint16_t NonceCount_{0};
         std::optional<ShakeStream> MaskStream_;
@@ -477,7 +367,9 @@ namespace Preview::Vmess
          */
         explicit ChunkDecryptor(std::span<const std::uint8_t, 16> Key,
                                 std::span<const std::uint8_t, 12> Nonce)
-            : Key_(), NonceSeed_(), LegacyNonce_(), Options_(static_cast<std::uint8_t>(Option::AuthenticatedLength))
+            : Key_(), NonceSeed_(), LegacyNonce_(),
+              Aead_(Preview::Crypto::AeadCipher::Aes128Gcm, Key),
+              Options_(static_cast<std::uint8_t>(Option::AuthenticatedLength))
         {
             std::memcpy(Key_.data(), Key.data(), 16);
             std::memcpy(NonceSeed_.data(), Nonce.data(), 12);
@@ -493,7 +385,8 @@ namespace Preview::Vmess
         explicit ChunkDecryptor(std::span<const std::uint8_t, 16> Key,
                                 std::span<const std::uint8_t, 16> Nonce,
                                 std::uint8_t OptionsValue)
-            : Key_(), NonceSeed_(), LegacyNonce_(), Options_(OptionsValue)
+            : Key_(), NonceSeed_(), LegacyNonce_(),
+              Aead_(Preview::Crypto::AeadCipher::Aes128Gcm, Key), Options_(OptionsValue)
         {
             std::memcpy(Key_.data(), Key.data(), 16);
             std::memcpy(NonceSeed_.data(), Nonce.data(), 16);
@@ -530,7 +423,7 @@ namespace Preview::Vmess
                 return std::unexpected(Error::NeedMore);
             }
             std::array<std::uint8_t, 2> LenPlain{};
-            if (!detail::ChunkOpen(Key_, LegacyNonce_, Head.first(18), LenPlain))
+            if (!OpenChunk(LegacyNonce_, Head.first(18), LenPlain))
             {
                 return std::unexpected(Error::BadAuth);
             }
@@ -557,7 +450,7 @@ namespace Preview::Vmess
             }
             if (UseAuthenticatedLength())
             {
-                if (!detail::ChunkOpen(Key_, LegacyNonce_, Data, Out.first(Data.size() - 16)))
+                if (!OpenChunk(LegacyNonce_, Data, Out.first(Data.size() - 16)))
                 {
                     return Error::BadAuth;
                 }
@@ -565,7 +458,7 @@ namespace Preview::Vmess
                 return Error::None;
             }
             const auto Nonce = detail::MakeNonce(NonceCount_, NonceSeed_);
-            if (!detail::ChunkOpen(Key_, Nonce, Data, Out.first(Data.size() - 16)))
+            if (!OpenChunk(Nonce, Data, Out.first(Data.size() - 16)))
             {
                 return Error::BadAuth;
             }
@@ -635,6 +528,14 @@ namespace Preview::Vmess
         }
 
     private:
+        [[nodiscard]] auto OpenChunk(std::span<const std::uint8_t> Nonce,
+                                     std::span<const std::uint8_t> Cipher,
+                                     std::span<std::uint8_t> Out) -> bool
+        {
+            return Aead_.Open(Preview::Crypto::OpenInput{Out, Cipher, Nonce, {}}) ==
+                   Preview::Fault::Code::Success;
+        }
+
         [[nodiscard]] auto UseAuthenticatedLength() const noexcept -> bool
         {
             return detail::HasOption(Options_, Option::AuthenticatedLength);
@@ -654,6 +555,7 @@ namespace Preview::Vmess
         std::array<std::uint8_t, 16> Key_;
         std::array<std::uint8_t, 16> NonceSeed_;
         std::array<std::uint8_t, 12> LegacyNonce_;
+        Preview::Crypto::AeadContext Aead_;
         std::uint8_t Options_{static_cast<std::uint8_t>(Option::AuthenticatedLength)};
         std::uint16_t NonceCount_{0};
         std::optional<ShakeStream> MaskStream_;

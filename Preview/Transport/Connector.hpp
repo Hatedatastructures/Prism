@@ -388,6 +388,10 @@ namespace Preview::Transport {
                                  boost::system::error_code Ec,
                                  std::size_t N) -> void
         {
+            if (N == 0 && !Ec)
+            {
+                Ec = Net::error::eof;
+            }
             if (N > State->Capacity)
             {
                 Ec = Preview::make_error_code(Preview::Error::BrokenPipe);

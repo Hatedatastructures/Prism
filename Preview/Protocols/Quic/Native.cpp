@@ -284,7 +284,18 @@ namespace Preview::Quic::Detail
         NativeConnection(Role ConnectionRole, Net::any_io_executor ExecutorValue,
                          std::shared_ptr<Udp::socket> SocketValue, Udp::endpoint PeerValue,
                          SSL_CTX *TlsContextValue, std::string ServerNameValue,
-                         Preview::Quic::RandomSource RandomValue)
+                         Preview::Quic::RandomSource RandomValue,
+                         const bool ExternalReceiveValue = false,
+                         std::string ExpectedAlpnValue = {},
+                         std::string ExpectedServerNameValue = {},
+                         const std::size_t MaxStreamsValue = 64,
+                         const std::size_t MaxDatagramsValue = 64,
+                         Preview::Quic::ServerOptions::EstablishedHandler Established = {},
+                         Preview::Quic::ServerOptions::StreamHandler Stream = {},
+                         Preview::Quic::ServerOptions::UnidirectionalHandler Unidirectional = {},
+                         Preview::Quic::ServerOptions::DatagramHandler Datagram = {},
+                         Preview::Quic::ServerOptions::ClosedHandler Closed = {},
+                         Preview::Quic::ServerOptions::ExporterHandler Exporter = {})
             : Role_(ConnectionRole),
               Executor_(std::move(ExecutorValue)),
               Socket_(std::move(SocketValue)),
@@ -292,6 +303,17 @@ namespace Preview::Quic::Detail
               TlsContext_(TlsContextValue),
               ServerName_(std::move(ServerNameValue)),
               Random_(std::move(RandomValue)),
+              ExternalReceive_(ExternalReceiveValue),
+              ExpectedAlpn_(std::move(ExpectedAlpnValue)),
+              ExpectedServerName_(std::move(ExpectedServerNameValue)),
+              MaxStreams_(MaxStreamsValue),
+              MaxDatagrams_(MaxDatagramsValue),
+              OnEstablished_(std::move(Established)),
+              OnStream_(std::move(Stream)),
+              OnUnidirectional_(std::move(Unidirectional)),
+              OnDatagram_(std::move(Datagram)),
+              OnClosed_(std::move(Closed)),
+              OnExporter_(std::move(Exporter)),
               HandshakeNotify_(Executor_, 16),
               IncomingNotify_(Executor_, 1),
               IncomingUnidirectionalNotify_(Executor_, 1),
@@ -311,6 +333,10 @@ namespace Preview::Quic::Detail
 
         auto Start() -> void;
         auto Close() -> void;
+
+        [[nodiscard]] auto ReceivePacket(
+            const Udp::endpoint &From,
+            std::span<const std::byte> Data) -> bool;
 
         [[nodiscard]] auto WaitHandshake() -> Net::awaitable<bool>;
         [[nodiscard]] auto MarkProtocolReady() -> Net::awaitable<bool>;
@@ -478,6 +504,18 @@ namespace Preview::Quic::Detail
         SSL *Ssl_{nullptr};
         Preview::Quic::RandomSource Random_{};
         bool RandomFailed_{false};
+        bool ExternalReceive_{false};
+        std::string ExpectedAlpn_;
+        std::string ExpectedServerName_;
+        std::size_t MaxStreams_{64};
+        std::size_t MaxDatagrams_{64};
+        Preview::Quic::ServerOptions::EstablishedHandler OnEstablished_;
+        Preview::Quic::ServerOptions::StreamHandler OnStream_;
+        Preview::Quic::ServerOptions::UnidirectionalHandler OnUnidirectional_;
+        Preview::Quic::ServerOptions::DatagramHandler OnDatagram_;
+        Preview::Quic::ServerOptions::ClosedHandler OnClosed_;
+        Preview::Quic::ServerOptions::ExporterHandler OnExporter_;
+        bool CloseNotified_{false};
         ngtcp2_cid LocalCid_{};
         ngtcp2_cid RemoteCid_{};
         bool Started_{false};
@@ -788,12 +826,15 @@ namespace Preview::Quic::Detail
             return;
         }
 
-        SocketToken_ = AcquireSocketToken(Socket_);
-        if (!SocketToken_)
+        if (!ExternalReceive_)
         {
-            BoundedFailureAtomic_.store(true, std::memory_order_release);
-            CloseOnExecutor();
-            return;
+            SocketToken_ = AcquireSocketToken(Socket_);
+            if (!SocketToken_)
+            {
+                BoundedFailureAtomic_.store(true, std::memory_order_release);
+                CloseOnExecutor();
+                return;
+            }
         }
         SocketReadyAtomic_.store(true, std::memory_order_release);
 
@@ -817,8 +858,11 @@ namespace Preview::Quic::Detail
         }
 
         auto Self = shared_from_this();
-        Net::co_spawn(Executor_, [Self]() -> Net::awaitable<void> { co_await Self->RunReceiveLoop(); },
-                      Net::detached);
+        if (!ExternalReceive_)
+        {
+            Net::co_spawn(Executor_, [Self]() -> Net::awaitable<void> { co_await Self->RunReceiveLoop(); },
+                          Net::detached);
+        }
         Net::co_spawn(Executor_, [Self]() -> Net::awaitable<void> { co_await Self->RunPumpLoop(); },
                       Net::detached);
         ReceiveLoopReadyAtomic_.store(true, std::memory_order_release);
@@ -829,6 +873,31 @@ namespace Preview::Quic::Detail
         auto Self = shared_from_this();
         auto Close = [Self = std::move(Self)]() mutable -> void { Self->CloseOnExecutor(); };
         Net::dispatch(Executor_, std::move(Close));
+    }
+
+    auto NativeConnection::ReceivePacket(
+        const Udp::endpoint &From,
+        const std::span<const std::byte> Data) -> bool
+    {
+        // External-receive callers inject the first packet immediately after
+        // scheduling Start(); initialize here as well so that a fatal first
+        // packet cannot close a socket still owned by the ingress listener.
+        if (!Started_)
+        {
+            StartOnExecutor();
+        }
+        if (!ExternalReceive_ || Closed_ || Data.empty())
+        {
+            return false;
+        }
+        const auto Result = DecodeAndRead(From, Data);
+        if (Result == DecodeResult::Fatal)
+        {
+            SignalHandshake(false);
+            CloseOnExecutor();
+            return false;
+        }
+        return Result == DecodeResult::Accepted;
     }
 
     auto NativeConnection::WaitHandshake() -> Net::awaitable<bool>
@@ -1485,6 +1554,15 @@ namespace Preview::Quic::Detail
             Conn_, Path, &PacketInfo, reinterpret_cast<const std::uint8_t *>(Data.data()), Data.size(), Now());
         if (Result != 0 || RandomFailed_)
         {
+            // Some Mihomo/HTTP3 clients send a padded Initial before the
+            // ClientHello-bearing Initial. ngtcp2 reports ERR_RETRY when that
+            // first packet contains no CRYPTO data. Keep this server owner
+            // alive and wait for the following Initial instead of discarding
+            // the connection before TLS has had a chance to start.
+            if (Result == NGTCP2_ERR_RETRY && Role_ == Role::Server)
+            {
+                return DecodeResult::Accepted;
+            }
             return DecodeResult::Fatal;
         }
         QueueFlush();
@@ -1741,13 +1819,27 @@ namespace Preview::Quic::Detail
             return;
         }
         Closed_ = true;
+        if (!CloseNotified_)
+        {
+            CloseNotified_ = true;
+            if (OnClosed_)
+            {
+                try
+                {
+                    OnClosed_();
+                }
+                catch (...)
+                {
+                }
+            }
+        }
         ClosedAtomic_.store(true, std::memory_order_release);
         SocketReadyAtomic_.store(false, std::memory_order_release);
         ReceiveLoopReadyAtomic_.store(false, std::memory_order_release);
         HandshakeReadyAtomic_.store(false, std::memory_order_release);
         ProtocolReadyAtomic_.store(false, std::memory_order_release);
         SignalHandshake(false);
-        if (Socket_ && (SocketToken_ || !Started_))
+        if (Socket_ && !ExternalReceive_ && (SocketToken_ || !Started_))
         {
             boost::system::error_code ErrorCode;
             Socket_->cancel(ErrorCode);
@@ -1824,11 +1916,31 @@ namespace Preview::Quic::Detail
             {
                 IncomingUnidirectionalStreams_.push_back(Provider);
                 (void)IncomingUnidirectionalNotify_.try_send(boost::system::error_code{});
+                if (OnUnidirectional_)
+                {
+                    try
+                    {
+                        OnUnidirectional_(Provider);
+                    }
+                    catch (...)
+                    {
+                    }
+                }
             }
             else
             {
                 IncomingStreams_.push_back(Provider);
                 (void)IncomingNotify_.try_send(boost::system::error_code{});
+                if (OnStream_)
+                {
+                    try
+                    {
+                        OnStream_(Provider);
+                    }
+                    catch (...)
+                    {
+                    }
+                }
             }
         }
         return Provider;
@@ -1903,7 +2015,73 @@ namespace Preview::Quic::Detail
 
     auto NativeConnection::OnHandshakeComplete() -> void
     {
+        std::string Alpn;
+        const unsigned char *Selected = nullptr;
+        unsigned int Length = 0;
+        if (Ssl_)
+        {
+            SSL_get0_alpn_selected(Ssl_, &Selected, &Length);
+        }
+        if (Selected != nullptr && Length != 0U)
+        {
+            Alpn.assign(reinterpret_cast<const char *>(Selected), Length);
+        }
+        if (!ExpectedAlpn_.empty() && Alpn != ExpectedAlpn_)
+        {
+            SignalHandshake(false);
+            CloseOnExecutor();
+            return;
+        }
+        if (!ExpectedServerName_.empty())
+        {
+            const auto *ServerName = Ssl_ ? SSL_get_servername(
+                                                Ssl_, TLSEXT_NAMETYPE_host_name)
+                                          : nullptr;
+            if (!ServerName || ExpectedServerName_ != ServerName)
+            {
+                SignalHandshake(false);
+                CloseOnExecutor();
+                return;
+            }
+        }
         SignalHandshake(true);
+        if (OnExporter_)
+        {
+            try
+            {
+                const std::weak_ptr<NativeConnection> Weak = weak_from_this();
+                OnExporter_([Weak](std::span<std::uint8_t> Output,
+                                   std::span<const std::uint8_t> Label,
+                                   std::string_view Context) -> bool
+                {
+                    const auto Owner = Weak.lock();
+                    return Owner && Owner->ExportKeyingMaterial(Output, Label, Context);
+                });
+            }
+            catch (...)
+            {
+            }
+        }
+        if (OnEstablished_)
+        {
+            try
+            {
+                OnEstablished_(std::move(Alpn));
+            }
+            catch (...)
+            {
+            }
+        }
+        if (OnDatagram_)
+        {
+            try
+            {
+                OnDatagram_(DatagramProvider());
+            }
+            catch (...)
+            {
+            }
+        }
     }
 
     auto NativeConnection::MakeCallbacks(const bool Server) -> ngtcp2_callbacks
@@ -2254,12 +2432,12 @@ namespace Preview::Quic::Detail
 namespace Preview::Quic
 {
 
-    Client::Client(ClientOptions Options)
+    Client::Client(const ClientOptions &Options)
         : Connection_(std::make_shared<Detail::NativeConnection>(Detail::NativeConnection::Role::Client,
-                                                                  Options.Executor, std::move(Options.Socket),
+                                                                  Options.Executor, Options.Socket,
                                                                   Options.Peer, Options.TlsContext,
-                                                                  std::move(Options.ServerName),
-                                                                  std::move(Options.Random)))
+                                                                  Options.ServerName,
+                                                                  Options.Random))
     {
     }
 
@@ -2359,12 +2537,24 @@ namespace Preview::Quic
         return Connection_ ? Connection_->Health() : NativeConnectionHealth{.Closed = true};
     }
 
-    Server::Server(ServerOptions Options)
+    Server::Server(const ServerOptions &Options)
         : Connection_(std::make_shared<Detail::NativeConnection>(Detail::NativeConnection::Role::Server,
-                                                                  Options.Executor, std::move(Options.Socket),
+                                                                  Options.Executor, Options.Socket,
                                                                   Net::ip::udp::endpoint{},
                                                                   Options.TlsContext, std::string{},
-                                                                  std::move(Options.Random)))
+                                                                  Options.Random,
+                                                                  Options.ExternalReceive,
+                                                                  Options.ExpectedAlpn,
+                                                                  Options.ExpectedServerName,
+                                                                  Options.MaxStreams,
+                                                                  Options.MaxDatagrams,
+                                                                  Options.OnEstablished,
+                                                                  Options.OnStream,
+                                                                  Options.OnUnidirectional,
+                                                                  Options.OnDatagram,
+                                                                  Options.OnClosed,
+                                                                  Options.OnExporter)),
+          OnStarted_(Options.OnStarted)
     {
     }
 
@@ -2382,6 +2572,23 @@ namespace Preview::Quic
         {
             Connection_->Start();
         }
+        if (OnStarted_)
+        {
+            try
+            {
+                OnStarted_(shared_from_this());
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    auto Server::ReceivePacket(
+        const std::span<const std::byte> Data,
+        const Net::ip::udp::endpoint &Peer) -> bool
+    {
+        return Connection_ && Connection_->ReceivePacket(Peer, Data);
     }
 
     auto Server::WaitHandshake() -> Net::awaitable<bool>

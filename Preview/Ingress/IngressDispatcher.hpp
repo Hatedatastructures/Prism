@@ -30,6 +30,7 @@ namespace Preview::Ingress
         {
             SharedQuicGateway Quic;
             DatagramHandler Datagram;
+            std::function<bool(UdpPacket)> QuicAdmission;
         };
 
         explicit IngressDispatcher(Options OptionsValue)
@@ -39,19 +40,23 @@ namespace Preview::Ingress
 
         auto Dispatch(UdpPacket Packet) -> void
         {
+            bool QuicRejected = false;
+            if (Packet.Classification.Kind == DatagramKind::Quic && Options_.QuicAdmission &&
+                Options_.QuicAdmission(Packet))
+            {
+                return;
+            }
             if (Packet.Classification.Kind == DatagramKind::Quic && Options_.Quic)
             {
                 if (Options_.Quic->Handle(std::move(Packet)))
                 {
                     QuicPackets_.fetch_add(1, std::memory_order_relaxed);
+                    return;
                 }
-                else
-                {
-                    RejectedPackets_.fetch_add(1, std::memory_order_relaxed);
-                }
-                return;
+                QuicRejected = true;
             }
-            if (Packet.Classification.Kind == DatagramKind::Ordinary && Options_.Datagram)
+            if ((Packet.Classification.Kind == DatagramKind::Ordinary || QuicRejected) &&
+                Options_.Datagram)
             {
                 Options_.Datagram(std::move(Packet));
                 DatagramPackets_.fetch_add(1, std::memory_order_relaxed);

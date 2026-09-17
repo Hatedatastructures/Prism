@@ -15,9 +15,16 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace Preview::Gun
 {
+
+    struct Config final
+    {
+        std::string Path;
+        std::string ServiceName;
+    };
 
     /// 帧头固定开销（0x00 + u32 + 0x0A）
     inline constexpr std::size_t HeaderFixedLen = 6;

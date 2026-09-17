@@ -30,8 +30,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <future>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -67,6 +69,8 @@ namespace
             : Ex_(IoContext.get_executor()),
               Udp_(IoContext, Net::ip::udp::endpoint(Net::ip::make_address("127.0.0.1"), 0))
         {
+            boost::system::error_code ErrorCode;
+            Udp_.set_option(Net::socket_base::receive_buffer_size(212992), ErrorCode);
         }
 
         auto Start() -> void
@@ -125,8 +129,20 @@ namespace
                 PutU16(Output, 1);
                 PutU16(Output, 1);
                 Output.insert(Output.end(), {0, 0, 0, 60, 0, 4, 1, 2, 3, 4});
-                co_await Udp_.async_send_to(Net::buffer(Output), Sender,
-                                            Net::redirect_error(Net::use_awaitable, ErrorCode));
+                // Keep draining the receive queue while responses are written. A burst of
+                // hundreds of connected UDP clients can overflow the loopback receive buffer
+                // if each receive waits for its send completion before reading the next packet.
+                Net::co_spawn(
+                    Ex_,
+                    [self = shared_from_this(), Output = std::move(Output), Sender]() mutable
+                        -> Net::awaitable<void>
+                    {
+                        boost::system::error_code SendError;
+                        co_await self->Udp_.async_send_to(
+                            Net::buffer(Output), Sender,
+                            Net::redirect_error(Net::use_awaitable, SendError));
+                    },
+                    Net::detached);
             }
         }
 
@@ -244,8 +260,10 @@ auto main() -> int
     // ── 3. 回环端到端 QPS ─────────────────────────────
     {
         Net::io_context IoContext;
-        auto Server = std::make_shared<PerfDnsServer>(IoContext);
+        Net::io_context ServerIoContext;
+        auto Server = std::make_shared<PerfDnsServer>(ServerIoContext);
         Server->Start();
+        std::thread ServerThread([&ServerIoContext]() { ServerIoContext.run(); });
 
         Preview::Network::Dns::Config cfg;
         Preview::Network::Dns::Server s;
@@ -289,12 +307,24 @@ auto main() -> int
                 });
         }
         IoContext.run();
+
+        std::promise<void> ClosePromise;
+        auto CloseFuture = ClosePromise.get_future();
+        Net::post(ServerIoContext,
+                  [Server, &ClosePromise]()
+                  {
+                      Server->Close();
+                      ClosePromise.set_value();
+                  });
+        CloseFuture.wait();
+        ServerIoContext.stop();
+        ServerThread.join();
+
         if (Exception)
         {
             std::rethrow_exception(Exception);
         }
         const auto Ns = NowNs() - Start;
-        Server->Close();
         if (Ok != kQueries)
         {
             std::printf("[FAIL] E2E 成功率 < 100%%：%llu/%llu\n",

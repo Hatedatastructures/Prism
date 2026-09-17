@@ -27,6 +27,7 @@
 #include <variant>
 
 #include <Preview/Protocols/Mux/Client.hpp>
+#include <Preview/Protocols/Mux/H2Mux/H2Mux.hpp>
 #include <Preview/Protocols/Mux/Smux/Smux.hpp>
 #include <Preview/Protocols/Mux/Yamux/Yamux.hpp>
 #include <Preview/Net/Target.hpp>
@@ -765,6 +766,13 @@ namespace
             });
         EXPECT_TRUE(Opened);
         EXPECT_EQ(Result, Code::Canceled);
+    }
+
+    TEST(MuxService, H2MuxModeUsesH2MuxFraming)
+    {
+        Net::io_context Io;
+        RunOneStreamCase<Preview::Mux::H2Mux::Client<>>(
+            Io, Preview::Composition::MuxMode::H2Mux);
     }
 
     TEST(MuxService, SmuxAcceptsAndOwnsOneChildStream)

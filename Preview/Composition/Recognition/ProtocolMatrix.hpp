@@ -139,13 +139,15 @@ namespace Preview::Composition::Recognition
             return true;
         }
 
-        inline static constexpr std::array<TcpRecognitionBinding, 6> TcpBindings_{
+        inline static constexpr std::array<TcpRecognitionBinding, 8> TcpBindings_{
             TcpRecognitionBinding{"http", Preview::Recognition::ProtocolType::Http},
             TcpRecognitionBinding{"socks5", Preview::Recognition::ProtocolType::Socks5},
             TcpRecognitionBinding{"vless", Preview::Recognition::ProtocolType::Vless},
             TcpRecognitionBinding{"trojan", Preview::Recognition::ProtocolType::Trojan},
             TcpRecognitionBinding{"vmess", Preview::Recognition::ProtocolType::Vmess},
             TcpRecognitionBinding{"ss2022", Preview::Recognition::ProtocolType::Shadowsocks},
+            TcpRecognitionBinding{"anytls", Preview::Recognition::ProtocolType::AnyTls},
+            TcpRecognitionBinding{"trusttunnel", Preview::Recognition::ProtocolType::TrustTunnel},
         };
 
         inline static constexpr std::array<UdpAssociationBinding, 7> UdpBindings_{

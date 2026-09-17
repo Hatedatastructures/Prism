@@ -418,9 +418,19 @@ namespace Preview::Composition
             UdpResolveRequest Request)
             -> Net::awaitable<std::pair<Preview::Error, Udp::endpoint>>
         {
+            if (Request.Host.empty() || Request.Port == 0U)
+            {
+                co_return std::pair{Preview::Error::BadAddress, Udp::endpoint{}};
+            }
             if (Options.Resolver)
             {
-                co_return co_await Options.Resolver(std::move(Request));
+                auto Result = co_await Options.Resolver(std::move(Request));
+                if (Result.first == Preview::Error::None && Result.second.port() == 0U)
+                {
+                    Result.first = Preview::Error::BadAddress;
+                    Result.second = {};
+                }
+                co_return Result;
             }
             boost::system::error_code ErrorCode;
             const auto Address = Net::ip::make_address(Request.Host, ErrorCode);

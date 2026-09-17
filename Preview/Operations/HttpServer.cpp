@@ -1502,11 +1502,11 @@ namespace Preview::Operations
     {
         State(Net::any_io_executor ExecutorValue,
               Endpoint EndpointValue,
-              Router RouterValue,
+              const Router &RouterValue,
               const std::chrono::milliseconds ReadDeadlineValue)
             : Executor(std::move(ExecutorValue)),
               BindEndpoint(EndpointValue),
-              OperationsRouter(std::move(RouterValue)),
+              OperationsRouter(RouterValue),
               ReadDeadline(ReadDeadlineValue),
               Acceptor(Executor),
               DrainTimer(Executor)
@@ -1530,11 +1530,22 @@ namespace Preview::Operations
         std::atomic<bool> Drained{false};
     };
 
-    HttpServer::HttpServer(Options OptionsValue)
-        : State_(std::make_shared<State>(std::move(OptionsValue.Executor),
-                                          OptionsValue.BindEndpoint,
-                                          std::move(OptionsValue.OperationsRouter),
-                                          OptionsValue.ReadDeadline))
+    HttpServer::HttpServer(const Options &OptionsValue)
+        : HttpServer(OptionsValue.Executor,
+                     OptionsValue.BindEndpoint,
+                     OptionsValue.OperationsRouter,
+                     OptionsValue.ReadDeadline)
+    {
+    }
+
+    HttpServer::HttpServer(Net::any_io_executor Executor,
+                           Endpoint BindEndpoint,
+                           const Router &OperationsRouter,
+                           const std::chrono::milliseconds ReadDeadline)
+        : State_(std::make_shared<State>(std::move(Executor),
+                                          BindEndpoint,
+                                          OperationsRouter,
+                                          ReadDeadline))
     {
     }
 

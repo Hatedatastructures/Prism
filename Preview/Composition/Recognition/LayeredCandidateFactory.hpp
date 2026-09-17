@@ -59,6 +59,29 @@ namespace Preview::Composition::Recognition
             };
             return Result;
         }
+
+        [[nodiscard]] static auto MakePrepared(
+            TlsCandidateOptions Options,
+            CarrierAcceptPreparedFn Carrier,
+            CandidateBinding Inner) -> CandidateBinding
+        {
+            auto Tls = TlsCandidateFactory::MakePrepared(std::move(Options), std::move(Carrier));
+            CandidateBinding Result;
+            Result.Spec = std::move(Tls.Spec);
+            Result.Spec.Protocol = Inner.Spec.Protocol;
+            Result.Spec.Kind = Core::CandidateKind::TlsCarrier;
+            Result.Accept = [Accept = std::move(Inner.Accept)](
+                                Preview::SharedTransmission &Inbound,
+                                Preview::Middleware::Context &Context) -> Net::awaitable<Preview::Fault::Code>
+            {
+                if (!Accept)
+                {
+                    co_return Preview::Fault::Code::ProtocolError;
+                }
+                co_return co_await Accept(Inbound, Context);
+            };
+            return Result;
+        }
     };
 
 } // namespace Preview::Composition::Recognition

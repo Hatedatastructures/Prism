@@ -55,6 +55,7 @@ namespace Preview::Composition::Recognition
         {
             std::string Scheme;
             CarrierAcceptFn Accept;
+            CarrierAcceptPreparedFn AcceptPrepared;
         };
 
         /**
@@ -86,7 +87,8 @@ namespace Preview::Composition::Recognition
             {
                 return false;
             }
-            return Carriers_.emplace(Name, std::move(Accept)).second;
+            return Carriers_.emplace(
+                Name, CarrierRegistration{Name, std::move(Accept), {}}).second;
         }
 
         /**
@@ -107,7 +109,21 @@ namespace Preview::Composition::Recognition
                 return false;
             }
             return CarriersById_.emplace(
-                CarrierId, CarrierRegistration{CarrierScheme, std::move(Accept)}).second;
+                CarrierId, CarrierRegistration{CarrierScheme, std::move(Accept), {}}).second;
+        }
+
+        [[nodiscard]] auto RegisterPreparedCarrier(std::string_view Id,
+                                                    std::string_view Scheme,
+                                                    CarrierAcceptPreparedFn Accept) -> bool
+        {
+            const auto CarrierId = Normalize(Id);
+            const auto CarrierScheme = Normalize(Scheme);
+            if (CarrierId.empty() || CarrierScheme.empty() || !Accept)
+            {
+                return false;
+            }
+            return CarriersById_.emplace(
+                CarrierId, CarrierRegistration{CarrierScheme, {}, std::move(Accept)}).second;
         }
 
         /**
@@ -239,7 +255,7 @@ namespace Preview::Composition::Recognition
         [[nodiscard]] static auto BuildFrom(
             const Preview::Settings::RecognitionCandidate &Candidate,
             const std::unordered_map<std::string, SettingsCandidateFactory> &Builders,
-            const std::unordered_map<std::string, CarrierAcceptFn> &Carriers,
+            const std::unordered_map<std::string, CarrierRegistration> &Carriers,
             const std::unordered_map<std::string, CarrierRegistration> &CarriersById)
             -> std::optional<CandidateBinding>
         {
@@ -277,7 +293,7 @@ namespace Preview::Composition::Recognition
                 }
                 return std::nullopt;
             }
-            CarrierAcceptFn CarrierAccept;
+            const CarrierRegistration *Registration = nullptr;
             if (!Candidate.CarrierId.empty())
             {
                 const auto CarrierIt = CarriersById.find(Normalize(Candidate.CarrierId));
@@ -285,7 +301,7 @@ namespace Preview::Composition::Recognition
                 {
                     return std::nullopt;
                 }
-                CarrierAccept = CarrierIt->second.Accept;
+                Registration = &CarrierIt->second;
             }
             else
             {
@@ -294,7 +310,11 @@ namespace Preview::Composition::Recognition
                 {
                     return std::nullopt;
                 }
-                CarrierAccept = CarrierIt->second;
+                Registration = &CarrierIt->second;
+            }
+            if (!Registration || (!Registration->Accept && !Registration->AcceptPrepared))
+            {
+                return std::nullopt;
             }
 
             TlsCandidateOptions Options;
@@ -304,8 +324,13 @@ namespace Preview::Composition::Recognition
             Options.ServerNames = Candidate.ServerNames;
             Options.Alpn = Candidate.Alpn;
             Options.Fallback = Candidate.Fallback;
+            if (Registration->AcceptPrepared)
+            {
+                return LayeredCandidateFactory::MakePrepared(
+                    std::move(Options), Registration->AcceptPrepared, std::move(*Inner));
+            }
             return LayeredCandidateFactory::Make(
-                std::move(Options), std::move(CarrierAccept), std::move(*Inner));
+                std::move(Options), Registration->Accept, std::move(*Inner));
         }
 
         [[nodiscard]] static auto Normalize(std::string_view Protocol) -> std::string
@@ -354,7 +379,7 @@ namespace Preview::Composition::Recognition
         }
 
         std::unordered_map<std::string, SettingsCandidateFactory> Builders_;
-        std::unordered_map<std::string, CarrierAcceptFn> Carriers_;
+        std::unordered_map<std::string, CarrierRegistration> Carriers_;
         std::unordered_map<std::string, CarrierRegistration> CarriersById_;
     };
 

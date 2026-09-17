@@ -73,7 +73,12 @@ namespace Preview::Operations
             std::chrono::milliseconds ReadDeadline{std::chrono::milliseconds{5000}};
         };
 
-        explicit HttpServer(Options OptionsValue);
+        explicit HttpServer(const Options &OptionsValue);
+
+        HttpServer(Net::any_io_executor Executor,
+                   Endpoint BindEndpoint,
+                   const Router &OperationsRouter,
+                   std::chrono::milliseconds ReadDeadline = std::chrono::milliseconds{5000});
 
         ~HttpServer() noexcept;
 

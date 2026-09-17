@@ -53,6 +53,8 @@ namespace Preview::Ws
      */
     struct ServerConfig
     {
+        std::string Path{"/"};
+        std::string Host;
     };
 
     // =========================================================================
@@ -93,7 +95,7 @@ namespace Preview::Ws
     {
         auto C = std::make_shared<Conn<>>(std::move(upstream), false);
         std::string key;
-        const auto Err = co_await C->ReadHandshake(key);
+        const auto Err = co_await C->ReadHandshake(key, cfg.Path, cfg.Host);
         SharedConn Conn;
         if (Err == Error::None)
         {

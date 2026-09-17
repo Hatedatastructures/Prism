@@ -211,7 +211,7 @@ namespace
         -> Net::awaitable<bool>
     {
         auto Raw = std::make_shared<Preview::Transport::Reliable>(std::move(Socket));
-        const Preview::Trojan::ServerConfig Config{OptionsValue.Password, true, false, nullptr};
+        const Preview::Trojan::ServerConfig Config{OptionsValue.Password, true, false, false};
         auto [HandshakeError, Request, Conn] = co_await Preview::Trojan::Accept(Raw, Config);
         (void)Request;
         if (HandshakeError != Preview::Error::None || !Conn)

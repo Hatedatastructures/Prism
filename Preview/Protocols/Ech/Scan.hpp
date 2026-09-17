@@ -51,6 +51,7 @@ namespace Preview::Ech
         {
             return false;
         }
+        const auto HandshakeEnd = Off + HsLen;
         // LegacyVersion(2) + random(32)
         if (Raw.size() - Off < 34)
         {
@@ -101,7 +102,7 @@ namespace Preview::Ech
         const auto ExtLen = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off])) << 8) |
                             static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off + 1]));
         Off += 2;
-        if (ExtLen > Raw.size() - Off)
+        if (Off > HandshakeEnd || ExtLen > HandshakeEnd - Off)
         {
             return false;
         }
@@ -113,13 +114,13 @@ namespace Preview::Ech
                              static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off + 1]));
             const auto Len = (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off + 2])) << 8) |
                              static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(Raw[Off + 3]));
-            if (Type == EchExtensionType)
-            {
-                return true;
-            }
             if (Len > End - Off - 4)
             {
                 return false;
+            }
+            if (Type == EchExtensionType)
+            {
+                return true;
             }
             Off += 4 + Len;
         }

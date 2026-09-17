@@ -273,10 +273,31 @@ namespace Preview::Operations
         {
         }
 
-        Router(const Router &) = default;
-        auto operator=(const Router &) -> Router & = default;
-        Router(Router &&) noexcept = default;
-        auto operator=(Router &&) noexcept -> Router & = default;
+        Router(const Router &Other) noexcept : State_(Other.State_)
+        {
+        }
+
+        auto operator=(const Router &Other) noexcept -> Router &
+        {
+            if (this != &Other)
+            {
+                State_ = Other.State_;
+            }
+            return *this;
+        }
+
+        Router(Router &&Other) noexcept : State_(std::exchange(Other.State_, {}))
+        {
+        }
+
+        auto operator=(Router &&Other) noexcept -> Router &
+        {
+            if (this != &Other)
+            {
+                State_ = std::exchange(Other.State_, {});
+            }
+            return *this;
+        }
 
         auto SetQueryHandler(QueryHandler Handler) -> void
         {

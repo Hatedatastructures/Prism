@@ -51,6 +51,7 @@ namespace
     {
         std::string Address{"127.0.0.1:19096"};
         std::string Mode{"server"};
+        std::string XhttpMode{"StreamOne"};
     };
 
     struct HostPort
@@ -218,6 +219,7 @@ namespace
         }
         auto Raw = std::make_shared<Preview::Transport::Reliable>(std::move(Socket));
         Preview::Xhttp::Config Config;
+        Config.Mode = OptionsValue.XhttpMode;
         auto Transport = co_await Preview::Xhttp::Accept(Raw, Tls, Config);
         if (!Transport)
         {
@@ -285,6 +287,7 @@ namespace
         Tls.set_verify_mode(Ssl::verify_none);
         auto Raw = std::make_shared<Preview::Transport::Reliable>(std::move(Socket));
         Preview::Xhttp::Config Config;
+        Config.Mode = OptionsValue.XhttpMode;
         auto Transport = co_await Preview::Xhttp::Connect(Raw, Tls, Config, "example.com");
         if (!Transport)
         {
@@ -301,15 +304,18 @@ namespace
             std::fprintf(stderr, "FAIL: XHTTP client request write\n");
             co_return 1;
         }
-        try
+        if (Config.Mode == "StreamOne")
         {
-            co_await std::static_pointer_cast<Preview::Xhttp::XhttpTransport>(Transport)->Finish();
-        }
-        catch (...)
-        {
-            Transport->Close();
-            std::fprintf(stderr, "FAIL: XHTTP client request half-close\n");
-            co_return 1;
+            try
+            {
+                co_await std::static_pointer_cast<Preview::Xhttp::XhttpTransport>(Transport)->Finish();
+            }
+            catch (...)
+            {
+                Transport->Close();
+                std::fprintf(stderr, "FAIL: XHTTP client request half-close\n");
+                co_return 1;
+            }
         }
         if (!co_await ReadExact(Transport, Buffer) ||
             std::memcmp(Buffer.data(), Payload.data(), Payload.size()) != 0)
@@ -337,6 +343,10 @@ auto main(const int Argc, char **Argv) -> int
         else if (std::string_view(Argv[Index]) == "-mode")
         {
             OptionsValue.Mode = Argv[Index + 1];
+        }
+        else if (std::string_view(Argv[Index]) == "-xhttp-mode")
+        {
+            OptionsValue.XhttpMode = Argv[Index + 1];
         }
     }
     Net::io_context Io;

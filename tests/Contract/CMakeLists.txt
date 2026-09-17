@@ -9,6 +9,9 @@ target_link_libraries(ProtocolContractTest PRIVATE
 
 AddContractTest(TransportContractTest.cpp)
 target_link_libraries(TransportContractTest PRIVATE PreviewTransport PreviewNet ContractTestSupport )
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(TransportContractTest PRIVATE -U_FORTIFY_SOURCE)
+endif()
 
 AddContractTest(PreviewProductionBridgeTest.cpp)
 target_link_libraries(PreviewProductionBridgeTest PRIVATE PreviewRuntime)

@@ -31,6 +31,8 @@ namespace Preview::Quic
 
     namespace Net = boost::asio;
 
+    class Server;
+
     /// 随机源回调；返回 1 表示成功，其他值表示随机源失败。
     using RandomSource = std::function<int(std::uint8_t *, int)>;
 
@@ -66,10 +68,32 @@ namespace Preview::Quic
      */
     struct ServerOptions
     {
+        using EstablishedHandler = std::function<void(std::string)>;
+        using StartedHandler = std::function<void(std::shared_ptr<Server>)>;
+        using StreamHandler = std::function<void(SharedStreamProvider)>;
+        using UnidirectionalHandler = std::function<void(SharedStreamProvider)>;
+        using DatagramHandler = std::function<void(SharedDatagramProvider)>;
+        using ClosedHandler = std::function<void()>;
+        using KeyingMaterialExporter = std::function<bool(
+            std::span<std::uint8_t>, std::span<const std::uint8_t>, std::string_view)>;
+        using ExporterHandler = std::function<void(KeyingMaterialExporter)>;
+
         Net::any_io_executor Executor{}; ///< 所有 QUIC 操作使用的执行器
         std::shared_ptr<Net::ip::udp::socket> Socket{}; ///< 已绑定 UDP socket
         SSL_CTX *TlsContext{nullptr}; ///< TLS 1.3 服务端上下文
         RandomSource Random{}; ///< 可注入的随机源；缺省使用 BoringSSL RAND_bytes
+        bool ExternalReceive{false}; ///< 由上层 CID owner 注入数据报，不启动内部 receive loop
+        std::string ExpectedAlpn{}; ///< 非空时 negotiated ALPN 必须精确匹配
+        std::string ExpectedServerName{}; ///< 非空时 TLS SNI 必须精确匹配
+        std::size_t MaxStreams{64}; ///< 入站流上限，由上层协议工厂执行
+        std::size_t MaxDatagrams{64}; ///< 数据报上限，由上层协议工厂执行
+        EstablishedHandler OnEstablished{};
+        StartedHandler OnStarted{};
+        StreamHandler OnStream{};
+        UnidirectionalHandler OnUnidirectional{};
+        DatagramHandler OnDatagram{};
+        ClosedHandler OnClosed{};
+        ExporterHandler OnExporter{};
     };
 
     /**
@@ -98,7 +122,7 @@ namespace Preview::Quic
     class Client final : public std::enable_shared_from_this<Client>
     {
     public:
-        explicit Client(ClientOptions Options);
+        explicit Client(const ClientOptions &Options);
         ~Client() noexcept;
 
         Client(const Client &) = delete;
@@ -148,7 +172,7 @@ namespace Preview::Quic
     class Server final : public std::enable_shared_from_this<Server>
     {
     public:
-        explicit Server(ServerOptions Options);
+        explicit Server(const ServerOptions &Options);
         ~Server() noexcept;
 
         Server(const Server &) = delete;
@@ -156,6 +180,14 @@ namespace Preview::Quic
 
         /** @brief 启动 UDP 接收循环并等待客户端 Initial */
         auto Start() -> void;
+
+        /**
+         * @brief 向 external-receive server 注入一个已由 CID owner 路由的数据报。
+         * @note 调用方必须在 ServerOptions::Executor 上串行调用。
+         */
+        [[nodiscard]] auto ReceivePacket(
+            std::span<const std::byte> Data,
+            const Net::ip::udp::endpoint &Peer) -> bool;
 
         /** @brief 等待 QUIC 握手完成，关闭前返回 false */
         [[nodiscard]] auto WaitHandshake() -> Net::awaitable<bool>;
@@ -189,6 +221,7 @@ namespace Preview::Quic
 
     private:
         std::shared_ptr<Detail::NativeConnection> Connection_;
+        ServerOptions::StartedHandler OnStarted_;
     };
 
     /**

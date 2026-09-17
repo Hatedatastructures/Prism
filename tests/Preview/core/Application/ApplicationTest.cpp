@@ -905,8 +905,15 @@ TEST(PreviewApplication, RejectsUnsupportedTcpProtocol)
     TemporaryConfiguration Configuration(
         FindFreePort(),
         ConfigurationShape{
-            .Protocols = R"([{"Id":"protocol-hysteria2","Name":"hysteria2","Builtin":"hysteria2","Requires":[]}])"});
-    Preview::Application::Application Application(MakeOptions(Configuration.Path()));
+            .Protocols = R"([{"Id":"protocol-hysteria2","Name":"hysteria2","Builtin":"hysteria2","Requires":[],"Quic":{"Alpn":"h3","ServerName":"quic.example","CredentialSecretRef":"secret/quic/password","MaxStreams":32,"MaxDatagrams":64}}])",
+            .Quic = R"([{"Id":"quic-main","Address":"127.0.0.1","Port":19086,"Timeout":5000}])"});
+    auto Options = MakeOptions(Configuration.Path());
+    Options.SecretResolver = [](const std::string_view Reference) -> std::optional<std::string>
+    {
+        return Reference == "secret/quic/password" ? std::optional<std::string>("quic-password")
+                                                     : std::nullopt;
+    };
+    Preview::Application::Application Application(std::move(Options));
 
     const auto Result = Application.Start();
 
@@ -921,8 +928,15 @@ TEST(PreviewApplication, RejectsTuicProtocolUntilQuicFrontIsWired)
     TemporaryConfiguration Configuration(
         FindFreePort(),
         ConfigurationShape{
-            .Protocols = R"([{"Id":"protocol-tuic","Name":"tuic","Builtin":"tuic","Requires":[]}])"});
-    Preview::Application::Application Application(MakeOptions(Configuration.Path()));
+            .Protocols = R"([{"Id":"protocol-tuic","Name":"tuic","Builtin":"tuic","Requires":[],"Quic":{"Alpn":"h3","ServerName":"quic.example","CredentialSecretRef":"secret/quic/password","MaxStreams":32,"MaxDatagrams":64,"Uuid":"123e4567-e89b-12d3-a456-426614174000"}}])",
+            .Quic = R"([{"Id":"quic-main","Address":"127.0.0.1","Port":19087,"Timeout":5000}])"});
+    auto Options = MakeOptions(Configuration.Path());
+    Options.SecretResolver = [](const std::string_view Reference) -> std::optional<std::string>
+    {
+        return Reference == "secret/quic/password" ? std::optional<std::string>("quic-password")
+                                                     : std::nullopt;
+    };
+    Preview::Application::Application Application(std::move(Options));
 
     const auto Result = Application.Start();
 

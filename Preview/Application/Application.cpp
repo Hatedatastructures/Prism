@@ -8,12 +8,16 @@
 #include <Preview/Account/Account.hpp>
 #include <Preview/Application/Configuration/Configuration.hpp>
 #include <Preview/Composition/Adapters/Anytls.hpp>
+#include <Preview/Composition/AnytlsService.hpp>
 #include <Preview/Composition/Adapters/ProtocolAdapter.hpp>
+#include <Preview/Composition/Quic/Hysteria2Factory.hpp>
+#include <Preview/Composition/Quic/TuicFactory.hpp>
 #include <Preview/Composition/UdpService.hpp>
 #include <Preview/Composition/Builtin/ProtocolBuiltins.hpp>
 #include <Preview/Composition/Protocol/ProtocolCatalog.hpp>
 #include <Preview/Composition/Recognition/CandidateFactory.hpp>
 #include <Preview/Composition/Recognition/SettingsBuilder.hpp>
+#include <Preview/Composition/Recognition/ShadowtlsCarrier.hpp>
 #include <Preview/Composition/Recognition/TlsCandidateFactory.hpp>
 #include <Preview/Net/Dialer/Dialer.hpp>
 #include <Preview/Net/Dns/Resolver.hpp>
@@ -25,11 +29,15 @@
 #include <Preview/Foundation/Utility/Diagnose/Context.hpp>
 #include <Preview/Foundation/Utility/Diagnose/Logger.hpp>
 #include <Preview/Ingress/IngressDispatcher.hpp>
+#include <Preview/Ingress/QuicAdmissionContext.hpp>
+#include <Preview/Ingress/QuicCidRegistry.hpp>
 #include <Preview/Ingress/QuicGateway.hpp>
+#include <Preview/Ingress/Ss2022Gateway.hpp>
 #include <Preview/Ingress/UdpListener.hpp>
 #include <Preview/Protocols/Socks5/Types.hpp>
 #include <Preview/Protocols/Socks5/Conn.hpp>
 #include <Preview/Protocols/Vless/Conn.hpp>
+#include <Preview/Protocols/Ws/Ws.hpp>
 #include <Preview/Transport/Encrypted.hpp>
 #include <Preview/Runtime/Listener.hpp>
 #include <Preview/Runtime/Process.hpp>
@@ -60,6 +68,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <span>
 #include <system_error>
 #include <thread>
 #include <type_traits>
@@ -227,6 +236,36 @@ namespace Preview::Application
             case Preview::Recognition::ProtocolType::AnyTls: return StaticProtocol::AnyTls;
             default: return std::nullopt;
             }
+        }
+
+        [[nodiscard]] auto IsQuicProtocolName(const std::string_view Name) noexcept -> bool
+        {
+            return Name == "hysteria2" || Name == "tuic";
+        }
+
+        [[nodiscard]] auto ConfiguredMuxMode(
+            const Configuration::PreviewConfiguration &ConfigurationValue)
+            -> Preview::Composition::MuxMode
+        {
+            for (const auto &Binding : ConfigurationValue.ProtocolBindings)
+            {
+                for (const auto &Mode : Binding.MuxModes)
+                {
+                    if (Mode == "H2Mux")
+                    {
+                        return Preview::Composition::MuxMode::H2Mux;
+                    }
+                    if (Mode == "Yamux")
+                    {
+                        return Preview::Composition::MuxMode::Yamux;
+                    }
+                    if (Mode == "Smux")
+                    {
+                        return Preview::Composition::MuxMode::Smux;
+                    }
+                }
+            }
+            return Preview::Composition::MuxMode::Auto;
         }
 
         [[nodiscard]] auto ParseHexDigit(const char Character) noexcept -> int
@@ -629,12 +668,36 @@ namespace Preview::Application
                     "PrismPreview supports at most 127 TCP protocol candidates"));
             }
             std::array<bool, 7> SeenProtocols{};
+            std::array<bool, 2> SeenQuicProtocols{};
             std::optional<std::size_t> AnyTlsIndex;
+            bool HasTcpProtocol = false;
+            bool HasQuicProtocol = false;
             for (std::size_t Index = 0; Index < ConfigurationValue.Protocols.size(); ++Index)
             {
                 const auto &Protocol = ConfigurationValue.Protocols[Index];
                 const auto ProtocolValue = ParseStaticProtocol(Protocol.Name);
                 const auto Path = "Protocols[" + std::to_string(Index) + "]";
+                if (IsQuicProtocolName(Protocol.Builtin))
+                {
+                    if (Protocol.Name != Protocol.Builtin || !Protocol.Quic)
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::UnsupportedService,
+                            Path,
+                            "Hysteria2 and TUIC require a QUIC protocol configuration"));
+                    }
+                    const auto QuicIndex = Protocol.Builtin == "hysteria2" ? 0U : 1U;
+                    if (SeenQuicProtocols[QuicIndex])
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::InvalidConfiguration,
+                            Path + ".Builtin",
+                            "duplicate QUIC protocol candidate"));
+                    }
+                    SeenQuicProtocols[QuicIndex] = true;
+                    HasQuicProtocol = true;
+                    continue;
+                }
                 if (Protocol.Name != Protocol.Builtin || !ProtocolValue)
                 {
                     return std::unexpected(MakeStartupError(
@@ -652,16 +715,42 @@ namespace Preview::Application
                         "duplicate TCP protocol candidate"));
                 }
                 SeenProtocols[ProtocolIndex] = true;
+                HasTcpProtocol = true;
                 if (*ProtocolValue == StaticProtocol::AnyTls)
                 {
                     AnyTlsIndex = Index;
                 }
             }
+            if (!HasTcpProtocol)
+            {
+                return std::unexpected(MakeStartupError(
+                    StartupErrorCode::UnsupportedService,
+                    "Protocols",
+                    "PrismPreview requires at least one TCP protocol alongside QUIC protocols"));
+            }
+            if (HasQuicProtocol && ConfigurationValue.Listeners.Quic.empty())
+            {
+                return std::unexpected(MakeStartupError(
+                    StartupErrorCode::InvalidConfiguration,
+                    "Listeners.Quic",
+                    "a configured Hysteria2 or TUIC protocol requires a QUIC listener"));
+            }
             bool HasNativeCarrier = false;
             for (std::size_t Index = 0; Index < ConfigurationValue.Carriers.size(); ++Index)
             {
                 const auto &Carrier = ConfigurationValue.Carriers[Index];
-                if (Carrier.Builtin != "native")
+                if (Carrier.Builtin == "reality" || Carrier.Builtin == "restls")
+                {
+                    return std::unexpected(MakeStartupError(
+                        StartupErrorCode::UnsupportedService,
+                        "Carriers[" + std::to_string(Index) + "]",
+                        Carrier.Builtin == "reality"
+                            ? "Reality requires a complete TLS 1.3 wire engine and ClientHello mutation"
+                            : "Restls requires a completed TLS handover before carrier commit"));
+                }
+                if (Carrier.Builtin != "native" && Carrier.Builtin != "ws" &&
+                    Carrier.Builtin != "websocket" && Carrier.Builtin != "shadowtls" &&
+                    Carrier.Builtin != "xhttp" && Carrier.Builtin != "gun")
                 {
                     return std::unexpected(MakeStartupError(
                         StartupErrorCode::UnsupportedService,
@@ -688,6 +777,17 @@ namespace Preview::Application
                     "Protocols[" + std::to_string(*AnyTlsIndex) + "]",
                     "AnyTls requires an enabled NativeTls outer layer with certificate and key "
                     "or a native carrier with NativeTlsOptions certificate and key"));
+            }
+            if (HasQuicProtocol &&
+                !(ConfigurationValue.NativeTls.Enabled &&
+                  !ConfigurationValue.NativeTls.CertificateFile.empty() &&
+                  !ConfigurationValue.NativeTls.PrivateKeyFile.empty()) &&
+                !HasNativeCarrier)
+            {
+                return std::unexpected(MakeStartupError(
+                    StartupErrorCode::UnsupportedService,
+                    "Listeners.Quic",
+                    "QUIC protocols require an enabled NativeTls certificate and private key"));
             }
             if (!ConfigurationValue.Routes.empty())
             {
@@ -814,15 +914,298 @@ namespace Preview::Application
             -> std::expected<std::shared_ptr<Preview::Account::AccountDirectory>, StartupError>
         {
             const auto &ConfigurationValue = Generation.Configuration();
-            const auto Protocol = ParseStaticProtocol(ConfigurationValue.Protocols.front().Name);
-            if (!Protocol)
+            for (const auto &Configured : ConfigurationValue.Protocols)
+            {
+                if (const auto Protocol = ParseStaticProtocol(Configured.Name))
+                {
+                    return MakeAccountDirectoryForProtocol(Generation, *Protocol);
+                }
+            }
+            return std::unexpected(MakeStartupError(
+                StartupErrorCode::UnsupportedService,
+                "Protocols",
+                "configured protocols contain no Preview TCP account factory"));
+        }
+
+        [[nodiscard]] auto AccountMatchesQuicCredential(
+            const Configuration::ConfigurationGeneration &Generation,
+            const Configuration::AccountConfiguration &Account,
+            const Configuration::ProtocolConfiguration &Protocol,
+            const std::string_view Credential) -> bool
+        {
+            if (Protocol.Quic && Account.SecretRef == Protocol.Quic->CredentialSecretRef)
+            {
+                return true;
+            }
+            if (!Account.SecretRef.empty())
+            {
+                const auto Secret = Generation.LookupSecret(Account.SecretRef);
+                if (!Secret.empty() && Preview::ConstantTimeEqual(
+                                           std::string_view(
+                                               reinterpret_cast<const char *>(Secret.data()),
+                                               Secret.size()),
+                                           Credential))
+                {
+                    return true;
+                }
+            }
+            if (Preview::ConstantTimeEqual(Account.Credential, Credential))
+            {
+                return true;
+            }
+            if (Protocol.Quic)
+            {
+                if (const auto It = Account.Credentials.find(Protocol.Builtin);
+                    It != Account.Credentials.end() &&
+                    Preview::ConstantTimeEqual(It->second, Credential))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        struct QuicCredentialContext final
+        {
+            std::shared_ptr<const Preview::Account::AccountDirectory> Directory;
+            Preview::SharedAuthenticator Authenticator;
+            std::shared_ptr<const Preview::Account::Credential> Credential;
+            Preview::AccountId AccountId{};
+        };
+
+        [[nodiscard]] auto MakeQuicCredentialContext(
+            const Configuration::ConfigurationGeneration &Generation,
+            const Configuration::ProtocolConfiguration &Protocol)
+            -> std::expected<QuicCredentialContext, StartupError>
+        {
+            if (!Protocol.Quic)
+            {
+                return std::unexpected(MakeStartupError(
+                    StartupErrorCode::InvalidConfiguration,
+                    "Protocols." + Protocol.Id + ".Quic",
+                    "QUIC protocol options are required"));
+            }
+            const auto Secret = Generation.LookupSecret(Protocol.Quic->CredentialSecretRef);
+            if (Secret.empty())
+            {
+                return std::unexpected(MakeStartupError(
+                    StartupErrorCode::Generation,
+                    "Protocols." + Protocol.Id + ".Quic.CredentialSecretRef",
+                    "configuration generation does not contain the resolved QUIC credential"));
+            }
+            const std::string CredentialText(
+                reinterpret_cast<const char *>(Secret.data()), Secret.size());
+            const auto &Accounts = Generation.Configuration().Accounts;
+            std::optional<std::size_t> AccountIndex;
+            for (std::size_t Index = 0; Index < Accounts.size(); ++Index)
+            {
+                if (AccountMatchesQuicCredential(Generation, Accounts[Index], Protocol,
+                                                 CredentialText))
+                {
+                    AccountIndex = Index;
+                    break;
+                }
+            }
+            if (!AccountIndex)
+            {
+                return std::unexpected(MakeStartupError(
+                    StartupErrorCode::InvalidConfiguration,
+                    "Protocols." + Protocol.Id + ".Quic.CredentialSecretRef",
+                    "QUIC credential must resolve to one configured account"));
+            }
+
+            auto Directory = std::make_shared<Preview::Account::AccountDirectory>();
+            try
+            {
+                auto Record = std::make_shared<Preview::Account::AccountRecord>(
+                    Preview::Account::AccountRecord::CreateRequest{
+                        Preview::AccountId{static_cast<std::uint64_t>(*AccountIndex + 1U)},
+                        Preview::Account::Credential::Token(CredentialText),
+                        Preview::Account::QuotaPolicy{},
+                        Preview::Account::UnlimitedRatePolicy{},
+                        Generation.Id()});
+                if (!Directory->Upsert(std::move(Record)))
+                {
+                    return std::unexpected(MakeStartupError(
+                        StartupErrorCode::Runtime,
+                        "Protocols." + Protocol.Id + ".Quic.CredentialSecretRef",
+                        "QUIC account directory rejected the credential record"));
+                }
+            }
+            catch (const std::exception &Error)
+            {
+                return std::unexpected(MakeStartupError(
+                    StartupErrorCode::Runtime,
+                    "Protocols." + Protocol.Id + ".Quic.CredentialSecretRef",
+                    "QUIC account construction failed: " + std::string(Error.what())));
+            }
+            std::shared_ptr<const Preview::Account::AccountDirectory> PublishedDirectory = Directory;
+            return QuicCredentialContext{
+                std::move(PublishedDirectory),
+                std::make_shared<Preview::Account::ProtocolAuthenticator>(Directory),
+                std::make_shared<const Preview::Account::Credential>(
+                    Preview::Account::Credential::Token(CredentialText)),
+                Preview::AccountId{static_cast<std::uint64_t>(*AccountIndex + 1U)}};
+        }
+
+        [[nodiscard]] auto MakeQuicAdmissionContext(
+            const Configuration::ConfigurationGeneration &Generation,
+            const Configuration::ProtocolConfiguration &Protocol,
+            const Net::any_io_executor &Executor,
+            const std::shared_ptr<Preview::Network::Dns::Resolver> &Resolver,
+            Preview::Middleware::Builtin::DialMiddleware::DialFn Dial,
+            const std::shared_ptr<Preview::Foundation::TrafficSink> &Metrics)
+            -> std::expected<Preview::Ingress::SharedQuicAdmissionContext, StartupError>
+        {
+            if (!Protocol.Quic || Protocol.Builtin != "hysteria2")
             {
                 return std::unexpected(MakeStartupError(
                     StartupErrorCode::UnsupportedService,
-                    "Protocols[0]",
-                    "configured TCP protocol has no Preview factory"));
+                    "Protocols." + Protocol.Id,
+                    "only Hysteria2 is currently wired to the Native QUIC factory"));
             }
-            return MakeAccountDirectoryForProtocol(Generation, *Protocol);
+            const auto Credential = MakeQuicCredentialContext(Generation, Protocol);
+            if (!Credential)
+            {
+                return std::unexpected(Credential.error());
+            }
+
+            auto Mutable = std::make_shared<Preview::Ingress::QuicAdmissionContext>();
+            Mutable->AccountId = Credential->AccountId;
+            Mutable->Credential = Credential->Credential;
+            Mutable->Authenticator = Credential->Authenticator;
+            Mutable->ExpectedAlpn = Protocol.Quic->Alpn;
+            Mutable->ServerName = Protocol.Quic->ServerName;
+            Mutable->MaxStreams = Protocol.Quic->MaxStreams;
+            Mutable->MaxDatagrams = Protocol.Quic->MaxDatagrams;
+            Mutable->Executor = Executor;
+            Mutable->Resolver = Resolver;
+            Mutable->Dial = std::move(Dial);
+            Mutable->Metrics = Metrics;
+            const Preview::Ingress::SharedQuicAdmissionContext Shared = Mutable;
+            const std::weak_ptr<const Preview::Ingress::QuicAdmissionContext> Weak = Shared;
+
+            Mutable->Hysteria2Stream = [Weak](Preview::Hysteria2::Message Message,
+                                               Preview::Hysteria2::SharedConn Connection)
+                -> Net::awaitable<void>
+            {
+                const auto Context = Weak.lock();
+                if (!Context || !Connection || !Context->Dial || Message.dst.Host.empty() ||
+                    Message.dst.Port == 0U)
+                {
+                    if (Connection)
+                    {
+                        Connection->Close();
+                    }
+                    co_return;
+                }
+                Preview::Network::Target Target;
+                Target.Host.assign(Message.dst.Host.data(), Message.dst.Host.size());
+                Target.Port.assign(std::to_string(Message.dst.Port));
+                const auto AccountId = Connection->AccountId();
+                auto Lease = Connection->TakeAuthLease();
+                const auto Identity = std::string(Connection->Identity());
+                auto [DialError, Outbound] = co_await Context->Dial(Target);
+                if (Preview::Fault::Failed(DialError) || !Outbound)
+                {
+                    Connection->Close();
+                    co_return;
+                }
+
+                Preview::Middleware::Context SessionContext;
+                SessionContext.Inbound = std::move(Connection);
+                SessionContext.Outbound = std::move(Outbound);
+                SessionContext.Target = std::move(Target);
+                SessionContext.AccountId = AccountId ? AccountId : Context->AccountId;
+                SessionContext.AccountLease = std::move(Lease);
+                SessionContext.Credential = Context->Credential;
+                SessionContext.ProtocolAuthenticated = true;
+                SessionContext.identity = Identity.empty()
+                                               ? std::to_string(SessionContext.AccountId.Value())
+                                               : Identity;
+                SessionContext.traffic = Context->Metrics.get();
+                Preview::Middleware::Builtin::RelayMiddleware Relay(
+                    nullptr, std::chrono::milliseconds(0));
+                (void)co_await Relay.Handle(SessionContext.Inbound, SessionContext);
+            };
+
+            Mutable->Hysteria2Datagram = [Weak](Preview::Hysteria2::SharedDgram Datagram)
+                -> Net::awaitable<void>
+            {
+                const auto Context = Weak.lock();
+                if (!Context || !Datagram)
+                {
+                    co_return;
+                }
+                using Udp = Net::ip::udp;
+                Udp::socket Egress(Context->Executor);
+                std::vector<std::byte> ReceiveBuffer(65535);
+                std::size_t Uploaded = 0;
+                std::size_t Downloaded = 0;
+                while (true)
+                {
+                    Preview::Hysteria2::Address Target;
+                    std::vector<std::uint8_t> Payload;
+                    const auto ReceiveError = co_await Datagram->AsyncReceiveFrom(Target, Payload);
+                    if (ReceiveError != Preview::Error::None)
+                    {
+                        break;
+                    }
+                    const auto Resolved = co_await ResolveUdpTarget(
+                        Context->Resolver,
+                        Preview::Composition::UdpResolveRequest{Target.Host, Target.Port});
+                    if (Resolved.first != Preview::Error::None)
+                    {
+                        continue;
+                    }
+                    boost::system::error_code Error;
+                    Egress.close(Error);
+                    Egress.open(Resolved.second.protocol(), Error);
+                    if (Error)
+                    {
+                        break;
+                    }
+                    co_await Egress.async_send_to(
+                        Net::buffer(Payload), Resolved.second,
+                        Net::redirect_error(Net::use_awaitable, Error));
+                    if (Error)
+                    {
+                        break;
+                    }
+                    Uploaded += Payload.size();
+                    Udp::endpoint Source;
+                    const auto Size = co_await Egress.async_receive_from(
+                        Net::buffer(ReceiveBuffer), Source,
+                        Net::redirect_error(Net::use_awaitable, Error));
+                    if (Error || Size == 0U)
+                    {
+                        break;
+                    }
+                    const auto SourceType = Source.address().is_v4()
+                                                ? Preview::Hysteria2::AddressType::Ipv4
+                                                : Preview::Hysteria2::AddressType::Ipv6;
+                    const Preview::Hysteria2::Address ResponseTarget{
+                        SourceType, Source.address().to_string(), Source.port()};
+                    const auto SendError = co_await Datagram->AsyncSendTo(
+                        ResponseTarget,
+                        std::span<const std::uint8_t>(
+                            reinterpret_cast<const std::uint8_t *>(ReceiveBuffer.data()), Size));
+                    if (SendError != Preview::Error::None)
+                    {
+                        break;
+                    }
+                    Downloaded += Size;
+                }
+                boost::system::error_code Error;
+                Egress.cancel(Error);
+                Egress.close(Error);
+                if (Context->Metrics)
+                {
+                    Context->Metrics->Report(
+                        std::to_string(Context->AccountId.Value()), Uploaded, Downloaded);
+                }
+            };
+            return Shared;
         }
 
         struct ProtocolFactoryContext final
@@ -832,6 +1215,7 @@ namespace Preview::Application
             std::array<Preview::SharedAuthenticator, 7> Authenticators;
             std::array<std::shared_ptr<const Preview::Account::AccountDirectory>, 7> Accounts;
             std::shared_ptr<Net::ssl::context> NativeTls;
+            Preview::Middleware::Builtin::DialMiddleware::DialFn Dial;
         };
 
         [[nodiscard]] auto FirstAccount(
@@ -1026,7 +1410,24 @@ namespace Preview::Application
         {
             Settings::RecognitionConfig Result;
             Result.Explicit = true;
-            Result.Mode = Core::RecognitionMode::MixedTrial;
+            if (ConfigurationValue.Recognition.Mode == "Configured")
+            {
+                Result.Mode = Core::RecognitionMode::Configured;
+            }
+            else if (ConfigurationValue.Recognition.Mode == "Deterministic" ||
+                     ConfigurationValue.Recognition.Mode == "DeterministicRoute")
+            {
+                Result.Mode = Core::RecognitionMode::DeterministicRoute;
+            }
+            else
+            {
+                Result.Mode = Core::RecognitionMode::MixedTrial;
+            }
+            if (ConfigurationValue.Recognition.ConfiguredCandidate >= 0)
+            {
+                Result.ConfiguredCandidate = static_cast<Core::CandidateId>(
+                    ConfigurationValue.Recognition.ConfiguredCandidate);
+            }
             Result.Budget.MaxCandidates = static_cast<std::uint16_t>(Core::CandidateBitmap::Capacity);
             Result.Candidates.reserve(ConfigurationValue.ProtocolBindings.empty()
                                           ? ConfigurationValue.Protocols.size()
@@ -1280,6 +1681,10 @@ namespace Preview::Application
             std::array<ProtocolAcceptFn, 7> Result;
             for (const auto &Configured : Context.ConfigurationValue.Protocols)
             {
+                if (IsQuicProtocolName(Configured.Builtin))
+                {
+                    continue;
+                }
                 const auto Protocol = ParseStaticProtocol(Configured.Name);
                 if (!Protocol)
                 {
@@ -1410,10 +1815,11 @@ namespace Preview::Application
             -> std::expected<Recognition::CandidateRegistry, StartupError>
         {
             Recognition::CandidateRegistry Registry;
+            Recognition::CarrierAcceptFn NativeAccept;
             if (Context.NativeTls)
             {
                 const auto NativeTls = Context.NativeTls;
-                const auto NativeAccept = [NativeTls](Preview::SharedTransmission Inbound)
+                NativeAccept = [NativeTls](Preview::SharedTransmission Inbound)
                     -> Net::awaitable<Preview::Recognition::CarrierAcceptResult>
                 {
                     auto TlsResult = co_await Preview::Transport::UpgradeNativeTls(
@@ -1432,23 +1838,155 @@ namespace Preview::Application
                         "NativeTls",
                         "native TLS carrier registration failed"));
                 }
-                for (const auto &Carrier : Context.ConfigurationValue.Carriers)
+            }
+            for (const auto &Carrier : Context.ConfigurationValue.Carriers)
+            {
+                if (Carrier.Builtin == "native")
                 {
-                    if (Carrier.Builtin != "native")
-                    {
-                        continue;
-                    }
-                    if (!Registry.RegisterCarrier(Carrier.Id, "native", NativeAccept))
+                    if (!NativeAccept || !Registry.RegisterCarrier(Carrier.Id, "native", NativeAccept))
                     {
                         return std::unexpected(MakeStartupError(
                             StartupErrorCode::Runtime,
                             "Carriers." + Carrier.Id,
                             "native TLS carrier instance registration failed"));
                     }
+                    continue;
                 }
+                if (Carrier.Builtin == "ws" || Carrier.Builtin == "websocket")
+                {
+                    Preview::Ws::ServerConfig Config;
+                    if (const auto *Options =
+                            std::get_if<Configuration::WebSocketOptions>(&Carrier.Options);
+                        Options != nullptr)
+                    {
+                        Config.Path = Options->Path;
+                        Config.Host = Options->Host;
+                    }
+                    const auto Accept = Recognition::MakeWebsocketServerAccept(std::move(Config));
+                    if (!Registry.RegisterCarrier(Carrier.Id, Carrier.Builtin, Accept))
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::Runtime,
+                            "Carriers." + Carrier.Id,
+                            "WebSocket carrier instance registration failed"));
+                    }
+                    continue;
+                }
+                if (Carrier.Builtin == "shadowtls")
+                {
+                    const auto *Options =
+                        std::get_if<Configuration::ShadowTlsOptions>(&Carrier.Options);
+                    if (Options == nullptr || !Context.Dial)
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::UnsupportedService,
+                            "Carriers." + Carrier.Id,
+                            "ShadowTLS carrier requires a runtime dial context"));
+                    }
+                    const auto Secret = Context.Generation.LookupSecret(Options->PasswordSecretRef);
+                    if (Secret.empty())
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::Generation,
+                            "Carriers." + Carrier.Id + ".Options.PasswordSecretRef",
+                            "ShadowTLS password secret is not available in the configuration generation"));
+                    }
+                    Recognition::ShadowtlsCarrierOptions CarrierOptions;
+                    CarrierOptions.HandshakeDest = Options->HandshakeDest;
+                    CarrierOptions.Password.assign(
+                        reinterpret_cast<const char *>(Secret.data()), Secret.size());
+                    CarrierOptions.Dial = Context.Dial;
+                    const auto Accept = Recognition::MakeConfiguredShadowtlsServerAccept(
+                        std::move(CarrierOptions));
+                    if (!Accept)
+                    {
+                        return std::unexpected(MakeStartupError(
+                            Accept.error() == Recognition::ShadowtlsCarrierBuildError::InvalidDestination
+                                ? StartupErrorCode::InvalidConfiguration
+                                : StartupErrorCode::UnsupportedService,
+                            "Carriers." + Carrier.Id,
+                            "ShadowTLS carrier configuration cannot build a real relay acceptor"));
+                    }
+                    if (!Registry.RegisterCarrier(Carrier.Id, "shadowtls", std::move(*Accept)))
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::Runtime,
+                            "Carriers." + Carrier.Id,
+                            "ShadowTLS carrier instance registration failed"));
+                    }
+                    continue;
+                }
+                if (Carrier.Builtin == "xhttp")
+                {
+                    if (!Context.NativeTls)
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::UnsupportedService,
+                            "Carriers." + Carrier.Id,
+                            "XHTTP carrier requires a configured NativeTls context"));
+                    }
+                    Preview::Xhttp::Config Config;
+                    if (const auto *Options =
+                            std::get_if<Configuration::XhttpOptions>(&Carrier.Options);
+                        Options != nullptr)
+                    {
+                        Config.Path = Options->Path;
+                        Config.Host = Options->Host;
+                        Config.Mode = Options->Mode;
+                    }
+                    const auto Accept = Recognition::MakeXhttpServerAccept(
+                        Context.NativeTls, std::move(Config));
+                    if (!Registry.RegisterCarrier(Carrier.Id, "xhttp", Accept))
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::Runtime,
+                            "Carriers." + Carrier.Id,
+                            "XHTTP carrier instance registration failed"));
+                    }
+                    continue;
+                }
+                if (Carrier.Builtin == "gun")
+                {
+                    if (!Context.NativeTls)
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::UnsupportedService,
+                            "Carriers." + Carrier.Id,
+                            "Gun carrier requires a configured NativeTls context"));
+                    }
+                    std::string Path;
+                    std::string ServiceName;
+                    std::string Mode{"GunLite"};
+                    if (const auto *Options =
+                            std::get_if<Configuration::GunOptions>(&Carrier.Options);
+                        Options != nullptr)
+                    {
+                        Mode = Options->Mode;
+                        Path = Options->Path;
+                        ServiceName = Options->ServiceName;
+                    }
+                    const auto Accept = Recognition::MakeGunServerAccept(
+                        Context.NativeTls, std::move(Path), std::move(ServiceName), std::move(Mode));
+                    if (!Registry.RegisterCarrier(Carrier.Id, "gun", Accept))
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::Runtime,
+                            "Carriers." + Carrier.Id,
+                            "Gun carrier instance registration failed"));
+                    }
+                    continue;
+                }
+                return std::unexpected(MakeStartupError(
+                    StartupErrorCode::UnsupportedService,
+                    "Carriers." + Carrier.Id,
+                    "configured carrier has no Preview admission callback: " + Carrier.Builtin));
             }
             for (const auto &Configured : Context.ConfigurationValue.Protocols)
             {
+                if (IsQuicProtocolName(Configured.Builtin))
+                {
+                    continue;
+                }
                 const auto Registered = RegisterTcpCandidate(Registry, Configured, Context);
                 if (!Registered)
                 {
@@ -1634,6 +2172,32 @@ namespace Preview::Application
                         "NativeTls.PrivateKeyFile",
                         "NativeTls certificate and private key do not match"));
                 }
+                // QUIC requires a server-side ALPN selection callback; keep the same
+                // context usable by native TCP carriers by selecting only protocols
+                // actually offered by the client.
+                SSL_CTX_set_alpn_select_cb(
+                    Context->native_handle(),
+                    [](SSL *, const unsigned char **Out, unsigned char *OutLength,
+                       const unsigned char *In, const unsigned int InLength, void *) -> int
+                    {
+                        static constexpr unsigned char H3[] = {0x02, 'h', '3'};
+                        static constexpr unsigned char H2[] = {0x02, 'h', '2'};
+                        static constexpr unsigned char Http11[] =
+                            {0x08, 'h', 't', 't', 'p', '/', '1', '.', '1'};
+                        for (const auto *Protocol : {H3, H2, Http11})
+                        {
+                            const auto Length = Protocol == H3 ? sizeof(H3) :
+                                                Protocol == H2 ? sizeof(H2) : sizeof(Http11);
+                            if (SSL_select_next_proto(
+                                    const_cast<unsigned char **>(Out), OutLength,
+                                    Protocol, Length, In, InLength) == OPENSSL_NPN_NEGOTIATED)
+                            {
+                                return SSL_TLSEXT_ERR_OK;
+                            }
+                        }
+                        return SSL_TLSEXT_ERR_NOACK;
+                    },
+                    nullptr);
                 return Context;
             }
             catch (const std::exception &Error)
@@ -1849,6 +2413,8 @@ namespace Preview::Application
         std::shared_ptr<Preview::Network::Dns::Resolver> DnsResolver;
         std::shared_ptr<Preview::Ingress::UdpDemux> UdpDemux;
         std::shared_ptr<Preview::Ingress::QuicGateway> QuicGateway;
+        std::shared_ptr<Preview::Ingress::QuicCidRegistry> QuicCidRegistry;
+        std::shared_ptr<Preview::Ingress::Ss2022Gateway> Ss2022Gateway;
         std::shared_ptr<Preview::Ingress::IngressDispatcher> IngressDispatcher;
         Preview::Diagnose::Logger::Owner Logger;
         std::shared_ptr<Preview::Diagnose::TraceContext> Trace;
@@ -1963,6 +2529,8 @@ namespace Preview::Application
         const std::shared_ptr<Application::RuntimeState> &State) noexcept -> void
     {
         State->OperationsServer.reset();
+        State->Ss2022Gateway.reset();
+        State->QuicCidRegistry.reset();
         State->UdpListener.reset();
         State->IngressDispatcher.reset();
         State->QuicGateway.reset();
@@ -2024,6 +2592,14 @@ namespace Preview::Application
 
         if (State->UdpListener)
         {
+            if (State->Ss2022Gateway)
+            {
+                State->Ss2022Gateway->Close();
+            }
+            if (State->QuicCidRegistry)
+            {
+                State->QuicCidRegistry->Close();
+            }
             State->UdpListener->Stop(Preview::Ingress::UdpListener::StopRequest{});
             if (State->QuicGateway)
             {
@@ -2745,24 +3321,35 @@ namespace Preview::Application
             LastError_ = Accounts.error();
             return std::unexpected(*LastError_);
         }
-        const auto PrimaryProtocol =
-            ParseStaticProtocol((*Generation)->Configuration().Protocols.front().Name);
+        std::optional<StaticProtocol> PrimaryProtocol;
+        for (const auto &Configured : (*Generation)->Configuration().Protocols)
+        {
+            if (const auto Protocol = ParseStaticProtocol(Configured.Name))
+            {
+                PrimaryProtocol = Protocol;
+                break;
+            }
+        }
         if (!PrimaryProtocol)
         {
             LastError_ = MakeStartupError(
                 StartupErrorCode::UnsupportedService,
-                "Protocols[0]",
+                "Protocols",
                 "configured TCP protocol has no Preview account factory");
             return std::unexpected(*LastError_);
         }
-        std::array<std::shared_ptr<const Preview::Account::AccountDirectory>, 7> ProtocolAccounts;
-        std::array<Preview::SharedAuthenticator, 7> ProtocolAuthenticators;
+            std::array<std::shared_ptr<const Preview::Account::AccountDirectory>, 7> ProtocolAccounts;
+            std::array<Preview::SharedAuthenticator, 7> ProtocolAuthenticators;
         const auto PrimaryIndex = static_cast<std::size_t>(*PrimaryProtocol);
         ProtocolAccounts[PrimaryIndex] = *Accounts;
         ProtocolAuthenticators[PrimaryIndex] =
             std::make_shared<Preview::Account::ProtocolAuthenticator>(ProtocolAccounts[PrimaryIndex]);
         for (const auto &Configured : (*Generation)->Configuration().Protocols)
         {
+            if (IsQuicProtocolName(Configured.Builtin))
+            {
+                continue;
+            }
             const auto Protocol = ParseStaticProtocol(Configured.Name);
             if (!Protocol)
             {
@@ -2967,6 +3554,11 @@ namespace Preview::Application
                                 {
                                     return;
                                 }
+                                if (StateValue->Ss2022Gateway &&
+                                    StateValue->Ss2022Gateway->Handle(Packet))
+                                {
+                                    return;
+                                }
                                 const auto WorkerCount = StateValue->Process->Workers().Size();
                                 const auto WorkerIndex = Preview::Runtime::AffinityBalancer(WorkerCount)
                                                              .Select(Packet.Peer.address().to_string());
@@ -3002,9 +3594,60 @@ namespace Preview::Application
                                         Trace ? Trace->Snapshot()
                                               : Preview::Statistics::TraceSnapshot{});
                                 }
+                            },
+                            [WeakRuntime](Preview::Ingress::UdpPacket Packet) -> bool
+                            {
+                                const auto StateValue = WeakRuntime.lock();
+                                return StateValue && StateValue->QuicCidRegistry &&
+                                       StateValue->QuicCidRegistry->Handle(std::move(Packet));
                             }});
                 Runtime->UdpListener =
                     std::make_unique<Preview::Ingress::UdpListener>(Runtime->Io.get_executor());
+                const auto SsIndex = static_cast<std::size_t>(StaticProtocol::Shadowsocks2022);
+                if (ProtocolAccounts[SsIndex])
+                {
+                    std::vector<std::array<std::uint8_t, 16>> Keys;
+                    ProtocolAccounts[SsIndex]->ForEach(
+                        [&Keys](const auto &Record)
+                        {
+                            const auto Credential = Record->Credential();
+                            if (Credential.Kind() != Preview::Account::CredentialKind::Psk ||
+                                Credential.Size() != 16U)
+                            {
+                                return;
+                            }
+                            std::array<std::uint8_t, 16> Key{};
+                            const auto Bytes = Credential.Bytes();
+                            for (std::size_t Index = 0; Index < Key.size(); ++Index)
+                            {
+                                Key[Index] = std::to_integer<std::uint8_t>(Bytes[Index]);
+                            }
+                            Keys.push_back(Key);
+                        });
+                    if (!Keys.empty())
+                    {
+                        const auto WeakRuntime = std::weak_ptr<RuntimeState>(Runtime);
+                        Preview::Ingress::Ss2022Gateway::Options GatewayOptions;
+                        GatewayOptions.Executor = Runtime->Io.get_executor();
+                        GatewayOptions.Keys = std::move(Keys);
+                        GatewayOptions.Resolver = Runtime->DnsResolver;
+                        GatewayOptions.Send = [WeakRuntime](
+                                                   std::span<const std::byte> Payload,
+                                                   const Net::ip::udp::endpoint &Peer)
+                            -> Net::awaitable<boost::system::error_code>
+                        {
+                            const auto StateValue = WeakRuntime.lock();
+                            if (!StateValue || !StateValue->UdpListener)
+                            {
+                                co_return boost::system::errc::make_error_code(
+                                    boost::system::errc::operation_canceled);
+                            }
+                            co_return co_await StateValue->UdpListener->SendTo(Payload, Peer);
+                        };
+                        Runtime->Ss2022Gateway = std::make_shared<Preview::Ingress::Ss2022Gateway>(
+                            std::move(GatewayOptions));
+                    }
+                }
             }
             const auto NativeTls = MakeNativeTlsContext(
                 (*Generation)->Configuration(), Options_.ConfigurationPath);
@@ -3047,6 +3690,65 @@ namespace Preview::Application
                 return DialTargetWithResolver(
                     ResolverDialRequest{Executor, DialTimeout, Resolver, Target});
             };
+            if (Runtime->UdpListener && Runtime->Services->NativeTls)
+            {
+                const auto Socket = Runtime->UdpListener->SharedSocket();
+                const auto TlsContext = Runtime->Services->NativeTls;
+                Preview::Ingress::SharedQuicAdmissionContext QuicContext;
+                if (!(*Generation)->Configuration().Listeners.Quic.empty())
+                {
+                    for (const auto &Configured : (*Generation)->Configuration().Protocols)
+                    {
+                        if (!Configured.Quic)
+                        {
+                            continue;
+                        }
+                        const auto Built = MakeQuicAdmissionContext(
+                            **Generation, Configured, Executor, Runtime->DnsResolver,
+                            Runtime->Services->Dial, Runtime->Services->Traffic);
+                        if (!Built)
+                        {
+                            LastError_ = Built.error();
+                            RunStartupRollback(Runtime);
+                            State_.reset();
+                            return std::unexpected(*LastError_);
+                        }
+                        QuicContext = *Built;
+                        break;
+                    }
+                }
+                Runtime->QuicCidRegistry = std::make_shared<Preview::Ingress::QuicCidRegistry>(
+                    Preview::Ingress::QuicCidRegistry::Options{
+                        [Executor, Socket, TlsContext](
+                            std::span<const std::byte>,
+                            const Net::ip::udp::endpoint &,
+                            Preview::Ingress::SharedQuicAdmissionContext Context)
+                            -> std::shared_ptr<Preview::Quic::Server>
+                        {
+                            if (!Socket || !TlsContext || !Context ||
+                                !Context->Ready())
+                            {
+                                return nullptr;
+                            }
+                            Preview::Quic::ServerOptions Options;
+                            Options.Executor = Executor;
+                            Options.Socket = Socket;
+                            Options.TlsContext = TlsContext->native_handle();
+                            Options.ExternalReceive = true;
+                            if (Context->Protocol == "tuic")
+                            {
+                                Options = Preview::Composition::Quic::ConfigureTuicServer(
+                                    std::move(Options), Context);
+                            }
+                            else
+                            {
+                                Options = Preview::Composition::Quic::ConfigureHysteria2Server(
+                                    std::move(Options), Context);
+                            }
+                            return std::make_shared<Preview::Quic::Server>(std::move(Options));
+                        },
+                        QuicContext});
+            }
             Preview::Composition::UdpServiceOptions UdpOptions;
             UdpOptions.Resolver = [Resolver = Runtime->DnsResolver](
                                       Preview::Composition::UdpResolveRequest Request)
@@ -3081,7 +3783,7 @@ namespace Preview::Application
                 Runtime->Accounts);
             Runtime->MuxService = std::make_shared<Preview::Composition::MuxService>(
                 Preview::Composition::MuxServiceOptions{
-                    .Mode = Preview::Composition::MuxMode::Auto,
+                    .Mode = ConfiguredMuxMode((*Generation)->Configuration()),
                     .Control = {},
                     .Identity = {},
                     .MaxStreams = 256,
@@ -3102,7 +3804,8 @@ namespace Preview::Application
                         Preview::Runtime::Session Child(std::move(ChildOptions));
                         co_return co_await Child.Run(std::move(Stream));
                     }});
-            Runtime->Services->Mux = [Service = Runtime->MuxService](
+            Runtime->Services->Mux = [Service = Runtime->MuxService,
+                                      Services = Runtime->Services](
                                           Preview::SharedTransmission &Inbound,
                                           Preview::Middleware::Context &Context)
                 -> Net::awaitable<bool>
@@ -3111,12 +3814,20 @@ namespace Preview::Application
                 {
                     co_return true;
                 }
+                if (static_cast<Preview::Recognition::ProtocolType>(Context.detected) ==
+                    Preview::Recognition::ProtocolType::AnyTls)
+                {
+                    const auto Code = co_await Preview::Composition::AnytlsService::Run(
+                        Inbound, Context, Services->Dial);
+                    co_return Code == Preview::Fault::Code::Success;
+                }
                 const auto Code = co_await Service->Run(Inbound, Context);
                 co_return Code == Preview::Fault::Code::Success;
             };
             const ProtocolFactoryContext ProtocolContext{
                 (*Generation)->Configuration(), **Generation, std::move(ProtocolAuthenticators),
-                std::move(ProtocolAccounts), Runtime->Services->NativeTls};
+                std::move(ProtocolAccounts), Runtime->Services->NativeTls,
+                Runtime->Services->Dial};
             const auto Profile = MakeTcpProfile(ProtocolContext);
             if (!Profile)
             {
@@ -3169,11 +3880,9 @@ namespace Preview::Application
             }
             if (OperationsEndpoint)
             {
+                const auto OperationsRouter = MakeOperationsRouter(State_, *OperationsEndpoint);
                 State_->OperationsServer = std::make_unique<Preview::Operations::HttpServer>(
-                    Preview::Operations::HttpServer::Options{
-                        State_->Io.get_executor(),
-                        *OperationsEndpoint,
-                        MakeOperationsRouter(State_, *OperationsEndpoint)});
+                    State_->Io.get_executor(), *OperationsEndpoint, OperationsRouter);
                 if (const auto Started = StartOperations(State_); !Started)
                 {
                     LastError_ = Started.error();

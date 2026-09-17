@@ -745,21 +745,21 @@ namespace Preview::Vmess
             const auto PlainLength = EncodedLength - 16;
 
             // 3. 读取载荷密文并解密
-            std::vector<std::uint8_t> Enc(EncodedLength);
-            if (co_await RecvExact(Enc))
+            RxWire_.resize(EncodedLength);
+            if (co_await RecvExact(RxWire_))
             {
                 co_return Error::UnexpectedEof;
             }
-            typename Memory::template Buffer<std::uint8_t> Plain =
-                Mem_.template MakeBuffer<std::uint8_t>(PlainLength);
-            const auto Err = Dec_->OpenPayload(Enc, Plain);
+            PlainRx_.resize(PlainLength);
+            const auto Err = Dec_->OpenPayload(
+                std::span<const std::uint8_t>(RxWire_.data(), RxWire_.size()),
+                std::span<std::uint8_t>(PlainRx_.data(), PlainRx_.size()));
             if (Err != Error::None)
             {
                 co_return Err;
             }
 
             // 4. 存入待读缓冲
-            PlainRx_ = std::move(Plain);
             PlainOff_ = 0;
             co_return Error::None;
         }
@@ -853,6 +853,7 @@ namespace Preview::Vmess
         std::optional<ChunkDecryptor> Dec_;     ///< 分块解密器（接收侧）
         std::uint8_t ChunkOptions_{static_cast<std::uint8_t>(Option::AuthenticatedLength)};
         Memory Mem_;                             ///< 会话内存策略（Arena，热路径零释放分配）
+        typename Memory::template Buffer<std::uint8_t> RxWire_{Mem_.Arena()}; ///< 接收密文缓冲（容量复用）
         typename Memory::template Buffer<std::uint8_t> PlainRx_{Mem_.Arena()}; ///< 解密后的明文缓冲
         std::size_t PlainOff_{0};               ///< 明文缓冲消费偏移
         bool Handshaken_{false};                 ///< 握手完成标志

@@ -113,6 +113,7 @@ struct glz::meta<Preview::Application::Configuration::GunOptions>
     using T = Preview::Application::Configuration::GunOptions;
     static constexpr auto value = glz::object(
         "ServerNames", &T::ServerNames,
+        "Mode", &T::Mode,
         "Path", &T::Path,
         "ServiceName", &T::ServiceName);
 };
@@ -188,7 +189,21 @@ struct glz::meta<Preview::Application::Configuration::ProtocolConfiguration>
         "Id", &T::Id,
         "Name", &T::Name,
         "Builtin", &T::Builtin,
-        "Requires", &T::Requires);
+        "Requires", &T::Requires,
+        "Quic", &T::Quic);
+};
+
+template <>
+struct glz::meta<Preview::Application::Configuration::ProtocolConfiguration::QuicOptions>
+{
+    using T = Preview::Application::Configuration::ProtocolConfiguration::QuicOptions;
+    static constexpr auto value = glz::object(
+        "Alpn", &T::Alpn,
+        "ServerName", &T::ServerName,
+        "CredentialSecretRef", &T::CredentialSecretRef,
+        "MaxStreams", &T::MaxStreams,
+        "MaxDatagrams", &T::MaxDatagrams,
+        "Uuid", &T::Uuid);
 };
 
 template <>
@@ -214,6 +229,15 @@ struct glz::meta<Preview::Application::Configuration::ProtocolBindingConfigurati
         "MuxModes", &T::MuxModes,
         "Priority", &T::Priority,
         "Recognition", &T::Recognition);
+};
+
+template <>
+struct glz::meta<Preview::Application::Configuration::RecognitionConfiguration>
+{
+    using T = Preview::Application::Configuration::RecognitionConfiguration;
+    static constexpr auto value = glz::object(
+        "Mode", &T::Mode,
+        "ConfiguredCandidate", &T::ConfiguredCandidate);
 };
 
 template <>
@@ -333,6 +357,7 @@ struct glz::meta<Preview::Application::Configuration::PreviewConfiguration>
         "Protocols", &T::Protocols,
         "Carriers", &T::Carriers,
         "ProtocolBindings", &T::ProtocolBindings,
+        "Recognition", &T::Recognition,
         "Accounts", &T::Accounts,
         "Routes", &T::Routes,
         "Dns", &T::Dns,

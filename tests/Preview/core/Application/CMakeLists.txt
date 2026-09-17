@@ -1,2 +1,5 @@
 AddPreviewTest(ApplicationTest.cpp)
 target_link_libraries(ApplicationTest PRIVATE PreviewApplication)
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(ApplicationTest PRIVATE -U_FORTIFY_SOURCE)
+endif()

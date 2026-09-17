@@ -77,6 +77,31 @@ namespace Preview::Application::Configuration
                 return Result;
             }
 
+            const auto &Recognition = Configuration.Recognition;
+            const bool ConfiguredMode = Recognition.Mode == "Configured";
+            const bool MixedTrialMode = Recognition.Mode == "MixedTrial";
+            const bool DeterministicMode = Recognition.Mode == "Deterministic" ||
+                                           Recognition.Mode == "DeterministicRoute";
+            if (!ConfiguredMode && !MixedTrialMode && !DeterministicMode)
+            {
+                return Failure(ConfigurationErrorCode::InvalidValue,
+                               "Recognition.Mode",
+                               "mode must be Configured, MixedTrial, or Deterministic");
+            }
+            if (Recognition.ConfiguredCandidate < -1 ||
+                Recognition.ConfiguredCandidate > 127)
+            {
+                return Failure(ConfigurationErrorCode::InvalidValue,
+                               "Recognition.ConfiguredCandidate",
+                               "ConfiguredCandidate must be between -1 and 127");
+            }
+            if (!ConfiguredMode && Recognition.ConfiguredCandidate != -1)
+            {
+                return Failure(ConfigurationErrorCode::InvalidValue,
+                               "Recognition.ConfiguredCandidate",
+                               "ConfiguredCandidate is only valid in Configured mode");
+            }
+
             if (Configuration.Listeners.Tcp.size() != 1U)
             {
                 return Failure(ConfigurationErrorCode::InvalidValue,
@@ -93,6 +118,7 @@ namespace Preview::Application::Configuration
 
             std::unordered_set<std::string> Ids;
             std::unordered_set<std::string> ProtocolIds;
+            std::unordered_set<std::string> QuicProtocolNames;
             std::unordered_set<std::string> CarrierIds;
             std::vector<const Preview::Composition::Builtin::BuiltinSnapshot::Entry *>
                 ProtocolDescriptors(Configuration.Protocols.size(), nullptr);
@@ -223,6 +249,61 @@ namespace Preview::Application::Configuration
                                    "configured protocol requires a frozen builtin snapshot");
                 }
                 ProtocolIds.insert(Protocol.Id);
+                const bool IsQuic = Protocol.Builtin == "hysteria2" || Protocol.Builtin == "tuic";
+                if (IsQuic && !QuicProtocolNames.insert(Protocol.Builtin).second)
+                {
+                    return Failure(ConfigurationErrorCode::InvalidValue,
+                                   Path + ".Builtin",
+                                   "duplicate QUIC protocol builtin");
+                }
+                if (IsQuic && !Protocol.Quic)
+                {
+                    return Failure(ConfigurationErrorCode::MissingField,
+                                   Path + ".Quic",
+                                   "QUIC protocol configuration is required");
+                }
+                if (!IsQuic && Protocol.Quic)
+                {
+                    return Failure(ConfigurationErrorCode::InvalidValue,
+                                   Path + ".Quic",
+                                   "Quic options are only valid for hysteria2 or tuic");
+                }
+                if (Protocol.Quic)
+                {
+                    if (Protocol.Builtin == "tuic" &&
+                        !IsValidUuidText(Protocol.Quic->Uuid))
+                    {
+                        return Failure(ConfigurationErrorCode::InvalidValue,
+                                       Path + ".Quic.Uuid",
+                                       "TUIC requires a 16-byte UUID text");
+                    }
+                    if (Protocol.Quic->Alpn != "h3")
+                    {
+                        return Failure(ConfigurationErrorCode::InvalidValue,
+                                       Path + ".Quic.Alpn",
+                                       "Hysteria2 and TUIC require ALPN h3");
+                    }
+                    if (Protocol.Quic->ServerName.empty())
+                    {
+                        return Failure(ConfigurationErrorCode::MissingField,
+                                       Path + ".Quic.ServerName",
+                                       "QUIC ServerName is required");
+                    }
+                    if (Protocol.Quic->MaxStreams == 0U || Protocol.Quic->MaxDatagrams == 0U)
+                    {
+                        return Failure(ConfigurationErrorCode::InvalidValue,
+                                       Path + ".Quic",
+                                       "QUIC stream and datagram limits must be positive");
+                    }
+                    if (const auto Result = ValidateSecretReference(
+                            Protocol.Quic->CredentialSecretRef,
+                            Path + ".Quic.CredentialSecretRef",
+                            Request.Options);
+                        !Result)
+                    {
+                        return Result;
+                    }
+                }
             }
             for (std::size_t Index = 0; Index < Configuration.Carriers.size(); ++Index)
             {
@@ -331,6 +412,13 @@ namespace Preview::Application::Configuration
                 }
                 for (std::size_t MuxIndex = 0; MuxIndex < Binding.MuxModes.size(); ++MuxIndex)
                 {
+                    if (Binding.MuxModes[MuxIndex] == "4C64S" ||
+                        Binding.MuxModes[MuxIndex] == "1C256S")
+                    {
+                        return Failure(ConfigurationErrorCode::InvalidValue,
+                                       Path + ".MuxModes[" + std::to_string(MuxIndex) + "]",
+                                       "mux connection profiles require a physical connection pool");
+                    }
                     if (!IsMuxMode(Binding.MuxModes[MuxIndex]))
                     {
                         return Failure(ConfigurationErrorCode::UnknownMuxMode,
@@ -585,6 +673,40 @@ namespace Preview::Application::Configuration
         [[nodiscard]] static auto IsXhttpMode(const std::string_view Mode) noexcept -> bool
         {
             return Mode == "StreamOne" || Mode == "StreamUp" || Mode == "PacketUp";
+        }
+
+        [[nodiscard]] static auto IsValidUuidText(const std::string_view Value) noexcept -> bool
+        {
+            std::size_t Bytes = 0;
+            int High = -1;
+            for (const char Character : Value)
+            {
+                if (Character == '-')
+                {
+                    continue;
+                }
+                const auto Digit = [](const char Value) noexcept -> int
+                {
+                    if (Value >= '0' && Value <= '9') return Value - '0';
+                    if (Value >= 'a' && Value <= 'f') return Value - 'a' + 10;
+                    if (Value >= 'A' && Value <= 'F') return Value - 'A' + 10;
+                    return -1;
+                }(Character);
+                if (Digit < 0)
+                {
+                    return false;
+                }
+                if (High < 0)
+                {
+                    High = Digit;
+                }
+                else
+                {
+                    ++Bytes;
+                    High = -1;
+                }
+            }
+            return Bytes == 16U && High < 0;
         }
 
         [[nodiscard]] static auto IsAsciiAlphaNumeric(const char Character) noexcept -> bool
@@ -1604,6 +1726,12 @@ namespace Preview::Application::Configuration
                         if (const auto Result = RequireBuiltin("gun"); !Result)
                         {
                             return Result;
+                        }
+                        if (TypedOptions.Mode != "GunLite" && TypedOptions.Mode != "Grpc")
+                        {
+                            return Failure(ConfigurationErrorCode::InvalidValue,
+                                           OptionsPath + ".Mode",
+                                           "Gun mode must be GunLite or Grpc");
                         }
                         if (const auto Result = ValidateServerNameList(
                                 TypedOptions.ServerNames,

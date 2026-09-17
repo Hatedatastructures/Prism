@@ -242,9 +242,9 @@ namespace
         {
             return std::nullopt;
         }
-        const auto ExtensionsLength = static_cast<std::size_t>(Body[37 + SessionLength]) << 8 |
-                                       Body[38 + SessionLength];
-        const auto ExtensionsBegin = Body.begin() + 39 + SessionLength;
+        const auto ExtensionsLength = static_cast<std::size_t>(Body[38 + SessionLength]) << 8 |
+                                       Body[39 + SessionLength];
+        const auto ExtensionsBegin = Body.begin() + 40 + SessionLength;
         if (ExtensionsLength != static_cast<std::size_t>(Body.end() - ExtensionsBegin))
         {
             return std::nullopt;

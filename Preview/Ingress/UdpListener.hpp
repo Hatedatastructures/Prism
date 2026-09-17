@@ -26,6 +26,7 @@
 #include <exception>
 #include <functional>
 #include <memory>
+#include <span>
 #include <system_error>
 #include <utility>
 
@@ -189,6 +190,30 @@ namespace Preview::Ingress
         {
             boost::system::error_code Error;
             return State_->Socket.local_endpoint(Error);
+        }
+
+        [[nodiscard]] auto SharedSocket() const -> std::shared_ptr<Net::ip::udp::socket>
+        {
+            return std::shared_ptr<Net::ip::udp::socket>(
+                State_, &State_->Socket);
+        }
+
+        [[nodiscard]] auto SendTo(std::span<const std::byte> Payload,
+                                   const boost::asio::ip::udp::endpoint &Peer)
+            -> Net::awaitable<boost::system::error_code>
+        {
+            const auto State = State_;
+            co_await Net::dispatch(State->Executor, Net::use_awaitable);
+            if (State->Closed.load(std::memory_order_acquire) || !State->Socket.is_open())
+            {
+                co_return boost::system::errc::make_error_code(
+                    boost::system::errc::operation_canceled);
+            }
+            boost::system::error_code Error;
+            (void)co_await State->Socket.async_send_to(
+                Net::buffer(Payload.data(), Payload.size()), Peer,
+                Net::redirect_error(Net::use_awaitable, Error));
+            co_return Error;
         }
 
         [[nodiscard]] auto Health() const noexcept -> UdpListenerHealth

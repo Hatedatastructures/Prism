@@ -234,7 +234,7 @@ namespace
         EXPECT_EQ(Gateway.Readiness(), Preview::Ingress::QuicReadiness::Closed);
     }
 
-    TEST(IngressDispatcher, KeepsMalformedOrdinaryAndUnknownCidOnSeparateRoutes)
+    TEST(IngressDispatcher, FallsBackToOrdinaryHandlerWhenQuicCidUnclaimed)
     {
         auto Gateway = std::make_shared<Preview::Ingress::QuicGateway>();
         std::size_t OrdinaryPackets = 0;
@@ -261,10 +261,10 @@ namespace
         Dispatcher.Dispatch(std::move(Unknown));
 
         const auto Snapshot = Dispatcher.Snapshot();
-        EXPECT_EQ(OrdinaryPackets, 1U);
-        EXPECT_EQ(Snapshot.DatagramPackets, 1U);
+        EXPECT_EQ(OrdinaryPackets, 2U);
+        EXPECT_EQ(Snapshot.DatagramPackets, 2U);
         EXPECT_EQ(Snapshot.QuicPackets, 0U);
-        EXPECT_EQ(Snapshot.RejectedPackets, 1U);
+        EXPECT_EQ(Snapshot.RejectedPackets, 0U);
     }
 
     TEST(UdpListener, StopWithoutCloseStillCompletesOwnerHeldReceiveLoop)
@@ -671,6 +671,54 @@ namespace
         EXPECT_EQ(Traffic.Identity, "trojan-udp-user");
         EXPECT_EQ(Traffic.Up, Payload.size());
         EXPECT_EQ(Traffic.Down, Payload.size());
+    }
+
+    TEST(UdpServiceFactory, RejectsZeroPortBeforeTrojanResolverAndClosesLifetime)
+    {
+        Net::io_context Io;
+        auto Carrier = std::make_shared<PreviewMockTransport>(Io.get_executor());
+        const std::string TargetHost = "invalid-port.test";
+        const std::string Payload = "invalid-port";
+        Carrier->ToRead = {
+            static_cast<std::uint8_t>(Trojan::AddressType::Domain),
+            static_cast<std::uint8_t>(TargetHost.size())};
+        Carrier->ToRead.insert(Carrier->ToRead.end(), TargetHost.begin(), TargetHost.end());
+        Carrier->ToRead.insert(Carrier->ToRead.end(),
+                               {0, 0, 0, static_cast<std::uint8_t>(Payload.size()), '\r', '\n'});
+        Carrier->ToRead.insert(Carrier->ToRead.end(), Payload.begin(), Payload.end());
+        auto Owner = std::make_shared<Trojan::Dgram<>>(Carrier);
+        auto ContextValue = MakeContext(Owner);
+        TrafficRecorder Traffic;
+        ContextValue.traffic = &Traffic;
+        ContextValue.identity = "trojan-invalid-port";
+        std::size_t ResolveCalls = 0;
+        Composition::UdpServiceOptions Options;
+        Options.IdleTimeout = std::chrono::milliseconds(20);
+        Options.Resolver = [&ResolveCalls](Composition::UdpResolveRequest)
+            -> Net::awaitable<std::pair<Error, Udp::endpoint>>
+        {
+            ++ResolveCalls;
+            co_return std::pair{Error::None,
+                                Udp::endpoint(Net::ip::address_v4::loopback(), 53)};
+        };
+        auto Service = Composition::UdpServiceFactory::MakeTrojan(std::move(Options));
+        Fault::Code Result = Fault::Code::GenericError;
+
+        RunCoro(
+            Io,
+            [&]() -> Net::awaitable<void>
+            {
+                Result = co_await Service(ContextValue);
+                co_return;
+            });
+
+        EXPECT_EQ(Result, Fault::Code::Success);
+        EXPECT_EQ(ResolveCalls, 0U);
+        EXPECT_TRUE(Carrier->IsClosed());
+        EXPECT_EQ(Traffic.Calls, 1U);
+        EXPECT_EQ(Traffic.Identity, "trojan-invalid-port");
+        EXPECT_EQ(Traffic.Up, 0U);
+        EXPECT_EQ(Traffic.Down, 0U);
     }
 
     TEST(UdpServiceFactory, RejectsNonDatagramVmessCarrierAndClosesOwner)

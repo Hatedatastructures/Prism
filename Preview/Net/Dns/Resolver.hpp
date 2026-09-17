@@ -488,6 +488,12 @@ namespace Preview::Network::Dns
             const auto Start = std::chrono::steady_clock::now();
             const auto Executor = Ex_;
             const auto Timeout = std::chrono::milliseconds(Config_.TimeoutMs);
+            if (Timeout.count() == 0)
+            {
+                QueryResult timedOut;
+                timedOut.Error = make_error_code(Error::Timeout);
+                co_return timedOut;
+            }
             auto ResolveOperation = [Executor, Name, QueryType]()
                 -> Net::awaitable<QueryResult>
             {

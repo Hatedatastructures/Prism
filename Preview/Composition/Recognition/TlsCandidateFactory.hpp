@@ -8,8 +8,10 @@
 #pragma once
 
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/ssl/context.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -21,7 +23,13 @@
 
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
+#include <Preview/Protocols/Gun/Gun.hpp>
+#include <Preview/Protocols/Gun/Grpc.hpp>
+#include <Preview/Protocols/Reality/Reality.hpp>
 #include <Preview/Protocols/Shadowtls/Server.hpp>
+#include <Preview/Protocols/Xhttp/Xhttp.hpp>
+#include <Preview/Protocols/Ws/Ws.hpp>
+#include <Preview/Transport/NativeTls.hpp>
 #include <Preview/Runtime/Recognition/Profile.hpp>
 #include <Preview/Runtime/Recognition/SchemeExecutor.hpp>
 #include <Preview/Runtime/Recognition/Tls.hpp>
@@ -35,6 +43,8 @@ namespace Preview::Composition::Recognition
     /// 具体 carrier 的服务端接入回调
     using CarrierAcceptFn = std::function<Net::awaitable<Core::CarrierAcceptResult>(
         Preview::SharedTransmission)>;
+    using CarrierAcceptPreparedFn = std::function<Net::awaitable<Core::CarrierAcceptResult>(
+        Preview::SharedTransmission, std::shared_ptr<const void>)>;
 
     /**
      * @brief 创建 ShadowTLS v3 服务端 carrier 接入回调
@@ -63,6 +73,199 @@ namespace Preview::Composition::Recognition
                 co_return Result;
             }
             Result.Transport = std::move(ServerResult.Connection);
+            co_return Result;
+        };
+    }
+
+    /**
+     * @brief 创建 WebSocket 服务端 carrier 接入回调。
+     * @param Config WebSocket path/Host 约束
+     * @return 在 carrier commit 阶段执行真实 HTTP Upgrade 的回调
+     */
+    [[nodiscard]] inline auto MakeWebsocketServerAccept(Preview::Ws::ServerConfig Config = {})
+        -> CarrierAcceptFn
+    {
+        return [Config = std::move(Config)](Preview::SharedTransmission Inbound)
+            -> Net::awaitable<Core::CarrierAcceptResult>
+        {
+            auto [ErrorCode, Key, Connection] =
+                co_await Preview::Ws::Accept(std::move(Inbound), Config);
+            (void)Key;
+            Core::CarrierAcceptResult Result;
+            Result.Metadata.Carrier = "ws";
+            if (ErrorCode != Preview::Error::None || !Connection)
+            {
+                Result.Code = ErrorCode == Preview::Error::None
+                                  ? Preview::Fault::Code::ProtocolError
+                                  : Preview::Fault::ToCode(Preview::make_error_code(ErrorCode));
+                co_return Result;
+            }
+            Result.Transport = std::move(Connection);
+            co_return Result;
+        };
+    }
+
+    /**
+     * @brief 创建 XHTTP 服务端 carrier 接入回调。
+     * @param TlsContext 服务端 TLS context；由 Application 持有共享所有权
+     * @param Config XHTTP path/authority/mode 约束
+     * @return 在 carrier commit 阶段执行真实 TLS + HTTP/2 握手的回调
+     */
+    [[nodiscard]] inline auto MakeXhttpServerAccept(
+        std::shared_ptr<Net::ssl::context> TlsContext,
+        Preview::Xhttp::Config Config = {}) -> CarrierAcceptFn
+    {
+        return [TlsContext = std::move(TlsContext), Config = std::move(Config)](
+                   Preview::SharedTransmission Inbound)
+            -> Net::awaitable<Core::CarrierAcceptResult>
+        {
+            Core::CarrierAcceptResult Result;
+            Result.Metadata.Carrier = "xhttp";
+            if (!TlsContext || !Config.Enabled())
+            {
+                Result.Code = Preview::Fault::Code::NotSupported;
+                if (Inbound)
+                {
+                    Inbound->Close();
+                }
+                co_return Result;
+            }
+            Result.Transport = co_await Preview::Xhttp::Accept(
+                std::move(Inbound), *TlsContext, Config);
+            if (!Result.Transport)
+            {
+                Result.Code = Preview::Fault::Code::ProtocolError;
+            }
+            co_return Result;
+        };
+    }
+
+    /**
+     * @brief 创建 Gun 服务端 carrier 接入回调。
+     * @param TlsContext 服务端 TLS context
+     * @param Path gun path header 约束
+     * @param ServiceName gun service header 约束
+     * @return 在 carrier commit 阶段执行真实 TLS + Gun CONNECT 握手的回调
+     */
+    [[nodiscard]] inline auto MakeGunServerAccept(
+        std::shared_ptr<Net::ssl::context> TlsContext,
+        std::string Path = {},
+        std::string ServiceName = {},
+        std::string Mode = "GunLite") -> CarrierAcceptFn
+    {
+        Preview::Gun::Config Config{std::move(Path), std::move(ServiceName)};
+        return [TlsContext = std::move(TlsContext), Config = std::move(Config),
+                Mode = std::move(Mode)](
+                   Preview::SharedTransmission Inbound)
+            -> Net::awaitable<Core::CarrierAcceptResult>
+        {
+            Core::CarrierAcceptResult Result;
+            Result.Metadata.Carrier = "gun";
+            if (!TlsContext)
+            {
+                Result.Code = Preview::Fault::Code::NotSupported;
+                if (Inbound)
+                {
+                    Inbound->Close();
+                }
+                co_return Result;
+            }
+            auto Tls = co_await Preview::Transport::UpgradeNativeTls(
+                std::move(Inbound), TlsContext);
+            if (Preview::Fault::Failed(Tls.Code) || !Tls.Transport)
+            {
+                Result.Code = Tls.Code;
+                Result.NativeError = Tls.NativeError;
+                co_return Result;
+            }
+            if (Mode == "Grpc")
+            {
+                auto Connection = co_await Preview::Gun::Grpc::StreamTransport::Accept(
+                    std::move(Tls.Transport),
+                    Preview::Gun::Grpc::Config{Config.Path, {}, {}});
+                if (!Connection)
+                {
+                    Result.Code = Preview::Fault::Code::ProtocolError;
+                    co_return Result;
+                }
+                Result.Transport = std::move(Connection);
+                co_return Result;
+            }
+            auto [ErrorCode, Host, Connection] = co_await Preview::Gun::Accept(
+                std::move(Tls.Transport), Config);
+            (void)Host;
+            if (ErrorCode != Preview::Error::None || !Connection)
+            {
+                Result.Code = ErrorCode == Preview::Error::None
+                                  ? Preview::Fault::Code::ProtocolError
+                                  : Preview::Fault::ToCode(Preview::make_error_code(ErrorCode));
+                co_return Result;
+            }
+            Result.Transport = std::move(Connection);
+            co_return Result;
+        };
+    }
+
+    [[nodiscard]] inline auto MakeRealityServerAccept(
+        std::array<std::uint8_t, Preview::Reality::KeyLen> PrivateKey,
+        std::vector<std::array<std::uint8_t, Preview::Reality::MaxShortIdLen>> ShortIds)
+        -> CarrierAcceptPreparedFn
+    {
+        return [PrivateKey, ShortIds = std::move(ShortIds)](
+                   Preview::SharedTransmission Inbound,
+                   std::shared_ptr<const void> Prepared)
+            -> Net::awaitable<Core::CarrierAcceptResult>
+        {
+            Core::CarrierAcceptResult Result;
+            Result.Metadata.Carrier = "reality";
+            const auto Features = std::static_pointer_cast<const Core::ClientHelloFeatures>(
+                std::move(Prepared));
+            if (!Inbound || !Features || !Features->HasX25519 ||
+                Features->RawMessage.empty() || Features->RawRecord.empty() ||
+                Features->ConsumedBytes != Features->RawRecord.size() || ShortIds.empty())
+            {
+                if (Inbound)
+                {
+                    Inbound->Close();
+                }
+                Result.Code = Preview::Fault::Code::ProtocolError;
+                co_return Result;
+            }
+
+            std::vector<std::byte> ClientHello(Features->ConsumedBytes);
+            std::size_t Offset = 0;
+            while (Offset < ClientHello.size())
+            {
+                std::error_code ErrorCode;
+                const auto Read = co_await Inbound->async_read_some(
+                    std::span<std::byte>(ClientHello).subspan(Offset), ErrorCode);
+                if (ErrorCode || Read == 0 || Read > ClientHello.size() - Offset)
+                {
+                    Inbound->Close();
+                    Result.Code = Preview::Fault::Code::IoError;
+                    co_return Result;
+                }
+                Offset += Read;
+            }
+
+            Preview::Reality::ServerConfig Config;
+            Config.private_key = PrivateKey;
+            Config.ShortIds = ShortIds;
+            Preview::Reality::HandshakeParams Params{
+                std::span<const std::uint8_t>(Features->Random),
+                std::span<const std::uint8_t>(Features->RawMessage)};
+            auto [ErrorCode, ShortId, Connection] = co_await Preview::Reality::Accept(
+                {std::move(Inbound), Config,
+                 std::span<const std::uint8_t>(Features->X25519Key), Params});
+            (void)ShortId;
+            if (ErrorCode != Preview::Error::None || !Connection)
+            {
+                Result.Code = ErrorCode == Preview::Error::None
+                                  ? Preview::Fault::Code::AuthFailed
+                                  : Preview::Fault::ToCode(Preview::make_error_code(ErrorCode));
+                co_return Result;
+            }
+            Result.Transport = std::move(Connection);
             co_return Result;
         };
     }
@@ -256,6 +459,7 @@ namespace Preview::Composition::Recognition
             Core::CommitContext Context;
             Preview::Recognition::SchemeExecutor *Executor{nullptr};
             CarrierAcceptFn Accept;
+            CarrierAcceptPreparedFn AcceptPrepared;
             std::string Scheme;
         };
 
@@ -277,6 +481,11 @@ namespace Preview::Composition::Recognition
                                                   Preview::SharedTransmission Inbound)
             -> Net::awaitable<Core::CarrierAcceptResult>
         {
+            if (RequestData.AcceptPrepared)
+            {
+                co_return co_await RequestData.AcceptPrepared(
+                    std::move(Inbound), RequestData.Context.PreparedState);
+            }
             if (RequestData.Accept)
             {
                 co_return co_await RequestData.Accept(std::move(Inbound));
@@ -345,7 +554,7 @@ namespace Preview::Composition::Recognition
                 Result.Transport = Original;
                 co_return Result;
             }
-            if (!RequestData.Accept &&
+            if (!RequestData.Accept && !RequestData.AcceptPrepared &&
                 (!RequestData.Executor || RequestData.Scheme.empty() ||
                  !RequestData.Executor->Has(RequestData.Scheme)))
             {
@@ -416,7 +625,8 @@ namespace Preview::Composition::Recognition
     public:
         [[nodiscard]] static auto Make(TlsCandidateOptions Options,
                                        Preview::Recognition::SchemeExecutor *Executor,
-                                       CarrierAcceptFn Accept)
+                                       CarrierAcceptFn Accept,
+                                       CarrierAcceptPreparedFn AcceptPrepared = {})
             -> TlsCandidateBinding
         {
             const auto DefaultScheme = detail::SchemeName(Options.Carrier);
@@ -463,11 +673,14 @@ namespace Preview::Composition::Recognition
                 return Parsed;
             };
             Spec.Prepare = detail::PrepareClientHello;
-            Spec.Commit = [Executor, Accept = std::move(Accept), Scheme = Options.Scheme](Core::CommitContext Context)
+            Spec.Commit = [Executor, Accept = std::move(Accept),
+                           AcceptPrepared = std::move(AcceptPrepared), Scheme = Options.Scheme](
+                              Core::CommitContext Context)
                 -> Net::awaitable<Core::CommitResult>
             {
                 co_return co_await detail::CommitScheme(
-                    detail::CommitSchemeRequest{std::move(Context), Executor, Accept, Scheme});
+                    detail::CommitSchemeRequest{
+                        std::move(Context), Executor, Accept, AcceptPrepared, Scheme});
             };
             Binding.Spec = std::move(Spec);
             return Binding;
@@ -478,6 +691,14 @@ namespace Preview::Composition::Recognition
             -> TlsCandidateBinding
         {
             return Make(std::move(Options), Executor, {});
+        }
+
+        [[nodiscard]] static auto MakePrepared(
+            TlsCandidateOptions Options,
+            CarrierAcceptPreparedFn Accept)
+            -> TlsCandidateBinding
+        {
+            return Make(std::move(Options), nullptr, {}, std::move(Accept));
         }
 
         [[nodiscard]] static auto Make(TlsCandidateOptions Options, CarrierAcceptFn Accept)
