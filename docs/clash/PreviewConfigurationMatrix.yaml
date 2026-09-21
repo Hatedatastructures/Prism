@@ -6,7 +6,7 @@ schema-version: 1
 
 baseline:
   file: PrismPreviewClient.yaml
-    proxy-node-count: 26
+    proxy-node-count: 46
   policy-groups:
     - PrismPreview-Active
     - PrismPreview-Verified
@@ -78,6 +78,26 @@ status-contract:
     - "AnyTLS TCP"
     - "VMess Native TLS TCP"
     - "VMess Yamux TCP"
+    - "VLESS Smux 1Conn TCP"
+    - "VLESS Smux 4Conn TCP"
+    - "VLESS Smux 64Streams TCP"
+    - "VLESS Smux 256Streams TCP"
+    - "VLESS Yamux 1Conn TCP"
+    - "VLESS Yamux 4Conn TCP"
+    - "VLESS Yamux 64Streams TCP"
+    - "VLESS Yamux 256Streams TCP"
+    - "VLESS H2Mux 1Conn TCP"
+    - "VLESS H2Mux 4Conn TCP"
+    - "VLESS H2Mux 64Streams TCP"
+    - "VLESS H2Mux 256Streams TCP"
+    - "VMess Yamux 1Conn TCP"
+    - "VMess Yamux 4Conn TCP"
+    - "VMess Yamux 64Streams TCP"
+    - "VMess Yamux 256Streams TCP"
+    - "Trojan Smux 1Conn TCP"
+    - "Trojan Smux 4Conn TCP"
+    - "Trojan Smux 64Streams TCP"
+    - "Trojan Smux 256Streams TCP"
     - "VMess UDP"
     - "VMess Reality TCP"
     - "Hysteria2 QUIC"
@@ -246,6 +266,166 @@ entries:
     protocol: vmess
     carrier: reality
     sni: vmess.microsoft.com
+  - name: "VLESS Smux 1Conn TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-smux.preview
+    mux: smux
+    mux-only-tcp: true
+    max-connections: 1
+  - name: "VLESS Smux 4Conn TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-smux.preview
+    mux: smux
+    mux-only-tcp: true
+    max-connections: 4
+  - name: "VLESS Smux 64Streams TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-smux.preview
+    mux: smux
+    mux-only-tcp: true
+    max-streams: 64
+  - name: "VLESS Smux 256Streams TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-smux.preview
+    mux: smux
+    mux-only-tcp: true
+    max-streams: 256
+  - name: "VLESS Yamux 1Conn TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-yamux.preview
+    mux: yamux
+    mux-only-tcp: true
+    max-connections: 1
+  - name: "VLESS Yamux 4Conn TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-yamux.preview
+    mux: yamux
+    mux-only-tcp: true
+    max-connections: 4
+  - name: "VLESS Yamux 64Streams TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-yamux.preview
+    mux: yamux
+    mux-only-tcp: true
+    max-streams: 64
+  - name: "VLESS Yamux 256Streams TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-yamux.preview
+    mux: yamux
+    mux-only-tcp: true
+    max-streams: 256
+  - name: "VLESS H2Mux 1Conn TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-h2mux.preview
+    mux: h2mux
+    mux-only-tcp: true
+    max-connections: 1
+  - name: "VLESS H2Mux 4Conn TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-h2mux.preview
+    mux: h2mux
+    mux-only-tcp: true
+    max-connections: 4
+  - name: "VLESS H2Mux 64Streams TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-h2mux.preview
+    mux: h2mux
+    mux-only-tcp: true
+    max-streams: 64
+  - name: "VLESS H2Mux 256Streams TCP"
+    status: verified-manual
+    protocol: vless
+    carrier: native
+    sni: vless-h2mux.preview
+    mux: h2mux
+    mux-only-tcp: true
+    max-streams: 256
+  - name: "VMess Yamux 1Conn TCP"
+    status: verified-manual
+    protocol: vmess
+    carrier: native
+    sni: vmess-yamux.preview
+    mux: yamux
+    mux-only-tcp: true
+    max-connections: 1
+  - name: "VMess Yamux 4Conn TCP"
+    status: verified-manual
+    protocol: vmess
+    carrier: native
+    sni: vmess-yamux.preview
+    mux: yamux
+    mux-only-tcp: true
+    max-connections: 4
+  - name: "VMess Yamux 64Streams TCP"
+    status: verified-manual
+    protocol: vmess
+    carrier: native
+    sni: vmess-yamux.preview
+    mux: yamux
+    mux-only-tcp: true
+    max-streams: 64
+  - name: "VMess Yamux 256Streams TCP"
+    status: verified-manual
+    protocol: vmess
+    carrier: native
+    sni: vmess-yamux.preview
+    mux: yamux
+    mux-only-tcp: true
+    max-streams: 256
+  - name: "Trojan Smux 1Conn TCP"
+    status: verified-manual
+    protocol: trojan
+    carrier: native
+    sni: trojan-smux.preview
+    mux: smux
+    mux-only-tcp: true
+    max-connections: 1
+  - name: "Trojan Smux 4Conn TCP"
+    status: verified-manual
+    protocol: trojan
+    carrier: native
+    sni: trojan-smux.preview
+    mux: smux
+    mux-only-tcp: true
+    max-connections: 4
+  - name: "Trojan Smux 64Streams TCP"
+    status: verified-manual
+    protocol: trojan
+    carrier: native
+    sni: trojan-smux.preview
+    mux: smux
+    mux-only-tcp: true
+    max-streams: 64
+  - name: "Trojan Smux 256Streams TCP"
+    status: verified-manual
+    protocol: trojan
+    carrier: native
+    sni: trojan-smux.preview
+    mux: smux
+    mux-only-tcp: true
+    max-streams: 256
   - name: "Hysteria2 QUIC"
     status: verified-manual
     protocol: hysteria2

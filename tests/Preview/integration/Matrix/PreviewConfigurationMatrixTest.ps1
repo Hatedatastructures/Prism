@@ -405,10 +405,10 @@ foreach ($Proxy in $ProxyRecords) {
     }
 }
 
-Assert-Equal $ProxyRecords.Count 26 'Client proxy node count'
-Assert-Equal $MatrixEntries.Count 26 'Matrix entry count'
+Assert-Equal $ProxyRecords.Count 46 'Client proxy node count'
+Assert-Equal $MatrixEntries.Count 46 'Matrix entry count'
 if ($MatrixText -match '(?m)^\s+proxy-node-count:\s*(\d+)\s*$') {
-    Assert-Equal ([int]$Matches[1]) 26 'Matrix baseline proxy-node-count'
+    Assert-Equal ([int]$Matches[1]) 46 'Matrix baseline proxy-node-count'
 } else {
     Add-Failure 'Matrix baseline proxy-node-count is missing'
 }
@@ -421,7 +421,7 @@ Assert-True ($PendingMatches.Count -le 1) "Client group 'PrismPreview-Pending' m
 $PendingGroup = if ($PendingMatches.Count -eq 1) { $PendingMatches[0] } else { $null }
 $MatrixGroup = Find-ByName $ProxyGroups 'PrismPreview-ProtocolMatrix' 'Client group'
 if ($null -ne $ActiveGroup) {
-    Assert-SetEqual $ActiveGroup.proxies ($ExpectedActive + 'DIRECT') 'Active group entries'
+    Assert-SetEqual $ActiveGroup.proxies $ExpectedActive 'Active group entries'
 }
 if ($null -ne $PendingGroup) {
     Assert-True ($PendingGroup.proxies -notcontains 'DIRECT') 'Pending group must not contain DIRECT'

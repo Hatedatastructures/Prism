@@ -3,6 +3,8 @@
 # Active nodes are real TCP paths; Verified nodes have exact client/server payload evidence.
 # AnyTLS uses its own application mux. Generic mux is advertised only for
 # VLESS Smux/Yamux/H2Mux, VMess Yamux and Trojan Smux.
+# Mihomo max-connections and max-streams are mutually exclusive. Mux profile
+# nodes use exactly one limit axis and never the invalid max-conn spelling.
 # Unverified UDP, carrier-mux, WebSocket/XHTTP/Gun, TrustTunnel and protocol-mismatched nodes are removed.
 # No URL-test health group is configured; isolated validation owns health and payload checks.
 
@@ -390,6 +392,330 @@ proxies:
       only-tcp: true
 
 
+  - name: "VLESS Smux 1Conn TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-smux.preview"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "VLESS Smux 4Conn TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-smux.preview"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "VLESS Smux 64Streams TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-smux.preview"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-streams: 64
+
+  - name: "VLESS Smux 256Streams TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-smux.preview"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-streams: 256
+
+  - name: "VLESS Yamux 1Conn TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-yamux.preview"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "VLESS Yamux 4Conn TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-yamux.preview"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "VLESS Yamux 64Streams TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-yamux.preview"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-streams: 64
+
+  - name: "VLESS Yamux 256Streams TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-yamux.preview"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-streams: 256
+
+  - name: "VLESS H2Mux 1Conn TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-h2mux.preview"
+    smux:
+      enabled: true
+      protocol: h2mux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "VLESS H2Mux 4Conn TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-h2mux.preview"
+    smux:
+      enabled: true
+      protocol: h2mux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "VLESS H2Mux 64Streams TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-h2mux.preview"
+    smux:
+      enabled: true
+      protocol: h2mux
+      only-tcp: true
+      max-streams: 64
+
+  - name: "VLESS H2Mux 256Streams TCP" # status: verified-manual
+    type: vless
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vless-h2mux.preview"
+    smux:
+      enabled: true
+      protocol: h2mux
+      only-tcp: true
+      max-streams: 256
+
+  - name: "VMess Yamux 1Conn TCP" # status: verified-manual
+    type: vmess
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vmess-yamux.preview"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "VMess Yamux 4Conn TCP" # status: verified-manual
+    type: vmess
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vmess-yamux.preview"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "VMess Yamux 64Streams TCP" # status: verified-manual
+    type: vmess
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vmess-yamux.preview"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-streams: 64
+
+  - name: "VMess Yamux 256Streams TCP" # status: verified-manual
+    type: vmess
+    server: 192.168.0.106
+    port: 18080
+    uuid: "123e4567-e89b-12d3-a456-426614174000"
+    alterId: 0
+    cipher: auto
+    network: tcp
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    servername: "vmess-yamux.preview"
+    smux:
+      enabled: true
+      protocol: yamux
+      only-tcp: true
+      max-streams: 256
+
+  - name: "Trojan Smux 1Conn TCP" # status: verified-manual
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    sni: "trojan-smux.preview"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 1
+
+  - name: "Trojan Smux 4Conn TCP" # status: verified-manual
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    sni: "trojan-smux.preview"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-connections: 4
+
+  - name: "Trojan Smux 64Streams TCP" # status: verified-manual
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    sni: "trojan-smux.preview"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-streams: 64
+
+  - name: "Trojan Smux 256Streams TCP" # status: verified-manual
+    type: trojan
+    server: 192.168.0.106
+    port: 18080
+    password: "PrismPreview-106-20260914"
+    tls: true
+    udp: false
+    skip-cert-verify: true
+    sni: "trojan-smux.preview"
+    smux:
+      enabled: true
+      protocol: smux
+      only-tcp: true
+      max-streams: 256
+
 # ---------- 策略组 ----------
 proxy-groups:
   - name: "PrismPreview-Active"
@@ -401,7 +727,6 @@ proxy-groups:
       - "Trojan Native TLS TCP"
       - "VMess TCP"
       - "SS2022 TCP"
-      - DIRECT
 
   - name: "PrismPreview-Verified"
     type: select
@@ -425,6 +750,26 @@ proxy-groups:
       - "VMess Yamux TCP"
       - "VMess UDP"
       - "VMess Reality TCP"
+      - "VLESS Smux 1Conn TCP"
+      - "VLESS Smux 4Conn TCP"
+      - "VLESS Smux 64Streams TCP"
+      - "VLESS Smux 256Streams TCP"
+      - "VLESS Yamux 1Conn TCP"
+      - "VLESS Yamux 4Conn TCP"
+      - "VLESS Yamux 64Streams TCP"
+      - "VLESS Yamux 256Streams TCP"
+      - "VLESS H2Mux 1Conn TCP"
+      - "VLESS H2Mux 4Conn TCP"
+      - "VLESS H2Mux 64Streams TCP"
+      - "VLESS H2Mux 256Streams TCP"
+      - "VMess Yamux 1Conn TCP"
+      - "VMess Yamux 4Conn TCP"
+      - "VMess Yamux 64Streams TCP"
+      - "VMess Yamux 256Streams TCP"
+      - "Trojan Smux 1Conn TCP"
+      - "Trojan Smux 4Conn TCP"
+      - "Trojan Smux 64Streams TCP"
+      - "Trojan Smux 256Streams TCP"
       - "Hysteria2 QUIC"
 
   - name: "PrismPreview-ProtocolMatrix"
@@ -455,7 +800,219 @@ proxy-groups:
       - "VMess Native TLS TCP"
       - "VMess Yamux TCP"
       - "VMess Reality TCP"
+      - "VLESS Smux 1Conn TCP"
+      - "VLESS Smux 4Conn TCP"
+      - "VLESS Smux 64Streams TCP"
+      - "VLESS Smux 256Streams TCP"
+      - "VLESS Yamux 1Conn TCP"
+      - "VLESS Yamux 4Conn TCP"
+      - "VLESS Yamux 64Streams TCP"
+      - "VLESS Yamux 256Streams TCP"
+      - "VLESS H2Mux 1Conn TCP"
+      - "VLESS H2Mux 4Conn TCP"
+      - "VLESS H2Mux 64Streams TCP"
+      - "VLESS H2Mux 256Streams TCP"
+      - "VMess Yamux 1Conn TCP"
+      - "VMess Yamux 4Conn TCP"
+      - "VMess Yamux 64Streams TCP"
+      - "VMess Yamux 256Streams TCP"
+      - "Trojan Smux 1Conn TCP"
+      - "Trojan Smux 4Conn TCP"
+      - "Trojan Smux 64Streams TCP"
+      - "Trojan Smux 256Streams TCP"
       - "Hysteria2 QUIC"
+
+
+  - name: "PrismPreview-TCP"
+    type: select
+    proxies:
+      - "Http"
+      - "HTTP Native TLS"
+      - "SOCKS5 TCP Cert"
+      - "SOCKS5 Native TLS TCP"
+      - "Trojan Native TLS TCP"
+      - "Trojan Smux TCP"
+      - "Trojan Reality TCP"
+      - "Trojan Smux 1Conn TCP"
+      - "Trojan Smux 4Conn TCP"
+      - "Trojan Smux 64Streams TCP"
+      - "Trojan Smux 256Streams TCP"
+      - "VMess TCP"
+      - "VMess Native TLS TCP"
+      - "VMess Yamux TCP"
+      - "VMess Yamux 1Conn TCP"
+      - "VMess Yamux 4Conn TCP"
+      - "VMess Yamux 64Streams TCP"
+      - "VMess Yamux 256Streams TCP"
+      - "SS2022 TCP"
+      - "SS2022 ShadowTLS TCP"
+      - "SS2022 Restls TLS13 TCP"
+      - "VLESS TCP"
+      - "VLESS Native TLS TCP"
+      - "VLESS Smux TCP"
+      - "VLESS Yamux TCP"
+      - "VLESS H2Mux TCP"
+      - "VLESS Smux 1Conn TCP"
+      - "VLESS Smux 4Conn TCP"
+      - "VLESS Smux 64Streams TCP"
+      - "VLESS Smux 256Streams TCP"
+      - "VLESS Yamux 1Conn TCP"
+      - "VLESS Yamux 4Conn TCP"
+      - "VLESS Yamux 64Streams TCP"
+      - "VLESS Yamux 256Streams TCP"
+      - "VLESS H2Mux 1Conn TCP"
+      - "VLESS H2Mux 4Conn TCP"
+      - "VLESS H2Mux 64Streams TCP"
+      - "VLESS H2Mux 256Streams TCP"
+      - "AnyTLS TCP"
+      - "VLESS Smux 1Conn TCP"
+      - "VLESS Smux 4Conn TCP"
+      - "VLESS Smux 64Streams TCP"
+      - "VLESS Smux 256Streams TCP"
+      - "VLESS Yamux 1Conn TCP"
+      - "VLESS Yamux 4Conn TCP"
+      - "VLESS Yamux 64Streams TCP"
+      - "VLESS Yamux 256Streams TCP"
+      - "VLESS H2Mux 1Conn TCP"
+      - "VLESS H2Mux 4Conn TCP"
+      - "VLESS H2Mux 64Streams TCP"
+      - "VLESS H2Mux 256Streams TCP"
+      - "VMess Yamux 1Conn TCP"
+      - "VMess Yamux 4Conn TCP"
+      - "VMess Yamux 64Streams TCP"
+      - "VMess Yamux 256Streams TCP"
+      - "Trojan Smux 1Conn TCP"
+      - "Trojan Smux 4Conn TCP"
+      - "Trojan Smux 64Streams TCP"
+      - "Trojan Smux 256Streams TCP"
+
+  - name: "PrismPreview-UDP"
+    type: select
+    proxies:
+      - "SOCKS5 UDP Cert"
+      - "VLESS UDP"
+      - "VMess UDP"
+      - "SS2022 UDP"
+      - "Hysteria2 QUIC"
+
+  - name: "PrismPreview-HTTP"
+    type: select
+    proxies:
+      - "Http"
+      - "HTTP Native TLS"
+
+  - name: "PrismPreview-SOCKS5"
+    type: select
+    proxies:
+      - "SOCKS5 TCP Cert"
+      - "SOCKS5 Native TLS TCP"
+      - "SOCKS5 UDP Cert"
+
+  - name: "PrismPreview-Trojan"
+    type: select
+    proxies:
+      - "Trojan Smux TCP"
+      - "Trojan Reality TCP"
+      - "Trojan Smux 1Conn TCP"
+      - "Trojan Smux 4Conn TCP"
+      - "Trojan Smux 64Streams TCP"
+      - "Trojan Smux 256Streams TCP"
+
+  - name: "PrismPreview-VMess"
+    type: select
+    proxies:
+      - "VMess TCP"
+      - "VMess Native TLS TCP"
+      - "VMess Yamux TCP"
+      - "VMess Yamux 1Conn TCP"
+      - "VMess Yamux 4Conn TCP"
+      - "VMess Yamux 64Streams TCP"
+      - "VMess Yamux 256Streams TCP"
+      - "VMess UDP"
+      - "VMess Reality TCP"
+
+  - name: "PrismPreview-VLESS"
+    type: select
+    proxies:
+      - "VLESS TCP"
+      - "VLESS Native TLS TCP"
+      - "VLESS Smux TCP"
+      - "VLESS Yamux TCP"
+      - "VLESS H2Mux TCP"
+      - "VLESS Smux 1Conn TCP"
+      - "VLESS Smux 4Conn TCP"
+      - "VLESS Smux 64Streams TCP"
+      - "VLESS Smux 256Streams TCP"
+      - "VLESS Yamux 1Conn TCP"
+      - "VLESS Yamux 4Conn TCP"
+      - "VLESS Yamux 64Streams TCP"
+      - "VLESS Yamux 256Streams TCP"
+      - "VLESS H2Mux 1Conn TCP"
+      - "VLESS H2Mux 4Conn TCP"
+      - "VLESS H2Mux 64Streams TCP"
+      - "VLESS H2Mux 256Streams TCP"
+      - "VLESS UDP"
+      - "VLESS Reality TCP"
+
+  - name: "PrismPreview-SS2022"
+    type: select
+    proxies:
+      - "SS2022 TCP"
+      - "SS2022 UDP"
+      - "SS2022 ShadowTLS TCP"
+      - "SS2022 Restls TLS13 TCP"
+
+  - name: "PrismPreview-AnyTLS"
+    type: select
+    proxies:
+      - "AnyTLS TCP"
+
+  - name: "PrismPreview-Hysteria2"
+    type: select
+    proxies:
+      - "Hysteria2 QUIC"
+
+  - name: "PrismPreview-Mux"
+    type: select
+    proxies:
+      - "VLESS Smux TCP"
+      - "VLESS Yamux TCP"
+      - "VLESS H2Mux TCP"
+      - "VMess Yamux TCP"
+      - "Trojan Smux TCP"
+      - "VLESS Smux 1Conn TCP"
+      - "VLESS Smux 4Conn TCP"
+      - "VLESS Smux 64Streams TCP"
+      - "VLESS Smux 256Streams TCP"
+      - "VLESS Yamux 1Conn TCP"
+      - "VLESS Yamux 4Conn TCP"
+      - "VLESS Yamux 64Streams TCP"
+      - "VLESS Yamux 256Streams TCP"
+      - "VLESS H2Mux 1Conn TCP"
+      - "VLESS H2Mux 4Conn TCP"
+      - "VLESS H2Mux 64Streams TCP"
+      - "VLESS H2Mux 256Streams TCP"
+      - "VMess Yamux 1Conn TCP"
+      - "VMess Yamux 4Conn TCP"
+      - "VMess Yamux 64Streams TCP"
+      - "VMess Yamux 256Streams TCP"
+      - "Trojan Smux 1Conn TCP"
+      - "Trojan Smux 4Conn TCP"
+      - "Trojan Smux 64Streams TCP"
+      - "Trojan Smux 256Streams TCP"
+
+  - name: "PrismPreview-魔改协议"
+    type: select
+    proxies:
+      - "VLESS Reality TCP"
+      - "VMess Reality TCP"
+      - "Trojan Reality TCP"
+      - "SS2022 ShadowTLS TCP"
+      - "SS2022 Restls TLS13 TCP"
+      - "AnyTLS TCP"
+      - "Hysteria2 QUIC"
+
+
 
 # ---------- 规则 ----------
 rules:
