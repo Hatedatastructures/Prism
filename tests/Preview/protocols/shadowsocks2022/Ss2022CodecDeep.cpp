@@ -122,6 +122,93 @@ namespace
         return std::vector<std::uint8_t>(List);
     }
 
+    TEST(Ss2022CodecDeep, ReadHandshakeRetainsInitialPayload)
+    {
+        Net::io_context ioc;
+        const std::array<std::uint8_t, 16> Psk{0x10, 0x11, 0x12, 0x13,
+                                               0x14, 0x15, 0x16, 0x17,
+                                               0x18, 0x19, 0x1A, 0x1B,
+                                               0x1C, 0x1D, 0x1E, 0x1F};
+        ss::Message Request;
+        Request.dst = ss::Address{ss::AddressType::Domain, "early.example", 443};
+        Request.InitialPayload = "shadowtls early payload";
+
+        ss::Serializer Serializer(Psk);
+        Serializer.Reset(
+            Request,
+            static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+                                           std::chrono::system_clock::now().time_since_epoch())
+                                           .count()));
+        ASSERT_FALSE(Serializer.IsDone());
+        std::vector<std::uint8_t> Wire;
+        std::array<std::uint8_t, 4096> Chunk{};
+        while (!Serializer.IsDone())
+        {
+            std::error_code ErrorCode;
+            const auto Count = Serializer.Get(boost::asio::buffer(Chunk), ErrorCode);
+            ASSERT_FALSE(ErrorCode);
+            ASSERT_GT(Count, 0U);
+            Wire.insert(Wire.end(), Chunk.begin(), Chunk.begin() + Count);
+        }
+
+        run_coro(
+            ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                auto [ClientEndpoint, ServerEndpoint] = MakeMemoryPair(ioc.get_executor());
+                auto Client = std::make_shared<MemoryStream>(std::move(ClientEndpoint));
+                auto Server = std::make_shared<MemoryStream>(std::move(ServerEndpoint));
+                Server->SetTimeout(std::chrono::seconds(1));
+                auto ServerTask = Net::co_spawn(
+                    Server->Executor(),
+                    [Server, Psk]() -> Net::awaitable<std::pair<Error, ss::SharedConn>>
+                    {
+                        auto Connection = std::make_shared<ss::Conn<>>(Psk);
+                        const auto [ErrorCode, Parsed] =
+                            co_await Connection->ReadHandshake(Server);
+                        EXPECT_EQ(Parsed.InitialPayload, "shadowtls early payload");
+                        if (ErrorCode != Error::None)
+                        {
+                            co_return std::pair{ErrorCode, ss::SharedConn{}};
+                        }
+                        co_return std::pair{ErrorCode, std::move(Connection)};
+                    },
+                    Net::use_awaitable);
+                auto DrainTask = Net::co_spawn(
+                    Client->Executor(),
+                    [Client]() -> Net::awaitable<std::pair<std::size_t, std::error_code>>
+                    {
+                        std::array<std::byte, 128> Response{};
+                        std::error_code ErrorCode;
+                        const auto Count = co_await Client->async_read_some(Response, ErrorCode);
+                        co_return std::pair{Count, ErrorCode};
+                    },
+                    Net::use_awaitable);
+
+                EXPECT_FALSE(co_await Client->WriteAll(Wire));
+                auto [ErrorCode, Connection] = co_await std::move(ServerTask);
+                const auto [ResponseCount, ResponseError] = co_await std::move(DrainTask);
+                EXPECT_FALSE(ResponseError);
+                EXPECT_GT(ResponseCount, 0U);
+                EXPECT_EQ(ErrorCode, Error::None);
+                EXPECT_TRUE(Connection);
+                if (!Connection)
+                {
+                    Client->Close();
+                    co_return;
+                }
+                std::array<std::byte, 128> Buffer{};
+                std::error_code ReadError;
+                const auto Count = co_await Connection->async_read_some(Buffer, ReadError);
+                EXPECT_FALSE(ReadError);
+                EXPECT_EQ(std::string(reinterpret_cast<const char *>(Buffer.data()), Count),
+                          "shadowtls early payload");
+                Connection->Close();
+                Client->Close();
+                co_return;
+            });
+    }
+
     TEST(Ss2022CodecDeep, AddressBranches)
     {
         // EncodeAddress ipv6
@@ -553,10 +640,13 @@ namespace
                       EXPECT_FALSE(werr);
                      ss::Address src{};
                      std::vector<std::uint8_t> payload;
-                     const auto rerr = co_await dg2->AsyncReceiveFrom(src, payload);
-                     EXPECT_EQ(rerr, Error::None);
-                     // SIP022 服务端响应不携带目标地址，客户端沿用请求目标。
-                     EXPECT_TRUE(src.Host.empty());
+                    const auto rerr = co_await dg2->AsyncReceiveFrom(src, payload);
+                    EXPECT_EQ(rerr, Error::None);
+                    // SIP022 服务端响应携带源地址（对齐 sing-shadowsocks
+                    // protocol.go 的 clientPacketConn.ReadPacket：读完
+                    // clientSessionId 与 padding 后仍会 ReadAddrPort）。
+                    EXPECT_EQ(src.Host, "example.com");
+                    EXPECT_EQ(src.Port, 80);
                  });
 
         // Conn：完整握手（fake Server 响应）+ 装饰器方法 + 数据面

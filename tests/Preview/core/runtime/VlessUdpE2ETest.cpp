@@ -18,11 +18,15 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <limits>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
@@ -185,8 +189,81 @@ namespace
                     co_return;
                 }
 
-                const auto rejected = co_await wait_for_stream_rejection(proxy);
-                EXPECT_TRUE(rejected);
+                const Vless::Address Target{
+                    Vless::AddressType::Ipv4, "127.0.0.1", 53};
+                const std::vector<std::uint8_t> Payload{'v', 'l', 'e', 's', 's'};
+                const auto Packet = Vless::BuildUdpPkt(
+                    Target, std::span<const std::uint8_t>(Payload));
+                EXPECT_FALSE(Packet.empty());
+                EXPECT_LE(Packet.size(), std::numeric_limits<std::uint16_t>::max());
+                if (Packet.empty() || Packet.size() > std::numeric_limits<std::uint16_t>::max())
+                {
+                    proxy->Close();
+                    listener.Stop();
+                    co_return;
+                }
+
+                std::vector<std::byte> Wire(Packet.size() + 2U);
+                Wire[0] = static_cast<std::byte>((Packet.size() >> 8U) & 0xFFU);
+                Wire[1] = static_cast<std::byte>(Packet.size() & 0xFFU);
+                std::memcpy(Wire.data() + 2, Packet.data(), Packet.size());
+                std::error_code WriteError;
+                const auto Written = co_await proxy->AsyncWrite(
+                    std::span<const std::byte>(Wire), WriteError);
+                EXPECT_FALSE(WriteError);
+                EXPECT_EQ(Written, Wire.size());
+                if (WriteError || Written != Wire.size())
+                {
+                    proxy->Close();
+                    listener.Stop();
+                    co_return;
+                }
+
+                std::array<std::byte, 2> LengthBytes{};
+                std::error_code ReadError;
+                const auto LengthRead = co_await proxy->AsyncRead(
+                    std::span<std::byte>(LengthBytes), ReadError);
+                EXPECT_FALSE(ReadError);
+                EXPECT_EQ(LengthRead, LengthBytes.size());
+                if (ReadError || LengthRead != LengthBytes.size())
+                {
+                    proxy->Close();
+                    listener.Stop();
+                    co_return;
+                }
+                const auto ReplyLength =
+                    (static_cast<std::size_t>(std::to_integer<std::uint8_t>(LengthBytes[0])) << 8U) |
+                    static_cast<std::size_t>(std::to_integer<std::uint8_t>(LengthBytes[1]));
+                EXPECT_GT(ReplyLength, 0U);
+                if (ReplyLength == 0U)
+                {
+                    proxy->Close();
+                    listener.Stop();
+                    co_return;
+                }
+                std::vector<std::byte> Reply(ReplyLength);
+                const auto ReplyRead = co_await proxy->AsyncRead(
+                    std::span<std::byte>(Reply), ReadError);
+                EXPECT_FALSE(ReadError);
+                EXPECT_EQ(ReplyRead, Reply.size());
+                if (ReadError || ReplyRead != Reply.size())
+                {
+                    proxy->Close();
+                    listener.Stop();
+                    co_return;
+                }
+                Vless::Address ReplyTarget;
+                std::span<const std::uint8_t> ReplyPayload;
+                const auto ParseError = Vless::ParseUdpPkt(
+                    std::span<const std::uint8_t>(
+                        reinterpret_cast<const std::uint8_t *>(Reply.data()), Reply.size()),
+                    ReplyTarget, ReplyPayload);
+                EXPECT_EQ(ParseError, Error::None);
+                EXPECT_EQ(ReplyTarget.Host, "127.0.0.1");
+                EXPECT_EQ(ReplyTarget.Port, echo_port);
+                EXPECT_EQ(ReplyPayload.size(), Payload.size());
+                EXPECT_TRUE(std::equal(ReplyPayload.begin(), ReplyPayload.end(), Payload.begin()));
+                handshake_ok = true;
 
                 proxy->Close();
                 listener.Stop();
@@ -298,7 +375,7 @@ namespace
                 return std::make_shared<Runtime::Session>(std::move(opts));
             });
 
-        bool stream_rejected = false;
+        bool stream_closed = false;
         RunCoro(
             ioc,
             [&]() -> Net::awaitable<void>
@@ -323,15 +400,16 @@ namespace
                 {
                     co_return;
                 }
-                // 流式 UDP 没有明确帧长度，服务端必须拒绝该数据面。
-                stream_rejected = co_await wait_for_stream_rejection(proxy);
+                // 客户端 EOF 必须收口正在等待长度前缀的 UDP 数据面。
+                proxy->Close();
+                stream_closed = co_await wait_for_stream_rejection(proxy);
 
                 // 关闭流（客户端断开）→ 数据面随 EOF 终止，无需再验证回包
                 proxy->Close();
                 listener.Stop();
             });
 
-        EXPECT_TRUE(stream_rejected);
+        EXPECT_TRUE(stream_closed);
         EXPECT_FALSE(*upstream_ep);
     }
 

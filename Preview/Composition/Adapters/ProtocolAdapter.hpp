@@ -29,6 +29,7 @@
 #include <Preview/Composition/Adapters/Trojan.hpp>
 #include <Preview/Composition/Adapters/Vmess.hpp>
 #include <Preview/Composition/Adapters/Ss2022.hpp>
+#include <Preview/Composition/Adapters/Trusttunnel.hpp>
 
 namespace Preview::Runtime
 {
@@ -188,6 +189,13 @@ namespace Preview::Runtime
     {
         return MakeProtocolAccept(
             std::make_shared<Handler::Ss2022>(std::move(cfg), std::move(Directory)));
+    }
+
+    /// TrustTunnel carrier 完成 HTTP/2 认证后的协议接入工厂
+    [[nodiscard]] inline auto MakeAcceptTrusttunnel()
+        -> SessionOptions::ProtocolAcceptFn
+    {
+        return MakeProtocolAccept(std::make_shared<Handler::Trusttunnel>());
     }
 
 } // namespace Preview::Runtime

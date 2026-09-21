@@ -359,6 +359,7 @@ struct glz::meta<Preview::Application::Configuration::PreviewConfiguration>
         "ProtocolBindings", &T::ProtocolBindings,
         "Recognition", &T::Recognition,
         "Accounts", &T::Accounts,
+        "Secrets", &T::Secrets,
         "Routes", &T::Routes,
         "Dns", &T::Dns,
         "Logging", &T::Logging,

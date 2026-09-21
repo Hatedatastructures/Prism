@@ -1044,6 +1044,9 @@ namespace
         auto Tunnel = std::make_shared<Vless::UdpTunnel>(std::move(Connection), std::move(Options));
         auto TestCoroutine = [&]() -> Net::awaitable<void>
                  {
+                     const std::array<std::uint8_t, 2> InvalidFrame{0, 0};
+                     (void)co_await ServerMemory.WriteAll(
+                         std::span<const std::uint8_t>(InvalidFrame));
                      co_await Tunnel->Run();
                      ServerMemory.Close();
                  };

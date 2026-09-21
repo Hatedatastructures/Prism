@@ -90,6 +90,24 @@ namespace
         void Report(std::string_view, std::size_t, std::size_t) override {}
     };
 
+    TEST(SessionServicesLifecycle, TrafficOwnerOutlivesCallerForDetachedChildren)
+    {
+        auto Traffic = std::make_shared<OwnedTrafficSink>();
+        const std::weak_ptr<OwnedTrafficSink> WeakTraffic = Traffic;
+        Preview::Middleware::Context Context;
+        Context.traffic = Traffic.get();
+        Context.TrafficOwner = Traffic;
+
+        Traffic.reset();
+
+        ASSERT_FALSE(WeakTraffic.expired());
+        ASSERT_TRUE(Context.TrafficOwner);
+        EXPECT_EQ(Context.traffic, Context.TrafficOwner.get());
+
+        Context.TrafficOwner.reset();
+        EXPECT_TRUE(WeakTraffic.expired());
+    }
+
     TEST(SessionDataPlane, ProtocolPlaneUsesTypedRootAndAccountIdentity)
     {
         Net::io_context Ioc;

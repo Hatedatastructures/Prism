@@ -13,6 +13,8 @@
 
 #include <Preview/Foundation/ByteSpan.hpp>
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Compatible.hpp>
+#include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Foundation/Memory/Container.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
 #include <Preview/Transport/Transmission.hpp>
@@ -362,9 +364,20 @@ namespace Preview::Shadowtls
                 }
 
                 std::array<std::uint8_t, TlsHdrsize> Header{};
-                if (co_await ReadExact(Header))
+                const auto HeaderResult = co_await ReadExactData(Header);
+                if (HeaderResult == ExactReadResult::Eof)
+                {
+                    ErrorCode = Preview::Fault::make_error_code(Preview::Fault::Code::Eof);
+                    co_return 0;
+                }
+                if (HeaderResult == ExactReadResult::Failed)
                 {
                     ErrorCode = make_error_code(Error::UnexpectedEof);
+                    co_return 0;
+                }
+                if (Header[0] == 0x15)
+                {
+                    ErrorCode = Preview::Fault::make_error_code(Preview::Fault::Code::Eof);
                     co_return 0;
                 }
                 const auto Length = (static_cast<std::size_t>(Header[3]) << 8) | Header[4];
@@ -477,6 +490,13 @@ namespace Preview::Shadowtls
         }
 
     private:
+        enum class ExactReadResult : std::uint8_t
+        {
+            Complete,
+            Eof,
+            Failed,
+        };
+
         /**
          * @brief 构造简化 ClientHello（无 TLS 头版本的握手数据）
          * @param ClientRandom 32 字节客户端随机数
@@ -523,6 +543,42 @@ namespace Preview::Shadowtls
                 Done += N;
             }
             co_return false;
+        }
+
+        [[nodiscard]] auto ReadExactData(std::span<std::uint8_t> Buffer)
+            -> Net::awaitable<ExactReadResult>
+        {
+            if (!NextLayer_)
+            {
+                co_return ExactReadResult::Failed;
+            }
+            std::size_t Done = 0;
+            while (Done < Buffer.size())
+            {
+                std::error_code ErrorCode;
+                const auto N = co_await NextLayer_->async_read_some(
+                    AsBytes(Buffer.subspan(Done)), ErrorCode);
+                if (N > Buffer.size() - Done)
+                {
+                    co_return ExactReadResult::Failed;
+                }
+                if (N == 0)
+                {
+                    if (Done == 0 &&
+                        (!ErrorCode ||
+                         Preview::Fault::ToCode(ErrorCode) == Preview::Fault::Code::Eof))
+                    {
+                        co_return ExactReadResult::Eof;
+                    }
+                    co_return ExactReadResult::Failed;
+                }
+                if (ErrorCode)
+                {
+                    co_return ExactReadResult::Failed;
+                }
+                Done += N;
+            }
+            co_return ExactReadResult::Complete;
         }
 
         /**

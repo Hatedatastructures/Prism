@@ -38,6 +38,8 @@
 #include <Preview/Foundation/ByteSpan.hpp>
 #include <Preview/Foundation/Authenticator.hpp>
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Compatible.hpp>
+#include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
 #include <Preview/Foundation/Utility/Crypto/Random.hpp>
 #include <Preview/Transport/Transmission.hpp>
@@ -587,6 +589,14 @@ namespace Preview::Shadowsocks2022
             }
             Handshaken_ = true;
             Parsed_ = Parsed;
+            PlainRx_.resize(Parsed.InitialPayload.size());
+            if (!Parsed.InitialPayload.empty())
+            {
+                std::memcpy(PlainRx_.data(),
+                            Parsed.InitialPayload.data(),
+                            Parsed.InitialPayload.size());
+            }
+            PlainOff_ = 0;
             co_return std::pair{Error::None, std::move(Parsed)};
         }
 
@@ -653,7 +663,13 @@ namespace Preview::Shadowsocks2022
         {
             // 1. 读取 18 字节长度块
             std::array<std::uint8_t, ss::LenBlockSize> head{};
-            if (co_await RecvExact(std::span<std::uint8_t>(head)))
+            const auto HeaderStatus = co_await RecvExactStatus(std::span<std::uint8_t>(head));
+            if (HeaderStatus == ExactReadStatus::CleanEof)
+            {
+                Eof_ = true;
+                co_return Error::None;
+            }
+            if (HeaderStatus != ExactReadStatus::Complete)
             {
                 co_return Error::UnexpectedEof;
             }
@@ -794,24 +810,50 @@ namespace Preview::Shadowsocks2022
             co_return Error::None;
         }
 
-        [[nodiscard]] auto RecvExact(std::span<std::uint8_t> buf) -> Net::awaitable<bool>
+        enum class ExactReadStatus : std::uint8_t
         {
+            Complete,
+            CleanEof,
+            Failed,
+        };
+
+        [[nodiscard]] auto RecvExactStatus(
+            std::span<std::uint8_t> buf) -> Net::awaitable<ExactReadStatus>
+        {
+            if (!NextLayer_)
+            {
+                co_return ExactReadStatus::Failed;
+            }
             std::size_t Done = 0;
             while (Done < buf.size())
             {
                 std::error_code ec;
                 const auto N = co_await NextLayer_->async_read_some(AsBytes(buf.subspan(Done)), ec);
-                if (ec || N == 0)
-                {
-                    co_return true;
-                }
                 if (N > buf.size() - Done)
                 {
-                    co_return true;
+                    co_return ExactReadStatus::Failed;
+                }
+                if (N == 0)
+                {
+                    if (Done == 0 && (!ec || ec == Preview::Fault::Code::Eof))
+                    {
+                        co_return ExactReadStatus::CleanEof;
+                    }
+                    co_return ExactReadStatus::Failed;
+                }
+                if (ec)
+                {
+                    co_return ExactReadStatus::Failed;
                 }
                 Done += N;
             }
-            co_return false;
+            co_return ExactReadStatus::Complete;
+        }
+
+        [[nodiscard]] auto RecvExact(std::span<std::uint8_t> buf) -> Net::awaitable<bool>
+        {
+            const auto Status = co_await RecvExactStatus(buf);
+            co_return Status != ExactReadStatus::Complete;
         }
 
         /**

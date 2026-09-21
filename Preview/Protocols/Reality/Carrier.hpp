@@ -7,13 +7,16 @@
 #pragma once
 
 #include <Preview/Composition/Carrier/FacadeCarrier.hpp>
+#include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Protocols/Reality/Codec.hpp>
+#include <Preview/Protocols/Reality/Response.hpp>
 #include <Preview/Protocols/Reality/Types.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
 #include <boost/asio/awaitable.hpp>
 
 #include <openssl/curve25519.h>
+#include <openssl/rand.h>
 
 #include <algorithm>
 #include <array>
@@ -66,9 +69,14 @@ namespace Preview::Reality
         }
 
         [[nodiscard]] inline auto ReadExact(Preview::SharedTransmission &Transport,
-                                            std::span<std::byte> Buffer)
+                                            std::span<std::byte> Buffer,
+                                            bool *CleanEof = nullptr)
             -> Net::awaitable<Preview::Error>
         {
+            if (CleanEof != nullptr)
+            {
+                *CleanEof = false;
+            }
             std::size_t Done = 0;
             while (Done < Buffer.size())
             {
@@ -76,10 +84,23 @@ namespace Preview::Reality
                 const auto Read = co_await Transport->async_read_some(Buffer.subspan(Done), ErrorCode);
                 if (ErrorCode)
                 {
+                    if (Done == 0 &&
+                        Preview::Fault::ToCode(ErrorCode) == Preview::Fault::Code::Eof)
+                    {
+                        if (CleanEof != nullptr)
+                        {
+                            *CleanEof = true;
+                        }
+                        co_return Preview::Error::UnexpectedEof;
+                    }
                     co_return Preview::Error::IoError;
                 }
                 if (Read == 0)
                 {
+                    if (Done == 0 && CleanEof != nullptr)
+                    {
+                        *CleanEof = true;
+                    }
                     co_return Preview::Error::UnexpectedEof;
                 }
                 if (Read > Buffer.size() - Done)
@@ -113,11 +134,12 @@ namespace Preview::Reality
             co_return Preview::Error::None;
         }
 
-        [[nodiscard]] inline auto ReadRecord(Preview::SharedTransmission &Transport)
+        [[nodiscard]] inline auto ReadRecord(Preview::SharedTransmission &Transport,
+                                             bool *CleanEof = nullptr)
             -> Net::awaitable<std::pair<Preview::Error, Bytes>>
         {
             std::array<std::byte, 5> Header{};
-            const auto HeaderError = co_await ReadExact(Transport, Header);
+            const auto HeaderError = co_await ReadExact(Transport, Header, CleanEof);
             if (HeaderError != Preview::Error::None)
             {
                 co_return std::pair{HeaderError, Bytes{}};
@@ -294,9 +316,10 @@ namespace Preview::Reality
 
         [[nodiscard]] inline auto BuildServerHello(
             const ClientHelloView &Client,
-            const std::array<std::uint8_t, 32> &Random,
             const std::array<std::uint8_t, KeyLen> &PublicKey) -> std::pair<Bytes, Bytes>
         {
+            std::array<std::uint8_t, 32> Random{};
+            RAND_bytes(Random.data(), static_cast<int>(Random.size()));
             Bytes Extensions;
             AddExtension(Extensions, 0x002b, Bytes{0x03, 0x04});
             Bytes KeyShare;
@@ -343,17 +366,30 @@ namespace Preview::Reality
                 ErrorCode.clear();
                 while (PendingOffset_ == Pending_.size())
                 {
-                    auto [ReadError, Record] = co_await ReadRecord(NextLayer_);
+                    bool CleanEof = false;
+                    auto [ReadError, Record] = co_await ReadRecord(NextLayer_, &CleanEof);
                     if (ReadError != Preview::Error::None)
                     {
-                        ErrorCode = std::make_error_code(std::errc::connection_reset);
+                        ErrorCode = CleanEof
+                                        ? Preview::Fault::make_error_code(Preview::Fault::Code::Eof)
+                                        : std::make_error_code(std::errc::connection_reset);
                         co_return 0;
                     }
                     auto [DecryptError, Plaintext] = DecryptTlsRecord(
                         Record, Keys_.ClientApplicationKey, Keys_.ClientApplicationIv, ReadSequence_++);
-                    if (DecryptError != Preview::Error::None || Plaintext.ContentType != 0x17)
+                    if (DecryptError != Preview::Error::None)
                     {
-                        ErrorCode = std::make_error_code(std::errc::protocol_error);
+                        ErrorCode = Preview::Fault::make_error_code(Preview::Fault::Code::Recorderr);
+                        co_return 0;
+                    }
+                    if (Plaintext.ContentType != 0x17)
+                    {
+                        const auto Code = Plaintext.ContentType == 0x15
+                                              ? Preview::Fault::Code::Eof
+                                              : Plaintext.ContentType == 0x16
+                                                    ? Preview::Fault::Code::TlsHsfail
+                                                    : Preview::Fault::Code::ProtocolError;
+                        ErrorCode = Preview::Fault::make_error_code(Code);
                         co_return 0;
                     }
                     Pending_ = std::move(Plaintext.Data);
@@ -537,16 +573,14 @@ namespace Preview::Reality
                 }
 
                 std::array<std::uint8_t, KeyLen> EphemeralPrivate{};
-                EphemeralPrivate.fill(0x33);
+                if (RAND_bytes(EphemeralPrivate.data(), static_cast<int>(EphemeralPrivate.size())) != 1)
+                {
+                    co_return Reject(Preview::Error::CryptoError, "Reality ephemeral key generation failed");
+                }
                 std::array<std::uint8_t, KeyLen> EphemeralPublic{};
                 X25519_public_from_private(EphemeralPublic.data(), EphemeralPrivate.data());
-                std::array<std::uint8_t, 32> ServerRandom{};
-                for (std::size_t Index = 0; Index < ServerRandom.size(); ++Index)
-                {
-                    ServerRandom[Index] = static_cast<std::uint8_t>(0x70 + Index);
-                }
                 auto [ServerHelloMessage, ServerHelloRecord] = Detail::BuildServerHello(
-                    *Client, ServerRandom, EphemeralPublic);
+                    *Client, EphemeralPublic);
                 std::array<std::uint8_t, KeyLen> TlsShared{};
                 if (X25519Shared(EphemeralPrivate, Client->PublicKey, TlsShared))
                 {
@@ -557,41 +591,42 @@ namespace Preview::Reality
                 {
                     co_return Reject(KeyError, "Reality TLS key schedule failed");
                 }
-                if (co_await Detail::WriteAll(
-                        Request.Transport,
-                        std::as_bytes(std::span<const std::uint8_t>(ServerHelloRecord))) !=
-                    Preview::Error::None)
-                {
-                    co_return Reject(Preview::Error::IoError, "Reality ServerHello write failed");
-                }
                 const std::array<std::uint8_t, 6> ChangeCipherSpec{0x14, 0x03, 0x03, 0x00, 0x01, 0x01};
-                if (co_await Detail::WriteAll(
-                        Request.Transport,
-                        std::as_bytes(std::span<const std::uint8_t>(ChangeCipherSpec))) !=
-                    Preview::Error::None)
-                {
-                    co_return Reject(Preview::Error::IoError, "Reality CCS write failed");
-                }
-                const Detail::Bytes EncryptedExtensions{0x08, 0x00, 0x00, 0x02, 0x00, 0x00};
-                auto [EncryptError, EncryptedHandshake] = EncryptTlsRecord(
-                    Keys.ServerHandshakeKey, Keys.ServerHandshakeIv, 0, 0x16, EncryptedExtensions);
-                if (EncryptError != Preview::Error::None ||
+                const auto [HandshakeError, Handshake] = Response::BuildServerHandshake(
+                    Response::HandshakeRequest{AuthKey, Keys, Client->Message, ServerHelloMessage});
+                Detail::Bytes HandshakeWire;
+                HandshakeWire.reserve(ServerHelloRecord.size() + ChangeCipherSpec.size() +
+                                      Handshake.Record.size());
+                HandshakeWire.insert(HandshakeWire.end(), ServerHelloRecord.begin(), ServerHelloRecord.end());
+                HandshakeWire.insert(HandshakeWire.end(), ChangeCipherSpec.begin(), ChangeCipherSpec.end());
+                HandshakeWire.insert(HandshakeWire.end(), Handshake.Record.begin(), Handshake.Record.end());
+                if (HandshakeError != Preview::Error::None ||
                     co_await Detail::WriteAll(
                         Request.Transport,
-                        std::as_bytes(std::span<const std::uint8_t>(EncryptedHandshake))) !=
+                        std::as_bytes(std::span<const std::uint8_t>(HandshakeWire))) !=
                         Preview::Error::None)
                 {
-                    co_return Reject(Preview::Error::CryptoError, "Reality encrypted handshake write failed");
+                    co_return Reject(HandshakeError == Preview::Error::None
+                                         ? Preview::Error::IoError
+                                         : HandshakeError,
+                                     "Reality encrypted handshake write failed");
                 }
-                auto [FinishedReadError, ClientFinishedRecord] = co_await Detail::ReadRecord(Input);
-                if (FinishedReadError != Preview::Error::None)
+                Detail::Bytes ClientFinishedRecord;
+                Preview::Error FinishedReadError = Preview::Error::None;
+                do
                 {
-                    co_return Reject(FinishedReadError, "Reality client Finished read failed");
-                }
+                    auto ReadResult = co_await Detail::ReadRecord(Input);
+                    FinishedReadError = ReadResult.first;
+                    ClientFinishedRecord = std::move(ReadResult.second);
+                    if (FinishedReadError != Preview::Error::None)
+                    {
+                        co_return Reject(FinishedReadError, "Reality client Finished read failed");
+                    }
+                } while (!ClientFinishedRecord.empty() && ClientFinishedRecord[0] == 0x14);
                 auto [FinishedDecryptError, ClientFinished] = DecryptTlsRecord(
                     ClientFinishedRecord, Keys.ClientHandshakeKey, Keys.ClientHandshakeIv, 0);
                 const auto TranscriptParts = std::array<std::span<const std::uint8_t>, 3>{
-                    Client->Message, ServerHelloMessage, EncryptedExtensions};
+                    Client->Message, ServerHelloMessage, Handshake.Plaintext};
                 const auto TranscriptHash = HashTranscript(TranscriptParts);
                 const auto ExpectedFinished = ComputeFinished(Keys.ClientFinishedKey, TranscriptHash);
                 if (FinishedDecryptError != Preview::Error::None || ClientFinished.ContentType != 0x16 ||

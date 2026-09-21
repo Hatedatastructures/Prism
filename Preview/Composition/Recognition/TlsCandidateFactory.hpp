@@ -26,6 +26,7 @@
 #include <Preview/Protocols/Gun/Gun.hpp>
 #include <Preview/Protocols/Gun/Grpc.hpp>
 #include <Preview/Protocols/Reality/Reality.hpp>
+#include <Preview/Composition/Recognition/RealityPrepared.hpp>
 #include <Preview/Protocols/Shadowtls/Server.hpp>
 #include <Preview/Protocols/Xhttp/Xhttp.hpp>
 #include <Preview/Protocols/Ws/Ws.hpp>
@@ -82,17 +83,42 @@ namespace Preview::Composition::Recognition
      * @param Config WebSocket path/Host 约束
      * @return 在 carrier commit 阶段执行真实 HTTP Upgrade 的回调
      */
+    [[nodiscard]] inline auto MakeWebsocketServerAccept(
+        std::shared_ptr<Net::ssl::context> TlsContext,
+        Preview::Ws::ServerConfig Config = {}) -> CarrierAcceptFn;
+
     [[nodiscard]] inline auto MakeWebsocketServerAccept(Preview::Ws::ServerConfig Config = {})
         -> CarrierAcceptFn
     {
-        return [Config = std::move(Config)](Preview::SharedTransmission Inbound)
+        return MakeWebsocketServerAccept({}, std::move(Config));
+    }
+
+    [[nodiscard]] inline auto MakeWebsocketServerAccept(
+        std::shared_ptr<Net::ssl::context> TlsContext,
+        Preview::Ws::ServerConfig Config) -> CarrierAcceptFn
+    {
+        return [TlsContext = std::move(TlsContext), Config = std::move(Config)](
+                   Preview::SharedTransmission Inbound)
             -> Net::awaitable<Core::CarrierAcceptResult>
         {
-            auto [ErrorCode, Key, Connection] =
-                co_await Preview::Ws::Accept(std::move(Inbound), Config);
-            (void)Key;
             Core::CarrierAcceptResult Result;
             Result.Metadata.Carrier = "ws";
+            auto Transport = std::move(Inbound);
+            if (TlsContext)
+            {
+                auto Tls = co_await Preview::Transport::UpgradeNativeTls(
+                    std::move(Transport), TlsContext);
+                if (Preview::Fault::Failed(Tls.Code) || !Tls.Transport)
+                {
+                    Result.Code = Tls.Code;
+                    Result.NativeError = Tls.NativeError;
+                    co_return Result;
+                }
+                Transport = std::move(Tls.Transport);
+            }
+            auto [ErrorCode, Key, Connection] =
+                co_await Preview::Ws::Accept(std::move(Transport), Config);
+            (void)Key;
             if (ErrorCode != Preview::Error::None || !Connection)
             {
                 Result.Code = ErrorCode == Preview::Error::None
@@ -182,7 +208,8 @@ namespace Preview::Composition::Recognition
             {
                 auto Connection = co_await Preview::Gun::Grpc::StreamTransport::Accept(
                     std::move(Tls.Transport),
-                    Preview::Gun::Grpc::Config{Config.Path, {}, {}});
+                    Preview::Gun::Grpc::Config{
+                        Config.Path, {}, Preview::Gun::Grpc::DefaultMaxMessageBytes});
                 if (!Connection)
                 {
                     Result.Code = Preview::Fault::Code::ProtocolError;
@@ -248,25 +275,12 @@ namespace Preview::Composition::Recognition
                 Offset += Read;
             }
 
-            Preview::Reality::ServerConfig Config;
-            Config.private_key = PrivateKey;
-            Config.ShortIds = ShortIds;
-            Preview::Reality::HandshakeParams Params{
+            co_return co_await AcceptPreparedReality(PreparedRealityRequest{
+                std::move(Inbound), PrivateKey, ShortIds,
                 std::span<const std::uint8_t>(Features->Random),
-                std::span<const std::uint8_t>(Features->RawMessage)};
-            auto [ErrorCode, ShortId, Connection] = co_await Preview::Reality::Accept(
-                {std::move(Inbound), Config,
-                 std::span<const std::uint8_t>(Features->X25519Key), Params});
-            (void)ShortId;
-            if (ErrorCode != Preview::Error::None || !Connection)
-            {
-                Result.Code = ErrorCode == Preview::Error::None
-                                  ? Preview::Fault::Code::AuthFailed
-                                  : Preview::Fault::ToCode(Preview::make_error_code(ErrorCode));
-                co_return Result;
-            }
-            Result.Transport = std::move(Connection);
-            co_return Result;
+                std::span<const std::uint8_t>(Features->SessionId),
+                std::span<const std::uint8_t>(Features->X25519Key),
+                std::span<const std::uint8_t>(Features->RawMessage)});
         };
     }
 
@@ -283,6 +297,7 @@ namespace Preview::Composition::Recognition
         Ws,
         Xhttp,
         Gun,
+        Trusttunnel,
     };
 
     /**
@@ -311,6 +326,7 @@ namespace Preview::Composition::Recognition
         std::vector<std::string> ServerNames;
         std::vector<std::string> Alpn;
         bool Fallback{false};
+        bool AllowEch{false};
 
         [[nodiscard]] auto Inspect(const Core::ClientHelloFeatures &Features) const -> Core::MatchState;
     };
@@ -329,6 +345,7 @@ namespace Preview::Composition::Recognition
             case TlsCarrier::Ws: return "ws";
             case TlsCarrier::Xhttp: return "xhttp";
             case TlsCarrier::Gun: return "gun";
+            case TlsCarrier::Trusttunnel: return "trusttunnel";
             }
             return {};
         }
@@ -396,11 +413,13 @@ namespace Preview::Composition::Recognition
         [[nodiscard]] inline auto InspectFeatures(const Core::ClientHelloFeatures &Features,
                                                   const std::vector<std::string> &ServerNames,
                                                   const std::vector<std::string> &Alpn,
-                                                  bool Fallback) -> Core::MatchState
+                                                  bool Fallback,
+                                                  bool AllowEch) -> Core::MatchState
         {
             // 当前 Preview 没有 ECH inner ClientHello 解密能力，不能把 outer SNI
-            // 当作真实路由输入；显式 fallback 也不能绕过这一安全边界。
-            if (Features.HasEch)
+            // 当作真实路由输入。Reality 先用其独立的 SessionId/ShortId 认证，
+            // 因而可以在配置的 outer SNI 上继续完成专用握手；其他 carrier 仍拒绝。
+            if (Features.HasEch && !AllowEch)
             {
                 return Core::MatchState::Rejected;
             }
@@ -613,7 +632,7 @@ namespace Preview::Composition::Recognition
     inline auto TlsCandidateBinding::Inspect(const Core::ClientHelloFeatures &Features) const
         -> Core::MatchState
     {
-        return detail::InspectFeatures(Features, ServerNames, Alpn, Fallback);
+        return detail::InspectFeatures(Features, ServerNames, Alpn, Fallback, AllowEch);
     }
 
     /**
@@ -642,8 +661,13 @@ namespace Preview::Composition::Recognition
             {
                 Options.Name = Options.Scheme;
             }
-            const auto Fallback = Options.Fallback && Options.Carrier == TlsCarrier::Native &&
-                                  Options.Scheme == DefaultScheme;
+            const auto Fallback =
+                Options.Fallback &&
+                ((Options.Carrier == TlsCarrier::Native && Options.Scheme == DefaultScheme) ||
+                 Options.Carrier == TlsCarrier::Trusttunnel);
+            const auto AllowEch = Options.Carrier == TlsCarrier::Native ||
+                                  Options.Carrier == TlsCarrier::Reality ||
+                                  Options.Scheme == "reality";
             Core::CandidateSpec Spec;
             Spec.Id = Options.Id;
             if (Spec.Id == Core::InvalidCandidate)
@@ -661,14 +685,15 @@ namespace Preview::Composition::Recognition
             Binding.ServerNames = Options.ServerNames;
             Binding.Alpn = Options.Alpn;
             Binding.Fallback = Fallback;
-            Spec.Inspect = [Names = Binding.ServerNames, Alpn = Binding.Alpn, Fallback](
+            Binding.AllowEch = AllowEch;
+            Spec.Inspect = [Names = Binding.ServerNames, Alpn = Binding.Alpn, Fallback, AllowEch](
                                const Core::ProbeSnapshot &Snapshot)
             {
                 Core::ClientHelloFeatures Features;
                 const auto Parsed = detail::ParseFeatures(Snapshot, Features);
                 if (Parsed == Core::MatchState::Structural)
                 {
-                    return detail::InspectFeatures(Features, Names, Alpn, Fallback);
+                    return detail::InspectFeatures(Features, Names, Alpn, Fallback, AllowEch);
                 }
                 return Parsed;
             };

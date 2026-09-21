@@ -37,6 +37,8 @@
 #include <Preview/Foundation/ByteSpan.hpp>
 #include <Preview/Foundation/Authenticator.hpp>
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Compatible.hpp>
+#include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
 #include <Preview/Foundation/Utility/Crypto/Random.hpp>
 #include <Preview/Transport/Transmission.hpp>
@@ -275,6 +277,7 @@ namespace Preview::Vmess
             NextLayer_ = std::move(Upstream);
             Handshaken_ = false;
             Eof_ = false;
+            ServerSide_ = false;
             AuthId_.fill(0);
             AuthLease_.Release();
             AccountId_ = {};
@@ -482,6 +485,7 @@ namespace Preview::Vmess
             NextLayer_ = std::move(Upstream);
             Handshaken_ = false;
             Eof_ = false;
+            ServerSide_ = true;
             AuthId_.fill(0);
             Parsed_ = Message{};
             ChunkOptions_ = static_cast<std::uint8_t>(Option::AuthenticatedLength);
@@ -716,7 +720,18 @@ namespace Preview::Vmess
 
             // 1. 读取长度头（标准路径为 2 字节，兼容路径为 AEAD 块）
             std::array<std::uint8_t, 18> head{};
-            if (co_await RecvExact(std::span<std::uint8_t>(head).first(LengthHeaderSize)))
+            const auto HeaderStatus = co_await RecvExactStatus(
+                std::span<std::uint8_t>(head).first(LengthHeaderSize));
+            if (HeaderStatus == ExactReadStatus::CleanEof)
+            {
+                if (ServerSide_)
+                {
+                    Eof_ = true;
+                    co_return Error::None;
+                }
+                co_return Error::UnexpectedEof;
+            }
+            if (HeaderStatus != ExactReadStatus::Complete)
             {
                 co_return Error::UnexpectedEof;
             }
@@ -769,11 +784,19 @@ namespace Preview::Vmess
          * @param Buffer 目标缓冲区
          * @return true = 失败（EOF / 底层错误）
          */
-        [[nodiscard]] auto RecvExact(std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
+        enum class ExactReadStatus : std::uint8_t
+        {
+            Complete,
+            CleanEof,
+            Failed,
+        };
+
+        [[nodiscard]] auto RecvExactStatus(
+            std::span<std::uint8_t> Buffer) -> Net::awaitable<ExactReadStatus>
         {
             if (!NextLayer_)
             {
-                co_return true;
+                co_return ExactReadStatus::Failed;
             }
             std::size_t Done = 0;
             while (Done < Buffer.size())
@@ -782,17 +805,32 @@ namespace Preview::Vmess
                 const auto N = co_await NextLayer_->async_read_some(
                     AsBytes(Buffer.subspan(Done)),
                     ErrorCode);
-                if (ErrorCode || N == 0)
-                {
-                    co_return true;
-                }
                 if (N > Buffer.size() - Done)
                 {
-                    co_return true;
+                    co_return ExactReadStatus::Failed;
+                }
+                if (N == 0)
+                {
+                    if (Done == 0 &&
+                        (!ErrorCode || ErrorCode == Preview::Fault::Code::Eof))
+                    {
+                        co_return ExactReadStatus::CleanEof;
+                    }
+                    co_return ExactReadStatus::Failed;
+                }
+                if (ErrorCode)
+                {
+                    co_return ExactReadStatus::Failed;
                 }
                 Done += N;
             }
-            co_return false;
+            co_return ExactReadStatus::Complete;
+        }
+
+        [[nodiscard]] auto RecvExact(std::span<std::uint8_t> Buffer) -> Net::awaitable<bool>
+        {
+            const auto Status = co_await RecvExactStatus(Buffer);
+            co_return Status != ExactReadStatus::Complete;
         }
 
         /**
@@ -858,6 +896,7 @@ namespace Preview::Vmess
         std::size_t PlainOff_{0};               ///< 明文缓冲消费偏移
         bool Handshaken_{false};                 ///< 握手完成标志
         bool Eof_{false};                        ///< 已读到 EOF（对端关闭）
+        bool ServerSide_{false};                 ///< 是否由服务端读取客户端数据
     };
 
 

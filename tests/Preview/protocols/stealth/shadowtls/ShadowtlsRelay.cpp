@@ -453,6 +453,26 @@ namespace
         const auto ResponseWritten = co_await std::move(ResponseWrite);
         EXPECT_EQ(ResponseWritten, Request.ResponsePayload.size());
         EXPECT_FALSE(ErrorCode);
+
+        std::array<std::byte, 4096> ResponseRecordBuffer{};
+        auto ResponseRecordRead = Request.Client->async_read_some(ResponseRecordBuffer, ErrorCode);
+        const auto ResponseRecordCount = co_await std::move(ResponseRecordRead);
+        EXPECT_FALSE(ErrorCode);
+        EXPECT_GT(ResponseRecordCount, Shadowtls::TlsHdrsize + Shadowtls::HmacSize);
+        if (ResponseRecordCount <= Shadowtls::TlsHdrsize + Shadowtls::HmacSize)
+        {
+            co_return;
+        }
+        const auto ResponseRecord = std::span<const std::byte>(ResponseRecordBuffer)
+                                        .first(ResponseRecordCount);
+        const auto ResponseRecordBytes = std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t *>(ResponseRecord.data()), ResponseRecord.size());
+        std::vector<std::uint8_t> DecodedResponse;
+        Shadowtls::RecordProtector ResponseDecoder{
+            Request.Password, ServerRandom, Shadowtls::TagServer};
+        EXPECT_EQ(ResponseDecoder.Decode(ResponseRecordBytes, DecodedResponse), Error::None);
+        EXPECT_EQ(DecodedResponse, Request.ResponsePayload);
+
         CloseTransport(ClientConnection);
         CloseTransport(Request.Client);
         CloseTransport(Request.Server);

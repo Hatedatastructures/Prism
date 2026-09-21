@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <string_view>
 #include <utility>
@@ -375,6 +376,119 @@ namespace Preview::Restls
         Output.PaddingLength = PayloadLength - AuthHdrlen - DataLength;
         Output.Data.assign(Payload + AuthHdrlen, Payload + AuthHdrlen + DataLength);
         return Error::None;
+    }
+
+    /**
+    * @brief 从 ServerHello TLS 记录提取 32 字节 random
+     * @param Record 完整 TLS 记录（含 5 字节记录头）
+     * @return 成功返回 32 字节 random；记录非法或非 ServerHello 返回 nullopt
+     * @details 对齐 restls-client-go `restls_server.go` 的
+     *          `parseServerHelloRecord`：记录类型必须为 Handshake(0x16)，
+     *          首个 handshake 消息必须为 ServerHello(0x02)，
+     *          random 位于 body 偏移 2（legacy_version 之后）。
+     * @note HelloRetryRequest 同样表现为 ServerHello 消息，调用方需自行
+     *       比对固定 random 后回落为原始中继。
+     */
+    [[nodiscard]] inline auto ParseServerHelloRandom(
+        std::span<const std::uint8_t> Record)
+        -> std::optional<std::array<std::uint8_t, 32>>
+    {
+        constexpr std::uint8_t HandshakeRecord = 0x16;
+        constexpr std::uint8_t ServerHelloMessage = 0x02;
+        constexpr std::size_t RandomOffset = TlsHdrlen + 4 + 2;
+        if (Record.size() < RandomOffset + 32U)
+        {
+            return std::nullopt;
+        }
+        if (Record[0] != HandshakeRecord)
+        {
+            return std::nullopt;
+        }
+        const auto PayloadLength =
+            (static_cast<std::size_t>(Record[3]) << 8U) | Record[4];
+        if (Record.size() < TlsHdrlen + PayloadLength || PayloadLength < 4U + 2U + 32U)
+        {
+            return std::nullopt;
+        }
+        if (Record[TlsHdrlen] != ServerHelloMessage)
+        {
+            return std::nullopt;
+        }
+        std::array<std::uint8_t, 32> Random{};
+        std::copy_n(Record.begin() + static_cast<std::ptrdiff_t>(RandomOffset),
+                    Random.size(), Random.begin());
+        return Random;
+    }
+
+    /**
+     * @struct Tls13ClientAuthInput
+     * @brief TLS 1.3 客户端认证的 ClientHello 派生输入
+     */
+    struct Tls13ClientAuthInput final
+    {
+        std::uint16_t KeyShareGroup{0};                        ///< 首个 key_share 的 group
+        std::vector<std::uint8_t> KeyShareData;                ///< 首个 key_share 的 key_exchange
+        std::vector<std::vector<std::uint8_t>> PskIdentities;  ///< 各 pre_shared_key identity
+    };
+
+    /**
+     * @brief 计算 TLS 1.3 客户端认证 MAC
+     * @param Secret RestlsSecret（32 字节）
+     * @param Input ClientHello 派生输入
+     * @return 16 字节认证 MAC
+     * @details 对齐 restls-client-go `restls_server.go` 的
+     *          `checkTLS13ClientAuth`：
+     *          BLAKE3 keyed(secret, [group 2B BE][keyShareData]... +
+     *          [pskIdentity.label]...)，输出截断 16 字节。
+     */
+    [[nodiscard]] inline auto ComputeTls13ClientAuth(
+        std::span<const std::uint8_t, 32> Secret,
+        const Tls13ClientAuthInput &Input)
+        -> std::array<std::uint8_t, HsMaclen>
+    {
+        blake3_hasher Hasher;
+        blake3_hasher_init_keyed(&Hasher, Secret.data());
+        const std::array<std::uint8_t, 2> Group{
+            static_cast<std::uint8_t>(Input.KeyShareGroup >> 8U),
+            static_cast<std::uint8_t>(Input.KeyShareGroup & 0xFFU)};
+        blake3_hasher_update(&Hasher, Group.data(), Group.size());
+        if (!Input.KeyShareData.empty())
+        {
+            blake3_hasher_update(&Hasher, Input.KeyShareData.data(), Input.KeyShareData.size());
+        }
+        for (const auto &Psk : Input.PskIdentities)
+        {
+            if (!Psk.empty())
+            {
+                blake3_hasher_update(&Hasher, Psk.data(), Psk.size());
+            }
+        }
+        std::array<std::uint8_t, HsMaclen> Mac{};
+        blake3_hasher_finalize(&Hasher, Mac.data(), Mac.size());
+        return Mac;
+    }
+
+    /**
+     * @brief 校验 TLS 1.3 客户端认证
+     * @param Secret RestlsSecret（32 字节）
+     * @param Input ClientHello 派生输入
+     * @param SessionId ClientHello 的 32 字节 legacy_session_id
+     * @return 认证通过返回 true
+     * @details 对齐 restls-client-go：session_id 必须为 32 字节，
+     *          且其前 16 字节等于 ComputeTls13ClientAuth 的结果。
+     */
+    [[nodiscard]] inline auto VerifyTls13ClientAuth(
+        std::span<const std::uint8_t, 32> Secret,
+        const Tls13ClientAuthInput &Input,
+        std::span<const std::uint8_t> SessionId) -> bool
+    {
+        constexpr std::size_t Tls13SessionIdLength = 32;
+        if (SessionId.size() != Tls13SessionIdLength)
+        {
+            return false;
+        }
+        const auto Expected = ComputeTls13ClientAuth(Secret, Input);
+        return std::equal(Expected.begin(), Expected.end(), SessionId.begin());
     }
 
     /**

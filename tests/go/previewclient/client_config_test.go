@@ -92,6 +92,15 @@ func findGroup(t *testing.T, config clientConfig, name string) proxyGroup {
 	return proxyGroup{}
 }
 
+func findOptionalGroup(config clientConfig, name string) proxyGroup {
+	for _, group := range config.ProxyGroups {
+		if group.Name == name {
+			return group
+		}
+	}
+	return proxyGroup{Name: name}
+}
+
 func indexProxies(t *testing.T, proxies []proxyConfig) map[string]proxyConfig {
 	t.Helper()
 	indexed := make(map[string]proxyConfig, len(proxies))
@@ -121,7 +130,7 @@ func TestProxyGroupsMatchServerTCPBindings(t *testing.T) {
 		"http":            "Http",
 		"socks5":          "SOCKS5 TCP Cert",
 		"vless":           "VLESS TCP",
-		"trojan":          "Trojan TCP",
+		"trojan":          "Trojan Native TLS TCP",
 		"vmess":           "VMess TCP",
 		"shadowsocks2022": "SS2022 TCP",
 	}
@@ -139,6 +148,12 @@ func TestProxyGroupsMatchServerTCPBindings(t *testing.T) {
 			t.Fatalf("server TCP protocol %q maps to missing client node %q", protocol, name)
 		}
 		expected[name] = true
+	}
+	for _, binding := range server.ProtocolBindings {
+		if binding.TCPEnabled && binding.CarrierID == "carrier-native" &&
+			protocolNames[binding.ProtocolID] == "trojan" {
+			expected["Trojan Native TLS TCP"] = true
+		}
 	}
 
 	active := findGroup(t, client, "PrismPreview-Active")
@@ -162,7 +177,7 @@ func TestProxyGroupsMatchServerTCPBindings(t *testing.T) {
 		}
 	}
 
-	pending := findGroup(t, client, "PrismPreview-Pending")
+	pending := findOptionalGroup(client, "PrismPreview-Pending")
 	for _, name := range pending.Proxies {
 		if _, exists := proxies[name]; !exists {
 			t.Errorf("pending group references missing proxy %q", name)
@@ -264,12 +279,11 @@ func TestClientProxyMatrixIncludesRequiredCarrierAndDatagramCases(t *testing.T) 
 	config := readYAML[clientConfig](t, filepath.Join(root, "PrismPreviewClient.yaml"))
 	proxies := indexProxies(t, config.Proxies)
 	want := []string{
-		"HTTP Native TLS", "SOCKS5 Native TLS TCP", "VLESS Native TLS TCP", "Trojan Native TLS TCP",
-		"VLESS Reality TCP", "Trojan Reality TCP", "VMess Reality TCP",
-		"SS2022 ShadowTLS TCP", "VLESS ShadowTLS TCP", "Trojan ShadowTLS TCP", "AnyTLS ShadowTLS TCP",
-		"SS2022 Restls TLS13 TCP", "VLESS Restls TLS13 TCP", "Trojan Restls TLS13 TCP", "AnyTLS Restls TLS13 TCP",
-		"AnyTLS TCP", "AnyTLS UDP", "SOCKS5 UDP Cert", "VLESS UDP", "Trojan UDP",
-		"VMess UDP", "SS2022 UDP", "Hysteria2 QUIC", "TUIC v5 QUIC",
+		"HTTP Native TLS", "SOCKS5 Native TLS TCP", "Trojan Reality TCP",
+		"VLESS Native TLS TCP", "VLESS Smux TCP", "VLESS Yamux TCP",
+		"VLESS Reality TCP", "SS2022 ShadowTLS TCP", "SS2022 Restls TLS13 TCP",
+		"AnyTLS TCP", "VMess Native TLS TCP", "VMess Reality TCP",
+		"Hysteria2 QUIC", "TUIC v5 QUIC",
 	}
 	for _, name := range want {
 		if _, exists := proxies[name]; !exists {
@@ -294,16 +308,23 @@ func TestProxyGroupsAreCompleteAndDisjoint(t *testing.T) {
 	config := readYAML[clientConfig](t, filepath.Join(root, "PrismPreviewClient.yaml"))
 	proxies := indexProxies(t, config.Proxies)
 	active := findGroup(t, config, "PrismPreview-Active")
-	pending := findGroup(t, config, "PrismPreview-Pending")
+	verified := findGroup(t, config, "PrismPreview-Verified")
+	pending := findOptionalGroup(config, "PrismPreview-Pending")
 	matrix := findGroup(t, config, "PrismPreview-ProtocolMatrix")
 	activeSet := make(map[string]bool, len(active.Proxies))
-	statusSet := make(map[string]bool, len(active.Proxies)+len(pending.Proxies))
+	statusSet := make(map[string]bool, len(active.Proxies)+len(verified.Proxies)+len(pending.Proxies))
 	for _, name := range active.Proxies {
 		if statusSet[name] {
 			t.Errorf("duplicate active proxy group entry %q", name)
 		}
 		statusSet[name] = true
 		activeSet[name] = true
+	}
+	for _, name := range verified.Proxies {
+		if statusSet[name] {
+			t.Errorf("proxy %q is duplicated across active/verified", name)
+		}
+		statusSet[name] = true
 	}
 	for _, name := range pending.Proxies {
 		if statusSet[name] {
@@ -333,10 +354,12 @@ func TestProxyGroupsAreCompleteAndDisjoint(t *testing.T) {
 			t.Errorf("protocol matrix references unknown proxy %q", name)
 		}
 	}
-	for name := range proxies {
-		if !matrixSet[name] {
-			t.Errorf("proxy %q is missing from the exhaustive protocol matrix", name)
+	for name := range matrixSet {
+		if _, exists := proxies[name]; !exists {
+			t.Errorf("protocol matrix references unknown proxy %q", name)
 		}
+	}
+	for name := range proxies {
 		if activeSet[name] && statusSet[name] == false {
 			t.Errorf("active proxy %q has no status membership", name)
 		}

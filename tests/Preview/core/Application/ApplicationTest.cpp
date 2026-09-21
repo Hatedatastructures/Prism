@@ -75,6 +75,7 @@ namespace
         std::string_view LoggingFileName{"preview.log"};
         std::string_view Routes{};
         std::string_view Credential{"local-token"};
+        std::string_view Credentials{};
         std::string_view SecretRef{};
         std::uint16_t OperationsPort{9090};
         std::uint32_t ShutdownTimeout{5000};
@@ -137,7 +138,9 @@ namespace
         "SecretRef": ")json"
                  << Shape.SecretRef << R"json(",
         "Credential": ")json"
-                 << Shape.Credential << R"json("
+                 << Shape.Credential << R"json(",
+        "Credentials": )json"
+                 << (Shape.Credentials.empty() ? std::string_view("{}") : Shape.Credentials) << R"json(
     }],
     "Routes": )json"
                  << (Shape.Routes.empty() ? std::string_view("[]") : Shape.Routes) << R"json(,
@@ -1062,6 +1065,43 @@ TEST(PreviewApplication, StartsConfiguredQuicFrontWithHandshakePending)
     EXPECT_EQ(Application.Run(), 0);
 }
 
+TEST(PreviewApplication, PublishesQuicReadyAfterAdmissionContextsAreBuilt)
+{
+    const auto Repository = std::filesystem::path(__FILE__)
+                                .parent_path()
+                                .parent_path()
+                                .parent_path()
+                                .parent_path()
+                                .parent_path();
+    const auto Certificate = (Repository / "cert.pem").generic_string();
+    const auto PrivateKey = (Repository / "key.pem").generic_string();
+    const auto NativeTls = std::string("{\"Enabled\":true,\"CertificateFile\":\"") +
+                           Certificate + "\",\"PrivateKeyFile\":\"" + PrivateKey + "\"}";
+    TemporaryConfiguration Configuration(
+        FindFreePort(),
+        ConfigurationShape{
+            .Protocols = R"([{"Id":"protocol-socks5","Name":"socks5","Builtin":"socks5","Requires":[]},{"Id":"protocol-hysteria2","Name":"hysteria2","Builtin":"hysteria2","Requires":[],"Quic":{"Alpn":"h3","ServerName":"quic.example","CredentialSecretRef":"secret/quic/password","MaxStreams":32,"MaxDatagrams":64}}])",
+            .Quic = R"([{"Id":"quic-main","Address":"127.0.0.1","Port":19092,"Timeout":5000}])",
+            .NativeTls = NativeTls,
+            .Credentials = R"({"hysteria2":"quic-password"})"});
+    auto Options = MakeOptions(Configuration.Path());
+    Options.SecretResolver = [](const std::string_view Reference) -> std::optional<std::string>
+    {
+        return Reference == "secret/quic/password" ? std::optional<std::string>("quic-password")
+                                                     : std::nullopt;
+    };
+    Preview::Application::Application Application(std::move(Options));
+
+    const auto Result = Application.Start();
+
+    ASSERT_TRUE(Result);
+    EXPECT_EQ(Result->UdpPort, 19092U);
+    EXPECT_TRUE(Result->UdpReady);
+    EXPECT_TRUE(Result->QuicReady);
+    Application.Stop();
+    EXPECT_EQ(Application.Run(), 0);
+}
+
 TEST(PreviewApplication, StartsConfiguredNativeCarrier)
 {
     const auto Repository = std::filesystem::path(__FILE__)
@@ -1203,6 +1243,74 @@ TEST(PreviewApplication, ProtocolBindingRecognitionRoutesInnerProtocolBySni)
     Net::read(Stream, Net::buffer(Reply), Error);
     ASSERT_FALSE(Error) << Error.message();
     EXPECT_EQ(Reply, (std::array<std::uint8_t, 2>{0x05, 0x02}));
+
+    Stream.lowest_layer().close(Error);
+    Application.Stop();
+    EXPECT_EQ(Application.ExitCode(), 0);
+}
+
+TEST(PreviewApplication, NativeTlsSharedSniDispatchesInnerSocks5Protocol)
+{
+    const auto Repository = std::filesystem::path(__FILE__)
+                                .parent_path()
+                                .parent_path()
+                                .parent_path()
+                                .parent_path()
+                                .parent_path();
+    const auto Certificate = (Repository / "cert.pem").generic_string();
+    const auto PrivateKey = (Repository / "key.pem").generic_string();
+    const auto Carriers = std::string(
+        R"json([{"Id":"carrier-native","Name":"native","Builtin":"native","Requires":[],"Match":{"ServerNames":["shared.example"],"Alpn":[],"Priority":10,"Fallback":false},"Options":{"Type":"NativeTls","CertificateFile":")json") +
+        Certificate +
+        R"json(","PrivateKeyFile":")json" + PrivateKey + R"json("}}])json";
+    constexpr std::string_view Protocols = R"([
+        {"Id":"protocol-http","Name":"http","Builtin":"http","Requires":[]},
+        {"Id":"protocol-socks5","Name":"socks5","Builtin":"socks5","Requires":[]}
+    ])";
+    constexpr std::string_view Bindings = R"([
+        {"Id":"binding-http","ProtocolId":"protocol-http","CarrierId":"carrier-native",
+         "TcpEnabled":true,"UdpEnabled":false,"MuxModes":[],"Priority":10,"Recognition":{}},
+        {"Id":"binding-socks5","ProtocolId":"protocol-socks5","CarrierId":"carrier-native",
+         "TcpEnabled":true,"UdpEnabled":false,"MuxModes":[],"Priority":10,"Recognition":{}}
+    ])";
+    TemporaryConfiguration Configuration(
+        FindFreePort(),
+        ConfigurationShape{.Protocols = Protocols,
+                           .Carriers = Carriers,
+                           .Bindings = Bindings,
+                           .Credential = "PrismPreview-106-20260914"});
+    RunningApplication Application(Configuration.Path());
+    ASSERT_TRUE(Application.Start());
+
+    Net::io_context Io;
+    Net::ssl::context ClientContext(Net::ssl::context::tls_client);
+    ClientContext.set_verify_mode(Net::ssl::verify_none);
+    Net::ssl::stream<Tcp::socket> Stream(Io, ClientContext);
+    boost::system::error_code Error;
+    Stream.lowest_layer().connect(
+        Tcp::endpoint(Net::ip::address_v4::loopback(), Application.Port()), Error);
+    ASSERT_FALSE(Error) << Error.message();
+    ASSERT_EQ(SSL_set_tlsext_host_name(Stream.native_handle(), "shared.example"), 1);
+    Stream.handshake(Net::ssl::stream_base::client, Error);
+    ASSERT_FALSE(Error) << Error.message();
+
+    constexpr std::array<std::uint8_t, 3> Greeting{0x05, 0x01, 0x02};
+    std::array<std::uint8_t, 2> Reply{};
+    Net::write(Stream, Net::buffer(Greeting), Error);
+    ASSERT_FALSE(Error) << Error.message();
+    Net::read(Stream, Net::buffer(Reply), Error);
+    ASSERT_FALSE(Error) << Error.message();
+    EXPECT_EQ(Reply, (std::array<std::uint8_t, 2>{0x05, 0x02}));
+
+    const std::string Password{"PrismPreview-106-20260914"};
+    std::string Authentication("\x01\x05local", 7);
+    Authentication.push_back(static_cast<char>(Password.size()));
+    Authentication.append(Password);
+    Net::write(Stream, Net::buffer(Authentication), Error);
+    ASSERT_FALSE(Error) << Error.message();
+    Net::read(Stream, Net::buffer(Reply), Error);
+    ASSERT_FALSE(Error) << Error.message();
+    EXPECT_EQ(Reply, (std::array<std::uint8_t, 2>{0x01, 0x00}));
 
     Stream.lowest_layer().close(Error);
     Application.Stop();
@@ -1516,6 +1624,84 @@ TEST(PreviewApplication, NativeTlsFallbackHandlesMultipleProtocolBindings)
     Application.Stop();
     Thread.join();
     EXPECT_EQ(ExitCode.load(std::memory_order_acquire), 0);
+}
+
+TEST(PreviewApplication, BindingMuxModeDoesNotPromoteSiblingBinding)
+{
+    constexpr std::string_view Protocols = R"([
+        {"Id":"protocol-vless","Name":"vless","Builtin":"vless","Requires":[]},
+        {"Id":"protocol-socks5","Name":"socks5","Builtin":"socks5","Requires":[]}
+    ])";
+    constexpr std::string_view Bindings = R"([
+        {"Id":"binding-vless-mux","ProtocolId":"protocol-vless",
+         "TcpEnabled":true,"UdpEnabled":false,"MuxModes":["Smux"],"Priority":0,"Recognition":{}},
+        {"Id":"binding-socks5-plain","ProtocolId":"protocol-socks5",
+         "TcpEnabled":true,"UdpEnabled":false,"MuxModes":[],"Priority":0,"Recognition":{}}
+    ])";
+    TemporaryConfiguration Configuration(
+        FindFreePort(),
+        ConfigurationShape{.Protocols = Protocols,
+                           .Bindings = Bindings,
+                           .Credential = "socks5-sibling-password",
+                           .Credentials = R"({"Vless":"123e4567-e89b-12d3-a456-426614174000"})"});
+    RunningApplication Application(Configuration.Path());
+    ASSERT_TRUE(Application.Start());
+
+    Net::io_context Io;
+    Tcp::socket Socket(Io);
+    boost::system::error_code Error;
+    Socket.connect(
+        Tcp::endpoint(Net::ip::address_v4::loopback(), Application.Port()), Error);
+    ASSERT_FALSE(Error) << Error.message();
+
+    std::uint8_t Status = 0xff;
+    ASSERT_TRUE(Authenticate(Socket, "socks5-sibling-password", Status));
+    EXPECT_EQ(Status, 0x00U);
+
+    Socket.close(Error);
+    Application.Stop();
+    EXPECT_EQ(Application.ExitCode(), 0);
+}
+
+TEST(PreviewApplication, RejectsGenericMuxOnAnyTlsBinding)
+{
+    const auto Repository = std::filesystem::path(__FILE__)
+                                .parent_path()
+                                .parent_path()
+                                .parent_path()
+                                .parent_path()
+                                .parent_path();
+    const auto Certificate = (Repository / "cert.pem").generic_string();
+    const auto PrivateKey = (Repository / "key.pem").generic_string();
+    const auto NativeTls = std::string("{\"Enabled\":true,\"CertificateFile\":\"") +
+                           Certificate + "\",\"PrivateKeyFile\":\"" + PrivateKey + "\"}";
+    const auto Carriers = std::string(
+        R"json([{"Id":"carrier-anytls","Name":"native-anytls","Builtin":"native","Requires":[],"Match":{"ServerNames":["anytls.example"],"Alpn":[],"Priority":20,"Fallback":false},"Options":{"Type":"NativeTls","CertificateFile":")json") +
+        Certificate +
+        R"json(","PrivateKeyFile":")json" + PrivateKey + R"json("}}])json";
+    constexpr std::string_view Protocols = R"([
+        {"Id":"protocol-anytls","Name":"anytls","Builtin":"anytls","Requires":[]},
+        {"Id":"protocol-socks5","Name":"socks5","Builtin":"socks5","Requires":[]}
+    ])";
+    constexpr std::string_view Bindings = R"([
+        {"Id":"binding-anytls","ProtocolId":"protocol-anytls","CarrierId":"carrier-anytls",
+         "TcpEnabled":true,"UdpEnabled":false,"MuxModes":["Smux"],"Priority":20,
+         "Recognition":{"Domain":"anytls.example"}},
+        {"Id":"binding-socks5-plain","ProtocolId":"protocol-socks5",
+         "TcpEnabled":true,"UdpEnabled":false,"MuxModes":[],"Priority":0,"Recognition":{}}
+    ])";
+    TemporaryConfiguration Configuration(
+        FindFreePort(),
+        ConfigurationShape{.Protocols = Protocols,
+                           .Carriers = Carriers,
+                           .Bindings = Bindings,
+                           .NativeTls = NativeTls,
+                           .Credential = "local-token"});
+    Preview::Application::Application Application(MakeOptions(Configuration.Path()));
+    const auto Result = Application.Start();
+    ASSERT_FALSE(Result);
+    EXPECT_EQ(Result.error().Code,
+              Preview::Application::StartupErrorCode::InvalidConfiguration);
 }
 
 TEST(PreviewApplication, RejectsConfiguredRoute)

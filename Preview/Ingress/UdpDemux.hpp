@@ -198,10 +198,6 @@ namespace Preview::Ingress
             {
                 return MakeOrdinary(QuicHeaderError::None);
             }
-            if ((First & 0x18U) != 0U)
-            {
-                return MakeOrdinary(QuicHeaderError::ReservedBits);
-            }
             if (Payload.size() < 2U)
             {
                 return MakeOrdinary(QuicHeaderError::Truncated);
@@ -241,11 +237,6 @@ namespace Preview::Ingress
             {
                 return QuicHeaderError::FixedBit;
             }
-            if ((First & 0x0cU) != 0U)
-            {
-                return QuicHeaderError::ReservedBits;
-            }
-
             const auto Version = (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Payload[1])) << 24U) |
                                  (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Payload[2])) << 16U) |
                                  (static_cast<std::uint32_t>(std::to_integer<std::uint8_t>(Payload[3])) << 8U) |
@@ -255,11 +246,9 @@ namespace Preview::Ingress
                 return QuicHeaderError::UnsupportedVersion;
             }
 
-            const auto PacketType = static_cast<std::uint8_t>((First >> 4U) & 0x03U);
-            if (PacketType == 3U && (First & 0x03U) != 0U)
-            {
-                return QuicHeaderError::PacketType;
-            }
+            // Long-header reserved bits and packet-number length bits are
+            // header-protected. Their cleartext values cannot be validated
+            // before the Native QUIC engine removes header protection.
 
             const auto DestinationLength = std::to_integer<std::uint8_t>(Payload[5]);
             if (DestinationLength == 0U || DestinationLength > MaxConnectionIdLength)
@@ -283,7 +272,7 @@ namespace Preview::Ingress
             }
 
             Header.Version = Version;
-            Header.PacketType = PacketType;
+            Header.PacketType = static_cast<std::uint8_t>((First >> 4U) & 0x03U);
             Header.DestinationCid = Payload.subspan(6U, DestinationLength);
             return QuicHeaderError::None;
         }

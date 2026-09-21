@@ -43,10 +43,10 @@ namespace Preview::Shadowsocks2022
          */
         inline auto IncNonce(std::span<std::uint8_t> Nonce) -> void
         {
-            for (auto &Byte : Nonce)
+            for (std::size_t Index = 0; Index < Nonce.size(); ++Index)
             {
-                ++Byte;
-                if (Byte != 0)
+                ++Nonce[Index];
+                if (Nonce[Index] != 0)
                 {
                     break;
                 }

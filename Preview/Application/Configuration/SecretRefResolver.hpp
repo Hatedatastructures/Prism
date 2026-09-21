@@ -96,4 +96,29 @@ namespace Preview::Application::Configuration
         std::shared_ptr<const std::map<std::string, std::string>> Values_;
     };
 
+    /** @brief 构造内联配置密钥优先、外部回调兜底的解析器。 */
+    [[nodiscard]] inline auto MakeChainedSecretResolver(
+        std::map<std::string, std::string> InlineValues,
+        SecretRefResolver::Callback Fallback = {}) -> SecretRefResolver::Callback
+    {
+        const auto InlineResolver = MapSecretRefResolver(std::move(InlineValues)).CallbackValue();
+        return [InlineResolver = std::move(InlineResolver), Fallback = std::move(Fallback)](
+                   std::string_view Reference) -> std::optional<std::string>
+        {
+            if (InlineResolver)
+            {
+                const auto Value = InlineResolver(Reference);
+                if (Value && !Value->empty())
+                {
+                    return Value;
+                }
+            }
+            if (Fallback)
+            {
+                return Fallback(Reference);
+            }
+            return std::nullopt;
+        };
+    }
+
 } // namespace Preview::Application::Configuration

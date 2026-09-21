@@ -34,6 +34,7 @@
 
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Protocols/Gun/Codec.hpp>
 #include <Preview/Protocols/Http2/Impl.hpp>
 #include <Preview/Protocols/Http2/Session.hpp>
 #include <Preview/Transport/Transmission.hpp>
@@ -108,7 +109,7 @@ namespace Preview::Gun::Grpc
         }
         if (!MethodOk || !SchemeOk || Result.Path.empty() || Result.Authority.empty() ||
             !std::string_view(Result.ContentType).starts_with("application/grpc") ||
-            Result.Te != "trailers")
+            (!Result.Te.empty() && Result.Te != "trailers"))
         {
             return std::nullopt;
         }
@@ -145,6 +146,51 @@ namespace Preview::Gun::Grpc
         Output[4] = static_cast<std::byte>(Length & 0xFFU);
         std::copy(Payload.begin(), Payload.end(), Output.begin() + 5);
         return Output;
+    }
+
+    [[nodiscard]] inline auto EncodeTunMessage(
+        std::span<const std::byte> Payload) -> std::vector<std::byte>
+    {
+        if (Payload.size() > static_cast<std::size_t>((std::numeric_limits<std::uint32_t>::max)()))
+        {
+            return {};
+        }
+        std::array<std::uint8_t, Preview::Gun::MaxVarintLen> Varint{};
+        const auto Length = Preview::Gun::EncodeVarint(
+            static_cast<std::uint32_t>(Payload.size()), Varint);
+        if (Length == 0U)
+        {
+            return {};
+        }
+        std::vector<std::byte> Output;
+        Output.reserve(1U + Length + Payload.size());
+        Output.push_back(std::byte{0x0A});
+        for (std::size_t Index = 0; Index < Length; ++Index)
+        {
+            Output.push_back(static_cast<std::byte>(Varint[Index]));
+        }
+        Output.insert(Output.end(), Payload.begin(), Payload.end());
+        return Output;
+    }
+
+    [[nodiscard]] inline auto DecodeTunMessage(
+        std::span<const std::byte> Message) -> std::optional<std::vector<std::byte>>
+    {
+        if (Message.size() < 2U || Message.front() != std::byte{0x0A})
+        {
+            return std::nullopt;
+        }
+        const auto Bytes = std::span<const std::uint8_t>(
+            reinterpret_cast<const std::uint8_t *>(Message.data() + 1), Message.size() - 1U);
+        std::uint32_t Length = 0;
+        const auto VarintLength = Preview::Gun::DecodeVarint(Bytes, Length);
+        if (VarintLength == 0U ||
+            static_cast<std::size_t>(Length) != Message.size() - 1U - VarintLength)
+        {
+            return std::nullopt;
+        }
+        return std::vector<std::byte>(
+            Message.begin() + static_cast<std::ptrdiff_t>(1U + VarintLength), Message.end());
     }
 
     class MessageDecoder final
@@ -606,7 +652,9 @@ namespace Preview::Gun::Grpc
                 Error = std::make_error_code(std::errc::broken_pipe);
                 co_return 0;
             }
-            const auto Message = EncodeMessage(Buffer);
+            const auto Payload = TunEnvelope_ ? EncodeTunMessage(Buffer)
+                                              : std::vector<std::byte>(Buffer.begin(), Buffer.end());
+            const auto Message = EncodeMessage(Payload);
             if (Message.empty() && !Buffer.empty() ||
                 Session_->SubmitData(StreamId_, Message, false) != 0)
             {
@@ -672,12 +720,12 @@ namespace Preview::Gun::Grpc
             Session_->OnHeaders = [this](const std::int32_t StreamId,
                                          const H2::HeaderList &Headers, const bool EndStream)
             {
+                const auto Request = ParseRequestHeaders(Headers);
                 if (StreamId_ > 0 || EndStream)
                 {
                     (void)Session_->ResetStream(StreamId, H2::ErrorProtocol);
                     return;
                 }
-                const auto Request = ParseRequestHeaders(Headers);
                 if (!Request || Request->Path != Config_.Path)
                 {
                     (void)Session_->SubmitHeaders(
@@ -688,7 +736,9 @@ namespace Preview::Gun::Grpc
                     return;
                 }
                 StreamId_ = StreamId;
-                ReadyOk_ = Session_->SubmitHeaders(StreamId, MakeResponseHeaders(), false) == 0;
+                const auto SubmitResult = Session_->SubmitHeaders(
+                    StreamId, MakeResponseHeaders(), false);
+                ReadyOk_ = SubmitResult == 0;
                 (void)Ready_.try_send(boost::system::error_code{});
                 (void)WriteNotify_.try_send(boost::system::error_code{});
             };
@@ -707,7 +757,15 @@ namespace Preview::Gun::Grpc
                 }
                 for (auto &Message : Messages)
                 {
-                    RxQueue_.push_back(std::move(Message));
+                    if (auto TunMessage = DecodeTunMessage(Message))
+                    {
+                        TunEnvelope_ = true;
+                        RxQueue_.push_back(std::move(*TunMessage));
+                    }
+                    else
+                    {
+                        RxQueue_.push_back(std::move(Message));
+                    }
                 }
                 if (!Messages.empty())
                 {
@@ -802,6 +860,7 @@ namespace Preview::Gun::Grpc
         std::size_t RxOffset_{0};
         std::int32_t StreamId_{-1};
         bool ReadyOk_{false};
+        bool TunEnvelope_{false};
         bool LocalEnded_{false};
         bool Closed_{false};
     };

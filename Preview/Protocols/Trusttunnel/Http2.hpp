@@ -370,7 +370,18 @@ namespace Preview::Trusttunnel
             }
         }
 
+        auto SetAuthority(std::string Authority) -> void
+        {
+            Authority_ = std::move(Authority);
+        }
+
+        [[nodiscard]] auto Authority() const -> std::string_view
+        {
+            return Authority_;
+        }
+
         std::int32_t StreamId_{-1};
+        std::string Authority_;
 
     private:
         using Completion = Net::experimental::channel<void(boost::system::error_code, std::size_t)>;
@@ -571,6 +582,7 @@ namespace Preview::Trusttunnel
                     return;
                 }
                 *Target = std::string(Authority);
+                Transport->SetAuthority(*Target);
                 Transport->BindStream(StreamId);
                 (void)Session->SubmitHeaders(StreamId, {{":status", "200"}}, false);
                 (void)Ready->try_send(boost::system::error_code{}, true);
@@ -589,6 +601,18 @@ namespace Preview::Trusttunnel
                     Transport->NotifyEof();
                 }
             };
+            Session->SendSettings();
+            try
+            {
+                co_await Flush(Session, Wire);
+            }
+            catch (...)
+            {
+                Transport->Close();
+                Wire->Close();
+                Encrypted->Close();
+                co_return std::pair{std::string{}, SharedTransmission{}};
+            }
             StartDriver(Http2DriverParameters{Session, Wire, Transport, Encrypted, Ready});
             Net::steady_timer Deadline(Encrypted->Executor());
             Deadline.expires_after(std::chrono::seconds(30));
@@ -638,8 +662,13 @@ namespace Preview::Trusttunnel
         static auto StartDriver(Http2DriverParameters Parameters)
             -> void
         {
+            if (!Parameters.Encrypted)
+            {
+                return;
+            }
+            const auto Executor = Parameters.Encrypted->Executor();
             Net::co_spawn(
-                Parameters.Encrypted->Executor(),
+                Executor,
                 [Parameters = std::move(Parameters)]() -> Net::awaitable<void>
                 {
                     std::array<std::byte, 16384> Buffer{};
@@ -655,23 +684,27 @@ namespace Preview::Trusttunnel
                         {
                             break;
                         }
-                        const auto ReadWindow = std::span<const std::byte>(Buffer.data(), Read);
-                        if (!Parameters.Session->Feed(ReadWindow, IoError) &&
-                            IoError != make_error_code(Preview::Error::NeedMore))
+                        try
                         {
-                            break;
-                        }
-                        std::vector<std::byte> Output;
-                        if (Parameters.Session->Collect(Output) && !Output.empty())
-                        {
-                            try
-                            {
-                                co_await Parameters.Wire->Write(Output);
-                            }
-                            catch (...)
+                            const auto ReadWindow = std::span<const std::byte>(Buffer.data(), Read);
+                            if (!Parameters.Session->Feed(ReadWindow, IoError) &&
+                                IoError != make_error_code(Preview::Error::NeedMore))
                             {
                                 break;
                             }
+                            std::vector<std::byte> Output;
+                            if (Parameters.Session->Collect(Output) && !Output.empty())
+                            {
+                                co_await Parameters.Wire->Write(Output);
+                            }
+                        }
+                        catch (const std::exception &)
+                        {
+                            break;
+                        }
+                        catch (...)
+                        {
+                            break;
                         }
                     }
                     Parameters.Transport->NotifyEof();
@@ -867,22 +900,34 @@ namespace Preview::Trusttunnel
                     {
                         break;
                     }
-                    if (!State->Session->Feed(std::span<const std::byte>(Buffer.data(), Read), IoError) &&
-                        IoError != make_error_code(Preview::Error::NeedMore))
+                    try
                     {
-                        break;
-                    }
-                    std::vector<std::byte> Output;
-                    if (State->Session->Collect(Output) && !Output.empty())
-                    {
-                        try
-                        {
-                            co_await State->Wire->Write(Output);
-                        }
-                        catch (...)
+                        if (!State->Session->Feed(
+                                std::span<const std::byte>(Buffer.data(), Read), IoError) &&
+                            IoError != make_error_code(Preview::Error::NeedMore))
                         {
                             break;
                         }
+                        std::vector<std::byte> Output;
+                        if (State->Session->Collect(Output) && !Output.empty())
+                        {
+                            try
+                            {
+                                co_await State->Wire->Write(Output);
+                            }
+                            catch (...)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    catch (const std::exception &)
+                    {
+                        break;
+                    }
+                    catch (...)
+                    {
+                        break;
                     }
                 }
                 State->Transport->NotifyEof();

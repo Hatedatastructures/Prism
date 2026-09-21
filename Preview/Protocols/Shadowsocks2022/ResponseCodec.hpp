@@ -395,21 +395,19 @@ namespace Preview::Shadowsocks2022
         {
             Plain.push_back(static_cast<std::uint8_t>((Timestamp >> (56 - I * 8)) & 0xFF));
         }
+        // SIP022 / sing-shadowsocks 权威顺序：
+        //   Client 帧：[type][epoch][paddingLen 2B][padding][addrport][payload]
+        //   Server 帧：[type][epoch][remoteSessionId 8B][paddingLen 2B][padding]
+        //              [addrport][payload]
         if (Input.HeaderType == HeaderTypeServer)
         {
             Plain.insert(Plain.end(), Input.RemoteSessionId.begin(), Input.RemoteSessionId.end());
-            Plain.push_back(0);
-            Plain.push_back(0);
         }
-        else
+        Plain.push_back(0);
+        Plain.push_back(0);
+        if (!EncodeAddress(*Input.Target, Plain))
         {
-            // SIP022 request body places the destination before padding.
-            if (!EncodeAddress(*Input.Target, Plain))
-            {
-                return false;
-            }
-            Plain.push_back(0);
-            Plain.push_back(0);
+            return false;
         }
         Plain.insert(Plain.end(), Input.payload.begin(), Input.payload.end());
 
@@ -540,10 +538,14 @@ namespace Preview::Shadowsocks2022
             return Error::BadMessage;
         }
 
+        // SIP022 / sing-shadowsocks 权威顺序：
+        //   Client 帧：[type][epoch][paddingLen 2B][padding][addrport][payload]
+        //   Server 帧：[type][epoch][clientSessionId 8B][paddingLen 2B][padding]
+        //              [addrport][payload]
         std::size_t Off = 1 + UdpTsLen;
         if (Type == HeaderTypeServer)
         {
-            if (Body->size() - Off < SessionIdLen + 2)
+            if (Body->size() - Off < SessionIdLen)
             {
                 return Error::BadLength;
             }
@@ -552,19 +554,6 @@ namespace Preview::Shadowsocks2022
                 std::memcpy(Input.RemoteSessionId->data(), Body->data() + Off, SessionIdLen);
             }
             Off += SessionIdLen;
-        }
-        std::size_t Consumed = 0;
-        if (Type == HeaderTypeClient)
-        {
-            const auto AddressError = ParseAddress(
-                std::span<const std::uint8_t>(*Body).subspan(Off),
-                Target,
-                Consumed);
-            if (AddressError != Error::None)
-            {
-                return AddressError;
-            }
-            Off += Consumed;
         }
         if (Body->size() - Off < 2)
         {
@@ -577,6 +566,16 @@ namespace Preview::Shadowsocks2022
             return Error::BadLength;
         }
         Off += PaddingLength;
+        std::size_t Consumed = 0;
+        const auto AddressError = ParseAddress(
+            std::span<const std::uint8_t>(*Body).subspan(Off),
+            Target,
+            Consumed);
+        if (AddressError != Error::None)
+        {
+            return AddressError;
+        }
+        Off += Consumed;
         Payload.assign(Body->begin() + static_cast<std::ptrdiff_t>(Off), Body->end());
         if (Input.SessionId)
         {

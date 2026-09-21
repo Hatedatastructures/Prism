@@ -87,15 +87,15 @@ namespace
             kdf_context, std::span<const std::uint8_t>(Material), 16);
 
         std::vector<std::uint8_t> Plain;
-        Plain.reserve(1 + 8 + AddressWire.size() + 2 + Payload.size());
+        Plain.reserve(1 + 8 + 2 + AddressWire.size() + Payload.size());
         Plain.push_back(request_type);
         for (std::size_t I = 0; I < 8; ++I)
         {
             Plain.push_back(static_cast<std::uint8_t>((Timestamp >> (56 - I * 8)) & 0xFF));
         }
+        Plain.push_back(0);
+        Plain.push_back(0);
         Plain.insert(Plain.end(), AddressWire.begin(), AddressWire.end());
-        Plain.push_back(0);
-        Plain.push_back(0);
         Plain.insert(Plain.end(), Payload.begin(), Payload.end());
 
         std::array<std::uint8_t, 12> Nonce{};

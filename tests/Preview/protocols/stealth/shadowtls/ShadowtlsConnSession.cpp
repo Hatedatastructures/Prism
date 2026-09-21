@@ -20,6 +20,7 @@
 #include <vector>
 
 #include <Preview/Transport/MemoryStream.hpp>
+#include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Protocols/Shadowtls/Shadowtls.hpp>
 #include <gtest/gtest.h>
 
@@ -153,6 +154,11 @@ namespace
                              std::span<const std::byte>(buf.data(), n), ec);
                          EXPECT_FALSE(ec);
                          EXPECT_EQ(written, n);
+                         std::array<std::byte, 1> CloseBuffer{};
+                         ec.clear();
+                         const auto CloseRead = co_await Conn->async_read_some(CloseBuffer, ec);
+                         EXPECT_EQ(CloseRead, 0U);
+                         EXPECT_EQ(Preview::Fault::ToCode(ec), Preview::Fault::Code::Eof);
                          Conn->Close();
                      };
                      Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
@@ -183,8 +189,93 @@ namespace
                      const auto n = co_await cli->async_read_some(buf, ec);
                      EXPECT_FALSE(ec);
                      EXPECT_EQ(std::string(reinterpret_cast<const char *>(buf.data()), n), payload);
+                     const std::array<std::uint8_t, 7> CloseNotify{
+                         0x15, 0x03, 0x03, 0x00, 0x02, 0x01, 0x00};
+                     auto *RawClient = cli->NextLayer();
+                     EXPECT_NE(RawClient, nullptr);
+                     if (RawClient == nullptr)
+                     {
+                         co_return;
+                     }
+                     co_await RawClient->async_write_some(
+                         std::as_bytes(std::span<const std::uint8_t>(CloseNotify)), ec);
+                     EXPECT_FALSE(ec);
                      cli->Close();
                  });
+    }
+
+    TEST(ShadowtlsConnSession, RawPeerCloseAtRecordBoundaryIsCleanEof)
+    {
+        Net::io_context ioc;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        const auto server_rnd = make_random(0x31);
+        const auto client_rnd = make_random(0x42);
+        const std::string payload = "shadowtls close-boundary payload";
+
+        RunCoroutine(ioc,
+                     [&]() -> Net::awaitable<void>
+                     {
+                         auto server_coro = [&]() -> Net::awaitable<void>
+                         {
+                             auto [err, Conn] =
+                                 co_await Shadowtls::Accept(std::make_shared<MemoryStream>(std::move(b)),
+                                                            Shadowtls::ServerConfig{"close-pw"});
+                             EXPECT_EQ(err, Error::None);
+                             EXPECT_TRUE(Conn);
+                             if (!Conn)
+                             {
+                                 co_return;
+                             }
+                             const auto ProtectionError = Conn->EnableRecordProtection(
+                                 server_rnd, Shadowtls::TagServer, Shadowtls::TagClient);
+                             EXPECT_EQ(ProtectionError, Error::None);
+
+                             std::array<std::byte, 128> Buffer{};
+                             std::error_code ErrorCode;
+                             const auto Read = co_await Conn->async_read_some(Buffer, ErrorCode);
+                             EXPECT_FALSE(ErrorCode);
+                             EXPECT_EQ(std::string(reinterpret_cast<const char *>(Buffer.data()), Read),
+                                       payload);
+                             const auto Written = co_await Conn->async_write_some(
+                                 std::span<const std::byte>(Buffer.data(), Read), ErrorCode);
+                             EXPECT_FALSE(ErrorCode);
+                             EXPECT_EQ(Written, Read);
+
+                             ErrorCode.clear();
+                             const auto Eof = co_await Conn->async_read_some(Buffer, ErrorCode);
+                             EXPECT_EQ(Eof, 0U);
+                             EXPECT_EQ(Preview::Fault::ToCode(ErrorCode), Preview::Fault::Code::Eof);
+                             Conn->Close();
+                         };
+                         Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
+
+                         auto [HandshakeError, Client] = co_await Shadowtls::Connect({
+                             std::make_shared<MemoryStream>(std::move(a)),
+                             Shadowtls::ClientConfig{"close-pw"},
+                             std::span<const std::uint8_t>(server_rnd),
+                             std::span<const std::uint8_t>(client_rnd)});
+                         EXPECT_EQ(HandshakeError, Error::None);
+                         EXPECT_TRUE(Client);
+                         if (!Client)
+                         {
+                             co_return;
+                         }
+                         const auto ProtectionError = Client->EnableRecordProtection(server_rnd);
+                         EXPECT_EQ(ProtectionError, Error::None);
+
+                         std::error_code ErrorCode;
+                         const auto Written = co_await Client->async_write_some(
+                             std::span<const std::byte>(reinterpret_cast<const std::byte *>(payload.data()),
+                                                        payload.size()),
+                             ErrorCode);
+                         EXPECT_FALSE(ErrorCode);
+                         EXPECT_EQ(Written, payload.size());
+                         std::array<std::byte, 128> Buffer{};
+                         const auto Read = co_await Client->async_read_some(Buffer, ErrorCode);
+                         EXPECT_FALSE(ErrorCode);
+                         EXPECT_EQ(Read, payload.size());
+                         Client->Close();
+                     });
     }
 
     TEST(ShadowtlsConnSession, ReadsAndRetainsStandardClientHelloWire)

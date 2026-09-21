@@ -24,6 +24,7 @@
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Restls/Codec.hpp>
 #include <Preview/Protocols/Restls/Conn.hpp>
+#include <Preview/Protocols/Restls/Server.hpp>
 #include <Preview/Protocols/Restls/Carrier.hpp>
 #include <Preview/Protocols/Restls/Types.hpp>
 
@@ -42,17 +43,6 @@ namespace Preview::Restls
     struct ClientConfig
     {
         /// 客户端认证密码（字段名称保持现有配置兼容）
-        std::string password;
-    };
-
-    /**
-     * @struct ServerConfig
-     * @brief Restls 服务端配置
-     * @details 控制服务端的行为：认证密码。构造后只读。
-     */
-    struct ServerConfig
-    {
-        /// 服务端认证密码（字段名称保持现有配置兼容）
         std::string password;
     };
 

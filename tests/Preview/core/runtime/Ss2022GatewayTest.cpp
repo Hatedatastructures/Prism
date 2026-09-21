@@ -150,4 +150,38 @@ namespace
         EXPECT_FALSE(Sent);
     }
 
+    TEST(Ss2022Gateway, ClaimsAuthenticatedQuicLikeUnknownCidBeforeQuicGateway)
+    {
+        Net::io_context Io;
+        const auto Key = MakeKey();
+        Preview::Ingress::Ss2022Gateway::Options Options;
+        Options.Executor = Io.get_executor();
+        Options.Keys = {Key};
+        Options.Send = [](std::span<const std::byte>, const Net::ip::udp::endpoint &)
+            -> Net::awaitable<boost::system::error_code>
+        {
+            co_return boost::system::error_code{};
+        };
+        auto Gateway = std::make_shared<Preview::Ingress::Ss2022Gateway>(std::move(Options));
+
+        const Ss::Address Target{Ss::AddressType::Ipv4, "127.0.0.1", 9};
+        const auto Wire = Ss::BuildUdpPacket(Ss::UdpBuildInput{
+            std::span<const std::uint8_t>(Key), 0, &Target,
+            std::span<const std::uint8_t>{}});
+        ASSERT_FALSE(Wire.empty());
+
+        Preview::Ingress::UdpPacket Packet;
+        Packet.Payload.assign(reinterpret_cast<const std::byte *>(Wire.data()),
+                              reinterpret_cast<const std::byte *>(Wire.data() + Wire.size()));
+        Packet.Classification.Kind = Preview::Ingress::DatagramKind::Quic;
+        Packet.Classification.Route = Preview::Ingress::DatagramRoute::UnknownCid;
+        EXPECT_TRUE(Gateway->CanAcceptUnclaimedQuic(Packet));
+
+        auto WrongWire = Wire;
+        WrongWire.back() ^= 0x01U;
+        Packet.Payload.assign(reinterpret_cast<const std::byte *>(WrongWire.data()),
+                              reinterpret_cast<const std::byte *>(WrongWire.data() + WrongWire.size()));
+        EXPECT_FALSE(Gateway->CanAcceptUnclaimedQuic(Packet));
+    }
+
 } // namespace

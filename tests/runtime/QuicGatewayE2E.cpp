@@ -660,3 +660,45 @@ TEST(QuicGatewayE2E, TuicV5TcpEcho)
 
     env.teardown();
 }
+
+TEST(QuicGatewayE2E, TuicV5TcpEchoWhenConnectArrivesDuringAuthentication)
+{
+    gateway_env env;
+    env.setup(false, true);
+
+    echo_server echo;
+
+    mock_client client(env.port);
+    client.start_pump();
+    client.qc->start();
+    ASSERT_TRUE(client.wait_handshake(std::chrono::seconds(5)));
+
+    const auto auth_sid = client.qc->open_uni_stream();
+    ASSERT_GE(auth_sid, 0);
+    const auto uuid_bytes = parse_uuid("123e4567-e89b-12d3-a456-426614174000");
+    const auto auth = BuildTuicAuth(client.qc->native_ssl(), uuid_bytes, "tuic_password");
+    client.write_stream(auth_sid, auth);
+
+    const auto conn_sid = client.qc->open_stream();
+    ASSERT_GE(conn_sid, 0);
+    std::vector<std::byte> connect{
+        std::byte{0x05}, std::byte{0x01}, std::byte{0x01}};
+    const auto ip = net::ip::address_v4::loopback().to_bytes();
+    connect.insert(connect.end(), reinterpret_cast<const std::byte *>(ip.data()),
+                   reinterpret_cast<const std::byte *>(ip.data() + 4));
+    connect.push_back(std::byte{static_cast<unsigned char>(echo.port >> 8)});
+    connect.push_back(std::byte{static_cast<unsigned char>(echo.port & 0xFF)});
+    client.write_stream(conn_sid, connect);
+
+    const std::string payload = "hello tuic concurrent auth";
+    const auto baseline = client.recv_data[conn_sid].size();
+    client.write_stream(conn_sid, std::span<const std::byte>(
+                                      reinterpret_cast<const std::byte *>(payload.data()), payload.size()));
+    ASSERT_TRUE(client.read_stream(conn_sid, baseline + payload.size(), std::chrono::seconds(15)));
+    const auto &echo_data = client.recv_data[conn_sid];
+    const std::string echo_str(
+        reinterpret_cast<const char *>(echo_data.data() + echo_data.size() - payload.size()), payload.size());
+    EXPECT_EQ(echo_str, payload);
+
+    env.teardown();
+}

@@ -189,6 +189,7 @@ namespace
         std::error_code CommitError{};
         rec::ProtocolType Protocol{rec::ProtocolType::Vless};
         rec::CandidateKind Kind{rec::CandidateKind::Opaque};
+        std::optional<std::uint16_t> Priority{};
         std::optional<std::uint8_t> FirstByte{};
     };
 
@@ -275,7 +276,7 @@ namespace
                 Candidate.Scheme = "native";
             }
             Candidate.RequiresAuthentication = true;
-            Candidate.Priority = State->Id;
+            Candidate.Priority = State->Priority.value_or(State->Id);
             if (!State->Fallback)
             {
                 Candidate.FirstBytes = {State->FirstByte.value_or(0xB2)};
@@ -530,6 +531,8 @@ namespace
         Transport->Push(Bytes({0xB2, 0x01}));
         auto First = MakeState(1, true);
         auto Second = MakeState(2, true);
+        First->Priority = 10;
+        Second->Priority = 10;
         auto Profile = MakeMixedProfile({First, Second});
         rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
         rec::MixedTrialMode Mode(Profile);
@@ -548,6 +551,36 @@ namespace
         EXPECT_EQ(Second->Commit, 0U);
         EXPECT_EQ(Transport->Writes(), 0U);
         EXPECT_EQ(Transport->Closes(), 0U);
+    }
+
+    TEST(MixedTrialModeTest, SelectsUniqueHighestPriorityPreparedCandidate)
+    {
+        Net::io_context Io;
+        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
+        Transport->Push(Bytes({0xB2, 0x01}));
+        auto LowerPriority = MakeState(1, true);
+        auto HigherPriority = MakeState(2, true);
+        LowerPriority->Priority = 10;
+        HigherPriority->Priority = 20;
+        HigherPriority->Protocol = rec::ProtocolType::Socks5;
+        auto Profile = MakeMixedProfile({LowerPriority, HigherPriority});
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        rec::MixedTrialMode Mode(Profile);
+        rec::RecognizeResult Result;
+
+        RunCoro(Io, [&]() -> Net::awaitable<void>
+                {
+                    Result = co_await Mode.Recognize(Transport, Buffer);
+                });
+
+        EXPECT_TRUE(Result.success);
+        EXPECT_EQ(Result.Status, rec::RecognitionStatus::Accepted);
+        EXPECT_EQ(Result.Candidate, HigherPriority->Id);
+        EXPECT_EQ(Result.detected, rec::ProtocolType::Socks5);
+        EXPECT_EQ(LowerPriority->Prepare, 1U);
+        EXPECT_EQ(HigherPriority->Prepare, 1U);
+        EXPECT_EQ(LowerPriority->Commit, 0U);
+        EXPECT_EQ(HigherPriority->Commit, 1U);
     }
 
     TEST(MixedTrialModeTest, DeterministicRouteRejectsAmbiguityAtProfileCompile)
@@ -991,7 +1024,9 @@ namespace
         auto State = MakeState(1, true);
         State->PendingPrepare = true;
         State->Gate = Gate;
-        State->ProfileTimeout = std::chrono::milliseconds(1);
+        // Keep the deadline short while leaving the prepare coroutine one scheduler turn
+        // to start under the full Windows CTest suite.
+        State->ProfileTimeout = std::chrono::milliseconds(50);
         auto Profile = MakeMixedProfile({State});
         rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
         rec::MixedTrialMode Mode(Profile);
@@ -1380,6 +1415,43 @@ namespace
         EXPECT_EQ(Loser->Inspect, 1U);
         EXPECT_EQ(Loser->Prepare, 0U);
         EXPECT_EQ(Loser->Commit, 0U);
+    }
+
+    TEST(MixedTrialModeTest, KeepsTlsFallbackWhenSniRouteDoesNotMatch)
+    {
+        Net::io_context Io;
+        auto Transport = std::make_shared<ScriptedTransport>(Io.get_executor());
+        const auto Wire = Preview::Testing::RecognitionWire::MakeTlsClientHello("unknown.example");
+        auto Winner = MakeState(1, true);
+        auto Routed = MakeState(2, true);
+        Winner->Fallback = true;
+        Routed->Fallback = true;
+        Routed->Structural = false;
+        Winner->Protocol = rec::ProtocolType::Tls;
+        Routed->Protocol = rec::ProtocolType::Tls;
+        Winner->Kind = rec::CandidateKind::TlsCarrier;
+        Routed->Kind = rec::CandidateKind::TlsCarrier;
+        std::vector<rec::RouteBinding> Routes;
+        Routes.emplace_back("known.example", Routed->Id);
+        auto Profile = MakeMixedProfile({Winner, Routed}, 8, 2, std::move(Routes), 128);
+        ASSERT_NE(Profile, nullptr);
+        rec::ProbeBuffer Buffer(Profile->Budget().MaxProbeBytes);
+        ASSERT_TRUE(Buffer.Seed(Wire));
+        rec::MixedTrialMode Mode(Profile);
+        rec::RecognizeResult Result;
+
+        RunCoro(Io, [&]() -> Net::awaitable<void>
+                {
+                    Result = co_await Mode.Recognize(Transport, Buffer);
+                });
+
+        EXPECT_TRUE(Result.success);
+        EXPECT_EQ(Result.Status, rec::RecognitionStatus::Accepted);
+        EXPECT_EQ(Result.Candidate, Winner->Id);
+        EXPECT_EQ(Winner->Prepare, 1U);
+        EXPECT_EQ(Winner->Commit, 1U);
+        EXPECT_EQ(Routed->Prepare, 0U);
+        EXPECT_EQ(Routed->Commit, 0U);
     }
 
     TEST(MixedTrialModeTest, DoesNotApplyTlsRouteToCleartextPrefix)

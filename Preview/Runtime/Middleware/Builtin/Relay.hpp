@@ -314,6 +314,17 @@ namespace Preview::Middleware::Builtin
             return LastDirectionError_;
         }
 
+        [[nodiscard]] auto LastTotals() const noexcept -> const std::array<std::size_t, 2> &
+        {
+            return LastTotals_;
+        }
+
+        [[nodiscard]] auto LastDirectionFaults() const noexcept
+            -> const std::array<std::error_code, 2> &
+        {
+            return LastDirectionFaults_;
+        }
+
         /**
          * @brief 建立双向隧道并运行至关闭
          * @param Inbound 入站传输
@@ -355,8 +366,11 @@ namespace Preview::Middleware::Builtin
 
             detail::CloseRelay(State);
 
+
             // 方向协程异常留痕：正常半关闭路径应为空（诊断可观测）
             LastDirectionError_ = State->DirectionError;
+            LastTotals_ = State->Total;
+            LastDirectionFaults_ = State->DirectionFault;
 
             if (ctx.traffic)
             {
@@ -384,6 +398,8 @@ namespace Preview::Middleware::Builtin
         Preview::SharedTransmission Outbound_; ///< 上游传输
         std::chrono::milliseconds IdleTimeout_;       ///< 空闲超时
         std::exception_ptr LastDirectionError_{};    ///< 最近一次方向协程异常（诊断用）
+        std::array<std::size_t, 2> LastTotals_{};
+        std::array<std::error_code, 2> LastDirectionFaults_{};
     };
 
 } // namespace Preview::Middleware::Builtin

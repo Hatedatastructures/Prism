@@ -137,6 +137,9 @@ namespace Preview::Application::Configuration
                 return std::unexpected(Detail::ParseError(Error, Request.Json));
             }
 
+            Request.Options.Secrets = SecretRefResolver(MakeChainedSecretResolver(
+                Configuration.Secrets, Request.Options.Secrets.CallbackValue()));
+
             if (const auto Error = ConfigurationValidator::Validate(
                     ValidationRequest{Configuration, std::move(Request.Options)});
                 !Error)

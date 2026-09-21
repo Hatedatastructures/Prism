@@ -4,7 +4,7 @@
  * @details 将底层传输包装为 Restls 连接：
  * 1. WriteHandshake / ReadHandshake：认证握手（测试库简化：
  *    交换 ServerRandom，客户端派生 Secret 校验服务端 mask）
- * 2. 数据面：应用数据记录带 auth_mac + XOR mask 编解码
+ * 2. 数据面：每条应用数据记录都带 auth_mac、掩码长度/命令和数据载荷
  * @note 与 restls.hpp 工厂配对使用（服务端/客户端分离设计）
  * @note 实例非线程安全，应在同一协程或线程内使用
  */
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Foundation/Memory/Container.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
 #include <Preview/Transport/Transmission.hpp>
@@ -124,6 +125,18 @@ namespace Preview::Restls
         }
 
         /**
+         * @brief 允许 TLS 1.3 加密 close_notify 作为 clean EOF
+         * @details Restls-V1 的应用数据有独立认证头；TLS 1.3 连接关闭时，
+         *          客户端仍可能发送外层 ApplicationData 形式的 19 字节
+         *          加密 alert，无法用 Restls 密钥解码。该兼容路径只由
+         *          VersionHint=tls13 的真实 carrier 显式开启。
+         */
+        auto AllowTls13EncryptedCloseNotify() noexcept -> void
+        {
+            Tls13EncryptedCloseNotify_ = true;
+        }
+
+        /**
          * @brief 透传读取（数据面原样，mask 编解码由上层记录层负责）
          */
         [[nodiscard]] auto async_read_some(
@@ -164,6 +177,11 @@ namespace Preview::Restls
                     SetError(ErrorCode, HeaderError);
                     co_return 0;
                 }
+                if (Header[0] == 0x15)
+                {
+                    ErrorCode = Preview::Fault::make_error_code(Preview::Fault::Code::Eof);
+                    co_return 0;
+                }
                 const auto PayloadLength = (static_cast<std::size_t>(Header[3]) << 8U) | Header[4];
                 if (PayloadLength < AuthHdrlen || PayloadLength > MaxRecordPayload)
                 {
@@ -186,7 +204,7 @@ namespace Preview::Restls
                         ? std::span<const std::uint8_t>(ClientFinished_)
                         : std::span<const std::uint8_t>{};
                 DecodedFrame Decoded;
-                const auto DecodeError = DecodeFrame(
+                auto DecodeError = DecodeFrame(
                     Wire,
                     DecodeOptions{.Secret = Secret_,
                                   .ServerRandom = ServerRandom_,
@@ -194,16 +212,74 @@ namespace Preview::Restls
                                   .Counter = ReadCounter_,
                                   .ClientFinished = ClientFinished},
                     Decoded);
+                if (DecodeError == Error::BadAuth)
+                {
+                    // Restls clients may advance a direction counter for an
+                    // empty/control write. Recover only within the bounded
+                    // production-compatible window; a wider search would
+                    // hide a genuine authentication failure.
+                    for (int Delta = -5; Delta <= 5; ++Delta)
+                    {
+                        if (Delta == 0 ||
+                            (Delta < 0 && ReadCounter_ < static_cast<std::uint64_t>(-Delta)))
+                        {
+                            continue;
+                        }
+                        const auto CandidateCounter = Delta < 0
+                                                          ? ReadCounter_ - static_cast<std::uint64_t>(-Delta)
+                                                          : ReadCounter_ + static_cast<std::uint64_t>(Delta);
+                        DecodedFrame Candidate;
+                        const auto CandidateError = DecodeFrame(
+                            Wire,
+                            DecodeOptions{.Secret = Secret_,
+                                          .ServerRandom = ServerRandom_,
+                                          .Direction = ReadDirection_,
+                                          .Counter = CandidateCounter,
+                                          .ClientFinished = ClientFinished},
+                            Candidate);
+                        if (CandidateError == Error::None)
+                        {
+                            ReadCounter_ = CandidateCounter;
+                            Decoded = std::move(Candidate);
+                            DecodeError = Error::None;
+                            break;
+                        }
+                    }
+                }
+                if (DecodeError == Error::BadAuth && Tls13EncryptedCloseNotify_ &&
+                    ReadCounter_ > 0 && Wire.size() == TlsHdrlen + 19U &&
+                    Wire[0] == TlsApplicationData)
+                {
+                    ErrorCode = Preview::Fault::make_error_code(Preview::Fault::Code::Eof);
+                    co_return 0;
+                }
                 if (DecodeError != Error::None)
                 {
                     SetError(ErrorCode, DecodeError);
                     co_return 0;
                 }
 
+                if (Decoded.Command == CmdTypeResponse && Decoded.CommandArgument > 0U)
+                {
+                    for (std::uint8_t Index = 0; Index < Decoded.CommandArgument; ++Index)
+                    {
+                        if (!co_await SendResponseControl(ErrorCode))
+                        {
+                            co_return 0;
+                        }
+                    }
+                }
+
                 ++ReadCounter_;
                 if (ReadDirection_ == FlowDirection::ToServer && !ClientFinished_.empty())
                 {
                     ClientFinished_.clear();
+                }
+                if (Decoded.Data.size() == RandomResponseMagic.size() &&
+                    std::equal(Decoded.Data.begin(), Decoded.Data.end(),
+                               reinterpret_cast<const std::uint8_t *>(RandomResponseMagic.data())))
+                {
+                    continue;
                 }
                 PendingReadPayload_ = std::move(Decoded.Data);
                 PendingReadOffset_ = 0;
@@ -324,6 +400,32 @@ namespace Preview::Restls
         }
 
     private:
+        [[nodiscard]] auto SendResponseControl(std::error_code &ErrorCode)
+            -> Net::awaitable<bool>
+        {
+            const auto [BuildError, Wire] = BuildFrame(FrameOptions{
+                .Secret = Secret_,
+                .ServerRandom = ServerRandom_,
+                .Direction = FlowDirection::ToClient,
+                .Counter = WriteCounter_,
+                .ClientFinished = {},
+                .Data = {},
+                .PaddingLength = 0,
+                .Command = CmdTypeResponse,
+                .CommandArgument = 1});
+            if (BuildError != Error::None)
+            {
+                SetError(ErrorCode, BuildError);
+                co_return false;
+            }
+            if (!co_await SendAll(Wire, ErrorCode))
+            {
+                co_return false;
+            }
+            ++WriteCounter_;
+            co_return true;
+        }
+
         [[nodiscard]] auto Initialize(
             std::span<const std::uint8_t> ServerRandom,
             const FlowDirection WriteDirection,
@@ -359,6 +461,10 @@ namespace Preview::Restls
             {
                 return Error::None;
             }
+            if (Preview::Fault::ToCode(ErrorCode) == Preview::Fault::Code::Eof)
+            {
+                return Error::UnexpectedEof;
+            }
             if (ErrorCode == std::make_error_code(std::errc::operation_canceled))
             {
                 return Error::Canceled;
@@ -375,6 +481,11 @@ namespace Preview::Restls
             if (ErrorValue == Error::None)
             {
                 Output.clear();
+                return;
+            }
+            if (ErrorValue == Error::UnexpectedEof)
+            {
+                Output = Preview::Fault::make_error_code(Preview::Fault::Code::Eof);
                 return;
             }
             Output = make_error_code(ErrorValue);
@@ -442,6 +553,7 @@ namespace Preview::Restls
         std::vector<std::uint8_t> PendingReadPayload_;  ///< 尚未交给调用方的明文
         std::size_t PendingReadOffset_{0};              ///< 明文消费游标
         bool Handshaken_{false};                        ///< 握手完成标志
+        bool Tls13EncryptedCloseNotify_{false};         ///< TLS 1.3 加密 close_notify 兼容开关
     };
 
     /// 流连接共享指针（默认内存策略）

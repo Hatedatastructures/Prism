@@ -14,7 +14,9 @@
 #pragma once
 
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/dispatch.hpp>
 #include <boost/asio/experimental/channel.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/ssl/error.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
@@ -42,6 +44,7 @@
 #include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Runtime/Middleware/Pipeline.hpp>
 #include <Preview/Runtime/Recognition/Recognition.hpp>
+#include <Preview/Runtime/ActiveTransports.hpp>
 #include <Preview/Runtime/SessionControl.hpp>
 #include <Preview/Runtime/SessionServices.hpp>
 #include <Preview/Lifecycle/TaskState.hpp>
@@ -109,12 +112,6 @@ namespace Preview::Runtime
     class Session
     {
     private:
-        struct ActiveTransports
-        {
-            Preview::SharedTransmission Inbound;
-            Preview::SharedTransmission Outbound;
-        };
-
         struct SessionLogState final
         {
             static constexpr std::uint32_t RecognitionPhase = 1U << 0U;
@@ -332,11 +329,15 @@ namespace Preview::Runtime
             Preview::SharedTransmission Inbound,
             const std::shared_ptr<SessionLogState> &LogState) -> Net::awaitable<Preview::Fault::Code>
         {
+            const auto SessionExecutor = Inbound ? Inbound->Executor() : Net::any_io_executor{};
             if (Inbound)
             {
-                (void)Control_->Bind(Inbound->Executor());
+                // tracked task 可能由 worker executor 启动；会话可变状态和 channel
+                // 必须先回到入站传输的 executor，再进入识别/协议/mux 热路径。
+                co_await Net::dispatch(SessionExecutor, Net::use_awaitable);
+                (void)Control_->Bind(SessionExecutor);
             }
-            Active_->Inbound = Inbound;
+            Active_->StoreInbound(Inbound);
 
             auto *Routes = Services_ && Services_->Routes ? Services_->Routes.get() : Opts_.routes;
             auto *Scheme = Services_ && Services_->Scheme ? Services_->Scheme.get() : Opts_.Scheme;
@@ -360,13 +361,16 @@ namespace Preview::Runtime
             const auto UdpService = Services_ && Services_->UdpService
                                         ? Services_->UdpService
                                         : Opts_.udp_service;
-            auto *Traffic = Services_ && Services_->Traffic ? Services_->Traffic.get() : Opts_.traffic;
+            const auto TrafficOwner = Services_ && Services_->Traffic
+                                          ? Services_->Traffic
+                                          : std::shared_ptr<Preview::Foundation::TrafficSink>{};
+            auto *Traffic = TrafficOwner ? TrafficOwner.get() : Opts_.traffic;
 
             const auto LoggerOwner = Services_ ? Services_->Logger : Preview::Diagnose::Logger::Owner{};
             const auto Trace = std::make_shared<Preview::Diagnose::TraceContext>(
                 Services_ ? Services_->TraceSelection : Preview::Statistics::TraceSelection{});
             auto Cancellation = std::make_shared<Net::experimental::channel<void(boost::system::error_code)>>(
-                Inbound->Executor(), 1);
+                SessionExecutor, 1);
             LogState->Logger = LoggerOwner;
             LogState->Trace = Trace;
             const auto Identity = Control_->CurrentIdentity();
@@ -426,7 +430,8 @@ namespace Preview::Runtime
                 const auto EffectiveFaultCode = Result.FaultCode == Preview::Fault::Code::Success
                                                     ? FaultCode
                                                     : Result.FaultCode;
-                const bool CarrierFailure = !Result.Carrier.Carrier.empty() &&
+                const bool CarrierFailure = Stage == "recognition" &&
+                                            !Result.Carrier.Carrier.empty() &&
                                             Preview::Fault::Failed(EffectiveFaultCode);
                 const auto DiagnosticStage = CarrierFailure ? std::string_view{"carrier_commit"} : Stage;
                 const auto Status = CarrierFailure
@@ -489,10 +494,21 @@ namespace Preview::Runtime
             };
 
             (void)Control_->AddCancelHook(
-                [Control = Control_, Active = Active_, LogState, Cancellation]
+                [Control = Control_, Active = Active_, LogState, Cancellation, SessionExecutor]
                 {
-                    CloseAndLog(Control, Active, LogState);
-                    (void)Cancellation->try_send(boost::system::error_code{});
+                    try
+                    {
+                        Net::post(
+                            SessionExecutor,
+                            [Control, Active, LogState, Cancellation]
+                            {
+                                CloseAndLog(Control, Active, LogState);
+                                (void)Cancellation->try_send(boost::system::error_code{});
+                            });
+                    }
+                    catch (...)
+                    {
+                    }
                 });
 
             WriteLog(Preview::Diagnose::LogLevel::Info, "event=session_started");
@@ -530,7 +546,7 @@ namespace Preview::Runtime
                 }
 
                 Inbound = std::move(ProbeResult.Transport);
-                Active_->Inbound = Inbound;
+                Active_->StoreInbound(Inbound);
                 if (ProbeResult.Kind == Preview::Recognition::RawIngressKind::Cleartext)
                 {
                     WriteStage(Preview::Diagnose::LogLevel::Info,
@@ -566,7 +582,7 @@ namespace Preview::Runtime
                         co_return FailureCode;
                     }
                     Inbound = std::move(TlsResult.Transport);
-                    Active_->Inbound = Inbound;
+                    Active_->StoreInbound(Inbound);
                     RecordTlsNegotiation(Trace, Inbound);
                     WriteStage(Preview::Diagnose::LogLevel::Info,
                                "carrier_commit", "success");
@@ -600,7 +616,10 @@ namespace Preview::Runtime
                         : Preview::Recognition::MaxTlsClientHelloBytes);
             auto Res = co_await Recognizer.Recognize(
                 std::move(Inbound), Probe, std::move(RecognitionControl));
-            Active_->Inbound = Res.transport ? Res.transport : Active_->Inbound;
+            if (Res.transport)
+            {
+                Active_->StoreInbound(Res.transport);
+            }
             if (Res.Cancelled || Control_->IsCancelled())
             {
                 WriteRecognition(Preview::Diagnose::LogLevel::Info, "recognition", Res,
@@ -698,18 +717,36 @@ namespace Preview::Runtime
             ctx.Inbound = std::move(Res.transport);
             ctx.TaskIdentity = Control_->CurrentIdentity();
             ctx.Control = Control_;
-            Active_->Inbound = ctx.Inbound;
+            Active_->StoreInbound(ctx.Inbound);
             ctx.traffic = Traffic;
+            ctx.TrafficOwner = TrafficOwner;
+            ctx.Dial = Dial;
             ctx.pad = Pad;
             if (Acceptor)
             {
                 const auto Ec = co_await Acceptor(ctx.Inbound, ctx);
-                Active_->Inbound = ctx.Inbound;
+                Active_->StoreInbound(ctx.Inbound);
                 if (Preview::Fault::Failed(Ec))
                 {
                     WriteRecognition(Preview::Diagnose::LogLevel::Warn, "accept", Res, Ec);
                     co_return Ec;
                 }
+            }
+            const auto InnerProtocol = static_cast<Preview::Recognition::ProtocolType>(ctx.detected);
+            if (InnerProtocol != Preview::Recognition::ProtocolType::Unknown &&
+                InnerProtocol != Res.detected)
+            {
+                // 分层 carrier 的代表 candidate 只描述外层；接入器完成真实
+                // inner 认证后，日志和 trace 必须改写为最终 winner。
+                Res.detected = InnerProtocol;
+                Res.CandidateName = "protocol-" +
+                                    std::string(Preview::Recognition::ToStringView(InnerProtocol));
+                if (!Res.scheme.empty())
+                {
+                    Res.CandidateName += "+" + Res.scheme;
+                }
+                Trace->SetProtocol(
+                    std::string(Preview::Recognition::ToStringView(InnerProtocol)));
             }
             WriteStage(Preview::Diagnose::LogLevel::Info, "accept", "success");
             if (Prepare)
@@ -717,7 +754,7 @@ namespace Preview::Runtime
                 const auto Ec = co_await Prepare(Res, ctx);
                 if (Preview::Fault::Failed(Ec))
                 {
-                    Active_->Inbound = ctx.Inbound;
+                    Active_->StoreInbound(ctx.Inbound);
                     WriteRecognition(Preview::Diagnose::LogLevel::Warn, "prepare", Res, Ec);
                     co_return Ec;
                 }
@@ -726,19 +763,43 @@ namespace Preview::Runtime
             // 3. 将旧入口一次性物化为 typed 根数据面；后续流程不读取旧标志。
             auto DatagramService = UdpService;
             ctx.MaterializeDataPlane(std::move(DatagramService));
+            if (Services_ && Services_->ResolveMuxMode)
+            {
+                const auto Mode = Services_->ResolveMuxMode(Res, ctx);
+                if (Mode && !Mode->empty())
+                {
+                    bool Applied = false;
+                    if (auto *MuxRoot = ctx.DataPlane.Mux())
+                    {
+                        MuxRoot->Mode = *Mode;
+                        Applied = true;
+                    }
+                    else
+                    {
+                        Applied = ctx.PromoteToMux(*Mode);
+                    }
+                    if (!Applied)
+                    {
+                        Active_->StoreInbound(ctx.Inbound);
+                        WriteRecognition(Preview::Diagnose::LogLevel::Warn, "mux", Res,
+                                         Preview::Fault::Code::NotSupported);
+                        co_return Preview::Fault::Code::NotSupported;
+                    }
+                }
+            }
 
             if (ctx.DataPlane.IsMux())
             {
                 if (!Mux)
                 {
-                    Active_->Inbound = ctx.Inbound;
+                    Active_->StoreInbound(ctx.Inbound);
                     WriteRecognition(Preview::Diagnose::LogLevel::Warn, "mux", Res,
                                      Preview::Fault::Code::NotSupported);
                     co_return Preview::Fault::Code::NotSupported;
                 }
                 WriteStage(Preview::Diagnose::LogLevel::Info, "mux", "started");
                 const auto Accepted = co_await Mux(ctx.Inbound, ctx);
-                Active_->Inbound = ctx.Inbound;
+                Active_->StoreInbound(ctx.Inbound);
                 ctx.SynchronizeDataPlane();
                 if (!Accepted)
                 {
@@ -755,7 +816,7 @@ namespace Preview::Runtime
             {
                 if (!Datagram->Service)
                 {
-                    Active_->Inbound = ctx.Inbound;
+                    Active_->StoreInbound(ctx.Inbound);
                     WriteRecognition(Preview::Diagnose::LogLevel::Warn, "relay", Res,
                                      Preview::Fault::Code::NotSupported);
                     co_return Preview::Fault::Code::NotSupported;
@@ -790,7 +851,7 @@ namespace Preview::Runtime
                 const auto AuthEc = co_await AuthMiddleware.Handle(ctx.Inbound, ctx);
                 if (Preview::Fault::Failed(AuthEc))
                 {
-                    Active_->Inbound = ctx.Inbound;
+                    Active_->StoreInbound(ctx.Inbound);
                     if (ctx.PostDial)
                     {
                         co_await ctx.PostDial(AuthEc);
@@ -811,7 +872,7 @@ namespace Preview::Runtime
             const auto DecorationEc = co_await DecorationPipeline.Run(ctx.Inbound, ctx);
             if (Preview::Fault::Failed(DecorationEc))
             {
-                Active_->Inbound = ctx.Inbound;
+                Active_->StoreInbound(ctx.Inbound);
                 if (ctx.PostDial)
                 {
                     co_await ctx.PostDial(DecorationEc);
@@ -824,8 +885,8 @@ namespace Preview::Runtime
             Preview::Middleware::Pipeline DialPipeline;
             DialPipeline.Add(std::make_shared<Preview::Middleware::Builtin::DialMiddleware>(Dial));
             const auto DialEc = co_await DialPipeline.Run(ctx.Inbound, ctx);
-            Active_->Inbound = ctx.Inbound;
-            Active_->Outbound = ctx.Outbound;
+            Active_->StoreInbound(ctx.Inbound);
+            Active_->StoreOutbound(ctx.Outbound);
             if (Preview::Fault::Failed(DialEc))
             {
                 if (ctx.PostDial)
@@ -1116,8 +1177,9 @@ namespace Preview::Runtime
             {
                 return;
             }
-            const auto Inbound = Active->Inbound;
-            const auto Outbound = Active->Outbound;
+            const auto Snapshot = Active->Load();
+            const auto &Inbound = Snapshot.Inbound;
+            const auto &Outbound = Snapshot.Outbound;
             CloseTransport(Inbound);
             if (Outbound && Outbound != Inbound)
             {
@@ -1129,8 +1191,20 @@ namespace Preview::Runtime
         {
             if (Transport)
             {
-                Transport->Cancel();
-                Transport->Close();
+                try
+                {
+                    const auto Executor = Transport->Executor();
+                    Net::dispatch(
+                        Executor,
+                        [Transport]
+                        {
+                            Transport->Cancel();
+                            Transport->Close();
+                        });
+                }
+                catch (...)
+                {
+                }
             }
         }
 

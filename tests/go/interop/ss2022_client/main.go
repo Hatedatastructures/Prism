@@ -3,17 +3,24 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"time"
 
-	M "github.com/metacubex/sing/common/metadata"
 	"github.com/metacubex/sing-shadowsocks/shadowaead_2022"
+	M "github.com/metacubex/sing/common/metadata"
 )
 
 const psk = "5n5ESu953i/pjIp02oZvHA=="
+
+type noCloseConn struct {
+	net.Conn
+}
+
+func (c *noCloseConn) Close() error { return nil }
 
 func echoServer() (uint16, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -49,21 +56,38 @@ func main() {
 	}
 
 	addr := "127.0.0.1:19080"
+	nativeTLS := false
 	if len(os.Args) > 1 {
 		addr = os.Args[1]
+	}
+	for _, arg := range os.Args[2:] {
+		if arg == "--native-tls" {
+			nativeTLS = true
+		}
 	}
 	raw, err := net.Dial("tcp", addr)
 	if err != nil {
 		fmt.Printf("FAIL: dial: %v\n", err)
 		os.Exit(1)
 	}
+	var tlsConn *tls.Conn
+	if nativeTLS {
+		tlsConn = tls.Client(raw, &tls.Config{
+			InsecureSkipVerify: true,
+			ServerName:         "ss2022.preview",
+			MinVersion:         tls.VersionTLS13,
+		})
+		if err := tlsConn.Handshake(); err != nil {
+			fmt.Printf("FAIL: native TLS handshake: %v\n", err)
+			os.Exit(1)
+		}
+		raw = &noCloseConn{Conn: tlsConn}
+	}
 	ss, err := method.DialConn(raw, M.ParseSocksaddr(fmt.Sprintf("127.0.0.1:%d", echoPort)))
 	if err != nil {
 		fmt.Printf("FAIL: DialConn: %v\n", err)
 		os.Exit(1)
 	}
-	defer ss.Close()
-
 	payload := "hello interop ss2022 from go"
 	if _, err := ss.Write([]byte(payload)); err != nil {
 		fmt.Printf("FAIL: write: %v\n", err)
@@ -79,6 +103,16 @@ func main() {
 	if string(buf[:n]) != payload {
 		fmt.Printf("FAIL: echo mismatch: got %q\n", string(buf[:n]))
 		os.Exit(1)
+	}
+	if err := ss.Close(); err != nil {
+		fmt.Printf("FAIL: SS close: %v\n", err)
+		os.Exit(1)
+	}
+	if tlsConn != nil {
+		if err := tlsConn.Close(); err != nil {
+			fmt.Printf("FAIL: TLS close: %v\n", err)
+			os.Exit(1)
+		}
 	}
 	fmt.Printf("PASS: interop ss2022 echo ok (%d bytes)\n", n)
 }

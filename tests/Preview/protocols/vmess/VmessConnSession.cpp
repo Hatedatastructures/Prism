@@ -476,6 +476,57 @@ namespace
                  });
     }
 
+    TEST(VmessConnSession, ClientCloseAtFrameBoundaryIsCleanEof)
+    {
+        Net::io_context ioc;
+        auto [a, b] = MakeMemoryPair(ioc.get_executor());
+        const auto uuid = TestUuid();
+
+        RunCoroutine(ioc,
+                     [&]() -> Net::awaitable<void>
+                     {
+                         Net::experimental::channel<void(boost::system::error_code)> Done(
+                             ioc.get_executor(), 1);
+                         auto server_coro = [&]() -> Net::awaitable<void>
+                         {
+                             Vmess::ServerConfig Config;
+                             Config.uuid = uuid;
+                             auto [ErrorValue, Request, Connection] = co_await Vmess::Accept(
+                                 std::make_shared<MemoryStream>(std::move(b)), Config);
+                             (void)Request;
+                             if (ErrorValue != Error::None || !Connection)
+                             {
+                                 EXPECT_EQ(ErrorValue, Error::None);
+                                 (void)Done.try_send(boost::system::error_code{});
+                                 co_return;
+                             }
+                             std::array<std::byte, 64> Buffer{};
+                             std::error_code ReadError;
+                             const auto Read = co_await Connection->async_read_some(Buffer, ReadError);
+                             EXPECT_EQ(Read, 0U);
+                             EXPECT_FALSE(ReadError);
+                             Connection->Close();
+                             (void)Done.try_send(boost::system::error_code{});
+                         };
+                         Net::co_spawn(ioc.get_executor(), server_coro(), Net::detached);
+
+                         Vmess::ClientConfig Config;
+                         Config.uuid = uuid;
+                         auto [ErrorValue, Connection] = co_await Vmess::Connect(
+                             std::make_shared<MemoryStream>(std::move(a)), Config,
+                             MakeAddress(Vmess::AddressType::Domain, "example.com", 443));
+                         EXPECT_EQ(ErrorValue, Error::None);
+                         EXPECT_NE(Connection, nullptr);
+                         if (!Connection)
+                         {
+                             co_await Done.async_receive(Net::use_awaitable);
+                             co_return;
+                         }
+                         Connection->Close();
+                         co_await Done.async_receive(Net::use_awaitable);
+                     });
+    }
+
     TEST(VmessConnSession, UdpDgramRoundtrip)
     {
         Net::io_context ioc;

@@ -42,13 +42,14 @@ namespace Preview::Application::Configuration
 
         [[nodiscard]] static auto Build(GenerationBuildOptions Options) -> Result
         {
-            auto Resolver = std::move(Options.SecretResolver);
+            const auto Resolver = MakeChainedSecretResolver(
+                Options.Configuration.Secrets, std::move(Options.SecretResolver));
             std::map<std::string, std::optional<Preview::Account::SecureBytes>> Resolved;
             const auto Resolve = [&Resolver, &Resolved](std::string_view Reference)
                 -> std::optional<std::string>
             {
                 auto [It, Inserted] = Resolved.try_emplace(std::string(Reference));
-                if (Inserted && Resolver)
+                if (Inserted)
                 {
                     std::optional<std::string> Value;
                     try

@@ -158,14 +158,14 @@ namespace
         auto ReservedBits = ValidLong;
         ReservedBits[0] = std::byte{0xcc};
         const auto Reserved = Demux.Classify(ReservedBits);
-        EXPECT_EQ(Reserved.Route, Preview::Ingress::DatagramRoute::Malformed);
-        EXPECT_EQ(Reserved.Error, Preview::Ingress::QuicHeaderError::ReservedBits);
+        EXPECT_EQ(Reserved.Route, Preview::Ingress::DatagramRoute::RegisteredCid);
+        EXPECT_EQ(Reserved.Error, Preview::Ingress::QuicHeaderError::None);
 
         auto InvalidPacketType = ValidLong;
         InvalidPacketType[0] = std::byte{0xf1};
         const auto PacketType = Demux.Classify(InvalidPacketType);
-        EXPECT_EQ(PacketType.Route, Preview::Ingress::DatagramRoute::Malformed);
-        EXPECT_EQ(PacketType.Error, Preview::Ingress::QuicHeaderError::PacketType);
+        EXPECT_EQ(PacketType.Route, Preview::Ingress::DatagramRoute::RegisteredCid);
+        EXPECT_EQ(PacketType.Error, Preview::Ingress::QuicHeaderError::None);
 
         const std::array<std::byte, 4> UnknownShort{
             std::byte{0x41}, std::byte{0xaa}, std::byte{0xbb}, std::byte{0xcc}};
@@ -570,9 +570,13 @@ namespace
         Net::io_context Io;
         auto Carrier = std::make_shared<PreviewMockTransport>(Io.get_executor());
         Carrier->TransportKind = Preview::Transmission::Type::Udp;
-        Carrier->ToRead = Vless::BuildUdpPkt(
+        const auto Packet = Vless::BuildUdpPkt(
             Vless::Address{Vless::AddressType::Domain, "resolve-failure.test", 53},
             std::span<const std::uint8_t>(reinterpret_cast<const std::uint8_t *>("x"), 1));
+        Carrier->ToRead = {
+            static_cast<std::uint8_t>(Packet.size() >> 8U),
+            static_cast<std::uint8_t>(Packet.size() & 0xFFU)};
+        Carrier->ToRead.insert(Carrier->ToRead.end(), Packet.begin(), Packet.end());
         auto Owner = std::make_shared<Vless::Conn<>>(Carrier, Preview::Testing::MakeUuid());
         auto ContextValue = MakeContext(Owner);
         auto ResolveCalls = std::make_shared<std::size_t>(0);

@@ -269,6 +269,7 @@ target_sources(PreviewRuntime INTERFACE
         # Runtime session/front/resource and stable protocol contract
         Runtime/SessionControl.hpp
         Runtime/SessionServices.hpp
+        Runtime/ActiveTransports.hpp
         Runtime/Session.hpp
         Runtime/Listener.hpp
         Runtime/SessionRegistry.hpp
@@ -309,13 +310,18 @@ target_sources(PreviewComposition INTERFACE
         Composition/Adapters/Vless.hpp
         Composition/Adapters/Vmess.hpp
         Composition/Adapters/Tuic.hpp
+        Composition/Adapters/Trusttunnel.hpp
         Composition/Adapters/TypedResult.hpp
         Composition/Recognition/CandidateRegistry.hpp
         Composition/Recognition/CandidateFactory.hpp
+        Composition/Recognition/AnytlsCarrier.hpp
         Composition/Recognition/ProfileBuilder.hpp
         Composition/Recognition/SettingsBuilder.hpp
         Composition/Recognition/TlsCandidateFactory.hpp
+        Composition/Recognition/RealityPrepared.hpp
         Composition/Recognition/ShadowtlsCarrier.hpp
+        Composition/Recognition/RestlsCarrier.hpp
+        Composition/Recognition/TrusttunnelCandidate.hpp
         Composition/Quic/Hysteria2Factory.hpp
         Composition/Quic/TuicFactory.hpp
         Composition/Recognition/LayeredCandidateFactory.hpp
@@ -325,6 +331,11 @@ target_sources(PreviewComposition INTERFACE
         Composition/Api/OperationsApi.hpp
         Composition/Api/StatisticsApi.hpp
         Composition/MuxService.hpp
+        Composition/H2MuxServer.hpp
+        Composition/SingMux.hpp
+        Composition/VlessXudp.hpp
+        Composition/AnytlsService.hpp
+        Composition/AnytlsWire.hpp
         Composition/UdpService.hpp
         Composition/Settings/Json.hpp
         Composition/Settings/Loader.hpp
@@ -367,6 +378,7 @@ target_sources(PreviewConfiguration INTERFACE
         Application/Configuration/ReloadCoordinator.hpp
         Application/Configuration/ResolvedSecrets.hpp
         Application/Configuration/SecretRefResolver.hpp
+        Application/TuicAdmission.hpp
 )
 LinkPreviewTargets(PreviewConfiguration PreviewFoundation)
 target_link_libraries(PreviewConfiguration INTERFACE PreviewAccount)
@@ -619,10 +631,11 @@ target_sources(PreviewProtocolNative INTERFACE
 add_library(PreviewProtocolReality INTERFACE)
 ConfigurePreviewTarget(PreviewProtocolReality)
 target_sources(PreviewProtocolReality INTERFACE
-        Protocols/Reality/Types.hpp
-        Protocols/Reality/Codec.hpp
-        Protocols/Reality/Conn.hpp
-        Protocols/Reality/Carrier.hpp
+          Protocols/Reality/Types.hpp
+          Protocols/Reality/Codec.hpp
+          Protocols/Reality/Conn.hpp
+          Protocols/Reality/Response.hpp
+          Protocols/Reality/Carrier.hpp
         Protocols/Reality/Reality.hpp
 )
 
@@ -632,6 +645,7 @@ target_sources(PreviewProtocolRestls INTERFACE
         Protocols/Restls/Types.hpp
         Protocols/Restls/Codec.hpp
         Protocols/Restls/Conn.hpp
+        Protocols/Restls/Server.hpp
         Protocols/Restls/Carrier.hpp
         Protocols/Restls/Restls.hpp
 )
@@ -709,6 +723,8 @@ endforeach()
 add_subdirectory(Application)
 target_sources(PreviewApplication INTERFACE
         Application/Application.hpp
+        Application/RealityCarrierRegistration.hpp
+        Application/TrustTunnelCredentials.hpp
 )
 
 foreach(PreviewTarget IN ITEMS
@@ -748,6 +764,8 @@ LinkPreviewTargets(PreviewComposition
         PreviewProtocolTrojan
         PreviewProtocolShadowsocks2022
         PreviewProtocolAnytls
+        PreviewProtocolRestls
+        PreviewProtocolTrusttunnel
 )
 
 AssertPreviewStandaloneClosure(PrismPreview)

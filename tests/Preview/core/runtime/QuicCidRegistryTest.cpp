@@ -10,9 +10,11 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <utility>
+#include <vector>
 
 #include <Preview/Ingress/QuicCidRegistry.hpp>
 
@@ -162,4 +164,39 @@ TEST(QuicCidRegistry, KeepsDifferentAccountContextsIndependentPerCid)
     ASSERT_EQ(Owners.Size(), 2U);
     ASSERT_EQ(Owners.FindContext(FirstCid)->AccountId, Preview::AccountId{11});
     ASSERT_EQ(Owners.FindContext(SecondCid)->AccountId, Preview::AccountId{22});
+}
+
+TEST(QuicCidRegistry, RejectsAmbiguousAdmissionContextsForUnknownCid)
+{
+    using Registry = Preview::Ingress::QuicCidRegistry;
+    using Udp = boost::asio::ip::udp;
+    boost::asio::io_context Io;
+    const auto FirstContext = MakeContext(Io.get_executor(), Preview::AccountId{31});
+    const auto SecondContext = MakeContext(Io.get_executor(), Preview::AccountId{32});
+    const auto Peer = Udp::endpoint(boost::asio::ip::address_v4::loopback(), 4433);
+    const std::array<std::byte, 4> Cid{
+        std::byte{9}, std::byte{10}, std::byte{11}, std::byte{12}};
+    Preview::Ingress::UdpPacket Packet = MakePacket(Cid, Peer);
+    std::size_t FactoryCalls = 0;
+    std::vector<std::uint64_t> FactoryAccounts;
+
+    auto Factory = [&Io, &FactoryCalls, &FactoryAccounts](
+                       std::span<const std::byte>,
+                       const Udp::endpoint &,
+                       Preview::Ingress::SharedQuicAdmissionContext Context)
+        -> std::shared_ptr<Preview::Quic::Server>
+    {
+        ++FactoryCalls;
+        FactoryAccounts.push_back(Context->AccountId.Value());
+        Preview::Quic::ServerOptions Options;
+        Options.Executor = Io.get_executor();
+        return std::make_shared<Preview::Quic::Server>(std::move(Options));
+    };
+
+    Registry Owners(Registry::Options{std::move(Factory), {}, {FirstContext, SecondContext}});
+    EXPECT_FALSE(Owners.Handle(std::move(Packet)));
+
+    EXPECT_EQ(FactoryCalls, 0U);
+    EXPECT_TRUE(FactoryAccounts.empty());
+    EXPECT_EQ(Owners.Size(), 0U);
 }

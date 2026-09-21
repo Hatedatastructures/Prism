@@ -1,0 +1,523 @@
+{
+  "SchemaVersion": 1,
+  "Runtime": {
+    "WorkerCount": 2,
+    "RequiredCapabilities": [],
+    "SessionTimeout": 30000
+  },
+  "Listeners": {
+    "Tcp": [
+      {
+        "Id": "tcp-matrix",
+        "Address": "192.168.0.106",
+        "Port": 18080,
+        "Timeout": 5000
+      }
+    ],
+    "Udp": [
+      {
+        "Id": "udp-matrix",
+        "Address": "192.168.0.106",
+        "Port": 18080,
+        "Timeout": 5000
+      }
+    ],
+    "Quic": [
+      {
+        "Id": "quic-matrix",
+        "Address": "192.168.0.106",
+        "Port": 18080,
+        "Timeout": 5000
+      }
+    ],
+    "Timeout": 5000
+  },
+  "NativeTls": {
+    "Enabled": true,
+    "CertificateFile": "cert.pem",
+    "PrivateKeyFile": "key.pem"
+  },
+  "Builtins": [],
+  "Protocols": [
+    {
+      "Id": "protocol-http",
+      "Name": "http",
+      "Builtin": "http",
+      "Requires": []
+    },
+    {
+      "Id": "protocol-socks5",
+      "Name": "socks5",
+      "Builtin": "socks5",
+      "Requires": []
+    },
+    {
+      "Id": "protocol-vless",
+      "Name": "vless",
+      "Builtin": "vless",
+      "Requires": []
+    },
+    {
+      "Id": "protocol-trojan",
+      "Name": "trojan",
+      "Builtin": "trojan",
+      "Requires": []
+    },
+    {
+      "Id": "protocol-vmess",
+      "Name": "vmess",
+      "Builtin": "vmess",
+      "Requires": []
+    },
+    {
+      "Id": "protocol-shadowsocks2022",
+      "Name": "shadowsocks2022",
+      "Builtin": "shadowsocks2022",
+      "Requires": []
+    },
+    {
+      "Id": "protocol-anytls",
+      "Name": "anytls",
+      "Builtin": "anytls",
+      "Requires": []
+    },
+    {
+      "Id": "protocol-hysteria2",
+      "Name": "hysteria2",
+      "Builtin": "hysteria2",
+      "Requires": [],
+      "Quic": {
+        "Alpn": "h3",
+        "ServerName": "hysteria2-gateway-e2e",
+        "CredentialSecretRef": "secret/hysteria2/password",
+        "MaxStreams": 64,
+        "MaxDatagrams": 64
+      }
+    }
+  ],
+  "Carriers": [
+    {
+      "Id": "carrier-native",
+      "Name": "native",
+      "Builtin": "native",
+      "Requires": [],
+      "Match": {
+        "ServerNames": [],
+        "Alpn": [],
+        "Priority": 20,
+        "Fallback": true
+      },
+      "Options": {
+        "Type": "NativeTls",
+        "CertificateFile": "cert.pem",
+        "PrivateKeyFile": "key.pem"
+      }
+    },
+    {
+      "Id": "carrier-native-anytls",
+      "Name": "native-anytls",
+      "Builtin": "native",
+      "Requires": [],
+      "Match": {
+        "ServerNames": [
+          "www.cloudflare.com"
+        ],
+        "Alpn": [],
+        "Priority": 100,
+        "Fallback": false
+      },
+      "Options": {
+        "Type": "NativeTls",
+        "CertificateFile": "cert.pem",
+        "PrivateKeyFile": "key.pem"
+      }
+    },
+    {
+      "Id": "carrier-reality",
+      "Name": "reality",
+      "Builtin": "reality",
+      "Requires": [],
+      "Match": {
+        "ServerNames": [
+          "www.microsoft.com",
+          "trojan.microsoft.com",
+          "vmess.microsoft.com"
+        ],
+        "Alpn": [],
+        "Priority": 100,
+        "Fallback": false
+      },
+      "Options": {
+        "Type": "Reality",
+        "HandshakeTarget": "www.microsoft.com:443",
+        "ServerNames": [
+          "www.microsoft.com",
+          "trojan.microsoft.com",
+          "vmess.microsoft.com"
+        ],
+        "PrivateKeyRef": "secret/reality/private-key",
+        "ShortIds": [
+          "45587ac66ce007e4"
+        ]
+      }
+    },
+    {
+      "Id": "carrier-shadowtls",
+      "Name": "shadowtls",
+      "Builtin": "shadowtls",
+      "Requires": [],
+      "Match": {
+        "ServerNames": [
+          "www.apple.com"
+        ],
+        "Alpn": [],
+        "Priority": 90,
+        "Fallback": false
+      },
+      "Options": {
+        "Type": "ShadowTls",
+        "Version": 3,
+        "PasswordSecretRef": "secret/shadowtls/password",
+        "HandshakeDest": "www.apple.com:443",
+        "ServerNames": [
+          "www.apple.com"
+        ],
+        "StrictMode": true,
+        "HandshakeTimeoutMs": 5000
+      }
+    },
+    {
+      "Id": "carrier-restls",
+      "Name": "restls",
+      "Builtin": "restls",
+      "Requires": [],
+      "Match": {
+        "ServerNames": [
+          "www.nvidia.com"
+        ],
+        "Alpn": [],
+        "Priority": 80,
+        "Fallback": false
+      },
+      "Options": {
+        "Type": "Restls",
+        "ServerNames": [
+          "www.nvidia.com"
+        ],
+        "Host": "www.nvidia.com:443",
+        "PasswordSecretRef": "secret/restls/password",
+        "VersionHint": "tls13",
+        "RestlsScript": "300?100<1,400~100,350~100,600~100,300~200,300~100",
+        "HandshakeTimeoutMs": 5000
+      }
+    }
+  ],
+  "ProtocolBindings": [
+    {
+      "Id": "binding-http",
+      "ProtocolId": "protocol-http",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 0,
+      "Recognition": {}
+    },
+    {
+      "Id": "binding-socks5",
+      "ProtocolId": "protocol-socks5",
+      "TcpEnabled": true,
+      "UdpEnabled": true,
+      "MuxModes": [],
+      "Priority": 0,
+      "Recognition": {}
+    },
+    {
+      "Id": "binding-vless",
+      "ProtocolId": "protocol-vless",
+      "TcpEnabled": true,
+      "UdpEnabled": true,
+      "MuxModes": [],
+      "Priority": 0,
+      "Recognition": {}
+    },
+    {
+      "Id": "binding-vmess",
+      "ProtocolId": "protocol-vmess",
+      "TcpEnabled": true,
+      "UdpEnabled": true,
+      "MuxModes": [],
+      "Priority": 0,
+      "Recognition": {}
+    },
+    {
+      "Id": "binding-shadowsocks2022",
+      "ProtocolId": "protocol-shadowsocks2022",
+      "TcpEnabled": true,
+      "UdpEnabled": true,
+      "MuxModes": [],
+      "Priority": 0,
+      "Recognition": {}
+    },
+    {
+      "Id": "binding-anytls",
+      "ProtocolId": "protocol-anytls",
+      "CarrierId": "carrier-native-anytls",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 20,
+      "Recognition": {
+        "Domain": "www.cloudflare.com"
+      }
+    },
+    {
+      "Id": "binding-http-native",
+      "ProtocolId": "protocol-http",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 20,
+      "Recognition": {
+        "Domain": "http.preview"
+      }
+    },
+    {
+      "Id": "binding-socks5-native",
+      "ProtocolId": "protocol-socks5",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 20,
+      "Recognition": {
+        "Domain": "socks5.preview"
+      }
+    },
+    {
+      "Id": "binding-vless-native",
+      "ProtocolId": "protocol-vless",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 20,
+      "Recognition": {
+        "Domain": "www.bing.com"
+      }
+    },
+    {
+      "Id": "binding-vless-native-smux",
+      "ProtocolId": "protocol-vless",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [
+        "Smux"
+      ],
+      "Priority": 30,
+      "Recognition": {
+        "Domain": "vless-smux.preview"
+      }
+    },
+    {
+      "Id": "binding-vless-native-yamux",
+      "ProtocolId": "protocol-vless",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [
+        "Yamux"
+      ],
+      "Priority": 30,
+      "Recognition": {
+        "Domain": "vless-yamux.preview"
+      }
+    },
+    {
+      "Id": "binding-vless-native-h2mux",
+      "ProtocolId": "protocol-vless",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [
+        "H2Mux"
+      ],
+      "Priority": 30,
+      "Recognition": {
+        "Domain": "vless-h2mux.preview"
+      }
+    },
+    {
+      "Id": "binding-trojan-native",
+      "ProtocolId": "protocol-trojan",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 20,
+      "Recognition": {
+        "Domain": "trojan.preview"
+      }
+    },
+    {
+      "Id": "binding-trojan-native-smux",
+      "ProtocolId": "protocol-trojan",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [
+        "Smux"
+      ],
+      "Priority": 30,
+      "Recognition": {
+        "Domain": "trojan-smux.preview"
+      }
+    },
+    {
+      "Id": "binding-vmess-native",
+      "ProtocolId": "protocol-vmess",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 20,
+      "Recognition": {
+        "Domain": "vmess.preview"
+      }
+    },
+    {
+      "Id": "binding-vmess-native-yamux",
+      "ProtocolId": "protocol-vmess",
+      "CarrierId": "carrier-native",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [
+        "Yamux"
+      ],
+      "Priority": 30,
+      "Recognition": {
+        "Domain": "vmess-yamux.preview"
+      }
+    },
+    {
+      "Id": "binding-vless-reality",
+      "ProtocolId": "protocol-vless",
+      "CarrierId": "carrier-reality",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 100,
+      "Recognition": {
+        "Domain": "www.microsoft.com"
+      }
+    },
+    {
+      "Id": "binding-trojan-reality",
+      "ProtocolId": "protocol-trojan",
+      "CarrierId": "carrier-reality",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 100,
+      "Recognition": {
+        "Domain": "trojan.microsoft.com"
+      }
+    },
+    {
+      "Id": "binding-vmess-reality",
+      "ProtocolId": "protocol-vmess",
+      "CarrierId": "carrier-reality",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 100,
+      "Recognition": {
+        "Domain": "vmess.microsoft.com"
+      }
+    },
+    {
+      "Id": "binding-shadowsocks2022-shadowtls",
+      "ProtocolId": "protocol-shadowsocks2022",
+      "CarrierId": "carrier-shadowtls",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 90,
+      "Recognition": {}
+    },
+    {
+      "Id": "binding-shadowsocks2022-restls",
+      "ProtocolId": "protocol-shadowsocks2022",
+      "CarrierId": "carrier-restls",
+      "TcpEnabled": true,
+      "UdpEnabled": false,
+      "MuxModes": [],
+      "Priority": 80,
+      "Recognition": {}
+    }
+  ],
+  "Accounts": [
+    {
+      "Id": "local",
+      "SecretRef": "",
+      "Credential": "PrismPreview-106-20260914",
+      "Credentials": {
+        "Http": "PrismPreview-106-20260914",
+        "Socks5": "PrismPreview-106-20260914",
+        "Vless": "123e4567-e89b-12d3-a456-426614174000",
+        "Trojan": "PrismPreview-106-20260914",
+        "Vmess": "123e4567-e89b-12d3-a456-426614174000",
+        "Shadowsocks2022": "5n5ESu953i/pjIp02oZvHA==",
+        "AnyTls": "anytls_password",
+        "hysteria2": "hysteria2_password"
+      }
+    }
+  ],
+  "Secrets": {
+    "secret/reality/private-key": "aMl1wCriCu0HYEmMAXvv3xHyrw3xXtN4k5k4jbuejmg",
+    "secret/shadowtls/password": "shadowtls_password",
+    "secret/restls/password": "restls_password",
+    "secret/hysteria2/password": "hysteria2_password"
+  },
+  "Routes": [],
+  "Dns": {
+    "Servers": [
+      "223.5.5.5",
+      "119.29.29.29",
+      "1.1.1.1"
+    ],
+    "Timeout": 2000
+  },
+  "Logging": {
+    "Level": "Info",
+    "Directory": "logs",
+    "FileName": "preview-matrix.log",
+    "Console": true,
+    "RotateBytes": 67108864,
+    "RotateFiles": 8,
+    "FlushIntervalMs": 250
+  },
+  "Trace": {
+    "IncludeCorrelation": true,
+    "IncludeWorker": true,
+    "IncludeSession": true,
+    "IncludeStream": false
+  },
+  "Statistics": {
+    "Enabled": true,
+    "Interval": 1000
+  },
+  "Operations": {
+    "Enabled": true,
+    "Endpoint": "127.0.0.1:19090",
+    "Timeout": 1000
+  },
+  "HotReload": {
+    "Enabled": true,
+    "AckTimeout": 5000
+  },
+  "Shutdown": {
+    "Timeout": 5000
+  }
+}

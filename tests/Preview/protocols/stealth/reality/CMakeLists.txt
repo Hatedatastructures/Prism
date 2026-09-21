@@ -1,3 +1,7 @@
 # reality 子模块
 AddPreviewTest(RealityKeygenTest.cpp)
 target_link_libraries(RealityKeygenTest PRIVATE PreviewProtocolReality PreviewTestSupport)
+AddPreviewTest(RealityCertificateTest.cpp)
+target_link_libraries(RealityCertificateTest PRIVATE PreviewProtocolReality PreviewTestSupport)
+AddPreviewTest(RealityResponseTest.cpp)
+target_link_libraries(RealityResponseTest PRIVATE PreviewProtocolReality PreviewTestSupport)

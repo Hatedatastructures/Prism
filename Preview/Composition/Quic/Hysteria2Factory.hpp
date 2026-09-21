@@ -16,6 +16,7 @@
 #include <boost/asio/detached.hpp>
 
 #include <array>
+#include <atomic>
 #include <charconv>
 #include <chrono>
 #include <cstddef>
@@ -53,6 +54,8 @@ namespace Preview::Composition::Quic
 
     namespace Detail
     {
+
+        inline std::atomic_uint64_t Hysteria2RawSessionSequence{1};
 
         enum class RawParseResult : std::uint8_t
         {
@@ -218,6 +221,23 @@ namespace Preview::Composition::Quic
                 }
                 co_return;
             }
+            const auto SessionId = Hysteria2RawSessionSequence.fetch_add(
+                1, std::memory_order_relaxed);
+            const auto WriteLog = [Admission, SessionId](std::string Message)
+            {
+                if (!Admission->Logger)
+                {
+                    return;
+                }
+                const auto Prefix = std::string("[Carrier=quic] [Protocol=") + Admission->Protocol +
+                                    "] carrier=quic protocol=" + Admission->Protocol +
+                                    " session_id=quic-" + std::to_string(SessionId);
+                (void)Admission->Logger->TryWrite(
+                    Preview::Diagnose::LogLevel::Info,
+                    Prefix + " " + std::move(Message),
+                    Admission->Trace ? Admission->Trace->Snapshot()
+                                     : Preview::Statistics::TraceSnapshot{});
+            };
 
             auto Inbound = std::make_shared<Preview::Quic::StreamAdapter>(
                 Provider->Executor(), Provider);
@@ -259,9 +279,12 @@ namespace Preview::Composition::Quic
             Target.Host.assign(Request.Target.Host);
             Target.Port.assign(std::to_string(Request.Target.Port));
             Target.Positive = true;
+            const auto TargetText = std::string(Target.Host.data(), Target.Host.size()) + ":" +
+                                    std::string(Target.Port.data(), Target.Port.size());
             auto [DialError, Outbound] = co_await Admission->Dial(Target);
             if (Preview::Fault::Failed(DialError) || !Outbound)
             {
+                WriteLog("stage=relay outcome=failure fault=dial target=" + TargetText);
                 Inbound->Close();
                 co_return;
             }
@@ -299,7 +322,11 @@ namespace Preview::Composition::Quic
             RelayContext.traffic = Admission->Metrics.get();
             Preview::Middleware::Builtin::RelayMiddleware Relay(
                 nullptr, std::chrono::milliseconds(0));
-            (void)co_await Relay.Handle(RelayContext.Inbound, RelayContext);
+            const auto RelayError = co_await Relay.Handle(RelayContext.Inbound, RelayContext);
+            WriteLog(
+                std::string("stage=relay outcome=") +
+                (RelayError == Preview::Fault::Code::Success ? "success" : "failure") +
+                " target=" + TargetText);
         }
 
     } // namespace Detail

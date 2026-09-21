@@ -43,6 +43,16 @@ function Get-OwnedPrismProcess {
     return $Snapshot
 }
 
+function Get-FreeLoopbackPort {
+    $Listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    try {
+        $Listener.Start()
+        return ([System.Net.IPEndPoint]$Listener.LocalEndpoint).Port
+    } finally {
+        $Listener.Stop()
+    }
+}
+
 $ExistingPrism = @(Get-CimInstance Win32_Process -Filter "Name='Prism.exe'" -ErrorAction SilentlyContinue)
 if ($ExistingPrism.Count -gt 0) {
     $Details = $ExistingPrism | ForEach-Object {
@@ -52,16 +62,38 @@ if ($ExistingPrism.Count -gt 0) {
 }
 
 $prism = $null
+$IsolatedConfig = $null
+$GatewayPort = Get-FreeLoopbackPort
+$GoArguments = @()
 try {
     $logRoot = Join-Path $env:TEMP ("prism_gotest_" + [System.Guid]::NewGuid().ToString("N"))
     $stdoutLog = "$logRoot.stdout.log"
     $stderrLog = "$logRoot.stderr.log"
     Write-Output "PRISM_LOG=$stdoutLog"
     Write-Output "PRISM_ERROR_LOG=$stderrLog"
-    $prism = Start-Process -FilePath $ResolvedPrismPath -ArgumentList $Config -PassThru -WindowStyle Hidden `
-        -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
     $GoName = [System.IO.Path]::GetFileNameWithoutExtension($ResolvedGoPath)
     $RequiresTcp = $GoName -match 'vmess'
+    $LaunchConfig = $Config
+
+    if ($RequiresTcp -or $GoName -match '^(hysteria2|tuic)$') {
+        $ConfigObject = Get-Content -LiteralPath $Config -Raw | ConvertFrom-Json
+        $ConfigObject.agent.addressable.host = '127.0.0.1'
+        $ConfigObject.agent.addressable.port = $GatewayPort
+        $IsolatedConfig = Join-Path $env:TEMP ("prism_gotest_config_{0}.json" -f [Guid]::NewGuid().ToString('N'))
+        $JsonText = $ConfigObject | ConvertTo-Json -Depth 100
+        $Utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+        [System.IO.File]::WriteAllText($IsolatedConfig, $JsonText, $Utf8NoBom)
+        $LaunchConfig = $IsolatedConfig
+        if ($GoName -match '^(hysteria2|tuic)$') {
+            $GoArguments = @('-server', ("127.0.0.1:{0}" -f $GatewayPort))
+        }
+        else {
+            $GoArguments = @(("127.0.0.1:{0}" -f $GatewayPort))
+        }
+    }
+
+    $prism = Start-Process -FilePath $ResolvedPrismPath -ArgumentList $LaunchConfig -PassThru -WindowStyle Hidden `
+        -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
 
     # VMess/Sing-VMess 使用 TCP；Hysteria2/TUIC 使用 QUIC gateway。
     # QUIC readiness 要求日志、进程身份和连续稳定采样；Windows 没有
@@ -80,7 +112,7 @@ try {
             exit 1
         }
 
-        $tcp = netstat -ano | Select-String "TCP" | Select-String ":8081" |
+        $tcp = netstat -ano | Select-String "TCP" | Select-String (":{0}" -f $GatewayPort) |
             Select-String "LISTENING"
         $GatewayReady = $false
         if (Test-Path -LiteralPath $stdoutLog) {
@@ -95,7 +127,7 @@ try {
             $UdpReady = $false
             try {
                 $UdpObserved = $true
-                $UdpReady = @(Get-NetUDPEndpoint -LocalPort 8081 -ErrorAction Stop |
+                $UdpReady = @(Get-NetUDPEndpoint -LocalPort $GatewayPort -ErrorAction Stop |
                     Where-Object { $_.OwningProcess -eq $prism.Id }).Count -gt 0
             }
             catch {
@@ -120,7 +152,7 @@ try {
         exit 1
     }
 
-    & $ResolvedGoPath
+    & $ResolvedGoPath @GoArguments
     $GoExitCode = $LASTEXITCODE
     exit $GoExitCode
 }
@@ -141,5 +173,8 @@ finally {
         elseif (-not $prism.HasExited) {
             Write-Error "Refusing cleanup because Prism PID $($prism.Id) no longer matches the owned executable path"
         }
+    }
+    if ($IsolatedConfig -and (Test-Path -LiteralPath $IsolatedConfig)) {
+        Remove-Item -LiteralPath $IsolatedConfig -Force -ErrorAction SilentlyContinue
     }
 }

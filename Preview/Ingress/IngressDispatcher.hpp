@@ -55,6 +55,14 @@ namespace Preview::Ingress
                 }
                 QuicRejected = true;
             }
+            else if (Packet.Classification.Kind == DatagramKind::Quic)
+            {
+                // 未配置 QUIC gateway 时，QUIC-like 数据报必须回落到普通
+                // datagram handler：SS2022 等协议的包头是密文，其首字节可能
+                // 偶然命中 QUIC short header 的 fixed bit，静默丢弃会造成
+                // 随机丢包。
+                QuicRejected = true;
+            }
             if ((Packet.Classification.Kind == DatagramKind::Ordinary || QuicRejected) &&
                 Options_.Datagram)
             {

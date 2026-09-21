@@ -183,19 +183,17 @@
                     }
                     if (Route.Applicable)
                     {
-                        if (!Route.Candidate)
+                        if (Route.Candidate)
                         {
-                            SetStatus(ResultStatusRequest{&Result, RecognitionStatus::NoMatch, {}});
-                            co_return CompleteBufferResult(Result, Buffer, Inbound);
-                        }
-                        Active.erase(std::remove_if(Active.begin(), Active.end(),
-                                                    [&Route](const auto Id)
-                                                    { return Id != *Route.Candidate; }),
-                                     Active.end());
-                        if (Active.empty())
-                        {
-                            SetStatus(ResultStatusRequest{&Result, RecognitionStatus::NoMatch, {}});
-                            co_return CompleteBufferResult(Result, Buffer, Inbound);
+                            Active.erase(std::remove_if(Active.begin(), Active.end(),
+                                                        [&Route](const auto Id)
+                                                        { return Id != *Route.Candidate; }),
+                                         Active.end());
+                            if (Active.empty())
+                            {
+                                SetStatus(ResultStatusRequest{&Result, RecognitionStatus::NoMatch, {}});
+                                co_return CompleteBufferResult(Result, Buffer, Inbound);
+                            }
                         }
                     }
                 }
@@ -278,13 +276,22 @@
                     SetStatus(ResultStatusRequest{&Result, RecognitionStatus::NoMatch, {}});
                     co_return CompleteBufferResult(Result, Buffer, Inbound);
                 }
-                if (TrialResult.Prepared.size() != 1)
+                const auto Winner = std::max_element(
+                    TrialResult.Prepared.begin(), TrialResult.Prepared.end(),
+                    [](const auto &Left, const auto &Right)
+                    { return Left.Handle().Priority() < Right.Handle().Priority(); });
+                const auto WinnerPriority = Winner->Handle().Priority();
+                const auto WinnerCount = static_cast<std::size_t>(std::count_if(
+                    TrialResult.Prepared.begin(), TrialResult.Prepared.end(),
+                    [WinnerPriority](const auto &Candidate)
+                    { return Candidate.Handle().Priority() == WinnerPriority; }));
+                if (WinnerCount != 1)
                 {
                     SetStatus(ResultStatusRequest{&Result, RecognitionStatus::Ambiguous, {}});
                     co_return CompleteBufferResult(Result, Buffer, Inbound);
                 }
 
-                auto Prepared = std::move(TrialResult.Prepared.front());
+                auto Prepared = std::move(*Winner);
                 const auto Handle = Prepared.Handle();
                 InitializeResult(Result, Handle);
                 co_return co_await CommitPrepared(CommitRequest{std::move(Result), std::move(Prepared), Handle,
@@ -381,7 +388,7 @@
                     continue;
                 }
                 Result.Active.push_back(Id);
-                if (State == MatchState::Structural)
+                if (State == MatchState::Structural || State == MatchState::Authenticated)
                 {
                     Result.Structural.push_back(Id);
                 }

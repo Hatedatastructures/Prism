@@ -1541,7 +1541,10 @@ namespace Preview::Quic::Detail
         {
             return DecodeResult::Fatal;
         }
-        if (ServerReady_ && !InitializedServer && !AcceptsPacket(Data))
+        // Registry 已将该 Native server 绑定到唯一的 peer。握手期间客户端
+        // 可能在 long/short header 之间轮换 destination CID；在握手完成前
+        // 不能用最终 CID 白名单丢弃合法的后续 Initial/Handshake 包。
+        if (ServerReady_ && !InitializedServer && HandshakeSignaled_ && !AcceptsPacket(Data))
         {
             return DecodeResult::Ignored;
         }

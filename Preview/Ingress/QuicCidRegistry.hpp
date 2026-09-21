@@ -37,6 +37,7 @@ namespace Preview::Ingress
         {
             ServerFactory Factory;
             SharedQuicAdmissionContext Context;
+            std::vector<SharedQuicAdmissionContext> Contexts;
         };
 
         explicit QuicCidRegistry(Options OptionsValue) : Options_(std::move(OptionsValue)) {}
@@ -68,8 +69,11 @@ namespace Preview::Ingress
                     return false;
                 }
             }
-            Entries_.emplace(Key, Entry{std::move(ConnectionId), std::move(Server), Peer,
-                                        std::move(Context)});
+            Entries_.emplace(
+                Key,
+                Entry{std::move(ConnectionId),
+                      std::vector<Candidate>{Candidate{std::move(Server), std::move(Context)}},
+                      Peer});
             return true;
         }
 
@@ -85,14 +89,12 @@ namespace Preview::Ingress
                 // CID is known. The source endpoint is the remaining stable
                 // owner key, so route it to the existing connection rather
                 // than dropping a valid newly-issued CID.
-                for (const auto &[ExistingKey, Existing] : Entries_)
+                for (auto &[ExistingKey, Existing] : Entries_)
                 {
                     (void)ExistingKey;
-                    if (Existing.Peer == Packet.Peer && Existing.Server)
+                    if (Existing.Peer == Packet.Peer)
                     {
-                        const auto Accepted = Existing.Server->ReceivePacket(
-                            Packet.Payload, Packet.Peer);
-                        return Accepted;
+                        return Dispatch(Existing, Packet.Payload, Packet.Peer);
                     }
                 }
                 return false;
@@ -100,11 +102,7 @@ namespace Preview::Ingress
             const auto Key = MakeKey(Packet.Classification.ConnectionIdBytes);
             if (const auto It = Entries_.find(Key); It != Entries_.end())
             {
-                if (It->second.Peer != Packet.Peer)
-                {
-                    return false;
-                }
-                return It->second.Server->ReceivePacket(Packet.Payload, Packet.Peer);
+                return Dispatch(It->second, Packet.Payload, Packet.Peer);
             }
             // QUIC servers may advertise new destination CIDs during a live
             // connection. Keep those aliases attached to the existing server
@@ -113,39 +111,72 @@ namespace Preview::Ingress
             for (const auto &[ExistingKey, Existing] : Entries_)
             {
                 (void)ExistingKey;
-                if (Existing.Peer == Packet.Peer && Existing.Server && Existing.Context)
+                if (Existing.Peer == Packet.Peer && !Existing.Candidates.empty())
                 {
                     auto AliasId = Cid(Packet.Classification.ConnectionIdBytes.begin(),
                                        Packet.Classification.ConnectionIdBytes.end());
                     Entries_.emplace(
                         Key,
-                        Entry{std::move(AliasId), Existing.Server, Existing.Peer, Existing.Context});
-                    const auto Accepted = Existing.Server->ReceivePacket(Packet.Payload, Packet.Peer);
-                    return Accepted;
+                        Entry{std::move(AliasId), Existing.Candidates, Existing.Peer});
+                    const auto It = Entries_.find(Key);
+                    return It != Entries_.end() &&
+                           Dispatch(It->second, Packet.Payload, Packet.Peer);
                 }
             }
             if (!Options_.Factory)
             {
                 return false;
             }
-            if (!Options_.Context || !Options_.Context->Ready())
+            for (const auto &[ExistingKey, Existing] : Entries_)
             {
+                (void)ExistingKey;
+                if (Existing.Peer == Packet.Peer)
+                {
+                    return false;
+                }
+            }
+
+            const auto Contexts = AdmissionContexts();
+            if (Contexts.size() != 1U)
+            {
+                // A shared listener must select one QUIC protocol before
+                // passing bytes into ngtcp2. Trialing Hysteria2 and TUIC
+                // engines with the same Initial/Handshake packet can corrupt
+                // one engine while the other candidate is still alive.
                 return false;
             }
-            auto Server = Options_.Factory(Packet.Classification.ConnectionIdBytes,
-                                           Packet.Peer, Options_.Context);
-            if (!Server || !Register(Cid(Packet.Classification.ConnectionIdBytes.begin(),
-                                          Packet.Classification.ConnectionIdBytes.end()),
-                                     Server, Packet.Peer, Options_.Context))
+
+            Entry NewEntry;
+            NewEntry.Id = Cid(Packet.Classification.ConnectionIdBytes.begin(),
+                               Packet.Classification.ConnectionIdBytes.end());
+            NewEntry.Peer = Packet.Peer;
+            for (const auto &Context : Contexts)
             {
+                if (!Context || !Context->Ready())
+                {
+                    continue;
+                }
+                auto Server = Options_.Factory(Packet.Classification.ConnectionIdBytes,
+                                               Packet.Peer, Context);
                 if (Server)
                 {
-                    Server->Close();
+                    NewEntry.Candidates.push_back(Candidate{std::move(Server), Context});
                 }
+            }
+            if (NewEntry.Candidates.empty())
+            {
                 return false;
             }
-            Server->Start();
-            return Server->ReceivePacket(Packet.Payload, Packet.Peer);
+            const auto [It, Inserted] = Entries_.emplace(std::move(Key), std::move(NewEntry));
+            if (!Inserted)
+            {
+                return false;
+            }
+            for (const auto &CandidateValue : It->second.Candidates)
+            {
+                CandidateValue.Server->Start();
+            }
+            return Dispatch(It->second, Packet.Payload, Packet.Peer);
         }
 
         [[nodiscard]] auto Remove(std::span<const std::byte> ConnectionId) -> bool
@@ -155,7 +186,7 @@ namespace Preview::Ingress
             {
                 return false;
             }
-            It->second.Server->Close();
+            CloseCandidates(It->second);
             Entries_.erase(It);
             return true;
         }
@@ -169,7 +200,7 @@ namespace Preview::Ingress
             for (auto &[Key, Entry] : Entries_)
             {
                 (void)Key;
-                Entry.Server->Close();
+                CloseCandidates(Entry);
             }
             Entries_.clear();
         }
@@ -180,17 +211,82 @@ namespace Preview::Ingress
             -> SharedQuicAdmissionContext
         {
             const auto It = Entries_.find(MakeKey(ConnectionId));
-            return It == Entries_.end() ? SharedQuicAdmissionContext{} : It->second.Context;
+            if (It == Entries_.end() || It->second.Candidates.empty())
+            {
+                return {};
+            }
+            return It->second.Candidates.front().Context;
         }
 
     private:
+        struct Candidate final
+        {
+            std::shared_ptr<Preview::Quic::Server> Server;
+            SharedQuicAdmissionContext Context;
+        };
+
         struct Entry final
         {
             Cid Id;
-            std::shared_ptr<Preview::Quic::Server> Server;
+            std::vector<Candidate> Candidates;
             Udp::endpoint Peer;
-            SharedQuicAdmissionContext Context;
         };
+
+        [[nodiscard]] auto AdmissionContexts() const
+            -> std::vector<SharedQuicAdmissionContext>
+        {
+            if (!Options_.Contexts.empty())
+            {
+                return Options_.Contexts;
+            }
+            if (Options_.Context)
+            {
+                return {Options_.Context};
+            }
+            return {};
+        }
+
+        [[nodiscard]] static auto Dispatch(
+            Entry &EntryValue,
+            const std::span<const std::byte> Payload,
+            const Udp::endpoint &Peer) -> bool
+        {
+            if (EntryValue.Peer != Peer)
+            {
+                return false;
+            }
+            bool Accepted = false;
+            for (auto It = EntryValue.Candidates.begin(); It != EntryValue.Candidates.end();)
+            {
+                if (!It->Server || It->Server->Health().Closed)
+                {
+                    It = EntryValue.Candidates.erase(It);
+                    continue;
+                }
+                Accepted = It->Server->ReceivePacket(Payload, Peer) || Accepted;
+                if (It->Server->Health().Closed)
+                {
+                    It = EntryValue.Candidates.erase(It);
+                }
+                else
+                {
+                    ++It;
+                }
+            }
+            return Accepted;
+        }
+
+        static auto CloseCandidates(Entry &EntryValue) noexcept -> void
+        {
+            for (auto &CandidateValue : EntryValue.Candidates)
+            {
+                if (CandidateValue.Server)
+                {
+                    CandidateValue.Server->Close();
+                }
+            }
+            EntryValue.Candidates.clear();
+        }
 
         [[nodiscard]] static auto MakeKey(std::span<const std::byte> ConnectionId) -> std::string
         {

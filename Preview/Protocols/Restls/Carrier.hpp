@@ -151,7 +151,6 @@ namespace Preview::Restls
                                           "Restls first encrypted frame write failed"),
                         std::move(Original), std::move(Replay), std::move(State));
                 }
-
                 auto Metadata = Carrier::CarrierMetadata{
                     .Kind = Carrier::CarrierKind::Restls,
                     .WireComplete = true,

@@ -5,6 +5,7 @@
 
 #include <Preview/Protocols/Reality/Carrier.hpp>
 #include <Preview/Protocols/Reality/Codec.hpp>
+#include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Transport/MemoryStream.hpp>
 
 #include <boost/asio/co_spawn.hpp>
@@ -284,6 +285,28 @@ namespace
         return FoundVersion && FoundKeyShare ? std::optional{std::move(Result)} : std::nullopt;
     }
 
+    auto HasHandshakeMessage(const Bytes &Plaintext, const std::uint8_t Type) -> bool
+    {
+        std::size_t Offset = 0;
+        while (Offset + 4 <= Plaintext.size())
+        {
+            const auto Length = static_cast<std::size_t>(Plaintext[Offset + 1]) << 16 |
+                                  static_cast<std::size_t>(Plaintext[Offset + 2]) << 8 |
+                                  Plaintext[Offset + 3];
+            Offset += 4;
+            if (Length > Plaintext.size() - Offset)
+            {
+                return false;
+            }
+            if (Plaintext[Offset - 4] == Type)
+            {
+                return true;
+            }
+            Offset += Length;
+        }
+        return false;
+    }
+
     struct WireRunResult final
     {
         bool Completed{false};
@@ -354,6 +377,14 @@ namespace
             Fail("encrypted server handshake invalid");
             co_return;
         }
+        if (!HasHandshakeMessage(ServerPlain.Data, 0x08) ||
+            !HasHandshakeMessage(ServerPlain.Data, 0x0B) ||
+            !HasHandshakeMessage(ServerPlain.Data, 0x0F) ||
+            !HasHandshakeMessage(ServerPlain.Data, 0x14))
+        {
+            Fail("Reality server handshake is incomplete");
+            co_return;
+        }
 
         const auto TranscriptParts = std::array<std::span<const std::uint8_t>, 3>{
             Hello.Message, ServerHello->Message, ServerPlain.Data};
@@ -367,6 +398,15 @@ namespace
         if (FinishedError != Preview::Error::None)
         {
             Fail("client finished encryption failed");
+            co_return;
+        }
+        const std::array<std::uint8_t, 6> ClientChangeCipherSpec{
+            0x14, 0x03, 0x03, 0x00, 0x01, 0x01};
+        if (co_await WriteAll(
+                Transport, std::as_bytes(std::span<const std::uint8_t>(ClientChangeCipherSpec))) !=
+            Preview::Error::None)
+        {
+            Fail("client ccs write failed");
             co_return;
         }
         if (co_await WriteAll(Transport, std::as_bytes(std::span<const std::uint8_t>(FinishedRecord))) !=
@@ -518,6 +558,85 @@ namespace
         EXPECT_FALSE(Failure);
         EXPECT_TRUE(ServerResult.Completed) << ServerResult.Failure;
         EXPECT_TRUE(ClientResult.Completed) << ClientResult.Failure;
+    }
+
+    TEST(RealityCarrier, TlsRecordStreamReportsCleanEofAtRecordBoundary)
+    {
+        Net::io_context Context;
+        auto [ServerStream, ClientStream] = Preview::MakeMemoryPair(Context.get_executor());
+        auto ServerTransport = std::make_shared<Preview::MemoryStream>(std::move(ServerStream));
+        auto ClientTransport = std::make_shared<Preview::MemoryStream>(std::move(ClientStream));
+        ClientTransport->Shutdown();
+
+        auto Stream = std::make_shared<Preview::Reality::Detail::TlsRecordStream>(
+            ServerTransport, Preview::Reality::Tls13Keys{});
+        std::array<std::byte, 1> Buffer{};
+        std::error_code ReadError;
+        std::size_t Read = 0;
+        std::exception_ptr Failure;
+        Net::co_spawn(
+            Context,
+            [&]() -> Net::awaitable<void>
+            {
+                Read = co_await Stream->async_read_some(Buffer, ReadError);
+                co_return;
+            }(),
+            [&](std::exception_ptr Error)
+            {
+                Failure = std::move(Error);
+            });
+        Context.run();
+
+        EXPECT_FALSE(Failure);
+        EXPECT_EQ(Read, 0U);
+        EXPECT_EQ(Preview::Fault::ToCode(ReadError), Preview::Fault::Code::Eof);
+    }
+
+    TEST(RealityCarrier, TlsRecordStreamTreatsCloseNotifyAsCleanEof)
+    {
+        Net::io_context Context;
+        auto [ServerStream, ClientStream] = Preview::MakeMemoryPair(Context.get_executor());
+        auto ServerTransport = std::make_shared<Preview::MemoryStream>(std::move(ServerStream));
+        auto ClientTransport = std::make_shared<Preview::MemoryStream>(std::move(ClientStream));
+
+        Preview::Reality::Tls13Keys Keys;
+        for (std::size_t Index = 0; Index < Keys.ClientApplicationKey.size(); ++Index)
+        {
+            Keys.ClientApplicationKey[Index] = static_cast<std::uint8_t>(Index + 1);
+        }
+        for (std::size_t Index = 0; Index < Keys.ClientApplicationIv.size(); ++Index)
+        {
+            Keys.ClientApplicationIv[Index] = static_cast<std::uint8_t>(0x20 + Index);
+        }
+        const auto [EncryptError, AlertRecord] = Preview::Reality::EncryptTlsRecord(
+            Keys.ClientApplicationKey, Keys.ClientApplicationIv, 0, 0x15, {});
+        ASSERT_EQ(EncryptError, Preview::Error::None);
+
+        auto Stream = std::make_shared<Preview::Reality::Detail::TlsRecordStream>(
+            ServerTransport, Keys);
+        std::array<std::byte, 1> Buffer{};
+        std::error_code ReadError;
+        std::size_t Read = 0;
+        std::exception_ptr Failure;
+        Net::co_spawn(
+            Context,
+            [&]() -> Net::awaitable<void>
+            {
+                co_await ClientTransport->WriteAll(std::span<const std::uint8_t>(AlertRecord));
+                ClientTransport->Shutdown();
+                Read = co_await Stream->async_read_some(Buffer, ReadError);
+                Context.stop();
+                co_return;
+            }(),
+            [&](std::exception_ptr Error)
+            {
+                Failure = std::move(Error);
+            });
+        Context.run();
+
+        EXPECT_FALSE(Failure);
+        EXPECT_EQ(Read, 0U);
+        EXPECT_EQ(Preview::Fault::ToCode(ReadError), Preview::Fault::Code::Eof);
     }
 
 } // namespace

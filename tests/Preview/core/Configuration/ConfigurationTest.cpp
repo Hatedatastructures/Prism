@@ -1273,6 +1273,24 @@ namespace
         EXPECT_EQ(MismatchedResult.error().Path, "Listeners.Quic[0]");
     }
 
+    TEST(PreviewTaskDConfiguration, RejectsMultipleProtocolsOnSharedQuicListener)
+    {
+        const auto TwoQuicProtocols = ReplaceFirst(
+            std::string(ValidJson),
+            "\"Protocols\": [],",
+            "\"Protocols\": [{\"Id\":\"protocol-hysteria2\",\"Name\":\"hysteria2\",\"Builtin\":\"hysteria2\",\"Requires\":[],\"Quic\":{\"Alpn\":\"h3\",\"ServerName\":\"hysteria.example\",\"CredentialSecretRef\":\"secret/quic/password\",\"MaxStreams\":32,\"MaxDatagrams\":64}},{\"Id\":\"protocol-tuic\",\"Name\":\"tuic\",\"Builtin\":\"tuic\",\"Requires\":[],\"Quic\":{\"Alpn\":\"h3\",\"ServerName\":\"tuic.example\",\"CredentialSecretRef\":\"secret/quic/password\",\"MaxStreams\":32,\"MaxDatagrams\":64,\"Uuid\":\"123e4567-e89b-12d3-a456-426614174000\"}}],");
+        const auto Json = ReplaceFirst(
+            TwoQuicProtocols,
+            "\"Accounts\":",
+            "\"Secrets\": {\"secret/quic/password\": \"quic-password\"},\n  \"Accounts\":");
+
+        const auto Result = Parser::ParseJson(Json);
+
+        ASSERT_FALSE(Result.has_value());
+        EXPECT_EQ(Result.error().Code, ConfigurationErrorCode::InvalidValue);
+        EXPECT_EQ(Result.error().Path, "Protocols[1].Builtin");
+    }
+
     TEST(PreviewTaskDConfiguration, ValidatesOperationsEndpointAddressAndPort)
     {
         const auto InvalidAddress = ReplaceFirst(
@@ -1387,6 +1405,44 @@ namespace
             EXPECT_EQ(std::to_integer<unsigned int>(Secret[Index]), ExpectedBytes[Index]);
         }
         EXPECT_EQ((*Result)->Configuration().Accounts.back().SecretRef, "secret/account");
+    }
+
+    TEST(PreviewTask3Generation, AcceptsInlineConfigurationSecretsWithoutExternalResolver)
+    {
+        auto Json = ReplaceFirst(
+            std::string(ValidJson),
+            "  \"Routes\": [],",
+            "  \"Secrets\": {\"secret/account\": \"inline-value\"},\n"
+            "  \"Routes\": [],");
+        Json = ReplaceFirst(
+            std::move(Json),
+            "  \"Accounts\": [{\"Id\": \"local\", \"SecretRef\": \"\", \"Credential\": \"local-token\"}],",
+            "  \"Accounts\": [{\"Id\": \"local\", \"SecretRef\": \"\", \"Credential\": \"local-token\"},"
+            " {\"Id\": \"inline-account\", \"SecretRef\": \"secret/account\", \"Credential\": \"\"}],");
+        const auto Parsed = Parser::Parse({.Json = Json});
+        ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
+
+        auto Configuration = *Parsed;
+
+        bool ExternalResolverCalled = false;
+        GenerationBuildOptions Options;
+        Options.Configuration = std::move(Configuration);
+        Options.Builtins = MakeBuiltinSnapshot(CapabilitySet{});
+        Options.SecretResolver = [&ExternalResolverCalled](std::string_view)
+            -> std::optional<std::string>
+        {
+            ExternalResolverCalled = true;
+            return std::nullopt;
+        };
+
+        const auto Result = GenerationBuilder::Build(std::move(Options));
+
+        ASSERT_TRUE(Result.has_value()) << Result.error().Message;
+        EXPECT_FALSE(ExternalResolverCalled);
+        const auto Secret = (*Result)->LookupSecret("secret/account");
+        ASSERT_EQ(Secret.size(), 12U);
+        EXPECT_TRUE(std::equal(
+            Secret.begin(), Secret.end(), reinterpret_cast<const std::byte *>("inline-value")));
     }
 
     TEST(PreviewTask3Generation, CachesRepeatedCarrierSecretReferences)

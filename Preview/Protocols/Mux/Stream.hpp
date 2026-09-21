@@ -26,6 +26,8 @@
 
 #include <Preview/Foundation/ByteSpan.hpp>
 #include <Preview/Foundation/Error.hpp>
+#include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Fault/Compatible.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Mux/Session.hpp>
 
@@ -83,7 +85,14 @@ namespace Preview::Mux
             const auto N = co_await Handle_->ReadSome(AsU8(Buffer));
             if (N == 0)
             {
-                ErrorCode = make_error_code(Error::UnexpectedEof);
+                if (Handle_->IsPeerEof())
+                {
+                    ErrorCode = Preview::Fault::make_error_code(Preview::Fault::Code::Eof);
+                }
+                else
+                {
+                    ErrorCode = make_error_code(Error::UnexpectedEof);
+                }
             }
             else
             {

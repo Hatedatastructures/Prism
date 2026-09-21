@@ -12,3 +12,5 @@ target_link_libraries(Ss2022ConnErrorMatrix PRIVATE PreviewTransport PreviewProt
 target_compile_options(Ss2022CodecDeep PRIVATE -O0 -fno-inline)
 AddPreviewTest(Ss2022DgramSession.cpp)
 target_link_libraries(Ss2022DgramSession PRIVATE PreviewProtocolShadowsocks2022 PreviewTestSupport)
+AddPreviewTest(Ss2022UdpWireOrder.cpp)
+target_link_libraries(Ss2022UdpWireOrder PRIVATE PreviewProtocolShadowsocks2022 PreviewTestSupport)

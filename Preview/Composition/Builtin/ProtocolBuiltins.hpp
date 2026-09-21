@@ -116,6 +116,8 @@ namespace Preview::Composition::Builtin
             CapabilitySet{Capability::Core, Capability::Request, Capability::Transport};
         inline constexpr auto StreamDatagramProvides =
             CapabilitySet{Capability::Stream, Capability::Datagram};
+        inline constexpr auto StreamDatagramMultiplexProvides =
+            CapabilitySet{Capability::Stream, Capability::Datagram, Capability::Multiplex};
         inline constexpr auto QuicProvides =
             CapabilitySet{Capability::Quic, Capability::Alpn};
         inline constexpr auto CarrierRequires =
@@ -127,15 +129,15 @@ namespace Preview::Composition::Builtin
             StaticBuiltinSpec{"protocol", StaticBuiltinName::Http,
                               CapabilitySet{Capability::Stream}, ProtocolRequires},
             StaticBuiltinSpec{"protocol", StaticBuiltinName::Socks5,
-                              StreamDatagramProvides, ProtocolRequires},
+                              StreamDatagramMultiplexProvides, ProtocolRequires},
             StaticBuiltinSpec{"protocol", StaticBuiltinName::Vless,
-                              StreamDatagramProvides, ProtocolRequires},
+                              StreamDatagramMultiplexProvides, ProtocolRequires},
             StaticBuiltinSpec{"protocol", StaticBuiltinName::Trojan,
-                              StreamDatagramProvides, ProtocolRequires},
+                              StreamDatagramMultiplexProvides, ProtocolRequires},
             StaticBuiltinSpec{"protocol", StaticBuiltinName::Vmess,
-                              StreamDatagramProvides, ProtocolRequires},
+                              StreamDatagramMultiplexProvides, ProtocolRequires},
             StaticBuiltinSpec{"protocol", StaticBuiltinName::Shadowsocks2022,
-                              StreamDatagramProvides, ProtocolRequires},
+                              StreamDatagramMultiplexProvides, ProtocolRequires},
             StaticBuiltinSpec{"protocol", StaticBuiltinName::Hysteria2,
                               QuicProvides, ProtocolRequires | CapabilitySet{Capability::Quic}},
             StaticBuiltinSpec{"protocol", StaticBuiltinName::Tuic,

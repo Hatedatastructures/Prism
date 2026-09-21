@@ -17,6 +17,7 @@
 
 #include <Preview/Composition/Recognition/CandidateFactory.hpp>
 #include <Preview/Composition/Recognition/LayeredCandidateFactory.hpp>
+#include <Preview/Composition/Recognition/TrusttunnelCandidate.hpp>
 #include <Preview/Composition/Settings/Loader.hpp>
 
 namespace Preview::Composition::Recognition
@@ -208,6 +209,21 @@ namespace Preview::Composition::Recognition
             auto Shared = std::make_shared<const Preview::Anytls::ServerConfig>(std::move(Config));
             return Register("anytls", [Shared](const auto &Candidate) -> std::optional<CandidateBinding>
                             { return CandidateFactory::MakeAnytls(detail::OptionsFrom(Candidate), *Shared); });
+        }
+
+        [[nodiscard]] auto RegisterTrusttunnel(
+            std::shared_ptr<boost::asio::ssl::context> NativeTls,
+            Preview::Trusttunnel::ServerConfig Config = {}) -> bool
+        {
+            auto SharedTls = std::move(NativeTls);
+            auto SharedConfig = std::make_shared<const Preview::Trusttunnel::ServerConfig>(
+                std::move(Config));
+            return Register("trusttunnel", [SharedTls, SharedConfig](const auto &Candidate)
+                            -> std::optional<CandidateBinding>
+                            {
+                                return MakeTrusttunnelCandidate(
+                                    detail::OptionsFrom(Candidate), SharedTls, *SharedConfig);
+                            });
         }
 
         /**

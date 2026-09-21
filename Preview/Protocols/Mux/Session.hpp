@@ -148,8 +148,8 @@ namespace Preview::Mux
                 }
                 co_return nullptr;
             }
-            auto Handle = std::make_shared<StreamHandle<Memory>>(Id, this->shared_from_this(), Ex_,
-                                                                 Opt_.MaxStreamRxBytes);
+            auto Handle = std::make_shared<StreamHandle<Memory>>(
+                Id, this->shared_from_this(), Ex_, Opt_.MaxStreamRxBytes);
             Streams_[Id] = Handle;
             InitializeLocalFlow(Id);
             if (co_await RawWrite(C::BuildOpen(Id)))
@@ -374,6 +374,10 @@ namespace Preview::Mux
         auto Close() -> Net::awaitable<void>
         {
             co_await Net::dispatch(Ex_, Net::use_awaitable);
+            if (SessionClosed_)
+            {
+                co_return;
+            }
             Teardown();
             CancelRaw();
             if (Raw_)
@@ -394,7 +398,7 @@ namespace Preview::Mux
             Net::dispatch(Ex_, [Self]()
             {
                 Self->Canceled_ = true;
-                Self->AcceptNotify_.try_send(boost::system::error_code{});
+                Self->CancelRawOnExecutor();
             });
         }
 
@@ -701,14 +705,20 @@ namespace Preview::Mux
                         SessionValue->CancelRaw();
                     }
                 };
+                const auto FailureSelf = Self;
                 if (!Control_->Start(std::move(Request), RunFrame(std::move(Self))))
                 {
-                    SessionClosed_ = true;
-                    CancelRaw();
-                    if (Raw_)
-                    {
-                        Raw_->Close();
-                    }
+                    Net::dispatch(
+                        Ex_,
+                        [FailureSelf]
+                        {
+                            FailureSelf->SessionClosed_ = true;
+                            FailureSelf->CancelRawOnExecutor();
+                            if (FailureSelf->Raw_)
+                            {
+                                FailureSelf->Raw_->Close();
+                            }
+                        });
                 }
                 return;
             }
@@ -743,10 +753,16 @@ namespace Preview::Mux
                         SessionValue->CancelRaw();
                     }
                 };
+                const auto FailureSelf = Self;
                 if (!Control_->Start(std::move(Request), RunWriter(std::move(Self))))
                 {
-                    WriterRunning_ = false;
-                    FailPendingWrites(make_error_code(Error::Canceled));
+                    Net::dispatch(
+                        Ex_,
+                        [FailureSelf]
+                        {
+                            FailureSelf->WriterRunning_ = false;
+                            FailureSelf->FailPendingWrites(make_error_code(Error::Canceled));
+                        });
                 }
                 return;
             }
@@ -798,6 +814,7 @@ namespace Preview::Mux
          */
         auto WriteLoop() -> Net::awaitable<void>
         {
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             std::shared_ptr<WriteRequest> Request;
             try
             {
@@ -859,6 +876,7 @@ namespace Preview::Mux
          */
         auto FrameLoop() -> Net::awaitable<void>
         {
+            co_await Net::dispatch(Ex_, Net::use_awaitable);
             std::vector<std::uint8_t> Header(C::HeaderLen);
             std::vector<std::uint8_t> Payload;
 
@@ -1141,6 +1159,10 @@ namespace Preview::Mux
         auto Teardown(
             const ProtocolEc &PendingError = make_error_code(Error::BrokenPipe)) -> void
         {
+            if (SessionClosed_)
+            {
+                return;
+            }
             SessionClosed_ = true;
             SessionRxBytes_ = 0;
             AcceptNotify_.try_send(boost::system::error_code{});
@@ -1242,6 +1264,18 @@ namespace Preview::Mux
         }
 
         auto CancelRaw() noexcept -> void
+        {
+            try
+            {
+                auto Self = this->shared_from_this();
+                Net::dispatch(Ex_, [Self] { Self->CancelRawOnExecutor(); });
+            }
+            catch (...)
+            {
+            }
+        }
+
+        auto CancelRawOnExecutor() noexcept -> void
         {
             if (Raw_)
             {

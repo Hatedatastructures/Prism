@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <utility>
 
 #include <boost/asio/awaitable.hpp>
 
@@ -69,9 +70,16 @@ namespace Preview::Middleware
          *          运行时调用方并阻止协议层依赖完整 Context。
          */
         using TrafficSink = Preview::Foundation::TrafficSink;
+        using DialFn = std::function<boost::asio::awaitable<
+            std::pair<Preview::Fault::Code, Preview::SharedTransmission>>(
+                const Preview::Network::Target &)>;
 
         /// 流量统计回调（relay 中间件消费）
         TrafficSink *traffic{nullptr};
+        /// 流量统计 owner；供 detached 数据面子协程跨越 Session 生命周期持有。
+        std::shared_ptr<TrafficSink> TrafficOwner{};
+        /// 当前 Session 的 worker-owned 出站拨号函数；mux 子流必须继承该 owner。
+        DialFn Dial{};
         /// 认证通过后的用户标识（Auth 中间件写入，relay 统计按此聚合）
         std::string identity{};
         /// 协议接入器已完成凭据认证时，跳过通用 Auth 中间件
@@ -172,6 +180,23 @@ namespace Preview::Middleware
             {
                 DataPlane.Root = Preview::Runtime::StreamDataPlane{Inbound};
             }
+        }
+
+        [[nodiscard]] auto PromoteToMux(std::string Mode) -> bool
+        {
+            if (!DataPlane.IsStream())
+            {
+                return false;
+            }
+            const auto Transport = DataPlane.Transport();
+            if (!Transport || Mode.empty())
+            {
+                return false;
+            }
+            DataPlane.Root = Preview::Runtime::MuxRootDataPlane{
+                Transport, std::move(Mode)};
+            Inbound = Transport;
+            return true;
         }
     };
 

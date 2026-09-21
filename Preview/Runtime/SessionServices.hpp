@@ -14,6 +14,8 @@
 #include <chrono>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <string>
 
 #include <Preview/Foundation/Authenticator.hpp>
 #include <Preview/Foundation/Utility/Diagnose/Logger.hpp>
@@ -55,6 +57,8 @@ namespace Preview::Runtime
         using ResolveCandidateFn = std::function<ProtocolAcceptFn(Preview::Recognition::CandidateId)>;
         using PrepareFn = std::function<Net::awaitable<Preview::Fault::Code>(
             const Preview::Recognition::RecognizeResult &, Preview::Middleware::Context &)>;
+        using MuxModeResolverFn = std::function<std::optional<std::string>(
+            const Preview::Recognition::RecognizeResult &, const Preview::Middleware::Context &)>;
         using UdpServiceFn = std::function<Net::awaitable<Preview::Fault::Code>(
             Preview::Middleware::Context &)>;
         using DatagramServiceFn = Preview::Runtime::DatagramDataPlane::ServiceFn;
@@ -88,6 +92,8 @@ namespace Preview::Runtime
         ResolveCandidateFn Resolver{};
         /// 识别结果装配函数
         PrepareFn Prepare{};
+        /// 按 winner candidate 解析绑定级 generic mux 模式；在 typed data-plane 物化后调用。
+        MuxModeResolverFn ResolveMuxMode{};
         /// 多路复用函数
         Preview::Middleware::Builtin::MuxMiddleware::MuxFn Mux{};
         /// 拨号函数

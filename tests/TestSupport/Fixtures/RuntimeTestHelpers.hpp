@@ -35,6 +35,7 @@
 
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Net/Dialer/Dialer.hpp>
+#include <Preview/Net/Target.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Foundation/Utility/TrafficSink.hpp>
 

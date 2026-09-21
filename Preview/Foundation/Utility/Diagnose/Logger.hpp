@@ -231,8 +231,17 @@ namespace Preview::Diagnose
                 Entry.Event = ExtractEvent(Message);
                 Entry.Message = Preview::Statistics::RedactSensitiveText(Message);
 
-                std::unique_lock Lock(Mutex_, std::try_to_lock);
-                if (!Lock.owns_lock())
+                const bool AccessClose = Level == LogLevel::Access &&
+                                         Entry.Event == "session_closed" &&
+                                         (Entry.Trace.Session.has_value() ||
+                                          Entry.Trace.Correlation.has_value());
+                std::unique_lock Lock(Mutex_, std::defer_lock);
+                if (AccessClose)
+                {
+                    // 关闭记录用于生命周期审计，不能因热路径 try-lock 丢失。
+                    Lock.lock();
+                }
+                else if (!Lock.try_lock())
                 {
                     return Drop();
                 }
@@ -244,10 +253,6 @@ namespace Preview::Diagnose
                 {
                     return Drop();
                 }
-                const bool AccessClose = Level == LogLevel::Access &&
-                                         Entry.Event == "session_closed" &&
-                                         (Entry.Trace.Session.has_value() ||
-                                          Entry.Trace.Correlation.has_value());
                 const auto AccessCloseKeyValue = AccessClose
                                                      ? std::optional<AccessCloseKey>{
                                                            MakeAccessCloseKey(Entry.Trace)}

@@ -268,6 +268,7 @@ namespace Preview::Application::Configuration
         std::vector<ProtocolBindingConfiguration> ProtocolBindings;
         RecognitionConfiguration Recognition{};
         std::vector<AccountConfiguration> Accounts;
+        std::map<std::string, std::string> Secrets;
         std::vector<RouteConfiguration> Routes;
         DnsConfiguration Dns{};
         LoggingConfiguration Logging{};

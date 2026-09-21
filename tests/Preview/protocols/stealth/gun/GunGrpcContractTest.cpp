@@ -12,6 +12,7 @@
 #include <Preview/Protocols/Gun/Grpc.hpp>
 #include <Preview/Transport/MemoryStream.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -49,6 +50,20 @@ TEST(GunGrpcContract, DecodesFragmentedGrpcMessage)
               Payload);
 }
 
+TEST(GunGrpcContract, AcceptsGrpcGoHeadersWithoutTeTrailerHint)
+{
+    auto Headers = Preview::Gun::Grpc::MakeRequestHeaders(
+        "/GunService/Tun", "edge.example");
+    Headers.erase(std::remove_if(Headers.begin(), Headers.end(),
+                                 [](const auto &Header) { return Header.Name == "te"; }),
+                  Headers.end());
+
+    const auto Request = Preview::Gun::Grpc::ParseRequestHeaders(Headers);
+
+    ASSERT_TRUE(Request.has_value());
+    EXPECT_TRUE(Request->Te.empty());
+}
+
 TEST(GunGrpcContract, BuildsSuccessfulTrailers)
 {
     const auto Headers = Preview::Gun::Grpc::MakeResponseTrailers(0);
@@ -58,6 +73,20 @@ TEST(GunGrpcContract, BuildsSuccessfulTrailers)
     EXPECT_EQ(Headers[0].value, "0");
     EXPECT_EQ(Headers[1].Name, "grpc-message");
     EXPECT_TRUE(Headers[1].value.empty());
+}
+
+TEST(GunGrpcContract, WrapsAndUnwrapsTunMessageEnvelope)
+{
+    constexpr std::string_view Payload{"vless-over-mihomo-gun"};
+    const auto Wire = Preview::Gun::Grpc::EncodeTunMessage(
+        std::span<const std::byte>(reinterpret_cast<const std::byte *>(Payload.data()),
+                                   Payload.size()));
+    const auto Decoded = Preview::Gun::Grpc::DecodeTunMessage(Wire);
+
+    ASSERT_TRUE(Decoded.has_value());
+    EXPECT_EQ(std::string_view(reinterpret_cast<const char *>(Decoded->data()),
+                               Decoded->size()),
+              Payload);
 }
 
 TEST(GunGrpcContract, RoundTripsUnaryMessageAndGrpcStatus)

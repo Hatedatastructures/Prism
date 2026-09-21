@@ -21,13 +21,13 @@ namespace psm::protocol::shadowsocks
         // 时间戳验证窗口（秒），与 config::timestamp_window 默认值一致
         static constexpr std::int64_t timestamp_window = 30;
 
-        // 解析 MainHeader 公共部分后的数据（地址 + padding + payload）
+        // 解析 MainHeader 公共部分后的数据（padding + 地址 + payload）
         // body_plain 解密后的明文缓冲区，result.payload span 将指向其子区间
         auto parse_body_after_timestamp(const memory::vector<std::uint8_t> &body_plain, udp_dec_pkt &result)
             -> fault::code
         {
-            // Type(1) + Timestamp(8) + 至少 1 字节 ATYP
-            if (body_plain.size() < 10)
+            // Type(1) + Timestamp(8) + PaddingLen(2) + 至少 1 字节 ATYP
+            if (body_plain.size() < 12)
             {
                 return fault::code::bad_message;
             }
@@ -57,8 +57,22 @@ namespace psm::protocol::shadowsocks
                 return fault::code::timestamp_expired;
             }
 
-            // 解析地址
             std::size_t offset = 9;
+            if (offset + 2 > body_plain.size())
+            {
+                return fault::code::bad_message;
+            }
+
+            const auto padding_len =
+                static_cast<std::uint16_t>(body_plain[offset] << 8 | body_plain[offset + 1]);
+            offset += 2;
+            if (padding_len > body_plain.size() - offset)
+            {
+                return fault::code::bad_message;
+            }
+            offset += padding_len;
+
+            // SIP022 / sing-shadowsocks: padding precedes the address.
             const auto [addr_ec, addr_result] = format::parse_addr_port(
                 std::span<const std::uint8_t>(body_plain.data() + offset, body_plain.size() - offset));
             if (addr_ec != fault::code::success)
@@ -67,14 +81,6 @@ namespace psm::protocol::shadowsocks
             }
 
             offset += addr_result.offset;
-
-            // 跳过 padding
-            if (offset + 2 <= body_plain.size())
-            {
-                const auto padding_len =
-                    static_cast<std::uint16_t>(body_plain[offset] << 8 | body_plain[offset + 1]);
-                offset += 2 + padding_len;
-            }
 
             // 提取 payload（零拷贝：span 指向 body_plain 子区间）
             result.destination_address = addr_result.addr;

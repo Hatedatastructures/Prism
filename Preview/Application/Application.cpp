@@ -7,15 +7,21 @@
 
 #include <Preview/Account/Account.hpp>
 #include <Preview/Application/Configuration/Configuration.hpp>
+#include <Preview/Application/TrustTunnelCredentials.hpp>
+#include <Preview/Application/RealityCarrierRegistration.hpp>
+#include <Preview/Application/TuicAdmission.hpp>
 #include <Preview/Composition/Adapters/Anytls.hpp>
 #include <Preview/Composition/AnytlsService.hpp>
 #include <Preview/Composition/Adapters/ProtocolAdapter.hpp>
 #include <Preview/Composition/Quic/Hysteria2Factory.hpp>
 #include <Preview/Composition/Quic/TuicFactory.hpp>
+#include <Preview/Composition/SingMux.hpp>
+#include <Preview/Composition/VlessXudp.hpp>
 #include <Preview/Composition/UdpService.hpp>
 #include <Preview/Composition/Builtin/ProtocolBuiltins.hpp>
 #include <Preview/Composition/Protocol/ProtocolCatalog.hpp>
 #include <Preview/Composition/Recognition/CandidateFactory.hpp>
+#include <Preview/Composition/Recognition/RestlsCarrier.hpp>
 #include <Preview/Composition/Recognition/SettingsBuilder.hpp>
 #include <Preview/Composition/Recognition/ShadowtlsCarrier.hpp>
 #include <Preview/Composition/Recognition/TlsCandidateFactory.hpp>
@@ -40,6 +46,7 @@
 #include <Preview/Protocols/Ws/Ws.hpp>
 #include <Preview/Transport/Encrypted.hpp>
 #include <Preview/Runtime/Listener.hpp>
+#include <Preview/Runtime/Middleware/Builtin/Relay.hpp>
 #include <Preview/Runtime/Process.hpp>
 #include <Preview/Runtime/Session.hpp>
 #include <Preview/Runtime/SessionServices.hpp>
@@ -72,6 +79,7 @@
 #include <system_error>
 #include <thread>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -84,12 +92,114 @@ namespace Preview::Application
     namespace Builtin = Preview::Composition::Builtin;
     namespace Recognition = Preview::Composition::Recognition;
     namespace Core = Preview::Recognition;
-    namespace Settings = Preview::Settings;
+        namespace Settings = Preview::Settings;
 
     namespace
     {
 
         using ProtocolAcceptFn = Preview::Runtime::SessionServices::ProtocolAcceptFn;
+        using BindingMuxModeMap =
+            std::unordered_map<Core::CandidateId, Preview::Composition::MuxMode>;
+
+        auto LogMuxStreamStage(
+            const Preview::Runtime::SharedSessionServices &Services,
+            const Preview::Lifecycle::TaskIdentity &Identity,
+            const std::string_view Stage,
+            const std::string_view Outcome,
+            const Preview::Fault::Code Code,
+            const Preview::Network::Target &Target,
+            const std::string_view Details = {}) -> void
+        {
+            if (!Services || !Services->Logger)
+            {
+                return;
+            }
+            const auto TargetText = std::string(Target.Host.data(), Target.Host.size()) + ":" +
+                                    std::string(Target.Port.data(), Target.Port.size());
+            const auto DetailText = Details.empty() ? std::string{} : " " + std::string(Details);
+            (void)Services->Logger->TryWrite(
+                Preview::Diagnose::LogLevel::Info,
+                std::string("[Carrier=mux] [Stage=mux_stream] stage=") + std::string(Stage) +
+                    " outcome=" + std::string(Outcome) + " stream_id=" +
+                    std::to_string(Identity.StreamId.Value()) + " target=" + TargetText +
+                    " fault_code=" + std::string(Preview::Fault::Describe(Code)) + DetailText,
+                Preview::Statistics::TraceSnapshot{});
+        }
+
+        [[nodiscard]] auto MakeMuxStreamHandler(
+            const Preview::Runtime::SharedSessionServices &Services,
+            Preview::Middleware::Context::DialFn Dial)
+            -> Preview::Composition::MuxServiceOptions::StreamHandler
+        {
+            return [Services, Dial = std::move(Dial)](
+                       Preview::SharedTransmission Stream,
+                       const Preview::Lifecycle::TaskIdentity &Identity)
+                -> Net::awaitable<Preview::Fault::Code>
+            {
+                if (const auto *SingStream = dynamic_cast<
+                        const Preview::Composition::SingMux::ServerStream *>(Stream.get()))
+                {
+                    if (!Dial)
+                    {
+                        co_return Preview::Fault::Code::NotSupported;
+                    }
+                    const auto Target = SingStream->Target();
+                    LogMuxStreamStage(Services, Identity, "dial", "started",
+                                      Preview::Fault::Code::Success, Target);
+                    auto [DialCode, Outbound] = co_await Dial(Target);
+                    LogMuxStreamStage(Services, Identity, "dial",
+                                      Preview::Fault::Failed(DialCode) ? "failure" : "success",
+                                      DialCode, Target);
+                    if (Preview::Fault::Failed(DialCode) || !Outbound)
+                    {
+                        co_return DialCode == Preview::Fault::Code::Success
+                                      ? Preview::Fault::Code::BadGateway
+                                      : DialCode;
+                    }
+                    Preview::Middleware::Context RelayContext;
+                    RelayContext.TaskIdentity = Identity;
+                    RelayContext.Control = std::make_shared<Preview::Runtime::SessionControl>(
+                        Stream->Executor());
+                    RelayContext.Inbound = std::move(Stream);
+                    RelayContext.Outbound = std::move(Outbound);
+                    RelayContext.Target = Target;
+                    RelayContext.traffic = Services->Traffic.get();
+                    RelayContext.TrafficOwner = Services->Traffic;
+                    RelayContext.identity = std::to_string(Identity.SessionId.Value());
+                    Preview::Middleware::Builtin::RelayMiddleware Relay(
+                        nullptr, Services->RelayIdleTimeout);
+                    LogMuxStreamStage(Services, Identity, "relay", "started",
+                                      Preview::Fault::Code::Success, Target);
+                    const auto RelayCode = co_await Relay.Handle(RelayContext.Inbound, RelayContext);
+                    const auto &Totals = Relay.LastTotals();
+                    const auto &Faults = Relay.LastDirectionFaults();
+                    const auto RelayDetails =
+                        "up_bytes=" + std::to_string(Totals[0]) +
+                        " down_bytes=" + std::to_string(Totals[1]) +
+                        " up_ec=" + std::to_string(Faults[0].value()) +
+                        " down_ec=" + std::to_string(Faults[1].value());
+                    LogMuxStreamStage(Services, Identity, "relay",
+                                      Preview::Fault::Failed(RelayCode) ? "failure" : "success",
+                                      RelayCode, Target, RelayDetails);
+                    co_return RelayCode;
+                }
+
+                auto ChildControl = std::make_shared<Preview::Runtime::SessionControl>(
+                    Stream ? Stream->Executor() : Net::any_io_executor{});
+                ChildControl->SetIdentity(Preview::Lifecycle::TaskIdentity{
+                    Preview::TaskId{}, Identity.SessionId, Identity.StreamId,
+                    Identity.WorkerId, Identity.Generation});
+                auto ChildServices = std::make_shared<Preview::Runtime::SessionServices>(*Services);
+                ChildServices->Dial = Dial;
+                Preview::Runtime::SessionOptions ChildOptions;
+                ChildOptions.Services = std::move(ChildServices);
+                ChildOptions.Control = std::move(ChildControl);
+                Preview::Runtime::Session Child(std::move(ChildOptions));
+                co_return co_await Child.Run(std::move(Stream));
+            };
+        }
+
+        inline std::atomic_uint64_t QuicSessionSequence{1};
 
         enum class RuntimePhase : std::uint8_t
         {
@@ -212,6 +322,7 @@ namespace Preview::Application
             Vmess,
             Shadowsocks2022,
             AnyTls,
+            TrustTunnel,
         };
 
         [[nodiscard]] auto ParseStaticProtocol(const std::string_view Name)
@@ -234,6 +345,8 @@ namespace Preview::Application
             case Preview::Recognition::ProtocolType::Shadowsocks:
                 return StaticProtocol::Shadowsocks2022;
             case Preview::Recognition::ProtocolType::AnyTls: return StaticProtocol::AnyTls;
+            case Preview::Recognition::ProtocolType::TrustTunnel:
+                return StaticProtocol::TrustTunnel;
             default: return std::nullopt;
             }
         }
@@ -243,29 +356,40 @@ namespace Preview::Application
             return Name == "hysteria2" || Name == "tuic";
         }
 
-        [[nodiscard]] auto ConfiguredMuxMode(
-            const Configuration::PreviewConfiguration &ConfigurationValue)
-            -> Preview::Composition::MuxMode
+        [[nodiscard]] auto ConfiguredBindingMuxMode(
+            const Configuration::ProtocolBindingConfiguration &Binding,
+            const std::string_view ProtocolName)
+            -> std::optional<Preview::Composition::MuxMode>
         {
-            for (const auto &Binding : ConfigurationValue.ProtocolBindings)
+            if (ProtocolName == "anytls")
             {
-                for (const auto &Mode : Binding.MuxModes)
+                return std::nullopt;
+            }
+            for (const auto &ModeName : Binding.MuxModes)
+            {
+                const auto Mode = Preview::Composition::ParseMuxMode(ModeName);
+                if (!Mode || *Mode == Preview::Composition::MuxMode::Auto)
                 {
-                    if (Mode == "H2Mux")
-                    {
-                        return Preview::Composition::MuxMode::H2Mux;
-                    }
-                    if (Mode == "Yamux")
-                    {
-                        return Preview::Composition::MuxMode::Yamux;
-                    }
-                    if (Mode == "Smux")
-                    {
-                        return Preview::Composition::MuxMode::Smux;
-                    }
+                    continue;
+                }
+                if (*Mode == Preview::Composition::MuxMode::H2Mux)
+                {
+                    return Mode;
+                }
+                if (*Mode == Preview::Composition::MuxMode::Yamux)
+                {
+                    return Mode;
                 }
             }
-            return Preview::Composition::MuxMode::Auto;
+            for (const auto &ModeName : Binding.MuxModes)
+            {
+                if (const auto Mode = Preview::Composition::ParseMuxMode(ModeName);
+                    Mode && *Mode == Preview::Composition::MuxMode::Smux)
+                {
+                    return Mode;
+                }
+            }
+            return std::nullopt;
         }
 
         [[nodiscard]] auto ParseHexDigit(const char Character) noexcept -> int
@@ -331,6 +455,7 @@ namespace Preview::Application
             case StaticProtocol::Vmess: return "Vmess";
             case StaticProtocol::Shadowsocks2022: return "Shadowsocks2022";
             case StaticProtocol::AnyTls: return "AnyTls";
+            case StaticProtocol::TrustTunnel: return "TrustTunnel";
             }
             return {};
         }
@@ -384,6 +509,7 @@ namespace Preview::Application
             case StaticProtocol::Http:
             case StaticProtocol::Socks5:
             case StaticProtocol::AnyTls:
+            case StaticProtocol::TrustTunnel:
                 return Preview::Account::Credential::Password(Credential);
             case StaticProtocol::Trojan:
                 return Preview::Account::Credential::Token(
@@ -667,10 +793,11 @@ namespace Preview::Application
                     "Protocols",
                     "PrismPreview supports at most 127 TCP protocol candidates"));
             }
-            std::array<bool, 7> SeenProtocols{};
+            std::array<bool, 8> SeenProtocols{};
             std::array<bool, 2> SeenQuicProtocols{};
             std::optional<std::size_t> AnyTlsIndex;
             bool HasTcpProtocol = false;
+            bool HasTrustTunnelProtocol = false;
             bool HasQuicProtocol = false;
             for (std::size_t Index = 0; Index < ConfigurationValue.Protocols.size(); ++Index)
             {
@@ -704,7 +831,7 @@ namespace Preview::Application
                         StartupErrorCode::UnsupportedService,
                         Path,
                         "PrismPreview only provides static TCP factories for http, socks5, vless, "
-                        "trojan, vmess, shadowsocks2022 and anytls; Hysteria2 and TUIC require QUIC fronts"));
+                        "trojan, vmess, shadowsocks2022, anytls and trusttunnel; Hysteria2 and TUIC require QUIC fronts"));
                 }
                 const auto ProtocolIndex = static_cast<std::size_t>(*ProtocolValue);
                 if (SeenProtocols[ProtocolIndex])
@@ -719,6 +846,10 @@ namespace Preview::Application
                 if (*ProtocolValue == StaticProtocol::AnyTls)
                 {
                     AnyTlsIndex = Index;
+                }
+                if (*ProtocolValue == StaticProtocol::TrustTunnel)
+                {
+                    HasTrustTunnelProtocol = true;
                 }
             }
             if (!HasTcpProtocol)
@@ -735,22 +866,24 @@ namespace Preview::Application
                     "Listeners.Quic",
                     "a configured Hysteria2 or TUIC protocol requires a QUIC listener"));
             }
+            if (HasTrustTunnelProtocol &&
+                !(ConfigurationValue.NativeTls.Enabled &&
+                  !ConfigurationValue.NativeTls.CertificateFile.empty() &&
+                  !ConfigurationValue.NativeTls.PrivateKeyFile.empty()))
+            {
+                return std::unexpected(MakeStartupError(
+                    StartupErrorCode::UnsupportedService,
+                    "Protocols",
+                    "TrustTunnel requires an enabled NativeTls certificate and private key"));
+            }
             bool HasNativeCarrier = false;
             for (std::size_t Index = 0; Index < ConfigurationValue.Carriers.size(); ++Index)
             {
                 const auto &Carrier = ConfigurationValue.Carriers[Index];
-                if (Carrier.Builtin == "reality" || Carrier.Builtin == "restls")
-                {
-                    return std::unexpected(MakeStartupError(
-                        StartupErrorCode::UnsupportedService,
-                        "Carriers[" + std::to_string(Index) + "]",
-                        Carrier.Builtin == "reality"
-                            ? "Reality requires a complete TLS 1.3 wire engine and ClientHello mutation"
-                            : "Restls requires a completed TLS handover before carrier commit"));
-                }
                 if (Carrier.Builtin != "native" && Carrier.Builtin != "ws" &&
                     Carrier.Builtin != "websocket" && Carrier.Builtin != "shadowtls" &&
-                    Carrier.Builtin != "xhttp" && Carrier.Builtin != "gun")
+                    Carrier.Builtin != "restls" && Carrier.Builtin != "xhttp" && Carrier.Builtin != "gun" &&
+                    Carrier.Builtin != "reality")
                 {
                     return std::unexpected(MakeStartupError(
                         StartupErrorCode::UnsupportedService,
@@ -1054,15 +1187,18 @@ namespace Preview::Application
             const Net::any_io_executor &Executor,
             const std::shared_ptr<Preview::Network::Dns::Resolver> &Resolver,
             Preview::Middleware::Builtin::DialMiddleware::DialFn Dial,
-            const std::shared_ptr<Preview::Foundation::TrafficSink> &Metrics)
+            const std::shared_ptr<Preview::Foundation::TrafficSink> &Metrics,
+            Preview::Diagnose::Logger::Owner Logger,
+            std::shared_ptr<Preview::Diagnose::TraceContext> Trace)
             -> std::expected<Preview::Ingress::SharedQuicAdmissionContext, StartupError>
         {
-            if (!Protocol.Quic || Protocol.Builtin != "hysteria2")
+            if (!Protocol.Quic ||
+                (Protocol.Builtin != "hysteria2" && Protocol.Builtin != "tuic"))
             {
                 return std::unexpected(MakeStartupError(
                     StartupErrorCode::UnsupportedService,
                     "Protocols." + Protocol.Id,
-                    "only Hysteria2 is currently wired to the Native QUIC factory"));
+                    "only Hysteria2 and TUIC are wired to the Native QUIC factory"));
             }
             const auto Credential = MakeQuicCredentialContext(Generation, Protocol);
             if (!Credential)
@@ -1071,6 +1207,7 @@ namespace Preview::Application
             }
 
             auto Mutable = std::make_shared<Preview::Ingress::QuicAdmissionContext>();
+            Mutable->Protocol = Protocol.Builtin;
             Mutable->AccountId = Credential->AccountId;
             Mutable->Credential = Credential->Credential;
             Mutable->Authenticator = Credential->Authenticator;
@@ -1082,6 +1219,27 @@ namespace Preview::Application
             Mutable->Resolver = Resolver;
             Mutable->Dial = std::move(Dial);
             Mutable->Metrics = Metrics;
+            Mutable->Logger = std::move(Logger);
+            Mutable->Trace = std::move(Trace);
+            if (Protocol.Builtin == "tuic")
+            {
+                // TUIC 的认证 token 是由 TLS exporter 计算的 32-byte wire 值，
+                // 不能交给面向账户静态凭据的 ProtocolAuthenticator 比较。
+                Mutable->Authenticator.reset();
+                const auto Uuid = ParseUuid(Protocol.Quic->Uuid);
+                if (!Uuid)
+                {
+                    return std::unexpected(MakeStartupError(
+                        StartupErrorCode::InvalidConfiguration,
+                        "Protocols." + Protocol.Id + ".Quic.Uuid",
+                        "TUIC requires a valid UUID"));
+                }
+                const auto CredentialView = Credential->Credential->View();
+                Mutable->TuicUuid = *Uuid;
+                Mutable->TuicPassword.assign(
+                    reinterpret_cast<const char *>(CredentialView.Bytes().data()),
+                    CredentialView.Bytes().size());
+            }
             const Preview::Ingress::SharedQuicAdmissionContext Shared = Mutable;
             const std::weak_ptr<const Preview::Ingress::QuicAdmissionContext> Weak = Shared;
 
@@ -1099,15 +1257,34 @@ namespace Preview::Application
                     }
                     co_return;
                 }
+                const auto SessionId = QuicSessionSequence.fetch_add(1, std::memory_order_relaxed);
+                const auto WriteLog = [Context, SessionId](std::string Message)
+                {
+                    if (!Context->Logger)
+                    {
+                        return;
+                    }
+                    const auto Prefix = std::string("[Carrier=quic] [Protocol=") + Context->Protocol +
+                                        "] carrier=quic protocol=" + Context->Protocol +
+                                        " session_id=quic-" + std::to_string(SessionId);
+                    (void)Context->Logger->TryWrite(
+                        Preview::Diagnose::LogLevel::Info,
+                        Prefix + " " + std::move(Message),
+                        Context->Trace ? Context->Trace->Snapshot()
+                                       : Preview::Statistics::TraceSnapshot{});
+                };
                 Preview::Network::Target Target;
                 Target.Host.assign(Message.dst.Host.data(), Message.dst.Host.size());
                 Target.Port.assign(std::to_string(Message.dst.Port));
+                const auto TargetText = std::string(Target.Host.data(), Target.Host.size()) + ":" +
+                                        std::string(Target.Port.data(), Target.Port.size());
                 const auto AccountId = Connection->AccountId();
                 auto Lease = Connection->TakeAuthLease();
                 const auto Identity = std::string(Connection->Identity());
                 auto [DialError, Outbound] = co_await Context->Dial(Target);
                 if (Preview::Fault::Failed(DialError) || !Outbound)
                 {
+                    WriteLog("stage=relay outcome=failure fault=dial target=" + TargetText);
                     Connection->Close();
                     co_return;
                 }
@@ -1126,7 +1303,11 @@ namespace Preview::Application
                 SessionContext.traffic = Context->Metrics.get();
                 Preview::Middleware::Builtin::RelayMiddleware Relay(
                     nullptr, std::chrono::milliseconds(0));
-                (void)co_await Relay.Handle(SessionContext.Inbound, SessionContext);
+                const auto RelayError = co_await Relay.Handle(SessionContext.Inbound, SessionContext);
+                WriteLog(
+                    std::string("stage=relay outcome=") +
+                    (RelayError == Preview::Fault::Code::Success ? "success" : "failure") +
+                    " target=" + TargetText);
             };
 
             Mutable->Hysteria2Datagram = [Weak](Preview::Hysteria2::SharedDgram Datagram)
@@ -1205,6 +1386,11 @@ namespace Preview::Application
                         std::to_string(Context->AccountId.Value()), Uploaded, Downloaded);
                 }
             };
+            if (Protocol.Builtin == "tuic")
+            {
+                Mutable->TuicStream = TuicAdmission::MakeStreamHandler(Weak);
+                Mutable->TuicDatagram = TuicAdmission::MakeDatagramHandler(Weak);
+            }
             return Shared;
         }
 
@@ -1212,8 +1398,8 @@ namespace Preview::Application
         {
             const Configuration::PreviewConfiguration &ConfigurationValue;
             const Configuration::ConfigurationGeneration &Generation;
-            std::array<Preview::SharedAuthenticator, 7> Authenticators;
-            std::array<std::shared_ptr<const Preview::Account::AccountDirectory>, 7> Accounts;
+            std::array<Preview::SharedAuthenticator, 8> Authenticators;
+            std::array<std::shared_ptr<const Preview::Account::AccountDirectory>, 8> Accounts;
             std::shared_ptr<Net::ssl::context> NativeTls;
             Preview::Middleware::Builtin::DialMiddleware::DialFn Dial;
         };
@@ -1307,6 +1493,7 @@ namespace Preview::Application
             case StaticProtocol::Vmess: return "vmess";
             case StaticProtocol::Shadowsocks2022: return "ss2022";
             case StaticProtocol::AnyTls: return "anytls";
+            case StaticProtocol::TrustTunnel: return "trusttunnel";
             }
             return {};
         }
@@ -1355,7 +1542,8 @@ namespace Preview::Application
             const std::vector<std::string> &Alpn,
             const std::uint16_t Priority,
             const bool Fallback,
-            const std::string_view CarrierId = {}) -> void
+            const std::string_view CarrierId = {},
+            const std::string_view CandidateSuffix = {}) -> void
         {
             if (CandidateId == Core::InvalidCandidate)
             {
@@ -1381,6 +1569,11 @@ namespace Preview::Application
                 Candidate.Name += "+";
                 Candidate.Name += Scheme;
             }
+            if (!CandidateSuffix.empty())
+            {
+                Candidate.Name += "+";
+                Candidate.Name += CandidateSuffix;
+            }
             Result.Candidates.push_back(std::move(Candidate));
         }
 
@@ -1405,7 +1598,8 @@ namespace Preview::Application
         }
 
         [[nodiscard]] auto MakeTcpRecognitionConfig(
-            const Configuration::PreviewConfiguration &ConfigurationValue)
+            const Configuration::PreviewConfiguration &ConfigurationValue,
+            BindingMuxModeMap &BindingMuxModes)
             -> Settings::RecognitionConfig
         {
             Settings::RecognitionConfig Result;
@@ -1429,6 +1623,11 @@ namespace Preview::Application
                     ConfigurationValue.Recognition.ConfiguredCandidate);
             }
             Result.Budget.MaxCandidates = static_cast<std::uint16_t>(Core::CandidateBitmap::Capacity);
+            // Carrier bindings can add distinct TLS candidates for the same
+            // protocol (for example native SS2022 alongside ShadowTLS).
+            // Keep trial selection bounded, but leave enough room for the
+            // explicit SNI route to reach its authenticated candidate.
+            Result.Budget.MaxCryptoTrials = 16;
             Result.Candidates.reserve(ConfigurationValue.ProtocolBindings.empty()
                                           ? ConfigurationValue.Protocols.size()
                                           : ConfigurationValue.ProtocolBindings.size());
@@ -1469,9 +1668,15 @@ namespace Preview::Application
                         const auto Priority = ClampCandidatePriority(Binding.Priority);
                         AppendRecognitionCandidate(
                             Result, CandidateId, Configured, {}, {}, {},
-                            Priority, Binding.Recognition.Fallback);
+                            Priority, Binding.Recognition.Fallback, {},
+                            Binding.MuxModes.empty() ? std::string_view{} :
+                                                        std::string_view(Binding.Id));
                         if (CandidateId != BindingCandidate)
                         {
+                            if (const auto Mode = ConfiguredBindingMuxMode(Binding, Configured.Name))
+                            {
+                                BindingMuxModes.emplace(BindingCandidate, *Mode);
+                            }
                             AppendBindingRecognitionRoute(
                                 Result, Binding.Recognition, BindingCandidate);
                             SelectDefault(
@@ -1499,9 +1704,15 @@ namespace Preview::Application
                         Carrier->Match.ServerNames, Carrier->Match.Alpn,
                         Priority,
                         Binding.Recognition.Fallback || Carrier->Match.Fallback || NativeFallback,
-                        Carrier->Id);
+                        Carrier->Id,
+                        Binding.MuxModes.empty() ? std::string_view{} :
+                                                    std::string_view(Binding.Id));
                     if (CandidateId != BindingCandidate)
                     {
+                        if (const auto Mode = ConfiguredBindingMuxMode(Binding, Configured.Name))
+                        {
+                            BindingMuxModes.emplace(BindingCandidate, *Mode);
+                        }
                         AppendBindingRecognitionRoute(
                             Result, Binding.Recognition, BindingCandidate);
                         SelectDefault(
@@ -1525,8 +1736,14 @@ namespace Preview::Application
             {
                 return std::unexpected(Core::ProfileError::MissingResolver);
             }
-            std::vector<Recognition::CandidateBinding> Bindings;
-            Bindings.reserve(Config.Candidates.size());
+            struct BuiltCandidate final
+            {
+                Settings::RecognitionCandidate Source;
+                Recognition::CandidateBinding Binding;
+            };
+
+            std::vector<BuiltCandidate> BuiltCandidates;
+            BuiltCandidates.reserve(Config.Candidates.size());
             for (const auto &Source : Config.Candidates)
             {
                 auto Candidate = Recognition::detail::WithRouteServerNames(Config, Source);
@@ -1548,9 +1765,56 @@ namespace Preview::Application
                     return std::unexpected(Core::ProfileError::MissingResolver);
                 }
                 Recognition::detail::ApplySettingsMetadata(Candidate, *Binding);
-                Bindings.push_back(std::move(*Binding));
+                BuiltCandidates.push_back(BuiltCandidate{std::move(Candidate), std::move(*Binding)});
             }
+            const auto HasExplicitRoute = [&Config](const Core::CandidateId Id) noexcept
+            {
+                return std::any_of(Config.Routes.begin(), Config.Routes.end(),
+                                   [Id](const auto &Route) { return Route.Candidate == Id; });
+            };
+            const auto SameOuter = [](const BuiltCandidate &Left, const BuiltCandidate &Right)
+            {
+                return !Left.Source.CarrierId.empty() &&
+                       Left.Source.CarrierId == Right.Source.CarrierId &&
+                       Left.Source.Scheme == Right.Source.Scheme &&
+                       Left.Source.ServerNames == Right.Source.ServerNames &&
+                       Left.Source.Alpn == Right.Source.Alpn;
+            };
 
+            std::vector<Recognition::CandidateBinding> Bindings;
+            Bindings.reserve(BuiltCandidates.size());
+            std::vector<bool> Consumed(BuiltCandidates.size(), false);
+            for (std::size_t Index = 0; Index < BuiltCandidates.size(); ++Index)
+            {
+                if (Consumed[Index])
+                {
+                    continue;
+                }
+                Consumed[Index] = true;
+                auto &First = BuiltCandidates[Index];
+                std::vector<std::shared_ptr<const Recognition::CandidateInnerBinding>> Inner;
+                if (First.Binding.Inner && !HasExplicitRoute(First.Source.Id))
+                {
+                    Inner.push_back(First.Binding.Inner);
+                    for (std::size_t Other = Index + 1U; Other < BuiltCandidates.size(); ++Other)
+                    {
+                        if (Consumed[Other] || HasExplicitRoute(BuiltCandidates[Other].Source.Id) ||
+                            !BuiltCandidates[Other].Binding.Inner ||
+                            !SameOuter(First, BuiltCandidates[Other]))
+                        {
+                            continue;
+                        }
+                        Consumed[Other] = true;
+                        Inner.push_back(BuiltCandidates[Other].Binding.Inner);
+                    }
+                }
+                if (Inner.size() > 1U)
+                {
+                    First.Binding.Accept = Recognition::MakeInnerProtocolDispatch(std::move(Inner));
+                    First.Binding.Inner.reset();
+                }
+                Bindings.push_back(std::move(First.Binding));
+            }
             Recognition::ProfileBuilderOptions Options;
             Options.Mode = Config.Mode;
             Options.ConfiguredCandidate = Config.ConfiguredCandidate;
@@ -1664,6 +1928,37 @@ namespace Preview::Application
                 Registered = Registry.RegisterAnytls(std::move(Config));
                 break;
             }
+            case StaticProtocol::TrustTunnel: {
+                if (!Context.NativeTls)
+                {
+                    return std::unexpected(MakeStartupError(
+                        StartupErrorCode::UnsupportedService,
+                        "Protocols." + Configured.Id,
+                        "TrustTunnel requires a NativeTls context"));
+                }
+                const auto *Account = FirstAccount(Context.ConfigurationValue);
+                if (Account == nullptr)
+                {
+                    return std::unexpected(MakeStartupError(
+                        StartupErrorCode::InvalidConfiguration,
+                        "Accounts",
+                        "TrustTunnel requires username:password credentials"));
+                }
+                const auto Credential = ResolvedCredentialForProtocol(
+                    Context.Generation, *Account, StaticProtocol::TrustTunnel);
+                if (!Credential)
+                {
+                    return std::unexpected(Credential.error());
+                }
+                const auto Config = TrustTunnelCredentials::Parse(
+                    *Credential, "Accounts." + Account->Id + ".Credential");
+                if (!Config)
+                {
+                    return std::unexpected(Config.error());
+                }
+                Registered = Registry.RegisterTrusttunnel(Context.NativeTls, *Config);
+                break;
+            }
             }
             if (!Registered)
             {
@@ -1676,9 +1971,9 @@ namespace Preview::Application
         }
 
         [[nodiscard]] auto MakeRuntimeAcceptors(const ProtocolFactoryContext &Context)
-            -> std::expected<std::array<ProtocolAcceptFn, 7>, StartupError>
+            -> std::expected<std::array<ProtocolAcceptFn, 8>, StartupError>
         {
-            std::array<ProtocolAcceptFn, 7> Result;
+            std::array<ProtocolAcceptFn, 8> Result;
             for (const auto &Configured : Context.ConfigurationValue.Protocols)
             {
                 if (IsQuicProtocolName(Configured.Builtin))
@@ -1806,6 +2101,9 @@ namespace Preview::Application
                         std::make_shared<Preview::Runtime::Handler::Anytls>(std::move(Config)));
                     break;
                 }
+                case StaticProtocol::TrustTunnel:
+                    Result[ProtocolIndex] = Preview::Runtime::MakeAcceptTrusttunnel();
+                    break;
                 }
             }
             return Result;
@@ -1862,7 +2160,8 @@ namespace Preview::Application
                         Config.Path = Options->Path;
                         Config.Host = Options->Host;
                     }
-                    const auto Accept = Recognition::MakeWebsocketServerAccept(std::move(Config));
+                    const auto Accept = Recognition::MakeWebsocketServerAccept(
+                        Context.NativeTls, std::move(Config));
                     if (!Registry.RegisterCarrier(Carrier.Id, Carrier.Builtin, Accept))
                     {
                         return std::unexpected(MakeStartupError(
@@ -1913,6 +2212,62 @@ namespace Preview::Application
                             StartupErrorCode::Runtime,
                             "Carriers." + Carrier.Id,
                             "ShadowTLS carrier instance registration failed"));
+                    }
+                    continue;
+                }
+                if (Carrier.Builtin == "restls")
+                {
+                    const auto *Options =
+                        std::get_if<Configuration::RestlsOptions>(&Carrier.Options);
+                    if (Options == nullptr || !Context.Dial)
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::UnsupportedService,
+                            "Carriers." + Carrier.Id,
+                            "Restls carrier requires a runtime dial context"));
+                    }
+                    const auto Secret = Context.Generation.LookupSecret(Options->PasswordSecretRef);
+                    if (Secret.empty())
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::Generation,
+                            "Carriers." + Carrier.Id + ".Options.PasswordSecretRef",
+                            "Restls password secret is not available in the configuration generation"));
+                    }
+                    Recognition::RestlsCarrierOptions CarrierOptions;
+                    CarrierOptions.Host = Options->Host;
+                    CarrierOptions.Password.assign(
+                        reinterpret_cast<const char *>(Secret.data()), Secret.size());
+                    CarrierOptions.RestlsScript = Options->RestlsScript;
+                    CarrierOptions.Tls13 = Options->VersionHint == "tls13";
+                    CarrierOptions.Dial = Context.Dial;
+                    const auto Accept = Recognition::MakeConfiguredRestlsServerAccept(
+                        std::move(CarrierOptions));
+                    if (!Accept)
+                    {
+                        return std::unexpected(MakeStartupError(
+                            Accept.error() == Recognition::RestlsCarrierBuildError::InvalidDestination
+                                ? StartupErrorCode::InvalidConfiguration
+                                : StartupErrorCode::UnsupportedService,
+                            "Carriers." + Carrier.Id,
+                            "Restls carrier configuration cannot build a real relay acceptor"));
+                    }
+                    if (!Registry.RegisterCarrier(Carrier.Id, "restls", std::move(*Accept)))
+                    {
+                        return std::unexpected(MakeStartupError(
+                            StartupErrorCode::Runtime,
+                            "Carriers." + Carrier.Id,
+                            "Restls carrier instance registration failed"));
+                    }
+                    continue;
+                }
+                if (Carrier.Builtin == "reality")
+                {
+                    const auto Registered = RealityCarrier::Register(
+                        Registry, Carrier, Context.Generation);
+                    if (!Registered)
+                    {
+                        return std::unexpected(Registered.error());
                     }
                     continue;
                 }
@@ -2006,7 +2361,9 @@ namespace Preview::Application
                                          std::string(Core::ToStringView(Error)));
         }
 
-        [[nodiscard]] auto MakeTcpProfile(const ProtocolFactoryContext &Context)
+        [[nodiscard]] auto MakeTcpProfile(
+            const ProtocolFactoryContext &Context,
+            BindingMuxModeMap &BindingMuxModes)
             -> std::expected<Recognition::ProfileBuildResult, StartupError>
         {
             const auto Registry = MakeTcpCandidateRegistry(Context);
@@ -2019,7 +2376,8 @@ namespace Preview::Application
             {
                 return std::unexpected(Acceptors.error());
             }
-            auto SettingsConfig = MakeTcpRecognitionConfig(Context.ConfigurationValue);
+            auto SettingsConfig = MakeTcpRecognitionConfig(
+                Context.ConfigurationValue, BindingMuxModes);
             auto Factory = Registry->MakeFactory();
             auto MixedFactory = [Factory = std::move(Factory),
                                  Acceptors = std::move(*Acceptors)](
@@ -2038,6 +2396,12 @@ namespace Preview::Application
                     return std::nullopt;
                 }
                 Binding->Accept = Acceptors[ProtocolIndex];
+                if (Binding->Inner)
+                {
+                    Binding->Inner = std::make_shared<const Recognition::CandidateInnerBinding>(
+                        Recognition::CandidateInnerBinding{
+                            Binding->Inner->Spec, Acceptors[ProtocolIndex]});
+                }
                 if (Binding->Spec.Kind == Core::CandidateKind::EarlyResponse)
                 {
                     // Application 只在识别提交后调用 handler；识别阶段的 Inspect、Prepare 和
@@ -2046,21 +2410,8 @@ namespace Preview::Application
                 }
                 return Binding;
             };
-            bool HasAnyTls = false;
-            for (const auto &Candidate : SettingsConfig.Candidates)
-            {
-                const auto Protocol = ParseStaticProtocol(Candidate.Protocol);
-                if (Protocol && *Protocol == StaticProtocol::AnyTls)
-                {
-                    HasAnyTls = true;
-                    break;
-                }
-            }
-            auto Built = HasAnyTls
-                             ? BuildProfileWithStaticProtocolMap(
-                                   SettingsConfig, std::move(MixedFactory))
-                             : Recognition::BuildProfileFromSettings(
-                                   SettingsConfig, std::move(MixedFactory));
+            auto Built = BuildProfileWithStaticProtocolMap(
+                SettingsConfig, std::move(MixedFactory));
             if (!Built)
             {
                 return std::unexpected(MakeProfileBuildError(Built.error()));
@@ -2424,6 +2775,7 @@ namespace Preview::Application
             std::unique_ptr<Preview::Ingress::UdpListener> UdpListener;
             std::shared_ptr<Preview::Composition::MuxService> MuxService;
             bool QuicConfigured{false};
+            bool QuicAdmissionConfigured{false};
         std::unique_ptr<Preview::Operations::HttpServer> OperationsServer;
         std::vector<std::thread> WorkerThreads;
         std::atomic<RuntimePhase> Phase{RuntimePhase::Created};
@@ -3338,8 +3690,8 @@ namespace Preview::Application
                 "configured TCP protocol has no Preview account factory");
             return std::unexpected(*LastError_);
         }
-            std::array<std::shared_ptr<const Preview::Account::AccountDirectory>, 7> ProtocolAccounts;
-            std::array<Preview::SharedAuthenticator, 7> ProtocolAuthenticators;
+            std::array<std::shared_ptr<const Preview::Account::AccountDirectory>, 8> ProtocolAccounts;
+            std::array<Preview::SharedAuthenticator, 8> ProtocolAuthenticators;
         const auto PrimaryIndex = static_cast<std::size_t>(*PrimaryProtocol);
         ProtocolAccounts[PrimaryIndex] = *Accounts;
         ProtocolAuthenticators[PrimaryIndex] =
@@ -3598,7 +3950,16 @@ namespace Preview::Application
                             [WeakRuntime](Preview::Ingress::UdpPacket Packet) -> bool
                             {
                                 const auto StateValue = WeakRuntime.lock();
-                                return StateValue && StateValue->QuicCidRegistry &&
+                                if (!StateValue)
+                                {
+                                    return false;
+                                }
+                                if (StateValue->Ss2022Gateway &&
+                                    StateValue->Ss2022Gateway->CanAcceptUnclaimedQuic(Packet))
+                                {
+                                    return StateValue->Ss2022Gateway->Handle(std::move(Packet));
+                                }
+                                return StateValue->QuicCidRegistry &&
                                        StateValue->QuicCidRegistry->Handle(std::move(Packet));
                             }});
                 Runtime->UdpListener =
@@ -3694,7 +4055,7 @@ namespace Preview::Application
             {
                 const auto Socket = Runtime->UdpListener->SharedSocket();
                 const auto TlsContext = Runtime->Services->NativeTls;
-                Preview::Ingress::SharedQuicAdmissionContext QuicContext;
+                std::vector<Preview::Ingress::SharedQuicAdmissionContext> QuicContexts;
                 if (!(*Generation)->Configuration().Listeners.Quic.empty())
                 {
                     for (const auto &Configured : (*Generation)->Configuration().Protocols)
@@ -3705,7 +4066,8 @@ namespace Preview::Application
                         }
                         const auto Built = MakeQuicAdmissionContext(
                             **Generation, Configured, Executor, Runtime->DnsResolver,
-                            Runtime->Services->Dial, Runtime->Services->Traffic);
+                            Runtime->Services->Dial, Runtime->Services->Traffic,
+                            Runtime->Logger, Runtime->Trace);
                         if (!Built)
                         {
                             LastError_ = Built.error();
@@ -3713,10 +4075,10 @@ namespace Preview::Application
                             State_.reset();
                             return std::unexpected(*LastError_);
                         }
-                        QuicContext = *Built;
-                        break;
+                        QuicContexts.push_back(*Built);
                     }
                 }
+                Runtime->QuicAdmissionConfigured = !QuicContexts.empty();
                 Runtime->QuicCidRegistry = std::make_shared<Preview::Ingress::QuicCidRegistry>(
                     Preview::Ingress::QuicCidRegistry::Options{
                         [Executor, Socket, TlsContext](
@@ -3747,7 +4109,8 @@ namespace Preview::Application
                             }
                             return std::make_shared<Preview::Quic::Server>(std::move(Options));
                         },
-                        QuicContext});
+                        {},
+                        std::move(QuicContexts)});
             }
             Preview::Composition::UdpServiceOptions UdpOptions;
             UdpOptions.Resolver = [Resolver = Runtime->DnsResolver](
@@ -3783,29 +4146,44 @@ namespace Preview::Application
                 Runtime->Accounts);
             Runtime->MuxService = std::make_shared<Preview::Composition::MuxService>(
                 Preview::Composition::MuxServiceOptions{
-                    .Mode = ConfiguredMuxMode((*Generation)->Configuration()),
+                    .Mode = Preview::Composition::MuxMode::Auto,
                     .Control = {},
                     .Identity = {},
                     .MaxStreams = 256,
                     .Timeout = std::chrono::milliseconds(0),
-                    .StreamHandlerFn = [Services = Runtime->Services](
-                                           Preview::SharedTransmission Stream,
-                                           const Preview::Lifecycle::TaskIdentity &Identity)
-                        -> Net::awaitable<Preview::Fault::Code>
+                    .RequireSingMuxProtocol = true,
+                    .StreamHandlerFn = MakeMuxStreamHandler(
+                        Runtime->Services, Runtime->Services->Dial)});
+            Runtime->MuxService->SetStreamResultHandler(
+                [Services = Runtime->Services](
+                    const std::uint16_t Protocol,
+                    const Preview::Composition::MuxMode Mode,
+                    const Preview::Lifecycle::TaskIdentity &Identity,
+                    const Preview::Fault::Code Code)
+                {
+                    if (!Services->Logger)
                     {
-                        auto ChildControl = std::make_shared<Preview::Runtime::SessionControl>(
-                            Stream ? Stream->Executor() : Net::any_io_executor{});
-                        ChildControl->SetIdentity(Preview::Lifecycle::TaskIdentity{
-                            Preview::TaskId{}, Identity.SessionId, Identity.StreamId,
-                            Identity.WorkerId, Identity.Generation});
-                        Preview::Runtime::SessionOptions ChildOptions;
-                        ChildOptions.Services = Services;
-                        ChildOptions.Control = std::move(ChildControl);
-                        Preview::Runtime::Session Child(std::move(ChildOptions));
-                        co_return co_await Child.Run(std::move(Stream));
-                    }});
+                        return;
+                    }
+                    const auto ProtocolName = Preview::Recognition::ToStringView(
+                        static_cast<Preview::Recognition::ProtocolType>(Protocol));
+                    const auto Outcome = Code == Preview::Fault::Code::Success
+                                             ? "success"
+                                             : "failure";
+                    (void)Services->Logger->TryWrite(
+                        Preview::Diagnose::LogLevel::Info,
+                        std::string("[Carrier=mux] [Protocol=") +
+                            std::string(ProtocolName) + "] mux=" +
+                            std::string(Preview::Composition::MuxModeName(Mode)) +
+                            " session_id=" + std::to_string(Identity.SessionId.Value()) +
+                            " stream_id=" + std::to_string(Identity.StreamId.Value()) +
+                            " fault_code=" + std::string(Preview::Fault::Describe(Code)) +
+                            " stage=relay outcome=" + Outcome,
+                        Preview::Statistics::TraceSnapshot{});
+                });
             Runtime->Services->Mux = [Service = Runtime->MuxService,
-                                      Services = Runtime->Services](
+                                      Services = Runtime->Services,
+                                      Resolver = Runtime->DnsResolver](
                                           Preview::SharedTransmission &Inbound,
                                           Preview::Middleware::Context &Context)
                 -> Net::awaitable<bool>
@@ -3814,21 +4192,36 @@ namespace Preview::Application
                 {
                     co_return true;
                 }
+                const auto *MuxRoot = Context.DataPlane.Mux();
+                const bool ProtocolOwnsMux = MuxRoot == nullptr ||
+                                              MuxRoot->Mode.empty() ||
+                                              MuxRoot->Mode == "auto";
+                if (static_cast<Preview::Recognition::ProtocolType>(Context.detected) ==
+                        Preview::Recognition::ProtocolType::Vless &&
+                    ProtocolOwnsMux)
+                {
+                    const auto Code = co_await Preview::Composition::VlessXudp::Run(
+                        Inbound, Resolver);
+                    co_return Code == Preview::Fault::Code::Success;
+                }
                 if (static_cast<Preview::Recognition::ProtocolType>(Context.detected) ==
                     Preview::Recognition::ProtocolType::AnyTls)
                 {
                     const auto Code = co_await Preview::Composition::AnytlsService::Run(
-                        Inbound, Context, Services->Dial);
+                        Inbound, Context, Context.Dial ? Context.Dial : Services->Dial);
                     co_return Code == Preview::Fault::Code::Success;
                 }
-                const auto Code = co_await Service->Run(Inbound, Context);
+                const auto Handler = MakeMuxStreamHandler(
+                    Services, Context.Dial ? Context.Dial : Services->Dial);
+                const auto Code = co_await Service->Run(Inbound, Context, Handler);
                 co_return Code == Preview::Fault::Code::Success;
             };
             const ProtocolFactoryContext ProtocolContext{
                 (*Generation)->Configuration(), **Generation, std::move(ProtocolAuthenticators),
                 std::move(ProtocolAccounts), Runtime->Services->NativeTls,
                 Runtime->Services->Dial};
-            const auto Profile = MakeTcpProfile(ProtocolContext);
+            BindingMuxModeMap BindingMuxModes;
+            const auto Profile = MakeTcpProfile(ProtocolContext, BindingMuxModes);
             if (!Profile)
             {
                 LastError_ = Profile.error();
@@ -3837,6 +4230,24 @@ namespace Preview::Application
             Runtime->Services->Profile = Profile->Profile;
             Runtime->Services->ResolveCandidate = std::move(Profile->Resolver);
             Runtime->Services->Resolver = Runtime->Services->ResolveCandidate;
+            Runtime->Services->ResolveMuxMode =
+                [BindingMuxModes = std::move(BindingMuxModes)](
+                    const Preview::Recognition::RecognizeResult &Result,
+                    const Preview::Middleware::Context &)
+                    -> std::optional<std::string>
+            {
+                if (Result.detected == Preview::Recognition::ProtocolType::AnyTls)
+                {
+                    return std::nullopt;
+                }
+                const auto It = BindingMuxModes.find(Result.Candidate);
+                if (It == BindingMuxModes.end() ||
+                    It->second == Preview::Composition::MuxMode::Auto)
+                {
+                    return std::nullopt;
+                }
+                return std::string(Preview::Composition::MuxModeName(It->second));
+            };
             const auto WeakState = std::weak_ptr<RuntimeState>(Runtime);
             Preview::Runtime::TcpListener::Options ListenerOptions;
             ListenerOptions.Executor = Runtime->Io.get_executor();
@@ -3877,6 +4288,11 @@ namespace Preview::Application
                 }
                 Runtime->QuicGateway->MarkSocketReady();
                 Runtime->QuicGateway->MarkReceiveLoopReady();
+                if (Runtime->QuicAdmissionConfigured)
+                {
+                    Runtime->QuicGateway->MarkHandshakeReady();
+                    Runtime->QuicGateway->MarkProtocolReady();
+                }
             }
             if (OperationsEndpoint)
             {

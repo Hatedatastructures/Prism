@@ -62,6 +62,24 @@ namespace Preview::Ingress
         {
         }
 
+        /**
+         * @brief 判断 QUIC-like unknown-CID 数据报是否属于 SS2022。
+         * @details SS2022 UDP 载荷是密文，首字节可能被 UDP demux 误判为
+         * QUIC short/long header。只有完成 SS2022 wire 认证的包才能在
+         * QUIC gateway 之前抢占该路由，避免误吞真实 QUIC Initial。
+         */
+        [[nodiscard]] auto CanAcceptUnclaimedQuic(const UdpPacket &Packet) const -> bool
+        {
+            if (Closed_.load(std::memory_order_acquire) ||
+                Packet.Classification.Kind != DatagramKind::Quic ||
+                Packet.Classification.Route != DatagramRoute::UnknownCid ||
+                Options_.Keys.empty())
+            {
+                return false;
+            }
+            return HasAuthenticatedClientWire(Packet.Payload);
+        }
+
         [[nodiscard]] auto Handle(UdpPacket Packet) -> bool
         {
             const auto IsOrdinary = Packet.Classification.Kind == DatagramKind::Ordinary;
@@ -69,7 +87,9 @@ namespace Preview::Ingress
                 Packet.Classification.Kind == DatagramKind::Quic &&
                 Packet.Classification.Route == DatagramRoute::UnknownCid;
             if (Closed_.load(std::memory_order_acquire) ||
-                (!IsOrdinary && !IsUnclaimedQuic) || !Options_.Send || Options_.Keys.empty())
+                (!IsOrdinary && !IsUnclaimedQuic) ||
+                (IsUnclaimedQuic && !HasAuthenticatedClientWire(Packet.Payload)) ||
+                !Options_.Send || Options_.Keys.empty())
             {
                 return false;
             }
@@ -102,6 +122,34 @@ namespace Preview::Ingress
             std::uint64_t NextPacket{0};
             std::chrono::steady_clock::time_point LastSeen{};
         };
+
+        [[nodiscard]] auto HasAuthenticatedClientWire(
+            const std::span<const std::byte> Payload) const -> bool
+        {
+            std::vector<std::uint8_t> Bytes;
+            Bytes.reserve(Payload.size());
+            for (const auto Byte : Payload)
+            {
+                Bytes.push_back(std::to_integer<std::uint8_t>(Byte));
+            }
+            for (const auto &Key : Options_.Keys)
+            {
+                Ss::Address Target;
+                std::vector<std::uint8_t> InnerPayload;
+                std::array<std::uint8_t, Ss::SessionIdLen> SessionId{};
+                std::uint64_t PacketId = 0;
+                std::uint8_t HeaderType = Ss::HeaderTypeClient;
+                const auto Error = Ss::ParseUdpPacket(Ss::UdpParseInput{
+                    std::span<const std::uint8_t>(Key), Bytes, &Target, &InnerPayload,
+                    &SessionId, &PacketId, nullptr, &HeaderType, nullptr, 0,
+                    Options_.TimeWindow});
+                if (Error == Preview::Error::None && HeaderType == Ss::HeaderTypeClient)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         [[nodiscard]] static auto PeerKey(const Endpoint &Peer) -> std::string
         {
@@ -194,7 +242,15 @@ namespace Preview::Ingress
                     break;
                 }
             }
-            if (!Authenticated || HeaderType != Ss::HeaderTypeClient || !AcceptPeer(Packet.Peer, MatchedKey, SessionId, PacketId))
+            if (!Authenticated)
+            {
+                co_return;
+            }
+            if (HeaderType != Ss::HeaderTypeClient)
+            {
+                co_return;
+            }
+            if (!AcceptPeer(Packet.Peer, MatchedKey, SessionId, PacketId))
             {
                 co_return;
             }

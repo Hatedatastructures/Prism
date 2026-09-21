@@ -5,18 +5,30 @@
 
 #include <gtest/gtest.h>
 
+#include <boost/asio/awaitable.hpp>
+
 #include <array>
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 
 #include <Preview/Composition/Builtin/ProtocolBuiltins.hpp>
+#define private public
+#include <Preview/Composition/AnytlsService.hpp>
+#undef private
 
 namespace
 {
 
     using namespace Preview::Composition::Builtin;
+
+    using AnytlsService = Preview::Composition::AnytlsService;
+    using OwnedRunSingMux = boost::asio::awaitable<Preview::Fault::Code> (*)(
+        std::shared_ptr<AnytlsService::State>,
+        std::shared_ptr<AnytlsService::StreamState>,
+        std::uint32_t);
 
     template <typename Set>
     constexpr auto DirectDeclarationMask(const Set &Value) noexcept -> std::uint64_t
@@ -179,6 +191,11 @@ namespace
         EXPECT_FALSE(AnyTlsCarrier);
         EXPECT_TRUE(TrustTunnelProtocol);
         EXPECT_FALSE(TrustTunnelCarrier);
+    }
+
+    TEST(AnytlsServiceLifetime, DetachedRunSingMuxOwnsStateArguments)
+    {
+        EXPECT_TRUE((std::is_same_v<decltype(&AnytlsService::RunSingMux), OwnedRunSingMux>));
     }
 
 } // namespace

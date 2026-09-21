@@ -149,6 +149,56 @@ namespace
                      });
     }
 
+    TEST(Ss2022ConnErrorMatrix, ClientCloseAtChunkBoundaryIsCleanEof)
+    {
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+
+        RunCoroutine(IoContext,
+                     [&]() -> Net::awaitable<void>
+                     {
+                         Net::experimental::channel<void(boost::system::error_code)> Done(
+                             IoContext.get_executor(), 1);
+                         auto ServerCoroutine = [&]() -> Net::awaitable<void>
+                         {
+                             SS2022::ServerConfig Config;
+                             Config.password = "boundary-eof-password";
+                             auto [ErrorValue, Request, Connection] = co_await SS2022::Accept(
+                                 std::make_shared<MemoryStream>(std::move(ServerMemory)), Config);
+                             (void)Request;
+                             if (ErrorValue != Error::None || !Connection)
+                             {
+                                 EXPECT_EQ(ErrorValue, Error::None);
+                                 (void)Done.try_send(boost::system::error_code{});
+                                 co_return;
+                             }
+                             std::array<std::byte, 64> Buffer{};
+                             std::error_code ReadError;
+                             const auto Read = co_await Connection->async_read_some(Buffer, ReadError);
+                             EXPECT_EQ(Read, 0U);
+                             EXPECT_FALSE(ReadError);
+                             Connection->Close();
+                             (void)Done.try_send(boost::system::error_code{});
+                         };
+                         Net::co_spawn(IoContext.get_executor(), ServerCoroutine(), Net::detached);
+
+                         SS2022::ClientConfig Config;
+                         Config.password = "boundary-eof-password";
+                         auto [ErrorValue, Connection] = co_await SS2022::Connect(
+                             std::make_shared<MemoryStream>(std::move(ClientMemory)), Config,
+                             SS2022::Address{SS2022::AddressType::Domain, "example.com", 443});
+                         EXPECT_EQ(ErrorValue, Error::None);
+                         EXPECT_NE(Connection, nullptr);
+                         if (!Connection)
+                         {
+                             co_await Done.async_receive(Net::use_awaitable);
+                             co_return;
+                         }
+                         Connection->Close();
+                         co_await Done.async_receive(Net::use_awaitable);
+                     });
+    }
+
     TEST(Ss2022ConnErrorMatrix, TruncatedHeader)
     {
         Net::io_context IoContext;

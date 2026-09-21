@@ -256,6 +256,14 @@ namespace Preview::Application::Configuration
                                    Path + ".Builtin",
                                    "duplicate QUIC protocol builtin");
                 }
+                if (IsQuic && QuicProtocolNames.size() > 1U)
+                {
+                    return Failure(
+                        ConfigurationErrorCode::InvalidValue,
+                        Path + ".Builtin",
+                        "shared QUIC listener supports exactly one protocol; Hysteria2 and TUIC "
+                        "cannot be admitted by trialing multiple QUIC engines");
+                }
                 if (IsQuic && !Protocol.Quic)
                 {
                     return Failure(ConfigurationErrorCode::MissingField,
@@ -432,6 +440,13 @@ namespace Preview::Application::Configuration
                     { return Value.Id == Binding.ProtocolId; });
                 if (Protocol != Configuration.Protocols.end())
                 {
+                    if (Protocol->Builtin == "anytls" && !Binding.MuxModes.empty())
+                    {
+                        return Failure(
+                            ConfigurationErrorCode::InvalidValue,
+                            Path + ".MuxModes",
+                            "AnyTLS owns application-layer multiplexing; generic mux modes are not supported");
+                    }
                     const auto ProtocolIndex = static_cast<std::size_t>(
                         Protocol - Configuration.Protocols.begin());
                     const auto *Entry = ProtocolDescriptors[ProtocolIndex];

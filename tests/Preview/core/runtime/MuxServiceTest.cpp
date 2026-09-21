@@ -25,7 +25,9 @@
 #include <system_error>
 #include <utility>
 #include <variant>
+#include <vector>
 
+#include <Preview/Protocols/Http2/Impl.hpp>
 #include <Preview/Protocols/Mux/Client.hpp>
 #include <Preview/Protocols/Mux/H2Mux/H2Mux.hpp>
 #include <Preview/Protocols/Mux/Smux/Smux.hpp>
@@ -124,6 +126,24 @@ namespace
         co_return Data[0];
     }
 
+    TEST(MuxService, ContextPromotesStreamToConfiguredMuxRoot)
+    {
+        Net::io_context Io;
+        auto [Writer, Reader] = Preview::MakeMemoryPair(Io.get_executor());
+        auto Transport = std::make_shared<MemoryStream>(std::move(Reader));
+        Preview::Middleware::Context Context;
+        Context.Inbound = Transport;
+        Context.MaterializeDataPlane({});
+
+        ASSERT_TRUE(Context.DataPlane.IsStream());
+        EXPECT_TRUE(Context.PromoteToMux("smux"));
+        ASSERT_TRUE(Context.DataPlane.IsMux());
+        ASSERT_NE(Context.DataPlane.Mux(), nullptr);
+        EXPECT_EQ(Context.DataPlane.Mux()->Mode, "smux");
+        EXPECT_EQ(Context.DataPlane.Mux()->Transport, Transport);
+        Writer.Close();
+    }
+
     template <typename Client>
     auto OpenTaggedStreamWithTimeout(const std::shared_ptr<Client> &ClientValue, std::byte Marker,
                                      Net::any_io_executor Executor)
@@ -162,6 +182,20 @@ namespace
         Preview::Middleware::Context Context;
         Context.Control = std::move(Control);
         co_return co_await Service->Run(std::move(ServerTransport), Context);
+    }
+
+    auto RunMuxServerWithIdentity(
+        std::shared_ptr<Preview::Composition::MuxService> Service,
+        std::shared_ptr<Preview::Runtime::SessionControl> Control,
+        Preview::Lifecycle::TaskIdentity Identity,
+        Preview::SharedTransmission ServerTransport,
+        std::shared_ptr<AsyncSignal> Completion) -> Net::awaitable<void>
+    {
+        Preview::Middleware::Context Context;
+        Context.Control = std::move(Control);
+        Context.TaskIdentity = Identity;
+        (void)co_await Service->Run(std::move(ServerTransport), Context);
+        (void)Completion->try_send(boost::system::error_code{});
     }
 
     struct RootCompletion final : std::enable_shared_from_this<RootCompletion>
@@ -775,10 +809,291 @@ namespace
             Io, Preview::Composition::MuxMode::H2Mux);
     }
 
+    // 生产证据：Trojan + H2Mux 在 8 路并发下间歇失败（5 轮中 2~3 轮失败，
+    // 最差 2/8），失败会话在 Stage=mux started 后卡满客户端超时。
+    // 根因：RunH2Server 的接受循环里同步 co_await ReadStreamRequest(Stream)，
+    // 某条流的首帧未就绪时会阻塞整个循环，后续流无法被接受（队头阻塞）。
+    // 本测试让第 1 条流保持静默、第 2 条流正常发起请求，断言第 2 条
+    // 仍能在超时前被处理。
+    TEST(MuxService, H2MuxAcceptLoopIsNotBlockedBySilentStream)
+    {
+        Net::io_context Io;
+        auto [ServerRaw, ClientRaw] = Preview::MakeMemoryPair(Io.get_executor());
+        auto RootWaiting = std::make_shared<AsyncSignal>(Io.get_executor(), 1);
+        auto SecondHandled = std::make_shared<AsyncSignal>(Io.get_executor(), 1);
+        auto StreamRequestParsed = std::make_shared<std::atomic<bool>>(false);
+        auto Service = std::make_shared<Preview::Composition::MuxService>(
+            Preview::Composition::MuxServiceOptions{
+                .Mode = Preview::Composition::MuxMode::H2Mux,
+                .RequireSingMuxProtocol = true,
+                .RootWaitingFn = [RootWaiting]
+                {
+                    (void)RootWaiting->try_send(boost::system::error_code{});
+                }});
+        Service->SetStreamHandler(
+            [SecondHandled, StreamRequestParsed](
+                Preview::SharedTransmission Stream,
+                const Preview::Lifecycle::TaskIdentity &) -> Net::awaitable<Code>
+            {
+                const auto *ParsedStream = dynamic_cast<
+                    const Preview::Composition::SingMux::ServerStream *>(Stream.get());
+                if (ParsedStream != nullptr && ParsedStream->Target().Host == "127.0.0.1" &&
+                    ParsedStream->Target().Port == "80")
+                {
+                    StreamRequestParsed->store(true, std::memory_order_release);
+                }
+                if (Stream)
+                {
+                    (void)SecondHandled->try_send(boost::system::error_code{});
+                }
+                co_return Code::Success;
+            });
+
+        auto Root = std::make_shared<RootCompletion>(Io.get_executor());
+        Root->Start(Service, {}, std::make_shared<MemoryStream>(std::move(ServerRaw)));
+        bool SecondWasHandled = false;
+        Preview::Testing::RunCoro(
+            Io,
+            [&Io, &SecondWasHandled, ClientRaw = std::move(ClientRaw), RootWaiting, SecondHandled,
+             Root, Service]() mutable -> Net::awaitable<void>
+            {
+                auto ClientTransport = std::make_shared<MemoryStream>(std::move(ClientRaw));
+                // sing-mux 会话头：version=0, protocol=H2Mux(2)
+                const std::array<std::byte, 2> SessionRequest{std::byte{0x00}, std::byte{0x02}};
+                std::error_code Error;
+                (void)co_await ClientTransport->async_write_some(
+                    std::span<const std::byte>(SessionRequest), Error);
+                if (!(co_await WaitForSignal(RootWaiting, Io.get_executor())))
+                {
+                    co_return;
+                }
+
+                // H2Mux 载体是标准 HTTP/2 帧，客户端必须使用 Http2::SessionImpl。
+                auto Client = std::make_shared<Preview::Http2::SessionImpl>(
+                    ClientTransport->Executor(), false);
+                Client->SendSettings();
+                // 第 1 条流：只发 HEADERS 开流，不写 StreamRequest（保持静默）
+                const auto SilentId = Client->OpenStream(
+                    Preview::Http2::HeaderList{{":method", "CONNECT"}}, false);
+                if (SilentId < 0)
+                {
+                    co_return;
+                }
+                std::vector<std::byte> Wire;
+                if (!Client->Collect(Wire))
+                {
+                    co_return;
+                }
+                (void)co_await ClientTransport->async_write_some(
+                    std::span<const std::byte>(Wire), Error);
+                Wire.clear();
+
+                // 第 2 条流：正常写入 StreamRequest（flags=0, atyp=IPv4 + 地址 + 端口）
+                const auto ActiveId = Client->OpenStream(
+                    Preview::Http2::HeaderList{{":method", "CONNECT"}}, false);
+                if (ActiveId < 0)
+                {
+                    co_return;
+                }
+                const std::array<std::byte, 9> Request{
+                    std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, std::byte{127},
+                    std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, std::byte{0x00},
+                    std::byte{0x50}};
+                if (Client->SubmitData(ActiveId, std::span<const std::byte>(Request), false) != 0 ||
+                    !Client->Collect(Wire))
+                {
+                    co_return;
+                }
+                (void)co_await ClientTransport->async_write_some(
+                    std::span<const std::byte>(Wire), Error);
+
+                SecondWasHandled = co_await WaitForSignal(SecondHandled, Io.get_executor());
+                ClientTransport->Close();
+                Service->Stop();
+                (void)co_await WaitForSignal(Root->SignalValue, Io.get_executor());
+            });
+
+        EXPECT_TRUE(SecondWasHandled);
+        EXPECT_TRUE(StreamRequestParsed->load(std::memory_order_acquire));
+    }
+
     TEST(MuxService, SmuxAcceptsAndOwnsOneChildStream)
     {
         Net::io_context Io;
         RunOneStreamCase<Preview::Mux::Smux::Client<>>(Io, Preview::Composition::MuxMode::Smux);
+    }
+
+    TEST(MuxService, SmuxStartsWithOccupiedParentTaskIdentity)
+    {
+        Net::io_context Io;
+        auto [ServerRaw, ClientRaw] = Preview::MakeMemoryPair(Io.get_executor());
+        auto RootWaiting = std::make_shared<AsyncSignal>(Io.get_executor(), 1);
+        auto RootDone = std::make_shared<AsyncSignal>(Io.get_executor(), 1);
+        auto StreamHandled = std::make_shared<AsyncSignal>(Io.get_executor(), 1);
+        auto BlockerReleased = std::make_shared<AsyncSignal>(Io.get_executor(), 1);
+        auto Control = std::make_shared<Preview::Runtime::SessionControl>(Io.get_executor());
+        Preview::Lifecycle::TaskRequest BlockerRequest;
+        BlockerRequest.Cancel = [BlockerReleased]
+        {
+            (void)BlockerReleased->try_send(boost::system::error_code{});
+        };
+        auto Blocker = [BlockerReleased]() -> Net::awaitable<void>
+        {
+            (void)co_await BlockerReleased->async_receive(Net::use_awaitable);
+        };
+        ASSERT_TRUE(Control->Start(std::move(BlockerRequest), Blocker()));
+        const auto ParentIdentity = Control->CurrentIdentity();
+
+        auto Service = std::make_shared<Preview::Composition::MuxService>(
+            Preview::Composition::MuxServiceOptions{
+                .Mode = Preview::Composition::MuxMode::Smux,
+                .RootWaitingFn = [RootWaiting]
+                {
+                    (void)RootWaiting->try_send(boost::system::error_code{});
+                }});
+        Service->SetStreamHandler(
+            [Service, StreamHandled](Preview::SharedTransmission Stream,
+                                     const Preview::Lifecycle::TaskIdentity &)
+                -> Net::awaitable<Code>
+            {
+                if (!Stream)
+                {
+                    co_return Code::IoError;
+                }
+                Service->Stop();
+                (void)StreamHandled->try_send(boost::system::error_code{});
+                co_return Code::Success;
+            });
+
+        auto ServerTransport = std::make_shared<MemoryStream>(std::move(ServerRaw));
+        Net::co_spawn(
+            Io,
+            RunMuxServerWithIdentity(
+                Service, Control, ParentIdentity, std::move(ServerTransport), RootDone),
+            Net::detached);
+
+        bool Opened = false;
+        bool Handled = false;
+        Preview::Testing::RunCoro(
+            Io,
+            [ClientRaw = std::move(ClientRaw), &Io, &Opened, &Handled, Service, Control, RootWaiting,
+             RootDone, StreamHandled]() mutable -> Net::awaitable<void>
+            {
+                EXPECT_TRUE(co_await WaitForSignal(RootWaiting, Io.get_executor()));
+                auto ClientValue = std::make_shared<Preview::Mux::Smux::Client<>>();
+                EXPECT_TRUE(ClientValue->Connect(
+                    std::make_shared<MemoryStream>(std::move(ClientRaw))));
+                auto Stream = co_await OpenStreamWithTimeout(ClientValue, Io.get_executor());
+                Opened = static_cast<bool>(Stream);
+                Handled = co_await WaitForSignal(StreamHandled, Io.get_executor());
+                ClientValue->Close();
+                Control->Cancel();
+                (void)co_await WaitForSignal(RootDone, Io.get_executor());
+                (void)co_await DrainControlWithTimeout(Control, Io.get_executor());
+                Service->Stop();
+            });
+
+        EXPECT_TRUE(Opened);
+        EXPECT_TRUE(Handled);
+        EXPECT_FALSE(Control->IsDrainBlocked());
+    }
+
+    TEST(MuxService, AcceptsSingMuxProtocolEnvelope)
+    {
+        Net::io_context Io;
+        auto [ServerRaw, ClientRaw] = Preview::MakeMemoryPair(Io.get_executor());
+        auto RootWaiting = std::make_shared<AsyncSignal>(Io.get_executor(), 1);
+        auto StreamHandled = std::make_shared<AsyncSignal>(Io.get_executor(), 1);
+        auto Service = std::make_shared<Preview::Composition::MuxService>(
+            Preview::Composition::MuxServiceOptions{
+                .Mode = Preview::Composition::MuxMode::Smux,
+                .RequireSingMuxProtocol = true,
+                .RootWaitingFn = [RootWaiting]
+                {
+                    (void)RootWaiting->try_send(boost::system::error_code{});
+                }});
+        Service->SetStreamHandler(
+            [StreamHandled, IoExecutor = Io.get_executor()](Preview::SharedTransmission Stream,
+                                                             const Preview::Lifecycle::TaskIdentity &)
+                -> Net::awaitable<Code>
+            {
+                const auto Marker = co_await ReadByteWithTimeout(Stream, IoExecutor);
+                if (!Marker || *Marker != std::byte{0xA5})
+                {
+                    co_return Code::ProtocolError;
+                }
+                if (!(co_await WriteByteWithTimeout(Stream, std::byte{0x5A}, IoExecutor)))
+                {
+                    co_return Code::IoError;
+                }
+                (void)StreamHandled->try_send(boost::system::error_code{});
+                co_return Code::Success;
+            });
+
+        auto Root = std::make_shared<RootCompletion>(Io.get_executor());
+        Root->Start(Service, {}, std::make_shared<MemoryStream>(std::move(ServerRaw)));
+        bool Success = false;
+        Preview::Testing::RunCoro(
+            Io,
+            [&Io, &Success, ClientRaw = std::move(ClientRaw), RootWaiting, StreamHandled,
+             Root]() mutable -> Net::awaitable<void>
+            {
+                auto ClientTransport = std::make_shared<MemoryStream>(std::move(ClientRaw));
+                const std::array<std::byte, 2> SessionRequest{std::byte{0x00}, std::byte{0x00}};
+                std::error_code Error;
+                const auto SessionWritten = co_await ClientTransport->async_write_some(
+                    SessionRequest, Error);
+                EXPECT_EQ(SessionWritten, SessionRequest.size());
+                EXPECT_FALSE(Error);
+                if (SessionWritten != SessionRequest.size() || Error)
+                {
+                    co_return;
+                }
+
+                const auto RootReady = co_await WaitForSignal(RootWaiting, Io.get_executor());
+                EXPECT_TRUE(RootReady);
+                if (!RootReady)
+                {
+                    co_return;
+                }
+                auto ClientValue = std::make_shared<Preview::Mux::Smux::Client<>>();
+                const auto Connected = ClientValue->Connect(ClientTransport);
+                EXPECT_TRUE(Connected);
+                if (!Connected)
+                {
+                    co_return;
+                }
+                auto Stream = co_await OpenStreamWithTimeout(ClientValue, Io.get_executor());
+                EXPECT_TRUE(Stream);
+                if (!Stream)
+                {
+                    co_return;
+                }
+                const std::array<std::byte, 10> StreamRequest{
+                    std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, std::byte{127},
+                    std::byte{0x00}, std::byte{0x00}, std::byte{0x01}, std::byte{0xCF},
+                    std::byte{0x24}, std::byte{0xA5}};
+                std::error_code StreamError;
+                const auto RequestWritten = co_await Stream->async_write_some(
+                    std::span<const std::byte>(StreamRequest), StreamError);
+                EXPECT_EQ(RequestWritten, StreamRequest.size());
+                EXPECT_FALSE(StreamError);
+                const auto Status = co_await ReadByteWithTimeout(Stream, Io.get_executor());
+                const auto Response = co_await ReadByteWithTimeout(Stream, Io.get_executor());
+                EXPECT_TRUE(Status);
+                EXPECT_TRUE(Response);
+                if (!Status || !Response)
+                {
+                    co_return;
+                }
+                EXPECT_EQ(*Status, std::byte{0x00});
+                EXPECT_EQ(*Response, std::byte{0x5A});
+                EXPECT_TRUE(co_await WaitForSignal(StreamHandled, Io.get_executor()));
+                ClientValue->Close();
+                (void)co_await WaitForSignal(Root->SignalValue, Io.get_executor());
+                Success = true;
+            });
+        EXPECT_TRUE(Success);
     }
 
     TEST(MuxService, YamuxAcceptsAndOwnsOneChildStream)

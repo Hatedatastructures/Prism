@@ -4,3 +4,9 @@ target_link_libraries(RestlsConnSession PRIVATE PreviewTransport PreviewProtocol
 
 AddPreviewTest(RestlsCodecDeep.cpp)
 target_link_libraries(RestlsCodecDeep PRIVATE PreviewProtocolRestls PreviewTestSupport)
+
+AddPreviewTest(RestlsServerHandshakeTest.cpp)
+target_link_libraries(RestlsServerHandshakeTest PRIVATE PreviewProtocolRestls PreviewTestSupport)
+
+AddPreviewTest(RestlsServerRelayTest.cpp)
+target_link_libraries(RestlsServerRelayTest PRIVATE PreviewTransport PreviewProtocolRestls PreviewTestSupport)

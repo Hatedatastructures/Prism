@@ -574,7 +574,7 @@ namespace
         EXPECT_FALSE(Prepared.NeedMore);
     }
 
-    TEST(RecognitionCarrier, AnytlsCandidateRejectsPaddedIncompleteAuthFrame)
+    TEST(RecognitionCarrier, AnytlsCandidateAcceptsKnownHashBeforePaddingCompletes)
     {
         auto Binding = Composition::CandidateFactory::MakeAnytls(
             Composition::CandidateOptions{105, "anytls", 0, 0, false},
@@ -582,14 +582,14 @@ namespace
         auto Frame = MakeAnytlsAuthFrame("candidate-secret", 5);
         Frame.resize(Preview::Anytls::AuthFrameHdrlen + 4);
         const auto Snapshot = SnapshotOf(Frame);
-        EXPECT_EQ(Binding.Spec.Inspect(Snapshot), Core::MatchState::NeedMore);
+        EXPECT_EQ(Binding.Spec.Inspect(Snapshot), Core::MatchState::Authenticated);
 
         Core::PrepareContext Context;
         Context.Candidate = Binding.Spec.Id;
         Context.Snapshot = Snapshot;
         const auto Prepared = RunPrepare(Binding.Spec.Prepare, std::move(Context));
-        EXPECT_EQ(Prepared.Status, Core::RecognitionStatus::NoMatch);
-        EXPECT_TRUE(Prepared.NeedMore);
+        EXPECT_EQ(Prepared.Status, Core::RecognitionStatus::Accepted);
+        EXPECT_FALSE(Prepared.NeedMore);
     }
 
     TEST(RecognitionCarrier, FiltersBySniAndAlpnWithoutExecutingScheme)
@@ -665,7 +665,7 @@ namespace
         EXPECT_EQ(Fallback.Inspect(MakeFeatures("", {})), Core::MatchState::Structural);
     }
 
-    TEST(RecognitionCarrier, RejectsEchWithoutInnerHelloSupport)
+    TEST(RecognitionCarrier, AllowsEchOnNativeTlsFallback)
     {
         auto Features = MakeFeatures("outer.example", {"h2"});
         Features.HasEch = true;
@@ -678,8 +678,8 @@ namespace
             Composition::TlsCandidateOptions{31, "native-fallback", "native", {}, {}, true},
             &Executor);
 
-        EXPECT_EQ(Routed.Inspect(Features), Core::MatchState::Rejected);
-        EXPECT_EQ(Fallback.Inspect(Features), Core::MatchState::Rejected);
+        EXPECT_EQ(Routed.Inspect(Features), Core::MatchState::Structural);
+        EXPECT_EQ(Fallback.Inspect(Features), Core::MatchState::Structural);
     }
 
     TEST(RecognitionCarrier, ParsesClientHelloBeforeProfileCommit)
@@ -873,6 +873,14 @@ namespace
         EXPECT_EQ(Result.ClientError, Preview::Error::None);
         EXPECT_EQ(Result.Commit.Status, Core::RecognitionStatus::Accepted);
         EXPECT_EQ(Result.Commit.Metadata.Carrier, "ws");
+    }
+
+    TEST(RecognitionCarrier, WebsocketServerAcceptFactoryAcceptsNativeTlsContext)
+    {
+        auto TlsContext = std::make_shared<Net::ssl::context>(Net::ssl::context::tls_server);
+        const auto Accept = Composition::MakeWebsocketServerAccept(
+            TlsContext, Preview::Ws::ServerConfig{"/", "edge.example"});
+        EXPECT_TRUE(static_cast<bool>(Accept));
     }
 
     TEST(RecognitionCarrier, WebsocketConcreteAcceptRunsOnlyAtCommit)

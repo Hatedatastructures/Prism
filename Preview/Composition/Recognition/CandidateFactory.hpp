@@ -74,6 +74,18 @@ namespace Preview::Composition::Recognition
     {
         Core::CandidateSpec Spec;
         Runtime::SessionOptions::ProtocolAcceptFn Accept;
+        std::shared_ptr<const struct CandidateInnerBinding> Inner;
+    };
+
+    /**
+     * @brief TLS 外层解密后的内层协议候选。
+     * @details 外层 carrier 相同而内层协议不同的候选在 TLS 握手前无法区分，
+     *          由 LayeredCandidateFactory 保存此元数据，供解密后回放试探。
+     */
+    struct CandidateInnerBinding final
+    {
+        Core::CandidateSpec Spec;
+        Runtime::SessionOptions::ProtocolAcceptFn Accept;
     };
 
     namespace detail
@@ -433,13 +445,13 @@ namespace Preview::Composition::Recognition
                                                 std::string_view Password) -> Core::MatchState
         {
             std::array<std::uint8_t, Preview::Anytls::PasswordHashLen> Hash{};
-            std::uint16_t PadLen = 0;
-            const auto Error = Preview::Anytls::ParseAuthFrame(SnapshotBytes(Snapshot), Hash, PadLen);
-            if (Error == Preview::Error::BadLength)
+            const auto Data = SnapshotBytes(Snapshot);
+            if (Data.size() < Hash.size())
             {
                 return Core::MatchState::NeedMore;
             }
-            if (Error != Preview::Error::None || !Preview::Anytls::VerifyAuth(Password, Hash))
+            std::copy_n(Data.begin(), Hash.size(), Hash.begin());
+            if (!Preview::Anytls::VerifyAuth(Password, Hash))
             {
                 return Core::MatchState::Rejected;
             }
@@ -450,14 +462,13 @@ namespace Preview::Composition::Recognition
             -> Core::PrepareResult
         {
             std::array<std::uint8_t, Preview::Anytls::PasswordHashLen> Hash{};
-            std::uint16_t PadLen = 0;
-            const auto Error = Preview::Anytls::ParseAuthFrame(
-                SnapshotBytes(RequestData.Snapshot), Hash, PadLen);
-            if (Error == Preview::Error::BadLength)
+            const auto Data = SnapshotBytes(RequestData.Snapshot);
+            if (Data.size() < Hash.size())
             {
                 return NeedMore(RequestData.Id);
             }
-            if (Error != Preview::Error::None || !Preview::Anytls::VerifyAuth(RequestData.Password, Hash))
+            std::copy_n(Data.begin(), Hash.size(), Hash.begin());
+            if (!Preview::Anytls::VerifyAuth(RequestData.Password, Hash))
             {
                 return NoMatch(RequestData.Id);
             }

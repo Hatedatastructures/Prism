@@ -132,7 +132,12 @@ namespace Preview::Transport {
             auto Token = Net::redirect_error(Net::use_awaitable, SysEc);
             const auto N =
                 co_await SslStream_->async_read_some(Net::buffer(Buffer.data(), Buffer.size()), Token);
-            ErrorCode = ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
+            const bool ReceivedCloseNotify =
+                SslStream_->native_handle() != nullptr &&
+                (SSL_get_shutdown(SslStream_->native_handle()) & SSL_RECEIVED_SHUTDOWN) != 0;
+            ErrorCode = ReceivedCloseNotify
+                            ? ::Preview::Fault::make_error_code(::Preview::Fault::Code::Eof)
+                            : ::Preview::Fault::make_error_code(::Preview::Fault::ToCode(SysEc));
             co_return N;
         }
 

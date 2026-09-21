@@ -1,0 +1,22 @@
+mixed-port: 18081
+allow-lan: false
+bind-address: 127.0.0.1
+mode: rule
+log-level: debug
+proxies:
+  - name: prism-tuic
+    type: tuic
+    server: 192.168.0.106
+    port: 18080
+    uuid: 123e4567-e89b-12d3-a456-426614174000
+    password: tuic_password
+    sni: tuic-gateway-e2e
+    skip-cert-verify: true
+    udp: true
+proxy-groups:
+  - name: proxy
+    type: select
+    proxies:
+      - prism-tuic
+rules:
+  - MATCH,proxy

@@ -219,6 +219,24 @@ namespace psm::runtime::front
                 co_return;
             }
             const auto fb = static_cast<std::uint8_t>(first);
+
+            // 认证和首个 Connect 流可能在同一个 QUIC 往返中交错到达。
+            // 首字节读取会挂起当前协程；认证协程可能在恢复前完成并清空
+            // pending，因此恢复后必须重新检查状态，避免把已认证流遗留在
+            // 无人消费的 pending 队列中。
+            if (state.authenticated && state.type == psm::connect::protocol_type::tuic)
+            {
+                if (stream->is_uni())
+                {
+                    co_await launch_udp_channel(state, std::move(stream));
+                }
+                else
+                {
+                    co_await launch_handler(state, std::move(stream), std::span<const std::byte>(&first, 1));
+                }
+                co_return;
+            }
+
             if (fb == 0x05 && tuic_enabled)
             {
                 // TUIC Connect 流：认证完成前缓存（含首字节），认证后分发

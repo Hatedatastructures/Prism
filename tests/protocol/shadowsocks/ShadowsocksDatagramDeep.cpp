@@ -82,7 +82,7 @@ namespace
                              .count();
         const auto ts = static_cast<std::uint64_t>(now);
 
-        // request_type(1) + timestamp(8) + ATYP(1) + IPv4(4) + port(2) + padding_len(2) + payload
+        // request_type(1) + timestamp(8) + padding_len(2) + ATYP(1) + IPv4(4) + port(2) + payload
         const std::uint8_t payload_byte = 0xAB;
         const auto plain_len = 1 + 8 + 1 + 4 + 2 + 2 + 1;
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
@@ -91,16 +91,16 @@ namespace
         {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        // SOCKS5 IPv4: ATYP=0x01
-        plain[9] = atyp_ipv4;
-        plain[10] = 127;
-        plain[11] = 0;
-        plain[12] = 0;
-        plain[13] = 1;
+        // SIP022: padding length precedes the SOCKS5 address.
+        plain[9] = 0;
+        plain[10] = 0; // padding_len = 0
+        plain[11] = atyp_ipv4;
+        plain[12] = 127;
+        plain[13] = 0;
         plain[14] = 0;
-        plain[15] = 80; // port 80
+        plain[15] = 1;
         plain[16] = 0;
-        plain[17] = 0; // padding_len = 0
+        plain[17] = 80; // port 80
         plain[18] = payload_byte;
 
         // 派生会话子密钥
@@ -148,7 +148,7 @@ namespace
 
         const char domain[] = "example.com";
         const auto domain_len = static_cast<std::uint8_t>(sizeof(domain) - 1);
-        // request_type(1) + ts(8) + ATYP(1) + len(1) + domain(11) + port(2) + padding_len(2) + payload(1)
+        // request_type(1) + ts(8) + padding_len(2) + ATYP(1) + len(1) + domain(11) + port(2) + payload(1)
         const auto plain_len = 1 + 8 + 1 + 1 + domain_len + 2 + 2 + 1;
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = request_type;
@@ -156,13 +156,13 @@ namespace
         {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        plain[9] = atyp_domain;
-        plain[10] = domain_len;
-        std::memcpy(plain.data() + 11, domain, domain_len);
-        plain[11 + domain_len] = 0x01;
-        plain[12 + domain_len] = 0xBB; // port 443
-        plain[13 + domain_len] = 0;
-        plain[14 + domain_len] = 0; // padding_len = 0
+        plain[9] = 0;
+        plain[10] = 0; // padding_len = 0
+        plain[11] = atyp_domain;
+        plain[12] = domain_len;
+        std::memcpy(plain.data() + 13, domain, domain_len);
+        plain[13 + domain_len] = 0x01;
+        plain[14 + domain_len] = 0xBB; // port 443
         plain[15 + domain_len] = 0xCC;
 
         std::array<std::uint8_t, 64> material{};
@@ -205,7 +205,7 @@ namespace
                              .count();
         const auto ts = static_cast<std::uint64_t>(now);
 
-        // request_type(1) + ts(8) + ATYP(1) + IPv4(4) + port(2) + padding_len(2) + padding(4) + payload(2)
+        // request_type(1) + ts(8) + padding_len(2) + padding(4) + ATYP(1) + IPv4(4) + port(2) + payload(2)
         const auto plain_len = 1 + 8 + 1 + 4 + 2 + 2 + 4 + 2;
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = request_type;
@@ -213,17 +213,17 @@ namespace
         {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        plain[9] = atyp_ipv4;
-        plain[10] = 10;
-        plain[11] = 0;
-        plain[12] = 0;
-        plain[13] = 1;
-        plain[14] = 0;
-        plain[15] = 80;
         // padding_len = 4
-        plain[16] = 0;
-        plain[17] = 4;
+        plain[9] = 0;
+        plain[10] = 4;
         // padding data (zeros, already zero-initialized)
+        plain[15] = atyp_ipv4;
+        plain[16] = 10;
+        plain[17] = 0;
+        plain[18] = 0;
+        plain[19] = 1;
+        plain[20] = 0;
+        plain[21] = 80;
         // payload
         plain[22] = 0xDD;
         plain[23] = 0xEE;
@@ -268,7 +268,7 @@ namespace
                              .count();
         const auto ts = static_cast<std::uint64_t>(now);
 
-        // request_type(1) + ts(8) + ATYP(1) + IPv6(16) + port(2) + padding_len(2) + payload(1)
+        // request_type(1) + ts(8) + padding_len(2) + ATYP(1) + IPv6(16) + port(2) + payload(1)
         const auto plain_len = 1 + 8 + 1 + 16 + 2 + 2 + 1;
         memory::vector<std::uint8_t> plain(plain_len, memory::current_resource());
         plain[0] = request_type;
@@ -276,28 +276,17 @@ namespace
         {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        plain[9] = atyp_ipv6;
+        plain[9] = 0;
+        plain[10] = 0; // padding_len = 0
+        plain[11] = atyp_ipv6;
         // ::1
-        plain[10] = 0;
-        plain[11] = 0;
-        plain[12] = 0;
-        plain[13] = 0;
-        plain[14] = 0;
-        plain[15] = 0;
-        plain[16] = 0;
-        plain[17] = 0;
-        plain[18] = 0;
-        plain[19] = 0;
-        plain[20] = 0;
-        plain[21] = 0;
-        plain[22] = 0;
-        plain[23] = 0;
-        plain[24] = 0;
-        plain[25] = 1;
-        plain[26] = 0;
-        plain[27] = 80; // port 80
+        for (std::size_t I = 12; I < 27; ++I)
+        {
+            plain[I] = 0;
+        }
+        plain[27] = 1;
         plain[28] = 0;
-        plain[29] = 0; // padding_len = 0
+        plain[29] = 80; // port 80
         plain[30] = 0xFF;
 
         crypto::aead_context ctx(crypto::aead_cipher::xchacha20_poly1305,
@@ -339,13 +328,13 @@ namespace
         {
             plain[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        plain[9] = atyp_domain;
-        plain[10] = domain_len;
-        std::memcpy(plain.data() + 11, domain, domain_len);
-        plain[11 + domain_len] = 1;
-        plain[12 + domain_len] = 187; // port 443
-        plain[13 + domain_len] = 0;
-        plain[14 + domain_len] = 0;
+        plain[9] = 0;
+        plain[10] = 0; // padding_len = 0
+        plain[11] = atyp_domain;
+        plain[12] = domain_len;
+        std::memcpy(plain.data() + 13, domain, domain_len);
+        plain[13 + domain_len] = 1;
+        plain[14 + domain_len] = 187; // port 443
         plain[15 + domain_len] = 0x77;
 
         crypto::aead_context ctx(crypto::aead_cipher::xchacha20_poly1305,
@@ -429,22 +418,22 @@ namespace
                              .count();
         const auto ts = static_cast<std::uint64_t>(now);
 
-        // request_type(1) + ts(8) + ATYP(1) + IPv4(4) + port(2) + padding_len(2) + payload(3)
+        // request_type(1) + ts(8) + padding_len(2) + ATYP(1) + IPv4(4) + port(2) + payload(3)
         memory::vector<std::uint8_t> body(21, memory::current_resource());
         body[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
         {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        body[9] = atyp_ipv4;
-        body[10] = 192;
-        body[11] = 168;
-        body[12] = 1;
-        body[13] = 1;
-        body[14] = 0x1F;
-        body[15] = 0x90; // port 8080
-        body[16] = 0;
-        body[17] = 0; // padding_len = 0
+        body[9] = 0;
+        body[10] = 0; // padding_len = 0
+        body[11] = atyp_ipv4;
+        body[12] = 192;
+        body[13] = 168;
+        body[14] = 1;
+        body[15] = 1;
+        body[16] = 0x1F;
+        body[17] = 0x90; // port 8080
         body[18] = 0xAA;
         body[19] = 0xBB;
         body[20] = 0xCC;
@@ -465,7 +454,7 @@ namespace
 
         const char domain[] = "test.io";
         const auto dlen = static_cast<std::uint8_t>(sizeof(domain) - 1);
-        // request_type(1) + ts(8) + ATYP(1) + len(1) + domain(7) + port(2) + padding_len(2) + payload(2)
+        // request_type(1) + ts(8) + padding_len(2) + ATYP(1) + len(1) + domain(7) + port(2) + payload(2)
         const auto total = 1 + 8 + 1 + 1 + dlen + 2 + 2 + 2;
         memory::vector<std::uint8_t> body(total, memory::current_resource());
         body[0] = request_type;
@@ -473,13 +462,13 @@ namespace
         {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        body[9] = atyp_domain;
-        body[10] = dlen;
-        std::memcpy(body.data() + 11, domain, dlen);
-        body[11 + dlen] = 1;
-        body[12 + dlen] = 187; // port 443
-        body[13 + dlen] = 0;
-        body[14 + dlen] = 0;
+        body[9] = 0;
+        body[10] = 0; // padding_len = 0
+        body[11] = atyp_domain;
+        body[12] = dlen;
+        std::memcpy(body.data() + 13, domain, dlen);
+        body[13 + dlen] = 1;
+        body[14 + dlen] = 187; // port 443
         body[15 + dlen] = 0xDE;
         body[16 + dlen] = 0xAD;
 
@@ -497,7 +486,7 @@ namespace
                              .count();
         const auto ts = static_cast<std::uint64_t>(now);
 
-        // request_type(1) + ts(8) + ATYP(1) + IPv4(4) + port(2) + padding_len(2)=8 + padding(8) + payload(2)
+        // request_type(1) + ts(8) + padding_len(2)=8 + padding(8) + ATYP(1) + IPv4(4) + port(2) + payload(2)
         const auto total = 1 + 8 + 1 + 4 + 2 + 2 + 8 + 2;
         memory::vector<std::uint8_t> body(total, memory::current_resource());
         body[0] = request_type;
@@ -505,16 +494,16 @@ namespace
         {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        body[9] = atyp_ipv4;
-        body[10] = 10;
-        body[11] = 0;
-        body[12] = 0;
-        body[13] = 1;
-        body[14] = 0;
-        body[15] = 80;
-        body[16] = 0;
-        body[17] = 8; // padding_len = 8
+        body[9] = 0;
+        body[10] = 8; // padding_len = 8
         // padding data is zeros (already)
+        body[19] = atyp_ipv4;
+        body[20] = 10;
+        body[21] = 0;
+        body[22] = 0;
+        body[23] = 1;
+        body[24] = 0;
+        body[25] = 80;
         body[26] = 0x11;
         body[27] = 0x22;
 
@@ -539,15 +528,15 @@ namespace
         {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        body[9] = atyp_ipv4;
-        body[10] = 127;
-        body[11] = 0;
-        body[12] = 0;
-        body[13] = 1;
+        body[9] = 0;
+        body[10] = 0; // padding = 0, no payload
+        body[11] = atyp_ipv4;
+        body[12] = 127;
+        body[13] = 0;
         body[14] = 0;
-        body[15] = 80;
+        body[15] = 1;
         body[16] = 0;
-        body[17] = 0; // padding = 0, no payload
+        body[17] = 80;
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
@@ -562,25 +551,24 @@ namespace
                              .count();
         const auto ts = static_cast<std::uint64_t>(now);
 
-        // request_type(1) + ts(8) + ATYP(1) + IPv4(4) + port(2) = 16 字节（不够 padding_len）
+        // request_type(1) + ts(8) + padding_len(2) + ATYP(1) + IPv4(4) + port(2) = 18 字节
         memory::vector<std::uint8_t> body(16, memory::current_resource());
         body[0] = request_type;
         for (std::size_t i = 0; i < 8; ++i)
         {
             body[1 + i] = static_cast<std::uint8_t>((ts >> (56 - 8 * i)) & 0xFF);
         }
-        body[9] = atyp_ipv4;
-        body[10] = 127;
-        body[11] = 0;
-        body[12] = 0;
-        body[13] = 1;
+        body[9] = 0;
+        body[10] = 0;
+        body[11] = atyp_ipv4;
+        body[12] = 127;
+        body[13] = 0;
         body[14] = 0;
-        body[15] = 80;
+        body[15] = 1;
 
         udp_dec_pkt result;
         auto ec = parse_body_after_timestamp(body, result);
-        EXPECT_EQ(ec, psm::fault::code::success) << "parse_body: no padding field success";
-        EXPECT_TRUE(result.payload.empty()) << "parse_body: no padding field -> empty payload";
+        EXPECT_EQ(ec, psm::fault::code::bad_message) << "parse_body: missing padding field -> bad_message";
     }
 
     // ─── 完整 AES-GCM 解密路径 ────────────────────────

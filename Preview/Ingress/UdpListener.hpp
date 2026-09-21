@@ -14,6 +14,7 @@
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/dispatch.hpp>
+#include <boost/asio/error.hpp>
 #include <boost/asio/experimental/channel.hpp>
 #include <boost/asio/ip/udp.hpp>
 #include <boost/asio/redirect_error.hpp>
@@ -34,6 +35,12 @@ namespace Preview::Ingress
 {
 
     namespace Net = boost::asio;
+
+    [[nodiscard]] inline auto IsRecoverableReceiveError(
+        const boost::system::error_code Error) noexcept -> bool
+    {
+        return Error == Net::error::connection_refused;
+    }
 
     enum class UdpStartCode : std::uint8_t
     {
@@ -287,6 +294,11 @@ namespace Preview::Ingress
                 {
                     if (!StateValue->Closed.load(std::memory_order_acquire))
                     {
+                        if (IsRecoverableReceiveError(Error))
+                        {
+                            // UDP 对端退出后产生的 ICMP 拒绝不应终止入口泵。
+                            continue;
+                        }
                         StateValue->LastError = Error;
                         if (StateValue->OnError)
                         {

@@ -89,12 +89,12 @@ namespace Preview::Composition
         {
             State(Preview::Anytls::SharedConn ConnectionValue, DialFn DialValue,
                   std::shared_ptr<Preview::Runtime::SessionControl> ControlValue,
-                  Preview::Foundation::TrafficSink *TrafficValue,
+                  std::shared_ptr<Preview::Foundation::TrafficSink> TrafficValue,
                   std::string IdentityValue)
                 : Connection(std::move(ConnectionValue)),
                   Dial(std::move(DialValue)),
                   Control(std::move(ControlValue)),
-                  Traffic(TrafficValue),
+                  Traffic(std::move(TrafficValue)),
                   Identity(std::move(IdentityValue)),
                   WriteStrand(Connection->Executor())
             {
@@ -103,7 +103,7 @@ namespace Preview::Composition
             Preview::Anytls::SharedConn Connection;
             DialFn Dial;
             std::shared_ptr<Preview::Runtime::SessionControl> Control;
-            Preview::Foundation::TrafficSink *Traffic{nullptr};
+            std::shared_ptr<Preview::Foundation::TrafficSink> Traffic;
             std::string Identity;
             Net::strand<Net::any_io_executor> WriteStrand;
             std::unordered_map<std::uint32_t, std::shared_ptr<StreamState>> Streams;
@@ -587,8 +587,8 @@ namespace Preview::Composition
         }
 
         [[nodiscard]] static auto RunSingMux(
-            const std::shared_ptr<State> &StateValue,
-            const std::shared_ptr<StreamState> &Stream,
+            std::shared_ptr<State> StateValue,
+            std::shared_ptr<StreamState> Stream,
             const std::uint32_t StreamId) -> Net::awaitable<Preview::Fault::Code>
         {
             auto Transport = std::make_shared<StreamTransport>(StateValue, Stream, StreamId);
@@ -641,7 +641,7 @@ namespace Preview::Composition
                 RelayContext.Outbound = Outbound;
                 RelayContext.Target = Parsed->Request.Target;
                 RelayContext.identity = StateValue->Identity;
-                RelayContext.traffic = StateValue->Traffic;
+                RelayContext.traffic = StateValue->Traffic.get();
                 RelayContext.Control = StateValue->Control;
                 Preview::Middleware::Builtin::RelayMiddleware Relay(
                     nullptr, std::chrono::seconds(30));
@@ -767,7 +767,7 @@ namespace Preview::Composition
             }
             auto StateValue = std::make_shared<State>(
                 std::move(Connection), std::move(Dial), Context.Control,
-                Context.traffic, Context.identity);
+                Context.TrafficOwner, Context.identity);
             try
             {
                 while (StateValue->Connection->IsOpen())

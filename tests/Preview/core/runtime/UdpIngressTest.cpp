@@ -8,6 +8,7 @@
 
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/error.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/udp.hpp>
 #include <boost/asio/steady_timer.hpp>
@@ -71,6 +72,39 @@ namespace
         }
     }
 
+    TEST(PreviewUdpDemux, AcceptsHeaderProtectedLongHeaderReservedBits)
+    {
+        Preview::Ingress::UdpDemux Demux;
+        const std::array<std::byte, 32> Initial{
+            std::byte{0xc4}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x01},
+            std::byte{0x08}, std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04},
+            std::byte{0x05}, std::byte{0x06}, std::byte{0x07}, std::byte{0x08}, std::byte{0x00},
+            std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+            std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+            std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+            std::byte{0x00}, std::byte{0x00}};
+
+        const auto Result = Demux.Classify(Initial);
+        EXPECT_EQ(Result.Kind, Preview::Ingress::DatagramKind::Quic);
+        EXPECT_EQ(Result.Route, Preview::Ingress::DatagramRoute::UnknownCid);
+        EXPECT_EQ(Result.Version, 1U);
+        EXPECT_EQ(Result.ConnectionIdBytes.size(), 8U);
+    }
+
+    TEST(PreviewUdpDemux, AcceptsHeaderProtectedShortHeaderReservedBits)
+    {
+        Preview::Ingress::UdpDemux Demux;
+        const std::array<std::byte, 12> ShortHeader{
+            std::byte{0x51}, std::byte{0x01}, std::byte{0x02}, std::byte{0x03},
+            std::byte{0x04}, std::byte{0x05}, std::byte{0x06}, std::byte{0x07},
+            std::byte{0x08}, std::byte{0x09}, std::byte{0x0A}, std::byte{0x0B}};
+
+        const auto Result = Demux.Classify(ShortHeader);
+        EXPECT_EQ(Result.Kind, Preview::Ingress::DatagramKind::Quic);
+        EXPECT_EQ(Result.Route, Preview::Ingress::DatagramRoute::UnknownCid);
+        EXPECT_NE(Result.ConnectionId, 0U);
+    }
+
     TEST(PreviewUdpListener, BindsReceivesAndDrainsOneSocket)
     {
         Net::io_context Io;
@@ -123,6 +157,14 @@ namespace
         EXPECT_TRUE(DrainResult.Completed);
         EXPECT_GE(Received.load(std::memory_order_relaxed), 1U);
         EXPECT_FALSE(Listener->Health().Ready);
+    }
+
+    TEST(PreviewUdpListener, ClassifiesTransientConnectionRefusedAsRecoverable)
+    {
+        EXPECT_TRUE(Preview::Ingress::IsRecoverableReceiveError(
+            boost::asio::error::connection_refused));
+        EXPECT_FALSE(Preview::Ingress::IsRecoverableReceiveError(
+            boost::asio::error::operation_aborted));
     }
 
 } // namespace

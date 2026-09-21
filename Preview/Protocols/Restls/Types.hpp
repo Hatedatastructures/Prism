@@ -50,10 +50,13 @@ namespace Preview::Restls
     /// ActResponse 命令
     inline constexpr std::uint8_t CmdTypeResponse = 0x01;
 
-    /// 服务端到客户端的方向标签
-    inline constexpr std::string_view DirToclient = "Server-to-Client";
-    /// 客户端到服务端的方向标签
-    inline constexpr std::string_view DirToserver = "Client-to-Server";
+    /// Restls response command 的控制 payload（不属于代理数据面）。
+    inline constexpr std::string_view RandomResponseMagic = "restls-random-response";
+
+    /// 服务端到客户端的方向标签（对齐 mihomo restls wire）
+    inline constexpr std::string_view DirToclient = "server-to-client";
+    /// 客户端到服务端的方向标签（对齐 mihomo restls wire）
+    inline constexpr std::string_view DirToserver = "client-to-server";
 
     /// BLAKE3 DeriveKey 使用的固定上下文
     inline constexpr std::string_view SecretCtx = "restls-traffic-key";

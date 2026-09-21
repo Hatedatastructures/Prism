@@ -24,6 +24,7 @@
 
 #include <boost/asio.hpp>
 #include <boost/asio/experimental/awaitable_operators.hpp>
+#include <boost/asio/this_coro.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -92,12 +93,15 @@ namespace Preview::Network::Dns
          * @param cfg 配置（上游列表 / 策略 / 规则 / 缓存参数）
          */
         explicit Resolver(Net::any_io_executor Executor, const Config &ConfigValue)
-            : Ex_(std::move(Executor)), Config_(ConfigValue), Rules_(Detail::MakeRulesOptions(ConfigValue)),
+            : Ex_(std::move(Executor)),
+              Config_(ConfigValue),
+              Rules_(Detail::MakeRulesOptions(ConfigValue)),
+              Serial_(Ex_),
               State_(std::make_shared<State>(
-                  Ex_, Detail::MakeCacheOptions(ConfigValue),
-                  std::make_shared<Upstream>(Ex_, Detail::MakeUpstreamOptions(ConfigValue))))
+                  Serial_, Detail::MakeCacheOptions(ConfigValue),
+                  std::make_shared<Upstream>(Serial_, Detail::MakeUpstreamOptions(ConfigValue))))
         {
-            Net::co_spawn(Ex_, Detail::MaintenanceLoop(State_), Net::detached);
+            Net::co_spawn(Serial_, Detail::MaintenanceLoop(State_), Net::detached);
         }
 
         /// 停止维护循环（缓存驱逐 / flight 清理 / 池清扫）
@@ -120,6 +124,19 @@ namespace Preview::Network::Dns
          * @return 地址列表；失败或负结果为空
          */
         [[nodiscard]] auto AsyncResolve(std::string_view Host, std::error_code &ErrorCode)
+            -> Net::awaitable<std::vector<Net::ip::address>>
+        {
+            const auto Caller = co_await Net::this_coro::executor;
+            std::error_code SerializedError;
+            auto Addresses = co_await Net::co_spawn(
+                Serial_, ResolveOnSerial(std::string(Host), SerializedError), Net::use_awaitable);
+            co_await Net::dispatch(Caller, Net::use_awaitable);
+            ErrorCode = SerializedError;
+            co_return Addresses;
+        }
+
+    private:
+        [[nodiscard]] auto ResolveOnSerial(std::string Host, std::error_code &ErrorCode)
             -> Net::awaitable<std::vector<Net::ip::address>>
         {
             State_->Coalescer_.FlushCleanup();
@@ -205,6 +222,8 @@ namespace Preview::Network::Dns
 
             co_return FinalizeResult(Name, Result, ErrorCode);
         }
+
+    public:
 
         /**
          * @brief IP 黑名单检查
@@ -564,6 +583,7 @@ namespace Preview::Network::Dns
         Net::any_io_executor Ex_;
         Config Config_;
         RulesEngine Rules_;                          ///< 规则引擎（地址/CNAME/黑名单）
+        Net::strand<Net::any_io_executor> Serial_;   ///< 查询、缓存与维护的单一执行序列
         std::shared_ptr<State> State_;               ///< 查询资源与维护协程共享状态
         std::uint64_t Hits_{0};                      ///< 缓存命中计数
     };

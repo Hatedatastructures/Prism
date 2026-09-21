@@ -20,10 +20,13 @@
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/use_awaitable.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -89,57 +92,30 @@ namespace Preview::Vless
         [[nodiscard]] auto Run() -> Net::awaitable<void>
         {
             auto Self = shared_from_this();
-            if (!Stream_ || Stream_->TransportType() != Preview::Transmission::Type::Udp)
+            if (!Stream_)
             {
                 Close();
                 co_return;
             }
             Net::steady_timer IdleTimer(Stream_->Executor());
-            // 大缓冲堆分配，避免协程帧膨胀与逐轮零初始化
-            std::vector<std::byte> Rx(65535);
             std::vector<std::byte> UpstreamBuffer(65535);
-            std::vector<std::uint8_t> TxWire;
             // 流量口径对齐 relay：upstream = 客户端→上游载荷，downstream = 上游→客户端载荷
             std::size_t SentBytes = 0;
             std::size_t RecvBytes = 0;
             while (true)
             {
-                std::error_code ReadError;
-                const auto RxSpan = std::span<std::byte>(Rx);
-                auto Read = Stream_->async_read_some(RxSpan, ReadError);
-                std::size_t N = 0;
-                if (Opts_.IdleTimeout.count() > 0)
-                {
-                    IdleTimer.expires_after(Opts_.IdleTimeout);
-                    using boost::asio::experimental::awaitable_operators::operator||;
-                    auto Result = co_await (
-                        std::move(Read) || IdleTimer.async_wait(Net::use_awaitable));
-                    if (Result.index() == 1)
-                    {
-                        break; // 空闲超时
-                    }
-                    N = std::get<0>(std::move(Result));
-                }
-                else
-                {
-                    N = co_await std::move(Read); // 0 = 禁用回收
-                }
-                if (ReadError)
+                std::vector<std::byte> Rx;
+                if (!co_await ReadFrame(Rx, IdleTimer))
                 {
                     break;
                 }
-                IdleTimer.cancel();
-                if (N == 0 || N > Rx.size())
-                {
-                    break; // 流 EOF
-                }
 
-                // 解帧：ATYP + ADDR + PORT + payload（帧无长度字段）
+                // Mihomo VLESS UDP over TCP 使用 [长度 2B BE][地址+载荷] 帧。
                 Address Target;
                 std::span<const std::uint8_t> Payload;
                 const auto PErr = ParseUdpPkt(
                     std::span<const std::uint8_t>(
-                        reinterpret_cast<const std::uint8_t *>(Rx.data()), N),
+                        reinterpret_cast<const std::uint8_t *>(Rx.data()), Rx.size()),
                     Target,
                     Payload);
                 if (PErr != Error::None)
@@ -151,7 +127,9 @@ namespace Preview::Vless
                 auto TargetEndpoint = co_await ResolveTarget(Target);
                 if (TargetEndpoint.first != Error::None)
                 {
-                    continue;
+                    // 目标解析失败后继续等待下一帧会把已经失效的会话
+                    // 留到 IdleTimeout；与其他 UDP service 保持一致，立即收口。
+                    break;
                 }
                 boost::system::error_code WriteError;
                 if (!Egress_.is_open())
@@ -184,41 +162,25 @@ namespace Preview::Vless
                     break;
                 }
                 const auto SourceAddress = EndpointToAddress(SourceEndpoint);
+                std::vector<std::uint8_t> TxWire;
                 BuildUdpPkt(
                     SourceAddress,
                     std::span<const std::uint8_t>(
                         reinterpret_cast<const std::uint8_t *>(UpstreamBuffer.data()),
                         *UpstreamSize),
                     TxWire);
-                if (TxWire.empty())
+                if (TxWire.empty() || TxWire.size() > std::numeric_limits<std::uint16_t>::max())
                 {
                     break;
                 }
+                std::vector<std::byte> Response(TxWire.size() + 2U);
+                Response[0] = static_cast<std::byte>((TxWire.size() >> 8U) & 0xFFU);
+                Response[1] = static_cast<std::byte>(TxWire.size() & 0xFFU);
+                std::memcpy(Response.data() + 2, TxWire.data(), TxWire.size());
                 std::error_code SendError;
-                auto TxSpan = std::span(TxWire);
-                std::size_t Done = 0;
-                while (Done < TxWire.size())
-                {
-                    const auto Written = co_await Stream_->async_write_some(
-                        AsBytes(TxSpan.subspan(Done)),
-                        SendError);
-                    if (SendError)
-                    {
-                        break;
-                    }
-                    if (Written == 0)
-                    {
-                        SendError = std::make_error_code(std::errc::broken_pipe); // 底层零字节写入，防死循环
-                        break;
-                    }
-                    if (Written > TxWire.size() - Done)
-                    {
-                        SendError = std::make_error_code(std::errc::value_too_large);
-                        break;
-                    }
-                    Done += Written;
-                }
-                if (SendError)
+                const auto Written = co_await Stream_->AsyncWrite(
+                    std::span<const std::byte>(Response), SendError);
+                if (SendError || Written != Response.size())
                 {
                     break;
                 }
@@ -247,6 +209,59 @@ namespace Preview::Vless
         }
 
     private:
+        /**
+         * @brief 按长度读取一条 Mihomo VLESS UDP frame。
+         * @param Frame 输出的无长度前缀 frame 内容
+         * @param Timer 调用方复用的空闲计时器
+         * @return 是否读取到完整 frame
+         */
+        [[nodiscard]] auto ReadFrame(
+            std::vector<std::byte> &Frame,
+            Net::steady_timer &Timer) -> Net::awaitable<bool>
+        {
+            std::array<std::byte, 2> LengthBytes{};
+            if (!co_await ReadExactWithTimeout(std::span<std::byte>(LengthBytes), Timer))
+            {
+                co_return false;
+            }
+            const auto Length =
+                (static_cast<std::size_t>(std::to_integer<std::uint8_t>(LengthBytes[0])) << 8U) |
+                static_cast<std::size_t>(std::to_integer<std::uint8_t>(LengthBytes[1]));
+            if (Length == 0 || Length > std::numeric_limits<std::uint16_t>::max())
+            {
+                co_return false;
+            }
+            Frame.resize(Length);
+            co_return co_await ReadExactWithTimeout(std::span<std::byte>(Frame), Timer);
+        }
+
+        [[nodiscard]] auto ReadExactWithTimeout(
+            std::span<std::byte> Buffer,
+            Net::steady_timer &Timer) -> Net::awaitable<bool>
+        {
+            std::error_code ReadError;
+            if (Opts_.IdleTimeout.count() <= 0)
+            {
+                const auto Read = co_await Stream_->AsyncRead(Buffer, ReadError);
+                co_return !ReadError && Read == Buffer.size();
+            }
+
+            using boost::asio::experimental::awaitable_operators::operator||;
+            boost::system::error_code TimerError;
+            Timer.expires_after(Opts_.IdleTimeout);
+            auto Read = Stream_->AsyncRead(Buffer, ReadError);
+            auto Wait = Timer.async_wait(
+                Net::redirect_error(Net::use_awaitable, TimerError));
+            const auto Outcome = co_await (std::move(Read) || std::move(Wait));
+            if (Outcome.index() == 1)
+            {
+                co_return false;
+            }
+            Timer.cancel();
+            const auto ReadCount = std::get<0>(std::move(Outcome));
+            co_return !ReadError && ReadCount == Buffer.size();
+        }
+
         [[nodiscard]] static auto ExecutorFor(const std::shared_ptr<Conn<>> &Stream)
             -> Net::any_io_executor
         {

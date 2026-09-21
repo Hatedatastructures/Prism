@@ -6,6 +6,11 @@
 #include <Preview/Application/Application.hpp>
 
 #include <filesystem>
+#include <cctype>
+#include <cstdlib>
+#include <optional>
+#include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
@@ -32,6 +37,30 @@ auto main(int Argc, char *Argv[]) -> int
     }
     Preview::Application::Options Options;
     Options.ConfigurationPath = std::move(ConfigurationPath);
+    Options.SecretResolver = [](const std::string_view Reference)
+        -> std::optional<std::string>
+    {
+        std::string Name{"PRISM_PREVIEW_SECRET_"};
+        Name.reserve(Name.size() + Reference.size());
+        for (const auto Character : Reference)
+        {
+            const auto Byte = static_cast<unsigned char>(Character);
+            if (std::isalnum(Byte) != 0)
+            {
+                Name.push_back(static_cast<char>(std::toupper(Byte)));
+            }
+            else
+            {
+                Name.push_back('_');
+            }
+        }
+        const auto *Value = std::getenv(Name.c_str());
+        if (Value == nullptr || *Value == '\0')
+        {
+            return std::nullopt;
+        }
+        return std::string(Value);
+    };
     Preview::Application::Application App(std::move(Options));
     return App.Run();
 }

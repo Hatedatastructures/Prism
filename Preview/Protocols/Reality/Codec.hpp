@@ -278,6 +278,7 @@ namespace Preview::Reality
         std::array<std::uint8_t, 16> ServerHandshakeKey{};
         std::array<std::uint8_t, 12> ServerHandshakeIv{};
         std::array<std::uint8_t, 32> ClientFinishedKey{};
+        std::array<std::uint8_t, 32> ServerFinishedKey{};
         std::array<std::uint8_t, 16> ClientApplicationKey{};
         std::array<std::uint8_t, 12> ClientApplicationIv{};
         std::array<std::uint8_t, 16> ServerApplicationKey{};
@@ -478,7 +479,8 @@ namespace Preview::Reality
             Detail::ExpandTls13Label(ClientHandshakeSecret, "iv", {}, Result.ClientHandshakeIv) ||
             Detail::ExpandTls13Label(ClientHandshakeSecret, "finished", {}, Result.ClientFinishedKey) ||
             Detail::ExpandTls13Label(ServerHandshakeSecret, "key", {}, Result.ServerHandshakeKey) ||
-            Detail::ExpandTls13Label(ServerHandshakeSecret, "iv", {}, Result.ServerHandshakeIv))
+            Detail::ExpandTls13Label(ServerHandshakeSecret, "iv", {}, Result.ServerHandshakeIv) ||
+            Detail::ExpandTls13Label(ServerHandshakeSecret, "finished", {}, Result.ServerFinishedKey))
         {
             return {Error::KdfError, Result};
         }

@@ -16,8 +16,10 @@
 #include <boost/asio/use_awaitable.hpp>
 
 #include <array>
+#include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <Preview/Transport/MemoryStream.hpp>
 #include <Preview/Protocols/Restls/Restls.hpp>
@@ -100,6 +102,19 @@ namespace
                         const auto Response = std::span<const std::byte>(Buffer.data(), ReadSize);
                         co_await Connection->async_write_some(Response, ErrorCode);
                         EXPECT_FALSE(ErrorCode);
+                        const std::string FollowupPayload = "restls followup";
+                        std::array<std::byte, 1024> FollowupBuffer{};
+                        const auto FollowupRead = co_await Connection->async_read_some(FollowupBuffer, ErrorCode);
+                        EXPECT_FALSE(ErrorCode);
+                        EXPECT_EQ(std::string(reinterpret_cast<const char *>(FollowupBuffer.data()), FollowupRead),
+                                  FollowupPayload);
+                        const std::string FollowupResponse = "restls response";
+                        co_await Connection->async_write_some(
+                            std::span<const std::byte>(
+                                reinterpret_cast<const std::byte *>(FollowupResponse.data()),
+                                FollowupResponse.size()),
+                            ErrorCode);
+                        EXPECT_FALSE(ErrorCode);
                         Connection->Close();
                     };
                     auto ServerCompletion = [ServerDone](std::exception_ptr) -> void
@@ -128,11 +143,113 @@ namespace
                     const auto ReadSize = co_await Client->async_read_some(Buffer, ErrorCode);
                     EXPECT_FALSE(ErrorCode);
                     EXPECT_EQ(std::string(reinterpret_cast<const char *>(Buffer.data()), ReadSize), Payload);
+                    const std::string FollowupPayload = "restls followup";
+                    co_await Client->async_write_some(
+                        std::span<const std::byte>(
+                            reinterpret_cast<const std::byte *>(FollowupPayload.data()),
+                            FollowupPayload.size()),
+                        ErrorCode);
+                    EXPECT_FALSE(ErrorCode);
+                    const auto FollowupRead = co_await Client->async_read_some(Buffer, ErrorCode);
+                    EXPECT_FALSE(ErrorCode);
+                    EXPECT_EQ(std::string(reinterpret_cast<const char *>(Buffer.data()), FollowupRead),
+                              "restls response");
                     Client->Close();
                     boost::system::error_code ServerError;
                     co_await ServerDone->async_receive(
                         Net::redirect_error(Net::use_awaitable, ServerError));
                     EXPECT_FALSE(ServerError);
+                });
+    }
+
+    TEST(RestlsConnSession, RespondsToResponseCommand)
+    {
+        Net::io_context IoContext;
+        auto [ClientMemory, ServerMemory] = MakeMemoryPair(IoContext.get_executor());
+        const auto ServerRandom = MakeServerRandom();
+        const std::vector<std::uint8_t> ClientFinished{0x17, 0x03, 0x03, 0x00, 0x03, 0x01, 0x02, 0x03};
+
+        RunCoro(IoContext,
+                [&]() -> Net::awaitable<void>
+                {
+                    auto ClientTransport = std::make_shared<MemoryStream>(std::move(ClientMemory));
+                    auto ServerTransport = std::make_shared<MemoryStream>(std::move(ServerMemory));
+                    ClientTransport->SetTimeout(std::chrono::seconds(1));
+                    ServerTransport->SetTimeout(std::chrono::seconds(1));
+
+                    auto ServerConnection = std::make_shared<Restls::Conn<>>(
+                        ServerTransport, "pw");
+                    EXPECT_EQ(co_await ServerConnection->ReadHandshake(ServerRandom, ClientFinished),
+                              Error::None);
+
+                    const auto Secret = ServerConnection->Secret();
+                    const auto [BuildError, CommandFrame] = Restls::BuildFrame(Restls::FrameOptions{
+                        .Secret = Secret,
+                        .ServerRandom = ServerRandom,
+                        .Direction = Restls::FlowDirection::ToServer,
+                        .Counter = 0,
+                        .ClientFinished = ClientFinished,
+                        .Data = {},
+                        .PaddingLength = 0,
+                        .Command = Restls::CmdTypeResponse,
+                        .CommandArgument = 1});
+                    EXPECT_EQ(BuildError, Error::None);
+                    if (BuildError != Error::None)
+                    {
+                        ServerConnection->Close();
+                        co_return;
+                    }
+
+                    auto ServerReadTask = Net::co_spawn(
+                        ServerConnection->Executor(),
+                        [ServerConnection]() -> Net::awaitable<std::pair<std::size_t, std::error_code>>
+                        {
+                            std::array<std::byte, 128> Buffer{};
+                            std::error_code ErrorCode;
+                            const auto Count = co_await ServerConnection->async_read_some(Buffer, ErrorCode);
+                            co_return std::pair{Count, ErrorCode};
+                        },
+                        Net::use_awaitable);
+
+                    auto ClientReadTask = Net::co_spawn(
+                        ClientTransport->Executor(),
+                        [ClientTransport]() -> Net::awaitable<std::pair<std::vector<std::uint8_t>,
+                                                                        std::error_code>>
+                        {
+                            std::array<std::byte, 128> Buffer{};
+                            std::error_code ErrorCode;
+                            const auto Count = co_await ClientTransport->async_read_some(Buffer, ErrorCode);
+                            std::vector<std::uint8_t> Data(Count);
+                            if (Count > 0)
+                            {
+                                std::memcpy(Data.data(), Buffer.data(), Count);
+                            }
+                            co_return std::pair{std::move(Data), ErrorCode};
+                        },
+                        Net::use_awaitable);
+
+                    EXPECT_FALSE(co_await ClientTransport->WriteAll(CommandFrame));
+                    auto [ServerReadCount, ServerReadError] = co_await std::move(ServerReadTask);
+                    EXPECT_EQ(ServerReadCount, 0U);
+                    EXPECT_TRUE(ServerReadError);
+                    auto [Response, ClientError] = co_await std::move(ClientReadTask);
+                    EXPECT_FALSE(ClientError);
+                    Restls::DecodedFrame Decoded;
+                    EXPECT_EQ(Restls::DecodeFrame(
+                                  Response,
+                                  Restls::DecodeOptions{
+                                      .Secret = Secret,
+                                      .ServerRandom = ServerRandom,
+                                      .Direction = Restls::FlowDirection::ToClient,
+                                      .Counter = 0,
+                                      .ClientFinished = {}},
+                                  Decoded),
+                              Error::None);
+                    EXPECT_EQ(Decoded.Command, Restls::CmdTypeResponse);
+                    EXPECT_EQ(Decoded.CommandArgument, 1U);
+                    EXPECT_TRUE(Decoded.Data.empty());
+                    ServerConnection->Close();
+                    co_return;
                 });
     }
 

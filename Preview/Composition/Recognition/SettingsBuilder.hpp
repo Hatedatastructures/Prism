@@ -67,6 +67,10 @@ namespace Preview::Composition::Recognition
             {
                 return Core::ProtocolType::AnyTls;
             }
+            if (Normalized == "trusttunnel")
+            {
+                return Core::ProtocolType::TrustTunnel;
+            }
             if (Normalized == "hysteria2")
             {
                 return Core::ProtocolType::Hysteria2;
