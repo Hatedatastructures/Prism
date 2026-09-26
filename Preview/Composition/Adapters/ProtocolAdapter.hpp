@@ -15,7 +15,7 @@
 #include <memory>
 #include <utility>
 
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
@@ -79,7 +79,8 @@ namespace Preview::Runtime
                 if (R.err != Error::None)
                 {
                     // 消费 handler Name()：错误日志标识失败协议，便于定位
-                    Preview::Diagnose::Warn("Protocol handler {} Accept Failed", h->Name());
+                    (void)Preview::Diagnose::Warn(
+                        "Protocol handler {} Accept Failed", h->Name());
                 }
                 if (R.err == Error::None)
                 {

@@ -1869,6 +1869,14 @@ namespace Preview::Application::Configuration
                 return Failure(ConfigurationErrorCode::InvalidValue, "Logging.Level",
                                "Level must be Trace, Debug, Info, Access, Warn, Error, Critical, or Off");
             }
+            if (Configuration.RenderMode != "CompactHuman" &&
+                Configuration.RenderMode != "HumanWithFields" &&
+                Configuration.RenderMode != "Structured")
+            {
+                return Failure(ConfigurationErrorCode::InvalidValue,
+                               "Logging.RenderMode",
+                               "RenderMode must be CompactHuman, HumanWithFields, or Structured");
+            }
             if (Configuration.Directory.empty())
             {
                 return Failure(ConfigurationErrorCode::InvalidValue, "Logging.Directory",

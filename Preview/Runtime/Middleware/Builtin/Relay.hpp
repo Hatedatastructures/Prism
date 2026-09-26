@@ -28,9 +28,10 @@
 
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Runtime/Middleware/Pipeline.hpp>
+#include <Preview/Statistics/Redaction.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Middleware::Builtin
@@ -40,6 +41,19 @@ namespace Preview::Middleware::Builtin
 
     namespace detail
     {
+
+        inline auto ReportRelayFailure(const std::string_view Name,
+                                       const std::string_view Detail) noexcept -> void
+        {
+            try
+            {
+                const auto Redacted = Preview::Statistics::RedactSensitiveText(Detail);
+                (void)Preview::Diagnose::Error("{}: {}", Name, Redacted);
+            }
+            catch (...)
+            {
+            }
+        }
 
         /**
          * @struct RelayState
@@ -203,14 +217,14 @@ namespace Preview::Middleware::Builtin
             catch (const std::exception &e)
             {
                 State->DirectionError = std::current_exception();
-                Diagnose::Error("{}: {}", Name, e.what());
+                ReportRelayFailure(Name, e.what());
                 CloseRelay(State);
                 CompleteDirection(State);
             }
             catch (...)
             {
                 State->DirectionError = std::current_exception();
-                Diagnose::Error("{}: unknown", Name);
+                ReportRelayFailure(Name, "unknown");
                 CloseRelay(State);
                 CompleteDirection(State);
             }

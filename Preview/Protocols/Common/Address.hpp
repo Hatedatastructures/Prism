@@ -28,7 +28,6 @@
 #include <boost/asio/awaitable.hpp>
 #include <boost/asio/ip/address_v6.hpp>
 
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
 #include <Preview/Foundation/Error.hpp>
 
 #ifdef _WIN32

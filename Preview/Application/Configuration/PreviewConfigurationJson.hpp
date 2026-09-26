@@ -290,6 +290,7 @@ struct glz::meta<Preview::Application::Configuration::LoggingConfiguration>
     using T = Preview::Application::Configuration::LoggingConfiguration;
     static constexpr auto value = glz::object(
         "Level", &T::Level,
+        "RenderMode", &T::RenderMode,
         "Directory", &T::Directory,
         "FileName", &T::FileName,
         "Console", &T::Console,

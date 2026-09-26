@@ -215,6 +215,7 @@ namespace Preview::Application::Configuration
     struct LoggingConfiguration final
     {
         std::string Level{"Info"};
+        std::string RenderMode{"CompactHuman"};
         std::string Directory{"logs"};
         std::string FileName{"preview.log"};
         bool Console{false};

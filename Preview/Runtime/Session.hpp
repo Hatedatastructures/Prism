@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <chrono>
 #include <cstdint>
+#include <format>
 #include <functional>
 #include <memory>
 #include <string>
@@ -33,7 +34,9 @@
 #include <utility>
 
 #include <Preview/Foundation/Authenticator.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
+#include <Preview/Foundation/Utility/Diagnose/FieldKey.hpp>
+#include <Preview/Foundation/Utility/Diagnose/ContextState.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Runtime/Middleware/Builtin/Auth.hpp>
@@ -122,12 +125,12 @@ namespace Preview::Runtime
             static constexpr std::uint32_t CarrierProbePhase = 1U << 5U;
             static constexpr std::uint32_t CarrierCommitPhase = 1U << 6U;
 
-            Preview::Diagnose::Logger::Owner Logger;
-            std::shared_ptr<Preview::Diagnose::TraceContext> Trace;
+            Preview::Diagnose::ContextState Trace{Preview::Diagnose::ContextState::Empty()};
             std::atomic<bool> CloseLogged{false};
+            std::atomic<std::uint64_t> AuditFailures{0U};
             std::atomic<std::uint32_t> PhaseMask{0};
             std::chrono::steady_clock::time_point StartedAt{std::chrono::steady_clock::now()};
-            Preview::Fault::Code FinalCode{Preview::Fault::Code::Success};
+            std::atomic<Preview::Fault::Code> FinalCode{Preview::Fault::Code::Success};
 
             auto MarkStage(const std::string_view Stage) noexcept -> void
             {
@@ -230,29 +233,32 @@ namespace Preview::Runtime
                 {
                     return;
                 }
-                if (Logger && Trace)
+                try
                 {
-                    try
+                    const auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              std::chrono::steady_clock::now() - StartedAt)
+                                              .count();
+                    const auto Status = Preview::Fault::Describe(
+                        FinalCode.load(std::memory_order_acquire));
+                    const auto Context = Trace.With(Preview::Diagnose::Fields::Stage,
+                                                    std::string_view{"close"})
+                                             .With(Preview::Diagnose::Fields::Status, Status)
+                                             .With(Preview::Diagnose::Fields::FaultCode, Status)
+                                             .With(Preview::Diagnose::Fields::ElapsedMs,
+                                                   static_cast<std::uint64_t>(Elapsed));
+                    const auto Receipt = Preview::Diagnose::Audit(
+                        Context,
+                        "event=session_closed status={} elapsed_ms={} phase_sequence={}",
+                        Status, Elapsed, PhaseSequence());
+                    if (!Receipt.Accepted())
                     {
-                        const auto Elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                                  std::chrono::steady_clock::now() - StartedAt)
-                                                  .count();
-                        Trace->SetStage("close");
-                        Trace->SetStatus(std::string(Preview::Fault::Describe(FinalCode)));
-                        Trace->SetFaultCode(std::string(Preview::Fault::Describe(FinalCode)));
-                        Trace->SetElapsedMs(static_cast<std::uint64_t>(Elapsed));
-                        const auto Message = std::string("event=session_closed status=") +
-                                             std::string(Preview::Fault::Describe(FinalCode)) +
-                                             " elapsed_ms=" + std::to_string(Elapsed) +
-                                             " phase_sequence=" + PhaseSequence();
-                        (void)Logger->TryWrite(
-                            Preview::Diagnose::LogLevel::Access, Message, Trace->Snapshot());
-                    }
-                    catch (...)
-                    {
+                        AuditFailures.fetch_add(1U, std::memory_order_relaxed);
                     }
                 }
-                Logger.reset();
+                catch (...)
+                {
+                    AuditFailures.fetch_add(1U, std::memory_order_relaxed);
+                }
             }
         };
 
@@ -366,62 +372,119 @@ namespace Preview::Runtime
                                           : std::shared_ptr<Preview::Foundation::TrafficSink>{};
             auto *Traffic = TrafficOwner ? TrafficOwner.get() : Opts_.traffic;
 
-            const auto LoggerOwner = Services_ ? Services_->Logger : Preview::Diagnose::Logger::Owner{};
-            const auto Trace = std::make_shared<Preview::Diagnose::TraceContext>(
-                Services_ ? Services_->TraceSelection : Preview::Statistics::TraceSelection{});
+            auto Trace = Services_ ? Services_->ProcessContext
+                                   : Preview::Diagnose::ContextState::Empty();
             auto Cancellation = std::make_shared<Net::experimental::channel<void(boost::system::error_code)>>(
                 SessionExecutor, 1);
-            LogState->Logger = LoggerOwner;
-            LogState->Trace = Trace;
             const auto Identity = Control_->CurrentIdentity();
-            if (Identity.WorkerId)
+            try
             {
-                Trace->SetWorker(Identity.WorkerId);
-            }
-            if (Identity.SessionId)
-            {
-                Trace->SetSession(Identity.SessionId);
-            }
-            if (Identity.TaskId)
-            {
-                Trace->SetCorrelation(Preview::RequestId{Identity.TaskId.Value()});
-            }
-            if (Identity.TaskId)
-            {
-                Trace->SetTask(Identity.TaskId);
-            }
-            if (Identity.Generation)
-            {
-                Trace->SetGeneration(Identity.Generation);
-            }
-            const auto WriteLog = [LoggerOwner, Trace](
-                                       const Preview::Diagnose::LogLevel Level,
-                                       const std::string_view Message) noexcept
-            {
-                if (LoggerOwner)
+                if (Identity.WorkerId)
                 {
-                    (void)LoggerOwner->TryWrite(Level, Message, Trace->Snapshot());
+                    Trace = Trace.With(Preview::Diagnose::Fields::Worker, Identity.WorkerId);
+                }
+                if (Identity.SessionId)
+                {
+                    Trace = Trace.With(Preview::Diagnose::Fields::Session, Identity.SessionId);
+                }
+                if (Identity.TaskId)
+                {
+                    Trace = Trace.With(Preview::Diagnose::Fields::Task, Identity.TaskId);
+                }
+                if (Identity.Generation)
+                {
+                    Trace = Trace.With(Preview::Diagnose::Fields::Generation, Identity.Generation);
+                }
+            }
+            catch (...)
+            {
+                Trace = Services_ ? Services_->ProcessContext
+                                  : Preview::Diagnose::ContextState::Empty();
+            }
+            LogState->Trace = Trace;
+            const auto WriteLog = []<typename... Args>(
+                                      const Preview::Diagnose::LogLevel Level,
+                                      const Preview::Diagnose::ContextState &Context,
+                                      const std::format_string<Args...> Format,
+                                      Args &&...Arguments) noexcept -> Preview::Diagnose::SubmissionReceipt
+            {
+                using Preview::Diagnose::LogLevel;
+                switch (Level)
+                {
+                case LogLevel::Trace:
+                    return {Preview::Diagnose::SubmissionStatus::Filtered, 0U};
+                case LogLevel::Debug:
+                    return Preview::Diagnose::Debug(Context, Format,
+                                                     std::forward<Args>(Arguments)...);
+                case LogLevel::Info:
+                    return Preview::Diagnose::Info(Context, Format,
+                                                    std::forward<Args>(Arguments)...);
+                case LogLevel::Access:
+                    return Preview::Diagnose::Access(Context, Format,
+                                                     std::forward<Args>(Arguments)...);
+                case LogLevel::Warn:
+                    return Preview::Diagnose::Warn(Context, Format,
+                                                    std::forward<Args>(Arguments)...);
+                case LogLevel::Error:
+                    return Preview::Diagnose::Error(Context, Format,
+                                                     std::forward<Args>(Arguments)...);
+                case LogLevel::Critical:
+                    return Preview::Diagnose::Critical(Context, Format,
+                                                       std::forward<Args>(Arguments)...);
+                case LogLevel::Off:
+                    return {Preview::Diagnose::SubmissionStatus::Filtered, 0U};
+                }
+                return {Preview::Diagnose::SubmissionStatus::Filtered, 0U};
+            };
+            const auto MakeFailureContext = [&Trace](
+                                                const std::string_view Stage,
+                                                const std::string_view Status,
+                                                const std::string_view FaultCode,
+                                                const std::string_view NativeError)
+                noexcept -> Preview::Diagnose::ContextState
+            {
+                try
+                {
+                    auto Context = Trace.With(Preview::Diagnose::Fields::Stage, Stage)
+                                       .With(Preview::Diagnose::Fields::Status, Status)
+                                       .With(Preview::Diagnose::Fields::FaultCode, FaultCode);
+                    if (!NativeError.empty())
+                    {
+                        Context = Context.With(Preview::Diagnose::Fields::NativeError, NativeError);
+                    }
+                    return Context;
+                }
+                catch (...)
+                {
+                    return Trace;
                 }
             };
 
-            const auto WriteStage = [&WriteLog, Trace, LogState](const Preview::Diagnose::LogLevel Level,
-                                                          const std::string_view Stage,
-                                                          const std::string_view Outcome) noexcept
+            const auto WriteStage = [&WriteLog, &Trace, LogState](
+                                       const Preview::Diagnose::LogLevel Level,
+                                       const std::string_view Stage,
+                                       const std::string_view Outcome) noexcept
             {
                 LogState->MarkStage(Stage);
-                Trace->SetStage(std::string(Stage));
-                Trace->SetStatus(std::string(Outcome));
                 try
                 {
-                    const auto Message = FormatStageLog(Stage, Outcome);
-                    WriteLog(Level, Message);
+                    auto Context = Trace;
+                    if (const auto Derived = Context.TryWith(Preview::Diagnose::Fields::Stage, Stage))
+                    {
+                        Context = *Derived;
+                    }
+                    if (const auto Derived = Context.TryWith(Preview::Diagnose::Fields::Status, Outcome))
+                    {
+                        Context = *Derived;
+                    }
+                    (void)WriteLog(Level, Context, "stage={} outcome={}", Stage, Outcome);
                 }
                 catch (...)
                 {
                 }
             };
 
-            const auto WriteRecognition = [&WriteLog, Trace, Identity, LogState, Profile](
+            const auto WriteRecognition = [&WriteLog, &Trace, Identity, LogState, Profile](
                                               const Preview::Diagnose::LogLevel Level,
                                               const std::string_view Stage,
                                               const Preview::Recognition::RecognizeResult &Result,
@@ -439,54 +502,77 @@ namespace Preview::Runtime
                                                                  Result.NativeError)
                                         : Preview::Recognition::ToStringView(Result.Status);
                 LogState->MarkStage(DiagnosticStage);
-                Trace->SetStage(std::string(DiagnosticStage));
-                Trace->SetStatus(std::string(Status));
-                Trace->SetProtocol(
-                    std::string(Preview::Recognition::ToStringView(Result.detected)));
-                if (!Result.Carrier.Carrier.empty())
-                {
-                    Trace->SetCarrier(Result.Carrier.Carrier);
-                }
-                else if (!Result.scheme.empty() && Result.scheme != Result.CandidateName)
-                {
-                    Trace->SetCarrier(Result.scheme);
-                }
-                if (!Result.Carrier.Sni.empty())
-                {
-                    Trace->SetSni(Result.Carrier.Sni);
-                }
-                if (!Result.Carrier.Alpn.empty())
-                {
-                    Trace->SetAlpn(Result.Carrier.Alpn);
-                }
-                if (!Result.Carrier.TlsVersion.empty())
-                {
-                    Trace->SetTlsVersion(Result.Carrier.TlsVersion);
-                }
-                Trace->SetFaultCode(std::string(Preview::Fault::Describe(EffectiveFaultCode)));
-                if (Result.NativeError)
-                {
-                    Trace->SetNativeError(Result.NativeError.message());
-                }
-                else if (Result.Error)
-                {
-                    Trace->SetNativeError(Result.Error.message());
-                }
                 try
                 {
-                    auto Message = FormatRecognitionLog(
-                        DiagnosticStage, Result, EffectiveFaultCode, Identity);
-                    Message.insert(
-                        0,
-                        "mode=" +
-                            std::string(Profile ? Preview::Recognition::ToStringView(Profile->Mode())
-                                                : "legacy") +
-                            " ");
-                    if (CarrierFailure)
+                    auto Context = Trace;
+                    Context = Context.With(Preview::Diagnose::Fields::Stage, DiagnosticStage)
+                                 .With(Preview::Diagnose::Fields::Status, Status)
+                                 .With(Preview::Diagnose::Fields::Protocol,
+                                       Preview::Recognition::ToStringView(Result.detected))
+                                 .With(Preview::Diagnose::Fields::FaultCode,
+                                       Preview::Fault::Describe(EffectiveFaultCode));
+                    if (!Result.Carrier.Carrier.empty())
                     {
-                        Message.insert(0, "event=" + std::string(Status) + " ");
+                        Context = Context.With(Preview::Diagnose::Fields::Carrier,
+                                               std::string_view(Result.Carrier.Carrier));
                     }
-                    WriteLog(Level, Message);
+                    else if (!Result.scheme.empty() && Result.scheme != Result.CandidateName)
+                    {
+                        Context = Context.With(Preview::Diagnose::Fields::Carrier,
+                                               std::string_view(Result.scheme));
+                    }
+                    if (!Result.Carrier.Sni.empty())
+                    {
+                        Context = Context.With(Preview::Diagnose::Fields::Sni,
+                                               std::string_view(Result.Carrier.Sni));
+                    }
+                    if (!Result.Carrier.Alpn.empty())
+                    {
+                        Context = Context.With(Preview::Diagnose::Fields::Alpn,
+                                               std::string_view(Result.Carrier.Alpn));
+                    }
+                    if (!Result.Carrier.TlsVersion.empty())
+                    {
+                        Context = Context.With(Preview::Diagnose::Fields::TlsVersion,
+                                               std::string_view(Result.Carrier.TlsVersion));
+                    }
+                    const auto NativeErrorText = Result.NativeError
+                                                     ? Result.NativeError.message()
+                                                     : Result.Error ? Result.Error.message()
+                                                                    : std::string{};
+                    if (!NativeErrorText.empty())
+                    {
+                        Context = Context.With(Preview::Diagnose::Fields::NativeError,
+                                               std::string_view(NativeErrorText));
+                    }
+
+                    const auto ProbeLength = Result.ProbeBytes == 0U
+                                                 ? Result.preread.size()
+                                                 : Result.ProbeBytes;
+                    const auto CandidateId = FormatCandidateId(Result.Candidate);
+                    const auto CandidateName = SanitizeCandidateName(Result.CandidateName);
+                    const auto FirstByte = FormatFirstByte(Result);
+                    const auto ErrorCode = FormatErrorCode(Result.Error);
+                    const auto Mode = Profile
+                                          ? Preview::Recognition::ToStringView(Profile->Mode())
+                                          : std::string_view{"legacy"};
+                    const auto EventPrefix = CarrierFailure ? std::string_view{"event="}
+                                                            : std::string_view{};
+                    const auto EventStatus = CarrierFailure ? Status : std::string_view{};
+                    const auto EventSuffix = CarrierFailure ? std::string_view{" "}
+                                                            : std::string_view{};
+                    (void)WriteLog(
+                        Level, Context,
+                        "{}{}{}mode={} stage={} status={} candidate_id={} candidate_name={} detected={} "
+                        "probe_bytes={} crypto_trials={} probe_first_byte={} probe_length={} error_code={} "
+                        "fault_code={} worker_id={} session_id={} task_id={} generation_id={}",
+                        EventPrefix, EventStatus, EventSuffix, Mode, DiagnosticStage,
+                        Preview::Recognition::ToStringView(Result.Status), CandidateId,
+                        CandidateName, Preview::Recognition::ToStringView(Result.detected),
+                        Result.ProbeBytes, Result.CryptoTrials, FirstByte, ProbeLength, ErrorCode,
+                        Preview::Fault::Describe(EffectiveFaultCode), Identity.WorkerId.Value(),
+                        Identity.SessionId.Value(), Identity.TaskId.Value(),
+                        Identity.Generation.Value());
                 }
                 catch (...)
                 {
@@ -511,7 +597,7 @@ namespace Preview::Runtime
                     }
                 });
 
-            WriteLog(Preview::Diagnose::LogLevel::Info, "event=session_started");
+            (void)WriteLog(Preview::Diagnose::LogLevel::Info, Trace, "event=session_started");
 
             Preview::Recognition::RecognizeResult PreRecognition;
             if (Services_ && Services_->NativeTls && (!Profile || !Profile->HasTlsCandidate()))
@@ -532,16 +618,14 @@ namespace Preview::Runtime
                                              : FailureCode == Preview::Fault::Code::Canceled
                                                    ? std::string_view{"cancelled"}
                                                    : std::string_view{"carrier_no_match"};
-                    Trace->SetStage("carrier_probe");
-                    Trace->SetStatus(std::string(Outcome));
-                    Trace->SetFaultCode(std::string(Preview::Fault::Describe(FailureCode)));
-                    if (ProbeResult.NativeError)
-                    {
-                        Trace->SetNativeError(ProbeResult.NativeError.message());
-                    }
-                    WriteLog(Preview::Diagnose::LogLevel::Warn,
-                             std::string("event=") + std::string(Outcome) +
-                                 " stage=carrier_probe");
+                    const auto NativeErrorText = ProbeResult.NativeError
+                                                     ? ProbeResult.NativeError.message()
+                                                     : std::string{};
+                    const auto FaultText = Preview::Fault::Describe(FailureCode);
+                    const auto Context = MakeFailureContext(
+                        "carrier_probe", Outcome, FaultText, NativeErrorText);
+                    (void)WriteLog(Preview::Diagnose::LogLevel::Warn, Context,
+                                   "event={} stage=carrier_probe", Outcome);
                     co_return FailureCode;
                 }
 
@@ -568,17 +652,14 @@ namespace Preview::Runtime
                                                      ? Preview::Fault::Code::ProtocolError
                                                      : TlsResult.Code;
                         const auto Outcome = ClassifyNativeTlsFailure(TlsResult);
-                        Trace->SetStage("carrier_commit");
-                        Trace->SetStatus(std::string(Outcome));
-                        Trace->SetFaultCode(
-                            std::string(Preview::Fault::Describe(FailureCode)));
-                        if (TlsResult.NativeError)
-                        {
-                            Trace->SetNativeError(TlsResult.NativeError.message());
-                        }
-                        WriteLog(Preview::Diagnose::LogLevel::Warn,
-                                 std::string("event=") + std::string(Outcome) +
-                                     " stage=carrier_commit");
+                        const auto NativeErrorText = TlsResult.NativeError
+                                                         ? TlsResult.NativeError.message()
+                                                         : std::string{};
+                        const auto FaultText = Preview::Fault::Describe(FailureCode);
+                        const auto Context = MakeFailureContext(
+                            "carrier_commit", Outcome, FaultText, NativeErrorText);
+                        (void)WriteLog(Preview::Diagnose::LogLevel::Warn, Context,
+                                       "event={} stage=carrier_commit", Outcome);
                         co_return FailureCode;
                     }
                     Inbound = std::move(TlsResult.Transport);
@@ -745,8 +826,15 @@ namespace Preview::Runtime
                 {
                     Res.CandidateName += "+" + Res.scheme;
                 }
-                Trace->SetProtocol(
-                    std::string(Preview::Recognition::ToStringView(InnerProtocol)));
+                try
+                {
+                    Trace = Trace.With(
+                        Preview::Diagnose::Fields::Protocol,
+                        Preview::Recognition::ToStringView(InnerProtocol));
+                }
+                catch (...)
+                {
+                }
             }
             WriteStage(Preview::Diagnose::LogLevel::Info, "accept", "success");
             if (Prepare)
@@ -839,8 +927,9 @@ namespace Preview::Runtime
             {
                 // 未完成协议认证的 legacy adapter 仍需提供 RawIdentity/RawSecret，
                 // 否则通用 Auth 中间件会拒绝该会话。
-                Preview::Diagnose::Warn("AcceptProtocol 与 Auth 中间件同时配置："
-                                        "未认证 adapter 必须回填 RawIdentity/RawSecret");
+                (void)WriteLog(Preview::Diagnose::LogLevel::Warn, Trace,
+                               "AcceptProtocol 与 Auth 中间件同时配置："
+                               "未认证 adapter 必须回填 RawIdentity/RawSecret");
             }
             // 协议 handler 已完成凭据校验时，协议认证是本会话的权威认证结果；
             // 只有未提供协议认证的入口才执行通用 Auth，避免二次认证清空 identity/lease。
@@ -971,28 +1060,31 @@ namespace Preview::Runtime
         }
 
         static auto RecordClientHello(
-            const std::shared_ptr<Preview::Diagnose::TraceContext> &Trace,
-            const Preview::Recognition::ClientHelloFeatures &Features) -> void
+            Preview::Diagnose::ContextState &Trace,
+            const Preview::Recognition::ClientHelloFeatures &Features) noexcept -> void
         {
-            if (!Trace)
+            try
             {
-                return;
+                Trace = Trace.With(Preview::Diagnose::Fields::Carrier, std::string_view{"native"});
+                if (!Features.ServerName.empty())
+                {
+                    Trace = Trace.With(Preview::Diagnose::Fields::Sni,
+                                       std::string_view(Features.ServerName));
+                }
             }
-            Trace->SetCarrier("native");
-            if (!Features.ServerName.empty())
+            catch (...)
             {
-                Trace->SetSni(Features.ServerName);
             }
         }
 
         static auto RecordTlsNegotiation(
-            const std::shared_ptr<Preview::Diagnose::TraceContext> &Trace,
-            const Preview::SharedTransmission &Transport) -> void
+            Preview::Diagnose::ContextState &Trace,
+            const Preview::SharedTransmission &Transport) noexcept -> void
         {
             auto *Encrypted = Transport
                                   ? dynamic_cast<Preview::Transport::Encrypted *>(Transport.get())
                                   : nullptr;
-            if (!Trace || !Encrypted)
+            if (!Encrypted)
             {
                 return;
             }
@@ -1001,17 +1093,25 @@ namespace Preview::Runtime
             {
                 return;
             }
-            if (const auto *Version = SSL_get_version(Ssl); Version != nullptr)
+            try
             {
-                Trace->SetTlsVersion(Version);
+                if (const auto *Version = SSL_get_version(Ssl); Version != nullptr)
+                {
+                    Trace = Trace.With(Preview::Diagnose::Fields::TlsVersion,
+                                       std::string_view(Version));
+                }
+                const unsigned char *Alpn = nullptr;
+                unsigned int AlpnLength = 0;
+                SSL_get0_alpn_selected(Ssl, &Alpn, &AlpnLength);
+                if (Alpn != nullptr && AlpnLength != 0U)
+                {
+                    const auto AlpnValue = std::string_view(
+                        reinterpret_cast<const char *>(Alpn), AlpnLength);
+                    Trace = Trace.With(Preview::Diagnose::Fields::Alpn, AlpnValue);
+                }
             }
-            const unsigned char *Alpn = nullptr;
-            unsigned int AlpnLength = 0;
-            SSL_get0_alpn_selected(Ssl, &Alpn, &AlpnLength);
-            if (Alpn != nullptr && AlpnLength != 0U)
+            catch (...)
             {
-                Trace->SetAlpn(std::string(
-                    reinterpret_cast<const char *>(Alpn), AlpnLength));
             }
         }
 
@@ -1043,26 +1143,6 @@ namespace Preview::Runtime
                     LogState->LogClose();
                 }
             }
-        }
-
-        static auto FormatStageLog(const std::string_view Stage, const std::string_view Outcome)
-            -> std::string
-        {
-            std::string Message;
-            Message.reserve(32 + Stage.size() + Outcome.size());
-            Message.append("stage=");
-            Message.append(Stage);
-            Message.append(" outcome=");
-            Message.append(Outcome);
-            return Message;
-        }
-
-        template <typename Id>
-        static auto AppendId(std::string &Message, const std::string_view Name, const Id &Value) -> void
-        {
-            Message.append(Name);
-            Message.append("=");
-            Message.append(std::to_string(Value.Value()));
         }
 
         static auto FormatCandidateId(const Preview::Recognition::CandidateId Id) -> std::string
@@ -1127,48 +1207,6 @@ namespace Preview::Runtime
             Value[2] = Hex[(Byte >> 4U) & 0x0FU];
             Value[3] = Hex[Byte & 0x0FU];
             return Value;
-        }
-
-        static auto FormatRecognitionLog(
-            const std::string_view Stage,
-            const Preview::Recognition::RecognizeResult &Result,
-            const Preview::Fault::Code FaultCode,
-            const Preview::Lifecycle::TaskIdentity &Identity) -> std::string
-        {
-            const auto ProbeLength = Result.ProbeBytes == 0U ? Result.preread.size() : Result.ProbeBytes;
-            std::string Message;
-            Message.reserve(256 + Result.CandidateName.size());
-            Message.append("stage=");
-            Message.append(Stage);
-            Message.append(" status=");
-            Message.append(Preview::Recognition::ToStringView(Result.Status));
-            Message.append(" candidate_id=");
-            Message.append(FormatCandidateId(Result.Candidate));
-            Message.append(" candidate_name=");
-            Message.append(SanitizeCandidateName(Result.CandidateName));
-            Message.append(" detected=");
-            Message.append(Preview::Recognition::ToStringView(Result.detected));
-            Message.append(" probe_bytes=");
-            Message.append(std::to_string(Result.ProbeBytes));
-            Message.append(" crypto_trials=");
-            Message.append(std::to_string(Result.CryptoTrials));
-            Message.append(" probe_first_byte=");
-            Message.append(FormatFirstByte(Result));
-            Message.append(" probe_length=");
-            Message.append(std::to_string(ProbeLength));
-            Message.append(" error_code=");
-            Message.append(FormatErrorCode(Result.Error));
-            Message.append(" fault_code=");
-            Message.append(Preview::Fault::Describe(FaultCode));
-            Message.push_back(' ');
-            AppendId(Message, "worker_id", Identity.WorkerId);
-            Message.push_back(' ');
-            AppendId(Message, "session_id", Identity.SessionId);
-            Message.push_back(' ');
-            AppendId(Message, "correlation_id", Identity.TaskId);
-            Message.push_back(' ');
-            AppendId(Message, "generation_id", Identity.Generation);
-            return Message;
         }
 
         static auto CloseActive(const std::shared_ptr<ActiveTransports> &Active) -> void

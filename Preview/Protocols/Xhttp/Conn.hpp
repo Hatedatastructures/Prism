@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Protocols/Http2/Impl.hpp>
 #include <Preview/Protocols/Http2/Session.hpp>
@@ -415,7 +415,7 @@ namespace Preview::Xhttp
             std::vector<std::byte> copy(Data.begin(), Data.end());
             if (!Notify_.try_send(boost::system::error_code{}, std::move(copy)))
             {
-                Diagnose::Error("xhttp receive channel full; closing Stream");
+                (void)Diagnose::Error("xhttp receive channel full; closing Stream");
                 Close();
             }
         }

@@ -65,6 +65,7 @@
     },
     "Logging": {
         "Level": "Info",
+        "RenderMode": "CompactHuman",
         "Directory": "logs",
         "FileName": "preview.log",
         "Console": false,

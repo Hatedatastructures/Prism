@@ -1105,6 +1105,7 @@ namespace
 
         ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
         EXPECT_EQ(Parsed->Logging.Level, "Info");
+        EXPECT_EQ(Parsed->Logging.RenderMode, "CompactHuman");
         EXPECT_EQ(Parsed->Logging.Directory, "logs");
         EXPECT_EQ(Parsed->Logging.FileName, "preview.log");
         EXPECT_FALSE(Parsed->Logging.Console);
@@ -1123,6 +1124,7 @@ namespace
             Preview::Application::Configuration::PreviewConfiguration::Defaults();
 
         EXPECT_EQ(Defaults.Logging.Level, "Info");
+        EXPECT_EQ(Defaults.Logging.RenderMode, "CompactHuman");
         EXPECT_EQ(Defaults.Logging.Directory, "logs");
         EXPECT_EQ(Defaults.Logging.FileName, "preview.log");
         EXPECT_FALSE(Defaults.Logging.Console);
@@ -1133,6 +1135,22 @@ namespace
         EXPECT_TRUE(Defaults.Trace.IncludeWorker);
         EXPECT_TRUE(Defaults.Trace.IncludeSession);
         EXPECT_FALSE(Defaults.Trace.IncludeStream);
+    }
+
+    TEST(PreviewTaskLoggingConfiguration, AcceptsTheThreeExactRenderModes)
+    {
+        constexpr std::array<std::string_view, 3> Modes{
+            "CompactHuman", "HumanWithFields", "Structured"};
+        for (const auto Mode : Modes)
+        {
+            const auto Replacement = std::string{"\"Level\": \"Info\", \"RenderMode\": \""} +
+                                     std::string(Mode) + "\",";
+            const auto Json = ReplaceFirst(
+                std::string(ValidJson), "\"Level\": \"Info\",", Replacement);
+            const auto Parsed = Parser::ParseJson(Json);
+            ASSERT_TRUE(Parsed.has_value()) << Parsed.error().Message;
+            EXPECT_EQ(Parsed->Logging.RenderMode, Mode);
+        }
     }
 
     TEST(PreviewTask3Configuration, RejectsUnknownFieldsAtEverySchemaBoundary)
@@ -1184,6 +1202,9 @@ namespace
             std::string(ValidJson), "\"RotateFiles\": 8", "\"RotateFiles\": 0");
         const auto InvalidFlushInterval = ReplaceFirst(
             std::string(ValidJson), "\"FlushIntervalMs\": 250", "\"FlushIntervalMs\": 0");
+        const auto InvalidRenderMode = ReplaceFirst(
+            std::string(ValidJson), "\"Level\": \"Info\",",
+            "\"Level\": \"Info\", \"RenderMode\": \"structured\",");
 
         const auto LevelResult = Parser::ParseJson(InvalidLevel);
         const auto DirectoryResult = Parser::ParseJson(InvalidDirectory);
@@ -1191,6 +1212,7 @@ namespace
         const auto RotateBytesResult = Parser::ParseJson(InvalidRotateBytes);
         const auto RotateFilesResult = Parser::ParseJson(InvalidRotateFiles);
         const auto FlushIntervalResult = Parser::ParseJson(InvalidFlushInterval);
+        const auto RenderModeResult = Parser::ParseJson(InvalidRenderMode);
 
         ASSERT_FALSE(LevelResult.has_value());
         EXPECT_EQ(LevelResult.error().Code, ConfigurationErrorCode::InvalidValue);
@@ -1205,6 +1227,9 @@ namespace
         EXPECT_EQ(RotateFilesResult.error().Path, "Logging.RotateFiles");
         ASSERT_FALSE(FlushIntervalResult.has_value());
         EXPECT_EQ(FlushIntervalResult.error().Path, "Logging.FlushIntervalMs");
+        ASSERT_FALSE(RenderModeResult.has_value());
+        EXPECT_EQ(RenderModeResult.error().Code, ConfigurationErrorCode::InvalidValue);
+        EXPECT_EQ(RenderModeResult.error().Path, "Logging.RenderMode");
     }
 
     TEST(PreviewTaskLoggingConfiguration, RejectsInvalidLoggingTypes)

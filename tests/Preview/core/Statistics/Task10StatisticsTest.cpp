@@ -5,26 +5,11 @@
 
 #include <gtest/gtest.h>
 
-#include <Preview/Foundation/Utility/Diagnose/Context.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Logger.hpp>
 #include <Preview/Statistics/Statistics.hpp>
 
-#include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <memory>
-#include <string>
 namespace
 {
-
-    auto MakeLoggingTestDirectory() -> std::filesystem::path
-    {
-        const auto Stamp = std::chrono::steady_clock::now().time_since_epoch().count();
-        return std::filesystem::temp_directory_path() /
-               ("prism-preview-logging-" + std::to_string(Stamp));
-    }
 
     TEST(Task10SparseCounters, WorkerTrafficFlushIsExactlyOnce)
     {
@@ -133,110 +118,6 @@ namespace
         EXPECT_FALSE(Second.HasMore);
         EXPECT_EQ(Second.Items[0].Sequence, 3U);
         EXPECT_EQ(Second.Items[0].Stream, Preview::StreamId{3});
-    }
-
-    TEST(Task10TraceContext, SnapshotOwnsSelectedIdentifiersAfterOwnerRelease)
-    {
-        auto Context = std::make_shared<Preview::Diagnose::TraceContext>();
-        Context->SetCorrelation(Preview::RequestId{11});
-        Context->SetWorker(Preview::WorkerId{22});
-        Context->SetSession(Preview::SessionId{33});
-        Context->SetStream(Preview::StreamId{44});
-
-        const auto Snapshot = Context->Snapshot();
-        Context.reset();
-
-        ASSERT_TRUE(Snapshot.Correlation.has_value());
-        ASSERT_TRUE(Snapshot.Worker.has_value());
-        ASSERT_TRUE(Snapshot.Session.has_value());
-        EXPECT_EQ(Snapshot.Correlation->Value(), 11U);
-        EXPECT_EQ(Snapshot.Worker->Value(), 22U);
-        EXPECT_EQ(Snapshot.Session->Value(), 33U);
-        EXPECT_FALSE(Snapshot.Stream.has_value());
-    }
-
-    TEST(Task10TraceContext, IncludeStreamCanBeEnabledExplicitly)
-    {
-        Preview::Statistics::TraceSelection Selection;
-        Selection.IncludeStream = true;
-        auto Context = std::make_shared<Preview::Diagnose::TraceContext>(Selection);
-        Context->SetStream(Preview::StreamId{44});
-
-        const auto Snapshot = Context->Snapshot();
-
-        ASSERT_TRUE(Snapshot.Stream.has_value());
-        EXPECT_EQ(Snapshot.Stream->Value(), 44U);
-    }
-
-    TEST(Task10Logger, WritesOwnedTraceRecordsDuringOwnerShutdown)
-    {
-        const auto Directory = MakeLoggingTestDirectory();
-        std::error_code CleanupError;
-        std::filesystem::remove_all(Directory, CleanupError);
-
-        Preview::Diagnose::LoggerOptions Options;
-        Options.Directory = Directory;
-        Options.FileName = "preview.log";
-        Options.Console = false;
-        auto Created = Preview::Diagnose::Logger::Create(std::move(Options));
-        ASSERT_TRUE(Created.has_value()) << Created.error().Message;
-        auto Logger = std::move(*Created);
-
-        auto Context = std::make_shared<Preview::Diagnose::TraceContext>();
-        Context->SetCorrelation(Preview::RequestId{101});
-        Context->SetWorker(Preview::WorkerId{202});
-        Context->SetSession(Preview::SessionId{303});
-        ASSERT_EQ(Preview::Diagnose::Info(Logger, Context, "owned message"),
-                  Preview::Diagnose::EnqueueStatus::Accepted);
-        Context.reset();
-
-        Logger->Stop();
-        std::ifstream Input(Directory / "preview.log");
-        ASSERT_TRUE(Input.is_open());
-        const std::string Contents((std::istreambuf_iterator<char>(Input)),
-                                   std::istreambuf_iterator<char>());
-        EXPECT_NE(Contents.find("owned message"), std::string::npos);
-        EXPECT_NE(Contents.find("Correlation=101"), std::string::npos);
-        EXPECT_NE(Contents.find("Worker=202"), std::string::npos);
-        EXPECT_NE(Contents.find("Session=303"), std::string::npos);
-        EXPECT_EQ(Contents.find("Stream="), std::string::npos);
-
-        Input.close();
-        Logger.reset();
-        std::filesystem::remove_all(Directory, CleanupError);
-        EXPECT_FALSE(CleanupError);
-    }
-
-    TEST(Task10Logger, FiltersBelowConfiguredLevelWithoutWriting)
-    {
-        const auto Directory = MakeLoggingTestDirectory();
-        std::error_code CleanupError;
-        std::filesystem::remove_all(Directory, CleanupError);
-
-        Preview::Diagnose::LoggerOptions Options;
-        Options.Directory = Directory;
-        Options.Level = Preview::Diagnose::LogLevel::Warn;
-        auto Created = Preview::Diagnose::Logger::Create(std::move(Options));
-        ASSERT_TRUE(Created.has_value()) << Created.error().Message;
-        auto Logger = std::move(*Created);
-
-        EXPECT_EQ(Logger->TryWrite(Preview::Diagnose::LogLevel::Info, "filtered", {}),
-                  Preview::Diagnose::EnqueueStatus::Filtered);
-        EXPECT_EQ(Logger->TryWrite(Preview::Diagnose::LogLevel::Warn, "written", {}),
-                  Preview::Diagnose::EnqueueStatus::Accepted);
-        Logger->Stop();
-
-        std::ifstream Input(Directory / "preview.log");
-        ASSERT_TRUE(Input.is_open());
-        const std::string Contents((std::istreambuf_iterator<char>(Input)),
-                                   std::istreambuf_iterator<char>());
-        EXPECT_EQ(Contents.find("filtered"), std::string::npos);
-        EXPECT_NE(Contents.find("written"), std::string::npos);
-
-        Input.close();
-        Logger.reset();
-        std::filesystem::remove_all(Directory, CleanupError);
-        EXPECT_FALSE(CleanupError);
     }
 
 } // namespace

@@ -85,6 +85,7 @@ namespace Preview::Identifier
     struct SessionTag;
     struct StreamTag;
     struct TaskTag;
+    struct OperationTag;
     struct AccountTag;
     struct KindTag;
     struct NameTag;
@@ -99,6 +100,7 @@ namespace Preview::Identifier
     using SessionId = Id<SessionTag>;
     using StreamId = Id<StreamTag>;
     using TaskId = Id<TaskTag>;
+    using OperationId = Id<OperationTag>;
     using AccountId = Id<AccountTag>;
     using KindId = TextId<KindTag>;
     using NameId = TextId<NameTag>;
@@ -120,7 +122,9 @@ namespace Preview
     using Identifier::KindId;
     using Identifier::NameId;
     using Identifier::ProcessId;
+    using Identifier::OperationId;
     using Identifier::ProcessTag;
+    using Identifier::OperationTag;
     using Identifier::RequestId;
     using Identifier::SessionId;
     using Identifier::SessionTag;

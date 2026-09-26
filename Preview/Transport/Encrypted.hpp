@@ -8,9 +8,10 @@
 
 #pragma once
 
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
+#include <Preview/Statistics/Redaction.hpp>
 #include <Preview/Transport/Connector.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
@@ -297,7 +298,7 @@ namespace Preview::Transport {
         HandshakeResult Result;
         if (!Request.Inbound)
         {
-            Diagnose::Warn("No inbound Transmission for TLS handshake");
+            (void)Diagnose::Warn("No inbound Transmission for TLS handshake");
             Result.Code = Fault::Code::IoError;
             co_return Result;
         }
@@ -331,7 +332,7 @@ namespace Preview::Transport {
         HandshakeResult Result;
         if (!Inbound)
         {
-            Diagnose::Warn("No inbound Transmission for TLS handshake");
+            (void)Diagnose::Warn("No inbound Transmission for TLS handshake");
             Result.Code = Fault::Code::IoError;
             co_return Result;
         }
@@ -376,7 +377,7 @@ namespace Preview::Transport {
             Result.Code = std::get<1>(Outcome) ? Fault::Code::Timeout : Fault::Code::Canceled;
             if (Result.Code == Fault::Code::Timeout)
             {
-                Diagnose::Warn("TLS handshake timeout");
+                (void)Diagnose::Warn("TLS handshake timeout");
             }
             Result.Recovered = Stream->next_layer().Release();
             co_return Result;
@@ -384,14 +385,21 @@ namespace Preview::Transport {
         const auto HEc = std::get<0>(Outcome);
         if (HEc)
         {
-            Diagnose::Warn("TLS handshake Failed: {} ({})", HEc.message(), HEc.value());
+            try
+            {
+                const auto ErrorText = Preview::Statistics::RedactSensitiveText(HEc.message());
+                (void)Diagnose::Warn("TLS handshake Failed: {} ({})", ErrorText, HEc.value());
+            }
+            catch (...)
+            {
+            }
             Result.Code = Encrypted::MapHandshakeFailure(HEc);
             Result.Recovered = Stream->next_layer().Release();
             Result.NativeError = HEc;
             co_return Result;
         }
 
-        Diagnose::Debug("TLS handshake Succeeded");
+        (void)Diagnose::Debug("TLS handshake Succeeded");
         Result.Stream = std::move(Stream);
         co_return Result;
     }

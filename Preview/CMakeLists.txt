@@ -50,10 +50,17 @@ target_sources(PreviewFoundation INTERFACE
         Foundation/Utility/Crypto/Random.hpp
         Foundation/Utility/Crypto/Sha224.hpp
         Foundation/Utility/Crypto/X25519.hpp
-        Foundation/Utility/Diagnose/Context.hpp
-        Foundation/Utility/Diagnose/Logger.hpp
         Foundation/Utility/Diagnose/Observability.hpp
-        Foundation/Utility/Diagnose/Log.hpp
+        Foundation/Utility/Diagnose/Facade.hpp
+        Foundation/Utility/Diagnose/ContextState.hpp
+        Foundation/Utility/Diagnose/FieldKey.hpp
+        Foundation/Utility/Diagnose/FieldCodec.hpp
+        Foundation/Utility/Diagnose/FieldCatalog.hpp
+        Foundation/Utility/Diagnose/PrefixCache.hpp
+        Foundation/Utility/Diagnose/RenderMode.hpp
+        Foundation/Utility/Diagnose/RuntimeOptions.hpp
+        Foundation/Utility/Diagnose/SubmissionReceipt.hpp
+        Foundation/Utility/Diagnose/Detail/SubmissionRequest.hpp
         Foundation/Exception/Deviant.hpp
         Foundation/Exception/Network.hpp
         Foundation/Exception/Protocol.hpp
@@ -720,6 +727,19 @@ foreach(ProtocolTarget IN ITEMS
     LinkPreviewTargets(${ProtocolTarget} PreviewProtocolsCommon)
 endforeach()
 
+add_library(PreviewDiagnoseBackend INTERFACE)
+ConfigurePreviewTarget(PreviewDiagnoseBackend)
+target_sources(PreviewDiagnoseBackend INTERFACE
+        Foundation/Utility/Diagnose/Detail/BackendBridge.hpp
+        Foundation/Utility/Diagnose/Detail/BackendLifecycle.hpp
+        Foundation/Utility/Diagnose/Detail/ContextDecoder.hpp
+        Foundation/Utility/Diagnose/Detail/SinkSet.hpp
+        Foundation/Utility/Diagnose/Detail/AsyncSubmission.hpp
+        Foundation/Utility/Diagnose/Detail/AsyncBackendState.hpp
+        Foundation/Utility/Diagnose/Detail/SubmissionRequest.hpp
+        Foundation/Utility/Diagnose/Detail/SubmissionRecord.hpp
+)
+LinkPreviewTargets(PreviewDiagnoseBackend PreviewFoundation)
 add_subdirectory(Application)
 target_sources(PreviewApplication INTERFACE
         Application/Application.hpp
@@ -769,3 +789,4 @@ LinkPreviewTargets(PreviewComposition
 )
 
 AssertPreviewStandaloneClosure(PrismPreview)
+AssertPreviewDiagnoseBackendBoundary()

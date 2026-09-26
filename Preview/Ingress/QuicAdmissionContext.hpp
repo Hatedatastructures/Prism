@@ -4,11 +4,11 @@
  */
 #pragma once
 
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
+#include <Preview/Foundation/Utility/Diagnose/ContextState.hpp>
 #include <Preview/Account/Credential.hpp>
 #include <Preview/Foundation/Authenticator.hpp>
 #include <Preview/Foundation/Identifier/Id.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Context.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Logger.hpp>
 #include <Preview/Foundation/Utility/TrafficSink.hpp>
 #include <Preview/Net/Dns/Resolver.hpp>
 #include <Preview/Protocols/Hysteria2/Hysteria2.hpp>
@@ -53,8 +53,7 @@ namespace Preview::Ingress
         std::function<Net::awaitable<void>(Preview::Tuic::SharedDgram)> TuicDatagram{};
         std::function<void()> CloseOwner{};
         std::shared_ptr<Preview::Foundation::TrafficSink> Metrics{};
-        Preview::Diagnose::Logger::Owner Logger{};
-        std::shared_ptr<Preview::Diagnose::TraceContext> Trace{};
+        Preview::Diagnose::ContextState Trace{Preview::Diagnose::ContextState::Empty()};
 
         [[nodiscard]] auto ReadyForHysteria2() const noexcept -> bool
         {

@@ -6,6 +6,7 @@
 #include "Application.hpp"
 
 #include <Preview/Account/Account.hpp>
+#include <Preview/Application/DiagnoseRuntime.hpp>
 #include <Preview/Application/Configuration/Configuration.hpp>
 #include <Preview/Application/TrustTunnelCredentials.hpp>
 #include <Preview/Application/RealityCarrierRegistration.hpp>
@@ -32,8 +33,10 @@
 #include <Preview/Operations/HttpServer.hpp>
 #include <Preview/Operations/Models.hpp>
 #include <Preview/Statistics/EventRing.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Context.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Logger.hpp>
+#include <Preview/Statistics/Redaction.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
+#include <Preview/Foundation/Utility/Diagnose/FieldKey.hpp>
+#include <Preview/Foundation/Utility/Diagnose/ContextState.hpp>
 #include <Preview/Ingress/IngressDispatcher.hpp>
 #include <Preview/Ingress/QuicAdmissionContext.hpp>
 #include <Preview/Ingress/QuicCidRegistry.hpp>
@@ -101,6 +104,31 @@ namespace Preview::Application
         using BindingMuxModeMap =
             std::unordered_map<Core::CandidateId, Preview::Composition::MuxMode>;
 
+        [[nodiscard]] auto ParseDiagnoseLogLevel(const std::string_view Value) noexcept
+            -> std::optional<Preview::Diagnose::LogLevel>
+        {
+            using Preview::Diagnose::LogLevel;
+            if (Value == "Trace") return LogLevel::Trace;
+            if (Value == "Debug") return LogLevel::Debug;
+            if (Value == "Info") return LogLevel::Info;
+            if (Value == "Access") return LogLevel::Access;
+            if (Value == "Warn") return LogLevel::Warn;
+            if (Value == "Error") return LogLevel::Error;
+            if (Value == "Critical") return LogLevel::Critical;
+            if (Value == "Off") return LogLevel::Off;
+            return std::nullopt;
+        }
+
+        [[nodiscard]] auto ParseDiagnoseRenderMode(const std::string_view Value) noexcept
+            -> std::optional<Preview::Diagnose::RenderMode>
+        {
+            using Preview::Diagnose::RenderMode;
+            if (Value == "CompactHuman") return RenderMode::CompactHuman;
+            if (Value == "HumanWithFields") return RenderMode::HumanWithFields;
+            if (Value == "Structured") return RenderMode::Structured;
+            return std::nullopt;
+        }
+
         auto LogMuxStreamStage(
             const Preview::Runtime::SharedSessionServices &Services,
             const Preview::Lifecycle::TaskIdentity &Identity,
@@ -110,20 +138,37 @@ namespace Preview::Application
             const Preview::Network::Target &Target,
             const std::string_view Details = {}) -> void
         {
-            if (!Services || !Services->Logger)
+            if (!Services)
             {
                 return;
             }
-            const auto TargetText = std::string(Target.Host.data(), Target.Host.size()) + ":" +
-                                    std::string(Target.Port.data(), Target.Port.size());
-            const auto DetailText = Details.empty() ? std::string{} : " " + std::string(Details);
-            (void)Services->Logger->TryWrite(
-                Preview::Diagnose::LogLevel::Info,
-                std::string("[Carrier=mux] [Stage=mux_stream] stage=") + std::string(Stage) +
-                    " outcome=" + std::string(Outcome) + " stream_id=" +
-                    std::to_string(Identity.StreamId.Value()) + " target=" + TargetText +
-                    " fault_code=" + std::string(Preview::Fault::Describe(Code)) + DetailText,
-                Preview::Statistics::TraceSnapshot{});
+            auto Context = Services->ProcessContext;
+            if (Identity.WorkerId)
+            {
+                Context = Context.With(Preview::Diagnose::Fields::Worker, Identity.WorkerId);
+            }
+            if (Identity.SessionId)
+            {
+                Context = Context.With(Preview::Diagnose::Fields::Session, Identity.SessionId);
+            }
+            const auto WithStream = Context.TryWith(
+                Preview::Diagnose::Fields::Stream, Identity.StreamId);
+            const auto TargetHost = std::string_view{Target.Host.data(), Target.Host.size()};
+            const auto TargetPort = std::string_view{Target.Port.data(), Target.Port.size()};
+            if (WithStream)
+            {
+                (void)Preview::Diagnose::Info(
+                    *WithStream,
+                    "event=mux_stream stage={} outcome={} stream_id={} target={}:{} fault_code={} {}",
+                    Stage, Outcome, Identity.StreamId.Value(), TargetHost, TargetPort,
+                    Preview::Fault::Describe(Code), Details);
+                return;
+            }
+            (void)Preview::Diagnose::Info(
+                Context,
+                "event=mux_stream stage={} outcome={} stream_id={} target={}:{} fault_code={} {}",
+                Stage, Outcome, Identity.StreamId.Value(), TargetHost, TargetPort,
+                Preview::Fault::Describe(Code), Details);
         }
 
         [[nodiscard]] auto MakeMuxStreamHandler(
@@ -1188,8 +1233,7 @@ namespace Preview::Application
             const std::shared_ptr<Preview::Network::Dns::Resolver> &Resolver,
             Preview::Middleware::Builtin::DialMiddleware::DialFn Dial,
             const std::shared_ptr<Preview::Foundation::TrafficSink> &Metrics,
-            Preview::Diagnose::Logger::Owner Logger,
-            std::shared_ptr<Preview::Diagnose::TraceContext> Trace)
+            Preview::Diagnose::ContextState Trace)
             -> std::expected<Preview::Ingress::SharedQuicAdmissionContext, StartupError>
         {
             if (!Protocol.Quic ||
@@ -1219,7 +1263,6 @@ namespace Preview::Application
             Mutable->Resolver = Resolver;
             Mutable->Dial = std::move(Dial);
             Mutable->Metrics = Metrics;
-            Mutable->Logger = std::move(Logger);
             Mutable->Trace = std::move(Trace);
             if (Protocol.Builtin == "tuic")
             {
@@ -1258,33 +1301,48 @@ namespace Preview::Application
                     co_return;
                 }
                 const auto SessionId = QuicSessionSequence.fetch_add(1, std::memory_order_relaxed);
-                const auto WriteLog = [Context, SessionId](std::string Message)
+                auto LogContext = Context->Trace;
+                try
                 {
-                    if (!Context->Logger)
+                    const auto Carrier = std::string_view{"quic"};
+                    if (const auto Derived = LogContext.TryWith(
+                            Preview::Diagnose::Fields::Carrier, Carrier))
                     {
-                        return;
+                        LogContext = *Derived;
                     }
-                    const auto Prefix = std::string("[Carrier=quic] [Protocol=") + Context->Protocol +
-                                        "] carrier=quic protocol=" + Context->Protocol +
-                                        " session_id=quic-" + std::to_string(SessionId);
-                    (void)Context->Logger->TryWrite(
-                        Preview::Diagnose::LogLevel::Info,
-                        Prefix + " " + std::move(Message),
-                        Context->Trace ? Context->Trace->Snapshot()
-                                       : Preview::Statistics::TraceSnapshot{});
+                    const auto Protocol = std::string_view{Context->Protocol};
+                    if (const auto Derived = LogContext.TryWith(
+                            Preview::Diagnose::Fields::Protocol, Protocol))
+                    {
+                        LogContext = *Derived;
+                    }
+                }
+                catch (...)
+                {
+                    LogContext = Context->Trace;
+                }
+                const auto WriteRelayLog = [Context, SessionId, LogContext](
+                                               const std::string_view Outcome,
+                                               const std::string_view Fault,
+                                               const Preview::Network::Target &Target) noexcept
+                {
+                    (void)Preview::Diagnose::Info(
+                        LogContext,
+                        "carrier=quic protocol={} session_id=quic-{} stage=relay outcome={} fault={} target={}:{}",
+                        Context->Protocol, SessionId, Outcome, Fault,
+                        std::string_view{Target.Host.data(), Target.Host.size()},
+                        std::string_view{Target.Port.data(), Target.Port.size()});
                 };
                 Preview::Network::Target Target;
                 Target.Host.assign(Message.dst.Host.data(), Message.dst.Host.size());
                 Target.Port.assign(std::to_string(Message.dst.Port));
-                const auto TargetText = std::string(Target.Host.data(), Target.Host.size()) + ":" +
-                                        std::string(Target.Port.data(), Target.Port.size());
                 const auto AccountId = Connection->AccountId();
                 auto Lease = Connection->TakeAuthLease();
                 const auto Identity = std::string(Connection->Identity());
                 auto [DialError, Outbound] = co_await Context->Dial(Target);
                 if (Preview::Fault::Failed(DialError) || !Outbound)
                 {
-                    WriteLog("stage=relay outcome=failure fault=dial target=" + TargetText);
+                    WriteRelayLog("failure", "dial", Target);
                     Connection->Close();
                     co_return;
                 }
@@ -1304,10 +1362,8 @@ namespace Preview::Application
                 Preview::Middleware::Builtin::RelayMiddleware Relay(
                     nullptr, std::chrono::milliseconds(0));
                 const auto RelayError = co_await Relay.Handle(SessionContext.Inbound, SessionContext);
-                WriteLog(
-                    std::string("stage=relay outcome=") +
-                    (RelayError == Preview::Fault::Code::Success ? "success" : "failure") +
-                    " target=" + TargetText);
+                WriteRelayLog(RelayError == Preview::Fault::Code::Success ? "success" : "failure",
+                              Preview::Fault::Describe(RelayError), SessionContext.Target);
             };
 
             Mutable->Hysteria2Datagram = [Weak](Preview::Hysteria2::SharedDgram Datagram)
@@ -2709,7 +2765,7 @@ namespace Preview::Application
         explicit RuntimeState(const std::size_t WorkerCount,
                               const Preview::GenerationId GenerationValue,
                               Preview::Network::Dns::Config DnsConfig)
-            : Signals(Io),
+            : Signals(Io), DiagnoseFlushTimer(Io),
               Tasks(std::make_shared<Preview::Lifecycle::TaskRegistry>(Io.get_executor()))
         {
             Process = std::make_unique<Preview::Runtime::Process>(
@@ -2757,6 +2813,8 @@ namespace Preview::Application
 
         Net::io_context Io;
         Net::signal_set Signals;
+        Net::steady_timer DiagnoseFlushTimer; ///< 只投递异步 sink flush 请求，不等待写入完成。
+        std::chrono::milliseconds DiagnoseFlushInterval{250}; ///< 日志 sink flush 请求间隔。
         std::shared_ptr<Preview::Lifecycle::TaskRegistry> Tasks;
         std::shared_ptr<Preview::Account::AccountDirectory> Accounts;
         Configuration::SharedConfigurationGeneration Generation;
@@ -2767,8 +2825,9 @@ namespace Preview::Application
         std::shared_ptr<Preview::Ingress::QuicCidRegistry> QuicCidRegistry;
         std::shared_ptr<Preview::Ingress::Ss2022Gateway> Ss2022Gateway;
         std::shared_ptr<Preview::Ingress::IngressDispatcher> IngressDispatcher;
-        Preview::Diagnose::Logger::Owner Logger;
-        std::shared_ptr<Preview::Diagnose::TraceContext> Trace;
+        std::unique_ptr<DiagnoseRuntime> Diagnose{};
+        Preview::Diagnose::ContextState RootContext{Preview::Diagnose::ContextState::Empty()};
+        std::vector<Preview::Diagnose::ContextState> WorkerContexts{};
         Preview::Runtime::SharedSessionServices Services;
         std::unique_ptr<Preview::Runtime::Process> Process;
         std::unique_ptr<Preview::Runtime::TcpListener> Listener;
@@ -2784,6 +2843,7 @@ namespace Preview::Application
         std::atomic<bool> ShutdownScheduled{false};
         std::atomic<bool> Running{false};
         std::atomic<bool> SignalsArmed{false};
+        std::atomic<bool> ResourcesFinalized{false}; ///< worker 和 Diagnose backend 均已在运行循环外回收。
         std::chrono::milliseconds ShutdownTimeout{5000};
         int ExitCode{0};
         Readiness Ready{};
@@ -2877,9 +2937,73 @@ namespace Preview::Application
         }
     }
 
+    static auto ScheduleShutdown(
+        const std::shared_ptr<Application::RuntimeState> &State) noexcept -> void;
+    static auto ArmDiagnoseFlush(
+        const std::shared_ptr<Application::RuntimeState> &State) -> void;
+
+    /**
+     * @brief 处理周期 flush timer 完成并安排下一次请求。
+     * @param WeakState 应用状态的弱引用，避免 timer handler 延长运行时生命周期。
+     * @param Error timer 完成状态；取消时直接返回。
+     */
+    static auto OnDiagnoseFlush(
+        const std::weak_ptr<Application::RuntimeState> &WeakState,
+        const boost::system::error_code &Error) noexcept -> void
+    {
+        if (Error)
+        {
+            return;
+        }
+        if (const auto State = WeakState.lock(); State && State->Diagnose && State->Diagnose->IsInstalled())
+        {
+            State->Diagnose->Flush();
+            try
+            {
+                ArmDiagnoseFlush(State);
+            }
+            catch (...)
+            {
+                MarkShutdownFailed(State);
+                ScheduleShutdown(State);
+            }
+        }
+    }
+
+    /**
+     * @brief 在 Asio executor 上安排下一次非阻塞 sink flush 请求。
+     * @param State 持有 timer、配置间隔和 Diagnose runtime 的应用状态。
+     * @details timer 到期后只向 spdlog async pool 投递 flush；不会等待文件 I/O 完成。
+     */
+    static auto ArmDiagnoseFlush(
+        const std::shared_ptr<Application::RuntimeState> &State) -> void
+    {
+        if (!State->Diagnose || !State->Diagnose->IsInstalled())
+        {
+            return;
+        }
+        State->DiagnoseFlushTimer.expires_after(State->DiagnoseFlushInterval);
+        const auto WeakState = std::weak_ptr<Application::RuntimeState>(State);
+        State->DiagnoseFlushTimer.async_wait(
+            [WeakState](const boost::system::error_code &Error) noexcept
+            { OnDiagnoseFlush(WeakState, Error); });
+    }
+
+    /**
+     * @brief 在 ShutdownRuntime 协程中释放已排空的监听和服务入口。
+     * @param State 正在停机的应用状态。
+     * @details 本函数不 join worker、不等待日志队列，也不关闭 DiagnoseRuntime；worker 停止后仍可记录最终事件。
+     */
     static auto ReleaseRuntimeResources(
         const std::shared_ptr<Application::RuntimeState> &State) noexcept -> void
     {
+        try
+        {
+            (void)State->DiagnoseFlushTimer.cancel();
+        }
+        catch (...)
+        {
+        }
         State->OperationsServer.reset();
         State->Ss2022Gateway.reset();
         State->QuicCidRegistry.reset();
@@ -2889,22 +3013,42 @@ namespace Preview::Application
         State->UdpDemux.reset();
         State->Listener.reset();
         State->Tasks.reset();
+    }
+
+    /**
+     * @brief 在 Asio 运行循环退出后 join worker 并最终关闭 Diagnose backend。
+     * @param State 已完成异步停机的应用状态。
+     * @details 含有同步 join，只能由应用控制线程调用，不能从协程或 I/O worker 调用。
+     */
+    static auto FinalizeRuntimeResources(
+        const std::shared_ptr<Application::RuntimeState> &State) noexcept -> void
+    {
         if (State->Process)
         {
             State->Process->Stop();
             State->StopWorkers();
         }
+        if (State->Diagnose)
+        {
+            State->Diagnose->BeginShutdown();
+        }
         State->Services.reset();
         State->DnsResolver.reset();
         State->Generation.reset();
         State->Accounts.reset();
-        if (State->Logger)
+        if (State->Diagnose)
         {
-            State->Logger->Stop();
+            const auto Receipt = State->Diagnose->FinalizeShutdown();
+            if (Receipt.Status == Preview::Diagnose::SubmissionStatus::Failed)
+            {
+                MarkShutdownFailed(State);
+            }
         }
-        State->Logger.reset();
-        State->Trace.reset();
+        State->Diagnose.reset();
+        State->WorkerContexts.clear();
+        State->RootContext = Preview::Diagnose::ContextState::Empty();
         State->Process.reset();
+        State->ResourcesFinalized.store(true, std::memory_order_release);
     }
 
     [[nodiscard]] static auto ShutdownRuntime(
@@ -3010,11 +3154,13 @@ namespace Preview::Application
             }
             State->StopCompleted.store(true, std::memory_order_release);
             State->Io.stop();
+            FinalizeRuntimeResources(State);
         }
         catch (...)
         {
             MarkShutdownFailed(State);
             ReleaseRuntimeResources(State);
+            FinalizeRuntimeResources(State);
             State->StopCompleted.store(true, std::memory_order_release);
             State->Io.stop();
         }
@@ -3085,14 +3231,12 @@ namespace Preview::Application
         };
         const auto OnError = [WeakState](const boost::system::error_code Error) noexcept
         {
-            if (const auto StateValue = WeakState.lock(); StateValue && StateValue->Logger)
+            if (const auto StateValue = WeakState.lock())
             {
-                (void)StateValue->Logger->TryWrite(
-                    Preview::Diagnose::LogLevel::Error,
-                    "event=udp_receive_failed code=" + std::to_string(Error.value()) +
-                        " message=" + Error.message(),
-                    StateValue->Trace ? StateValue->Trace->Snapshot()
-                                      : Preview::Statistics::TraceSnapshot{});
+                const auto Message = Preview::Statistics::RedactSensitiveText(Error.message());
+                (void)Preview::Diagnose::Error(
+                    StateValue->RootContext,
+                    "event=udp_receive_failed code={} message={}", Error.value(), Message);
             }
         };
         Net::co_spawn(
@@ -3581,7 +3725,7 @@ namespace Preview::Application
         }
         if (State_)
         {
-            State_->StopWorkers();
+            FinalizeRuntimeResources(State_);
         }
     }
 
@@ -3783,9 +3927,9 @@ namespace Preview::Application
             OperationsEndpoint = *ParsedOperations;
         }
 
-        const auto LogLevel = Preview::Diagnose::ParseLogLevel(
+        const auto ConfiguredLogLevel = ParseDiagnoseLogLevel(
             (*Generation)->Configuration().Logging.Level);
-        if (!LogLevel)
+        if (!ConfiguredLogLevel)
         {
             LastError_ = MakeStartupError(
                 StartupErrorCode::InvalidConfiguration,
@@ -3793,31 +3937,16 @@ namespace Preview::Application
                 "unsupported Preview logging level");
             return std::unexpected(*LastError_);
         }
-        Preview::Diagnose::LoggerOptions LoggerOptions;
-        LoggerOptions.Level = *LogLevel;
-        LoggerOptions.Directory = (*Generation)->Configuration().Logging.Directory;
-        LoggerOptions.FileName = (*Generation)->Configuration().Logging.FileName;
-        LoggerOptions.Console = (*Generation)->Configuration().Logging.Console;
-        LoggerOptions.RotateBytes = (*Generation)->Configuration().Logging.RotateBytes;
-        LoggerOptions.RotateFiles = (*Generation)->Configuration().Logging.RotateFiles;
-        LoggerOptions.FlushIntervalMs =
-            (*Generation)->Configuration().Logging.FlushIntervalMs;
-        const auto LoggerOwner = Preview::Diagnose::Logger::Create(std::move(LoggerOptions));
-        if (!LoggerOwner)
+        const auto ConfiguredRenderMode = ParseDiagnoseRenderMode(
+            (*Generation)->Configuration().Logging.RenderMode);
+        if (!ConfiguredRenderMode)
         {
             LastError_ = MakeStartupError(
-                StartupErrorCode::Runtime,
-                "Logging",
-                LoggerOwner.error().Message);
+                StartupErrorCode::InvalidConfiguration,
+                "Logging.RenderMode",
+                "unsupported Preview logging render mode");
             return std::unexpected(*LastError_);
         }
-        const auto TraceOwner = std::make_shared<Preview::Diagnose::TraceContext>(
-            Preview::Statistics::TraceSelection{
-                (*Generation)->Configuration().Trace.IncludeCorrelation,
-                (*Generation)->Configuration().Trace.IncludeWorker,
-                (*Generation)->Configuration().Trace.IncludeSession,
-                (*Generation)->Configuration().Trace.IncludeStream});
-
         try
         {
             auto Runtime = std::make_shared<RuntimeState>(
@@ -3828,29 +3957,66 @@ namespace Preview::Application
             Runtime->Accounts = *Accounts;
             Runtime->Generation = *Generation;
             Runtime->QuicConfigured = !(*Generation)->Configuration().Listeners.Quic.empty();
-            Runtime->Logger = *LoggerOwner;
-            Runtime->Trace = TraceOwner;
-            Runtime->Services = std::make_shared<Preview::Runtime::SessionServices>();
-            Runtime->Services->Logger = Runtime->Logger;
-            Runtime->Services->TraceSelection = Preview::Statistics::TraceSelection{
+            Runtime->Diagnose = std::make_unique<DiagnoseRuntime>();
+            DiagnoseRuntimeConfiguration DiagnoseConfiguration;
+            DiagnoseConfiguration.Logging.Level = *ConfiguredLogLevel;
+            DiagnoseConfiguration.Mode = *ConfiguredRenderMode;
+            DiagnoseConfiguration.Logging.Directory =
+                (*Generation)->Configuration().Logging.Directory;
+            DiagnoseConfiguration.Logging.FileName =
+                (*Generation)->Configuration().Logging.FileName;
+            DiagnoseConfiguration.Logging.Console =
+                (*Generation)->Configuration().Logging.Console;
+            DiagnoseConfiguration.Logging.RotateBytes =
+                (*Generation)->Configuration().Logging.RotateBytes;
+            DiagnoseConfiguration.Logging.RotateFiles =
+                (*Generation)->Configuration().Logging.RotateFiles;
+            DiagnoseConfiguration.FlushIntervalMs =
+                (*Generation)->Configuration().Logging.FlushIntervalMs;
+            DiagnoseConfiguration.TraceSelection = Preview::Statistics::TraceSelection{
                 (*Generation)->Configuration().Trace.IncludeCorrelation,
                 (*Generation)->Configuration().Trace.IncludeWorker,
                 (*Generation)->Configuration().Trace.IncludeSession,
                 (*Generation)->Configuration().Trace.IncludeStream};
+            if (const auto Installed = Runtime->Diagnose->Install(DiagnoseConfiguration);
+                !Installed)
+            {
+                LastError_ = MakeStartupError(StartupErrorCode::Runtime,
+                                              "Logging", Installed.error().Message);
+                RunStartupRollback(Runtime);
+                State_.reset();
+                return std::unexpected(*LastError_);
+            }
+            Runtime->DiagnoseFlushInterval =
+                std::chrono::milliseconds{DiagnoseConfiguration.FlushIntervalMs};
+            ArmDiagnoseFlush(Runtime);
+            Runtime->RootContext = Preview::Diagnose::ContextState::Empty()
+                                       .With(Preview::Diagnose::Fields::Process,
+                                             Runtime->Process->Id())
+                                       .With(Preview::Diagnose::Fields::Generation,
+                                             Runtime->Generation->Id());
+            Runtime->WorkerContexts.reserve(Runtime->Process->Workers().Size());
+            for (std::size_t Index = 0; Index < Runtime->Process->Workers().Size(); ++Index)
+            {
+                Runtime->WorkerContexts.push_back(
+                    Runtime->RootContext.With(Preview::Diagnose::Fields::Worker,
+                                              Preview::WorkerId{
+                                                  static_cast<std::uint64_t>(Index + 1U)}));
+            }
+            Runtime->Services = std::make_shared<Preview::Runtime::SessionServices>();
+            Runtime->Services->ProcessContext = Runtime->RootContext;
             Runtime->DnsResolver = std::make_shared<Preview::Network::Dns::Resolver>(
                 Runtime->Io.get_executor(),
                 MakeDnsConfig((*Generation)->Configuration().Dns));
             if (UdpEndpoint)
             {
-                const auto Logger = Runtime->Logger;
-                const auto Trace = Runtime->Trace;
                 const auto WeakRuntime = std::weak_ptr<RuntimeState>(Runtime);
                 Runtime->UdpDemux = std::make_shared<Preview::Ingress::UdpDemux>();
                 Runtime->QuicGateway = std::make_shared<Preview::Ingress::QuicGateway>(
                     Preview::Ingress::QuicGatewayOptions{
                         4096,
                         65536,
-                        [WeakRuntime, Logger, Trace](const Preview::Ingress::UdpPacket &Packet)
+                        [WeakRuntime](const Preview::Ingress::UdpPacket &Packet)
                         {
                             const auto StateValue = WeakRuntime.lock();
                             if (!StateValue || !StateValue->Process)
@@ -3862,44 +4028,37 @@ namespace Preview::Application
                                                          .Select(Packet.Peer.address().to_string());
                             const auto WorkerId = Preview::WorkerId{
                                 static_cast<std::uint64_t>(WorkerIndex + 1U)};
+                            const auto WorkerContext =
+                                WorkerIndex < StateValue->WorkerContexts.size()
+                                    ? StateValue->WorkerContexts[WorkerIndex]
+                                    : StateValue->RootContext;
                             const auto Generation = StateValue->Process->Workers().Generation();
                             const auto Bytes = Packet.Payload.size();
                             const auto ConnectionId = Packet.Classification.ConnectionId;
-                            const auto Peer = Packet.Peer.address().to_string() + ":" +
-                                              std::to_string(Packet.Peer.port());
+                            const auto Peer = Packet.Peer.address().to_string();
+                            const auto PeerPort = Packet.Peer.port();
                             const auto Result = StateValue->Process->Workers().Dispatch(
                                 WorkerId, Generation,
-                                [Logger, Trace, WorkerId, Bytes, ConnectionId, Peer]
+                                [WorkerContext, Bytes, ConnectionId, Peer, PeerPort]
                                 {
-                                    auto Snapshot = Trace ? Trace->Snapshot()
-                                                          : Preview::Statistics::TraceSnapshot{};
-                                    Snapshot.Worker = WorkerId;
-                                    if (Logger)
-                                    {
-                                        (void)Logger->TryWrite(
-                                            Preview::Diagnose::LogLevel::Debug,
-                                            "event=quic_packet_received cid=" +
-                                                std::to_string(ConnectionId) + " bytes=" +
-                                                std::to_string(Bytes) + " peer=" + Peer,
-                                            Snapshot);
-                                    }
+                                    (void)Preview::Diagnose::Debug(
+                                        WorkerContext,
+                                        "event=quic_packet_received cid={} bytes={} peer={}:{}",
+                                        ConnectionId, Bytes, Peer, PeerPort);
                                 });
-                            if (Result != Preview::Runtime::Mailbox::Result::Accepted && Logger)
+                            if (Result != Preview::Runtime::Mailbox::Result::Accepted)
                             {
-                                (void)Logger->TryWrite(
-                                    Preview::Diagnose::LogLevel::Warn,
-                                    "event=quic_packet_dispatch_rejected worker=" +
-                                        std::to_string(WorkerId.Value()) + " result=" +
-                                        std::to_string(static_cast<unsigned int>(Result)),
-                                    Trace ? Trace->Snapshot()
-                                          : Preview::Statistics::TraceSnapshot{});
+                                (void)Preview::Diagnose::Warn(
+                                    WorkerContext,
+                                    "event=quic_packet_dispatch_rejected worker={} result={}",
+                                    WorkerId.Value(), static_cast<unsigned int>(Result));
                             }
                         }});
                 Runtime->IngressDispatcher =
                     std::make_shared<Preview::Ingress::IngressDispatcher>(
                         Preview::Ingress::IngressDispatcher::Options{
                             Runtime->QuicGateway,
-                            [WeakRuntime, Logger, Trace](Preview::Ingress::UdpPacket Packet)
+                            [WeakRuntime](Preview::Ingress::UdpPacket Packet)
                             {
                                 const auto StateValue = WeakRuntime.lock();
                                 if (!StateValue || !StateValue->Process)
@@ -3916,35 +4075,29 @@ namespace Preview::Application
                                                              .Select(Packet.Peer.address().to_string());
                                 const auto WorkerId = Preview::WorkerId{
                                     static_cast<std::uint64_t>(WorkerIndex + 1U)};
+                                const auto WorkerContext =
+                                    WorkerIndex < StateValue->WorkerContexts.size()
+                                        ? StateValue->WorkerContexts[WorkerIndex]
+                                        : StateValue->RootContext;
                                 const auto Generation = StateValue->Process->Workers().Generation();
                                 const auto Bytes = Packet.Payload.size();
-                                const auto Peer = Packet.Peer.address().to_string() + ":" +
-                                                  std::to_string(Packet.Peer.port());
+                                const auto Peer = Packet.Peer.address().to_string();
+                                const auto PeerPort = Packet.Peer.port();
                                 const auto Result = StateValue->Process->Workers().Dispatch(
                                     WorkerId, Generation,
-                                    [Logger, Trace, WorkerId, Bytes, Peer]
+                                    [WorkerContext, Bytes, Peer, PeerPort]
                                     {
-                                        auto Snapshot = Trace ? Trace->Snapshot()
-                                                              : Preview::Statistics::TraceSnapshot{};
-                                        Snapshot.Worker = WorkerId;
-                                        if (Logger)
-                                        {
-                                            (void)Logger->TryWrite(
-                                                Preview::Diagnose::LogLevel::Debug,
-                                                "event=udp_datagram_received status=unclaimed bytes=" +
-                                                    std::to_string(Bytes) + " peer=" + Peer,
-                                                Snapshot);
-                                        }
+                                        (void)Preview::Diagnose::Debug(
+                                            WorkerContext,
+                                            "event=udp_datagram_received status=unclaimed bytes={} peer={}:{}",
+                                            Bytes, Peer, PeerPort);
                                     });
-                                if (Result != Preview::Runtime::Mailbox::Result::Accepted && Logger)
+                                if (Result != Preview::Runtime::Mailbox::Result::Accepted)
                                 {
-                                    (void)Logger->TryWrite(
-                                        Preview::Diagnose::LogLevel::Warn,
-                                        "event=udp_datagram_dispatch_rejected worker=" +
-                                            std::to_string(WorkerId.Value()) + " result=" +
-                                            std::to_string(static_cast<unsigned int>(Result)),
-                                        Trace ? Trace->Snapshot()
-                                              : Preview::Statistics::TraceSnapshot{});
+                                    (void)Preview::Diagnose::Warn(
+                                        WorkerContext,
+                                        "event=udp_datagram_dispatch_rejected worker={} result={}",
+                                        WorkerId.Value(), static_cast<unsigned int>(Result));
                                 }
                             },
                             [WeakRuntime](Preview::Ingress::UdpPacket Packet) -> bool
@@ -4025,16 +4178,13 @@ namespace Preview::Application
                 if (const auto Protocol = ParseStaticProtocol(Configured.Name))
                 {
                     const auto Index = static_cast<std::size_t>(*Protocol);
-                    (void)Runtime->Logger->TryWrite(
-                        Preview::Diagnose::LogLevel::Info,
-                        "event=account_directory protocol=" + Configured.Name + " " +
-                            DescribeAccountDirectory(ProtocolAccounts[Index]));
+                    (void)Preview::Diagnose::Info(
+                        Runtime->RootContext,
+                        "event=account_directory protocol={} {}",
+                        Configured.Name, DescribeAccountDirectory(ProtocolAccounts[Index]));
                 }
             }
-            (void)Runtime->Logger->TryWrite(
-                Preview::Diagnose::LogLevel::Info,
-                "event=runtime_start",
-                Runtime->Trace->Snapshot());
+            (void)Preview::Diagnose::Info(Runtime->RootContext, "event=runtime_start");
             Runtime->ShutdownTimeout = std::chrono::milliseconds(
                 (*Generation)->Configuration().Shutdown.Timeout);
             Runtime->Services->HandshakeTimeout = std::chrono::milliseconds(
@@ -4067,7 +4217,7 @@ namespace Preview::Application
                         const auto Built = MakeQuicAdmissionContext(
                             **Generation, Configured, Executor, Runtime->DnsResolver,
                             Runtime->Services->Dial, Runtime->Services->Traffic,
-                            Runtime->Logger, Runtime->Trace);
+                            Runtime->RootContext);
                         if (!Built)
                         {
                             LastError_ = Built.error();
@@ -4161,25 +4311,38 @@ namespace Preview::Application
                     const Preview::Lifecycle::TaskIdentity &Identity,
                     const Preview::Fault::Code Code)
                 {
-                    if (!Services->Logger)
-                    {
-                        return;
-                    }
                     const auto ProtocolName = Preview::Recognition::ToStringView(
                         static_cast<Preview::Recognition::ProtocolType>(Protocol));
+                    auto Context = Services->ProcessContext;
+                    if (Identity.WorkerId)
+                    {
+                        Context = Context.With(Preview::Diagnose::Fields::Worker,
+                                               Identity.WorkerId);
+                    }
+                    if (Identity.SessionId)
+                    {
+                        Context = Context.With(Preview::Diagnose::Fields::Session,
+                                               Identity.SessionId);
+                    }
+                    const auto StreamContext = Context.TryWith(
+                        Preview::Diagnose::Fields::Stream, Identity.StreamId);
                     const auto Outcome = Code == Preview::Fault::Code::Success
-                                             ? "success"
-                                             : "failure";
-                    (void)Services->Logger->TryWrite(
-                        Preview::Diagnose::LogLevel::Info,
-                        std::string("[Carrier=mux] [Protocol=") +
-                            std::string(ProtocolName) + "] mux=" +
-                            std::string(Preview::Composition::MuxModeName(Mode)) +
-                            " session_id=" + std::to_string(Identity.SessionId.Value()) +
-                            " stream_id=" + std::to_string(Identity.StreamId.Value()) +
-                            " fault_code=" + std::string(Preview::Fault::Describe(Code)) +
-                            " stage=relay outcome=" + Outcome,
-                        Preview::Statistics::TraceSnapshot{});
+                                             ? std::string_view{"success"}
+                                             : std::string_view{"failure"};
+                    if (StreamContext)
+                    {
+                        (void)Preview::Diagnose::Info(
+                            *StreamContext,
+                            "event=mux protocol={} mux={} fault_code={} stage=relay outcome={}",
+                            ProtocolName, Preview::Composition::MuxModeName(Mode),
+                            Preview::Fault::Describe(Code), Outcome);
+                        return;
+                    }
+                    (void)Preview::Diagnose::Info(
+                        Context,
+                        "event=mux protocol={} mux={} fault_code={} stage=relay outcome={}",
+                        ProtocolName, Preview::Composition::MuxModeName(Mode),
+                        Preview::Fault::Describe(Code), Outcome);
                 });
             Runtime->Services->Mux = [Service = Runtime->MuxService,
                                       Services = Runtime->Services,
@@ -4348,14 +4511,7 @@ namespace Preview::Application
                 Event.Detail = "application ready";
                 (void)State_->Events->Append(std::move(Event));
             }
-            if (State_->Logger)
-            {
-                (void)State_->Logger->TryWrite(
-                    Preview::Diagnose::LogLevel::Info,
-                    "event=runtime_ready",
-                    State_->Trace ? State_->Trace->Snapshot()
-                                  : Preview::Statistics::TraceSnapshot{});
-            }
+            (void)Preview::Diagnose::Info(State_->RootContext, "event=runtime_ready");
             auto *Output = Options_.Output != nullptr ? Options_.Output : &std::cout;
             *Output << "PrismPreview READY tcp_port=" << State_->Ready.Port
                     << " udp_port=" << State_->Ready.UdpPort
@@ -4418,7 +4574,7 @@ namespace Preview::Application
             State_->Io.restart();
             State_->Io.run();
         }
-        State_->StopWorkers();
+        FinalizeRuntimeResources(State_);
         return State_->ExitCode;
     }
 
@@ -4451,7 +4607,7 @@ namespace Preview::Application
 
     auto Application::IsStopped() const noexcept -> bool
     {
-        return State_ && State_->StopCompleted.load(std::memory_order_acquire);
+        return State_ && State_->ResourcesFinalized.load(std::memory_order_acquire);
     }
 
     auto Application::LastError() const noexcept -> const std::optional<StartupError> &

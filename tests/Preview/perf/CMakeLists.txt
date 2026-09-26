@@ -107,6 +107,30 @@ add_test(NAME Perf_Recognition COMMAND RecognitionPerf)
 # extra wall time for slower or contended CI hosts without relaxing other perf tests.
 set_tests_properties(Perf_Recognition PROPERTIES LABELS perf TIMEOUT ${_RECOGNITION_PERF_TIMEOUT})
 
+add_executable(CompactPathBenchmark DiagnosePathBenchmark.cpp)
+target_compile_definitions(CompactPathBenchmark PRIVATE PRISM_DIAGNOSE_COMPACT_BENCHMARK=1)
+target_compile_options(CompactPathBenchmark PRIVATE ${_perf_compile_options})
+target_link_libraries(CompactPathBenchmark PRIVATE
+        PreviewFoundation PreviewTestSupport spdlog::spdlog)
+add_test(NAME Perf_CompactPathBenchmark
+        COMMAND CompactPathBenchmark "${CMAKE_BINARY_DIR}/preview-diagnose-compact.json")
+set_tests_properties(Perf_CompactPathBenchmark PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+
+add_executable(ExtendedPathBenchmark DiagnosePathBenchmark.cpp)
+target_compile_definitions(ExtendedPathBenchmark PRIVATE PRISM_DIAGNOSE_EXTENDED_BENCHMARK=1)
+target_compile_options(ExtendedPathBenchmark PRIVATE ${_perf_compile_options})
+target_link_libraries(ExtendedPathBenchmark PRIVATE
+        PreviewFoundation PreviewTestSupport spdlog::spdlog)
+add_test(NAME Perf_ExtendedPathBenchmark_HumanWithFields
+        COMMAND ExtendedPathBenchmark HumanWithFields
+                "${CMAKE_BINARY_DIR}/preview-diagnose-human-with-fields.json")
+add_test(NAME Perf_ExtendedPathBenchmark_Structured
+        COMMAND ExtendedPathBenchmark Structured
+                "${CMAKE_BINARY_DIR}/preview-diagnose-structured.json")
+set_tests_properties(Perf_ExtendedPathBenchmark_HumanWithFields
+        Perf_ExtendedPathBenchmark_Structured PROPERTIES LABELS perf TIMEOUT ${_PERF_TIMEOUT})
+add_custom_target(PreviewDiagnoseBench DEPENDS CompactPathBenchmark ExtendedPathBenchmark)
+
 # Domain-level benchmark entry points. These depend on existing focused
 # executables and are intentionally excluded from the default build.
 add_custom_target(PreviewCodecBench DEPENDS CodecPerf CorePerf)

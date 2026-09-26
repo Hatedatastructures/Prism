@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 
 #include <Preview/Foundation/Memory/Container.hpp>
 #include <Preview/Foundation/Memory/Pool.hpp>
@@ -212,7 +212,7 @@ namespace Preview::Transport {
     {
         if (!Inner_)
         {
-            Diagnose::Error("Preview::Executor() called with null Inner transport");
+            (void)Diagnose::Error("Preview::Executor() called with null Inner transport");
             return ExecutorType{};
         }
         return Inner_->Executor();

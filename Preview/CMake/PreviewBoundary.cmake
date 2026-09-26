@@ -117,7 +117,7 @@ function(AssertPreviewDependency Consumer Dependency)
     endif()
 
     if("${Consumer}" STREQUAL "PreviewApplication" AND
-       NOT "${Dependency}" MATCHES "^Preview(Foundation|Lifecycle|Runtime|Account|Resource|Scheduler|Configuration|Operations|Composition|Ingress)$")
+       NOT "${Dependency}" MATCHES "^Preview(Foundation|Lifecycle|Runtime|Account|Resource|Scheduler|Configuration|Operations|Composition|Ingress|DiagnoseBackend)$")
         message(FATAL_ERROR
             "PreviewApplication -> ${Dependency} is outside the Application boundary")
     endif()
@@ -285,4 +285,66 @@ function(AssertPreviewStandaloneClosure Target)
     endforeach()
     AssertPreviewApplicationSources(PreviewApplication)
     message(STATUS "AssertPreviewStandaloneClosure passed: ${Target} -> ${_closure}")
+endfunction()
+
+function(AssertPreviewDiagnoseBackendBoundary)
+    if(NOT TARGET PreviewApplication OR NOT TARGET PreviewFoundation OR NOT TARGET spdlog::spdlog)
+        message(FATAL_ERROR "Diagnose backend boundary targets are incomplete")
+    endif()
+
+    get_target_property(_application_links PreviewApplication LINK_LIBRARIES)
+    list(FIND _application_links "spdlog::spdlog" _private_spdlog_index)
+    if(_private_spdlog_index EQUAL -1)
+        message(FATAL_ERROR "PreviewApplication must privately link spdlog::spdlog")
+    endif()
+
+    get_target_property(_application_interface_links PreviewApplication INTERFACE_LINK_LIBRARIES)
+    foreach(_link IN LISTS _application_interface_links)
+        if("${_link}" MATCHES "spdlog")
+            if(NOT "${_link}" MATCHES "^\\$<LINK_ONLY:spdlog::spdlog>$")
+                message(FATAL_ERROR
+                    "spdlog must not be exposed as a PreviewApplication interface dependency: ${_link}")
+            endif()
+        endif()
+    endforeach()
+
+    CollectPreviewTargetClosure(PreviewApplication _application_closure)
+    set(_business_targets)
+    foreach(_target IN LISTS _application_closure)
+        if(NOT "${_target}" MATCHES "^Preview" OR "${_target}" STREQUAL "PreviewApplication")
+            continue()
+        endif()
+        list(APPEND _business_targets "${_target}")
+        foreach(_property IN ITEMS LINK_LIBRARIES INTERFACE_LINK_LIBRARIES
+                                   INCLUDE_DIRECTORIES INTERFACE_INCLUDE_DIRECTORIES)
+            get_target_property(_values "${_target}" ${_property})
+            if(NOT _values OR _values MATCHES "-NOTFOUND$")
+                continue()
+            endif()
+            foreach(_value IN LISTS _values)
+                if("${_value}" MATCHES "spdlog")
+                    message(FATAL_ERROR
+                        "Preview business target ${_target} exposes spdlog through ${_property}: ${_value}")
+                endif()
+            endforeach()
+        endforeach()
+    endforeach()
+
+    get_target_property(_application_public_includes PreviewApplication INTERFACE_INCLUDE_DIRECTORIES)
+    if(_application_public_includes MATCHES "spdlog")
+        message(FATAL_ERROR "PreviewApplication exposes spdlog include directories publicly")
+    endif()
+    get_target_property(_spdlog_include_directories spdlog::spdlog INTERFACE_INCLUDE_DIRECTORIES)
+    CollectPreviewTargetClosure(PrismPreview _standalone_closure)
+
+    set(_report "${CMAKE_BINARY_DIR}/preview-diagnose-target-closure.txt")
+    file(WRITE "${_report}"
+        "backend_owner=PreviewApplication\n"
+        "private_backend_link=spdlog::spdlog\n"
+        "spdlog_compile_include_directories=${_spdlog_include_directories}\n"
+        "application_public_include_directories=${_application_public_includes}\n"
+        "business_preview_targets=${_business_targets}\n"
+        "standalone_link_closure=${_standalone_closure}\n")
+    message(STATUS
+        "AssertPreviewDiagnoseBackendBoundary passed: private spdlog owner; report ${_report}")
 endfunction()

@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
+#include <Preview/Foundation/Utility/Diagnose/FieldKey.hpp>
 #include <Preview/Ingress/QuicAdmissionContext.hpp>
 #include <Preview/Runtime/Middleware/Builtin/Relay.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
@@ -45,33 +47,48 @@ namespace Preview::Application::TuicAdmission
                 co_return;
             }
             const auto SessionId = TuicSessionSequence.fetch_add(1, std::memory_order_relaxed);
-            const auto WriteLog = [Context, SessionId](std::string Message)
+            auto LogContext = Context->Trace;
+            try
             {
-                if (!Context->Logger)
+                const auto Carrier = std::string_view{"quic"};
+                if (const auto Derived = LogContext.TryWith(
+                        Preview::Diagnose::Fields::Carrier, Carrier))
                 {
-                    return;
+                    LogContext = *Derived;
                 }
-                const auto Prefix = std::string("[Carrier=quic] [Protocol=") + Context->Protocol +
-                                    "] carrier=quic protocol=" + Context->Protocol +
-                                    " session_id=quic-" + std::to_string(SessionId);
-                (void)Context->Logger->TryWrite(
-                    Preview::Diagnose::LogLevel::Info,
-                    Prefix + " " + std::move(Message),
-                    Context->Trace ? Context->Trace->Snapshot()
-                                   : Preview::Statistics::TraceSnapshot{});
+                const auto Protocol = std::string_view{Context->Protocol};
+                if (const auto Derived = LogContext.TryWith(
+                        Preview::Diagnose::Fields::Protocol, Protocol))
+                {
+                    LogContext = *Derived;
+                }
+            }
+            catch (...)
+            {
+                LogContext = Context->Trace;
+            }
+            const auto WriteRelayLog = [Context, SessionId, LogContext](
+                                           const std::string_view Outcome,
+                                           const std::string_view Fault,
+                                           const Preview::Network::Target &Target) noexcept
+            {
+                (void)Preview::Diagnose::Info(
+                    LogContext,
+                    "carrier=quic protocol={} session_id=quic-{} stage=relay outcome={} fault={} target={}:{}",
+                    Context->Protocol, SessionId, Outcome, Fault,
+                    std::string_view{Target.Host.data(), Target.Host.size()},
+                    std::string_view{Target.Port.data(), Target.Port.size()});
             };
             Preview::Network::Target Target;
             Target.Host.assign(Message.dst.Host.data(), Message.dst.Host.size());
             Target.Port.assign(std::to_string(Message.dst.Port));
-            const auto TargetText = std::string(Target.Host.data(), Target.Host.size()) + ":" +
-                                    std::string(Target.Port.data(), Target.Port.size());
             const auto AccountId = Connection->AccountId();
             auto Lease = Connection->TakeAuthLease();
             const auto Identity = std::string(Connection->Identity());
             auto [DialError, Outbound] = co_await Context->Dial(Target);
             if (Preview::Fault::Failed(DialError) || !Outbound)
             {
-                WriteLog("stage=relay outcome=failure fault=dial target=" + TargetText);
+                WriteRelayLog("failure", "dial", Target);
                 Connection->Close();
                 co_return;
             }
@@ -91,10 +108,8 @@ namespace Preview::Application::TuicAdmission
             Preview::Middleware::Builtin::RelayMiddleware Relay(
                 nullptr, std::chrono::milliseconds(0));
             const auto RelayError = co_await Relay.Handle(SessionContext.Inbound, SessionContext);
-            WriteLog(
-                std::string("stage=relay outcome=") +
-                (RelayError == Preview::Fault::Code::Success ? "success" : "failure") +
-                " target=" + TargetText);
+            WriteRelayLog(RelayError == Preview::Fault::Code::Success ? "success" : "failure",
+                          Preview::Fault::Describe(RelayError), SessionContext.Target);
         };
     }
 

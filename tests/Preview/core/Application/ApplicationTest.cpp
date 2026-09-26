@@ -73,6 +73,7 @@ namespace
         std::string_view Builtins{};
         std::string_view LoggingDirectory{};
         std::string_view LoggingFileName{"preview.log"};
+        std::string_view LoggingRenderMode{"CompactHuman"};
         std::string_view Routes{};
         std::string_view Credential{"local-token"};
         std::string_view Credentials{};
@@ -152,7 +153,9 @@ namespace
                                                     : Shape.LoggingDirectory) << R"json(",
         "FileName": ")json"
                  << Shape.LoggingFileName << R"json(",
-        "Console": false
+         "RenderMode": ")json"
+                  << Shape.LoggingRenderMode << R"json(",
+         "Console": false
     },
     "Statistics": {"Enabled": true, "Interval": 1000},
     "Operations": {"Enabled": true, "Endpoint": "127.0.0.1:)json"
@@ -1137,6 +1140,7 @@ TEST(PreviewApplication, StartsConfiguredNativeCarrier)
             .Bindings = Bindings,
             .LoggingDirectory = LogDirectoryText,
             .LoggingFileName = "native-carrier-success.log",
+            .LoggingRenderMode = "HumanWithFields",
             .OperationsPort = OperationsPort});
     std::string LogContents;
     {
@@ -1342,7 +1346,8 @@ TEST(PreviewApplication, GlobalNativeTlsRemainsFallbackForExplicitProtocolBindin
         ConfigurationShape{.Bindings = Bindings,
                            .NativeTls = NativeTls,
                            .LoggingDirectory = LogDirectoryText,
-                           .LoggingFileName = "native-fallback.log"});
+                           .LoggingFileName = "native-fallback.log",
+                           .LoggingRenderMode = "HumanWithFields"});
     RunningApplication Application(Configuration.Path());
     ASSERT_TRUE(Application.Start());
 
@@ -1401,7 +1406,8 @@ TEST(PreviewApplication, NativeTlsHandshakeFailureKeepsStructuredError)
         ConfigurationShape{.Bindings = Bindings,
                            .NativeTls = NativeTls,
                            .LoggingDirectory = LogDirectoryText,
-                           .LoggingFileName = "native-tls-failure.log"});
+                           .LoggingFileName = "native-tls-failure.log",
+                           .LoggingRenderMode = "Structured"});
     std::string LogText;
     {
         RunningApplication Application(Configuration.Path());
@@ -1444,10 +1450,10 @@ TEST(PreviewApplication, NativeTlsHandshakeFailureKeepsStructuredError)
     std::filesystem::remove_all(LogDirectory, CleanupError);
     EXPECT_FALSE(CleanupError) << CleanupError.message();
     EXPECT_NE(LogText.find("stage=carrier_commit"), std::string::npos) << LogText;
-        EXPECT_NE(LogText.find("[Status=tls_alert]"), std::string::npos) << LogText;
-        EXPECT_NE(LogText.find("[FaultCode=tls_hsfail]"), std::string::npos) << LogText;
-        EXPECT_NE(LogText.find("[NativeError="), std::string::npos) << LogText;
-        EXPECT_NE(LogText.find("[Sni=example.com]"), std::string::npos) << LogText;
+        EXPECT_NE(LogText.find("\"Status\":\"tls_alert\""), std::string::npos) << LogText;
+        EXPECT_NE(LogText.find("\"FaultCode\":\"tls_hsfail\""), std::string::npos) << LogText;
+        EXPECT_NE(LogText.find("\"NativeError\":"), std::string::npos) << LogText;
+        EXPECT_NE(LogText.find("\"Sni\":\"example.com\""), std::string::npos) << LogText;
 }
 
 TEST(PreviewApplication, ConfiguredNativeTlsCarrierKeepsStructuredError)
@@ -1483,6 +1489,7 @@ TEST(PreviewApplication, ConfiguredNativeTlsCarrierKeepsStructuredError)
                            .Bindings = Bindings,
                            .LoggingDirectory = LogDirectoryText,
                            .LoggingFileName = "native-tls-carrier-failure.log",
+                            .LoggingRenderMode = "Structured",
                            .OperationsPort = OperationsPort});
     std::string LogText;
     {
@@ -1550,12 +1557,12 @@ TEST(PreviewApplication, ConfiguredNativeTlsCarrierKeepsStructuredError)
     std::error_code CleanupError;
     std::filesystem::remove_all(LogDirectory, CleanupError);
     EXPECT_FALSE(CleanupError) << CleanupError.message();
-    EXPECT_NE(LogText.find("[Event=tls_alert]"), std::string::npos) << LogText;
-    EXPECT_NE(LogText.find("[Stage=carrier_commit]"), std::string::npos) << LogText;
-    EXPECT_NE(LogText.find("[Status=tls_alert]"), std::string::npos) << LogText;
-    EXPECT_NE(LogText.find("[FaultCode=tls_hsfail]"), std::string::npos) << LogText;
-    EXPECT_NE(LogText.find("[NativeError=NO_SHARED_CIPHER"), std::string::npos) << LogText;
-    EXPECT_NE(LogText.find("[Sni=example.com]"), std::string::npos) << LogText;
+    EXPECT_NE(LogText.find("event=tls_alert"), std::string::npos) << LogText;
+    EXPECT_NE(LogText.find("\"Stage\":\"carrier_commit\""), std::string::npos) << LogText;
+    EXPECT_NE(LogText.find("\"Status\":\"tls_alert\""), std::string::npos) << LogText;
+    EXPECT_NE(LogText.find("\"FaultCode\":\"tls_hsfail\""), std::string::npos) << LogText;
+    EXPECT_NE(LogText.find("\"NativeError\":\"NO_SHARED_CIPHER"), std::string::npos) << LogText;
+    EXPECT_NE(LogText.find("\"Sni\":\"example.com\""), std::string::npos) << LogText;
 }
 
 TEST(PreviewApplication, NativeTlsFallbackHandlesMultipleProtocolBindings)

@@ -18,7 +18,7 @@
 #include <string>
 
 #include <Preview/Foundation/Authenticator.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Logger.hpp>
+#include <Preview/Foundation/Utility/Diagnose/ContextState.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Utility/TrafficSink.hpp>
 #include <Preview/Runtime/Middleware/Builtin/Dial.hpp>
@@ -71,10 +71,8 @@ namespace Preview::Runtime
         std::shared_ptr<const Preview::Middleware::Context::PadConfig> Pad{};
         /// 流量 sink 的共享所有权
         std::shared_ptr<Preview::Foundation::TrafficSink> Traffic{};
-        /// 应用级异步日志 owner；Session 只提交值快照，不执行文件 I/O。
-        Preview::Diagnose::Logger::Owner Logger{};
-        /// 每个 Session 创建自己的 TraceContext，避免跨 Session 共享可变字段。
-        Preview::Statistics::TraceSelection TraceSelection{};
+        /// 进程/generation 上下文；Session 派生 Worker 和 Session identity。
+        Preview::Diagnose::ContextState ProcessContext{Preview::Diagnose::ContextState::Empty()};
         /// 原生 TLS context 的共享所有权；为空时仅接受裸 TCP。
         std::shared_ptr<Net::ssl::context> NativeTls{};
 

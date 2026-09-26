@@ -1,8 +1,7 @@
 add_library(PreviewApplication STATIC
         Application.cpp
 )
-target_sources(PreviewApplication PRIVATE Application.hpp)
-
+target_sources(PreviewApplication PRIVATE Application.hpp DiagnoseRuntime.hpp)
 target_include_directories(PreviewApplication
         PUBLIC
         ${CMAKE_SOURCE_DIR}
@@ -18,6 +17,7 @@ AssertPreviewDependency(PreviewApplication PreviewConfiguration)
 AssertPreviewDependency(PreviewApplication PreviewOperations)
 AssertPreviewDependency(PreviewApplication PreviewComposition)
 AssertPreviewDependency(PreviewApplication PreviewIngress)
+AssertPreviewDependency(PreviewApplication PreviewDiagnoseBackend)
 target_link_libraries(PreviewApplication
         PUBLIC
         PreviewFoundation
@@ -33,6 +33,7 @@ target_link_libraries(PreviewApplication
         OpenSSL::SSL
         OpenSSL::Crypto
 )
+target_link_libraries(PreviewApplication PRIVATE PreviewDiagnoseBackend spdlog::spdlog)
 
 add_executable(PrismPreview
         Main/PreviewMain.cpp

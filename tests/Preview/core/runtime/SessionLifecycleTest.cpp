@@ -23,6 +23,7 @@
 #include <stdexcept>
 #include <string>
 
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Utility/TrafficSink.hpp>
 #include <Preview/Account/Account.hpp>

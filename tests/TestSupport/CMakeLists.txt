@@ -5,6 +5,7 @@ ConfigurePreviewTarget(PreviewTestSupport)
 target_sources(PreviewTestSupport INTERFACE
         Fixtures/RuntimeTestHelpers.hpp
         Preview/PreviewMockTransport.hpp
+        Preview/DiagnoseTestEnvironment.hpp
         Tls/MockTlsServer.hpp
         Benchmark/Bench.hpp
         Stress/StressHelper.hpp

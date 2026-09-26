@@ -33,6 +33,7 @@
 #include <utility>
 #include <vector>
 
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Composition/Recognition/CandidateFactory.hpp>
 #include <Preview/Composition/Adapters/Vless.hpp>
 #include <Preview/Composition/Recognition/ProfileBuilder.hpp>

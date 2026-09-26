@@ -7,7 +7,7 @@
 
 #include <boost/asio/awaitable.hpp>
 
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Composition/Adapters/TypedResult.hpp>
 #include <Preview/Runtime/Contract/Handler.hpp>
@@ -47,7 +47,7 @@ namespace Preview::Runtime::Handler
         if (ReplyErr != Preview::Error::None)
         {
             // 应答写失败：客户端可能已断开，记录并收口（不静默丢失）
-            Preview::Diagnose::Warn("socks5 Connect Reply Write Failed; closing");
+            (void)Preview::Diagnose::Warn("socks5 Connect Reply Write Failed; closing");
         }
         if (ReplyErr != Preview::Error::None || Preview::Fault::Failed(ec))
         {

@@ -22,9 +22,6 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -32,7 +29,6 @@
 #include <Preview/Foundation/Authenticator.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
-#include <Preview/Foundation/Utility/Diagnose/Logger.hpp>
 #include <Preview/Lifecycle/TaskState.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Runtime/Session.hpp>
@@ -169,34 +165,6 @@ namespace
             return {};
         }
         return Control;
-    }
-
-    auto MakeSessionLogDirectory() -> std::filesystem::path
-    {
-        static std::uint64_t Index = 0;
-        const auto Directory = std::filesystem::temp_directory_path() /
-                               ("prism_preview_session_log_" + std::to_string(++Index));
-        std::error_code Error;
-        std::filesystem::remove_all(Directory, Error);
-        return Directory;
-    }
-
-    auto ReadSessionLog(const std::filesystem::path &Directory) -> std::string
-    {
-        std::ifstream Input(Directory / "preview.log", std::ios::binary);
-        return {std::istreambuf_iterator<char>(Input), std::istreambuf_iterator<char>()};
-    }
-
-    auto CountText(std::string_view Text, std::string_view Needle) -> std::size_t
-    {
-        std::size_t Count = 0;
-        std::size_t Offset = 0;
-        while ((Offset = Text.find(Needle, Offset)) != std::string_view::npos)
-        {
-            ++Count;
-            Offset += Needle.size();
-        }
-        return Count;
     }
 
     /// 基础会话选项：识别 socks5 + Prepare 装配 + Dial 注入出站
@@ -504,21 +472,12 @@ namespace
         EXPECT_EQ(dialed_port, "443");
     }
 
-    TEST(SessionDiagnostics, FailureRecordContainsSafeRecognitionMetadataAndClosesOnce)
+    TEST(G2Log, MissingBackendDoesNotChangeFailureResultOrCloseCount)
     {
         Net::io_context Ioc;
         auto [Client, Inbound] = make_pair_shared(Ioc);
-        const auto Directory = MakeSessionLogDirectory();
-
-        Preview::Diagnose::LoggerOptions LoggerOptions;
-        LoggerOptions.Directory = Directory;
-        LoggerOptions.FileName = "preview.log";
-        auto Created = Preview::Diagnose::Logger::Create(std::move(LoggerOptions));
-        ASSERT_TRUE(Created.has_value()) << Created.error().Message;
-        auto Logger = std::move(*Created);
 
         auto Services = std::make_shared<Preview::Runtime::SessionServices>();
-        Services->Logger = Logger;
         auto Control = MakeDiagnosticControl(Ioc.get_executor());
         ASSERT_NE(Control, nullptr);
 
@@ -571,58 +530,24 @@ namespace
                  });
 
         EXPECT_EQ(Result, Preview::Fault::Code::ProtocolError);
-        Logger->Stop();
-        const auto Contents = ReadSessionLog(Directory);
-        EXPECT_NE(Contents.find("stage=recognition"), std::string::npos);
-        EXPECT_NE(Contents.find("status=no_match"), std::string::npos);
-        EXPECT_NE(Contents.find("candidate_id=7"), std::string::npos);
-        EXPECT_NE(Contents.find("candidate_name=safe-candidate"), std::string::npos);
-        EXPECT_NE(Contents.find("detected=http"), std::string::npos);
-        EXPECT_NE(Contents.find("probe_bytes=5"), std::string::npos);
-        EXPECT_NE(Contents.find("crypto_trials=0"), std::string::npos);
-        EXPECT_NE(Contents.find("probe_first_byte=0xA1"), std::string::npos);
-        EXPECT_NE(Contents.find("probe_length=5"), std::string::npos);
-        EXPECT_NE(Contents.find("error_code=none"), std::string::npos);
-        EXPECT_NE(Contents.find("fault_code=protocol_error"), std::string::npos);
-        EXPECT_NE(Contents.find("[Correlation=7001]"), std::string::npos);
-        EXPECT_NE(Contents.find("[Worker=9003]"), std::string::npos);
-        EXPECT_NE(Contents.find("[Session=8002]"), std::string::npos);
-        EXPECT_NE(Contents.find("generation_id=10004"), std::string::npos);
-        EXPECT_EQ(Contents.find("A1B2C3D4E5"), std::string::npos);
-        EXPECT_EQ(Contents.find("secret-token"), std::string::npos);
-        EXPECT_EQ(CountText(Contents, "stage=close"), 1U);
         EXPECT_EQ(Control->Metrics().CloseCalls, 1U);
-
-        Services->Logger.reset();
-        Logger.reset();
-        std::error_code CleanupError;
-        std::filesystem::remove_all(Directory, CleanupError);
-        EXPECT_FALSE(CleanupError);
     }
 
-    TEST(SessionDiagnostics, SuccessRecordsOrderedLifecycleStages)
+    TEST(G2Log, MissingBackendDoesNotPreventSessionShutdown)
     {
         Net::io_context Ioc;
         auto [Client, Inbound] = make_pair_shared(Ioc);
         auto [Outbound, Upstream] = make_pair_shared(Ioc);
-        const auto Directory = MakeSessionLogDirectory();
-
-        Preview::Diagnose::LoggerOptions LoggerOptions;
-        LoggerOptions.Directory = Directory;
-        LoggerOptions.FileName = "preview.log";
-        auto Created = Preview::Diagnose::Logger::Create(std::move(LoggerOptions));
-        ASSERT_TRUE(Created.has_value()) << Created.error().Message;
-        auto Logger = std::move(*Created);
 
         auto Options = base_options(Outbound, std::chrono::milliseconds(50));
         auto Services = std::make_shared<Preview::Runtime::SessionServices>();
-        Services->Logger = Logger;
         Services->RelayIdleTimeout = Options.RelayIdleTimeout;
         Services->Prepare = Options.Prepare;
         Services->Dial = Options.Dial;
         Options.Services = Services;
-        Options.Control = MakeDiagnosticControl(Ioc.get_executor());
-        ASSERT_NE(Options.Control, nullptr);
+        auto Control = MakeDiagnosticControl(Ioc.get_executor());
+        ASSERT_NE(Control, nullptr);
+        Options.Control = Control;
         Preview::Runtime::Session Session(std::move(Options));
 
         RunCoro(Ioc,
@@ -650,17 +575,7 @@ namespace
                      EXPECT_FALSE(EchoError);
                  });
 
-        Logger->Stop();
-        const auto Contents = ReadSessionLog(Directory);
-        EXPECT_NE(Contents.find("phase_sequence=recognition>accept>auth>dial>relay>close"),
-                  std::string::npos);
-        EXPECT_EQ(CountText(Contents, "stage=close"), 1U);
-
-        Services->Logger.reset();
-        Logger.reset();
-        std::error_code CleanupError;
-        std::filesystem::remove_all(Directory, CleanupError);
-        EXPECT_FALSE(CleanupError);
+        EXPECT_EQ(Control->Metrics().CloseCalls, 1U);
     }
 
 } // namespace

@@ -12,7 +12,6 @@
  */
 #pragma once
 
-#include <Preview/Foundation/Utility/Diagnose/Log.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
