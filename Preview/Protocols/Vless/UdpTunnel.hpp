@@ -44,6 +44,13 @@ namespace Preview::Vless
 
     namespace Net = boost::asio;
 
+    struct UdpTunnelSummary final
+    {
+        std::uint64_t Datagrams{0};
+        std::uint64_t UpBytes{0};
+        std::uint64_t DownBytes{0};
+    };
+
     /**
      * @struct UdpTunnelOptions
      * @brief UDP 隧道选项
@@ -60,6 +67,10 @@ namespace Preview::Vless
         Preview::Foundation::TrafficSink *traffic{nullptr};
         /// 统计身份（与 traffic 配套；对齐 relay 上报口径）
         std::string identity{};
+        /// 首个有效数据报的实际目标。
+        std::function<void(const Address &)> OnFirstTarget{};
+        /// 会话结束时的包数和上下行字节摘要。
+        std::function<void(const UdpTunnelSummary &)> OnSessionEnd{};
     };
 
     /**
@@ -102,6 +113,8 @@ namespace Preview::Vless
             // 流量口径对齐 relay：upstream = 客户端→上游载荷，downstream = 上游→客户端载荷
             std::size_t SentBytes = 0;
             std::size_t RecvBytes = 0;
+            std::uint64_t DatagramCount = 0;
+            bool FirstTargetReported = false;
             while (true)
             {
                 std::vector<std::byte> Rx;
@@ -121,6 +134,19 @@ namespace Preview::Vless
                 if (PErr != Error::None)
                 {
                     continue; // 非法帧丢弃（对齐生产端语义）
+                }
+                ++DatagramCount;
+                if (!FirstTargetReported && Opts_.OnFirstTarget &&
+                    !Target.Host.empty() && Target.Port != 0U)
+                {
+                    FirstTargetReported = true;
+                    try
+                    {
+                        Opts_.OnFirstTarget(Target);
+                    }
+                    catch (...)
+                    {
+                    }
                 }
 
                 // 目标解析 → 转发载荷
@@ -191,6 +217,17 @@ namespace Preview::Vless
             if (Opts_.traffic != nullptr)
             {
                 Opts_.traffic->Report(Opts_.identity, SentBytes, RecvBytes);
+            }
+            if (Opts_.OnSessionEnd)
+            {
+                try
+                {
+                    Opts_.OnSessionEnd(UdpTunnelSummary{
+                        DatagramCount, SentBytes, RecvBytes});
+                }
+                catch (...)
+                {
+                }
             }
             co_return;
         }

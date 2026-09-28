@@ -48,13 +48,13 @@ namespace
                                  .With(Preview::Diagnose::Fields::Task,
                                        Preview::TaskId{505})
                                  .With(Preview::Diagnose::Fields::Protocol,
-                                       std::string_view{"vless"})
+                                       std::string_view{"Vless"})
                                  .With(Preview::Diagnose::Fields::NativeError,
                                        std::string_view{"password=plain-secret"});
         const auto Warning = Preview::Diagnose::Warn(
-            Context, "event=tls_failure status={}", "failed");
+            Context, "TlsFailure Status={}", "Failed");
         const auto Audit = Preview::Diagnose::Audit(
-            Context, "event=logger_audit status={}", "closed");
+            Context, "LoggerAudit Status={}", "Closed");
         EXPECT_EQ(Warning.Status, Preview::Diagnose::SubmissionStatus::Accepted);
         EXPECT_EQ(Audit.Status, Preview::Diagnose::SubmissionStatus::Accepted);
         EXPECT_EQ(Environment.Runtime().DrainOnControlThread(std::chrono::seconds{2}).Status,
@@ -68,14 +68,14 @@ namespace
         ASSERT_TRUE(Input.is_open());
         const std::string Contents{std::istreambuf_iterator<char>{Input},
                                    std::istreambuf_iterator<char>{}};
-        EXPECT_EQ(CountText(Contents, "event=tls_failure"), 1U);
-        EXPECT_EQ(CountText(Contents, "event=logger_audit"), 1U);
-        EXPECT_NE(Contents.find("\"worker\":202"), std::string::npos);
-        EXPECT_NE(Contents.find("\"session\":303"), std::string::npos);
-        EXPECT_EQ(Contents.find("\"Worker\":202"), std::string::npos);
-        EXPECT_EQ(Contents.find("\"Session\":303"), std::string::npos);
-        EXPECT_NE(Contents.find("\"sequence\":"), std::string::npos);
-        EXPECT_NE(Contents.find("\"kind\":\"audit\""), std::string::npos);
+        EXPECT_EQ(CountText(Contents, "TlsFailure Status=Failed"), 1U);
+        EXPECT_EQ(CountText(Contents, "LoggerAudit Status=Closed"), 1U);
+        EXPECT_NE(Contents.find("\"Worker\":202"), std::string::npos);
+        EXPECT_NE(Contents.find("\"Session\":303"), std::string::npos);
+        EXPECT_NE(Contents.find("\"Sequence\":"), std::string::npos);
+        EXPECT_NE(Contents.find("\"Kind\":\"Audit\""), std::string::npos);
+        EXPECT_NE(Contents.find("\"Level\":\"Warn\""), std::string::npos);
+        EXPECT_NE(Contents.find("\"Level\":\"Access\""), std::string::npos);
         EXPECT_NE(Contents.find("Protocol"), std::string::npos);
         EXPECT_NE(Contents.find("password=<redacted>"), std::string::npos);
         EXPECT_EQ(Contents.find("plain-secret"), std::string::npos);

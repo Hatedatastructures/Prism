@@ -437,7 +437,7 @@ TEST(ProfileBootstrap, CreatesListenerSessionFactoryWithOwnedRecognitionBundle)
 
     ASSERT_TRUE(Factory.has_value());
     const auto SessionFactory = std::move(*Factory);
-    auto Session = SessionFactory(Preview::SharedTransmission{}, 0);
+    auto Session = SessionFactory(Preview::SharedTransmission{}, 0, {});
     ASSERT_NE(Session, nullptr);
 }
 

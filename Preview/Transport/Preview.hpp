@@ -212,7 +212,7 @@ namespace Preview::Transport {
     {
         if (!Inner_)
         {
-            (void)Diagnose::Error("Preview::Executor() called with null Inner transport");
+            (void)Diagnose::Error("ExecutorUnavailable Reason=NullInnerTransport");
             return ExecutorType{};
         }
         return Inner_->Executor();

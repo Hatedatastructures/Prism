@@ -100,6 +100,7 @@ namespace Preview::Middleware::Builtin
                 co_return Preview::Fault::Code::AuthFailed;
             }
             ctx.identity = std::move(Result.Identity);
+            ctx.DisplayIdentity = std::move(Result.DisplayIdentity);
             ctx.AccountId = Result.AccountId;
             ctx.AccountLease = std::move(Result.Lease);
             co_return Preview::Fault::Code::Success;

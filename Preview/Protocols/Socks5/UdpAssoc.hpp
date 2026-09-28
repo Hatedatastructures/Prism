@@ -56,6 +56,8 @@ namespace Preview::Socks5
         Preview::Foundation::TrafficSink *traffic{nullptr};
         /// 统计身份（与 traffic 配套；对齐 relay 上报口径）
         std::string identity{};
+        /// 首个有效数据报的实际目标（供会话请求日志使用）
+        std::function<void(const Address &)> OnFirstTarget{};
     };
 
     /**
@@ -132,6 +134,21 @@ namespace Preview::Socks5
         [[nodiscard]] auto BindEndpoint() const -> Net::ip::udp::endpoint
         {
             return Ingress_.local_endpoint();
+        }
+
+        [[nodiscard]] auto DatagramCount() const noexcept -> std::size_t
+        {
+            return DatagramCount_;
+        }
+
+        [[nodiscard]] auto SentBytes() const noexcept -> std::size_t
+        {
+            return SentBytes_;
+        }
+
+        [[nodiscard]] auto ReceivedBytes() const noexcept -> std::size_t
+        {
+            return RecvBytes_;
         }
 
         /**
@@ -212,6 +229,21 @@ namespace Preview::Socks5
                 if (PErr != Error::None)
                 {
                     continue; // 非法帧丢弃（对齐生产端语义）
+                }
+                ++DatagramCount_;
+                if (!FirstTargetReported_ && !Target.Host.empty() && Target.Port != 0U)
+                {
+                    FirstTargetReported_ = true;
+                    if (Opts_.OnFirstTarget)
+                    {
+                        try
+                        {
+                            Opts_.OnFirstTarget(Target);
+                        }
+                        catch (...)
+                        {
+                        }
+                    }
                 }
 
                 // 目标解析 → 转发载荷
@@ -369,6 +401,8 @@ namespace Preview::Socks5
         std::size_t SentBytes_{0};
         /// 上游→客户端载荷字节（down 口径，对齐 relay）
         std::size_t RecvBytes_{0};
+        std::size_t DatagramCount_{0}; ///< 已解析的有效客户端数据报数
+        bool FirstTargetReported_{false}; ///< 是否已报告首个有效目标
     };
 
 } // namespace Preview::Socks5

@@ -26,6 +26,7 @@
 #include <limits>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <Preview/Foundation/Fault/Code.hpp>
@@ -149,7 +150,7 @@ namespace
         auto recorder = std::make_shared<Preview::Testing::TrafficRecorder>();
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -299,7 +300,7 @@ namespace
 
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -366,7 +367,7 @@ namespace
 
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;

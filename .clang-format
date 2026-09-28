@@ -22,8 +22,7 @@ ReflowComments: false
 
 # ═══════════════════════════════════════════════════════════════
 # 大括号风格
-# 函数/类/枚举/命名空间：换行开大括号
-# 控制语句 (if/for/while)：不换行
+# 函数/类/枚举/命名空间/控制语句：左大括号独占一行
 # ═══════════════════════════════════════════════════════════════
 BreakBeforeBraces: Custom
 BraceWrapping:
@@ -46,11 +45,11 @@ BraceWrapping:
 
 # ═══════════════════════════════════════════════════════════════
 # 对齐
-# 换行续行对齐到开括号（Align）
+# 多行续行使用固定缩进，避免受前一行长度影响
 # ═══════════════════════════════════════════════════════════════
-AlignAfterOpenBracket: Align
-AlignOperands: Align
-AlignTrailingComments: true
+AlignAfterOpenBracket: DontAlign
+AlignOperands: DontAlign
+AlignTrailingComments: false
 AlignConsecutiveAssignments: None
 AlignConsecutiveDeclarations: None
 AlignEscapedNewlines: Right
@@ -63,14 +62,14 @@ AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 AllowShortBlocksOnASingleLine: Never
-AllowShortCaseLabelsOnASingleLine: true
-AllowShortEnumsOnASingleLine: true
+AllowShortCaseLabelsOnASingleLine: false
+AllowShortEnumsOnASingleLine: false
 
 # ═══════════════════════════════════════════════════════════════
-# 指针与引用对齐：右对齐贴类型 (const string &s, session_params &&p)
+# 指针与引用贴近类型（const string& Value）
 # ═══════════════════════════════════════════════════════════════
-PointerAlignment: Right
-ReferenceAlignment: Right
+PointerAlignment: Left
+ReferenceAlignment: Left
 DerivePointerAlignment: false
 
 # ═══════════════════════════════════════════════════════════════
@@ -94,7 +93,7 @@ BitFieldColonSpacing: Both
 
 # ═══════════════════════════════════════════════════════════════
 # 换行策略
-# 短参数不换行（紧凑），长参数换行（对齐开括号）
+# 短参数同行，超宽参数按固定缩进换行
 # 尾随返回类型：短签名同行，长签名独立行（Penalty 控制）
 # ═══════════════════════════════════════════════════════════════
 AlwaysBreakTemplateDeclarations: Yes
@@ -112,30 +111,31 @@ ContinuationIndentWidth: 4
 
 # ═══════════════════════════════════════════════════════════════
 # Include 排序
-# 对应文件优先 → 项目头文件 → 第三方库 → 标准库
+# Preview/Prism 项目头文件 → 第三方库 → 标准库 → 其他头文件
 # ═══════════════════════════════════════════════════════════════
 SortIncludes: CaseInsensitive
 IncludeBlocks: Regroup
 IncludeCategories:
-  # 对应头文件（最高优先级）
-  - Regex: '^<prism/.*\.hpp>'
+  # 项目头文件
+  - Regex: '^<(Preview|prism)/.*\.hpp>'
     Priority: 1
   # 第三方库
-  - Regex: '^<(boost|openssl|spdlog|glaze|blake3)/'
-    Priority: 2
-  - Regex: '^<boost/'
+  - Regex: '^<(boost|openssl|spdlog|glaze|blake3|nghttp2|benchmark|gtest|fmt)/'
     Priority: 2
   # 标准库
-  - Regex: '^<[a-z_]+>'
+  - Regex: '^<[a-z_][a-z0-9_]*(/[^>]*)?>'
     Priority: 3
+  # 未分类头文件
+  - Regex: '.*'
+    Priority: 4
 
 # ═══════════════════════════════════════════════════════════════
 # 杂项
 # ═══════════════════════════════════════════════════════════════
 KeepEmptyLinesAtTheStartOfBlocks: false
 MaxEmptyLinesToKeep: 1
-Standard: c++20
-InsertBraces: true
+Standard: c++23
+InsertBraces: false
 EmptyLineAfterAccessModifier: Never
 EmptyLineBeforeAccessModifier: LogicalBlock
 AttributeMacros:

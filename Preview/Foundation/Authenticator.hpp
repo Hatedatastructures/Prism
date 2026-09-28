@@ -132,6 +132,7 @@ namespace Preview
         Preview::AccountId AccountId{};
         Preview::Account::AccountLease Lease{};
         std::string Identity{};
+        std::string DisplayIdentity{}; ///< 仅为明确提供的非敏感身份；凭据派生身份必须留空。
         Preview::AuthFailure Failure{Preview::AuthFailure::None};
     };
 
@@ -180,6 +181,7 @@ namespace Preview
             Result.Accepted = true;
             Result.AccountId = Request.AccountId;
             Result.Identity = Legacy.Identity;
+            Result.DisplayIdentity = std::string(Request.Identity);
             return Result;
         }
     };
@@ -238,6 +240,7 @@ namespace Preview
             Result.Accepted = true;
             Result.AccountId = Acquired.Record->AccountId();
             Result.Identity = std::string(Request.Identity);
+            Result.DisplayIdentity = std::string(Request.Identity);
             Result.Lease = std::move(Acquired.Lease);
             return Result;
         }
@@ -310,6 +313,7 @@ namespace Preview
             Result.Accepted = true;
             Result.AccountId = Request.AccountId;
             Result.Identity = std::string(Request.Identity);
+            Result.DisplayIdentity = std::string(Request.Identity);
             return Result;
         }
 

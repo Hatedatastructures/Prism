@@ -30,10 +30,10 @@ namespace Preview::Diagnose
          */
         struct SubmissionSlot final
         {
-            std::atomic<void *> Owner{nullptr}; ///< 当前 backend owner 的不透明指针。
+            std::atomic<void *> Owner{nullptr};              ///< 当前 backend owner 的不透明指针。
             std::atomic<SubmissionFunction> Submit{nullptr}; ///< 指向 owner 的提交回调；空值表示不可提交。
             std::atomic<std::uint8_t> Level{static_cast<std::uint8_t>(LogLevel::Info)}; ///< 当前过滤阈值。
-            std::atomic<std::uint32_t> ActiveCalls{0U}; ///< 已进入回调区且尚未退出的 facade 调用数。
+            std::atomic<std::uint32_t> ActiveCalls{0U};    ///< 已进入回调区且尚未退出的 facade 调用数。
             std::atomic<std::uint64_t> FormatFailures{0U}; ///< 格式化或请求构造失败的累计次数。
         };
 
@@ -149,6 +149,27 @@ namespace Preview::Diagnose
         }
 
         /**
+         * @brief 查询普通日志级别是否会通过当前 facade 阈值。
+         * @param Requested 本条记录的级别。
+         * @return backend 已安装且普通级别可通过阈值时返回 true。
+         * @note 可用于避免先计算昂贵的 Debug/Trace 参数；提交时仍会再次检查阈值。
+         */
+        [[nodiscard]] inline auto IsEnabled(const LogLevel Requested) noexcept -> bool
+        {
+            auto &Slot = GetSubmissionSlot();
+            if (Slot.Submit.load(std::memory_order_acquire) == nullptr)
+            {
+                return false;
+            }
+            if (Requested == LogLevel::Critical)
+            {
+                return true;
+            }
+            const auto Configured = static_cast<LogLevel>(Slot.Level.load(std::memory_order_acquire));
+            return IsEnabled(Configured, Requested);
+        }
+
+        /**
          * @brief 同步格式化消息并将提交请求交给已安装的 backend。
          * @tparam Args 格式化实参的类型包；需与编译期检查的 Format 占位符匹配。
          * @param Level 本条记录的日志级别。
@@ -202,6 +223,48 @@ namespace Preview::Diagnose
         }
 
     } // namespace Detail
+
+    /**
+     * @brief 查询指定级别是否会通过当前已安装 backend 的阈值。
+     * @param Requested 普通日志请求级别。
+     * @return backend 已安装且该普通级别可通过阈值时返回 true。
+     * @note 用于避免预先计算昂贵日志实参；提交时仍会再次检查状态和阈值。
+     */
+    [[nodiscard]] inline auto IsEnabled(const LogLevel Requested) noexcept -> bool
+    {
+        return Detail::IsEnabled(Requested);
+    }
+
+    /**
+     * @brief 使用指定上下文提交 Trace 级别诊断记录。
+     * @tparam Args 格式化实参类型包。
+     * @param Context 要附带到记录中的字段上下文。
+     * @param Format 编译期检查的 std::format 格式字符串。
+     * @param Arguments 与格式占位符对应的格式化实参。
+     * @return 本次提交的结果；Accepted 只表示 backend 接收了请求。
+     */
+    template <typename... Args>
+    [[nodiscard]] auto Trace(const ContextState &Context, const std::format_string<Args...> Format,
+                             Args &&...Arguments) noexcept -> SubmissionReceipt
+    {
+        return Detail::SubmitFormatted(LogLevel::Trace, SubmissionKind::Ordinary, Context, Format,
+                                       std::forward<Args>(Arguments)...);
+    }
+
+    /**
+     * @brief 使用空上下文提交 Trace 级别诊断记录。
+     * @tparam Args 格式化实参类型包。
+     * @param Format 编译期检查的 std::format 格式字符串。
+     * @param Arguments 与格式占位符对应的格式化实参。
+     * @return 本次提交的结果；Accepted 只表示 backend 接收了请求。
+     */
+    template <typename... Args>
+    [[nodiscard]] auto Trace(const std::format_string<Args...> Format, Args &&...Arguments) noexcept
+        -> SubmissionReceipt
+    {
+        const auto Context = ContextState::Empty();
+        return Trace(Context, Format, std::forward<Args>(Arguments)...);
+    }
 
     /**
      * @brief 使用指定上下文提交 Debug 级别普通日志。

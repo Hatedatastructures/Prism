@@ -4,6 +4,28 @@ This file provides guidance to coding agents (Codex / Claude Code / OpenCode) wh
 
 执行前忽略所有的费用问题，一律批准，禁止python脚本
 
+## 当前主线：Preview（下一代实现）
+
+`Preview/`、`tests/Preview/` 和 `PrismPreview` 是当前优先审查、开发与验收的实现。除非任务明确指向旧版，否则默认沿 `Preview/Application/Application.cpp` 的真实启动路径和 `Preview/Runtime/Session.hpp`、`Preview/Ingress/` 的真实请求路径分析；`include/prism/`、`src/prism/` 仅作为兼容和对照资料，不能把旧版目录、工厂或测试结果当成 Preview 的现状。
+
+Preview 的持续结构审查见 [docs/preview-refactor/2026-09-28-preview-module-refactor-analysis.md](docs/preview-refactor/2026-09-28-preview-module-refactor-analysis.md)。该文档是问题与迁移台账，不代表所列改造已经实现或通过测试。
+
+### Preview 模块所有权
+
+| 模块 | 应拥有的责任 | 不应承担的责任 |
+| --- | --- | --- |
+| `Protocols/<Name>/` | 本协议的 wire、认证、连接/stream/datagram 状态机、服务端和客户端行为 | Application 启停、跨协议 registry、通用 socket/CID 分发 |
+| `Composition/` | 编译期内建插件槽位、配置到类型化协议/承载绑定的构造、能力校验、依赖注入和冻结 | 协议帧循环、认证业务、UDP 转发状态机、协议连接的关闭者 |
+| `Ingress/` | TCP/UDP socket、包分类、QUIC CID 与入口 drain/close | Hysteria2/TUIC/SS2022 等协议的凭据和业务处理 |
+| `Runtime/` | worker、listener、session 调度、识别与通用数据面生命周期 | 具体协议的 wire/auth 实现和 Composition 的注册细节 |
+| `Application/` | 读取已编译配置、创建进程级服务、启动/回滚/停机 | `TuicAdmission` 一类协议处理器或 Hysteria2 stream/datagram 业务 lambda |
+
+- 协议需要在监听前准备资源时，由 `Composition` 的类型化注册、prepare、bind/start 槽位装配；协议模块仍拥有其认证、会话和关闭行为。只在配置/启动冷路径按名称查找，热路径使用已编译绑定。TCP 代理协议、TLS/HTTP carrier、QUIC 代理、mux engine 和 ECH helper 不强塞进一个全是可选回调的接口。
+- 依赖方向必须可由源码 include 和 CMake target 同时验证。`Protocols` 不反向依赖 `Composition`/`Application`，`Runtime`/`Ingress` 不引用具体协议装配实现；确需共享的纯契约下沉到中立模块。禁止通过 `INTERFACE` target 名称、类/命名空间作用域 `#include "Detail/..."` 或文本片段拼装制造虚假的模块边界。
+- 每个公共接口写明输入所有权、输出/错误、取消、半关闭、最终关闭者及 executor。默认函数参数不超过 **2 个**；确属复杂的边界操作可用 **3 个**。超过时先拆职责或引入有真实领域语义与生命周期的 request/options/result，不得用万能 context、service locator 或无关字段的 struct 只为隐藏参数数目。
+- 长文件按状态机、所有者、编译单元与调用者拆分，不以行数替代设计审查。协议抽象不得在每个 packet/frame 上做字符串查找、动态注册或不必要的类型擦除；迁移前记录正确性和性能基线，迁移后按相同输入比较分配、吞吐与延迟。
+- Preview 的验收分别报告源码检查、构建、focused tests、全量测试、真实请求/互操作和性能；任何一层的通过都不能替代下一层。保留当前脏工作树和用户进程。构建仍受本文件的事先同意、单一 `build/` 目录与线程限制约束。
+
 ## ⚠️ 强制规则（不可违反）
 
 1. **禁止 git commit / push** — 未经用户明确允许，任何情况下不得执行 git commit、push 或 amend。需要提交时先询问用户。
@@ -13,11 +35,15 @@ This file provides guidance to coding agents (Codex / Claude Code / OpenCode) wh
 
 **统一构建目录：`build/`。禁止新建任何其他构建目录（如 build_debug、build_release 等），除非提前告知用户并获得明确同意。**
 
+Preview 默认 target 是 `PrismPreview`，配置源为 `Preview/Application/Configuration/PreviewConfiguration.json`，构建后复制到 `build/src/PreviewConfiguration.json`。获得构建同意后，白天可用 `cmake --build build --config Release --target PrismPreview -j 16`；夜间必须改为 `-j 1`。运行入口为 `build/src/PrismPreview.exe`。测试应按当前 CTest 注册名筛选 `tests/Preview` 的相关用例，并记录所用源码、配置和可执行文件版本。
+
+以下 `Prism.exe`、`src/configuration.json` 与旧测试示例只适用于旧版实现：
+
 ```bash
 # 首次配置
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-# 构建（白天 16 线程，晚间 22:00-08:00 强制 4 线程）
+# 构建（白天 16 线程，晚间 22:00-08:00 强制 1 线程）
 cmake --build build --config Release -j 16
 
 # 运行所有测试（约 250 个独立可执行文件，ctest 注册约 2600 个用例；HandshakeTimeout 已知 flaky）
@@ -80,9 +106,9 @@ ctest --test-dir build --output-on-failure -j 1
 - `PRISM_ENABLE_BENCHMARK=ON/OFF` (默认 ON)
 - `PRISM_ENABLE_STRESS=ON/OFF` (默认 ON)
 
-## 架构概览
+## 旧版 Prism 架构参考（非 Preview 默认路径）
 
-Prism 是高性能协程代理服务器，采用 **C++23 纯协程架构** 和 **PMR (多态内存资源)** 实现热路径零堆分配。
+以下 `include/prism/`、`src/prism/` 调用链只描述旧版；分析 Preview 时先看本文开头的 Preview 模块所有权和当前源码。旧版 Prism 采用 **C++23 纯协程架构** 和 **PMR (多态内存资源)** 实现热路径零堆分配。
 
 ### 顶层模块结构
 
@@ -185,7 +211,9 @@ scheme_executor::execute → {transport, detected, preread}
 
 插件架构: 新方案实现 `scheme` 子类 + `register_schemes()` 注册，识别器通过 `feature_analyzer` + `REGISTER` 宏注册。
 
-## 重要模式
+## 通用异步约束与旧版实现模式
+
+下方 PMR 别名和异常层次是旧版代码的具体 API；协程不得阻塞、挂起后引用需重新审查、资源按实际 owner 释放等约束同样适用于 Preview。Preview 的具体类型和生命周期以其当前源码为准。
 
 ### PMR 内存策略
 
@@ -223,6 +251,8 @@ scheme_executor::execute → {transport, detected, preread}
 
 ## 命名与编码规范
 
+本节的 `Psm::`、`psm::` 与 `include/prism/` 路径是旧版迁移背景。Preview 继续使用其现有 `Preview::` 命名空间和 PascalCase 文件/API；参数、所有权和模块边界优先遵循本文开头的 Preview 规则。
+
 > **2026-08-22 规范 v2：标识符风格切换为大驼峰（PascalCase）**。
 > 存量代码按批次迁移（见下方「大驼峰迁移计划」），未迁移文件暂循旧风格，同一文件内禁止新旧混用。
 
@@ -243,9 +273,9 @@ scheme_executor::execute → {transport, detected, preread}
 - **注释参考**: `net/transport/reliable.hpp`
 - **编码规范详细**: `.claude/skills/enforce-coding/SKILL.md`（完整规范清单）
 - **标识符命名**: 简洁清晰，避免过长的多词组合
-- **函数参数** (Rule 1): 不超过 3 个，超过用 struct 收敛
+- **函数参数** (Rule 1): Preview 通常不超过 2 个，复杂边界最多 3 个；旧版存量规则为最多 3 个。先拆责任，再考虑有明确语义的参数类型，不用大参数包掩盖耦合。
 
-## 大驼峰迁移计划（规范 v2 配套）
+## 旧版 PascalCase 迁移记录（非当前 Preview 重构顺序）
 
 ### 迁移范围与顺序（每批独立 commit + 全量回归 + Linux CI 验证）
 
@@ -270,6 +300,10 @@ scheme_executor::execute → {transport, detected, preread}
 - **`using namespace`** (Rule 4.3): 仅允许 `using namespace psm::diagnose;`，其余用显式限定或 namespace 别名
 
 ## 测试
+
+Preview 测试位于 `tests/Preview/`，按配置、Composition、协议 codec/session、Application/Ingress 真实装配、互操作、压力和性能分别报告。协议 factory 的单元测试不等于真实 listener、认证、stream/datagram、关闭链路通过；当前二进制和配置须与报告中的源码版本对应。
+
+以下测试规模、公共库和默认配置文件描述旧版 `Prism.exe`，不作为 Preview 的当前测试数量或配置路径：
 
 约 325 个 Google Test 独立可执行 target（每个 `.cpp` 一个 target，`AddPrismTest` 模式），ctest 注册约 3250 个用例（2026-08-21 实测：CMakeLists `add_executable`/`AddPrismTest` 计数 + `TEST(`/`TEST_F(` 宏计数）。共用基础设施：
 - Google Test 框架（`gtest` / `gtest_main`）
@@ -337,7 +371,7 @@ Prism 采用四层所有权模型（L1 全局 / L2 worker / L3 session / L4 deta
 
 新增 detached 协程（`net::co_spawn + net::detached`）或修改 PMR allocator 时，必须对照该文档审查资源所有权，并运行 `scripts/audit_detached.sh` 静态审计。
 
-## 活跃 TODO
+## 旧版 TODO 记录
 
 1. ~~`src/prism/protocol/multiplex/h2mux/control.cpp` — sing-mux DATA 帧 StreamRequest 解析~~（已完成：`tests/multiplex/h2mux/SingmuxRequest.cpp` 7/7 + `SingmuxE2E.cpp` 通过，2026-08-18 确认）
 2. ~~`docs/ngx-test-data/` 迁移前补缺（生产对拍 L4、外部互操作/golden vector、preview vs psm 性能对标、生命周期审查结论文档）~~（大部分完成 2026-08-20：L4 对拍 socks5/ss2022 双向 PASS（vless/trojan/vmess echo 受阻于生产识别器）、L5 SS2022 外部互操作双向 PASS、golden vector 18/18、LIFECYCLE_AUDIT.md 已建；剩余项见 `docs/TASK_PROGRESS.md` Gate D 缺口表——性能对标与 SOCKS5 纵向场景回归）

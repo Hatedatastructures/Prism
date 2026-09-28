@@ -898,7 +898,7 @@ namespace Preview::Mux
                 FrameType Frame{};
                 if (C::ParseHeader(Header, Frame) != Error::None)
                 {
-                    (void)Diagnose::Warn("mux Frame Header Parse Failed; closing Session");
+                    (void)Diagnose::Warn("MuxFrameHeaderParseFailed Action=CloseSession");
                     ProtocolErrorTeardown();
                     co_return;
                 }
@@ -909,7 +909,7 @@ namespace Preview::Mux
                 {
                     if (C::ParsePayload(Frame, {}) != Error::None)
                     {
-                        (void)Diagnose::Warn("mux Empty payload Parse Failed; closing Session");
+                        (void)Diagnose::Warn("MuxEmptyPayloadParseFailed Action=CloseSession");
                         ProtocolErrorTeardown();
                         co_return;
                     }
@@ -918,7 +918,7 @@ namespace Preview::Mux
                 }
                 if (Len > C::MaxPayloadLen)
                 {
-                    (void)Diagnose::Warn("mux Frame payload exceeds limit; closing Session");
+                    (void)Diagnose::Warn("MuxFramePayloadLimitExceeded Action=CloseSession");
                     ProtocolErrorTeardown();
                     co_return;
                 }
@@ -934,7 +934,7 @@ namespace Preview::Mux
                 }
                 if (C::ParsePayload(Frame, Payload) != Error::None)
                 {
-                    (void)Diagnose::Warn("mux Frame payload Parse Failed; closing Session");
+                    (void)Diagnose::Warn("MuxFramePayloadParseFailed Action=CloseSession");
                     ProtocolErrorTeardown();
                     co_return;
                 }
@@ -1016,7 +1016,7 @@ namespace Preview::Mux
                 {
                     if (!DeliverRx(Handle, Payload))
                     {
-                        (void)Diagnose::Warn("mux receive queue budget exceeded; closing Session");
+                        (void)Diagnose::Warn("MuxReceiveQueueBudgetExceeded Action=CloseSession");
                         ProtocolErrorTeardown();
                     }
                 }
@@ -1029,7 +1029,7 @@ namespace Preview::Mux
                 {
                     if (!DeliverRx(It->second, Payload))
                     {
-                        (void)Diagnose::Warn("mux receive queue budget exceeded; closing Session");
+                        (void)Diagnose::Warn("MuxReceiveQueueBudgetExceeded Action=CloseSession");
                         ProtocolErrorTeardown();
                     }
                     break;
@@ -1066,7 +1066,7 @@ namespace Preview::Mux
                 {
                     if (!DeliverRx(Handle, Payload))
                     {
-                        (void)Diagnose::Warn("mux receive queue budget exceeded; closing Session");
+                        (void)Diagnose::Warn("MuxReceiveQueueBudgetExceeded Action=CloseSession");
                         ProtocolErrorTeardown();
                     }
                 }

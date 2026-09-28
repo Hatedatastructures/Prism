@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -180,7 +181,8 @@ namespace
         ListenerOptions.Workers = &Options.Workers;
         ListenerOptions.Factory =
             [Executor, EchoPort = Options.EchoPort, Refused = Options.Refused](SharedTransmission,
-                                                                                 std::size_t)
+                                                                                 std::size_t,
+                                                                                 std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
             {
                 Preview::Runtime::SessionOptions opts;
@@ -347,7 +349,7 @@ namespace
         ListenerOptions.Executor = ioc.get_executor();
         ListenerOptions.Workers = &ProcessValue.Workers();
         ListenerOptions.Factory =
-            [&](Preview::SharedTransmission, std::size_t)
+            [&](Preview::SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
             {
                 Preview::Runtime::SessionOptions opts;

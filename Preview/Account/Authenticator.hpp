@@ -197,6 +197,7 @@ namespace Preview::Account
             Result.AccountId = Acquired.AccountId;
             Result.Lease = std::move(Acquired.Lease);
             Result.Identity = std::string(Request.Identity);
+            Result.DisplayIdentity = std::string(Request.Identity);
             if (Result.Identity.empty() &&
                 Request.Credential.Kind() == Preview::Account::CredentialKind::Uuid)
             {

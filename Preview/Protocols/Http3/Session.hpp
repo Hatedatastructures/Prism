@@ -299,7 +299,7 @@ namespace Preview::Http3 {
                 const auto ErrorText = Preview::Statistics::RedactSensitiveText(
                     nghttp3_strerror(Result));
                 (void)Diagnose::Warn(
-                    "hysteria2: nghttp3_conn_server_new Failed: {}", ErrorText);
+                    "Http3ServerCreateFailed Error={}", ErrorText);
             }
             catch (...)
             {
@@ -314,7 +314,7 @@ namespace Preview::Http3 {
         if (CtrlStream_ < 0 || EncStream_ < 0 || DecStream_ < 0)
         {
             Close();
-            (void)Diagnose::Warn("hysteria2: cannot Open h3 control streams");
+            (void)Diagnose::Warn("Http3ControlStreamOpenFailed");
             return false;
         }
 
@@ -322,7 +322,7 @@ namespace Preview::Http3 {
             nghttp3_conn_bind_qpack_streams(Conn_, EncStream_, DecStream_) != 0)
         {
             Close();
-            (void)Diagnose::Warn("hysteria2: cannot Bind h3 control streams");
+            (void)Diagnose::Warn("Http3ControlStreamBindFailed");
             return false;
         }
         return true;
@@ -350,7 +350,7 @@ namespace Preview::Http3 {
             {
                 const auto ErrorText = Preview::Statistics::RedactSensitiveText(
                     nghttp3_strerror(static_cast<int>(Rc)));
-                (void)Diagnose::Warn("hysteria2: nghttp3 read_stream Failed: {}", ErrorText);
+                (void)Diagnose::Warn("Http3ReadStreamFailed Error={}", ErrorText);
             }
             catch (...)
             {
@@ -395,7 +395,7 @@ namespace Preview::Http3 {
             {
                 const auto ErrorText = Preview::Statistics::RedactSensitiveText(
                     nghttp3_strerror(static_cast<int>(VectorCount)));
-                (void)Diagnose::Warn("hysteria2: nghttp3 writev_stream Failed: {}", ErrorText);
+                (void)Diagnose::Warn("Http3WriteStreamFailed Error={}", ErrorText);
             }
             catch (...)
             {
@@ -404,7 +404,7 @@ namespace Preview::Http3 {
         }
         if (static_cast<std::size_t>(VectorCount) > Vectors.size())
         {
-            (void)Diagnose::Warn("hysteria2: nghttp3 returned an invalid vector count");
+            (void)Diagnose::Warn("Http3InvalidVectorCount");
             return false;
         }
 
@@ -417,7 +417,7 @@ namespace Preview::Http3 {
             }
             if (Fin == 0)
             {
-                (void)Diagnose::Warn("hysteria2: nghttp3 returned an empty packet without FIN");
+                (void)Diagnose::Warn("Http3EmptyPacketWithoutFin");
                 return false;
             }
 
@@ -433,7 +433,7 @@ namespace Preview::Http3 {
         }
         if (StreamId < 0)
         {
-            (void)Diagnose::Warn("hysteria2: nghttp3 returned data without a stream id");
+            (void)Diagnose::Warn("Http3DataWithoutStreamId");
             return false;
         }
 
@@ -442,7 +442,7 @@ namespace Preview::Http3 {
         {
             if (Vectors[Index].len > (std::numeric_limits<std::size_t>::max)() - ByteCount)
             {
-                (void)Diagnose::Warn("hysteria2: nghttp3 output length overflow");
+                (void)Diagnose::Warn("Http3OutputLengthOverflow");
                 return false;
             }
             ByteCount += Vectors[Index].len;
@@ -564,7 +564,7 @@ namespace Preview::Http3 {
             {
                 const auto ErrorText = Preview::Statistics::RedactSensitiveText(
                     nghttp3_strerror(Result));
-                (void)Diagnose::Warn("hysteria2: nghttp3 submit_response Failed: {}", ErrorText);
+                (void)Diagnose::Warn("Http3SubmitResponseFailed Error={}", ErrorText);
             }
             catch (...)
             {

@@ -30,6 +30,13 @@ namespace Preview::Ingress
 
     namespace Net = boost::asio;
 
+    /** @brief 单个 QUIC 连接的 peer 与日志身份快照。 */
+    struct QuicPeerLogContext final
+    {
+        std::string SourceIp;
+        Preview::Diagnose::ContextState Trace{Preview::Diagnose::ContextState::Empty()};
+    };
+
     struct QuicAdmissionContext final
     {
         std::string Protocol{"hysteria2"};
@@ -44,13 +51,17 @@ namespace Preview::Ingress
         std::shared_ptr<Preview::Network::Dns::Resolver> Resolver{};
         Preview::Middleware::Builtin::DialMiddleware::DialFn Dial{};
         std::function<Net::awaitable<void>(Preview::Hysteria2::Message,
-                                           Preview::Hysteria2::SharedConn)> Hysteria2Stream{};
-        std::function<Net::awaitable<void>(Preview::Hysteria2::SharedDgram)> Hysteria2Datagram{};
+                                           Preview::Hysteria2::SharedConn,
+                                           QuicPeerLogContext)> Hysteria2Stream{};
+        std::function<Net::awaitable<void>(Preview::Hysteria2::SharedDgram,
+                                           QuicPeerLogContext)> Hysteria2Datagram{};
         std::array<std::uint8_t, 16> TuicUuid{};
         std::string TuicPassword;
         std::function<Net::awaitable<void>(Preview::Tuic::Message,
-                                           Preview::Tuic::SharedConn)> TuicStream{};
-        std::function<Net::awaitable<void>(Preview::Tuic::SharedDgram)> TuicDatagram{};
+                                           Preview::Tuic::SharedConn,
+                                           QuicPeerLogContext)> TuicStream{};
+        std::function<Net::awaitable<void>(Preview::Tuic::SharedDgram,
+                                           QuicPeerLogContext)> TuicDatagram{};
         std::function<void()> CloseOwner{};
         std::shared_ptr<Preview::Foundation::TrafficSink> Metrics{};
         Preview::Diagnose::ContextState Trace{Preview::Diagnose::ContextState::Empty()};

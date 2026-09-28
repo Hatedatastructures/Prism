@@ -38,7 +38,7 @@ namespace
         Preview::Diagnose::ContextState Context =
             Preview::Diagnose::ContextState::Empty();
         const auto Receipt = Environment.Runtime().Audit(
-            Context, "event=session_closed status=failed");
+            Context, "SessionClosed Status=Failed");
         EXPECT_TRUE(Receipt.Accepted() ||
                     Receipt.Status == Preview::Diagnose::SubmissionStatus::Dropped);
 

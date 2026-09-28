@@ -60,8 +60,12 @@ namespace Preview::Middleware
         Preview::SharedTransmission Outbound;
         /// 目标地址（拨号中间件消费）
         Preview::Network::Target Target;
+        /// 入站 peer IP；按会话拥有，不放入共享服务配置。
+        std::string SourceIp;
         /// 检测到的协议类型
         std::uint16_t detected{0};
+        /// 协议专用接入回调的受控名称，供识别结果为 Unknown 时记录 Accept 失败。
+        std::string ProtocolNameForLog{};
         /// Dgram 会话标记（AcceptProtocol 设置；Session 转走 udp_service）
         bool IsDgram{false};
         /**
@@ -82,6 +86,8 @@ namespace Preview::Middleware
         DialFn Dial{};
         /// 认证通过后的用户标识（Auth 中间件写入，relay 统计按此聚合）
         std::string identity{};
+        /// 非敏感日志展示身份；为空时使用 AccountId，不能从凭据派生。
+        std::string DisplayIdentity{};
         /// 协议接入器已完成凭据认证时，跳过通用 Auth 中间件
         bool ProtocolAuthenticated{false};
         /// 认证通过后的账户租约，持有期间计入并发连接配额
@@ -123,6 +129,7 @@ namespace Preview::Middleware
             DataPlane = std::move(Value);
             Target = DataPlane.Target;
             identity = DataPlane.Identity;
+            DisplayIdentity = DataPlane.DisplayIdentity;
             AccountId = DataPlane.AccountId;
             ProtocolAuthenticated = DataPlane.ProtocolAuthenticated;
             PostDial = DataPlane.PostDial;
@@ -155,6 +162,19 @@ namespace Preview::Middleware
             }
         }
 
+        [[nodiscard]] auto UserForLog() const -> std::string
+        {
+            if (!DisplayIdentity.empty())
+            {
+                return DisplayIdentity;
+            }
+            if (AccountId)
+            {
+                return std::to_string(AccountId.Value());
+            }
+            return {};
+        }
+
         /**
          * @brief 将旧入口输入物化为 typed 根数据面
          * @param DatagramService 旧会话服务的值语义回调
@@ -171,6 +191,7 @@ namespace Preview::Middleware
                 }
                 return;
             }
+            DataPlane.DisplayIdentity = DisplayIdentity;
             if (IsDgram)
             {
                 DataPlane.Root = Preview::Runtime::DatagramDataPlane{Inbound,

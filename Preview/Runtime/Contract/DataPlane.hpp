@@ -78,6 +78,7 @@ namespace Preview::Runtime
         RootDataPlane Root{};
         Preview::Network::Target Target{};
         std::string Identity{};
+        std::string DisplayIdentity{};
         Preview::AccountId AccountId{};
         std::optional<Preview::Account::AccountLease> AccountLease{};
         bool ProtocolAuthenticated{false};

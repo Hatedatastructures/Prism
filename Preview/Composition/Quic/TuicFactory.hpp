@@ -4,11 +4,6 @@
  */
 #pragma once
 
-#include <Preview/Ingress/QuicAdmissionContext.hpp>
-#include <Preview/Protocols/Quic/Native.hpp>
-#include <Preview/Protocols/Quic/StreamAdapter.hpp>
-#include <Preview/Protocols/Tuic/Tuic.hpp>
-
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
 #include <boost/asio/experimental/channel.hpp>
@@ -17,10 +12,16 @@
 #include <boost/system/error_code.hpp>
 
 #include <array>
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <string>
 #include <utility>
+
+#include <Preview/Ingress/QuicAdmissionContext.hpp>
+#include <Preview/Protocols/Quic/Native.hpp>
+#include <Preview/Protocols/Quic/StreamAdapter.hpp>
+#include <Preview/Protocols/Tuic/Tuic.hpp>
 
 namespace Preview::Composition::Quic
 {
@@ -47,6 +48,8 @@ namespace Preview::Composition::Quic
             bool Authenticated{false};
             Preview::AccountId AccountId{};
             std::string Identity;
+            Preview::Ingress::QuicPeerLogContext Peer{};
+            std::atomic<bool> AuthLogged{false};
         };
 
         inline auto Notify(const std::shared_ptr<TuicState> &State) -> void
@@ -54,36 +57,33 @@ namespace Preview::Composition::Quic
             (void)State->Ready.try_send(boost::system::error_code{});
         }
 
-        [[nodiscard]] inline auto WaitForAuthMaterial(
-            const std::shared_ptr<TuicState> &State) -> Net::awaitable<bool>
+        [[nodiscard]] inline auto WaitForAuthMaterial(const std::shared_ptr<TuicState> &State)
+            -> Net::awaitable<bool>
         {
             while (!State->Closed && (!State->AuthStream || !State->Exporter))
             {
                 boost::system::error_code Error;
-                co_await State->Ready.async_receive(
-                    Net::redirect_error(Net::use_awaitable, Error));
+                co_await State->Ready.async_receive(Net::redirect_error(Net::use_awaitable, Error));
                 if (Error)
                 {
                     co_return false;
                 }
             }
             co_return !State->Closed && static_cast<bool>(State->AuthStream) &&
-                      static_cast<bool>(State->Exporter);
+                static_cast<bool>(State->Exporter);
         }
 
-        [[nodiscard]] inline auto AcceptBidi(
-            const std::shared_ptr<TuicState> &State,
-            Preview::Quic::SharedStreamProvider Provider,
-            const std::function<Net::awaitable<void>(Preview::Tuic::Message,
-                                                      Preview::Tuic::SharedConn)> &Handler)
+        [[nodiscard]] inline auto
+        AcceptBidi(const std::shared_ptr<TuicState> &State, Preview::Quic::SharedStreamProvider Provider,
+                   const std::function<Net::awaitable<void>(Preview::Tuic::Message, Preview::Tuic::SharedConn,
+                                                            Preview::Ingress::QuicPeerLogContext)> &Handler)
             -> Net::awaitable<void>
         {
             if (!Provider || !Handler)
             {
                 co_return;
             }
-            auto Transport = std::make_shared<Preview::Quic::StreamAdapter>(
-                Provider->Executor(), Provider);
+            auto Transport = std::make_shared<Preview::Quic::StreamAdapter>(Provider->Executor(), Provider);
             Preview::Tuic::SharedConn Connection;
             Preview::Tuic::Message Message;
             Preview::Error ErrorCode = Preview::Error::None;
@@ -105,6 +105,16 @@ namespace Preview::Composition::Quic
                     State->Authenticated = true;
                     State->AccountId = Connection->AccountId();
                     State->Identity = std::string(Connection->Identity());
+                    if (Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info) &&
+                        !State->AuthLogged.exchange(true, std::memory_order_acq_rel))
+                    {
+                        const auto User = std::to_string(State->AccountId.Value());
+                        const auto Source = State->Peer.SourceIp.empty()
+                                                ? std::string_view{"Unknown"}
+                                                : std::string_view{State->Peer.SourceIp};
+                        (void)Preview::Diagnose::Info(
+                            State->Peer.Trace, "AuthenticationSucceeded SourceIp={} User={}", Source, User);
+                    }
                 }
             }
             else
@@ -122,7 +132,7 @@ namespace Preview::Composition::Quic
             }
             if (ErrorCode == Preview::Error::None && Connection)
             {
-                co_await Handler(std::move(Message), std::move(Connection));
+                co_await Handler(std::move(Message), std::move(Connection), State->Peer);
             }
             else
             {
@@ -132,9 +142,9 @@ namespace Preview::Composition::Quic
 
     } // namespace detail
 
-    [[nodiscard]] inline auto ConfigureTuicServer(
-        Preview::Quic::ServerOptions Options,
-        const Preview::Ingress::SharedQuicAdmissionContext &Context)
+    [[nodiscard]] inline auto ConfigureTuicServer(Preview::Quic::ServerOptions Options,
+                                                  const Preview::Ingress::SharedQuicAdmissionContext &Context,
+                                                  Preview::Ingress::QuicPeerLogContext Peer = {})
         -> Preview::Quic::ServerOptions
     {
         if (!Context || !Context->ReadyForTuic())
@@ -145,6 +155,8 @@ namespace Preview::Composition::Quic
         State->Config.uuid = Context->TuicUuid;
         State->Config.password = Context->TuicPassword;
         State->Config.AuthenticatorOwner = Context->Authenticator;
+        Peer.Trace = Context->Trace;
+        State->Peer = std::move(Peer);
 
         Options.ExpectedAlpn = Context->ExpectedAlpn;
         Options.ExpectedServerName = Context->ServerName;
@@ -170,12 +182,12 @@ namespace Preview::Composition::Quic
                 return;
             }
             State->AuthProvider = Provider;
-            State->AuthStream = std::make_shared<Preview::Quic::StreamAdapter>(
-                Provider->Executor(), Provider);
+            State->AuthStream =
+                std::make_shared<Preview::Quic::StreamAdapter>(Provider->Executor(), Provider);
             detail::Notify(State);
         };
-        Options.OnStream = [State, Handler = Context->TuicStream](
-                               Preview::Quic::SharedStreamProvider Provider)
+        Options.OnStream =
+            [State, Handler = Context->TuicStream](Preview::Quic::SharedStreamProvider Provider)
         {
             if (State->Closed || !Handler || !Provider)
             {
@@ -186,15 +198,11 @@ namespace Preview::Composition::Quic
                 return;
             }
             Net::co_spawn(
-                Provider->Executor(),
-                [State, Provider, Handler]() mutable -> Net::awaitable<void>
-                {
-                    co_await detail::AcceptBidi(State, Provider, Handler);
-                },
-                Net::detached);
+                Provider->Executor(), [State, Provider, Handler]() mutable -> Net::awaitable<void>
+                { co_await detail::AcceptBidi(State, Provider, Handler); }, Net::detached);
         };
-        Options.OnDatagram = [State, Handler = Context->TuicDatagram](
-                                  Preview::Quic::SharedDatagramProvider Provider)
+        Options.OnDatagram =
+            [State, Handler = Context->TuicDatagram](Preview::Quic::SharedDatagramProvider Provider)
         {
             if (State->Closed || !Provider || !Handler || !State->Authenticated)
             {
@@ -207,12 +215,13 @@ namespace Preview::Composition::Quic
             auto Config = State->Config;
             Net::co_spawn(
                 Provider->Executor(),
-                [Provider, Handler, Config = std::move(Config)]() mutable -> Net::awaitable<void>
+                [Provider, Handler, Config = std::move(Config),
+                 Peer = State->Peer]() mutable -> Net::awaitable<void>
                 {
                     auto Datagram = Preview::Tuic::AcceptPacket(Provider, Config);
                     if (Datagram)
                     {
-                        co_await Handler(std::move(Datagram));
+                        co_await Handler(std::move(Datagram), std::move(Peer));
                     }
                 },
                 Net::detached);

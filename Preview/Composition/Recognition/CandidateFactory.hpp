@@ -8,8 +8,9 @@
 
 #pragma once
 
-#include <boost/asio/buffer.hpp>
 #include <boost/asio/awaitable.hpp>
+#include <boost/asio/buffer.hpp>
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -91,21 +92,19 @@ namespace Preview::Composition::Recognition
     namespace detail
     {
 
-        [[nodiscard]] inline auto AuthenticateBasic(
-            std::string_view Authorization,
-            const Preview::Authenticator &Authenticator) -> Preview::AuthenticationResult
+        [[nodiscard]] inline auto AuthenticateBasic(std::string_view Authorization,
+                                                    const Preview::Authenticator &Authenticator)
+            -> Preview::AuthenticationResult
         {
             constexpr std::string_view BasicPrefix = "Basic ";
             Preview::AuthenticationResult Result;
             if (Authorization.size() <= BasicPrefix.size() ||
-                !Preview::Http11::detail::Iequals(
-                    Authorization.substr(0, BasicPrefix.size()), BasicPrefix))
+                !Preview::Http11::detail::Iequals(Authorization.substr(0, BasicPrefix.size()), BasicPrefix))
             {
                 Result.Failure = Preview::AuthFailure::InvalidCredential;
                 return Result;
             }
-            const auto Decoded = Preview::Crypto::Base64Decode(
-                Authorization.substr(BasicPrefix.size()));
+            const auto Decoded = Preview::Crypto::Base64Decode(Authorization.substr(BasicPrefix.size()));
             const auto Colon = Decoded.find(':');
             if (Colon == std::string_view::npos || Colon + 1U >= Decoded.size())
             {
@@ -114,11 +113,11 @@ namespace Preview::Composition::Recognition
             }
             const auto User = std::string_view(Decoded).substr(0, Colon);
             const auto Pass = std::string_view(Decoded).substr(Colon + 1U);
-            return Authenticator.Authenticate(Preview::AuthenticationRequest{
-                .AccountId = {},
-                .Identity = User,
-                .Credential = Preview::Account::CredentialView::Password(Pass),
-                .Rate = {}});
+            return Authenticator.Authenticate(
+                Preview::AuthenticationRequest{.AccountId = {},
+                                               .Identity = User,
+                                               .Credential = Preview::Account::CredentialView::Password(Pass),
+                                               .Rate = {}});
         }
 
         [[nodiscard]] inline auto SnapshotBytes(const Core::ProbeSnapshot &Snapshot)
@@ -218,8 +217,7 @@ namespace Preview::Composition::Recognition
             return Core::MatchState::Structural;
         }
 
-        [[nodiscard]] inline auto InspectSocks5(const Core::ProbeSnapshot &Snapshot)
-            -> Core::MatchState
+        [[nodiscard]] inline auto InspectSocks5(const Core::ProbeSnapshot &Snapshot) -> Core::MatchState
         {
             const auto Data = SnapshotBytes(Snapshot);
             Preview::Socks5::Greeting Greeting;
@@ -236,8 +234,7 @@ namespace Preview::Composition::Recognition
             return Core::MatchState::Structural;
         }
 
-        [[nodiscard]] inline auto InspectVless(const Core::ProbeSnapshot &Snapshot)
-            -> Core::MatchState
+        [[nodiscard]] inline auto InspectVless(const Core::ProbeSnapshot &Snapshot) -> Core::MatchState
         {
             Preview::Vless::RequestHeader Request;
             std::size_t Consumed = 0;
@@ -247,8 +244,7 @@ namespace Preview::Composition::Recognition
                 return Core::MatchState::NeedMore;
             }
             if (Error != Preview::Error::None ||
-                (Request.Cmd != Preview::Vless::Command::Tcp &&
-                 Request.Cmd != Preview::Vless::Command::Udp &&
+                (Request.Cmd != Preview::Vless::Command::Tcp && Request.Cmd != Preview::Vless::Command::Udp &&
                  Request.Cmd != Preview::Vless::Command::Mux))
             {
                 return Core::MatchState::Rejected;
@@ -256,8 +252,7 @@ namespace Preview::Composition::Recognition
             return Core::MatchState::Structural;
         }
 
-        [[nodiscard]] inline auto InspectTrojan(const Core::ProbeSnapshot &Snapshot)
-            -> Core::MatchState
+        [[nodiscard]] inline auto InspectTrojan(const Core::ProbeSnapshot &Snapshot) -> Core::MatchState
         {
             Preview::Trojan::RequestHeader Request;
             std::size_t Consumed = 0;
@@ -266,10 +261,9 @@ namespace Preview::Composition::Recognition
             {
                 return Core::MatchState::NeedMore;
             }
-            if (Error != Preview::Error::None ||
-                (Request.Cmd != Preview::Trojan::Command::Connect &&
-                 Request.Cmd != Preview::Trojan::Command::UdpAssociate &&
-                 Request.Cmd != Preview::Trojan::Command::Mux))
+            if (Error != Preview::Error::None || (Request.Cmd != Preview::Trojan::Command::Connect &&
+                                                  Request.Cmd != Preview::Trojan::Command::UdpAssociate &&
+                                                  Request.Cmd != Preview::Trojan::Command::Mux))
             {
                 return Core::MatchState::Rejected;
             }
@@ -329,8 +323,7 @@ namespace Preview::Composition::Recognition
             return Preview::Shadowsocks2022::DecodePsk(Config.password);
         }
 
-        [[nodiscard]] inline auto PrepareVless(VlessPrepareRequest RequestData)
-            -> Core::PrepareResult
+        [[nodiscard]] inline auto PrepareVless(VlessPrepareRequest RequestData) -> Core::PrepareResult
         {
             Preview::Vless::RequestHeader Request;
             std::size_t Consumed = 0;
@@ -359,8 +352,7 @@ namespace Preview::Composition::Recognition
             return Accepted(RequestData.Id);
         }
 
-        [[nodiscard]] inline auto PrepareTrojan(TrojanPrepareRequest RequestData)
-            -> Core::PrepareResult
+        [[nodiscard]] inline auto PrepareTrojan(TrojanPrepareRequest RequestData) -> Core::PrepareResult
         {
             const auto Data = SnapshotBytes(RequestData.Snapshot);
             if (Data.size() < Preview::Trojan::CredentialLen + 2)
@@ -397,8 +389,7 @@ namespace Preview::Composition::Recognition
             return Accepted(RequestData.Id);
         }
 
-        [[nodiscard]] inline auto PrepareVmess(Core::CandidateId Id,
-                                               std::array<std::uint8_t, 16> Uuid,
+        [[nodiscard]] inline auto PrepareVmess(Core::CandidateId Id, std::array<std::uint8_t, 16> Uuid,
                                                const Core::ProbeSnapshot &Snapshot) -> Core::PrepareResult
         {
             Preview::Vmess::Parser Parser(Uuid);
@@ -414,8 +405,7 @@ namespace Preview::Composition::Recognition
                 return NoMatch(Id);
             }
             const auto Command = static_cast<Preview::Vmess::Command>(Parser.Get().Cmd);
-            if (Command != Preview::Vmess::Command::Tcp &&
-                Command != Preview::Vmess::Command::Udp &&
+            if (Command != Preview::Vmess::Command::Tcp && Command != Preview::Vmess::Command::Udp &&
                 Command != Preview::Vmess::Command::Mux)
             {
                 return NoMatch(Id);
@@ -423,8 +413,7 @@ namespace Preview::Composition::Recognition
             return Accepted(Id);
         }
 
-        [[nodiscard]] inline auto PrepareSs2022(Ss2022PrepareRequest RequestData)
-            -> Core::PrepareResult
+        [[nodiscard]] inline auto PrepareSs2022(Ss2022PrepareRequest RequestData) -> Core::PrepareResult
         {
             Preview::Shadowsocks2022::Parser Parser(RequestData.Psk);
             std::error_code Error;
@@ -442,7 +431,8 @@ namespace Preview::Composition::Recognition
         }
 
         [[nodiscard]] inline auto InspectAnytls(const Core::ProbeSnapshot &Snapshot,
-                                                std::string_view Password) -> Core::MatchState
+                                                std::string_view Password) 
+            -> Core::MatchState
         {
             std::array<std::uint8_t, Preview::Anytls::PasswordHashLen> Hash{};
             const auto Data = SnapshotBytes(Snapshot);
@@ -458,8 +448,7 @@ namespace Preview::Composition::Recognition
             return Core::MatchState::Authenticated;
         }
 
-        [[nodiscard]] inline auto PrepareAnytls(AnytlsPrepareRequest RequestData)
-            -> Core::PrepareResult
+        [[nodiscard]] inline auto PrepareAnytls(AnytlsPrepareRequest RequestData) -> Core::PrepareResult
         {
             std::array<std::uint8_t, Preview::Anytls::PasswordHashLen> Hash{};
             const auto Data = SnapshotBytes(RequestData.Snapshot);
@@ -478,9 +467,7 @@ namespace Preview::Composition::Recognition
         [[nodiscard]] inline auto CommitFor() -> Core::CommitFn
         {
             return [](Core::CommitContext Context) -> Net::awaitable<Core::CommitResult>
-            {
-                co_return co_await CommitReplay(std::move(Context));
-            };
+            { co_return co_await CommitReplay(std::move(Context)); };
         }
 
         [[nodiscard]] inline auto NormalizeOptions(CandidateOptions Options, std::string_view Name)
@@ -521,7 +508,9 @@ namespace Preview::Composition::Recognition
     class HttpHandler final : public Runtime::Handler::ProtocolHandler
     {
     public:
-        explicit HttpHandler(HttpConfig Config) : Config_(std::move(Config)) {}
+        explicit HttpHandler(HttpConfig Config) : Config_(std::move(Config))
+        {
+        }
 
         auto Accept(Preview::SharedTransmission Inbound)
             -> Net::awaitable<Runtime::Handler::AcceptResult> override
@@ -572,8 +561,7 @@ namespace Preview::Composition::Recognition
                     Result.err = Preview::Error::BadAuth;
                     co_return Result;
                 }
-                AuthResult = detail::AuthenticateBasic(Request.authorization,
-                                                       *Config_.Authenticator);
+                AuthResult = detail::AuthenticateBasic(Request.authorization, *Config_.Authenticator);
                 if (!AuthResult.Accepted)
                 {
                     co_await Server.SendResponse(Preview::Http11::Status::ProxyAuthRequired);
@@ -591,6 +579,7 @@ namespace Preview::Composition::Recognition
             Result.Target.Port = std::to_string(Target->Port);
             Result.AccountId = AuthResult.AccountId;
             Result.identity = std::move(AuthResult.Identity);
+            Result.DisplayIdentity = std::move(AuthResult.DisplayIdentity);
             Result.ProtocolAuthenticated = Config_.RequireAuth;
             Result.AccountLeaseRequired = Config_.RequireAuth;
             Result.AccountLease = std::move(AuthResult.Lease);
@@ -613,16 +602,14 @@ namespace Preview::Composition::Recognition
             if (Result.err == Preview::Error::None)
             {
                 const auto Client = Result.Transmission;
-                Result.PostDial = [Client, IsConnect](Preview::Fault::Code Code)
-                    -> Net::awaitable<void>
+                Result.PostDial = [Client, IsConnect](Preview::Fault::Code Code) -> Net::awaitable<void>
                 {
                     if (!IsConnect && !Preview::Fault::Failed(Code))
                     {
                         co_return;
                     }
-                    const auto Response = Preview::Fault::Failed(Code)
-                                               ? Preview::Http11::Status::BadGateway
-                                               : Preview::Http11::Status::Ok;
+                    const auto Response = Preview::Fault::Failed(Code) ? Preview::Http11::Status::BadGateway
+                                                                       : Preview::Http11::Status::Ok;
                     (void)co_await Preview::Http11::SendResponse(Client, Response);
                 };
             }
@@ -630,7 +617,10 @@ namespace Preview::Composition::Recognition
             co_return Result;
         }
 
-        [[nodiscard]] auto Name() const -> std::string_view override { return "http"; }
+        [[nodiscard]] auto Name() const -> std::string_view override
+        {
+            return "http";
+        }
 
     private:
         HttpConfig Config_;
@@ -667,8 +657,8 @@ namespace Preview::Composition::Recognition
                     {
                         co_return detail::NoMatch(Context.Candidate);
                     }
-                    const auto Auth = Preview::Http11::CheckBasic(Request.authorization,
-                                                                   *Config.Authenticator);
+                    const auto Auth =
+                        Preview::Http11::CheckBasic(Request.authorization, *Config.Authenticator);
                     if (Auth.Ok)
                     {
                         co_return detail::Accepted(Context.Candidate);
@@ -681,15 +671,13 @@ namespace Preview::Composition::Recognition
             return CandidateBinding{std::move(Spec), Runtime::MakeProtocolAccept(std::move(Handler))};
         }
 
-        [[nodiscard]] static auto MakeHttp(Core::CandidateId Id, HttpConfig Config = {})
-            -> CandidateBinding
+        [[nodiscard]] static auto MakeHttp(Core::CandidateId Id, HttpConfig Config = {}) -> CandidateBinding
         {
             return MakeHttp(CandidateOptions{Id, {}, 0, 0, false}, std::move(Config));
         }
 
         [[nodiscard]] static auto MakeSocks5(CandidateOptions Options,
-                                             Preview::Socks5::ServerConfig Config = {})
-            -> CandidateBinding
+                                             Preview::Socks5::ServerConfig Config = {}) -> CandidateBinding
         {
             auto Spec = detail::BaseSpec(std::move(Options), "socks5", Core::ProtocolType::Socks5);
             Spec.Kind = Core::CandidateKind::EarlyResponse;
@@ -700,16 +688,14 @@ namespace Preview::Composition::Recognition
             return CandidateBinding{std::move(Spec), Runtime::MakeProtocolAccept(std::move(Handler))};
         }
 
-        [[nodiscard]] static auto MakeSocks5(Core::CandidateId Id,
-                                             Preview::Socks5::ServerConfig Config = {})
+        [[nodiscard]] static auto MakeSocks5(Core::CandidateId Id, Preview::Socks5::ServerConfig Config = {})
             -> CandidateBinding
         {
             return MakeSocks5(CandidateOptions{Id, {}, 0, 0, false}, std::move(Config));
         }
 
         [[nodiscard]] static auto MakeVless(CandidateOptions Options,
-                                            Preview::Vless::ServerConfig Config = {})
-            -> CandidateBinding
+                                            Preview::Vless::ServerConfig Config = {}) -> CandidateBinding
         {
             const auto Uuid = Config.uuid;
             const auto AuthenticatorOwner = Config.AuthenticatorOwner;
@@ -720,8 +706,8 @@ namespace Preview::Composition::Recognition
             Spec.MinimumBytes = 22;
             Spec.FirstBytes = {Preview::Vless::ProtocolVersion};
             Spec.Inspect = detail::InspectVless;
-            Spec.Prepare = [Uuid, AuthenticatorOwner, Authenticator](Core::PrepareContext Context)
-                -> Net::awaitable<Core::PrepareResult>
+            Spec.Prepare = [Uuid, AuthenticatorOwner, Authenticator](
+                               Core::PrepareContext Context) -> Net::awaitable<Core::PrepareResult>
             {
                 co_return detail::PrepareVless(
                     detail::VlessPrepareRequest{Context.Candidate, Uuid, Authenticator, Context.Snapshot});
@@ -730,16 +716,14 @@ namespace Preview::Composition::Recognition
             return CandidateBinding{std::move(Spec), Runtime::MakeProtocolAccept(std::move(Handler))};
         }
 
-        [[nodiscard]] static auto MakeVless(Core::CandidateId Id,
-                                            Preview::Vless::ServerConfig Config = {})
+        [[nodiscard]] static auto MakeVless(Core::CandidateId Id, Preview::Vless::ServerConfig Config = {})
             -> CandidateBinding
         {
             return MakeVless(CandidateOptions{Id, {}, 0, 0, false}, std::move(Config));
         }
 
         [[nodiscard]] static auto MakeTrojan(CandidateOptions Options,
-                                             Preview::Trojan::ServerConfig Config = {})
-            -> CandidateBinding
+                                             Preview::Trojan::ServerConfig Config = {}) -> CandidateBinding
         {
             const auto Password = Config.password;
             const auto EnableTcp = Config.EnableTcp;
@@ -760,8 +744,8 @@ namespace Preview::Composition::Recognition
                 Spec.FirstBytes = {static_cast<std::uint8_t>(Credential.front())};
             }
             Spec.Inspect = detail::InspectTrojan;
-            Spec.Prepare = [Password, EnableTcp, EnableUdp, AuthenticatorOwner, Authenticator](Core::PrepareContext Context)
-                -> Net::awaitable<Core::PrepareResult>
+            Spec.Prepare = [Password, EnableTcp, EnableUdp, AuthenticatorOwner, Authenticator](
+                               Core::PrepareContext Context) -> Net::awaitable<Core::PrepareResult>
             {
                 co_return detail::PrepareTrojan(detail::TrojanPrepareRequest{
                     Context.Candidate, Password, EnableTcp, EnableUdp, Authenticator, Context.Snapshot});
@@ -770,16 +754,14 @@ namespace Preview::Composition::Recognition
             return CandidateBinding{std::move(Spec), Runtime::MakeProtocolAccept(std::move(Handler))};
         }
 
-        [[nodiscard]] static auto MakeTrojan(Core::CandidateId Id,
-                                             Preview::Trojan::ServerConfig Config = {})
+        [[nodiscard]] static auto MakeTrojan(Core::CandidateId Id, Preview::Trojan::ServerConfig Config = {})
             -> CandidateBinding
         {
             return MakeTrojan(CandidateOptions{Id, {}, 0, 0, false}, std::move(Config));
         }
 
         [[nodiscard]] static auto MakeVmess(CandidateOptions Options,
-                                            Preview::Vmess::ServerConfig Config = {})
-            -> CandidateBinding
+                                            Preview::Vmess::ServerConfig Config = {}) -> CandidateBinding
         {
             const auto Uuid = Config.uuid;
             auto Spec = detail::BaseSpec(std::move(Options), "vmess", Core::ProtocolType::Vmess);
@@ -788,19 +770,14 @@ namespace Preview::Composition::Recognition
             Spec.Fallback = true;
             Spec.MinimumBytes = 60;
             Spec.Inspect = [](const Core::ProbeSnapshot &Snapshot)
-            {
-                return detail::InspectOpaqueLength(Snapshot, 60);
-            };
+            { return detail::InspectOpaqueLength(Snapshot, 60); };
             Spec.Prepare = [Uuid](Core::PrepareContext Context) -> Net::awaitable<Core::PrepareResult>
-            {
-                co_return detail::PrepareVmess(Context.Candidate, Uuid, Context.Snapshot);
-            };
+            { co_return detail::PrepareVmess(Context.Candidate, Uuid, Context.Snapshot); };
             auto Handler = std::make_shared<Runtime::Handler::Vmess>(std::move(Config));
             return CandidateBinding{std::move(Spec), Runtime::MakeProtocolAccept(std::move(Handler))};
         }
 
-        [[nodiscard]] static auto MakeVmess(Core::CandidateId Id,
-                                            Preview::Vmess::ServerConfig Config = {})
+        [[nodiscard]] static auto MakeVmess(Core::CandidateId Id, Preview::Vmess::ServerConfig Config = {})
             -> CandidateBinding
         {
             return MakeVmess(CandidateOptions{Id, {}, 0, 0, false}, std::move(Config));
@@ -812,8 +789,7 @@ namespace Preview::Composition::Recognition
         {
             const auto Psk = detail::SsPsk(Config);
             const auto TimeWindow = Config.TimeWindow;
-            auto Spec = detail::BaseSpec(std::move(Options), "ss2022",
-                                         Core::ProtocolType::Shadowsocks);
+            auto Spec = detail::BaseSpec(std::move(Options), "ss2022", Core::ProtocolType::Shadowsocks);
             Spec.Kind = Core::CandidateKind::Opaque;
             Spec.RequiresAuthentication = true;
             Spec.Fallback = true;
@@ -826,13 +802,13 @@ namespace Preview::Composition::Recognition
                 }
                 return Core::MatchState::Rejected;
             };
-            Spec.Prepare = [Psk, TimeWindow](Core::PrepareContext Context)
-                -> Net::awaitable<Core::PrepareResult>
+            Spec.Prepare = [Psk,
+                            TimeWindow](Core::PrepareContext Context) -> Net::awaitable<Core::PrepareResult>
             {
                 if (Psk)
                 {
-                    co_return detail::PrepareSs2022(detail::Ss2022PrepareRequest{
-                        Context.Candidate, *Psk, TimeWindow, Context.Snapshot});
+                    co_return detail::PrepareSs2022(
+                        detail::Ss2022PrepareRequest{Context.Candidate, *Psk, TimeWindow, Context.Snapshot});
                 }
                 co_return detail::NoMatch(Context.Candidate);
             };
@@ -854,22 +830,21 @@ namespace Preview::Composition::Recognition
         }
 
         [[nodiscard]] static auto MakeShadowsocks2022(CandidateOptions Options,
-                                                       Preview::Shadowsocks2022::ServerConfig Config = {})
+                                                      Preview::Shadowsocks2022::ServerConfig Config = {})
             -> CandidateBinding
         {
             return MakeSs2022(std::move(Options), std::move(Config));
         }
 
         [[nodiscard]] static auto MakeShadowsocks2022(Core::CandidateId Id,
-                                                       Preview::Shadowsocks2022::ServerConfig Config = {})
+                                                      Preview::Shadowsocks2022::ServerConfig Config = {})
             -> CandidateBinding
         {
             return MakeSs2022(Id, std::move(Config));
         }
 
-        [[nodiscard]] static auto MakeAnytls(
-            CandidateOptions Options,
-            Preview::Anytls::ServerConfig Config = {}) -> CandidateBinding
+        [[nodiscard]] static auto MakeAnytls(CandidateOptions Options,
+                                             Preview::Anytls::ServerConfig Config = {}) -> CandidateBinding
         {
             const auto Password = Config.Password;
             auto Spec = detail::BaseSpec(std::move(Options), "anytls", Core::ProtocolType::AnyTls);
@@ -878,67 +853,61 @@ namespace Preview::Composition::Recognition
             Spec.Fallback = true;
             Spec.MinimumBytes = Preview::Anytls::AuthFrameHdrlen;
             Spec.Inspect = [Password](const Core::ProbeSnapshot &Snapshot)
+            { return detail::InspectAnytls(Snapshot, Password); };
+            Spec.Prepare = [Password](Core::PrepareContext Context) -> Net::awaitable<Core::PrepareResult>
             {
-                return detail::InspectAnytls(Snapshot, Password);
-            };
-            Spec.Prepare = [Password](Core::PrepareContext Context)
-                -> Net::awaitable<Core::PrepareResult>
-            {
-                co_return detail::PrepareAnytls(detail::AnytlsPrepareRequest{
-                    Context.Candidate, Password, Context.Snapshot});
+                co_return detail::PrepareAnytls(
+                    detail::AnytlsPrepareRequest{Context.Candidate, Password, Context.Snapshot});
             };
             auto Handler = std::make_shared<Runtime::Handler::Anytls>(std::move(Config));
             return CandidateBinding{std::move(Spec), Runtime::MakeProtocolAccept(std::move(Handler))};
         }
 
-        [[nodiscard]] static auto MakeAnytls(
-            Core::CandidateId Id,
-            Preview::Anytls::ServerConfig Config = {}) -> CandidateBinding
+        [[nodiscard]] static auto MakeAnytls(Core::CandidateId Id, Preview::Anytls::ServerConfig Config = {})
+            -> CandidateBinding
         {
             return MakeAnytls(CandidateOptions{Id, {}, 0, 0, false}, std::move(Config));
         }
     };
 
-    inline auto MakeHttpCandidate(CandidateOptions Options = {}, HttpConfig Config = {})
+    inline auto MakeHttpCandidate(CandidateOptions Options = {}, HttpConfig Config = {}) 
         -> CandidateBinding
     {
         return CandidateFactory::MakeHttp(std::move(Options), std::move(Config));
     }
 
-    inline auto MakeSocks5Candidate(CandidateOptions Options,
-                                    Preview::Socks5::ServerConfig Config = {}) -> CandidateBinding
+    inline auto MakeSocks5Candidate(CandidateOptions Options, Preview::Socks5::ServerConfig Config = {})
+        -> CandidateBinding
     {
         return CandidateFactory::MakeSocks5(std::move(Options), std::move(Config));
     }
 
-    inline auto MakeVlessCandidate(CandidateOptions Options,
-                                   Preview::Vless::ServerConfig Config = {}) -> CandidateBinding
+    inline auto MakeVlessCandidate(CandidateOptions Options, Preview::Vless::ServerConfig Config = {})
+        -> CandidateBinding
     {
         return CandidateFactory::MakeVless(std::move(Options), std::move(Config));
     }
 
-    inline auto MakeTrojanCandidate(CandidateOptions Options,
-                                    Preview::Trojan::ServerConfig Config = {}) -> CandidateBinding
+    inline auto MakeTrojanCandidate(CandidateOptions Options, Preview::Trojan::ServerConfig Config = {})
+        -> CandidateBinding
     {
         return CandidateFactory::MakeTrojan(std::move(Options), std::move(Config));
     }
 
-    inline auto MakeVmessCandidate(CandidateOptions Options,
-                                   Preview::Vmess::ServerConfig Config = {}) -> CandidateBinding
+    inline auto MakeVmessCandidate(CandidateOptions Options, Preview::Vmess::ServerConfig Config = {})
+        -> CandidateBinding
     {
         return CandidateFactory::MakeVmess(std::move(Options), std::move(Config));
     }
 
-    inline auto MakeSs2022Candidate(
-        CandidateOptions Options,
-        Preview::Shadowsocks2022::ServerConfig Config = {}) -> CandidateBinding
+    inline auto MakeSs2022Candidate(CandidateOptions Options,
+                                    Preview::Shadowsocks2022::ServerConfig Config = {}) -> CandidateBinding
     {
         return CandidateFactory::MakeSs2022(std::move(Options), std::move(Config));
     }
 
-    inline auto MakeAnytlsCandidate(
-        CandidateOptions Options,
-        Preview::Anytls::ServerConfig Config = {}) -> CandidateBinding
+    inline auto MakeAnytlsCandidate(CandidateOptions Options, Preview::Anytls::ServerConfig Config = {})
+        -> CandidateBinding
     {
         return CandidateFactory::MakeAnytls(std::move(Options), std::move(Config));
     }

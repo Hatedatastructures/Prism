@@ -12,6 +12,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Runtime/Middleware/Builtin/Mux.hpp>
@@ -121,7 +122,7 @@ namespace
         };
 
         Runtime::TcpListener listener(ioc.get_executor(),
-            [&](SharedTransmission, std::size_t) -> std::shared_ptr<Runtime::Session>
+            [&](SharedTransmission, std::size_t, std::string_view) -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
                 opts.AcceptProtocol = MakeAcceptSetTarget;

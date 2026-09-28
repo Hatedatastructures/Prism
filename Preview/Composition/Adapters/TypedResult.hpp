@@ -25,6 +25,7 @@ namespace Preview::Composition::Adapters
         Preview::Network::Target Target;
         DataPlaneResult Data;
         std::string identity;
+        std::string DisplayIdentity;
         Preview::AccountId AccountId{};
         bool ProtocolAuthenticated{false};
         Preview::Account::AccountLease AccountLease{};
@@ -77,6 +78,7 @@ namespace Preview::Composition::Adapters
         Result.Target = Preview::Network::Target{};
         Result.AccountId = {};
         Result.identity.clear();
+        Result.DisplayIdentity.clear();
         Result.ProtocolAuthenticated = false;
         Result.AccountLeaseRequired = false;
         Result.IsDgram = false;
@@ -119,6 +121,7 @@ namespace Preview::Composition::Adapters
         Preview::Runtime::ProtocolDataPlane Plane;
         Plane.Target = Result.Target;
         Plane.Identity = Result.identity;
+        Plane.DisplayIdentity = Result.DisplayIdentity;
         Plane.AccountId = Result.AccountId;
         Plane.ProtocolAuthenticated = Result.ProtocolAuthenticated;
         Plane.PostDial = Result.PostDial;
@@ -147,6 +150,7 @@ namespace Preview::Composition::Adapters
             Result.Transmission, std::move(Mode)};
         Plane.Target = Result.Target;
         Plane.Identity = Result.identity;
+        Plane.DisplayIdentity = Result.DisplayIdentity;
         Plane.AccountId = Result.AccountId;
         Plane.ProtocolAuthenticated = Result.ProtocolAuthenticated;
         if (Result.AccountLease)
@@ -174,6 +178,7 @@ namespace Preview::Composition::Adapters
         Typed.Status = Result.err;
         Typed.Target = std::move(Result.Target);
         Typed.identity = std::move(Result.identity);
+        Typed.DisplayIdentity = std::move(Result.DisplayIdentity);
         Typed.AccountId = Result.AccountId;
         Typed.ProtocolAuthenticated = Result.ProtocolAuthenticated;
         Typed.AccountLease = std::move(Result.AccountLease);
@@ -182,6 +187,14 @@ namespace Preview::Composition::Adapters
         if (Result.DataPlane.HasTransport())
         {
             Typed.Data.Data = std::move(Result.DataPlane);
+            if (Typed.Data.Data.DisplayIdentity.empty())
+            {
+                Typed.Data.Data.DisplayIdentity = Typed.DisplayIdentity;
+            }
+            if (Typed.DisplayIdentity.empty())
+            {
+                Typed.DisplayIdentity = Typed.Data.Data.DisplayIdentity;
+            }
             if (!Typed.AccountId)
             {
                 Typed.AccountId = Typed.Data.Data.AccountId;
@@ -222,6 +235,10 @@ namespace Preview::Composition::Adapters
         {
             Typed.Data = DataPlaneResult::Stream(std::move(Result.Transmission));
         }
+        Typed.Data.Data.Identity = Typed.identity;
+        Typed.Data.Data.DisplayIdentity = Typed.DisplayIdentity;
+        Typed.Data.Data.AccountId = Typed.AccountId;
+        Typed.Data.Data.ProtocolAuthenticated = Typed.ProtocolAuthenticated;
         return Typed;
     }
 

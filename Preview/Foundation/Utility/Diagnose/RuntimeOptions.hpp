@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
 
 namespace Preview::Diagnose
 {
@@ -27,6 +28,59 @@ namespace Preview::Diagnose
         Critical, ///< 关键失败；facade 不因普通级别阈值过滤此级别。
         Off,      ///< 不接受普通日志级别。
     };
+
+    /**
+     * @brief 返回日志输出中使用的大驼峰等级名称。
+     * @param Level Diagnose 日志等级。
+     * @return 与等级对应的稳定输出名称；未知值回退为 "Off"。
+     */
+    [[nodiscard]] constexpr auto LogLevelName(const LogLevel Level) noexcept -> std::string_view
+    {
+        switch (Level)
+        {
+        case LogLevel::Trace: return "Trace";
+        case LogLevel::Debug: return "Debug";
+        case LogLevel::Info: return "Info";
+        case LogLevel::Access: return "Access";
+        case LogLevel::Warn: return "Warn";
+        case LogLevel::Error: return "Error";
+        case LogLevel::Critical: return "Critical";
+        case LogLevel::Off: return "Off";
+        }
+        return "Off";
+    }
+
+    /**
+     * @brief 将受控 snake_case 标识转换为 PascalCase。
+     * @param Value 程序生成的枚举或事件标识。
+     * @return 去除下划线和连字符并大写各单词首字母后的文本。
+     * @note 仅用于受控标识；不得用于用户名、网络地址或原生错误文本。
+     */
+    [[nodiscard]] inline auto PascalCaseToken(const std::string_view Value) -> std::string
+    {
+        std::string Result;
+        Result.reserve(Value.size());
+        bool Capitalize = true;
+        for (const char RawCharacter : Value)
+        {
+            const auto Character = static_cast<unsigned char>(RawCharacter);
+            if (Character == '_' || Character == '-')
+            {
+                Capitalize = true;
+                continue;
+            }
+            if (Capitalize && Character >= 'a' && Character <= 'z')
+            {
+                Result.push_back(static_cast<char>(Character - 'a' + 'A'));
+            }
+            else
+            {
+                Result.push_back(static_cast<char>(Character));
+            }
+            Capitalize = false;
+        }
+        return Result;
+    }
 
     /**
      * @brief 创建 Diagnose backend 时使用的公开配置。

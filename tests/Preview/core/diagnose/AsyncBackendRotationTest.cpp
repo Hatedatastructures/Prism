@@ -30,7 +30,7 @@ namespace
         {
             const auto Receipt = Environment.Runtime().Submit(
                 Preview::Diagnose::LogLevel::Info, Context,
-                "event=rotation " + std::to_string(Index) + " " + Payload);
+                "Rotation Index=" + std::to_string(Index) + " " + Payload);
             if (Receipt.Status == Preview::Diagnose::SubmissionStatus::Accepted)
             {
                 ++Accepted;

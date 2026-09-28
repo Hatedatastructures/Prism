@@ -415,7 +415,7 @@ namespace Preview::Xhttp
             std::vector<std::byte> copy(Data.begin(), Data.end());
             if (!Notify_.try_send(boost::system::error_code{}, std::move(copy)))
             {
-                (void)Diagnose::Error("xhttp receive channel full; closing Stream");
+                (void)Diagnose::Error("XhttpReceiveChannelFull Action=CloseStream");
                 Close();
             }
         }

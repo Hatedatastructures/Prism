@@ -287,10 +287,13 @@ namespace Preview::Composition::Recognition
         -> Runtime::TcpListener::SessionFactory
     {
         auto SharedOptions = std::make_shared<const Runtime::SessionOptions>(std::move(Options));
-        return [SharedOptions](Preview::SharedTransmission, std::size_t)
+        return [SharedOptions](Preview::SharedTransmission, std::size_t,
+                               const std::string_view SourceIp)
             -> std::shared_ptr<Runtime::Session>
         {
-            return std::make_shared<Runtime::Session>(*SharedOptions);
+            auto SessionOptions = *SharedOptions;
+            SessionOptions.SourceIp.assign(SourceIp);
+            return std::make_shared<Runtime::Session>(std::move(SessionOptions));
         };
     }
 

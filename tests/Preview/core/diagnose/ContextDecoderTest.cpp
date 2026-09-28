@@ -95,7 +95,7 @@ namespace
                                 .With(Correlation, Preview::RequestId{6})
                                 .With(Stream, Preview::StreamId{8})
                                 .With(Route, std::string_view{"route-b"})
-                                .With(Protocol, std::string_view{"vless"})
+                                .With(Protocol, std::string_view{"Vless"})
                                 .With(NativeError, std::string_view{"token=decoder-canary"});
         const Preview::Statistics::TraceSelection ExcludedSelection{
             .IncludeCorrelation = false,
@@ -107,7 +107,6 @@ namespace
 
         SubmissionRecord Record;
         Record.TimestampMilliseconds = 123U;
-        Record.ThreadId = 45U;
         Record.Sequence = 101U;
         Record.Kind = SubmissionKind::Audit;
         Record.Message = "quote=\" slash=\\ newline=\n bad=";
@@ -119,12 +118,12 @@ namespace
         const auto RoutePosition = Json.find("\"Route\"");
 
         EXPECT_LT(ProtocolPosition, RoutePosition);
-        EXPECT_NE(Json.find("\"worker\":7"), std::string::npos);
-        EXPECT_NE(Json.find("\"session\":9"), std::string::npos);
-        EXPECT_NE(Json.find("\"sequence\":101"), std::string::npos);
-        EXPECT_NE(Json.find("\"kind\":\"audit\""), std::string::npos);
-        EXPECT_EQ(Json.find("\"Worker\":7"), std::string::npos);
-        EXPECT_EQ(Json.find("\"Session\":9"), std::string::npos);
+        EXPECT_NE(Json.find("\"Worker\":7"), std::string::npos);
+        EXPECT_NE(Json.find("\"Session\":9"), std::string::npos);
+        EXPECT_NE(Json.find("\"Sequence\":101"), std::string::npos);
+        EXPECT_NE(Json.find("\"Level\":\"Info\""), std::string::npos);
+        EXPECT_NE(Json.find("\"Kind\":\"Audit\""), std::string::npos);
+        EXPECT_EQ(Json.find("\"Thread\""), std::string::npos);
         EXPECT_NE(Json.find("\"Correlation\":6"), std::string::npos);
         EXPECT_NE(Json.find("\"Stream\":8"), std::string::npos);
         EXPECT_NE(Json.find("token=<redacted>"), std::string::npos);

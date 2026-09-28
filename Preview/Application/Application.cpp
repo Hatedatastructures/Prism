@@ -129,16 +129,14 @@ namespace Preview::Application
             return std::nullopt;
         }
 
-        auto LogMuxStreamStage(
+        auto LogMuxStreamFailure(
             const Preview::Runtime::SharedSessionServices &Services,
             const Preview::Lifecycle::TaskIdentity &Identity,
-            const std::string_view Stage,
-            const std::string_view Outcome,
-            const Preview::Fault::Code Code,
-            const Preview::Network::Target &Target,
-            const std::string_view Details = {}) -> void
+            const std::string_view Event,
+            const Preview::Fault::Code Code) -> void
         {
-            if (!Services)
+            if (!Services || Code == Preview::Fault::Code::Success ||
+                !Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Warn))
             {
                 return;
             }
@@ -151,32 +149,92 @@ namespace Preview::Application
             {
                 Context = Context.With(Preview::Diagnose::Fields::Session, Identity.SessionId);
             }
-            const auto WithStream = Context.TryWith(
-                Preview::Diagnose::Fields::Stream, Identity.StreamId);
-            const auto TargetHost = std::string_view{Target.Host.data(), Target.Host.size()};
-            const auto TargetPort = std::string_view{Target.Port.data(), Target.Port.size()};
-            if (WithStream)
+            const auto PascalFault = Preview::Diagnose::PascalCaseToken(
+                Preview::Fault::Describe(Code));
+            (void)Preview::Diagnose::Warn(
+                Context, "{} StreamId={} FaultCode={}", Event,
+                Identity.StreamId.Value(), PascalFault);
+        }
+
+        struct MuxRelaySummary final
+        {
+            std::uint64_t UpBytes{0};
+            std::uint64_t DownBytes{0};
+        };
+
+        auto LogMuxStreamDetails(
+            const Preview::Runtime::SharedSessionServices &Services,
+            const Preview::Lifecycle::TaskIdentity &Identity,
+            const MuxRelaySummary &Summary) -> void
+        {
+            if (!Services ||
+                !Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Trace))
             {
-                (void)Preview::Diagnose::Info(
-                    *WithStream,
-                    "event=mux_stream stage={} outcome={} stream_id={} target={}:{} fault_code={} {}",
-                    Stage, Outcome, Identity.StreamId.Value(), TargetHost, TargetPort,
-                    Preview::Fault::Describe(Code), Details);
                 return;
             }
-            (void)Preview::Diagnose::Info(
+            auto Context = Services->ProcessContext;
+            if (Identity.WorkerId)
+            {
+                Context = Context.With(Preview::Diagnose::Fields::Worker, Identity.WorkerId);
+            }
+            if (Identity.SessionId)
+            {
+                Context = Context.With(Preview::Diagnose::Fields::Session, Identity.SessionId);
+            }
+            (void)Preview::Diagnose::Trace(
                 Context,
-                "event=mux_stream stage={} outcome={} stream_id={} target={}:{} fault_code={} {}",
-                Stage, Outcome, Identity.StreamId.Value(), TargetHost, TargetPort,
-                Preview::Fault::Describe(Code), Details);
+                "MuxRelaySummary StreamId={} UpBytes={} DownBytes={}",
+                Identity.StreamId.Value(), Summary.UpBytes, Summary.DownBytes);
+        }
+
+        auto LogMuxRequest(
+            const Preview::Runtime::SharedSessionServices &Services,
+            const Preview::Lifecycle::TaskIdentity &Identity,
+            const std::string_view SourceIp,
+            const std::string_view User,
+            const Preview::Network::Target &Target) -> void
+        {
+            if (!Services ||
+                !Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info) ||
+                Target.Host.empty() || Target.Port.empty())
+            {
+                return;
+            }
+            auto Context = Services->ProcessContext;
+            if (Identity.WorkerId)
+            {
+                Context = Context.With(Preview::Diagnose::Fields::Worker, Identity.WorkerId);
+            }
+            if (Identity.SessionId)
+            {
+                Context = Context.With(Preview::Diagnose::Fields::Session, Identity.SessionId);
+            }
+            const auto Host = std::string_view{Target.Host.data(), Target.Host.size()};
+            const auto Port = std::string_view{Target.Port.data(), Target.Port.size()};
+            const auto Source = SourceIp.empty() ? std::string_view{"Unknown"} : SourceIp;
+            if (User.empty())
+            {
+                (void)Preview::Diagnose::Info(
+                    Context, "Request StreamId={} SourceIp={} Target={}:{}",
+                    Identity.StreamId.Value(), Source, Host, Port);
+            }
+            else
+            {
+                (void)Preview::Diagnose::Info(
+                    Context, "Request StreamId={} SourceIp={} Target={}:{} User={}",
+                    Identity.StreamId.Value(), Source, Host, Port, User);
+            }
         }
 
         [[nodiscard]] auto MakeMuxStreamHandler(
             const Preview::Runtime::SharedSessionServices &Services,
-            Preview::Middleware::Context::DialFn Dial)
+            Preview::Middleware::Context::DialFn Dial,
+            std::string SourceIp,
+            std::string User)
             -> Preview::Composition::MuxServiceOptions::StreamHandler
         {
-            return [Services, Dial = std::move(Dial)](
+            return [Services, Dial = std::move(Dial), SourceIp = std::move(SourceIp),
+                    User = std::move(User)](
                        Preview::SharedTransmission Stream,
                        const Preview::Lifecycle::TaskIdentity &Identity)
                 -> Net::awaitable<Preview::Fault::Code>
@@ -186,20 +244,22 @@ namespace Preview::Application
                 {
                     if (!Dial)
                     {
+                        LogMuxStreamFailure(Services, Identity, "DialUnavailable",
+                                            Preview::Fault::Code::NotSupported);
                         co_return Preview::Fault::Code::NotSupported;
                     }
                     const auto Target = SingStream->Target();
-                    LogMuxStreamStage(Services, Identity, "dial", "started",
-                                      Preview::Fault::Code::Success, Target);
+                    LogMuxRequest(Services, Identity, SourceIp, User, Target);
                     auto [DialCode, Outbound] = co_await Dial(Target);
-                    LogMuxStreamStage(Services, Identity, "dial",
-                                      Preview::Fault::Failed(DialCode) ? "failure" : "success",
-                                      DialCode, Target);
-                    if (Preview::Fault::Failed(DialCode) || !Outbound)
+                    const auto DialFailed = Preview::Fault::Failed(DialCode) || !Outbound;
+                    const auto EffectiveDialCode =
+                        DialCode == Preview::Fault::Code::Success && !Outbound
+                            ? Preview::Fault::Code::BadGateway
+                            : DialCode;
+                    if (DialFailed)
                     {
-                        co_return DialCode == Preview::Fault::Code::Success
-                                      ? Preview::Fault::Code::BadGateway
-                                      : DialCode;
+                        LogMuxStreamFailure(Services, Identity, "DialFailed", EffectiveDialCode);
+                        co_return EffectiveDialCode;
                     }
                     Preview::Middleware::Context RelayContext;
                     RelayContext.TaskIdentity = Identity;
@@ -208,24 +268,20 @@ namespace Preview::Application
                     RelayContext.Inbound = std::move(Stream);
                     RelayContext.Outbound = std::move(Outbound);
                     RelayContext.Target = Target;
+                    RelayContext.SourceIp = SourceIp;
                     RelayContext.traffic = Services->Traffic.get();
                     RelayContext.TrafficOwner = Services->Traffic;
                     RelayContext.identity = std::to_string(Identity.SessionId.Value());
                     Preview::Middleware::Builtin::RelayMiddleware Relay(
                         nullptr, Services->RelayIdleTimeout);
-                    LogMuxStreamStage(Services, Identity, "relay", "started",
-                                      Preview::Fault::Code::Success, Target);
                     const auto RelayCode = co_await Relay.Handle(RelayContext.Inbound, RelayContext);
                     const auto &Totals = Relay.LastTotals();
-                    const auto &Faults = Relay.LastDirectionFaults();
-                    const auto RelayDetails =
-                        "up_bytes=" + std::to_string(Totals[0]) +
-                        " down_bytes=" + std::to_string(Totals[1]) +
-                        " up_ec=" + std::to_string(Faults[0].value()) +
-                        " down_ec=" + std::to_string(Faults[1].value());
-                    LogMuxStreamStage(Services, Identity, "relay",
-                                      Preview::Fault::Failed(RelayCode) ? "failure" : "success",
-                                      RelayCode, Target, RelayDetails);
+                    if (Preview::Fault::Failed(RelayCode))
+                    {
+                        LogMuxStreamFailure(Services, Identity, "RelayFailed", RelayCode);
+                    }
+                    LogMuxStreamDetails(
+                        Services, Identity, MuxRelaySummary{Totals[0], Totals[1]});
                     co_return RelayCode;
                 }
 
@@ -239,12 +295,11 @@ namespace Preview::Application
                 Preview::Runtime::SessionOptions ChildOptions;
                 ChildOptions.Services = std::move(ChildServices);
                 ChildOptions.Control = std::move(ChildControl);
+                ChildOptions.SourceIp = SourceIp;
                 Preview::Runtime::Session Child(std::move(ChildOptions));
                 co_return co_await Child.Run(std::move(Stream));
             };
         }
-
-        inline std::atomic_uint64_t QuicSessionSequence{1};
 
         enum class RuntimePhase : std::uint8_t
         {
@@ -729,46 +784,6 @@ namespace Preview::Application
                 Result.Servers.push_back(Preview::Network::Dns::ParseServer(Server));
             }
             return Result;
-        }
-
-        [[nodiscard]] auto AccountCredentialKindName(
-            const Preview::Account::CredentialKind Kind) noexcept -> std::string_view
-        {
-            switch (Kind)
-            {
-            case Preview::Account::CredentialKind::Password: return "password";
-            case Preview::Account::CredentialKind::Uuid: return "uuid";
-            case Preview::Account::CredentialKind::Psk: return "psk";
-            case Preview::Account::CredentialKind::Token: return "token";
-            case Preview::Account::CredentialKind::Extension: return "extension";
-            case Preview::Account::CredentialKind::Unknown: return "unknown";
-            }
-            return "unknown";
-        }
-
-        [[nodiscard]] auto DescribeAccountDirectory(
-            const std::shared_ptr<const Preview::Account::AccountDirectory> &Directory) -> std::string
-        {
-            std::size_t Count = 0;
-            std::string Kinds;
-            if (Directory)
-            {
-                Directory->ForEach([&](const auto &Record)
-                {
-                    if (!Record)
-                    {
-                        return;
-                    }
-                    ++Count;
-                    if (!Kinds.empty())
-                    {
-                        Kinds.push_back(',');
-                    }
-                    Kinds.append(AccountCredentialKindName(Record->Credential().Kind()));
-                });
-            }
-            return "records=" + std::to_string(Count) + " kinds=" +
-                   (Kinds.empty() ? std::string("none") : Kinds);
         }
 
         [[nodiscard]] auto FindStaticBuiltin(
@@ -1287,7 +1302,8 @@ namespace Preview::Application
             const std::weak_ptr<const Preview::Ingress::QuicAdmissionContext> Weak = Shared;
 
             Mutable->Hysteria2Stream = [Weak](Preview::Hysteria2::Message Message,
-                                               Preview::Hysteria2::SharedConn Connection)
+                                               Preview::Hysteria2::SharedConn Connection,
+                                               Preview::Ingress::QuicPeerLogContext Peer)
                 -> Net::awaitable<void>
             {
                 const auto Context = Weak.lock();
@@ -1300,17 +1316,16 @@ namespace Preview::Application
                     }
                     co_return;
                 }
-                const auto SessionId = QuicSessionSequence.fetch_add(1, std::memory_order_relaxed);
-                auto LogContext = Context->Trace;
+                auto LogContext = Peer.Trace;
                 try
                 {
-                    const auto Carrier = std::string_view{"quic"};
+                    const auto Carrier = std::string_view{"Quic"};
                     if (const auto Derived = LogContext.TryWith(
                             Preview::Diagnose::Fields::Carrier, Carrier))
                     {
                         LogContext = *Derived;
                     }
-                    const auto Protocol = std::string_view{Context->Protocol};
+                    const auto Protocol = Preview::Diagnose::PascalCaseToken(Context->Protocol);
                     if (const auto Derived = LogContext.TryWith(
                             Preview::Diagnose::Fields::Protocol, Protocol))
                     {
@@ -1319,30 +1334,36 @@ namespace Preview::Application
                 }
                 catch (...)
                 {
-                    LogContext = Context->Trace;
+                    LogContext = Peer.Trace;
                 }
-                const auto WriteRelayLog = [Context, SessionId, LogContext](
-                                               const std::string_view Outcome,
-                                               const std::string_view Fault,
-                                               const Preview::Network::Target &Target) noexcept
-                {
-                    (void)Preview::Diagnose::Info(
-                        LogContext,
-                        "carrier=quic protocol={} session_id=quic-{} stage=relay outcome={} fault={} target={}:{}",
-                        Context->Protocol, SessionId, Outcome, Fault,
-                        std::string_view{Target.Host.data(), Target.Host.size()},
-                        std::string_view{Target.Port.data(), Target.Port.size()});
-                };
                 Preview::Network::Target Target;
                 Target.Host.assign(Message.dst.Host.data(), Message.dst.Host.size());
                 Target.Port.assign(std::to_string(Message.dst.Port));
                 const auto AccountId = Connection->AccountId();
+                const auto ResolvedAccountId = AccountId ? AccountId : Context->AccountId;
+                const auto SourceIp = Peer.SourceIp.empty() ? std::string_view{"Unknown"}
+                                                            : std::string_view{Peer.SourceIp};
+                const auto Host = std::string_view{Target.Host.data(), Target.Host.size()};
+                const auto Port = std::string_view{Target.Port.data(), Target.Port.size()};
+                if (Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info))
+                {
+                    const auto User = std::to_string(ResolvedAccountId.Value());
+                    (void)Preview::Diagnose::Info(
+                        LogContext, "Request SourceIp={} Target={}:{} User={}",
+                        SourceIp, Host, Port, User);
+                }
                 auto Lease = Connection->TakeAuthLease();
                 const auto Identity = std::string(Connection->Identity());
                 auto [DialError, Outbound] = co_await Context->Dial(Target);
                 if (Preview::Fault::Failed(DialError) || !Outbound)
                 {
-                    WriteRelayLog("failure", "dial", Target);
+                    const auto FailureCode = DialError == Preview::Fault::Code::Success
+                                                 ? Preview::Fault::Code::BadGateway
+                                                 : DialError;
+                    (void)Preview::Diagnose::Warn(
+                        LogContext, "QuicDialFailed SourceIp={} Target={}:{} FaultCode={}",
+                        SourceIp, Host, Port,
+                        Preview::Diagnose::PascalCaseToken(Preview::Fault::Describe(FailureCode)));
                     Connection->Close();
                     co_return;
                 }
@@ -1351,7 +1372,8 @@ namespace Preview::Application
                 SessionContext.Inbound = std::move(Connection);
                 SessionContext.Outbound = std::move(Outbound);
                 SessionContext.Target = std::move(Target);
-                SessionContext.AccountId = AccountId ? AccountId : Context->AccountId;
+                SessionContext.SourceIp = Peer.SourceIp;
+                SessionContext.AccountId = ResolvedAccountId;
                 SessionContext.AccountLease = std::move(Lease);
                 SessionContext.Credential = Context->Credential;
                 SessionContext.ProtocolAuthenticated = true;
@@ -1362,11 +1384,21 @@ namespace Preview::Application
                 Preview::Middleware::Builtin::RelayMiddleware Relay(
                     nullptr, std::chrono::milliseconds(0));
                 const auto RelayError = co_await Relay.Handle(SessionContext.Inbound, SessionContext);
-                WriteRelayLog(RelayError == Preview::Fault::Code::Success ? "success" : "failure",
-                              Preview::Fault::Describe(RelayError), SessionContext.Target);
+                if (Preview::Fault::Failed(RelayError))
+                {
+                    const auto RelayHost = std::string_view{
+                        SessionContext.Target.Host.data(), SessionContext.Target.Host.size()};
+                    const auto RelayPort = std::string_view{
+                        SessionContext.Target.Port.data(), SessionContext.Target.Port.size()};
+                    (void)Preview::Diagnose::Warn(
+                        LogContext, "QuicRelayFailed SourceIp={} Target={}:{} FaultCode={}",
+                        SourceIp, RelayHost, RelayPort,
+                        Preview::Diagnose::PascalCaseToken(Preview::Fault::Describe(RelayError)));
+                }
             };
 
-            Mutable->Hysteria2Datagram = [Weak](Preview::Hysteria2::SharedDgram Datagram)
+            Mutable->Hysteria2Datagram = [Weak](Preview::Hysteria2::SharedDgram Datagram,
+                                                 Preview::Ingress::QuicPeerLogContext Peer)
                 -> Net::awaitable<void>
             {
                 const auto Context = Weak.lock();
@@ -1379,6 +1411,10 @@ namespace Preview::Application
                 std::vector<std::byte> ReceiveBuffer(65535);
                 std::size_t Uploaded = 0;
                 std::size_t Downloaded = 0;
+                std::size_t DatagramCount = 0;
+                bool SummaryLogged = false;
+                const auto SourceIp = Peer.SourceIp.empty() ? std::string_view{"Unknown"}
+                                                            : std::string_view{Peer.SourceIp};
                 while (true)
                 {
                     Preview::Hysteria2::Address Target;
@@ -1387,6 +1423,20 @@ namespace Preview::Application
                     if (ReceiveError != Preview::Error::None)
                     {
                         break;
+                    }
+                    ++DatagramCount;
+                    if (!SummaryLogged && Target.Port != 0U &&
+                        Target.Host != "0.0.0.0" && Target.Host != "::")
+                    {
+                        if (Preview::Diagnose::IsEnabled(
+                                Preview::Diagnose::LogLevel::Info))
+                        {
+                            const auto User = std::to_string(Context->AccountId.Value());
+                            (void)Preview::Diagnose::Info(
+                                Peer.Trace, "Request SourceIp={} Target={}:{} User={}",
+                                SourceIp, Target.Host, Target.Port, User);
+                        }
+                        SummaryLogged = true;
                     }
                     const auto Resolved = co_await ResolveUdpTarget(
                         Context->Resolver,
@@ -1441,6 +1491,10 @@ namespace Preview::Application
                     Context->Metrics->Report(
                         std::to_string(Context->AccountId.Value()), Uploaded, Downloaded);
                 }
+                (void)Preview::Diagnose::Trace(
+                    Peer.Trace,
+                    "UdpSessionSummary SourceIp={} Datagrams={} UpBytes={} DownBytes={}",
+                    SourceIp, DatagramCount, Uploaded, Downloaded);
             };
             if (Protocol.Builtin == "tuic")
             {
@@ -2724,10 +2778,12 @@ namespace Preview::Application
             -> Preview::Runtime::TcpListener::SessionFactory
         {
             return [Services = std::move(FactoryOptions.Services),
-                    Workers = FactoryOptions.Workers](Preview::SharedTransmission, std::size_t WorkerIndex)
+                    Workers = FactoryOptions.Workers](Preview::SharedTransmission, std::size_t WorkerIndex,
+                                                       const std::string_view SourceIp)
                 -> std::shared_ptr<Preview::Runtime::Session>
             {
                 Preview::Runtime::SessionOptions Options;
+                Options.SourceIp.assign(SourceIp);
                 auto SessionServices = std::make_shared<Preview::Runtime::SessionServices>(*Services);
                 if (Workers)
                 {
@@ -3236,7 +3292,7 @@ namespace Preview::Application
                 const auto Message = Preview::Statistics::RedactSensitiveText(Error.message());
                 (void)Preview::Diagnose::Error(
                     StateValue->RootContext,
-                    "event=udp_receive_failed code={} message={}", Error.value(), Message);
+                    "UdpReceiveFailed Error={}", Message);
             }
         };
         Net::co_spawn(
@@ -3992,9 +4048,13 @@ namespace Preview::Application
             ArmDiagnoseFlush(Runtime);
             Runtime->RootContext = Preview::Diagnose::ContextState::Empty()
                                        .With(Preview::Diagnose::Fields::Process,
-                                             Runtime->Process->Id())
-                                       .With(Preview::Diagnose::Fields::Generation,
-                                             Runtime->Generation->Id());
+                                             Runtime->Process->Id());
+            const auto RuntimeGeneration = Runtime->Generation->Id();
+            if (RuntimeGeneration.Value() > 1U)
+            {
+                Runtime->RootContext = Runtime->RootContext.With(
+                    Preview::Diagnose::Fields::Generation, RuntimeGeneration);
+            }
             Runtime->WorkerContexts.reserve(Runtime->Process->Workers().Size());
             for (std::size_t Index = 0; Index < Runtime->Process->Workers().Size(); ++Index)
             {
@@ -4016,44 +4076,7 @@ namespace Preview::Application
                     Preview::Ingress::QuicGatewayOptions{
                         4096,
                         65536,
-                        [WeakRuntime](const Preview::Ingress::UdpPacket &Packet)
-                        {
-                            const auto StateValue = WeakRuntime.lock();
-                            if (!StateValue || !StateValue->Process)
-                            {
-                                return;
-                            }
-                            const auto WorkerCount = StateValue->Process->Workers().Size();
-                            const auto WorkerIndex = Preview::Runtime::AffinityBalancer(WorkerCount)
-                                                         .Select(Packet.Peer.address().to_string());
-                            const auto WorkerId = Preview::WorkerId{
-                                static_cast<std::uint64_t>(WorkerIndex + 1U)};
-                            const auto WorkerContext =
-                                WorkerIndex < StateValue->WorkerContexts.size()
-                                    ? StateValue->WorkerContexts[WorkerIndex]
-                                    : StateValue->RootContext;
-                            const auto Generation = StateValue->Process->Workers().Generation();
-                            const auto Bytes = Packet.Payload.size();
-                            const auto ConnectionId = Packet.Classification.ConnectionId;
-                            const auto Peer = Packet.Peer.address().to_string();
-                            const auto PeerPort = Packet.Peer.port();
-                            const auto Result = StateValue->Process->Workers().Dispatch(
-                                WorkerId, Generation,
-                                [WorkerContext, Bytes, ConnectionId, Peer, PeerPort]
-                                {
-                                    (void)Preview::Diagnose::Debug(
-                                        WorkerContext,
-                                        "event=quic_packet_received cid={} bytes={} peer={}:{}",
-                                        ConnectionId, Bytes, Peer, PeerPort);
-                                });
-                            if (Result != Preview::Runtime::Mailbox::Result::Accepted)
-                            {
-                                (void)Preview::Diagnose::Warn(
-                                    WorkerContext,
-                                    "event=quic_packet_dispatch_rejected worker={} result={}",
-                                    WorkerId.Value(), static_cast<unsigned int>(Result));
-                            }
-                        }});
+                        {}});
                 Runtime->IngressDispatcher =
                     std::make_shared<Preview::Ingress::IngressDispatcher>(
                         Preview::Ingress::IngressDispatcher::Options{
@@ -4061,44 +4084,12 @@ namespace Preview::Application
                             [WeakRuntime](Preview::Ingress::UdpPacket Packet)
                             {
                                 const auto StateValue = WeakRuntime.lock();
-                                if (!StateValue || !StateValue->Process)
+                                if (!StateValue || !StateValue->Process ||
+                                    !StateValue->Ss2022Gateway)
                                 {
                                     return;
                                 }
-                                if (StateValue->Ss2022Gateway &&
-                                    StateValue->Ss2022Gateway->Handle(Packet))
-                                {
-                                    return;
-                                }
-                                const auto WorkerCount = StateValue->Process->Workers().Size();
-                                const auto WorkerIndex = Preview::Runtime::AffinityBalancer(WorkerCount)
-                                                             .Select(Packet.Peer.address().to_string());
-                                const auto WorkerId = Preview::WorkerId{
-                                    static_cast<std::uint64_t>(WorkerIndex + 1U)};
-                                const auto WorkerContext =
-                                    WorkerIndex < StateValue->WorkerContexts.size()
-                                        ? StateValue->WorkerContexts[WorkerIndex]
-                                        : StateValue->RootContext;
-                                const auto Generation = StateValue->Process->Workers().Generation();
-                                const auto Bytes = Packet.Payload.size();
-                                const auto Peer = Packet.Peer.address().to_string();
-                                const auto PeerPort = Packet.Peer.port();
-                                const auto Result = StateValue->Process->Workers().Dispatch(
-                                    WorkerId, Generation,
-                                    [WorkerContext, Bytes, Peer, PeerPort]
-                                    {
-                                        (void)Preview::Diagnose::Debug(
-                                            WorkerContext,
-                                            "event=udp_datagram_received status=unclaimed bytes={} peer={}:{}",
-                                            Bytes, Peer, PeerPort);
-                                    });
-                                if (Result != Preview::Runtime::Mailbox::Result::Accepted)
-                                {
-                                    (void)Preview::Diagnose::Warn(
-                                        WorkerContext,
-                                        "event=udp_datagram_dispatch_rejected worker={} result={}",
-                                        WorkerId.Value(), static_cast<unsigned int>(Result));
-                                }
+                                (void)StateValue->Ss2022Gateway->Handle(std::move(Packet));
                             },
                             [WeakRuntime](Preview::Ingress::UdpPacket Packet) -> bool
                             {
@@ -4173,18 +4164,6 @@ namespace Preview::Application
                 return std::unexpected(*LastError_);
             }
             Runtime->Services->NativeTls = *NativeTls;
-            for (const auto &Configured : (*Generation)->Configuration().Protocols)
-            {
-                if (const auto Protocol = ParseStaticProtocol(Configured.Name))
-                {
-                    const auto Index = static_cast<std::size_t>(*Protocol);
-                    (void)Preview::Diagnose::Info(
-                        Runtime->RootContext,
-                        "event=account_directory protocol={} {}",
-                        Configured.Name, DescribeAccountDirectory(ProtocolAccounts[Index]));
-                }
-            }
-            (void)Preview::Diagnose::Info(Runtime->RootContext, "event=runtime_start");
             Runtime->ShutdownTimeout = std::chrono::milliseconds(
                 (*Generation)->Configuration().Shutdown.Timeout);
             Runtime->Services->HandshakeTimeout = std::chrono::milliseconds(
@@ -4233,7 +4212,7 @@ namespace Preview::Application
                     Preview::Ingress::QuicCidRegistry::Options{
                         [Executor, Socket, TlsContext](
                             std::span<const std::byte>,
-                            const Net::ip::udp::endpoint &,
+                            const Net::ip::udp::endpoint &Peer,
                             Preview::Ingress::SharedQuicAdmissionContext Context)
                             -> std::shared_ptr<Preview::Quic::Server>
                         {
@@ -4247,15 +4226,18 @@ namespace Preview::Application
                             Options.Socket = Socket;
                             Options.TlsContext = TlsContext->native_handle();
                             Options.ExternalReceive = true;
+                            const auto SourceIp = Peer.address().to_string();
+                            Preview::Ingress::QuicPeerLogContext PeerContext{
+                                SourceIp, Context->Trace};
                             if (Context->Protocol == "tuic")
                             {
                                 Options = Preview::Composition::Quic::ConfigureTuicServer(
-                                    std::move(Options), Context);
+                                    std::move(Options), Context, std::move(PeerContext));
                             }
                             else
                             {
                                 Options = Preview::Composition::Quic::ConfigureHysteria2Server(
-                                    std::move(Options), Context);
+                                    std::move(Options), Context, std::move(PeerContext));
                             }
                             return std::make_shared<Preview::Quic::Server>(std::move(Options));
                         },
@@ -4301,48 +4283,7 @@ namespace Preview::Application
                     .Identity = {},
                     .MaxStreams = 256,
                     .Timeout = std::chrono::milliseconds(0),
-                    .RequireSingMuxProtocol = true,
-                    .StreamHandlerFn = MakeMuxStreamHandler(
-                        Runtime->Services, Runtime->Services->Dial)});
-            Runtime->MuxService->SetStreamResultHandler(
-                [Services = Runtime->Services](
-                    const std::uint16_t Protocol,
-                    const Preview::Composition::MuxMode Mode,
-                    const Preview::Lifecycle::TaskIdentity &Identity,
-                    const Preview::Fault::Code Code)
-                {
-                    const auto ProtocolName = Preview::Recognition::ToStringView(
-                        static_cast<Preview::Recognition::ProtocolType>(Protocol));
-                    auto Context = Services->ProcessContext;
-                    if (Identity.WorkerId)
-                    {
-                        Context = Context.With(Preview::Diagnose::Fields::Worker,
-                                               Identity.WorkerId);
-                    }
-                    if (Identity.SessionId)
-                    {
-                        Context = Context.With(Preview::Diagnose::Fields::Session,
-                                               Identity.SessionId);
-                    }
-                    const auto StreamContext = Context.TryWith(
-                        Preview::Diagnose::Fields::Stream, Identity.StreamId);
-                    const auto Outcome = Code == Preview::Fault::Code::Success
-                                             ? std::string_view{"success"}
-                                             : std::string_view{"failure"};
-                    if (StreamContext)
-                    {
-                        (void)Preview::Diagnose::Info(
-                            *StreamContext,
-                            "event=mux protocol={} mux={} fault_code={} stage=relay outcome={}",
-                            ProtocolName, Preview::Composition::MuxModeName(Mode),
-                            Preview::Fault::Describe(Code), Outcome);
-                        return;
-                    }
-                    (void)Preview::Diagnose::Info(
-                        Context,
-                        "event=mux protocol={} mux={} fault_code={} stage=relay outcome={}",
-                        ProtocolName, Preview::Composition::MuxModeName(Mode),
-                        Preview::Fault::Describe(Code), Outcome);
+                    .RequireSingMuxProtocol = true
                 });
             Runtime->Services->Mux = [Service = Runtime->MuxService,
                                       Services = Runtime->Services,
@@ -4364,7 +4305,7 @@ namespace Preview::Application
                     ProtocolOwnsMux)
                 {
                     const auto Code = co_await Preview::Composition::VlessXudp::Run(
-                        Inbound, Resolver);
+                        Inbound, Resolver, &Context);
                     co_return Code == Preview::Fault::Code::Success;
                 }
                 if (static_cast<Preview::Recognition::ProtocolType>(Context.detected) ==
@@ -4374,8 +4315,20 @@ namespace Preview::Application
                         Inbound, Context, Context.Dial ? Context.Dial : Services->Dial);
                     co_return Code == Preview::Fault::Code::Success;
                 }
+                std::string User;
+                if (Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info))
+                {
+                    try
+                    {
+                        User = Context.UserForLog();
+                    }
+                    catch (...)
+                    {
+                    }
+                }
                 const auto Handler = MakeMuxStreamHandler(
-                    Services, Context.Dial ? Context.Dial : Services->Dial);
+                    Services, Context.Dial ? Context.Dial : Services->Dial,
+                    Context.SourceIp, std::move(User));
                 const auto Code = co_await Service->Run(Inbound, Context, Handler);
                 co_return Code == Preview::Fault::Code::Success;
             };
@@ -4511,7 +4464,7 @@ namespace Preview::Application
                 Event.Detail = "application ready";
                 (void)State_->Events->Append(std::move(Event));
             }
-            (void)Preview::Diagnose::Info(State_->RootContext, "event=runtime_ready");
+            (void)Preview::Diagnose::Debug(State_->RootContext, "RuntimeReady");
             auto *Output = Options_.Output != nullptr ? Options_.Output : &std::cout;
             *Output << "PrismPreview READY tcp_port=" << State_->Ready.Port
                     << " udp_port=" << State_->Ready.UdpPort

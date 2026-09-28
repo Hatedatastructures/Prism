@@ -17,7 +17,6 @@
 #include <chrono>
 #include <cstddef>
 #include <memory>
-#include <atomic>
 #include <string>
 #include <utility>
 #include <vector>
@@ -26,14 +25,15 @@ namespace Preview::Application::TuicAdmission
 {
 
     namespace Net = boost::asio;
-    inline std::atomic_uint64_t TuicSessionSequence{1};
-
     [[nodiscard]] inline auto MakeStreamHandler(
         const std::weak_ptr<const Preview::Ingress::QuicAdmissionContext> &Weak)
         -> std::function<Net::awaitable<void>(Preview::Tuic::Message,
-                                               Preview::Tuic::SharedConn)>
+                                               Preview::Tuic::SharedConn,
+                                               Preview::Ingress::QuicPeerLogContext)>
     {
-        return [Weak](Preview::Tuic::Message Message, Preview::Tuic::SharedConn Connection)
+        return [Weak](Preview::Tuic::Message Message,
+                      Preview::Tuic::SharedConn Connection,
+                      Preview::Ingress::QuicPeerLogContext Peer)
             -> Net::awaitable<void>
         {
             const auto Context = Weak.lock();
@@ -46,17 +46,16 @@ namespace Preview::Application::TuicAdmission
                 }
                 co_return;
             }
-            const auto SessionId = TuicSessionSequence.fetch_add(1, std::memory_order_relaxed);
-            auto LogContext = Context->Trace;
+            auto LogContext = Peer.Trace;
             try
             {
-                const auto Carrier = std::string_view{"quic"};
+                const auto Carrier = std::string_view{"Quic"};
                 if (const auto Derived = LogContext.TryWith(
                         Preview::Diagnose::Fields::Carrier, Carrier))
                 {
                     LogContext = *Derived;
                 }
-                const auto Protocol = std::string_view{Context->Protocol};
+                const auto Protocol = Preview::Diagnose::PascalCaseToken(Context->Protocol);
                 if (const auto Derived = LogContext.TryWith(
                         Preview::Diagnose::Fields::Protocol, Protocol))
                 {
@@ -65,30 +64,36 @@ namespace Preview::Application::TuicAdmission
             }
             catch (...)
             {
-                LogContext = Context->Trace;
+                LogContext = Peer.Trace;
             }
-            const auto WriteRelayLog = [Context, SessionId, LogContext](
-                                           const std::string_view Outcome,
-                                           const std::string_view Fault,
-                                           const Preview::Network::Target &Target) noexcept
-            {
-                (void)Preview::Diagnose::Info(
-                    LogContext,
-                    "carrier=quic protocol={} session_id=quic-{} stage=relay outcome={} fault={} target={}:{}",
-                    Context->Protocol, SessionId, Outcome, Fault,
-                    std::string_view{Target.Host.data(), Target.Host.size()},
-                    std::string_view{Target.Port.data(), Target.Port.size()});
-            };
             Preview::Network::Target Target;
             Target.Host.assign(Message.dst.Host.data(), Message.dst.Host.size());
             Target.Port.assign(std::to_string(Message.dst.Port));
             const auto AccountId = Connection->AccountId();
+            const auto Source = Peer.SourceIp.empty() ? std::string_view{"Unknown"}
+                                                     : std::string_view{Peer.SourceIp};
+            const auto Host = std::string_view{Target.Host.data(), Target.Host.size()};
+            const auto Port = std::string_view{Target.Port.data(), Target.Port.size()};
+            if (Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info))
+            {
+                const auto User = std::to_string(
+                    (AccountId ? AccountId : Context->AccountId).Value());
+                (void)Preview::Diagnose::Info(
+                    LogContext, "Request SourceIp={} Target={}:{} User={}",
+                    Source, Host, Port, User);
+            }
             auto Lease = Connection->TakeAuthLease();
             const auto Identity = std::string(Connection->Identity());
             auto [DialError, Outbound] = co_await Context->Dial(Target);
             if (Preview::Fault::Failed(DialError) || !Outbound)
             {
-                WriteRelayLog("failure", "dial", Target);
+                const auto FailureCode = DialError == Preview::Fault::Code::Success
+                                             ? Preview::Fault::Code::BadGateway
+                                             : DialError;
+                (void)Preview::Diagnose::Warn(
+                    LogContext, "QuicDialFailed SourceIp={} Target={}:{} FaultCode={}",
+                    Source, Host, Port,
+                    Preview::Diagnose::PascalCaseToken(Preview::Fault::Describe(FailureCode)));
                 Connection->Close();
                 co_return;
             }
@@ -97,6 +102,7 @@ namespace Preview::Application::TuicAdmission
             SessionContext.Inbound = std::move(Connection);
             SessionContext.Outbound = std::move(Outbound);
             SessionContext.Target = std::move(Target);
+            SessionContext.SourceIp = Peer.SourceIp;
             SessionContext.AccountId = AccountId ? AccountId : Context->AccountId;
             SessionContext.AccountLease = std::move(Lease);
             SessionContext.Credential = Context->Credential;
@@ -108,16 +114,28 @@ namespace Preview::Application::TuicAdmission
             Preview::Middleware::Builtin::RelayMiddleware Relay(
                 nullptr, std::chrono::milliseconds(0));
             const auto RelayError = co_await Relay.Handle(SessionContext.Inbound, SessionContext);
-            WriteRelayLog(RelayError == Preview::Fault::Code::Success ? "success" : "failure",
-                          Preview::Fault::Describe(RelayError), SessionContext.Target);
+            if (Preview::Fault::Failed(RelayError))
+            {
+                const auto RelayHost = std::string_view{
+                    SessionContext.Target.Host.data(), SessionContext.Target.Host.size()};
+                const auto RelayPort = std::string_view{
+                    SessionContext.Target.Port.data(), SessionContext.Target.Port.size()};
+                (void)Preview::Diagnose::Warn(
+                    LogContext, "QuicRelayFailed SourceIp={} Target={}:{} FaultCode={}",
+                    Source, RelayHost, RelayPort,
+                    Preview::Diagnose::PascalCaseToken(Preview::Fault::Describe(RelayError)));
+            }
         };
     }
 
     [[nodiscard]] inline auto MakeDatagramHandler(
         const std::weak_ptr<const Preview::Ingress::QuicAdmissionContext> &Weak)
-        -> std::function<Net::awaitable<void>(Preview::Tuic::SharedDgram)>
+        -> std::function<Net::awaitable<void>(Preview::Tuic::SharedDgram,
+                                               Preview::Ingress::QuicPeerLogContext)>
     {
-        return [Weak](Preview::Tuic::SharedDgram Datagram) -> Net::awaitable<void>
+        return [Weak](Preview::Tuic::SharedDgram Datagram,
+                      Preview::Ingress::QuicPeerLogContext Peer)
+            -> Net::awaitable<void>
         {
             const auto Context = Weak.lock();
             if (!Context || !Datagram || !Context->Resolver)
@@ -129,6 +147,10 @@ namespace Preview::Application::TuicAdmission
             std::vector<std::byte> ReceiveBuffer(65535);
             std::size_t Uploaded = 0;
             std::size_t Downloaded = 0;
+            std::size_t DatagramCount = 0;
+            bool SummaryLogged = false;
+            const auto SourceIp = Peer.SourceIp.empty() ? std::string_view{"Unknown"}
+                                                        : std::string_view{Peer.SourceIp};
             while (true)
             {
                 Preview::Tuic::Address Target;
@@ -136,6 +158,19 @@ namespace Preview::Application::TuicAdmission
                 if (co_await Datagram->AsyncReceiveFrom(Target, Payload) != Preview::Error::None)
                 {
                     break;
+                }
+                ++DatagramCount;
+                if (!SummaryLogged && Target.Port != 0U &&
+                    Target.Host != "0.0.0.0" && Target.Host != "::")
+                {
+                    if (Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info))
+                    {
+                        const auto User = std::to_string(Context->AccountId.Value());
+                        (void)Preview::Diagnose::Info(
+                            Peer.Trace, "Request SourceIp={} Target={}:{} User={}",
+                            SourceIp, Target.Host, Target.Port, User);
+                    }
+                    SummaryLogged = true;
                 }
                 boost::system::error_code ResolveError;
                 Net::ip::udp::endpoint Destination;
@@ -192,6 +227,10 @@ namespace Preview::Application::TuicAdmission
                 Context->Metrics->Report(
                     std::to_string(Context->AccountId.Value()), Uploaded, Downloaded);
             }
+            (void)Preview::Diagnose::Trace(
+                Peer.Trace,
+                "UdpSessionSummary SourceIp={} Datagrams={} UpBytes={} DownBytes={}",
+                SourceIp, DatagramCount, Uploaded, Downloaded);
         };
     }
 

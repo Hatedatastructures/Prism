@@ -12,6 +12,7 @@
 #include <chrono>
 #include <fstream>
 #include <iterator>
+#include <regex>
 #include <string>
 
 namespace
@@ -33,15 +34,15 @@ namespace
                                  .With(Preview::Diagnose::Fields::Worker, Preview::WorkerId{2})
                                  .With(Preview::Diagnose::Fields::Session, Preview::SessionId{3});
 
-        const auto Debug = Preview::Diagnose::Debug(Context, "debug id={}", 1U);
-        const auto Info = Preview::Diagnose::Info("ready port={}", 1080U);
-        const auto Access = Preview::Diagnose::Access(Context, "accepted bytes={}", 12U);
-        const auto Warn = Preview::Diagnose::Warn("warn code={}", 7U);
-        const auto Error = Preview::Diagnose::Error(Context, "error code={}", 8U);
-        const auto Critical = Preview::Diagnose::Critical("critical code={}", 9U);
-        const auto Audit = Preview::Diagnose::Audit(Context, "event={}", "session_closed");
-        const auto Secret = Preview::Diagnose::Info("token=facade-canary");
-        const auto Multiline = Preview::Diagnose::Info("first line\nsecond line");
+        const auto Debug = Preview::Diagnose::Debug(Context, "DebugId={}", 1U);
+        const auto Info = Preview::Diagnose::Info("RuntimeReady Port={}", 1080U);
+        const auto Access = Preview::Diagnose::Access(Context, "RequestAccepted Bytes={}", 12U);
+        const auto Warn = Preview::Diagnose::Warn("WarnCode={}", 7U);
+        const auto Error = Preview::Diagnose::Error(Context, "ErrorCode={}", 8U);
+        const auto Critical = Preview::Diagnose::Critical("CriticalCode={}", 9U);
+        const auto Audit = Preview::Diagnose::Audit(Context, "SessionClosed");
+        const auto Secret = Preview::Diagnose::Info("Token=facade-canary");
+        const auto Multiline = Preview::Diagnose::Info("FirstLine\nSecondLine");
 
         EXPECT_EQ(Debug.Status, Preview::Diagnose::SubmissionStatus::Accepted);
         EXPECT_EQ(Info.Status, Preview::Diagnose::SubmissionStatus::Accepted);
@@ -68,16 +69,42 @@ namespace
 
         const auto Contents = ReadFile(Environment.Configuration().Logging.Directory /
                                        Environment.Configuration().Logging.FileName);
-        EXPECT_NE(Contents.find("[W2][S3] debug id=1"), std::string::npos);
-        EXPECT_NE(Contents.find("ready port=1080"), std::string::npos);
-        EXPECT_NE(Contents.find("[W2][S3] [access] accepted bytes=12"), std::string::npos);
-        EXPECT_NE(Contents.find("[warning] warn code=7"), std::string::npos);
-        EXPECT_NE(Contents.find("[error] [W2][S3] error code=8"), std::string::npos);
-        EXPECT_NE(Contents.find("[critical] critical code=9"), std::string::npos);
-        EXPECT_NE(Contents.find("[W2][S3] [access] event=session_closed"), std::string::npos);
+        EXPECT_NE(Contents.find("[Debug] [W2][S3] DebugId=1"), std::string::npos);
+        EXPECT_NE(Contents.find("[Info] RuntimeReady Port=1080"), std::string::npos);
+        EXPECT_NE(Contents.find("[Access] [W2][S3] RequestAccepted Bytes=12"), std::string::npos);
+        EXPECT_NE(Contents.find("[Warn] WarnCode=7"), std::string::npos);
+        EXPECT_NE(Contents.find("[Error] [W2][S3] ErrorCode=8"), std::string::npos);
+        EXPECT_NE(Contents.find("[Critical] CriticalCode=9"), std::string::npos);
+        EXPECT_NE(Contents.find("[Access] [W2][S3] SessionClosed"), std::string::npos);
+        EXPECT_FALSE(std::regex_search(Contents, std::regex(R"(\[\s*[0-9]{1,8}\s*\])")));
         EXPECT_NE(Contents.find("token=<redacted>"), std::string::npos);
         EXPECT_EQ(Contents.find("facade-canary"), std::string::npos);
-        EXPECT_NE(Contents.find("first line\\nsecond line"), std::string::npos);
+        EXPECT_NE(Contents.find("FirstLine\\nSecondLine"), std::string::npos);
+    }
+
+    TEST(PreviewDiagnose, PascalCaseTokenFormatsOnlyControlledNames)
+    {
+        EXPECT_EQ(Preview::Diagnose::PascalCaseToken("client_hello_timeout"),
+                  "ClientHelloTimeout");
+        EXPECT_EQ(Preview::Diagnose::PascalCaseToken("hysteria2"), "Hysteria2");
+        EXPECT_EQ(Preview::Diagnose::LogLevelName(Preview::Diagnose::LogLevel::Trace), "Trace");
+        EXPECT_EQ(Preview::Diagnose::LogLevelName(Preview::Diagnose::LogLevel::Debug), "Debug");
+        EXPECT_EQ(Preview::Diagnose::LogLevelName(Preview::Diagnose::LogLevel::Info), "Info");
+        EXPECT_EQ(Preview::Diagnose::LogLevelName(Preview::Diagnose::LogLevel::Access), "Access");
+        EXPECT_EQ(Preview::Diagnose::LogLevelName(Preview::Diagnose::LogLevel::Warn), "Warn");
+        EXPECT_EQ(Preview::Diagnose::LogLevelName(Preview::Diagnose::LogLevel::Error), "Error");
+        EXPECT_EQ(Preview::Diagnose::LogLevelName(Preview::Diagnose::LogLevel::Critical),
+                  "Critical");
+    }
+
+    TEST(PreviewDiagnose, IsEnabledReportsInstalledOrdinaryThreshold)
+    {
+        Preview::TestSupport::DiagnoseTestEnvironment Environment{"level-query"};
+        ASSERT_TRUE(Environment.Install().has_value());
+        EXPECT_TRUE(Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info));
+        EXPECT_FALSE(Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Debug));
+        EXPECT_FALSE(Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Trace));
+        EXPECT_TRUE(Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Access));
     }
 
 } // namespace

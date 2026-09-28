@@ -21,6 +21,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <Preview/Foundation/Fault/Code.hpp>
@@ -163,7 +164,7 @@ namespace
 
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -240,7 +241,7 @@ namespace
 
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -299,7 +300,7 @@ namespace
 
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;

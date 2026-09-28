@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Runtime/Middleware/Context.hpp>
@@ -111,7 +112,7 @@ namespace
 
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -204,7 +205,7 @@ namespace
 
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -304,7 +305,7 @@ namespace
         Net::io_context ioc;
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [](SharedTransmission, std::size_t)
+            [](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -406,7 +407,7 @@ namespace
                       });
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -500,7 +501,7 @@ namespace
                       });
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -573,7 +574,7 @@ namespace
         TrafficRecorder recorder;
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;
@@ -659,7 +660,7 @@ namespace
                       });
         Runtime::TcpListener listener(
             ioc.get_executor(),
-            [&](SharedTransmission, std::size_t)
+            [&](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions opts;

@@ -18,6 +18,7 @@
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Foundation/Memory/Container.hpp>
 #include <Preview/Foundation/Memory/Pointer.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Transport/Transmission.hpp>
 #include <Preview/Protocols/Reality/Codec.hpp>
 #include <Preview/Protocols/Reality/Types.hpp>
@@ -29,7 +30,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <memory>
 #include <span>
 #include <system_error>
@@ -126,7 +126,7 @@ namespace Preview::Reality
             SessionId_ = Sealed;
             if (co_await SendBytes(Sealed))
             {
-                std::fprintf(stderr, "[reality] send sealed sid Failed\n");
+                (void)Preview::Diagnose::Trace("RealitySessionIdWriteFailed");
                 co_return Error::IoError;
             }
             Handshaken_ = true;

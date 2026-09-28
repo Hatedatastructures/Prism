@@ -4,8 +4,6 @@
  */
 #pragma once
 
-#include <spdlog/details/os.h>
-
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -34,7 +32,7 @@ namespace Preview::Diagnose::Detail
          * @param Request facade 创建的请求；Context 在调用期间必须有效。
          * @param State 当前 backend 状态；空指针表示 backend 不可用。
          * @return 后端提交回执。捕获消息或上下文失败时返回 Failed。
-         * @details 只有 Structured 模式会捕获提交时间和线程 ID；其他模式将相关格式信息留给 sink。
+         * @details Structured 模式在提交线程捕获时间戳；线程身份由上下文中的 Worker 字段表达，不记录操作系统线程号。
          */
         [[nodiscard]] static auto Submit(const SubmissionRequest &Request, AsyncBackendState *State) noexcept
             -> SubmissionReceipt
@@ -60,7 +58,6 @@ namespace Preview::Diagnose::Detail
                         static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                                                        std::chrono::system_clock::now().time_since_epoch())
                                                        .count());
-                    Record.ThreadId = static_cast<std::uint32_t>(spdlog::details::os::thread_id());
                 }
                 Record.Message = Preview::Statistics::RedactSensitiveText(Request.Message);
                 Record.Context = ContextDecoder::Capture(*Request.Context, State->Settings_.Mode,

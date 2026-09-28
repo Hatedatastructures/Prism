@@ -15,7 +15,6 @@
 #include <memory>
 #include <utility>
 
-#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Foundation/Error.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
 #include <Preview/Foundation/Fault/Handling.hpp>
@@ -48,6 +47,8 @@ namespace Preview::Runtime
         Context.Target = Preview::Network::Target{};
         Context.AccountId = {};
         Context.identity.clear();
+        Context.DisplayIdentity.clear();
+        Context.ProtocolNameForLog.clear();
         Context.ProtocolAuthenticated = false;
         Context.IsDgram = false;
         Context.PostDial = {};
@@ -72,16 +73,11 @@ namespace Preview::Runtime
             {
                 co_return Fault::Code::IoError;
             }
+            ctx.ProtocolNameForLog.assign(h->Name());
             auto R = co_await h->Accept(std::move(in));
             const auto HasDataPlane = R.DataPlane.HasTransport();
             if (R.err != Error::None || (!R.Transmission && !HasDataPlane))
             {
-                if (R.err != Error::None)
-                {
-                    // 消费 handler Name()：错误日志标识失败协议，便于定位
-                    (void)Preview::Diagnose::Warn(
-                        "Protocol handler {} Accept Failed", h->Name());
-                }
                 if (R.err == Error::None)
                 {
                     co_return Fault::Code::IoError;
@@ -90,6 +86,10 @@ namespace Preview::Runtime
             }
             if (HasDataPlane)
             {
+                if (R.DataPlane.DisplayIdentity.empty())
+                {
+                    R.DataPlane.DisplayIdentity = R.DisplayIdentity;
+                }
                 ctx.SetDataPlane(std::move(R.DataPlane));
                 ctx.AccountLease = std::move(R.AccountLease);
                 ctx.PostDial = std::move(R.PostDial);
@@ -100,6 +100,7 @@ namespace Preview::Runtime
             {
                 ctx.Target = R.Target;
                 ctx.identity = R.identity;
+                ctx.DisplayIdentity = R.DisplayIdentity;
                 ctx.AccountId = R.AccountId;
                 ctx.ProtocolAuthenticated = R.ProtocolAuthenticated;
                 ctx.AccountLease = std::move(R.AccountLease);

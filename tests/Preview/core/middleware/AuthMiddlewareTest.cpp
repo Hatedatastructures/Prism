@@ -86,6 +86,16 @@ namespace
         RunCoroutine(IoContext, [&]() -> Net::awaitable<void> { ResultCode = co_await AuthMiddlewareInstance.Handle(Inbound, MiddlewareContext); });
         EXPECT_EQ(ResultCode, Fault::Code::Success);
         EXPECT_EQ(MiddlewareContext.identity, "alice");
+        EXPECT_EQ(MiddlewareContext.DisplayIdentity, "alice");
+    }
+
+    TEST(AuthMiddleware, UserForLogFallsBackToAccountId)
+    {
+        Middleware::Context Context;
+        Context.AccountId = Preview::AccountId{7003};
+        EXPECT_EQ(Context.UserForLog(), "7003");
+        Context.DisplayIdentity = "safe-user";
+        EXPECT_EQ(Context.UserForLog(), "safe-user");
     }
 
     TEST(AuthMiddleware, ValueCredentialWritesTypedAccountWithoutRawSecret)
@@ -124,6 +134,8 @@ namespace
         EXPECT_EQ(MiddlewareContext.AccountId, Preview::AccountId{7002});
         EXPECT_EQ(MiddlewareContext.identity, "alice");
         EXPECT_EQ(MiddlewareContext.identity.find("middleware-password"), std::string::npos);
+        EXPECT_EQ(MiddlewareContext.DisplayIdentity, "alice");
+        EXPECT_EQ(MiddlewareContext.UserForLog(), "alice");
         EXPECT_TRUE(MiddlewareContext.AccountLease);
         EXPECT_EQ(Record->Runtime()->ActiveConnections(), 1U);
         MiddlewareContext.AccountLease.Release();

@@ -151,11 +151,79 @@ namespace
         ASSERT_TRUE(Input.is_open());
         const std::string Contents{std::istreambuf_iterator<char>{Input},
                                    std::istreambuf_iterator<char>{}};
-        EXPECT_EQ(CountText(Contents, "event=session_closed"), 1U);
-        EXPECT_NE(Contents.find("\"worker\":9003"), std::string::npos);
-        EXPECT_NE(Contents.find("\"session\":8002"), std::string::npos);
+        EXPECT_EQ(CountText(Contents, "\"Message\":\"SessionClosed"), 1U);
+        EXPECT_NE(Contents.find("\"Level\":\"Access\""), std::string::npos);
+        EXPECT_NE(Contents.find("\"Kind\":\"Audit\""), std::string::npos);
+        EXPECT_NE(Contents.find("\"Worker\":9003"), std::string::npos);
+        EXPECT_NE(Contents.find("\"Session\":8002"), std::string::npos);
         EXPECT_NE(Contents.find("\"Process\":6000"), std::string::npos);
         EXPECT_NE(Contents.find("\"Task\":7001"), std::string::npos);
+    }
+
+    TEST(SessionLogging, InfoContainsOnlyAuthenticationAndTargetRequest)
+    {
+        Preview::TestSupport::DiagnoseTestEnvironment Environment{"session-request-log"};
+        Environment.Configuration().Logging.Level = Preview::Diagnose::LogLevel::Info;
+        ASSERT_TRUE(Environment.Install().has_value());
+
+        Net::io_context Ioc;
+        auto [Client, Inbound] = MakeSharedPair(Ioc);
+        auto [Upstream, Outbound] = MakeSharedPair(Ioc);
+        Upstream->Close();
+
+        Preview::Runtime::SessionOptions Options;
+        Options.SourceIp = "192.0.2.8";
+        Options.AcceptProtocol = [](Preview::SharedTransmission &,
+                                    Preview::Middleware::Context &Context)
+            -> Net::awaitable<Preview::Fault::Code>
+        {
+            Context.Target.Host = "example.com";
+            Context.Target.Port = "443";
+            Context.Target.Positive = true;
+            Context.AccountId = Preview::AccountId{9004};
+            Context.DisplayIdentity = "Alice";
+            Context.ProtocolAuthenticated = true;
+            co_return Preview::Fault::Code::Success;
+        };
+        Options.Dial = [Outbound](const Preview::Network::Target &)
+            -> Net::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
+        {
+            co_return std::pair{Preview::Fault::Code::Success, Outbound};
+        };
+        Preview::Runtime::Session Session(std::move(Options));
+
+        auto Result = Preview::Fault::Code::GenericError;
+        Preview::Testing::RunCoro(
+            Ioc,
+            [&]() -> Net::awaitable<void>
+            {
+                const std::array<std::byte, 5> Payload{
+                    std::byte{0xA1}, std::byte{0xB2}, std::byte{0xC3},
+                    std::byte{0xD4}, std::byte{0xE5}};
+                std::error_code Error;
+                (void)co_await Client->async_write_some(Payload, Error);
+                Client->Close();
+                Result = co_await Session.Run(Inbound);
+            });
+
+        EXPECT_NE(Result, Preview::Fault::Code::AuthFailed);
+        EXPECT_EQ(Environment.Runtime().Shutdown().Status,
+                  Preview::Diagnose::SubmissionStatus::Accepted);
+
+        const auto LogPath = Environment.Configuration().Logging.Directory /
+                             Environment.Configuration().Logging.FileName;
+        std::ifstream Input(LogPath, std::ios::binary);
+        ASSERT_TRUE(Input.is_open());
+        const std::string Contents{std::istreambuf_iterator<char>{Input},
+                                   std::istreambuf_iterator<char>{}};
+        EXPECT_EQ(CountText(Contents,
+                            "AuthenticationSucceeded SourceIp=192.0.2.8 User=Alice"),
+                  1U);
+        EXPECT_EQ(CountText(Contents,
+                            "Request SourceIp=192.0.2.8 Target=example.com:443 User=Alice"),
+                  1U);
+        EXPECT_EQ(Contents.find("SessionStarted"), std::string::npos);
+        EXPECT_EQ(Contents.find("DialStarted"), std::string::npos);
     }
 
 } // namespace

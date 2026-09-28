@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -35,9 +36,13 @@ auto MakeContext(boost::asio::any_io_executor Executor, const Preview::AccountId
         -> boost::asio::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
     { co_return std::pair{Preview::Fault::Code::NotSupported, Preview::SharedTransmission{}}; };
     Context->Hysteria2Stream = [](Preview::Hysteria2::Message,
-                                  Preview::Hysteria2::SharedConn) -> boost::asio::awaitable<void>
+                                  Preview::Hysteria2::SharedConn,
+                                  Preview::Ingress::QuicPeerLogContext)
+        -> boost::asio::awaitable<void>
     { co_return; };
-    Context->Hysteria2Datagram = [](Preview::Hysteria2::SharedDgram) -> boost::asio::awaitable<void>
+    Context->Hysteria2Datagram = [](Preview::Hysteria2::SharedDgram,
+                                    Preview::Ingress::QuicPeerLogContext)
+        -> boost::asio::awaitable<void>
     { co_return; };
     return Context;
 }

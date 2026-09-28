@@ -14,6 +14,7 @@
 #include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Runtime/SessionServices.hpp>
 #include <Preview/Lifecycle/TaskState.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 
 #include <boost/asio/any_io_executor.hpp>
 #include <boost/asio/awaitable.hpp>
@@ -26,7 +27,6 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <chrono>
 #include <exception>
@@ -83,6 +83,14 @@ namespace Preview::Composition
 
             std::shared_ptr<Channel> Data;
             bool Started{false};
+            std::atomic_bool RelayFailureLogged{false};
+        };
+
+        struct SessionLogContext final
+        {
+            Preview::Diagnose::ContextState Fields{Preview::Diagnose::ContextState::Empty()};
+            std::string SourceIp;
+            std::string User;
         };
 
         struct State final : std::enable_shared_from_this<State>
@@ -90,12 +98,13 @@ namespace Preview::Composition
             State(Preview::Anytls::SharedConn ConnectionValue, DialFn DialValue,
                   std::shared_ptr<Preview::Runtime::SessionControl> ControlValue,
                   std::shared_ptr<Preview::Foundation::TrafficSink> TrafficValue,
-                  std::string IdentityValue)
+                  std::string IdentityValue, SessionLogContext LogContextValue)
                 : Connection(std::move(ConnectionValue)),
                   Dial(std::move(DialValue)),
                   Control(std::move(ControlValue)),
                   Traffic(std::move(TrafficValue)),
                   Identity(std::move(IdentityValue)),
+                  Log(std::move(LogContextValue)),
                   WriteStrand(Connection->Executor())
             {
             }
@@ -105,6 +114,7 @@ namespace Preview::Composition
             std::shared_ptr<Preview::Runtime::SessionControl> Control;
             std::shared_ptr<Preview::Foundation::TrafficSink> Traffic;
             std::string Identity;
+            SessionLogContext Log;
             Net::strand<Net::any_io_executor> WriteStrand;
             std::unordered_map<std::uint32_t, std::shared_ptr<StreamState>> Streams;
             bool SettingsReceived{false};
@@ -213,6 +223,99 @@ namespace Preview::Composition
             Wire[6] = static_cast<std::byte>(Payload.size() & 0xFFU);
             std::memcpy(Wire.data() + 7U, Payload.data(), Payload.size());
             co_return co_await WriteAll(StateValue->Connection, Wire);
+        }
+
+        [[nodiscard]] static auto BuildSessionLogContext(
+            const Preview::Middleware::Context &Context) -> SessionLogContext
+        {
+            SessionLogContext Result;
+            try
+            {
+                Result.SourceIp = Context.SourceIp;
+                Result.User = Context.UserForLog();
+                if (Context.TaskIdentity.WorkerId)
+                {
+                    Result.Fields = Result.Fields.With(
+                        Preview::Diagnose::Fields::Worker, Context.TaskIdentity.WorkerId);
+                }
+                if (Context.TaskIdentity.SessionId)
+                {
+                    Result.Fields = Result.Fields.With(
+                        Preview::Diagnose::Fields::Session, Context.TaskIdentity.SessionId);
+                }
+                if (Context.TaskIdentity.TaskId &&
+                    (!Context.TaskIdentity.SessionId ||
+                     Context.TaskIdentity.TaskId.Value() !=
+                         Context.TaskIdentity.SessionId.Value()))
+                {
+                    Result.Fields = Result.Fields.With(
+                        Preview::Diagnose::Fields::Task, Context.TaskIdentity.TaskId);
+                }
+                if (Context.TaskIdentity.Generation &&
+                    Context.TaskIdentity.Generation.Value() > 1U)
+                {
+                    Result.Fields = Result.Fields.With(
+                        Preview::Diagnose::Fields::Generation, Context.TaskIdentity.Generation);
+                }
+            }
+            catch (...)
+            {
+                Result.Fields = Preview::Diagnose::ContextState::Empty();
+                Result.User.clear();
+            }
+            return Result;
+        }
+
+        static auto LogTargetRequest(
+            const std::shared_ptr<State> &StateValue,
+            const Preview::Network::Target &Target,
+            const std::uint64_t StreamId) noexcept -> void
+        {
+            if (!Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info))
+            {
+                return;
+            }
+            try
+            {
+                const auto SourceIp = StateValue->Log.SourceIp.empty()
+                                          ? std::string_view{"Unknown"}
+                                          : std::string_view{StateValue->Log.SourceIp};
+                const auto Host = std::string_view{Target.Host.data(), Target.Host.size()};
+                const auto Port = std::string_view{Target.Port.data(), Target.Port.size()};
+                const auto &Context = StateValue->Log.Fields;
+                if (StateValue->Log.User.empty())
+                {
+                    (void)Preview::Diagnose::Info(
+                        Context, "Request StreamId={} SourceIp={} Target={}:{}",
+                        StreamId, SourceIp, Host, Port);
+                }
+                else
+                {
+                    (void)Preview::Diagnose::Info(
+                        Context, "Request StreamId={} SourceIp={} Target={}:{} User={}",
+                        StreamId, SourceIp, Host, Port, StateValue->Log.User);
+                }
+            }
+            catch (...)
+            {
+            }
+        }
+
+        static auto LogRelayException(
+            const std::shared_ptr<State> &StateValue,
+            const std::shared_ptr<StreamState> &Stream,
+            const std::uint32_t StreamId,
+            const std::string_view Direction,
+            const std::string_view Error) noexcept -> void
+        {
+            if (Stream->RelayFailureLogged.exchange(true, std::memory_order_acq_rel))
+            {
+                return;
+            }
+            (void)Preview::Diagnose::Error(
+                StateValue->Log.Fields,
+                "AnyTlsRelayFailed StreamId={} Direction={} Error={}",
+                StreamId, Direction, Error);
         }
 
         class StreamTransport final : public Preview::Transmission
@@ -542,11 +645,11 @@ namespace Preview::Composition
             }
             catch (const std::exception &Error)
             {
-                std::fprintf(stderr, "Preview AnyTLS target relay exception: %s\n", Error.what());
+                LogRelayException(StateValue, Stream, StreamId, "Target", Error.what());
             }
             catch (...)
             {
-                std::fprintf(stderr, "Preview AnyTLS target relay exception: unknown\n");
+                LogRelayException(StateValue, Stream, StreamId, "Target", "Unknown");
             }
             Stream->Data->close();
             co_return;
@@ -555,7 +658,8 @@ namespace Preview::Composition
         static auto RelayFromClient(
             std::shared_ptr<State> StateValue,
             std::shared_ptr<StreamState> Stream,
-            Preview::SharedTransmission Outbound) -> Net::awaitable<void>
+            Preview::SharedTransmission Outbound,
+            const std::uint32_t StreamId) -> Net::awaitable<void>
         {
             try
             {
@@ -576,11 +680,11 @@ namespace Preview::Composition
             }
             catch (const std::exception &Error)
             {
-                std::fprintf(stderr, "Preview AnyTLS client relay exception: %s\n", Error.what());
+                LogRelayException(StateValue, Stream, StreamId, "Client", Error.what());
             }
             catch (...)
             {
-                std::fprintf(stderr, "Preview AnyTLS client relay exception: unknown\n");
+                LogRelayException(StateValue, Stream, StreamId, "Client", "Unknown");
             }
             Outbound->Close();
             co_return;
@@ -600,7 +704,7 @@ namespace Preview::Composition
 
             const auto Handler = [StateValue](
                                      Preview::SharedTransmission Inner,
-                                     const Preview::Lifecycle::TaskIdentity &)
+                                     const Preview::Lifecycle::TaskIdentity &Identity)
                 -> Net::awaitable<Preview::Fault::Code>
             {
                 const auto Parsed = co_await ReadSingRequest(Inner);
@@ -613,9 +717,20 @@ namespace Preview::Composition
                     co_return Preview::Fault::Code::NotSupported;
                 }
 
+                LogTargetRequest(StateValue, Parsed->Request.Target,
+                                 Identity.StreamId.Value());
                 auto [DialCode, Outbound] = co_await StateValue->Dial(Parsed->Request.Target);
                 if (Preview::Fault::Failed(DialCode) || !Outbound)
                 {
+                    const auto FailureCode = DialCode == Preview::Fault::Code::Success
+                                                 ? Preview::Fault::Code::BadGateway
+                                                 : DialCode;
+                    (void)Preview::Diagnose::Warn(
+                        StateValue->Log.Fields,
+                        "AnyTlsDialFailed StreamId={} FaultCode={}",
+                        Identity.StreamId.Value(),
+                        Preview::Diagnose::PascalCaseToken(
+                            Preview::Fault::Describe(FailureCode)));
                     const std::array<std::byte, 1> Failure{std::byte{0x01}};
                     (void)co_await WriteAll(Inner, Failure);
                     co_return Preview::Fault::Failed(DialCode)
@@ -645,7 +760,18 @@ namespace Preview::Composition
                 RelayContext.Control = StateValue->Control;
                 Preview::Middleware::Builtin::RelayMiddleware Relay(
                     nullptr, std::chrono::seconds(30));
-                co_return co_await Relay.Handle(RelayContext.Inbound, RelayContext);
+                const auto RelayCode = co_await Relay.Handle(
+                    RelayContext.Inbound, RelayContext);
+                if (Preview::Fault::Failed(RelayCode))
+                {
+                    (void)Preview::Diagnose::Warn(
+                        StateValue->Log.Fields,
+                        "AnyTlsRelayFailed StreamId={} FaultCode={}",
+                        Identity.StreamId.Value(),
+                        Preview::Diagnose::PascalCaseToken(
+                            Preview::Fault::Describe(RelayCode)));
+                }
+                co_return RelayCode;
             };
 
             Preview::Composition::MuxService Service(
@@ -681,16 +807,19 @@ namespace Preview::Composition
                 const auto Target = ParseTarget(FrameValue.Payload);
                 if (!Target)
                 {
-                    std::fprintf(stderr, "Preview AnyTLS target parse failed stream=%u bytes=%zu\n",
-                                 FrameValue.StreamId, FrameValue.Payload.size());
+                    (void)Preview::Diagnose::Warn(
+                        StateValue->Log.Fields,
+                        "AnyTlsTargetParseFailed StreamId={} Bytes={}",
+                        FrameValue.StreamId, FrameValue.Payload.size());
                     co_return false;
                 }
                 if (Target->MuxMarker)
                 {
                     if (!co_await WriteFrame(StateValue, Command::SynAck, FrameValue.StreamId, {}))
                     {
-                        std::fprintf(stderr, "Preview AnyTLS mux synack failed stream=%u\n",
-                                     FrameValue.StreamId);
+                        (void)Preview::Diagnose::Warn(
+                            StateValue->Log.Fields,
+                            "AnyTlsMuxSynAckFailed StreamId={}", FrameValue.StreamId);
                         co_return false;
                     }
                     Stream->Started = true;
@@ -711,18 +840,25 @@ namespace Preview::Composition
                         OnMuxFailure);
                     co_return true;
                 }
+                LogTargetRequest(StateValue, Target->Target, FrameValue.StreamId);
                 auto [DialCode, Outbound] = co_await StateValue->Dial(Target->Target);
                 if (Preview::Fault::Failed(DialCode) || !Outbound)
                 {
-                    std::fprintf(stderr, "Preview AnyTLS dial failed stream=%u code=%d host=%s port=%s\n",
-                                 FrameValue.StreamId, static_cast<int>(DialCode),
-                                 Target->Target.Host.c_str(), Target->Target.Port.c_str());
+                    const auto FailureCode = DialCode == Preview::Fault::Code::Success
+                                                 ? Preview::Fault::Code::BadGateway
+                                                 : DialCode;
+                    (void)Preview::Diagnose::Warn(
+                        StateValue->Log.Fields,
+                        "AnyTlsDialFailed StreamId={} FaultCode={}", FrameValue.StreamId,
+                        Preview::Diagnose::PascalCaseToken(
+                            Preview::Fault::Describe(FailureCode)));
                     co_return false;
                 }
                 if (!co_await WriteFrame(StateValue, Command::SynAck, FrameValue.StreamId, {}))
                 {
-                    std::fprintf(stderr, "Preview AnyTLS synack failed stream=%u\n",
-                                 FrameValue.StreamId);
+                    (void)Preview::Diagnose::Warn(
+                        StateValue->Log.Fields,
+                        "AnyTlsSynAckFailed StreamId={}", FrameValue.StreamId);
                     Outbound->Close();
                     co_return false;
                 }
@@ -738,7 +874,7 @@ namespace Preview::Composition
                 };
                 Net::co_spawn(
                     StateValue->Connection->Executor(),
-                    RelayFromClient(KeepState, KeepStream, Outbound),
+                    RelayFromClient(KeepState, KeepStream, Outbound, FrameValue.StreamId),
                     OnRelayFailure);
                 Net::co_spawn(
                     StateValue->Connection->Executor(),
@@ -767,7 +903,7 @@ namespace Preview::Composition
             }
             auto StateValue = std::make_shared<State>(
                 std::move(Connection), std::move(Dial), Context.Control,
-                Context.TrafficOwner, Context.identity);
+                Context.TrafficOwner, Context.identity, BuildSessionLogContext(Context));
             try
             {
                 while (StateValue->Connection->IsOpen())
@@ -829,11 +965,13 @@ namespace Preview::Composition
             }
             catch (const std::exception &Error)
             {
-                std::fprintf(stderr, "Preview AnyTLS frame loop exception: %s\n", Error.what());
+                (void)Preview::Diagnose::Error(
+                    StateValue->Log.Fields, "AnyTlsFrameLoopFailed Error={}", Error.what());
             }
             catch (...)
             {
-                std::fprintf(stderr, "Preview AnyTLS frame loop exception: unknown\n");
+                (void)Preview::Diagnose::Error(
+                    StateValue->Log.Fields, "AnyTlsFrameLoopFailed Error=Unknown");
             }
             for (auto &[Id, Stream] : StateValue->Streams)
             {

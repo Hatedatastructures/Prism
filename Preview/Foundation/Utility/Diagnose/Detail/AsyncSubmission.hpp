@@ -27,7 +27,7 @@ namespace Preview::Diagnose::Detail
      * @brief 将拥有型记录转换为交给 spdlog 的消息正文。
      * @param Record 已捕获消息和上下文的记录。
      * @return Structured 模式返回单行 JSON 正文；人类模式返回身份前缀、扩展字段和消息正文。
-     * @details 人类模式的时间、线程和 spdlog 级别元数据由 sink pattern 添加。
+     * @details 人类模式的等级由正文写为大驼峰标签；时间由 sink pattern 添加，不输出操作系统线程号。
      */
     [[nodiscard]] inline auto BuildPayload(const SubmissionRecord &Record) -> std::string
     {
@@ -41,15 +41,7 @@ namespace Preview::Diagnose::Detail
             return Payload;
         }
         auto Payload = ContextDecoder::RenderHuman(Record.Context, Record.Message);
-        if (Record.Level == LogLevel::Access)
-        {
-            auto Position = Record.Context.Prefix.View().size();
-            if (Position < Payload.size() && Payload[Position] == ' ')
-            {
-                ++Position;
-            }
-            Payload.insert(Position, "[access] ");
-        }
+        Payload.insert(0U, "[" + std::string(Preview::Diagnose::LogLevelName(Record.Level)) + "] ");
         return Payload;
     }
     /**

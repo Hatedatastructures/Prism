@@ -47,7 +47,7 @@ namespace Preview::Runtime::Handler
         if (ReplyErr != Preview::Error::None)
         {
             // 应答写失败：客户端可能已断开，记录并收口（不静默丢失）
-            (void)Preview::Diagnose::Warn("socks5 Connect Reply Write Failed; closing");
+            (void)Preview::Diagnose::Warn("Socks5ConnectReplyWriteFailed Action=Close");
         }
         if (ReplyErr != Preview::Error::None || Preview::Fault::Failed(ec))
         {
@@ -74,6 +74,7 @@ namespace Preview::Runtime::Handler
             r.ProtocolAuthenticated = Cfg_.EnableAuth;
             r.AccountId = Conn->AccountId();
             r.identity = std::string(Conn->Identity());
+            r.DisplayIdentity = std::string(Conn->DisplayIdentity());
             r.AccountLease = Conn->TakeAuthLease();
             r.AccountLeaseRequired = static_cast<bool>(r.AccountLease);
             if (req.Cmd == Preview::Socks5::Command::UdpAssociate)

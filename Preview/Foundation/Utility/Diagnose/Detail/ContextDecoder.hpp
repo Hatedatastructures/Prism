@@ -121,28 +121,26 @@ namespace Preview::Diagnose::Detail
 
         /**
          * @brief 将一条记录渲染为单行 JSON。
-         * @param Record 含时间、线程、序号、级别、提交类型、身份、字段和消息的记录。
-         * @return 以换行符结尾的 UTF-8 JSON 文本；Worker/Session 只输出在顶层身份属性。
+         * @param Record 含时间、序号、级别、提交类型、身份、字段和消息的记录。
+         * @return 以换行符结尾的 UTF-8 JSON 文本；顶层 JSON 键使用大驼峰。
          */
         [[nodiscard]] static auto RenderStructured(const SubmissionRecord &Record) -> std::string
         {
             std::string Output;
             Output.reserve(128U + Record.Message.size());
-            Output.append("{\"timestamp\":");
+            Output.append("{\"Timestamp\":");
             AppendUnsigned(Output, Record.TimestampMilliseconds);
-            Output.append(",\"thread\":");
-            AppendUnsigned(Output, Record.ThreadId);
-            Output.append(",\"sequence\":");
+            Output.append(",\"Sequence\":");
             AppendUnsigned(Output, Record.Sequence);
-            Output.append(",\"level\":");
+            Output.append(",\"Level\":");
             AppendJsonString(Output, LogLevelName(Record.Level));
-            Output.append(",\"kind\":");
-            AppendJsonString(Output, Record.Kind == SubmissionKind::Audit ? "audit" : "ordinary");
-            Output.append(",\"worker\":");
+            Output.append(",\"Kind\":");
+            AppendJsonString(Output, Record.Kind == SubmissionKind::Audit ? "Audit" : "Ordinary");
+            Output.append(",\"Worker\":");
             AppendOptionalId(Output, Record.Context.Prefix.Worker());
-            Output.append(",\"session\":");
+            Output.append(",\"Session\":");
             AppendOptionalId(Output, Record.Context.Prefix.Session());
-            Output.append(",\"fields\":{");
+            Output.append(",\"Fields\":{");
             for (std::size_t Index = 0; Index < Record.Context.Fields.size(); ++Index)
             {
                 if (Index != 0U)
@@ -154,7 +152,7 @@ namespace Preview::Diagnose::Detail
                 Output.push_back(':');
                 AppendJsonValue(Output, Field);
             }
-            Output.append("},\"message\":");
+            Output.append("},\"Message\":");
             AppendJsonString(Output, Record.Message);
             Output.append("}\n");
             return Output;
@@ -543,24 +541,13 @@ namespace Preview::Diagnose::Detail
         }
 
         /**
-         * @brief 返回结构化输出使用的小写级别名称。
+         * @brief 返回日志输出使用的大驼峰级别名称。
          * @param Level 日志级别。
-         * @return 对应的小写名称；未知枚举值回退为 "info"。
+         * @return 对应名称；未知枚举值回退为 "Off"。
          */
         [[nodiscard]] static auto LogLevelName(const LogLevel Level) noexcept -> std::string_view
         {
-            switch (Level)
-            {
-            case LogLevel::Trace: return "trace";
-            case LogLevel::Debug: return "debug";
-            case LogLevel::Info: return "info";
-            case LogLevel::Access: return "access";
-            case LogLevel::Warn: return "warning";
-            case LogLevel::Error: return "error";
-            case LogLevel::Critical: return "critical";
-            case LogLevel::Off: return "off";
-            }
-            return "info";
+            return Preview::Diagnose::LogLevelName(Level);
         }
     };
 

@@ -48,7 +48,9 @@ namespace Preview::Middleware::Builtin
             try
             {
                 const auto Redacted = Preview::Statistics::RedactSensitiveText(Detail);
-                (void)Preview::Diagnose::Error("{}: {}", Name, Redacted);
+                (void)Preview::Diagnose::Trace(
+                    "RelayDirectionFailed Middleware={} Error={}",
+                    Preview::Diagnose::PascalCaseToken(Name), Redacted);
             }
             catch (...)
             {

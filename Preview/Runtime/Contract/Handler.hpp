@@ -39,6 +39,8 @@ namespace Preview::Runtime::Handler
         Preview::SharedTransmission Transmission;
         /// 已认证的用户身份（协议未提供时留空）
         std::string identity;
+        /// 非敏感的日志展示身份；不得从凭据派生。
+        std::string DisplayIdentity;
         /// 协议握手是否已经完成认证；为真时 Session 不再重复执行通用认证中间件
         bool ProtocolAuthenticated{false};
         /// 协议认证是否还需要绑定 typed 账户租约；静态凭据不需要租约。

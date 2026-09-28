@@ -44,14 +44,13 @@ namespace Preview::Diagnose::Detail
 
     /**
      * @brief 含有消息和完整上下文快照的 backend 记录。
-     * @details 传给异步 logger 前，消息和文本字段均已拥有存储；Structured 模式还捕获提交时间和线程 ID。
+     * @details 传给异步 logger 前，消息和文本字段均已拥有存储；Structured 模式还捕获提交时间。
      */
     struct SubmissionRecord final
     {
         LogLevel Level{LogLevel::Info};                ///< 记录级别。
         std::uint64_t Sequence{0U};                    ///< backend 分配的提交序号。
         std::uint64_t TimestampMilliseconds{0U};       ///< Structured 模式的 Unix 毫秒时间戳。
-        std::uint32_t ThreadId{0U};                    ///< Structured 模式记录的提交线程 ID。
         SubmissionKind Kind{SubmissionKind::Ordinary}; ///< 普通记录或可靠审计记录。
         std::string Message{};                         ///< 已格式化并拥有的业务消息。
         CapturedContext Context{};                     ///< 提交前拥有的上下文快照。

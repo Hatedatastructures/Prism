@@ -27,6 +27,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -1042,7 +1043,8 @@ namespace
         ListenerOptions.Executor = Ioc.get_executor();
         ListenerOptions.Factory =
             [Control, FactoryWorker, Observed, ErrorReady](Preview::SharedTransmission,
-                                                            std::size_t Worker)
+                                                            std::size_t Worker,
+                                                            std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
             {
                 *FactoryWorker = Worker;

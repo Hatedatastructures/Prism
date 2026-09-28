@@ -102,9 +102,10 @@ namespace Preview::Runtime
     class TcpListener
     {
     public:
-        /// 会话工厂签名：入站传输 + worker 索引 → 会话
+        /// 会话工厂签名：传入远端 IP 仅在调用期间借用；会话需自行复制以延长生命周期。
         using SessionFactory =
-            std::function<std::shared_ptr<Session>(Preview::SharedTransmission, std::size_t)>;
+            std::function<std::shared_ptr<Session>(Preview::SharedTransmission, std::size_t,
+                                                   std::string_view)>;
         using FailureHandler = std::function<void(Preview::Fault::Code)>;
 
         struct Options final
@@ -508,7 +509,11 @@ namespace Preview::Runtime
                 std::shared_ptr<Session> Sess;
                 if (Request->Factory)
                 {
-                    Sess = Request->Factory(Transport, Request->WorkerIndex);
+                    const std::string_view SourceIp = Request->Info.peer == "unknown"
+                                                          ? std::string_view{"Unknown"}
+                                                          : std::string_view{Request->Info.peer};
+                    Sess = Request->Factory(Transport, Request->WorkerIndex,
+                                            SourceIp);
                 }
                 if (!Sess)
                 {

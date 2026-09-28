@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <exception>
 #include <memory>
+#include <string_view>
 #include <stdexcept>
 #include <string>
 
@@ -629,7 +630,7 @@ namespace
         auto Release = MakeReleaseChannel(Ioc.get_executor());
         Preview::Runtime::TcpListener Listener(
             Ioc.get_executor(),
-            [Release](Preview::SharedTransmission, std::size_t)
+            [Release](Preview::SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
             {
                 Preview::Runtime::SessionOptions Options;
@@ -706,7 +707,7 @@ namespace
         auto Client = std::make_shared<Preview::SharedTransmission>();
         auto Listener = std::make_unique<Preview::Runtime::TcpListener>(
             Ioc.get_executor(),
-            [Release, ActiveControl](Preview::SharedTransmission, std::size_t)
+            [Release, ActiveControl](Preview::SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
             {
                 auto Control = std::make_shared<Preview::Runtime::SessionControl>();

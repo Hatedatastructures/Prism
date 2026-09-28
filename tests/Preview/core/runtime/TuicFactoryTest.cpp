@@ -11,6 +11,7 @@
 
 #include <array>
 #include <memory>
+#include <string>
 #include <utility>
 
 TEST(TuicFactory, MapsAdmissionContextToNativeAuthCallbacks)
@@ -29,10 +30,13 @@ TEST(TuicFactory, MapsAdmissionContextToNativeAuthCallbacks)
     Context->Dial = [](const Preview::Network::Target &)
         -> boost::asio::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
     { co_return std::pair{Preview::Fault::Code::NotSupported, Preview::SharedTransmission{}}; };
-    Context->TuicStream = [](Preview::Tuic::Message, Preview::Tuic::SharedConn)
+    Context->TuicStream = [](Preview::Tuic::Message, Preview::Tuic::SharedConn,
+                             Preview::Ingress::QuicPeerLogContext)
         -> boost::asio::awaitable<void>
     { co_return; };
-    Context->TuicDatagram = [](Preview::Tuic::SharedDgram) -> boost::asio::awaitable<void>
+    Context->TuicDatagram = [](Preview::Tuic::SharedDgram,
+                               Preview::Ingress::QuicPeerLogContext)
+        -> boost::asio::awaitable<void>
     { co_return; };
 
     Preview::Quic::ServerOptions Options;

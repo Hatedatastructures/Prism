@@ -99,7 +99,7 @@ namespace Preview::Http2
             {
                 const auto Header = ParseFrameHeader(
                     std::span<const std::byte>(RxBuffer_.data(), RxBuffer_.size()));
-                if (!Header)
+                if (!Header) 
                 {
                     ErrorCode = make_error_code(Error::NeedMore);
                     return false;

@@ -50,9 +50,11 @@ namespace
     };
 
     auto BuildSession(const ListenerFixture &Fixture, Preview::SharedTransmission,
-                      std::size_t) -> std::shared_ptr<Preview::Runtime::Session>
+                      std::size_t, std::string_view SourceIp)
+        -> std::shared_ptr<Preview::Runtime::Session>
     {
         Preview::Runtime::SessionOptions Options;
+        Options.SourceIp.assign(SourceIp);
         Options.RelayIdleTimeout = Fixture.IdleTimeout;
         Preview::Socks5::ServerConfig Config;
         Config.EnableTcp = true;
@@ -83,10 +85,11 @@ namespace
     {
         return Preview::Runtime::TcpListener(
             Io.get_executor(),
-            [Fixture](Preview::SharedTransmission Inbound, std::size_t Worker)
+            [Fixture](Preview::SharedTransmission Inbound, std::size_t Worker,
+                      std::string_view SourceIp)
                 -> std::shared_ptr<Preview::Runtime::Session>
             {
-                return BuildSession(Fixture, std::move(Inbound), Worker);
+                return BuildSession(Fixture, std::move(Inbound), Worker, SourceIp);
             });
     }
 

@@ -298,7 +298,7 @@ namespace Preview::Transport {
         HandshakeResult Result;
         if (!Request.Inbound)
         {
-            (void)Diagnose::Warn("No inbound Transmission for TLS handshake");
+            (void)Diagnose::Warn("TlsHandshakeUnavailable Reason=NoInboundTransmission");
             Result.Code = Fault::Code::IoError;
             co_return Result;
         }
@@ -332,7 +332,7 @@ namespace Preview::Transport {
         HandshakeResult Result;
         if (!Inbound)
         {
-            (void)Diagnose::Warn("No inbound Transmission for TLS handshake");
+            (void)Diagnose::Warn("TlsHandshakeUnavailable Reason=NoInboundTransmission");
             Result.Code = Fault::Code::IoError;
             co_return Result;
         }
@@ -377,7 +377,7 @@ namespace Preview::Transport {
             Result.Code = std::get<1>(Outcome) ? Fault::Code::Timeout : Fault::Code::Canceled;
             if (Result.Code == Fault::Code::Timeout)
             {
-                (void)Diagnose::Warn("TLS handshake timeout");
+                (void)Diagnose::Trace("TlsHandshakeTimeout");
             }
             Result.Recovered = Stream->next_layer().Release();
             co_return Result;
@@ -388,7 +388,7 @@ namespace Preview::Transport {
             try
             {
                 const auto ErrorText = Preview::Statistics::RedactSensitiveText(HEc.message());
-                (void)Diagnose::Warn("TLS handshake Failed: {} ({})", ErrorText, HEc.value());
+                (void)Diagnose::Trace("TlsHandshakeFailed Error={}", ErrorText);
             }
             catch (...)
             {
@@ -399,7 +399,6 @@ namespace Preview::Transport {
             co_return Result;
         }
 
-        (void)Diagnose::Debug("TLS handshake Succeeded");
         Result.Stream = std::move(Stream);
         co_return Result;
     }

@@ -19,12 +19,14 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 #include <vector>
 
 #include <Preview/Foundation/Fault/Handling.hpp>
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Protocols/Socks5/Conn.hpp>
 #include <Preview/Protocols/Socks5/UdpAssoc.hpp>
 #include <Preview/Protocols/Trojan/Dgram.hpp>
@@ -79,6 +81,12 @@ namespace Preview::Composition
                 AssocOptions.IdleTimeout = Options.IdleTimeout;
                 AssocOptions.traffic = Context.traffic;
                 AssocOptions.identity = Context.identity;
+                AssocOptions.OnFirstTarget = [&Context](
+                                                    const Preview::Socks5::Address &Target)
+                {
+                    const auto Port = std::to_string(Target.Port);
+                    LogRequest(Context, Target.Host, Port);
+                };
                 AssocOptions.resolve = [Resolver = Options.Resolver](
                                             const Preview::Socks5::Address &Address)
                     -> Net::awaitable<std::pair<Preview::Error, Net::ip::udp::endpoint>>
@@ -100,6 +108,8 @@ namespace Preview::Composition
                         Preview::make_error_code(BindError));
                 }
                 co_await Service->Run();
+                LogUdpSummary(Context, "Socks5", Service->DatagramCount(),
+                              Service->SentBytes(), Service->ReceivedBytes());
                 Close(Context.Inbound);
                 co_return Preview::Fault::Code::Success;
             };
@@ -121,6 +131,18 @@ namespace Preview::Composition
                 TunnelOptions.IdleTimeout = Options.IdleTimeout;
                 TunnelOptions.traffic = Context.traffic;
                 TunnelOptions.identity = Context.identity;
+                TunnelOptions.OnFirstTarget = [&Context](
+                                                   const Preview::Vless::Address &Target)
+                {
+                    const auto Port = std::to_string(Target.Port);
+                    LogRequest(Context, Target.Host, Port);
+                };
+                TunnelOptions.OnSessionEnd = [&Context](
+                                                const Preview::Vless::UdpTunnelSummary &Summary)
+                {
+                    LogUdpSummary(Context, "Vless", Summary.Datagrams,
+                                  Summary.UpBytes, Summary.DownBytes);
+                };
                 TunnelOptions.resolve = [Resolver = Options.Resolver](
                                              const Preview::Vless::Address &Address)
                     -> Net::awaitable<std::pair<Preview::Error, Net::ip::udp::endpoint>>
@@ -153,8 +175,7 @@ namespace Preview::Composition
                     co_return Preview::Fault::Code::ProtocolError;
                 }
                 co_return co_await RunStreamDatagrams(
-                    TrojanPacketAdapter{std::move(Carrier)}, Options,
-                    Context.traffic, Context.identity);
+                    TrojanPacketAdapter{std::move(Carrier)}, Options, Context);
             };
         }
 
@@ -184,7 +205,7 @@ namespace Preview::Composition
                     std::string(Context.Target.Host), static_cast<std::uint16_t>(Port)};
                 co_return co_await RunStreamDatagrams(
                     VmessPacketAdapter{std::move(Carrier), std::move(Target)}, Options,
-                    Context.traffic, Context.identity);
+                    Context);
             };
         }
 
@@ -199,6 +220,100 @@ namespace Preview::Composition
         }
 
     private:
+        [[nodiscard]] static auto MakeLogContext(
+            const Preview::Middleware::Context &Context) noexcept
+            -> Preview::Diagnose::ContextState
+        {
+            auto Result = Preview::Diagnose::ContextState::Empty();
+            try
+            {
+                if (Context.TaskIdentity.WorkerId)
+                {
+                    Result = Result.With(
+                        Preview::Diagnose::Fields::Worker, Context.TaskIdentity.WorkerId);
+                }
+                if (Context.TaskIdentity.SessionId)
+                {
+                    Result = Result.With(
+                        Preview::Diagnose::Fields::Session, Context.TaskIdentity.SessionId);
+                }
+                if (Context.TaskIdentity.TaskId &&
+                    (!Context.TaskIdentity.SessionId ||
+                     Context.TaskIdentity.TaskId.Value() !=
+                         Context.TaskIdentity.SessionId.Value()))
+                {
+                    Result = Result.With(
+                        Preview::Diagnose::Fields::Task, Context.TaskIdentity.TaskId);
+                }
+                if (Context.TaskIdentity.Generation &&
+                    Context.TaskIdentity.Generation.Value() > 1U)
+                {
+                    Result = Result.With(
+                        Preview::Diagnose::Fields::Generation,
+                        Context.TaskIdentity.Generation);
+                }
+            }
+            catch (...)
+            {
+                return Preview::Diagnose::ContextState::Empty();
+            }
+            return Result;
+        }
+
+        static auto LogRequest(
+            const Preview::Middleware::Context &Context,
+            const std::string_view Host,
+            const std::string_view Port) noexcept -> void
+        {
+            if (!Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info) ||
+                Host.empty() || Port.empty() || Port == "0")
+            {
+                return;
+            }
+            try
+            {
+                const auto LogContext = MakeLogContext(Context);
+                const auto SourceIp = Context.SourceIp.empty()
+                                          ? std::string_view{"Unknown"}
+                                          : std::string_view{Context.SourceIp};
+                const auto User = Context.UserForLog();
+                if (User.empty())
+                {
+                    (void)Preview::Diagnose::Info(
+                        LogContext, "Request SourceIp={} Target={}:{}", SourceIp, Host, Port);
+                }
+                else
+                {
+                    (void)Preview::Diagnose::Info(
+                        LogContext, "Request SourceIp={} Target={}:{} User={}",
+                        SourceIp, Host, Port, User);
+                }
+            }
+            catch (...)
+            {
+            }
+        }
+
+        static auto LogUdpSummary(
+            const Preview::Middleware::Context &Context,
+            const std::string_view Protocol,
+            const std::uint64_t Datagrams,
+            const std::uint64_t UpBytes,
+            const std::uint64_t DownBytes) noexcept -> void
+        {
+            if (!Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Trace))
+            {
+                return;
+            }
+            const auto SourceIp = Context.SourceIp.empty()
+                                      ? std::string_view{"Unknown"}
+                                      : std::string_view{Context.SourceIp};
+            (void)Preview::Diagnose::Trace(
+                MakeLogContext(Context),
+                "UdpSessionSummary Protocol={} SourceIp={} Datagrams={} UpBytes={} DownBytes={}",
+                Protocol, SourceIp, Datagrams, UpBytes, DownBytes);
+        }
+
         struct StreamDatagramPacket final
         {
             UdpResolveRequest Target;
@@ -207,6 +322,7 @@ namespace Preview::Composition
 
         struct TrojanPacketAdapter final
         {
+            static constexpr std::string_view ProtocolName{"Trojan"};
             std::shared_ptr<Preview::Trojan::Dgram<>> Carrier;
 
             [[nodiscard]] auto Executor() const -> Net::any_io_executor
@@ -244,6 +360,7 @@ namespace Preview::Composition
 
         struct VmessPacketAdapter final
         {
+            static constexpr std::string_view ProtocolName{"Vmess"};
             std::shared_ptr<Preview::Vmess::Dgram<>> Carrier;
             UdpResolveRequest FixedTarget;
 
@@ -278,13 +395,15 @@ namespace Preview::Composition
         [[nodiscard]] static auto RunStreamDatagrams(
             Adapter AdapterValue,
             UdpServiceOptions Options,
-            Preview::Foundation::TrafficSink *Traffic,
-            std::string Identity) -> Net::awaitable<Preview::Fault::Code>
+            const Preview::Middleware::Context &Context)
+            -> Net::awaitable<Preview::Fault::Code>
         {
             Udp::socket Egress(AdapterValue.Executor());
             std::vector<std::byte> UpstreamBuffer(65535);
             std::size_t SentBytes = 0;
             std::size_t ReceivedBytes = 0;
+            std::uint64_t DatagramCount = 0;
+            bool RequestLogged = false;
             auto Result = Preview::Fault::Code::Success;
 
             while (true)
@@ -301,6 +420,14 @@ namespace Preview::Composition
                     Result = Preview::Fault::ToCode(
                         Preview::make_error_code(*PacketError));
                     break;
+                }
+                ++DatagramCount;
+                if (!RequestLogged && !Packet.Target.Host.empty() &&
+                    Packet.Target.Port != 0U)
+                {
+                    LogRequest(Context, Packet.Target.Host,
+                               std::to_string(Packet.Target.Port));
+                    RequestLogged = true;
                 }
 
                 const auto [ResolveError, Target] = co_await ResolveTarget(
@@ -355,10 +482,12 @@ namespace Preview::Composition
             Egress.close(ErrorCode);
             AdapterValue.Cancel();
             AdapterValue.Close();
-            if (Traffic != nullptr)
+            if (Context.traffic != nullptr)
             {
-                Traffic->Report(Identity, SentBytes, ReceivedBytes);
+                Context.traffic->Report(Context.identity, SentBytes, ReceivedBytes);
             }
+            LogUdpSummary(Context, Adapter::ProtocolName, DatagramCount,
+                          SentBytes, ReceivedBytes);
             co_return Result;
         }
 

@@ -42,22 +42,24 @@ namespace Preview::Composition::Quic
         using AuthenticateHandler = std::function<bool(
             std::string_view, std::string_view, std::string_view)>;
         using RawStreamHandler = std::function<Net::awaitable<void>(
-            Preview::Quic::SharedStreamProvider)>;
+            Preview::Quic::SharedStreamProvider,
+            Preview::Ingress::QuicPeerLogContext)>;
 
         std::string Alpn{"h3"};
+        Preview::Ingress::QuicPeerLogContext Peer{};
         Preview::Hysteria2::ServerConfig Config;
         AuthenticateHandler Authenticate{};
         std::function<Net::awaitable<void>(Preview::Hysteria2::Message,
-                                           Preview::Hysteria2::SharedConn)> OnStream;
+                                           Preview::Hysteria2::SharedConn,
+                                           Preview::Ingress::QuicPeerLogContext)> OnStream;
         RawStreamHandler RawStream{};
-        std::function<Net::awaitable<void>(Preview::Hysteria2::SharedDgram)> OnDatagram;
+        std::function<Net::awaitable<void>(Preview::Hysteria2::SharedDgram,
+                                           Preview::Ingress::QuicPeerLogContext)> OnDatagram;
         std::function<void()> OnClosed;
     };
 
     namespace Detail
     {
-
-        inline std::atomic_uint64_t Hysteria2RawSessionSequence{1};
 
         enum class RawParseResult : std::uint8_t
         {
@@ -213,7 +215,8 @@ namespace Preview::Composition::Quic
 
         [[nodiscard]] inline auto RunRawStream(
             const Preview::Ingress::SharedQuicAdmissionContext &Admission,
-            const Preview::Quic::SharedStreamProvider &Provider) -> Net::awaitable<void>
+            const Preview::Quic::SharedStreamProvider &Provider,
+            const Preview::Ingress::QuicPeerLogContext &Peer) -> Net::awaitable<void>
         {
             if (!Admission || !Provider || !Admission->Dial)
             {
@@ -223,18 +226,16 @@ namespace Preview::Composition::Quic
                 }
                 co_return;
             }
-            const auto SessionId = Hysteria2RawSessionSequence.fetch_add(
-                1, std::memory_order_relaxed);
-            auto LogContext = Admission->Trace;
+            auto LogContext = Peer.Trace;
             try
             {
-                const auto Carrier = std::string_view{"quic"};
+                const auto Carrier = std::string_view{"Quic"};
                 if (const auto Derived = LogContext.TryWith(
                         Preview::Diagnose::Fields::Carrier, Carrier))
                 {
                     LogContext = *Derived;
                 }
-                const auto Protocol = std::string_view{Admission->Protocol};
+                const auto Protocol = Preview::Diagnose::PascalCaseToken(Admission->Protocol);
                 if (const auto Derived = LogContext.TryWith(
                         Preview::Diagnose::Fields::Protocol, Protocol))
                 {
@@ -243,21 +244,8 @@ namespace Preview::Composition::Quic
             }
             catch (...)
             {
-                LogContext = Admission->Trace;
+                LogContext = Peer.Trace;
             }
-            const auto WriteRelayLog = [Admission, SessionId, LogContext](
-                                           const std::string_view Outcome,
-                                           const std::string_view Fault,
-                                           const Preview::Network::Target &Target) noexcept
-            {
-                (void)Preview::Diagnose::Info(
-                    LogContext,
-                    "carrier=quic protocol={} session_id=quic-{} stage=relay outcome={} fault={} target={}:{}",
-                    Admission->Protocol, SessionId, Outcome, Fault,
-                    std::string_view{Target.Host.data(), Target.Host.size()},
-                    std::string_view{Target.Port.data(), Target.Port.size()});
-            };
-
             auto Inbound = std::make_shared<Preview::Quic::StreamAdapter>(
                 Provider->Executor(), Provider);
             std::vector<std::uint8_t> Wire;
@@ -298,10 +286,27 @@ namespace Preview::Composition::Quic
             Target.Host.assign(Request.Target.Host);
             Target.Port.assign(std::to_string(Request.Target.Port));
             Target.Positive = true;
+            const auto Source = Peer.SourceIp.empty() ? std::string_view{"Unknown"}
+                                                      : std::string_view{Peer.SourceIp};
+            const auto Host = std::string_view{Target.Host.data(), Target.Host.size()};
+            const auto Port = std::string_view{Target.Port.data(), Target.Port.size()};
+            if (Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info))
+            {
+                const auto User = std::to_string(Admission->AccountId.Value());
+                (void)Preview::Diagnose::Info(
+                    LogContext, "Request SourceIp={} Target={}:{} User={}",
+                    Source, Host, Port, User);
+            }
             auto [DialError, Outbound] = co_await Admission->Dial(Target);
             if (Preview::Fault::Failed(DialError) || !Outbound)
             {
-                WriteRelayLog("failure", "dial", Target);
+                const auto FailureCode = DialError == Preview::Fault::Code::Success
+                                             ? Preview::Fault::Code::BadGateway
+                                             : DialError;
+                (void)Preview::Diagnose::Warn(
+                    LogContext, "QuicDialFailed SourceIp={} Target={}:{} FaultCode={}",
+                    Source, Host, Port,
+                    Preview::Diagnose::PascalCaseToken(Preview::Fault::Describe(FailureCode)));
                 Inbound->Close();
                 co_return;
             }
@@ -332,6 +337,7 @@ namespace Preview::Composition::Quic
             RelayContext.Inbound = Inbound;
             RelayContext.Outbound = std::move(Outbound);
             RelayContext.Target = std::move(Target);
+            RelayContext.SourceIp = Peer.SourceIp;
             RelayContext.AccountId = Admission->AccountId;
             RelayContext.Credential = Admission->Credential;
             RelayContext.ProtocolAuthenticated = true;
@@ -340,8 +346,17 @@ namespace Preview::Composition::Quic
             Preview::Middleware::Builtin::RelayMiddleware Relay(
                 nullptr, std::chrono::milliseconds(0));
             const auto RelayError = co_await Relay.Handle(RelayContext.Inbound, RelayContext);
-            WriteRelayLog(RelayError == Preview::Fault::Code::Success ? "success" : "failure",
-                          Preview::Fault::Describe(RelayError), RelayContext.Target);
+            if (Preview::Fault::Failed(RelayError))
+            {
+                const auto RelayHost = std::string_view{
+                    RelayContext.Target.Host.data(), RelayContext.Target.Host.size()};
+                const auto RelayPort = std::string_view{
+                    RelayContext.Target.Port.data(), RelayContext.Target.Port.size()};
+                (void)Preview::Diagnose::Warn(
+                    LogContext, "QuicRelayFailed SourceIp={} Target={}:{} FaultCode={}",
+                    Source, RelayHost, RelayPort,
+                    Preview::Diagnose::PascalCaseToken(Preview::Fault::Describe(RelayError)));
+            }
         }
 
     } // namespace Detail
@@ -356,6 +371,7 @@ namespace Preview::Composition::Quic
             std::move(FactoryOptions.Config));
         const auto Authenticate = std::move(FactoryOptions.Authenticate);
         const auto RawStream = std::move(FactoryOptions.RawStream);
+        const auto Peer = std::move(FactoryOptions.Peer);
         const auto OnClosed = std::move(FactoryOptions.OnClosed);
         const auto SessionOwner =
             std::make_shared<std::shared_ptr<Preview::Http3::NativeServerSession>>();
@@ -365,7 +381,8 @@ namespace Preview::Composition::Quic
         {
             *ServerOwner = Server;
         };
-        Options.OnEstablished = [Executor, ServerOwner, SessionOwner, Authenticate, RawStream](
+        Options.OnEstablished = [Executor, ServerOwner, SessionOwner, Authenticate, RawStream,
+                                 Peer](
                                     std::string)
         {
             if (!*ServerOwner || *SessionOwner)
@@ -397,12 +414,13 @@ namespace Preview::Composition::Quic
             {
                 co_return co_await Server->AcceptBidirectionalStream();
             };
-            SessionOptions.OnRawStream = [RawStream](Preview::Quic::SharedStreamProvider Provider)
+            SessionOptions.OnRawStream = [RawStream, Peer](
+                                             Preview::Quic::SharedStreamProvider Provider)
                 -> Net::awaitable<void>
             {
                 if (RawStream)
                 {
-                    co_await RawStream(Provider);
+                    co_await RawStream(Provider, Peer);
                 }
             };
             auto Session = std::make_shared<Preview::Http3::NativeServerSession>(
@@ -421,7 +439,7 @@ namespace Preview::Composition::Quic
         // legacy callback populated for API compatibility, but do not consume
         // incoming streams here or it would race the HTTP/3 session.
         Options.OnStream = [](Preview::Quic::SharedStreamProvider) {};
-        Options.OnDatagram = [Config, Handler = std::move(FactoryOptions.OnDatagram)](
+        Options.OnDatagram = [Config, Handler = std::move(FactoryOptions.OnDatagram), Peer](
                                  Preview::Quic::SharedDatagramProvider Provider)
         {
             if (!Handler || !Provider)
@@ -435,9 +453,10 @@ namespace Preview::Composition::Quic
             }
             Net::co_spawn(
                 Provider->Executor(),
-                [Handler, Datagram = std::move(Datagram)]() mutable -> Net::awaitable<void>
+                [Handler, Datagram = std::move(Datagram), Peer]() mutable
+                    -> Net::awaitable<void>
                 {
-                    co_await Handler(std::move(Datagram));
+                    co_await Handler(std::move(Datagram), Peer);
                 },
                 Net::detached);
         };
@@ -457,7 +476,8 @@ namespace Preview::Composition::Quic
 
     [[nodiscard]] inline auto ConfigureHysteria2Server(
         Preview::Quic::ServerOptions Options,
-        const Preview::Ingress::SharedQuicAdmissionContext &Context)
+        const Preview::Ingress::SharedQuicAdmissionContext &Context,
+        Preview::Ingress::QuicPeerLogContext Peer = {})
         -> Preview::Quic::ServerOptions
     {
         if (!Context || !Context->ReadyForHysteria2())
@@ -471,8 +491,14 @@ namespace Preview::Composition::Quic
 
         Hysteria2FactoryOptions FactoryOptions;
         FactoryOptions.Alpn = Context->ExpectedAlpn;
+        Peer.Trace = Context->Trace;
+        FactoryOptions.Peer = Peer;
         FactoryOptions.Config.AuthenticatorOwner = Context->Authenticator;
-        FactoryOptions.Authenticate = [Authenticator = Context->Authenticator](
+        const auto AuthLogged = std::make_shared<std::atomic<bool>>(false);
+        FactoryOptions.Authenticate = [Authenticator = Context->Authenticator,
+                                       LogContext = Peer.Trace, Peer,
+                                       FallbackAccountId = Context->AccountId,
+                                       AuthLogged](
                                            const std::string_view Method,
                                            const std::string_view Path,
                                            const std::string_view Auth)
@@ -486,12 +512,26 @@ namespace Preview::Composition::Quic
                 .Identity = {},
                 .Credential = Preview::Account::CredentialView::Token(Auth),
                 .Rate = {}});
+            if (Result.Accepted &&
+                Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info) &&
+                !AuthLogged->exchange(true, std::memory_order_acq_rel))
+            {
+                const auto AccountId = Result.AccountId ? Result.AccountId : FallbackAccountId;
+                const auto User = Result.DisplayIdentity.empty()
+                                      ? std::to_string(AccountId.Value())
+                                      : Result.DisplayIdentity;
+                const auto Source = Peer.SourceIp.empty() ? std::string_view{"Unknown"}
+                                                          : std::string_view{Peer.SourceIp};
+                (void)Preview::Diagnose::Info(
+                    LogContext, "AuthenticationSucceeded SourceIp={} User={}", Source, User);
+            }
             return Result.Accepted;
         };
-        FactoryOptions.RawStream = [Context](Preview::Quic::SharedStreamProvider Provider)
+        FactoryOptions.RawStream = [Context](Preview::Quic::SharedStreamProvider Provider,
+                                              Preview::Ingress::QuicPeerLogContext PeerContext)
             -> Net::awaitable<void>
         {
-            co_await Detail::RunRawStream(Context, Provider);
+            co_await Detail::RunRawStream(Context, Provider, PeerContext);
         };
         FactoryOptions.OnStream = Context->Hysteria2Stream;
         FactoryOptions.OnDatagram = Context->Hysteria2Datagram;

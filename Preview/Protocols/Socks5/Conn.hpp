@@ -456,6 +456,12 @@ namespace Preview::Socks5
             return Identity_;
         }
 
+        /** @brief 获取仅供日志显示的非敏感身份文本。 */
+        [[nodiscard]] auto DisplayIdentity() const noexcept -> std::string_view
+        {
+            return DisplayIdentity_;
+        }
+
         /**
          * @brief 精确分段读取（供包连接复用预读缓冲）
          * @param Buffer 目标缓冲区
@@ -557,6 +563,7 @@ namespace Preview::Socks5
                     AuthLease_ = std::move(AuthenticationResult.Lease);
                     AccountId_ = AuthenticationResult.AccountId;
                     Identity_ = std::move(AuthenticationResult.Identity);
+                    DisplayIdentity_ = std::move(AuthenticationResult.DisplayIdentity);
                 }
             }
             else if (Authenticated)
@@ -564,6 +571,10 @@ namespace Preview::Socks5
                 const auto UserMatches = Preview::ConstantTimeEqual(UserValue, Username);
                 const auto PasswordMatches = Preview::ConstantTimeEqual(PasswordValue, Password);
                 Authenticated = UserMatches && PasswordMatches;
+                if (Authenticated)
+                {
+                    DisplayIdentity_ = UserValue;
+                }
             }
             std::uint8_t Status;
             if (Authenticated)
@@ -822,6 +833,7 @@ namespace Preview::Socks5
         Preview::Account::AccountLease AuthLease_{}; ///< 协议认证租约
         Preview::AccountId AccountId_{};              ///< typed 账户身份
         std::string Identity_{};                      ///< 非敏感身份文本
+        std::string DisplayIdentity_{};               ///< 日志展示身份
         Memory Mem_;                     ///< 会话内存策略（Arena，热路径零释放分配）
         typename Memory::template Buffer<std::uint8_t> Buf_{Mem_.Arena()}; ///< 预读缓冲（隧道数据暂存）
         std::size_t Used_{0};            ///< 缓冲中有效字节数

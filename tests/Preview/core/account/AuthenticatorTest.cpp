@@ -290,6 +290,7 @@ namespace
         ASSERT_TRUE(Result.Accepted);
         EXPECT_EQ(Result.AccountId, Preview::AccountId{7020});
         EXPECT_EQ(Result.Identity, "non-secret-identity");
+        EXPECT_EQ(Result.DisplayIdentity, "non-secret-identity");
         EXPECT_TRUE(Result.Lease);
         EXPECT_FALSE(Auth.Check("non-secret-identity", "typed-extension").Ok);
         Result.Lease.Release();
@@ -302,6 +303,36 @@ namespace
         });
         ASSERT_EQ(AccountIds.size(), 1U);
         EXPECT_EQ(AccountIds.front(), Preview::AccountId{7020});
+    }
+
+    TEST(Authenticator, UuidCredentialFallbackIsNotDisplayIdentity)
+    {
+        using Preview::Account::AccountDirectory;
+        using Preview::Account::AccountRecord;
+        using Preview::Account::Credential;
+        using Preview::Account::CredentialView;
+        using Preview::Account::ProtocolAuthenticator;
+
+        Preview::Account::UuidBytes Uuid{};
+        Uuid[0] = std::byte{0x21};
+        Uuid[15] = std::byte{0x7f};
+        auto Directory = std::make_shared<AccountDirectory>();
+        const auto Record = std::make_shared<const AccountRecord>(AccountRecord::CreateRequest{
+            .AccountId = Preview::AccountId{7021},
+            .CredentialValue = Credential::Uuid(Uuid)});
+        ASSERT_TRUE(Directory->Upsert(Record));
+
+        ProtocolAuthenticator Auth(Directory);
+        const auto Result = Auth.Authenticate(Preview::AuthenticationRequest{
+            .AccountId = {},
+            .Identity = {},
+            .Credential = CredentialView::Uuid(Uuid),
+            .Rate = {}});
+
+        ASSERT_TRUE(Result.Accepted);
+        EXPECT_FALSE(Result.Identity.empty());
+        EXPECT_TRUE(Result.DisplayIdentity.empty());
+        EXPECT_EQ(Result.AccountId, Preview::AccountId{7021});
     }
 
     TEST(Authenticator, ConstantTimeEqualSupportsBinaryAndLengthMismatch)

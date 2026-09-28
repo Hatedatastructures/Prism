@@ -20,6 +20,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -788,7 +789,7 @@ namespace
         const auto Uuid = MakeUuid();
         Runtime::TcpListener Listener(
             Io.get_executor(),
-            [Uuid](SharedTransmission, std::size_t)
+            [Uuid](SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions Options;

@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 
 #include <Preview/Foundation/Fault/Code.hpp>
@@ -116,7 +117,7 @@ namespace
         };
 
         Runtime::TcpListener Listener(IoContext.get_executor(),
-            [&](SharedTransmission, std::size_t) -> std::shared_ptr<Runtime::Session>
+            [&](SharedTransmission, std::size_t, std::string_view) -> std::shared_ptr<Runtime::Session>
             {
                 Runtime::SessionOptions Options;
                 Options.AcceptProtocol = MakeAcceptSetTarget;

@@ -7,6 +7,8 @@
 
 #include <boost/asio/io_context.hpp>
 
+#include <string>
+
 #include <Preview/Account/Account.hpp>
 #include <Preview/Composition/Quic/Hysteria2Factory.hpp>
 #include <Preview/Ingress/QuicAdmissionContext.hpp>
@@ -19,10 +21,12 @@ TEST(Hysteria2Factory, PinsAlpnAndOwnsPerServerCallbacks)
     Preview::Composition::Quic::Hysteria2FactoryOptions Factory;
     Factory.Config.password = "hysteria-test-password";
     Factory.OnStream = [](Preview::Hysteria2::Message,
-                          Preview::Hysteria2::SharedConn)
+                          Preview::Hysteria2::SharedConn,
+                          Preview::Ingress::QuicPeerLogContext)
         -> boost::asio::awaitable<void>
     { co_return; };
-    Factory.OnDatagram = [](Preview::Hysteria2::SharedDgram)
+    Factory.OnDatagram = [](Preview::Hysteria2::SharedDgram,
+                            Preview::Ingress::QuicPeerLogContext)
         -> boost::asio::awaitable<void>
     { co_return; };
     Factory.OnClosed = [&Closed] { Closed = true; };
@@ -75,9 +79,12 @@ TEST(Hysteria2Factory, MapsCredentialContextIntoNativeServerOptions)
         -> boost::asio::awaitable<std::pair<Preview::Fault::Code, Preview::SharedTransmission>>
     { co_return std::pair{Preview::Fault::Code::NotSupported, Preview::SharedTransmission{}}; };
     Context->Hysteria2Stream = [](Preview::Hysteria2::Message,
-                                  Preview::Hysteria2::SharedConn) -> boost::asio::awaitable<void>
+                                  Preview::Hysteria2::SharedConn,
+                                  Preview::Ingress::QuicPeerLogContext)
+        -> boost::asio::awaitable<void>
     { co_return; };
-    Context->Hysteria2Datagram = [](Preview::Hysteria2::SharedDgram)
+    Context->Hysteria2Datagram = [](Preview::Hysteria2::SharedDgram,
+                                    Preview::Ingress::QuicPeerLogContext)
         -> boost::asio::awaitable<void>
     { co_return; };
 

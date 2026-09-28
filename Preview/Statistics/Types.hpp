@@ -15,6 +15,10 @@ namespace Preview::Statistics
 
     using NumericId = std::uint64_t;
 
+    /**
+     * @brief 统计值的归属范围。
+     * @details Worker 表示 Preview::WorkerId 对应的逻辑 worker 维度，不保存操作系统线程号。
+     */
     enum class Scope : std::uint8_t
     {
         Process,
@@ -40,7 +44,7 @@ namespace Preview::Statistics
     struct CounterKey final
     {
         Scope ScopeValue{Scope::Process};
-        NumericId Id{0};
+        NumericId Id{0}; ///< 归属 ID；Worker 范围使用 Preview::WorkerId::Value()。
         Metric MetricValue{Metric::Events};
 
         friend constexpr auto operator==(const CounterKey &, const CounterKey &) noexcept -> bool = default;
@@ -107,7 +111,7 @@ namespace Preview::Statistics
         Preview::RequestId Correlation{};
         Preview::GenerationId Generation{};
         Preview::ProcessId Process{};
-        Preview::WorkerId Worker{};
+        Preview::WorkerId Worker{}; ///< 事件所属的逻辑 worker，用于按 Worker 维度查询统计。
         Preview::AccountId Account{};
         Preview::SessionId Session{};
         Preview::StreamId Stream{};

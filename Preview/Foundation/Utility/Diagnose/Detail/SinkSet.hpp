@@ -164,7 +164,7 @@ namespace Preview::Diagnose::Detail
                 }
                 else
                 {
-                    Result->Logger_->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%5t] [%l] %v");
+                    Result->Logger_->set_pattern("[%Y-%m-%d %H:%M:%S.%e] %v");
                 }
                 Result->Logger_->set_error_handler(
                     [Raw = Result.get()](const std::string &)

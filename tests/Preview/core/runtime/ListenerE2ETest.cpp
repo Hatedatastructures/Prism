@@ -28,6 +28,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -100,6 +101,8 @@ namespace
     struct SessionIdentityCapture final
     {
         std::array<std::atomic<std::uint64_t>, 2> Values{};
+        std::array<std::atomic<bool>, 2> PeerIpCaptured{};
+        std::array<std::string, 2> PeerIps{};
     };
 
     struct SessionIdentityProbeResult final
@@ -126,15 +129,19 @@ namespace
         const std::shared_ptr<SessionIdentityCapture> &Captured,
         const std::size_t ListenerIndex) -> Preview::Runtime::TcpListener::SessionFactory
     {
-        return [Events, Captured, ListenerIndex](Preview::SharedTransmission, std::size_t)
+        return [Events, Captured, ListenerIndex](Preview::SharedTransmission, std::size_t,
+                                                 const std::string_view SourceIp)
                    -> std::shared_ptr<Preview::Runtime::Session>
         {
             Preview::Runtime::SessionOptions Options;
+            Options.SourceIp.assign(SourceIp);
             Options.AcceptProtocol = [Events, Captured, ListenerIndex](
                                          Preview::SharedTransmission &,
                                          Preview::Middleware::Context &Context)
                 -> Net::awaitable<Preview::Fault::Code>
             {
+                Captured->PeerIps[ListenerIndex] = Context.SourceIp;
+                Captured->PeerIpCaptured[ListenerIndex].store(true, std::memory_order_release);
                 Captured->Values[ListenerIndex].store(
                     Context.TaskIdentity.SessionId.Value(), std::memory_order_release);
                 (void)Events->try_send(boost::system::error_code{});
@@ -274,7 +281,8 @@ namespace
         ListenerOptions.Executor = ioc.get_executor();
         ListenerOptions.Workers = &ProcessValue.Workers();
         ListenerOptions.Factory =
-            [&](Preview::SharedTransmission, std::size_t) -> std::shared_ptr<Preview::Runtime::Session>
+            [&](Preview::SharedTransmission, std::size_t, std::string_view)
+                -> std::shared_ptr<Preview::Runtime::Session>
             {
                 FactoryCalled.store(true, std::memory_order_release);
                 Preview::Runtime::SessionOptions opts;
@@ -355,7 +363,8 @@ namespace
         ListenerOptions.Executor = ioc.get_executor();
         ListenerOptions.Workers = &ProcessValue.Workers();
         ListenerOptions.Factory =
-            [](Preview::SharedTransmission, std::size_t) -> std::shared_ptr<Preview::Runtime::Session>
+            [](Preview::SharedTransmission, std::size_t, std::string_view)
+                -> std::shared_ptr<Preview::Runtime::Session>
         { return nullptr; };
         Preview::Runtime::TcpListener listener(std::move(ListenerOptions));
 
@@ -406,7 +415,8 @@ namespace
         ListenerOptions.Executor = Ioc.get_executor();
         ListenerOptions.Workers = &ProcessValue.Workers();
         ListenerOptions.Factory =
-            [](Preview::SharedTransmission, std::size_t) -> std::shared_ptr<Preview::Runtime::Session>
+            [](Preview::SharedTransmission, std::size_t, std::string_view)
+                -> std::shared_ptr<Preview::Runtime::Session>
         { return nullptr; };
         Preview::Runtime::TcpListener Listener(std::move(ListenerOptions));
 
@@ -443,7 +453,7 @@ namespace
         ListenerOptions.Workers = &ProcessValue.Workers();
         ListenerOptions.MaxConnections = 1;
         ListenerOptions.Factory =
-            [&FactoryCalls](Preview::SharedTransmission, std::size_t)
+            [&FactoryCalls](Preview::SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
         {
             FactoryCalls.fetch_add(1, std::memory_order_relaxed);
@@ -510,7 +520,7 @@ namespace
         ListenerOptions.Executor = ioc.get_executor();
         ListenerOptions.Workers = &ProcessValue.Workers();
         ListenerOptions.Factory =
-            [&Accepted](Preview::SharedTransmission Transport, std::size_t)
+            [&Accepted](Preview::SharedTransmission Transport, std::size_t, std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
         {
             Accepted.store(std::move(Transport), std::memory_order_release);
@@ -575,7 +585,7 @@ namespace
         ListenerOptions.Executor = ioc.get_executor();
         ListenerOptions.Workers = &ProcessValue.Workers();
         ListenerOptions.Factory =
-            [&Accepted](Preview::SharedTransmission Transport, std::size_t)
+            [&Accepted](Preview::SharedTransmission Transport, std::size_t, std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
         {
             Accepted.store(Transport, std::memory_order_release);
@@ -649,7 +659,7 @@ namespace
             ListenerOptions.Executor = ioc.get_executor();
             ListenerOptions.Workers = &ProcessValue.Workers();
             ListenerOptions.Factory =
-                [](Preview::SharedTransmission, std::size_t)
+                [](Preview::SharedTransmission, std::size_t, std::string_view)
                     -> std::shared_ptr<Preview::Runtime::Session>
             { return nullptr; };
             auto listener = std::make_unique<Preview::Runtime::TcpListener>(
@@ -687,7 +697,7 @@ namespace
             ListenerOptions.Executor = ioc.get_executor();
             ListenerOptions.Workers = &ProcessValue.Workers();
             ListenerOptions.Factory =
-                [&factory_calls](Preview::SharedTransmission, std::size_t)
+                [&factory_calls](Preview::SharedTransmission, std::size_t, std::string_view)
                     -> std::shared_ptr<Preview::Runtime::Session>
             {
                 factory_calls.fetch_add(1, std::memory_order_relaxed);
@@ -765,14 +775,23 @@ namespace
         Preview::Runtime::TcpListener::Options ListenerOptions;
         ListenerOptions.Executor = ioc.get_executor();
         ListenerOptions.Workers = &ProcessValue.Workers();
+        std::atomic<int> SourceIpCaptured{0};
         ListenerOptions.Factory =
-            [&](Preview::SharedTransmission, std::size_t) -> std::shared_ptr<Preview::Runtime::Session>
+            [&](Preview::SharedTransmission, std::size_t, const std::string_view SourceIp)
+                -> std::shared_ptr<Preview::Runtime::Session>
             {
                 Preview::Runtime::SessionOptions opts;
+                opts.SourceIp.assign(SourceIp);
                 opts.RelayIdleTimeout = std::chrono::milliseconds(300);
-                opts.Prepare = [](const Preview::Recognition::RecognizeResult &,
-                                  Preview::Middleware::Context &ctx) -> Net::awaitable<Preview::Fault::Code>
+                opts.Prepare = [&SourceIpCaptured](
+                                   const Preview::Recognition::RecognizeResult &,
+                                   Preview::Middleware::Context &ctx)
+                    -> Net::awaitable<Preview::Fault::Code>
                 {
+                    if (ctx.SourceIp == "127.0.0.1")
+                    {
+                        SourceIpCaptured.fetch_add(1, std::memory_order_relaxed);
+                    }
                     ctx.Target.Positive = true;
                     ctx.Target.Host = "127.0.0.1";
                     ctx.Target.Port = "0";
@@ -848,6 +867,7 @@ namespace
                  });
         EXPECT_EQ(start_rc, Preview::Fault::Code::Success);
         EXPECT_EQ(success, conn_count);
+        EXPECT_EQ(SourceIpCaptured.load(std::memory_order_relaxed), conn_count);
     }
 
     TEST(TcpListener, AdmissionUsesWorkerExecutorAndPreservesIdentity)
@@ -880,7 +900,7 @@ namespace
         ListenerOptions.Factory =
             [&Workers, &FactoryOnWorker, &FactoryThread, &SessionOnWorker, &SessionThread,
              &ObservedSession, &ObservedWorker, &ObservedGeneration](
-                Preview::SharedTransmission, std::size_t WorkerIndex)
+                Preview::SharedTransmission, std::size_t WorkerIndex, std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
         {
             auto *Selected = Workers.Find(Preview::WorkerId{WorkerIndex + 1});
@@ -1000,6 +1020,10 @@ namespace
         EXPECT_GT(FirstSession, 0U);
         EXPECT_GT(SecondSession, 0U);
         EXPECT_NE(FirstSession, SecondSession);
+        ASSERT_TRUE(Captured->PeerIpCaptured[0].load(std::memory_order_acquire));
+        ASSERT_TRUE(Captured->PeerIpCaptured[1].load(std::memory_order_acquire));
+        EXPECT_EQ(Captured->PeerIps[0], "127.0.0.1");
+        EXPECT_EQ(Captured->PeerIps[1], "127.0.0.1");
     }
 
     TEST(TcpListener, StopRaceDiscardsQueuedAdmissionAndClosesTransport)
@@ -1040,7 +1064,7 @@ namespace
         ListenerOptions.Executor = ListenerIo.get_executor();
         ListenerOptions.Workers = &Workers;
         ListenerOptions.Factory =
-            [&FactoryCalls](Preview::SharedTransmission, std::size_t)
+            [&FactoryCalls](Preview::SharedTransmission, std::size_t, std::string_view)
                 -> std::shared_ptr<Preview::Runtime::Session>
         {
             FactoryCalls.fetch_add(1, std::memory_order_relaxed);

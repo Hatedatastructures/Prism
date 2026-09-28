@@ -36,8 +36,10 @@
 #include <vector>
 
 #include <Preview/Foundation/Fault/Code.hpp>
+#include <Preview/Foundation/Utility/Diagnose/Facade.hpp>
 #include <Preview/Net/Dns/Resolver.hpp>
 #include <Preview/Protocols/Mux/SessionReadLoop.hpp>
+#include <Preview/Runtime/Middleware/Context.hpp>
 #include <Preview/Transport/Transmission.hpp>
 
 namespace Preview::Composition::VlessXudp
@@ -297,6 +299,77 @@ namespace Preview::Composition::VlessXudp
         Net::ip::udp::socket Socket;
         Net::ip::udp::endpoint Target;
         bool HasTarget{false};
+        bool RequestLogged{false};
+    };
+
+    [[nodiscard]] inline auto MakeLogContext(
+        const Preview::Middleware::Context *RequestContext) noexcept
+        -> Preview::Diagnose::ContextState
+    {
+        auto Result = Preview::Diagnose::ContextState::Empty();
+        if (!RequestContext)
+        {
+            return Result;
+        }
+        try
+        {
+            if (RequestContext->TaskIdentity.WorkerId)
+            {
+                Result = Result.With(Preview::Diagnose::Fields::Worker,
+                                     RequestContext->TaskIdentity.WorkerId);
+            }
+            if (RequestContext->TaskIdentity.SessionId)
+            {
+                Result = Result.With(Preview::Diagnose::Fields::Session,
+                                     RequestContext->TaskIdentity.SessionId);
+            }
+            if (RequestContext->TaskIdentity.TaskId &&
+                (!RequestContext->TaskIdentity.SessionId ||
+                 RequestContext->TaskIdentity.TaskId.Value() !=
+                     RequestContext->TaskIdentity.SessionId.Value()))
+            {
+                Result = Result.With(Preview::Diagnose::Fields::Task,
+                                     RequestContext->TaskIdentity.TaskId);
+            }
+            if (RequestContext->TaskIdentity.Generation &&
+                RequestContext->TaskIdentity.Generation.Value() > 1U)
+            {
+                Result = Result.With(Preview::Diagnose::Fields::Generation,
+                                     RequestContext->TaskIdentity.Generation);
+            }
+        }
+        catch (...)
+        {
+            return Preview::Diagnose::ContextState::Empty();
+        }
+        return Result;
+    }
+
+    struct SessionSummary final
+    {
+        const Preview::Middleware::Context *RequestContext{nullptr};
+        std::size_t Flows{0};
+        std::uint64_t Datagrams{0};
+        std::uint64_t UpBytes{0};
+        std::uint64_t DownBytes{0};
+
+        ~SessionSummary() noexcept
+        {
+            if (!Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Trace))
+            {
+                return;
+            }
+            try
+            {
+                (void)Preview::Diagnose::Trace(
+                    MakeLogContext(RequestContext),
+                    "UdpSessionSummary Protocol=VlessXudp Flows={} Datagrams={} UpBytes={} DownBytes={}",
+                    Flows, Datagrams, UpBytes, DownBytes);
+            }
+            catch (...)
+            {
+            }
+        }
     };
 
     /**
@@ -336,11 +409,13 @@ namespace Preview::Composition::VlessXudp
      * @return 结束码；正常远端 End 返回 Success，其余返回 BadGateway
      */
     [[nodiscard]] inline auto Run(Preview::SharedTransmission Inbound,
-                                  std::shared_ptr<Preview::Network::Dns::Resolver> Resolver)
+                                  std::shared_ptr<Preview::Network::Dns::Resolver> Resolver,
+                                  const Preview::Middleware::Context *RequestContext = nullptr)
         -> Net::awaitable<Preview::Fault::Code>
     {
         using Net::experimental::awaitable_operators::operator||;
         std::unordered_map<std::uint16_t, std::shared_ptr<SessionState>> Sessions;
+        SessionSummary Summary{RequestContext};
         while (Inbound && Inbound->IsOpen())
         {
             const auto Frame = co_await ReadFrame(Inbound);
@@ -361,9 +436,48 @@ namespace Preview::Composition::VlessXudp
             {
                 State = std::make_shared<SessionState>(Inbound->Executor());
             }
+            Summary.Flows = Sessions.size();
             Net::ip::udp::endpoint Target;
             if (Frame->HasTarget)
             {
+                if (!State->RequestLogged && RequestContext &&
+                    !Frame->Host.empty() && Frame->Port != 0U)
+                {
+                    State->RequestLogged = true;
+                    if (Preview::Diagnose::IsEnabled(Preview::Diagnose::LogLevel::Info))
+                    {
+                        try
+                        {
+                            const auto Stream = RequestContext->TaskIdentity.StreamId
+                                                    ? RequestContext->TaskIdentity.StreamId
+                                                    : Preview::StreamId{Frame->SessionId};
+                            const auto LogContext = MakeLogContext(RequestContext);
+                            const auto SourceIp = RequestContext->SourceIp.empty()
+                                                      ? std::string_view{"Unknown"}
+                                                      : std::string_view{RequestContext->SourceIp};
+                            const auto User = RequestContext->UserForLog();
+                            const auto Host = std::string_view{
+                                Frame->Host.data(), Frame->Host.size()};
+                            const auto Port = std::to_string(Frame->Port);
+                            if (User.empty())
+                            {
+                                (void)Preview::Diagnose::Info(
+                                    LogContext, "Request StreamId={} SourceIp={} Target={}:{}",
+                                    Stream.Value(), SourceIp, Host, Port);
+                            }
+                            else
+                            {
+                                (void)Preview::Diagnose::Info(
+                                    LogContext,
+                                    "Request StreamId={} SourceIp={} Target={}:{} User={}",
+                                    Stream.Value(), SourceIp, Host, Port, User);
+                            }
+                        }
+                        catch (...)
+                        {
+                        }
+                    }
+                }
                 const auto Resolved = co_await ResolveTarget(Frame->Host, Frame->Port, Resolver);
                 if (!Resolved)
                 {
@@ -397,6 +511,8 @@ namespace Preview::Composition::VlessXudp
             {
                 co_return Preview::Fault::Code::BadGateway;
             }
+            ++Summary.Datagrams;
+            Summary.UpBytes += Frame->Payload.size();
             std::array<std::uint8_t, MaxDatagram> Response{};
             Net::ip::udp::endpoint Source;
             boost::system::error_code ReceiveError;
@@ -420,6 +536,7 @@ namespace Preview::Composition::VlessXudp
             {
                 co_return Preview::Fault::Code::BadGateway;
             }
+            Summary.DownBytes += Count;
         }
         co_return Preview::Fault::Code::Success;
     }
